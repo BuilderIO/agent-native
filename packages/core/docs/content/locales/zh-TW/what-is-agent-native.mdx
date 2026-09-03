@@ -1,0 +1,78 @@
+---
+title: "什麼是 Agent-Native？"
+description: "Agent-Native 是什麼、它的共用 action 架構如何運作，以及何時應以這種方式建置應用程式。"
+---
+
+# 什麼是 Agent-Native？
+
+Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置配備直覺式 UI 的自主型代理。您只要將每項能力定義一次，作為一個 [action](/docs/actions-overview)——一個由代理當作工具使用、由 UI 從程式碼呼叫的具型別函式。
+
+## 為什麼要建置配備 UI 的代理
+
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>只有文字方塊的代理</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>代理</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>它能做什麼？</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>配備 UI 的代理</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>發布簡報</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>大綱</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>投影片</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>審閱</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>第三季產品發布</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>代理</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>代理與 UI 共用同一個工作區</span></section></div>"
+    }
+  />
+</WireframeBlock>
+
+程式設計代理可能讓人覺得文字方塊已經足夠。但文字方塊只是其工作環境的一部分。程式碼庫提供上下文，工具提供明確的行動方式，檔案、測試與預覽則讓結果清楚可見。
+
+大多數知識工作沒有這樣的結構。面對空白文字方塊，人們只能猜測代理能做什麼、擁有什麼上下文，以及應該提出什麼要求。
+
+UI 提供文字方塊所缺少的部分。它讓代理的能力清楚可見，將上下文與工作流程帶入體驗，並讓人們隨著工作進展查看和調整結果。
+
+Agent-Native 讓您能以這種方式建置代理。UI 提供明確的起點，而不會將代理限制在固定工作流程中。由於代理與 UI 使用相同的能力，人們可以把工作委派給代理，在 UI 中檢查或修改結果，並在兩者之間切換而不會失去進度。
+
+## Agent-Native 如何運作
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="比較人員直接使用應用程式，以及透過同一應用程式中的 AI 代理工作。"
+  align="full"
+  caption="觀看四分鐘的 Agent-Native 架構介紹。"
+/>
+
+Agent-Native 透過三個共用基礎連結代理與 UI：
+
+- **[共用動作](/docs/actions-overview)。** 每項能力只定義一次。代理將其作為工具呼叫，UI 則從程式碼呼叫。兩條路徑使用相同的驗證、權限及實作。
+- **[共用資料](/docs/server-database)。** 動作讀取並更新相同的資料，因此代理完成的工作會顯示在 UI 中，而 UI 中完成的工作也可供代理使用。
+- **[共用應用程式狀態](/docs/context-awareness)。** 應用程式狀態描述 UI 中正在發生的事情，例如目前頁面、選取紀錄或作用中視圖。Agent-Native 將相關狀態作為上下文提供給代理，讓它理解人員正在處理什麼。
+
+代理不會透過點擊 UI 來操作。它透過與 UI 相同的動作層工作。
+
+例如，人員可以透過 UI 指派支援單，也可以要求代理完成。兩條路徑都會執行相同 action 並更新同一張支援單。人員可在 UI 中檢查或變更結果，然後讓代理從那裡繼續。
+
+## 何時應使用 Agent-Native？
+
+當下列情況成立時，Agent-Native 是合適選擇：
+
+- 代理應完成真正的工作，而不只是回答問題。
+- 人們需要 UI 來了解代理能做什麼，並檢查、編輯、核准或分享它的工作。
+- 人們應能在代理與 UI 之間切換，而不會失去進度或上下文。
+
+若您只需要一個生成的回答，直接呼叫模型即可。若工作遵循固定、可預測的順序，普通應用程式邏輯或自動化會更簡單。當代理與 UI 都需要在同一項工作中持續扮演角色時，請使用 Agent-Native。
+
+## 下一步
+
+<Cards>
+
+### [開始使用](/docs/getting-started)
+
+建立應用程式，並從代理與 UI 呼叫相同的 action。
+
+### [核心概念](/docs/key-concepts)
+
+了解 actions、SQL 資料、應用程式上下文、存取權及即時同步如何配合運作。
+
+### [Agent 介面](/docs/agent-surfaces)
+
+了解相同模型如何支援由 UI、聊天、自動化或另一個代理主導的應用程式。
+
+### [範本](/docs/cloneable-saas)
+
+從一個完整的 SaaS 產品開始，而不是從 Chat 逐步建立。
+
+</Cards>

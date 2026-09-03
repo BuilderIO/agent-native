@@ -1,0 +1,49 @@
+---
+title: "Deploy"
+description: "Faça o deploy de um app ou workspace Agent-Native em uma plataforma compatível com Nitro usando um banco SQL persistente."
+---
+
+<!-- i18n-docs-ignore -->
+
+# Deploy
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+Os apps Agent-Native rodam sobre o Nitro. Escolha o caminho que corresponde ao que você vai publicar:
+
+<Cards columns={2}>
+
+### [Fazer deploy de um app](/docs/deploy-an-app)
+
+Construa um app e execute-o em seu próprio domínio.
+
+### [Fazer deploy de um workspace](/docs/workspace-deployment)
+
+Execute vários apps em uma origem com login compartilhado.
+
+</Cards>
+
+## Antes do deploy: escolha um banco persistente {#persistent-database}
+
+Todo app publicado precisa de um banco SQL persistente. Defina `DATABASE_URL` no ambiente de deploy antes do primeiro deploy de produção. Use `DATABASE_AUTH_TOKEN` quando o provedor exigir um token separado.
+
+Apps independentes precisam de um `BETTER_AUTH_SECRET` estável. Workspaces com requisições assinadas entre apps precisam de `A2A_SECRET`.
+
+## O envio de e-mail é opcional, mas recomendado {#email-provider}
+
+Um provedor de e-mail não é necessário para a autenticação com e-mail e senha. Sem ele, os apps publicados usam cadastro e login com e-mail e senha, ignoram a verificação de e-mail no cadastro e não oferecem autenticação por link mágico.
+
+Conecte o Resend ou o SendGrid antes do deploy se quiser links mágicos, verificação de e-mail, redefinição de senha, convites ou notificações de compartilhamento. Defina `RESEND_API_KEY` ou `SENDGRID_API_KEY`; o SendGrid também precisa de `EMAIL_FROM`. Consulte [Autenticação](/docs/authentication) para conhecer os modos de autenticação disponíveis.
+
+## Destinos compatíveis
+
+O Agent-Native oferece suporte a [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) e [Render](/docs/render).
+
+Consulte a [referência de variáveis de ambiente de deploy](/docs/deployment-environment-variables) para configurações avançadas, segredos e produção.
+
+## Próximos passos
+
+- [Fazer deploy de um app](/docs/deploy-an-app)
+- [Fazer deploy de um workspace](/docs/workspace-deployment)
+- [Banco de dados](/docs/server-database#production)

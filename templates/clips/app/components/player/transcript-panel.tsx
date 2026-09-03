@@ -1,0 +1,740 @@
+import { appPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
+import {
+  BUILDER_CREDITS_UPGRADE_URL,
+  isBuilderCreditsExhaustedMessage,
+} from "@shared/builder-credits";
+import {
+  IconSearch,
+  IconCopy,
+  IconDownload,
+  IconCheck,
+  IconExternalLink,
+  IconLoader2,
+  IconBolt,
+  IconRefresh,
+} from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
+
+export interface TranscriptSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
+  source?: "mic" | "system";
+  speaker?: string | null;
+}
+
+export interface TranscriptPanelProps {
+  segments: TranscriptSegment[];
+  fullText?: string | null;
+  durationMs?: number | null;
+  currentMs: number;
+  onSeek: (ms: number) => void;
+  status?: "pending" | "ready" | "failed";
+  failureReason?: string | null;
+  recordingTitle?: string;
+  /** Called when the user asks us to retry transcription after fixing an error. */
+  onRetry?: () => void;
+  /** Called when the user asks for a fresh transcript from the recording media. */
+  onRegenerate?: () => void;
+  isRegenerating?: boolean;
+}
+
+const DISPLAY_MAX_WORDS = 36;
+const DISPLAY_MIN_WORDS_BEFORE_SENTENCE_BREAK = 18;
+const DISPLAY_MAX_GAP_MS = 3_500;
+
+export function mergeTranscriptSegmentsForDisplay(
+  segments: TranscriptSegment[],
+): TranscriptSegment[] {
+  const merged: TranscriptSegment[] = [];
+  let current: TranscriptSegment | null = null;
+
+  for (const segment of segments) {
+    if (!current) {
+      current = { ...segment };
+      continue;
+    }
+
+    const currentWords = countWords(current.text);
+    const segmentWords = countWords(segment.text);
+    const sameSpeaker =
+      current.source === segment.source && current.speaker === segment.speaker;
+    const shouldBreak =
+      !sameSpeaker ||
+      segment.startMs - current.endMs > DISPLAY_MAX_GAP_MS ||
+      (currentWords >= DISPLAY_MIN_WORDS_BEFORE_SENTENCE_BREAK &&
+        endsSentence(current.text)) ||
+      currentWords + segmentWords > DISPLAY_MAX_WORDS;
+
+    if (shouldBreak) {
+      merged.push(current);
+      current = { ...segment };
+      continue;
+    }
+
+    current = {
+      ...current,
+      endMs: segment.endMs,
+      text: `${current.text} ${segment.text}`,
+    };
+  }
+
+  if (current) merged.push(current);
+  return merged;
+}
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function endsSentence(text: string): boolean {
+  return /[.!?]["')\]}]*$/.test(text.trim());
+}
+
+export function getTranscriptSeekMs(
+  displaySegment: TranscriptSegment,
+  query: string,
+  segments: TranscriptSegment[],
+): number {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery || segments.length === 0) return displaySegment.startMs;
+
+  const displaySegments = segments.filter(
+    (segment) =>
+      segment.startMs >= displaySegment.startMs &&
+      segment.endMs <= displaySegment.endMs,
+  );
+  const searchableText = displaySegments
+    .map((segment) => segment.text)
+    .join(" ")
+    .toLowerCase();
+  const matchIndex = searchableText.indexOf(normalizedQuery);
+  if (matchIndex < 0) return displaySegment.startMs;
+
+  let offset = 0;
+  for (const segment of displaySegments) {
+    if (matchIndex < offset + segment.text.length) return segment.startMs;
+    offset += segment.text.length + 1;
+  }
+
+  return displaySegment.startMs;
+}
+
+export function TranscriptPanel(props: TranscriptPanelProps) {
+  const t = useT();
+  const {
+    segments,
+    fullText,
+    durationMs,
+    currentMs,
+    onSeek,
+    status,
+    failureReason,
+    recordingTitle,
+    onRetry,
+    onRegenerate,
+    isRegenerating = false,
+  } = props;
+  const [query, setQuery] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const displaySegments = useMemo<TranscriptSegment[]>(() => {
+    if (segments.length > 0) return mergeTranscriptSegmentsForDisplay(segments);
+    const text = fullText?.trim();
+    if (!text) return [];
+    return [
+      {
+        startMs: 0,
+        endMs: Math.max(1000, Math.round(durationMs ?? 0)),
+        text,
+      },
+    ];
+  }, [segments, fullText, durationMs]);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return displaySegments;
+    const q = query.toLowerCase();
+    return displaySegments.filter((s) => s.text.toLowerCase().includes(q));
+  }, [displaySegments, query]);
+
+  const activeIndex = useMemo(
+    () =>
+      displaySegments.findIndex(
+        (s) => currentMs >= s.startMs && currentMs <= s.endMs,
+      ),
+    [displaySegments, currentMs],
+  );
+
+  function copyAll() {
+    const text = displaySegments.map((s) => s.text).join(" ");
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  function downloadSrt() {
+    const srt = toSrt(segments.length > 0 ? segments : displaySegments);
+    const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${sanitizeFilename(recordingTitle ?? "transcript")}.srt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Surface the setup card when transcription failed due to a provider
+  // configuration issue — missing key, quota error, rejected key, etc.
+  // Builder connection is the recommended fix in all these cases.
+  const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
+  const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
+  const needsSetup =
+    !noSpeechFailure &&
+    !builderCreditsPaused &&
+    isTranscriptionSetupNeeded(failureReason);
+
+  if (status === "failed" && builderCreditsPaused) {
+    return (
+      <div className="p-4">
+        <BuilderCreditsPausedNotice onRetry={onRetry} />
+      </div>
+    );
+  }
+
+  if (status === "failed" && needsSetup) {
+    return (
+      <TranscriptSetupCard failureReason={failureReason} onRetry={onRetry} />
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <div className="p-4 text-sm text-muted-foreground flex items-start gap-2">
+        <IconLoader2 className="h-4 w-4 animate-spin mt-0.5 shrink-0" />
+        <div>
+          <p>{t("transcriptPanel.transcribing")}</p>
+          <p className="text-xs mt-1">
+            {t("transcriptPanel.pendingDescription")}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "failed" && noSpeechFailure) {
+    return (
+      <div className="p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">
+            {t("transcriptPanel.noSpeechDetected")}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("transcriptPanel.noSpeechDescription")}
+          </p>
+        </div>
+        {onRetry ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onRetry}
+            disabled={isRegenerating}
+          >
+            {isRegenerating ? (
+              <IconLoader2 className="size-4 animate-spin" />
+            ) : null}
+            {isRegenerating
+              ? t("transcriptPanel.transcribing")
+              : t("transcriptPanel.regenerate")}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <div className="p-4 space-y-3">
+        <div className="text-sm text-destructive">
+          {t("transcriptPanel.transcriptUnavailable", {
+            reason: friendlyTranscriptFailure(failureReason, t),
+          })}
+        </div>
+        <div className="flex items-center gap-2">
+          {onRetry ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onRetry}
+              disabled={isRegenerating}
+            >
+              {isRegenerating ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : null}
+              {isRegenerating
+                ? t("transcriptPanel.transcribing")
+                : t("transcriptPanel.regenerate")}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 border-b border-border p-3">
+        <div className="relative flex-1">
+          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("transcriptPanel.searchPlaceholder")}
+            className="pl-8 h-8 text-xs"
+          />
+        </div>
+        <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={copyAll}>
+                {copied ? (
+                  <IconCheck className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <IconCopy className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t("transcriptPanel.copyTranscript")}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={downloadSrt}>
+                <IconDownload className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("transcriptPanel.downloadSrt")}</TooltipContent>
+          </Tooltip>
+          {onRegenerate ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onRegenerate}
+                  disabled={isRegenerating}
+                  aria-label={t("transcriptPanel.regenerate")}
+                >
+                  <IconRefresh
+                    className={cn("h-4 w-4", isRegenerating && "animate-spin")}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("transcriptPanel.regenerate")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <div className="p-4 text-sm text-muted-foreground">
+            {query
+              ? t("transcriptPanel.noMatches")
+              : t("transcriptPanel.noTranscript")}
+          </div>
+        ) : (
+          <ul className="py-1">
+            {filtered.map((seg) => {
+              const isActive = displaySegments[activeIndex] === seg;
+              const seekMs = getTranscriptSeekMs(seg, query, segments);
+              return (
+                <li key={seg.startMs}>
+                  <TranscriptSegmentRow
+                    startMs={seg.startMs}
+                    active={isActive}
+                    gutter="panel"
+                    onClick={(event) => {
+                      if (hasSelectionWithin(event.currentTarget)) return;
+                      onSeek(seekMs);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      onSeek(seekMs);
+                    }}
+                  >
+                    <span
+                      className={cn(
+                        "text-sm leading-normal",
+                        isActive ? "text-foreground" : "text-foreground/80",
+                      )}
+                      dangerouslySetInnerHTML={{
+                        __html: highlight(seg.text, query),
+                      }}
+                    />
+                  </TranscriptSegmentRow>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function hasSelectionWithin(element: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+    return false;
+  }
+  const { anchorNode, focusNode } = selection;
+  return Boolean(
+    (anchorNode && element.contains(anchorNode)) ||
+    (focusNode && element.contains(focusNode)),
+  );
+}
+
+function highlight(text: string, q: string): string {
+  const escaped = text.replace(/[&<>]/g, (c) =>
+    c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;",
+  );
+  if (!q.trim()) return escaped;
+  const safe = q.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  return escaped.replace(
+    new RegExp(safe, "gi"),
+    (match) =>
+      `<mark class="bg-yellow-200 text-black rounded px-0.5">${match}</mark>`,
+  );
+}
+
+function msToSrtTime(ms: number): string {
+  const h = String(Math.floor(ms / 3600000)).padStart(2, "0");
+  const m = String(Math.floor((ms % 3600000) / 60000)).padStart(2, "0");
+  const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, "0");
+  const millis = String(ms % 1000).padStart(3, "0");
+  return `${h}:${m}:${s},${millis}`;
+}
+
+function toSrt(segments: TranscriptSegment[]): string {
+  return segments
+    .map((seg, i) => {
+      return `${i + 1}\n${msToSrtTime(seg.startMs)} --> ${msToSrtTime(
+        seg.endMs,
+      )}\n${seg.text}\n`;
+    })
+    .join("\n");
+}
+
+function sanitizeFilename(s: string): string {
+  return s.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase();
+}
+
+const BUILDER_CREDITS_FEATURE_LABELS = [
+  "builderCredits.featureBackupTranscription",
+  "builderCredits.featureSummaries",
+  "builderCredits.featureTitles",
+] as const;
+
+function BuilderCreditsPausedNotice({
+  onRetry,
+  className,
+}: {
+  onRetry?: () => void;
+  className?: string;
+}) {
+  const t = useT();
+  return (
+    <div
+      className={cn(
+        "rounded-md border border-amber-300/70 bg-amber-50/80 p-3 text-amber-950 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100",
+        className,
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        <div className="mt-0.5 rounded-md bg-amber-100 p-1 dark:bg-amber-400/15">
+          <IconBolt className="h-4 w-4 text-amber-700 dark:text-amber-200" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div>
+            <p className="text-sm font-semibold">
+              {t("builderCredits.pausedTitle")}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-900/80 dark:text-amber-100/80">
+              {t("builderCredits.transcriptionDescription")}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {BUILDER_CREDITS_FEATURE_LABELS.map((key) => (
+              <span
+                key={key}
+                className="rounded-full border border-amber-300/70 bg-white/70 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100"
+              >
+                {t(key)}
+              </span>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <Button asChild size="sm" className="h-8">
+              <a
+                href={BUILDER_CREDITS_UPGRADE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <IconExternalLink className="h-3.5 w-3.5" />
+                {t("builderCredits.upgrade")}
+              </a>
+            </Button>
+            {onRetry ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 border-amber-300/80 bg-white/70 text-amber-950 hover:bg-amber-100 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100 dark:hover:bg-amber-900/40"
+                onClick={onRetry}
+              >
+                {t("builderCredits.retryAfterUpgrade")}
+              </Button>
+            ) : null}
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-8 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:text-amber-100 dark:hover:bg-amber-900/40"
+            >
+              <a href={appPath("/settings/general#ai-providers")}>
+                {t("builderCredits.openAiSetup")}
+              </a>
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Returns true when the transcription failure is due to a provider
+ * configuration problem — missing key, quota exceeded, key rejected,
+ * no provider at all. Builder connection fixes all of these.
+ */
+function isTranscriptionSetupNeeded(
+  reason: string | null | undefined,
+): boolean {
+  if (!reason) return false;
+  const r = reason.toLowerCase();
+  return (
+    r.includes("openai_api_key") ||
+    r.includes("api key") ||
+    r.includes("not configured") ||
+    r.includes("no transcription") ||
+    r.includes("no backup transcription provider") ||
+    r.includes("no fallback provider") ||
+    r.includes("quota") ||
+    r.includes("credits exhausted") ||
+    r.includes("rate limit") ||
+    r.includes("rejected the api key") ||
+    r.includes("connect builder")
+  );
+}
+
+function isConnectedBuilderRetryable(
+  reason: string | null | undefined,
+): boolean {
+  if (!reason) return false;
+  const r = reason.toLowerCase();
+  return (
+    r.includes("no transcription provider configured") ||
+    r.includes("connect builder") ||
+    r.includes("no transcription provider")
+  );
+}
+
+function isNoSpeechTranscriptFailure(
+  reason: string | null | undefined,
+): boolean {
+  if (!reason) return false;
+  const normalized = reason.toLowerCase();
+  return (
+    normalized.includes("no speech") ||
+    normalized.includes("no native transcript was captured") ||
+    normalized.includes("no transcript was captured by native speech") ||
+    normalized.includes("no audio track") ||
+    normalized.includes("recording was saved without audio")
+  );
+}
+
+function friendlyTranscriptFailure(
+  reason: string | null | undefined,
+  t: ReturnType<typeof useT>,
+): string {
+  if (!reason) return t("transcriptPanel.noTranscriptCaptured");
+  const normalized = reason.toLowerCase();
+  if (
+    normalized.includes("builder transcription failed") ||
+    normalized.includes("connecttimeout") ||
+    normalized.includes("fetch failed") ||
+    normalized.includes("backup transcription could not finish")
+  ) {
+    return t("transcriptPanel.backupFailed");
+  }
+  if (
+    normalized.includes("api key") ||
+    normalized.includes("not configured") ||
+    normalized.includes("connect builder")
+  ) {
+    return t("transcriptPanel.backupNotSetup");
+  }
+  return reason;
+}
+
+/**
+ * Inline card shown when transcription needs a provider set up.
+ *
+ * Builder.io is the only cloud fallback — free, one-click, no separate API
+ * key required (uses BUILDER_PRIVATE_KEY once the user connects). Clips does
+ * not route recording transcription to BYOK speech providers.
+ */
+function TranscriptSetupCard({
+  failureReason,
+  onRetry,
+}: {
+  failureReason?: string | null;
+  onRetry?: () => void;
+}) {
+  const t = useT();
+  const builderConnect = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "clips_transcript_panel",
+    trackingFlow: "transcription",
+    onConnected: () => {
+      if (isConnectedBuilderRetryable(failureReason)) onRetry?.();
+    },
+  });
+  const builderConfigured = builderConnect.statusResolved
+    ? builderConnect.configured
+    : null;
+  const connecting = builderConnect.connecting;
+  const connectError = builderConnect.error;
+
+  const isProviderError =
+    !isBuilderCreditsExhaustedMessage(failureReason) &&
+    (failureReason?.toLowerCase().includes("quota") ||
+      failureReason?.toLowerCase().includes("credits exhausted") ||
+      failureReason?.toLowerCase().includes("rate limit") ||
+      failureReason?.toLowerCase().includes("rejected the api key"));
+  const isConnectedFallbackError =
+    builderConfigured === true && !isProviderError;
+
+  return (
+    <div className="p-4">
+      <div className="rounded-md border border-border bg-accent/30 p-3 space-y-3">
+        <div>
+          <p className="text-sm font-medium">
+            {isProviderError
+              ? t("transcriptPanel.providerNeedsAttention")
+              : isConnectedFallbackError
+                ? t("transcriptPanel.transcriptUnavailableTitle")
+                : t("transcriptPanel.enableTranscriptionTitle")}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {isProviderError
+              ? t("transcriptPanel.providerNeedsAttentionDescription")
+              : isConnectedFallbackError
+                ? "No speech was captured locally, and backup transcription did not finish. Retry in a moment."
+                : t("transcriptPanel.enableTranscriptionDescription")}
+          </p>
+        </div>
+
+        {/* Builder — primary recommended option */}
+        <div
+          className={cn(
+            "rounded-md border p-3 transition-colors",
+            builderConfigured
+              ? "border-green-500/30 bg-green-500/5"
+              : "border-border bg-background",
+          )}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2 min-w-0">
+              <IconBolt className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="text-xs font-semibold">
+                    {builderConfigured
+                      ? "Builder.io connected"
+                      : "Use Builder.io"}
+                  </p>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {builderConfigured
+                    ? "Ready to use for backup transcription."
+                    : "Builder.io's free tier includes backup transcription."}
+                </p>
+              </div>
+            </div>
+            {builderConfigured ? (
+              <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                <span className="flex items-center gap-1 text-[10px] text-green-600">
+                  <IconCheck className="h-3 w-3" />
+                  Connected
+                </span>
+                {onRetry ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onRetry()}
+                    className="h-7 px-2 text-[11px]"
+                  >
+                    Retry
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <BuilderConnectPopover flow={builderConnect}>
+                <button
+                  type="button"
+                  disabled={connecting || builderConfigured === null}
+                  className="shrink-0 inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-[11px] font-medium transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  {connecting ? (
+                    <>
+                      <IconLoader2 className="h-3 w-3 animate-spin" />
+                      {t("transcriptPanel.waiting")}
+                    </>
+                  ) : (
+                    <>
+                      <IconExternalLink className="h-3 w-3" />
+                      Connect
+                    </>
+                  )}
+                </button>
+              </BuilderConnectPopover>
+            )}
+          </div>
+          {connectError && (
+            <p className="text-[11px] text-destructive mt-2">{connectError}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

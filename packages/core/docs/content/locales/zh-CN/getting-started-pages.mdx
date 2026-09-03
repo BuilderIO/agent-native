@@ -1,0 +1,65 @@
+---
+title: "添加页面"
+description: "构建一个调用动作并显示其结果的 React 路由。"
+---
+
+# 添加页面
+
+这是 Getting Started 系列的第三部分。在[添加动作](/docs/getting-started-actions)中，你创建了 `analyze-text`。现在，你将从路由调用同一个动作。这个示例不需要新的数据库表。Chat 已经将聊天记录存储在 SQL 中；只有在需要持久化领域数据时，才添加自己的数据表。
+
+## 创建路由 {#add-a-page}
+
+开发服务器会在启动时读取路由文件。创建 `app/routes/text-analyses.tsx`；如果 `pnpm dev` 已在运行，请创建文件后重启它。路由将在 `http://localhost:8080/text-analyses` 提供服务。
+
+```tsx filename="app/routes/text-analyses.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+type TextAnalysis = {
+  summary: {
+    characters: number;
+    words: number;
+    sentences: number;
+    paragraphs: number;
+  };
+};
+
+export default function TextAnalysesRoute() {
+  const { data: analysis, isLoading } = useActionQuery<TextAnalysis>(
+    "analyze-text",
+    { text: "Hello world. How are you today?" },
+  );
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">The same action, on a page.</p>
+      </header>
+      <section className="grid gap-3 sm:grid-cols-2">
+        {isLoading && <p className="text-muted-foreground">Analyzing...</p>}
+        {analysis &&
+          Object.entries(analysis.summary).map(([label, value]) => (
+            <article key={label} className="rounded-lg border p-4">
+              <p className="text-sm capitalize text-muted-foreground">
+                {label}
+              </p>
+              <p className="text-2xl font-semibold">{value}</p>
+            </article>
+          ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery` 会调用智能体使用的同一个只读动作。页面暂时不需要自定义 API 路由、第二套数据层或 SQL。
+
+打开 `http://localhost:8080/text-analyses`，或询问智能体：
+
+> Navigate to `/text-analyses`.
+
+对于本教程而言，这个路由已经足够。如果它后来成为主要工作流，再添加侧边栏入口。有关完整的 `view-screen`、`navigate` 和 application-state 模式，请参阅[上下文感知](/docs/context-awareness)。
+
+## 继续
+
+你已经构建了一个带有动作和页面的聊天应用，页面调用相同的真实数据源。继续探索[关键概念](/docs/key-concepts)和[Agent Surfaces](/docs/agent-surfaces)。

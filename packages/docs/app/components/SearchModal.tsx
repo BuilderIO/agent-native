@@ -1,0 +1,553 @@
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { submitToAgent } from "@agent-native/core/client/navigation";
+import {
+  IconLayoutSidebarRight,
+  IconMessage,
+  IconMoon,
+  IconSun,
+} from "@tabler/icons-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate, Link } from "react-router";
+
+import { buildSearchIndexAsync, type SearchEntry } from "./docs-content";
+import { docsPathForSlug } from "./docs-locale";
+import { useDocsTheme } from "./ThemeToggle";
+
+// Lazily built on first open — not at module scope — so the index and the full
+// docs corpus are not included in the initial page bundle.
+const cachedIndexes = new Map<string, SearchEntry[]>();
+const pendingIndexes = new Map<string, Promise<SearchEntry[]>>();
+function getCachedSearchIndex(locale: string): SearchEntry[] | null {
+  const cached = cachedIndexes.get(locale);
+  return cached ?? null;
+}
+
+function loadSearchIndex(locale: string): Promise<SearchEntry[]> {
+  const cached = cachedIndexes.get(locale);
+  if (cached) return Promise.resolve(cached);
+
+  const pending = pendingIndexes.get(locale);
+  if (pending) return pending;
+
+  const promise = Promise.resolve()
+    .then(() => buildSearchIndexAsync(locale))
+    .then((index) => {
+      cachedIndexes.set(locale, index);
+      pendingIndexes.delete(locale);
+      return index;
+    })
+    .catch((error) => {
+      // A stale or unavailable document chunk must not poison retries for the
+      // rest of the session with the same rejected promise.
+      pendingIndexes.delete(locale);
+      throw error;
+    });
+  pendingIndexes.set(locale, promise);
+  return promise;
+}
+
+function highlightMatch(text: string, query: string) {
+  if (!query.trim()) return text;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return text;
+  const start = Math.max(0, idx - 40);
+  const end = Math.min(text.length, idx + query.length + 60);
+  const before = (start > 0 ? "..." : "") + text.slice(start, idx);
+  const match = text.slice(idx, idx + query.length);
+  const after =
+    text.slice(idx + query.length, end) + (end < text.length ? "..." : "");
+  return (
+    <>
+      <span className="text-[var(--fg-secondary)]">{before}</span>
+      <mark className="rounded-sm bg-[var(--docs-accent)]/20 px-0.5 text-[var(--docs-accent)]">
+        {match}
+      </mark>
+      <span className="text-[var(--fg-secondary)]">{after}</span>
+    </>
+  );
+}
+
+function search(query: string, index: SearchEntry[]): SearchEntry[] {
+  if (!query.trim()) return [];
+  const q = query.toLowerCase();
+  const words = q.split(/\s+/).filter(Boolean);
+
+  const scored = index
+    .map((entry) => {
+      const textLower = entry.text.toLowerCase();
+      const sectionLower = entry.section.toLowerCase();
+      const pageLower = entry.page.toLowerCase();
+      const keywordsLower = entry.keywords.toLowerCase();
+      const isPageEntry = entry.sectionId === "";
+
+      let score = 0;
+      for (const word of words) {
+        if (sectionLower.includes(word)) score += 10;
+        if (keywordsLower.includes(word)) score += 8;
+        if (pageLower.includes(word)) score += isPageEntry ? 5 : 2;
+        if (textLower.includes(word)) score += 3;
+      }
+      // exact phrase bonus
+      if (keywordsLower.includes(q)) score += 35;
+      if (pageLower.includes(q)) score += isPageEntry ? 25 : 5;
+      if (textLower.includes(q)) score += 20;
+      if (sectionLower.includes(q)) score += 30;
+
+      return { entry, score };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
+
+  return scored.map((r) => r.entry);
+}
+
+export function SearchModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [index, setIndex] = useState<SearchEntry[]>([]);
+  const [indexError, setIndexError] = useState<unknown>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<Element | null>(null);
+  const navigate = useNavigate();
+  const { locale } = useLocale();
+  const t = useT();
+  const { theme, toggleTheme } = useDocsTheme();
+  const results = search(query, index);
+  const themeSearchTerms = [
+    t("theme.toggle"),
+    t("theme.light"),
+    t("theme.dark"),
+    "theme",
+    "light",
+    "dark",
+    "mode",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const sidebarSearchTerms = [
+    t("search.toggleChatSidebar"),
+    "chat",
+    "sidebar",
+    "assistant",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const queryWords = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const showThemeAction =
+    queryWords.length === 0 ||
+    queryWords.every((word) => themeSearchTerms.includes(word));
+  const showSidebarAction =
+    queryWords.length === 0 ||
+    queryWords.every((word) => sidebarSearchTerms.includes(word));
+  const actionItems = [
+    showThemeAction ? "theme" : null,
+    showSidebarAction ? "sidebar" : null,
+  ].filter((action): action is "theme" | "sidebar" => action !== null);
+  const resultIndexOffset = actionItems.length;
+  const askAiIndex = resultIndexOffset + results.length;
+
+  const toggleChatSidebar = useCallback(() => {
+    window.dispatchEvent(new Event("agent-panel:toggle"));
+  }, []);
+
+  const submitAskAi = useCallback(() => {
+    onClose();
+    const message = query.trim();
+    if (!message) {
+      focusAgentChat();
+      return;
+    }
+    submitToAgent(message);
+  }, [onClose, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const cached = getCachedSearchIndex(locale);
+    if (cached) {
+      setIndex(cached);
+      setIndexError(null);
+      return;
+    }
+    setIndex([]);
+    setIndexError(null);
+    void loadSearchIndex(locale)
+      .then((loaded) => {
+        if (cancelled) return;
+        setIndex(loaded);
+        setIndexError(null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("Docs search index failed to load", error);
+        setIndexError(error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [locale, open, retryCount]);
+
+  // Focus management: save focus before open, restore on close
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement;
+      setQuery("");
+      setActiveIdx(0);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    } else if (previousFocusRef.current instanceof HTMLElement) {
+      previousFocusRef.current.focus();
+      previousFocusRef.current = null;
+    }
+  }, [open]);
+
+  useEffect(() => {
+    setActiveIdx(0);
+  }, [query]);
+
+  useEffect(() => {
+    activeItemRef.current?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx, results, showSidebarAction, showThemeAction]);
+
+  const go = useCallback(
+    (entry: SearchEntry) => {
+      void navigate(
+        entry.sectionId ? `${entry.path}#${entry.sectionId}` : entry.path,
+      );
+      onClose();
+    },
+    [navigate, onClose],
+  );
+
+  // Keyboard: Escape, arrows, Enter, and Tab focus trap
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const maxIndex = askAiIndex;
+        setActiveIdx((i) => Math.min(i + 1, maxIndex));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveIdx((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (showThemeAction && activeIdx === 0) {
+          toggleTheme();
+          onClose();
+          return;
+        }
+        const sidebarActionIndex = showThemeAction ? 1 : 0;
+        if (showSidebarAction && activeIdx === sidebarActionIndex) {
+          toggleChatSidebar();
+          onClose();
+          return;
+        }
+        if (activeIdx === askAiIndex) {
+          submitAskAi();
+          return;
+        }
+        const result = results[activeIdx - resultIndexOffset];
+        if (result) go(result);
+      } else if (e.key === "Tab") {
+        // Focus trap: cycle focus within the modal
+        const modal = modalRef.current;
+        if (!modal) return;
+        const focusable = Array.from(
+          modal.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])',
+          ),
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [
+    open,
+    results,
+    activeIdx,
+    askAiIndex,
+    go,
+    onClose,
+    resultIndexOffset,
+    showSidebarAction,
+    showThemeAction,
+    submitAskAi,
+    toggleChatSidebar,
+    toggleTheme,
+  ]);
+
+  const actionButtons = actionItems.map((action, i) => (
+    <button
+      key={action}
+      ref={i === activeIdx ? activeItemRef : undefined}
+      type="button"
+      onClick={() => {
+        if (action === "theme") toggleTheme();
+        else toggleChatSidebar();
+        onClose();
+      }}
+      onMouseEnter={() => setActiveIdx(i)}
+      className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition-colors ${
+        i === activeIdx
+          ? "bg-[var(--docs-accent)]/10"
+          : "hover:bg-[var(--bg-secondary)]"
+      }`}
+    >
+      {action === "theme" ? (
+        theme === "dark" ? (
+          <IconSun
+            size={16}
+            stroke={1.5}
+            className="shrink-0 text-[var(--docs-accent)]"
+            aria-hidden="true"
+          />
+        ) : (
+          <IconMoon
+            size={16}
+            stroke={1.5}
+            className="shrink-0 text-[var(--docs-accent)]"
+            aria-hidden="true"
+          />
+        )
+      ) : (
+        <IconLayoutSidebarRight
+          size={16}
+          stroke={1.5}
+          className="shrink-0 text-[var(--docs-accent)]"
+          aria-hidden="true"
+        />
+      )}
+      <span className="font-medium text-[var(--fg)]">
+        {action === "theme" ? t("theme.toggle") : t("search.toggleChatSidebar")}
+      </span>
+    </button>
+  ));
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]"
+      onClick={onClose}
+    >
+      {/* backdrop */}
+      <div className="absolute inset-0 bg-black/40" />
+
+      {/* modal */}
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("search.dialogLabel")}
+        className="relative w-full max-w-[600px] mx-4 overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* search input */}
+        <div className="flex items-center gap-3 border-b border-[var(--docs-border)] px-4 py-3">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--fg-secondary)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="shrink-0"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder={t("search.placeholder")}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="flex-1 border-0 bg-transparent text-base text-[var(--fg)] outline-none placeholder:text-[var(--fg-secondary)]"
+            aria-label={t("search.dialogLabel")}
+          />
+          <kbd className="rounded border border-[var(--docs-border)] px-1.5 py-0.5 text-[10px] text-[var(--fg-secondary)]">
+            Esc
+          </kbd>
+        </div>
+
+        {/* results */}
+        <div className="max-h-[400px] overflow-y-auto">
+          {query.trim() ? actionButtons : null}
+          {indexError ? (
+            <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
+              <p className="mb-3">{t("search.loadError")}</p>
+              <button
+                type="button"
+                onClick={() => setRetryCount((count) => count + 1)}
+                className="inline-flex items-center rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-xs text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+              >
+                {t("search.retry")}
+              </button>
+            </div>
+          ) : query.trim() === "" ? (
+            <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
+              {t("search.empty")}
+              <div className="-mx-4 mt-6 border-t border-[var(--docs-border)] py-2">
+                {actionButtons}
+              </div>
+            </div>
+          ) : results.length === 0 && actionItems.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
+              <p className="mb-3">{t("search.noResults", { query })}</p>
+              <Link
+                to={docsPathForSlug("getting-started", locale)}
+                onClick={onClose}
+                className="inline-flex items-center gap-1 rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-xs text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)]"
+              >
+                {t("search.browseAllDocs")}
+              </Link>
+            </div>
+          ) : (
+            <div className={results.length > 0 ? "py-2" : undefined}>
+              {results.map((entry, i) => (
+                <button
+                  key={`${entry.path}-${entry.sectionId}`}
+                  ref={
+                    i + resultIndexOffset === activeIdx
+                      ? activeItemRef
+                      : undefined
+                  }
+                  onClick={() => go(entry)}
+                  onMouseEnter={() => setActiveIdx(i + resultIndexOffset)}
+                  className={`flex w-full flex-col gap-1 px-4 py-3 text-start transition ${
+                    i + resultIndexOffset === activeIdx
+                      ? "bg-[var(--docs-accent)]/10"
+                      : "hover:bg-[var(--bg-secondary)]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={
+                        i + resultIndexOffset === activeIdx
+                          ? "var(--docs-accent)"
+                          : "var(--fg-secondary)"
+                      }
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="shrink-0"
+                      aria-hidden="true"
+                    >
+                      <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                      <polyline points="13 2 13 9 20 9" />
+                    </svg>
+                    {entry.section !== entry.page && (
+                      <>
+                        <span className="text-xs text-[var(--fg-secondary)]">
+                          {entry.page}
+                        </span>
+                        <span className="text-xs text-[var(--fg-secondary)]">
+                          ›
+                        </span>
+                      </>
+                    )}
+                    <span
+                      className={`text-sm font-medium ${i + resultIndexOffset === activeIdx ? "text-[var(--docs-accent)]" : "text-[var(--fg)]"}`}
+                    >
+                      {entry.section}
+                    </span>
+                    {i + resultIndexOffset === activeIdx && (
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--fg-secondary)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="ms-auto shrink-0 rtl:-scale-x-100"
+                        aria-hidden="true"
+                      >
+                        <polyline points="9 10 4 15 9 20" />
+                        <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="ps-[22px] text-xs leading-relaxed">
+                    {highlightMatch(entry.text, query)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-[var(--docs-border)] py-2">
+          <button
+            ref={activeIdx === askAiIndex ? activeItemRef : undefined}
+            type="button"
+            onClick={submitAskAi}
+            onMouseEnter={() => setActiveIdx(askAiIndex)}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
+              activeIdx === askAiIndex
+                ? "bg-[var(--docs-accent)]/10"
+                : "hover:bg-[var(--bg-secondary)]"
+            }`}
+          >
+            <IconMessage
+              size={16}
+              stroke={1.5}
+              className="shrink-0 text-[var(--docs-accent)]"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 truncate font-medium text-[var(--fg)]">
+              {t("header.askAssistant")}
+              {query.trim() ? (
+                <span className="font-normal text-[var(--fg-secondary)]">
+                  : "{query}"
+                </span>
+              ) : null}
+            </span>
+            {query.trim() ? (
+              <kbd className="ms-auto shrink-0 text-[10px] text-[var(--fg-secondary)]">
+                ↵
+              </kbd>
+            ) : null}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}

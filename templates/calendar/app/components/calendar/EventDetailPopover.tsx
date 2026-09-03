@@ -1,0 +1,2823 @@
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
+import type {
+  CalendarEvent,
+  FindTimeSlot,
+  UpdateEventScope,
+} from "@shared/api";
+import {
+  IconX,
+  IconClock,
+  IconMapPin,
+  IconVideo,
+  IconBell,
+  IconLayoutSidebarRight,
+  IconFileText,
+  IconExternalLink,
+  IconAlignLeft,
+  IconPlus,
+  IconBrandZoom,
+  IconPaperclip,
+  IconCalendarTime,
+  IconDots,
+} from "@tabler/icons-react";
+import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { toast } from "sonner";
+
+import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
+import {
+  AttendeeAutocomplete,
+  type AttendeeRecipient,
+} from "@/components/calendar/AttendeeAutocomplete";
+import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
+import { EventCalendarSelect } from "@/components/calendar/EventCalendarSelect";
+import {
+  RenderedDescription,
+  AutoGrowTextarea,
+} from "@/components/calendar/EventDescription";
+import {
+  AttachmentControls,
+  ReminderControls,
+} from "@/components/calendar/EventOptionControls";
+import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import {
+  DatePickerPopover,
+  RepeatPicker,
+  TimePickerPopover,
+  TimezonePickerPopover,
+} from "@/components/calendar/InlineEventPickers";
+import { WorkingLocationEditor } from "@/components/calendar/WorkingLocationEditor";
+import { useCalendarContext } from "@/components/layout/AppLayout";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
+import { useEvent, useUpdateEvent } from "@/hooks/use-events";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import { addCalendarDays } from "@/lib/calendar-timezone";
+import {
+  getDateKeyInTimezone,
+  getDateTimePartsInTimezone,
+} from "@/lib/calendar-timezone";
+import {
+  attachmentsToDrafts,
+  buildCustomRecurrenceRules,
+  buildRecurrenceRules,
+  buildReminderPayload,
+  dateTimeInTimezoneToIso,
+  formatReminderText,
+  getEditableEventTitle,
+  getEventEndValidationMessage,
+  getLocalTimezone,
+  getRecurrencePreset,
+  type CustomRecurrenceDraft,
+  remindersToDraftState,
+  resolveTimeEditScope,
+  type AttachmentDraft,
+  type RecurrencePreset,
+  type ReminderDraft,
+  type ReminderMode,
+  validateAttachmentDrafts,
+} from "@/lib/event-form-utils";
+import {
+  eventPopoverDivider,
+  eventPopoverHeader,
+  eventPopoverHeaderButton,
+  eventPopoverHeaderTitle,
+  eventPopoverPrimaryAction,
+  eventPopoverShell,
+  eventPopoverWidth,
+} from "@/lib/event-popover-style";
+import { isOutOfOfficeEvent } from "@/lib/out-of-office";
+import {
+  createEventDetailPopoverToken,
+  markPopoverInteractOutside,
+  setEventDetailPopoverOpen,
+} from "@/lib/popover-click-guard";
+import { shortcutModifierLabel } from "@/lib/utils";
+import {
+  buildWorkingLocationUpdate,
+  createWorkingLocationDisplayLabels,
+  getWorkingLocationTitle,
+  isWorkingLocationDraftReadyToCreate,
+  isWorkingLocationEvent,
+  type WorkingLocationSelection,
+} from "@/lib/working-location";
+
+const ZOOM_AFTER_CONNECT_EVENT_ID_KEY = "calendar.zoomAfterConnectEventId";
+const ZOOM_AFTER_CONNECT_MAX_AGE_MS = 10 * 60 * 1000;
+
+function buildEventDetailSlotContext(event: CalendarEvent) {
+  return {
+    eventId: event.id,
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    startTimeZone: event.startTimeZone,
+    endTimeZone: event.endTimeZone,
+    location: event.location,
+    accountEmail: event.accountEmail,
+    attendees: (event.attendees ?? []).map((attendee) => ({
+      email: attendee.email,
+      displayName: attendee.displayName,
+      responseStatus: attendee.responseStatus,
+      organizer: attendee.organizer,
+      optional: attendee.optional,
+      timeZone: attendee.timeZone,
+      self: attendee.self,
+    })),
+  };
+}
+
+function getStoredZoomAfterConnectEventId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.sessionStorage.getItem(
+      ZOOM_AFTER_CONNECT_EVENT_ID_KEY,
+    );
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as {
+      eventId?: unknown;
+      startedAt?: unknown;
+    };
+    if (
+      typeof parsed.eventId === "string" &&
+      typeof parsed.startedAt === "number" &&
+      Date.now() - parsed.startedAt < ZOOM_AFTER_CONNECT_MAX_AGE_MS
+    ) {
+      return parsed.eventId;
+    }
+    window.sessionStorage.removeItem(ZOOM_AFTER_CONNECT_EVENT_ID_KEY);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredZoomAfterConnectEventId(eventId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (eventId) {
+      window.sessionStorage.setItem(
+        ZOOM_AFTER_CONNECT_EVENT_ID_KEY,
+        JSON.stringify({ eventId, startedAt: Date.now() }),
+      );
+    } else {
+      window.sessionStorage.removeItem(ZOOM_AFTER_CONNECT_EVENT_ID_KEY);
+    }
+  } catch {
+    // Storage can be unavailable in locked-down browsers; in-memory state still
+    // handles the normal popup path.
+  }
+}
+
+function formatDuration(start: string, end: string): string {
+  const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}min`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}min`;
+}
+
+/** Extract a Zoom/Meet/Teams link from location or description */
+function extractMeetingLink(event: CalendarEvent): {
+  url: string;
+  type: "zoom" | "meet" | "teams" | "link";
+  label?: string;
+  pin?: string;
+  passcode?: string;
+} | null {
+  if (event.meetingLink) {
+    return { url: event.meetingLink, type: getMeetingType(event.meetingLink) };
+  }
+
+  // Check conferenceData first
+  if (event.conferenceData?.entryPoints) {
+    const videoEntry = event.conferenceData.entryPoints.find(
+      (ep) => ep.entryPointType === "video",
+    );
+    if (videoEntry) {
+      let type: "zoom" | "meet" | "teams" | "link" = "link";
+      if (videoEntry.uri.includes("zoom.us")) type = "zoom";
+      else if (videoEntry.uri.includes("meet.google.com")) type = "meet";
+      else if (videoEntry.uri.includes("teams.microsoft.com")) type = "teams";
+      return {
+        url: videoEntry.uri,
+        type,
+        label: videoEntry.label || undefined,
+        pin: videoEntry.pin || undefined,
+        passcode: videoEntry.passcode || undefined,
+      };
+    }
+  }
+
+  // Fall back to the legacy hangoutLink (Google Meet)
+  if (event.hangoutLink) {
+    return { url: event.hangoutLink, type: "meet" };
+  }
+
+  // Fall back to text matching
+  const text = `${event.location || ""} ${event.description || ""}`;
+  const zoom = text.match(/https?:\/\/[^\s]*zoom\.us\/j\/[^\s)"]*/i);
+  if (zoom) return { url: zoom[0], type: "zoom" };
+  const meet = text.match(/https?:\/\/meet\.google\.com\/[^\s)"]*/i);
+  if (meet) return { url: meet[0], type: "meet" };
+  const teams = text.match(/https?:\/\/teams\.microsoft\.com\/[^\s)"]*/i);
+  if (teams) return { url: teams[0], type: "teams" };
+  return null;
+}
+
+function getMeetingLabel(
+  type: "zoom" | "meet" | "teams" | "link",
+  t: ReturnType<typeof useT>,
+): string {
+  switch (type) {
+    case "zoom":
+      return t("eventForm.joinZoom");
+    case "meet":
+      return t("eventForm.joinMeet");
+    case "teams":
+      return t("eventForm.joinTeams");
+    default:
+      return t("eventForm.joinMeeting");
+  }
+}
+
+function getMeetingType(url: string): "zoom" | "meet" | "teams" | "link" {
+  if (url.includes("zoom.us")) return "zoom";
+  if (url.includes("meet.google.com")) return "meet";
+  if (url.includes("teams.microsoft.com")) return "teams";
+  return "link";
+}
+
+function MeetingLinkSkeleton({ provider }: { provider: "meet" | "zoom" }) {
+  const t = useT();
+  return (
+    <div
+      role="status"
+      aria-label={t("eventForm.addingMeetingLink", {
+        provider:
+          provider === "zoom" ? t("eventForm.zoom") : t("eventForm.googleMeet"),
+      })}
+      className="relative flex w-full items-center justify-center rounded-xl bg-[#4965E0] px-4 py-2"
+    >
+      <Skeleton className="mr-2 h-5 w-5 rounded-full bg-white/25" />
+      <Skeleton className="h-4 w-24 bg-white/30" />
+      <span className="absolute right-4 hidden items-center gap-1 sm:flex">
+        <Skeleton className="h-4 w-4 rounded bg-white/20" />
+        <Skeleton className="h-5 w-5 rounded bg-white/20" />
+      </span>
+    </div>
+  );
+}
+
+type AvailabilityValue = "opaque" | "transparent";
+type VisibilityValue = "default" | "public" | "private";
+type ReminderValue =
+  | "default"
+  | "none"
+  | "0"
+  | "10"
+  | "30"
+  | "60"
+  | "1440"
+  | "custom";
+
+type EventUpdatePatch = Partial<CalendarEvent> & {
+  addGoogleMeet?: boolean;
+  removeGoogleMeet?: boolean;
+  addZoom?: boolean;
+  addAttendees?: CalendarEvent["attendees"];
+  targetAccountEmail?: string;
+  scope?: UpdateEventScope;
+  workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+  workingLocationLabel?: string;
+};
+
+interface TimeEditValues {
+  date: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  timezone: string;
+}
+
+function addMinutesToTimeValue(
+  date: string,
+  time: string,
+  minutes: number,
+): { date: string; time: string } {
+  const [hour, minute] = time.split(":").map(Number);
+  const total = (hour || 0) * 60 + (minute || 0) + minutes;
+  const dayOffset = Math.floor(total / (24 * 60));
+  const minuteOfDay = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  const nextDate = new Date(`${date}T00:00:00`);
+  nextDate.setDate(nextDate.getDate() + dayOffset);
+  return {
+    date: format(nextDate, "yyyy-MM-dd"),
+    time: `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`,
+  };
+}
+
+function mergeAttendeesForPrompt(
+  existing: CalendarEvent["attendees"] | undefined,
+  additions: CalendarEvent["attendees"] | undefined,
+): CalendarEvent["attendees"] | undefined {
+  if (!additions || additions.length === 0) return existing;
+  const merged = new Map<
+    string,
+    NonNullable<CalendarEvent["attendees"]>[number]
+  >();
+
+  for (const attendee of existing ?? []) {
+    const email = attendee.email.trim();
+    if (!email) continue;
+    merged.set(email.toLowerCase(), attendee);
+  }
+
+  for (const attendee of additions) {
+    const email = attendee.email.trim();
+    if (!email) continue;
+    const key = email.toLowerCase();
+    const current = merged.get(key);
+    merged.set(key, {
+      ...current,
+      email,
+      displayName: attendee.displayName ?? current?.displayName,
+      photoUrl: attendee.photoUrl ?? current?.photoUrl,
+      optional:
+        attendee.optional === true
+          ? true
+          : attendee.optional === false
+            ? undefined
+            : current?.optional,
+    });
+  }
+
+  return Array.from(merged.values());
+}
+
+function getReminderValue(event: CalendarEvent): ReminderValue {
+  if (event.remindersUseDefault !== false) return "default";
+  if (!event.reminders || event.reminders.length === 0) return "none";
+  if (event.reminders.length > 1) return "custom";
+  const minutes = String(event.reminders[0].minutes);
+  return ["0", "10", "30", "60", "1440"].includes(minutes)
+    ? (minutes as ReminderValue)
+    : "custom";
+}
+
+function getReminderUpdate(value: ReminderValue): Partial<CalendarEvent> {
+  if (value === "default") return { remindersUseDefault: true };
+  if (value === "none") return { remindersUseDefault: false, reminders: [] };
+  if (value === "custom") return {};
+  return {
+    remindersUseDefault: false,
+    reminders: [{ method: "popup", minutes: Number(value) }],
+  };
+}
+
+/** Check if a string looks like a URL */
+function isUrl(str: string): boolean {
+  return /^https?:\/\//i.test(str.trim());
+}
+
+/** Convert an event date to the calendar's date input value. */
+function toDateInputValue(iso: string, timezone?: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const zonedDate = timezone ? getDateKeyInTimezone(iso, timezone) : null;
+  if (zonedDate) return zonedDate;
+  const d = parseISO(iso);
+  return format(d, "yyyy-MM-dd");
+}
+
+function toAllDayEndDateInputValue(iso: string, timezone?: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return addCalendarDays(iso, -1);
+  const zonedDate = timezone ? getDateKeyInTimezone(iso, timezone) : null;
+  if (zonedDate) return addCalendarDays(zonedDate, -1);
+  const d = parseISO(iso);
+  return format(new Date(d.getTime() - 1), "yyyy-MM-dd");
+}
+
+/** Timed events ending at 00:00 already store the next date; don't add another day. */
+function inclusiveEndDateForAllDayConversion(
+  startDate: string,
+  endDate: string,
+  endTime: string,
+): string {
+  const bounded = endDate < startDate ? startDate : endDate;
+  if (endTime === "00:00" && bounded > startDate) {
+    return addCalendarDays(bounded, -1);
+  }
+  return bounded;
+}
+
+/** Convert an event time to the calendar's time input value. */
+function toTimeInputValue(iso: string, timezone?: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "00:00";
+  const zonedTime = timezone ? getDateTimePartsInTimezone(iso, timezone) : null;
+  if (zonedTime) {
+    return `${String(zonedTime.hour).padStart(2, "0")}:${String(
+      zonedTime.minute,
+    ).padStart(2, "0")}`;
+  }
+  const d = parseISO(iso);
+  return format(d, "HH:mm");
+}
+
+interface EventDetailPopoverProps {
+  event: CalendarEvent;
+  children: React.ReactNode;
+  onDelete: (eventId: string) => void;
+  isDraft?: boolean;
+  timezone?: string;
+  /** When true, the popover opens immediately and title is focused for editing */
+  defaultOpen?: boolean;
+  /** Called when the title is changed and should be persisted */
+  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
+  onDismissNew?: (eventId: string, accountEmail?: string) => void;
+  /** Called after the popover's visible open state changes through its normal lifecycle. */
+  onOpenChange?: (open: boolean) => void;
+  /** Prefer a placement that keeps Day-view detail controls inside the grid. */
+  popoverSide?: "top" | "right" | "bottom" | "left";
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
+}
+
+export function EventDetailPopover({
+  event,
+  children,
+  onDelete,
+  isDraft = false,
+  timezone,
+  defaultOpen = false,
+  onTitleSave,
+  onDismissNew,
+  onOpenChange,
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
+  popoverSide,
+}: EventDetailPopoverProps) {
+  const t = useT();
+  const workingLocationLabels = createWorkingLocationDisplayLabels(t);
+  const isMobile = useIsMobile();
+  const eventTimezone = timezone || event.startTimeZone || getLocalTimezone();
+  const isReadOnlySource =
+    !!event.overlayEmail ||
+    event.calendarPrimary === false ||
+    event.calendarReadOnly === true;
+  const [open, setOpen] = useState(defaultOpen);
+  const [editingTitle, setEditingTitle] = useState(
+    defaultOpen && !isReadOnlySource ? getEditableEventTitle(event) : "",
+  );
+  const [isEditingTitle, setIsEditingTitle] = useState(
+    defaultOpen && !isReadOnlySource,
+  );
+  const isNewEventRef = useRef(defaultOpen);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const popoverTokenRef = useRef<symbol | null>(null);
+  if (!popoverTokenRef.current) {
+    popoverTokenRef.current = createEventDetailPopoverToken();
+  }
+  const {
+    eventDetailSidebar,
+    sidebarEvent,
+    setEventDetailSidebar,
+    setSidebarEvent,
+    setFocusedEvent,
+  } = useCalendarContext();
+  const isWorkingLocation = isWorkingLocationEvent(event);
+  const isOutOfOffice = isOutOfOfficeEvent(event);
+  const editableLocationValue = event.location || "";
+
+  // Inline editing state
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
+  const [findTimeOpen, setFindTimeOpen] = useState(false);
+  const [editDescription, setEditDescription] = useState(
+    event.description || "",
+  );
+  const [editLocation, setEditLocation] = useState(editableLocationValue);
+  const [editDate, setEditDate] = useState(() =>
+    toDateInputValue(event.start, eventTimezone),
+  );
+  const [editEndDate, setEditEndDate] = useState(() =>
+    event.allDay
+      ? toAllDayEndDateInputValue(event.end, eventTimezone)
+      : toDateInputValue(event.end, eventTimezone),
+  );
+  const [editStartTime, setEditStartTime] = useState(() =>
+    toTimeInputValue(event.start, eventTimezone),
+  );
+  const [editEndTime, setEditEndTime] = useState(() =>
+    toTimeInputValue(event.end, eventTimezone),
+  );
+  const [editTimezone, setEditTimezone] = useState(eventTimezone);
+  const isSingleDayWorkingLocation =
+    isWorkingLocation && event.allDay && editDate === editEndDate;
+  const [editReminderMode, setEditReminderMode] = useState<ReminderMode>(
+    () => remindersToDraftState(event).mode,
+  );
+  const [editReminders, setEditReminders] = useState<ReminderDraft[]>(
+    () => remindersToDraftState(event).reminders,
+  );
+  const [editAttachments, setEditAttachments] = useState<AttachmentDraft[]>(
+    () => attachmentsToDrafts(event.attachments),
+  );
+  const [editMeetingLink, setEditMeetingLink] = useState("");
+  const [selectedAccountEmail, setSelectedAccountEmail] = useState(
+    event.accountEmail,
+  );
+  const [editTimeScope, setEditTimeScope] =
+    useState<UpdateEventScope>("single");
+  const [pendingVideoProvider, setPendingVideoProvider] = useState<
+    "meet" | "zoom" | null
+  >(null);
+  const [zoomAfterConnectEventId, setZoomAfterConnectEventId] = useState<
+    string | null
+  >(() => getStoredZoomAfterConnectEventId());
+  const [showConferencingOptions, setShowConferencingOptions] = useState(false);
+  const isOverlay = isReadOnlySource;
+  const ownerLabel = event.ownerName || event.overlayEmail;
+
+  const updateEvent = useUpdateEvent();
+  const masterEventId =
+    open && event.recurringEventId ? `google-${event.recurringEventId}` : "";
+  const masterEvent = useEvent(masterEventId, event.calendarSourceKey);
+  const recurrenceRules =
+    event.recurrence && event.recurrence.length > 0
+      ? event.recurrence
+      : masterEvent.data?.recurrence;
+  const isRecurringEvent = !!(
+    event.recurringEventId || recurrenceRules?.length
+  );
+  const canEditRecurrence = !isOverlay && !isWorkingLocation;
+  const { promptGuestNotification, guestNotificationDialog } =
+    useGuestNotificationPrompt();
+  const zoomStatus = useZoomStatus();
+  const connectZoom = useConnectZoom();
+  const locationRef = useRef<HTMLInputElement>(null);
+  const meetingLinkRef = useRef<HTMLInputElement>(null);
+  const detailsScrollRef = useRef<HTMLDivElement>(null);
+  const actionPendingRef = useRef(false);
+  const [actionPending, setActionPending] = useState(false);
+
+  const beginAction = useCallback(() => {
+    if (
+      actionPendingRef.current ||
+      updateEvent.isPending ||
+      connectZoom.isPending
+    ) {
+      return false;
+    }
+    actionPendingRef.current = true;
+    setActionPending(true);
+    return true;
+  }, [connectZoom.isPending, updateEvent.isPending]);
+
+  const endAction = useCallback(() => {
+    actionPendingRef.current = false;
+    setActionPending(false);
+  }, []);
+
+  const mutationPending =
+    actionPending ||
+    updateEvent.isPending ||
+    connectZoom.isPending ||
+    pendingVideoProvider !== null;
+
+  useEffect(() => {
+    setSelectedAccountEmail(event.accountEmail);
+  }, [event.id, event.accountEmail]);
+
+  const handleAccountChange = useCallback(
+    (targetAccountEmail: string) => {
+      if (isDraft) {
+        onDraftUpdate?.(event.id, { accountEmail: targetAccountEmail });
+        return;
+      }
+      if (
+        !event.accountEmail ||
+        targetAccountEmail === event.accountEmail ||
+        updateEvent.isPending
+      ) {
+        return;
+      }
+      if (!beginAction()) return;
+
+      setSelectedAccountEmail(targetAccountEmail);
+      void (async () => {
+        try {
+          const guestNotification = await promptGuestNotification({
+            event,
+            action: "update",
+          });
+          if (!guestNotification) {
+            setSelectedAccountEmail(event.accountEmail);
+            endAction();
+            return;
+          }
+          updateEvent.mutate(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              targetAccountEmail,
+              ...guestNotification,
+            },
+            {
+              onSuccess: () => toast.success(t("eventForm.eventUpdated")),
+              onError: () => {
+                setSelectedAccountEmail(event.accountEmail);
+                toast.error(t("eventForm.updateFailed"));
+              },
+              onSettled: endAction,
+            },
+          );
+        } catch {
+          setSelectedAccountEmail(event.accountEmail);
+          endAction();
+        }
+      })();
+    },
+    [
+      beginAction,
+      endAction,
+      event,
+      isDraft,
+      onDraftUpdate,
+      promptGuestNotification,
+      t,
+      updateEvent,
+    ],
+  );
+
+  // Sync editing state when the event changes (incl. live agent/other-user
+  // edits picked up by polling). Skip the field the user is actively editing so
+  // an incoming update never yanks text out from under in-progress typing —
+  // that field re-adopts the authoritative value once the user finishes (which
+  // closes the inline editor and flips `editingField` away).
+  useEffect(() => {
+    if (editingField !== "description")
+      setEditDescription(event.description || "");
+    if (editingField !== "location") setEditLocation(editableLocationValue);
+    if (editingField !== "time") {
+      setEditDate(toDateInputValue(event.start, eventTimezone));
+      setEditEndDate(
+        event.allDay
+          ? toAllDayEndDateInputValue(event.end, eventTimezone)
+          : toDateInputValue(event.end, eventTimezone),
+      );
+      setEditStartTime(toTimeInputValue(event.start, eventTimezone));
+      setEditEndTime(toTimeInputValue(event.end, eventTimezone));
+      setEditTimezone(eventTimezone);
+      setEditTimeScope("single");
+    }
+    if (editingField !== "reminders") {
+      const reminderState = remindersToDraftState(event);
+      setEditReminderMode(reminderState.mode);
+      setEditReminders(reminderState.reminders);
+    }
+    if (editingField !== "attachments") {
+      setEditAttachments(attachmentsToDrafts(event.attachments));
+    }
+    setFindTimeOpen(false);
+    // `editingField` is intentionally omitted: re-running this effect when the
+    // user merely opens an inline editor would re-seed the other fields and is
+    // unnecessary — we only want to resync when the underlying event changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    event.id,
+    event.description,
+    event.location,
+    event.workingLocationProperties,
+    event.start,
+    event.end,
+    event.allDay,
+    event.startTimeZone,
+    event.reminders,
+    event.remindersUseDefault,
+    event.attachments,
+    editableLocationValue,
+    eventTimezone,
+  ]);
+
+  // When defaultOpen changes to true (new event created), open the popover
+  useEffect(() => {
+    if (defaultOpen) {
+      setOpen(true);
+      setIsEditingTitle(true);
+      isNewEventRef.current = isDraft;
+      setEditingTitle((current) => {
+        const eventTitle = getEditableEventTitle(event);
+        if (current.trim() && current !== eventTitle) return current;
+        return eventTitle;
+      });
+    }
+  }, [defaultOpen, event.title, event.titleIsGenerated, isDraft]);
+
+  // Focus title input when editing starts
+  useEffect(() => {
+    if (isEditingTitle && open) {
+      requestAnimationFrame(() => titleInputRef.current?.focus());
+    }
+  }, [isEditingTitle, open]);
+
+  // Focus field inputs when editing starts
+  useEffect(() => {
+    if (!editingField) return;
+    requestAnimationFrame(() => {
+      if (editingField === "location") locationRef.current?.focus();
+      else if (editingField === "meetingLink") meetingLinkRef.current?.focus();
+    });
+  }, [editingField]);
+
+  const meetingLink = extractMeetingLink(event);
+  const canRemoveGoogleMeet =
+    !isOverlay &&
+    meetingLink?.type === "meet" &&
+    (!!event.hangoutLink ||
+      event.conferenceData?.entryPoints?.some(
+        (entryPoint) =>
+          entryPoint.entryPointType === "video" &&
+          entryPoint.uri.includes("meet.google.com"),
+      ));
+  // On a draft, a chosen provider isn't created until the event is saved. Show
+  // it as already attached (with a remove control) rather than as a placeholder.
+  const pendingConferenceProvider =
+    !meetingLink && isDraft ? event.pendingConferenceProvider : undefined;
+  const availabilityValue: AvailabilityValue =
+    event.transparency === "transparent" ? "transparent" : "opaque";
+  const visibilityValue: VisibilityValue =
+    event.visibility === "public" || event.visibility === "private"
+      ? event.visibility
+      : "default";
+  const reminderValue = getReminderValue(event);
+
+  useEffect(() => {
+    if (!showMoreOptions) return;
+    const container = detailsScrollRef.current;
+    if (!container) return;
+    const frame = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showMoreOptions]);
+
+  // Save a field update
+  const saveField = useCallback(
+    (updates: EventUpdatePatch) => {
+      if (!event.id) return false;
+      if (isDraft) {
+        const { scope: _scope, ...draftUpdates } = updates;
+        onDraftUpdate?.(event.id, draftUpdates);
+        return true;
+      }
+      if (!beginAction()) return false;
+      void (async () => {
+        try {
+          const {
+            scope: _scope,
+            addAttendees,
+            ...notificationUpdates
+          } = updates;
+          const promptUpdates = addAttendees
+            ? {
+                ...notificationUpdates,
+                attendees: mergeAttendeesForPrompt(
+                  event.attendees,
+                  addAttendees,
+                ),
+              }
+            : notificationUpdates;
+          const shouldChooseGuestScope =
+            isRecurringEvent &&
+            ("attendees" in updates ||
+              "addAttendees" in updates ||
+              "removeGoogleMeet" in updates);
+          const guestNotification = await promptGuestNotification({
+            event,
+            action: "update",
+            updates: promptUpdates,
+            recurrenceScope: shouldChooseGuestScope
+              ? { enabled: true, defaultScope: "single" }
+              : undefined,
+          });
+          if (!guestNotification) {
+            endAction();
+            return;
+          }
+          updateEvent.mutate(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            { onSettled: endAction },
+          );
+        } catch {
+          endAction();
+        }
+      })();
+      return true;
+    },
+    [
+      event,
+      isDraft,
+      isRecurringEvent,
+      beginAction,
+      endAction,
+      onDraftUpdate,
+      promptGuestNotification,
+      updateEvent,
+    ],
+  );
+
+  const handleAvailabilityChange = useCallback(
+    (value: AvailabilityValue) => {
+      saveField({ transparency: value });
+    },
+    [saveField],
+  );
+
+  const handleVisibilityChange = useCallback(
+    (value: VisibilityValue) => {
+      saveField({ visibility: value });
+    },
+    [saveField],
+  );
+
+  const handleReminderChange = useCallback(
+    (value: ReminderValue) => {
+      if (value === "custom") {
+        const reminderState = remindersToDraftState(event);
+        setEditReminderMode(
+          reminderState.mode === "default" ? "custom" : reminderState.mode,
+        );
+        setEditReminders(reminderState.reminders);
+        setEditingField("reminders");
+        return;
+      }
+      const updates = getReminderUpdate(value);
+      if (Object.keys(updates).length > 0) saveField(updates);
+    },
+    [event, saveField],
+  );
+
+  const handleSaveReminders = useCallback(() => {
+    const saved = saveField(
+      buildReminderPayload(editReminderMode, editReminders),
+    );
+    setEditingField(null);
+    return saved;
+  }, [editReminderMode, editReminders, saveField]);
+
+  const handleSaveAttachments = useCallback(() => {
+    const result = validateAttachmentDrafts(editAttachments);
+    if (result.error) {
+      toast.error(result.error);
+      return false;
+    }
+    const saved = saveField({ attachments: result.attachments });
+    setEditingField(null);
+    return saved;
+  }, [editAttachments, saveField]);
+
+  const handleAddGoogleMeet = useCallback(() => {
+    if (!event.id || updateEvent.isPending) return;
+    if (isDraft) {
+      onDraftUpdate?.(event.id, { addGoogleMeet: true, addZoom: false });
+      return;
+    }
+    if (!beginAction()) return;
+    setPendingVideoProvider("meet");
+    void (async () => {
+      try {
+        const updates = { addGoogleMeet: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          endAction();
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast(t("eventForm.googleMeetAdded")),
+            onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
+            onSettled: () => {
+              setPendingVideoProvider(null);
+              endAction();
+            },
+          },
+        );
+      } catch {
+        setPendingVideoProvider(null);
+        endAction();
+      }
+    })();
+  }, [
+    beginAction,
+    endAction,
+    event,
+    isDraft,
+    onDraftUpdate,
+    promptGuestNotification,
+    t,
+    updateEvent,
+  ]);
+
+  const addZoomToConnectedEvent = useCallback(() => {
+    if (!event.id || updateEvent.isPending) return;
+
+    if (isDraft) {
+      onDraftUpdate?.(event.id, { addZoom: true, addGoogleMeet: false });
+      return;
+    }
+
+    if (!beginAction()) return;
+    setPendingVideoProvider("zoom");
+    void (async () => {
+      try {
+        const updates = { addZoom: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          endAction();
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast(t("eventForm.zoomAdded")),
+            onError: (error) =>
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : t("eventForm.zoomAddFailed"),
+              ),
+            onSettled: () => {
+              setPendingVideoProvider(null);
+              endAction();
+            },
+          },
+        );
+      } catch {
+        setPendingVideoProvider(null);
+        endAction();
+      }
+    })();
+  }, [
+    beginAction,
+    endAction,
+    event,
+    isDraft,
+    onDraftUpdate,
+    promptGuestNotification,
+    t,
+    updateEvent,
+  ]);
+
+  useEffect(() => {
+    if (
+      !zoomStatus.data?.connected ||
+      !zoomAfterConnectEventId ||
+      zoomAfterConnectEventId !== event.id ||
+      updateEvent.isPending
+    ) {
+      return;
+    }
+
+    setZoomAfterConnectEventId(null);
+    setStoredZoomAfterConnectEventId(null);
+    addZoomToConnectedEvent();
+  }, [
+    addZoomToConnectedEvent,
+    event.id,
+    updateEvent.isPending,
+    zoomAfterConnectEventId,
+    zoomStatus.data?.connected,
+  ]);
+
+  const handleAddZoom = useCallback(() => {
+    if (!event.id || updateEvent.isPending || connectZoom.isPending) return;
+
+    if (zoomStatus.data?.connected) {
+      addZoomToConnectedEvent();
+      return;
+    }
+
+    if (zoomStatus.data?.configured === false) {
+      toast.error(t("eventForm.zoomNotConfiguredDeployment"));
+      return;
+    }
+    if (!beginAction()) return;
+
+    setZoomAfterConnectEventId(event.id);
+    setStoredZoomAfterConnectEventId(event.id);
+    connectZoom.mutate(undefined, {
+      onSuccess: () => toast(t("eventForm.zoomConnectionOpened")),
+      onError: (error) => {
+        setZoomAfterConnectEventId(null);
+        setStoredZoomAfterConnectEventId(null);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("eventForm.zoomConnectFailed"),
+        );
+      },
+      onSettled: endAction,
+    });
+  }, [
+    addZoomToConnectedEvent,
+    beginAction,
+    connectZoom,
+    endAction,
+    event,
+    t,
+    updateEvent,
+    zoomStatus.data?.configured,
+    zoomStatus.data?.connected,
+  ]);
+
+  const handleRemovePendingConference = useCallback(() => {
+    if (!event.id) return;
+    onDraftUpdate?.(event.id, { addGoogleMeet: false, addZoom: false });
+  }, [event.id, onDraftUpdate]);
+
+  const handleRemoveGoogleMeet = useCallback(() => {
+    if (!event.id || updateEvent.isPending || !beginAction()) return;
+    void (async () => {
+      try {
+        const updates = { removeGoogleMeet: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+          recurrenceScope: isRecurringEvent
+            ? { enabled: true, defaultScope: "single" }
+            : undefined,
+        });
+        if (!guestNotification) {
+          endAction();
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onError: () => toast.error(t("eventForm.updateFailed")),
+            onSettled: endAction,
+          },
+        );
+      } catch {
+        endAction();
+      }
+    })();
+  }, [
+    beginAction,
+    endAction,
+    event,
+    isRecurringEvent,
+    promptGuestNotification,
+    t,
+    updateEvent,
+  ]);
+
+  const handleSaveDescription = useCallback(() => {
+    const trimmed = editDescription.trim();
+    let saved = false;
+    if (trimmed !== (event.description || "").trim()) {
+      saved = saveField({ description: trimmed });
+    }
+    setEditingField(null);
+    return saved;
+  }, [editDescription, event.description, saveField]);
+
+  const handleSaveLocation = useCallback(() => {
+    const trimmed = editLocation.trim();
+    const locationContainsMeetingLink =
+      !!meetingLink && event.location?.includes(meetingLink.url);
+    if (locationContainsMeetingLink && !trimmed) {
+      setEditLocation(editableLocationValue);
+      setEditingField(null);
+      return false;
+    }
+    let saved = false;
+    const currentValue = (event.location || "").trim();
+    if (trimmed !== currentValue.trim()) {
+      const updates: EventUpdatePatch = { location: trimmed };
+      if (
+        locationContainsMeetingLink &&
+        meetingLink &&
+        !event.description?.includes(meetingLink.url)
+      ) {
+        const label =
+          meetingLink.type === "zoom"
+            ? t("eventForm.zoom")
+            : getMeetingLabel(meetingLink.type, t);
+        updates.description = event.description?.trim()
+          ? `${event.description.trim()}\n\n${label}: ${meetingLink.url}`
+          : `${label}: ${meetingLink.url}`;
+      }
+      saved = saveField(updates);
+    }
+    setEditingField(null);
+    return saved;
+  }, [
+    editLocation,
+    editableLocationValue,
+    event.description,
+    event.location,
+    meetingLink,
+    saveField,
+    t,
+  ]);
+
+  const handleSaveWorkingLocation = useCallback(
+    (selection: WorkingLocationSelection) => {
+      const update = buildWorkingLocationUpdate(event, selection);
+      if (isDraft) {
+        const { id: _id, scope: _scope, ...draftUpdate } = update;
+        onDraftUpdate?.(event.id, draftUpdate);
+        return;
+      }
+      if (!beginAction()) return;
+      updateEvent.mutate(update, {
+        onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+        onSettled: endAction,
+      });
+    },
+    [beginAction, endAction, event, isDraft, onDraftUpdate, t, updateEvent],
+  );
+
+  const saveTimeValues = useCallback(
+    (values: TimeEditValues, nextAllDay = event.allDay) => {
+      const newStart = nextAllDay
+        ? values.date
+        : dateTimeInTimezoneToIso(
+            values.date,
+            values.startTime,
+            values.timezone,
+          );
+      const newEnd = nextAllDay
+        ? addCalendarDays(values.endDate, 1)
+        : dateTimeInTimezoneToIso(
+            values.endDate,
+            values.endTime,
+            values.timezone,
+          );
+      if (
+        nextAllDay
+          ? values.endDate < values.date
+          : new Date(newEnd).getTime() <= new Date(newStart).getTime()
+      ) {
+        toast.error(
+          getEventEndValidationMessage({
+            allDay: nextAllDay,
+            startDate: values.date,
+            endDate: values.endDate,
+            startTime: values.startTime,
+            endTime: values.endTime,
+          }),
+        );
+        return false;
+      }
+      let saved = false;
+      if (newStart !== event.start || newEnd !== event.end) {
+        saved = saveField({
+          start: newStart,
+          end: newEnd,
+          allDay: nextAllDay,
+          startTimeZone: nextAllDay ? undefined : values.timezone,
+          endTimeZone: nextAllDay ? undefined : values.timezone,
+          scope: resolveTimeEditScope(
+            isRecurringEvent,
+            isSingleDayWorkingLocation,
+            editTimeScope,
+          ),
+        });
+      }
+      setEditTimeScope("single");
+      return saved;
+    },
+    [
+      event.start,
+      event.end,
+      event.allDay,
+      isSingleDayWorkingLocation,
+      isRecurringEvent,
+      editTimeScope,
+      saveField,
+    ],
+  );
+
+  const handleWorkingLocationAllDayChange = useCallback(
+    (nextAllDay: boolean) => {
+      const nextStartTime =
+        !nextAllDay && editStartTime === "00:00" && editEndTime === "00:00"
+          ? "09:00"
+          : editStartTime;
+      const nextEndTime =
+        !nextAllDay && editStartTime === "00:00" && editEndTime === "00:00"
+          ? "17:00"
+          : editEndTime;
+      const nextEndDate = nextAllDay
+        ? inclusiveEndDateForAllDayConversion(
+            editDate,
+            editEndDate,
+            editEndTime,
+          )
+        : editEndDate < editDate
+          ? editDate
+          : editEndDate;
+      setEditEndDate(nextEndDate);
+      setEditStartTime(nextStartTime);
+      setEditEndTime(nextEndTime);
+      saveTimeValues(
+        {
+          date: editDate,
+          endDate: nextEndDate,
+          startTime: nextStartTime,
+          endTime: nextEndTime,
+          timezone: editTimezone,
+        },
+        nextAllDay,
+      );
+    },
+    [
+      editDate,
+      editEndDate,
+      editEndTime,
+      editStartTime,
+      editTimezone,
+      saveTimeValues,
+    ],
+  );
+
+  const handleInlineTimeChange = useCallback(
+    (field: "startTime" | "endTime", nextValue: string) => {
+      let nextDate = editDate;
+      let nextEndDate = editEndDate;
+      let nextStartTime = editStartTime;
+      let nextEndTime = editEndTime;
+
+      if (field === "startTime") {
+        nextStartTime = nextValue;
+        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
+          const duration = Math.max(
+            15,
+            differenceInMinutes(parseISO(event.end), parseISO(event.start)),
+          );
+          const nextEnd = addMinutesToTimeValue(
+            nextDate,
+            nextStartTime,
+            duration,
+          );
+          nextEndDate = nextEnd.date;
+          nextEndTime = nextEnd.time;
+        }
+      } else {
+        nextEndTime = nextValue;
+        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
+          const nextEnd = addMinutesToTimeValue(nextDate, nextEndTime, 24 * 60);
+          nextEndDate = nextEnd.date;
+        }
+      }
+
+      setEditDate(nextDate);
+      setEditEndDate(nextEndDate);
+      setEditStartTime(nextStartTime);
+      setEditEndTime(nextEndTime);
+      saveTimeValues({
+        date: nextDate,
+        endDate: nextEndDate,
+        startTime: nextStartTime,
+        endTime: nextEndTime,
+        timezone: editTimezone,
+      });
+    },
+    [
+      editDate,
+      editEndDate,
+      editStartTime,
+      editEndTime,
+      editTimezone,
+      event.end,
+      event.start,
+      saveTimeValues,
+    ],
+  );
+
+  const handleInlineDateChange = useCallback(
+    (field: "date" | "endDate", nextValue: string) => {
+      const nextDate = field === "date" ? nextValue : editDate;
+      const nextEndDate =
+        field === "endDate"
+          ? nextValue
+          : nextValue > editEndDate
+            ? nextValue
+            : editEndDate;
+      setEditDate(nextDate);
+      setEditEndDate(nextEndDate < nextDate ? nextDate : nextEndDate);
+      saveTimeValues({
+        date: nextDate,
+        endDate: nextEndDate < nextDate ? nextDate : nextEndDate,
+        startTime: editStartTime,
+        endTime: editEndTime,
+        timezone: editTimezone,
+      });
+    },
+    [
+      editDate,
+      editEndDate,
+      editEndTime,
+      editStartTime,
+      editTimezone,
+      saveTimeValues,
+    ],
+  );
+
+  const handleInlineTimezoneChange = useCallback(
+    (nextTimezone: string) => {
+      setEditTimezone(nextTimezone);
+      saveTimeValues({
+        date: editDate,
+        endDate: editEndDate,
+        startTime: editStartTime,
+        endTime: editEndTime,
+        timezone: nextTimezone,
+      });
+    },
+    [editDate, editEndDate, editEndTime, editStartTime, saveTimeValues],
+  );
+
+  const schedulingAttendees = useMemo(
+    () =>
+      (event.attendees ?? [])
+        .filter((attendee) => {
+          const email = attendee.email.toLowerCase();
+          return !attendee.self && email !== event.accountEmail?.toLowerCase();
+        })
+        .map((attendee) => ({
+          email: attendee.email,
+          displayName: attendee.displayName,
+          photoUrl: attendee.photoUrl,
+          optional: attendee.optional === true ? true : undefined,
+        })),
+    [event.accountEmail, event.attendees],
+  );
+  const findTimeTimezone =
+    editTimezone || event.startTimeZone || getLocalTimezone();
+  const findTimeDurationMinutes = Math.max(
+    5,
+    differenceInMinutes(parseISO(event.end), parseISO(event.start)),
+  );
+
+  const handleSelectFindTimeSlot = useCallback(
+    (slot: FindTimeSlot) => {
+      setEditDate(toDateInputValue(slot.start, findTimeTimezone));
+      setEditEndDate(toDateInputValue(slot.end, findTimeTimezone));
+      setEditStartTime(toTimeInputValue(slot.start, findTimeTimezone));
+      setEditEndTime(toTimeInputValue(slot.end, findTimeTimezone));
+      setEditTimezone(findTimeTimezone);
+      setEditingField(null);
+      setFindTimeOpen(false);
+      saveField({
+        start: slot.start,
+        end: slot.end,
+        allDay: false,
+        startTimeZone: findTimeTimezone,
+        endTimeZone: findTimeTimezone,
+        scope: isRecurringEvent ? editTimeScope : "single",
+      });
+    },
+    [editTimeScope, findTimeTimezone, isRecurringEvent, saveField],
+  );
+
+  const handleSaveRecurrence = useCallback(
+    (preset: RecurrencePreset) => {
+      const recurrence = buildRecurrenceRules(
+        preset,
+        masterEvent.data?.start || event.start,
+        masterEvent.data?.startTimeZone || event.startTimeZone || editTimezone,
+      );
+      if (!recurrence) {
+        toast.error(t("eventForm.customRepeatGoogleCalendar"));
+        return;
+      }
+      saveField({
+        recurrence,
+        scope: isRecurringEvent ? "all" : "single",
+      });
+    },
+    [
+      editTimezone,
+      event.start,
+      event.startTimeZone,
+      masterEvent.data?.start,
+      masterEvent.data?.startTimeZone,
+      isRecurringEvent,
+      saveField,
+      t,
+    ],
+  );
+
+  const handleSaveCustomRecurrence = useCallback(
+    (draft: CustomRecurrenceDraft) => {
+      saveField({
+        recurrence: buildCustomRecurrenceRules(draft),
+        scope: isRecurringEvent ? "all" : "single",
+      });
+    },
+    [isRecurringEvent, saveField],
+  );
+
+  const handleAddAttendee = useCallback(
+    (attendee: AttendeeRecipient) => {
+      const email = attendee.email.trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+
+      const existing = event.attendees || [];
+      if (existing.some((a) => a.email.toLowerCase() === email)) return;
+
+      const attendeeUpdate = {
+        email,
+        displayName: attendee.displayName,
+        photoUrl: attendee.photoUrl,
+        ...(attendee.optional === true ? { optional: true as const } : {}),
+      };
+
+      if (isDraft) {
+        saveField({ attendees: [...existing, attendeeUpdate] });
+      } else {
+        saveField({ addAttendees: [attendeeUpdate] });
+      }
+    },
+    [event.attendees, isDraft, saveField],
+  );
+
+  const handleToggleAttendeeOptional = useCallback(
+    (email: string, optional: boolean) => {
+      const existing = event.attendees || [];
+      const key = email.trim().toLowerCase();
+      if (!existing.some((attendee) => attendee.email.toLowerCase() === key)) {
+        return;
+      }
+      saveField({
+        attendees: existing.map((attendee) =>
+          attendee.email.toLowerCase() === key
+            ? {
+                ...attendee,
+                optional: optional ? true : undefined,
+              }
+            : attendee,
+        ),
+      });
+    },
+    [event.attendees, saveField],
+  );
+
+  const handleSaveMeetingLink = useCallback(() => {
+    const url = editMeetingLink.trim();
+    let saved = false;
+    if (url) {
+      // Save meeting link as location if no location exists, otherwise as description addendum
+      if (!event.location) {
+        saved = saveField({ location: url });
+        setEditLocation(url);
+      } else {
+        const desc = event.description ? `${event.description}\n\n${url}` : url;
+        saved = saveField({ description: desc });
+        setEditDescription(desc);
+      }
+    }
+    setEditMeetingLink("");
+    setEditingField(null);
+    return saved;
+  }, [editMeetingLink, event.location, event.description, saveField]);
+
+  // If in sidebar mode, clicking the trigger opens the sidebar instead of popover
+  const handleTriggerClick = useCallback(() => {
+    setFocusedEvent(event);
+    if (eventDetailSidebar && !isNewEventRef.current && !isDraft) {
+      setSidebarEvent(event);
+    }
+  }, [eventDetailSidebar, event, isDraft, setSidebarEvent, setFocusedEvent]);
+
+  const handlePinToSidebar = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      requestAnimationFrame(() => {
+        setSidebarEvent(event);
+        setEventDetailSidebar(true);
+      });
+    },
+    [event, setEventDetailSidebar, setSidebarEvent],
+  );
+
+  const handleCreateDraft = useCallback(() => {
+    if (!onDraftCreate) return;
+    if (!isWorkingLocationDraftReadyToCreate(event)) return;
+    const title = editingTitle.trim();
+    const updates = isEditingTitle && title ? { title } : undefined;
+    if (updates) {
+      onTitleSave?.(event.id, updates.title, event.accountEmail);
+      setIsEditingTitle(false);
+      isNewEventRef.current = false;
+    }
+    onDraftCreate(event.id, updates);
+  }, [editingTitle, event, isEditingTitle, onDraftCreate, onTitleSave]);
+
+  // Keyboard shortcut: Cmd+J to join meeting when popover is open
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!open) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === "j" && meetingLink) {
+        e.preventDefault();
+        window.open(meetingLink.url, "_blank");
+      }
+    },
+    [open, meetingLink],
+  );
+
+  useEffect(() => {
+    if (open) {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [open, handleKeyDown]);
+
+  const locationIsUrl = event.location ? isUrl(event.location) : false;
+  const locationIsMeetingLink =
+    meetingLink && event.location?.includes(meetingLink.url);
+  const handleOpenChange = useCallback(
+    (newOpen: boolean) => {
+      const isPopoverSuppressed =
+        eventDetailSidebar && !isNewEventRef.current && !isDraft;
+      if (newOpen && isPopoverSuppressed) return;
+      if (!newOpen && open) {
+        setShowMoreOptions(false);
+        setShowConferencingOptions(false);
+        const trimmedTitle = editingTitle.trim();
+        let savedPendingChange = false;
+        // Popover is closing — handle saves
+        if (isEditingTitle) {
+          if (trimmedTitle) {
+            onTitleSave?.(event.id, trimmedTitle, event.accountEmail);
+            isNewEventRef.current = false;
+            savedPendingChange = true;
+          }
+          setIsEditingTitle(false);
+        }
+        // Save any pending field edits before deciding whether an untouched
+        // new draft should be discarded.
+        if (editingField === "description") {
+          savedPendingChange = handleSaveDescription() || savedPendingChange;
+        } else if (editingField === "location") {
+          savedPendingChange = handleSaveLocation() || savedPendingChange;
+        } else if (editingField === "meetingLink") {
+          savedPendingChange = handleSaveMeetingLink() || savedPendingChange;
+        } else if (editingField === "reminders") {
+          savedPendingChange = handleSaveReminders() || savedPendingChange;
+        } else if (editingField === "attachments") {
+          savedPendingChange = handleSaveAttachments() || savedPendingChange;
+        }
+        if (
+          isNewEventRef.current &&
+          !savedPendingChange &&
+          !trimmedTitle &&
+          onDismissNew
+        ) {
+          onDismissNew(event.id, event.accountEmail);
+        }
+
+        setEditingField(null);
+        isNewEventRef.current = false;
+      }
+      setOpen(newOpen);
+    },
+    [
+      open,
+      isEditingTitle,
+      editingTitle,
+      event.id,
+      event.accountEmail,
+      onTitleSave,
+      onDismissNew,
+      editingField,
+      handleSaveDescription,
+      handleSaveLocation,
+      handleSaveMeetingLink,
+      handleSaveReminders,
+      handleSaveAttachments,
+      eventDetailSidebar,
+      isDraft,
+    ],
+  );
+
+  const popoverOpen =
+    eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open;
+  const sidebarDetailsOpen =
+    eventDetailSidebar &&
+    !isNewEventRef.current &&
+    !isDraft &&
+    sidebarEvent?.id === event.id &&
+    sidebarEvent.accountEmail === event.accountEmail;
+  const detailsOpen = popoverOpen || sidebarDetailsOpen;
+  const previousDetailsOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (previousDetailsOpenRef.current === detailsOpen) return;
+    previousDetailsOpenRef.current = detailsOpen;
+    onOpenChange?.(detailsOpen);
+  }, [detailsOpen, onOpenChange]);
+
+  useEffect(() => {
+    const token = popoverTokenRef.current;
+    if (!token) return;
+    setEventDetailPopoverOpen(token, popoverOpen);
+    return () => setEventDetailPopoverOpen(token, false);
+  }, [popoverOpen]);
+
+  const repeatControl = canEditRecurrence ? (
+    <RepeatPicker
+      compact
+      preset={getRecurrencePreset(recurrenceRules)}
+      referenceDate={event.start}
+      recurrence={recurrenceRules}
+      onChange={handleSaveRecurrence}
+      onCustomChange={handleSaveCustomRecurrence}
+    />
+  ) : null;
+
+  return (
+    <Popover open={popoverOpen} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild onClick={handleTriggerClick}>
+        {children}
+      </PopoverTrigger>
+      <PopoverContent
+        align={isMobile ? "center" : "start"}
+        side={isMobile ? "bottom" : (popoverSide ?? "right")}
+        sideOffset={isMobile ? 6 : 8}
+        collisionPadding={12}
+        className={`${eventPopoverShell} ${eventPopoverWidth}`}
+        onClick={(e) => e.stopPropagation()}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          if (isEditingTitle) {
+            requestAnimationFrame(() => titleInputRef.current?.focus());
+          }
+        }}
+        onInteractOutside={(e) => {
+          if (findTimeOpen) {
+            e.preventDefault();
+            return;
+          }
+          // Don't close if clicking inside an Apollo popover (portaled to body)
+          const target = e.target as HTMLElement;
+          if (
+            target.closest("[data-apollo-popover]") ||
+            target.closest("[data-attendee-autocomplete]") ||
+            target.closest("[data-time-picker-popover]")
+          ) {
+            e.preventDefault();
+            return;
+          }
+          // Mark that a popover was dismissed so the grid suppresses time-slot creation
+          markPopoverInteractOutside(e.target);
+        }}
+      >
+        <TooltipProvider>
+          {/* Header */}
+          <div className={eventPopoverHeader}>
+            <div className={eventPopoverHeaderTitle}>
+              <span>
+                {isWorkingLocation
+                  ? t("eventForm.workingLocation")
+                  : isOutOfOffice
+                    ? t("eventForm.outOfOffice")
+                    : t("eventForm.event")}
+              </span>
+            </div>
+            <div className="flex items-center gap-0.5">
+              {!isOverlay && !isWorkingLocation && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={eventPopoverHeaderButton}
+                      aria-label={t("eventForm.eventOptions")}
+                      aria-expanded={showMoreOptions}
+                      aria-controls={`event-more-options-${event.id}`}
+                      onClick={() => setShowMoreOptions((current) => !current)}
+                    >
+                      <IconDots className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{t("eventForm.eventOptions")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {!isDraft && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={eventPopoverHeaderButton}
+                      onClick={handlePinToSidebar}
+                    >
+                      <IconLayoutSidebarRight className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{t("eventForm.openInSidebar")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className={eventPopoverHeaderButton}
+                onClick={() => handleOpenChange(false)}
+              >
+                <IconX className="size-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div ref={detailsScrollRef} className="flex-1 overflow-y-auto">
+            <div className="px-2 py-2">
+              {/* Title — always editable */}
+              {isEditingTitle && !isWorkingLocation && !isOverlay ? (
+                <input
+                  ref={titleInputRef}
+                  value={editingTitle}
+                  onChange={(e) => setEditingTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const trimmed = editingTitle.trim();
+                      if (trimmed) {
+                        onTitleSave?.(event.id, trimmed, event.accountEmail);
+                        isNewEventRef.current = false;
+                      }
+                      setIsEditingTitle(false);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      if (isNewEventRef.current && onDismissNew) {
+                        handleOpenChange(false);
+                      } else {
+                        setEditingTitle(getEditableEventTitle(event));
+                        setIsEditingTitle(false);
+                      }
+                    } else if (
+                      (e.key === "Backspace" || e.key === "Delete") &&
+                      editingTitle === "" &&
+                      isNewEventRef.current &&
+                      onDismissNew
+                    ) {
+                      e.preventDefault();
+                      handleOpenChange(false);
+                    }
+                    e.stopPropagation();
+                  }}
+                  onBlur={() => {
+                    const trimmed = editingTitle.trim();
+                    if (trimmed && trimmed !== getEditableEventTitle(event)) {
+                      onTitleSave?.(event.id, trimmed, event.accountEmail);
+                      isNewEventRef.current = false;
+                    }
+                    setIsEditingTitle(false);
+                  }}
+                  placeholder={t("eventForm.addTitle")}
+                  className="w-full rounded-md bg-muted/40 px-2 py-1.5 font-normal text-foreground outline-none placeholder:text-muted-foreground/60 focus:ring-0"
+                />
+              ) : (
+                <h2
+                  className={`rounded-md px-2 py-1.5 font-normal text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
+                  onClick={() => {
+                    if (isOverlay || isWorkingLocation) return;
+                    setEditingTitle(getEditableEventTitle(event));
+                    setIsEditingTitle(true);
+                  }}
+                >
+                  {getWorkingLocationTitle(event, workingLocationLabels)}
+                </h2>
+              )}
+            </div>
+
+            <div className={eventPopoverDivider} />
+
+            <div className="px-4 space-y-1">
+              {(isDraft || (!isOverlay && event.source === "google")) && (
+                <EventCalendarSelect
+                  accountEmail={
+                    isDraft ? event.accountEmail : selectedAccountEmail
+                  }
+                  onAccountChange={handleAccountChange}
+                  disabled={mutationPending}
+                />
+              )}
+
+              {/* Time, date, timezone, and repeat stay editable in place. */}
+              <div className="flex items-start gap-2 rounded-md py-1.5">
+                <IconClock className="mt-1 size-[18px] shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  {isWorkingLocation && (
+                    <div className="mb-1 flex items-center gap-2">
+                      <Switch
+                        id={`working-location-all-day-${event.id}`}
+                        checked={event.allDay}
+                        onCheckedChange={handleWorkingLocationAllDayChange}
+                        disabled={mutationPending}
+                      />
+                      <Label
+                        htmlFor={`working-location-all-day-${event.id}`}
+                        className="text-xs"
+                      >
+                        {t("eventForm.allDay")}
+                      </Label>
+                    </div>
+                  )}
+                  {event.allDay ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {!isWorkingLocation && (
+                        <span className="text-muted-foreground">
+                          {t("eventForm.allDay")}
+                        </span>
+                      )}
+                      <DatePickerPopover
+                        value={editDate}
+                        label={t("eventForm.startDate")}
+                        onChange={(value) =>
+                          handleInlineDateChange("date", value)
+                        }
+                      />
+                      {(isWorkingLocation || editEndDate !== editDate) && (
+                        <>
+                          <span className="text-muted-foreground/50">→</span>
+                          <DatePickerPopover
+                            value={editEndDate}
+                            label={t("eventForm.endDate")}
+                            onChange={(value) =>
+                              handleInlineDateChange("endDate", value)
+                            }
+                          />
+                        </>
+                      )}
+                      <span className="ml-auto">{repeatControl}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-baseline gap-1">
+                        <TimePickerPopover
+                          value={editStartTime}
+                          label={t("eventForm.start")}
+                          onChange={(value) =>
+                            handleInlineTimeChange("startTime", value)
+                          }
+                        />
+                        <span className="text-muted-foreground/50">→</span>
+                        <TimePickerPopover
+                          value={editEndTime}
+                          label={t("eventForm.end")}
+                          getOptionMeta={(value) => {
+                            const [hour, minute] = value.split(":").map(Number);
+                            const [startHour, startMinute] = editStartTime
+                              .split(":")
+                              .map(Number);
+                            const duration =
+                              hour * 60 +
+                              minute -
+                              (startHour * 60 + startMinute) +
+                              (editEndDate !== editDate ? 24 * 60 : 0);
+                            if (duration <= 0) return undefined;
+                            if (duration < 60) return `${duration}min`;
+                            const hours = Math.floor(duration / 60);
+                            const minutes = duration % 60;
+                            return minutes
+                              ? `${hours}h ${minutes}min`
+                              : `${hours}h`;
+                          }}
+                          onChange={(value) =>
+                            handleInlineTimeChange("endTime", value)
+                          }
+                        />
+                        <span className="text-muted-foreground/70">
+                          {formatDuration(event.start, event.end)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                        <DatePickerPopover
+                          value={editDate}
+                          label={t("eventForm.startDate")}
+                          onChange={(value) =>
+                            handleInlineDateChange("date", value)
+                          }
+                        />
+                        {editEndDate !== editDate && (
+                          <>
+                            <span className="text-muted-foreground/50">→</span>
+                            <DatePickerPopover
+                              value={editEndDate}
+                              label={t("eventForm.endDate")}
+                              onChange={(value) =>
+                                handleInlineDateChange("endDate", value)
+                              }
+                            />
+                          </>
+                        )}
+                        <span className="ml-auto flex items-center gap-1">
+                          {repeatControl}
+                          <TimezonePickerPopover
+                            compact
+                            value={editTimezone}
+                            label={t("eventForm.timezone")}
+                            onChange={handleInlineTimezoneChange}
+                          />
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {!event.allDay && !isOverlay && !isWorkingLocation && (
+                <div className="flex items-center gap-2 py-1">
+                  <div className="size-[18px] shrink-0" />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-[30px] flex-1 justify-center gap-1.5 px-2 font-medium"
+                    disabled={mutationPending}
+                    onClick={() => setFindTimeOpen(true)}
+                  >
+                    <IconCalendarTime className="size-4" />
+                    {t("eventForm.findTime")}
+                  </Button>
+                </div>
+              )}
+
+              {!event.allDay && !isOverlay && !isWorkingLocation && (
+                <FindTimeTakeover
+                  open={findTimeOpen}
+                  onOpenChange={setFindTimeOpen}
+                  title={t("eventForm.findTime")}
+                  subtitle={event.title}
+                  date={
+                    editDate || toDateInputValue(event.start, findTimeTimezone)
+                  }
+                  timezone={findTimeTimezone}
+                  durationMinutes={findTimeDurationMinutes}
+                  attendees={schedulingAttendees}
+                  accountEmail={event.accountEmail}
+                  selectedStart={event.start}
+                  selectedEnd={event.end}
+                  ignoreStart={event.start}
+                  ignoreEnd={event.end}
+                  onSelectSlot={handleSelectFindTimeSlot}
+                  onAddAttendee={handleAddAttendee}
+                />
+              )}
+
+              {isWorkingLocation && (
+                <WorkingLocationEditor
+                  event={event}
+                  isRecurring={isRecurringEvent}
+                  isDraft={isDraft}
+                  readOnly={isOverlay}
+                  disabled={mutationPending}
+                  onSave={handleSaveWorkingLocation}
+                />
+              )}
+            </div>
+
+            {!isWorkingLocation && (
+              <>
+                {/* Separator */}
+                <div className={eventPopoverDivider} />
+
+                {/* Attendees — always shown */}
+                {event.attendees && event.attendees.length > 0 ? (
+                  <EventAttendeesSection
+                    event={event}
+                    canEditOptional={!isOverlay}
+                    onToggleOptional={handleToggleAttendeeOptional}
+                  />
+                ) : null}
+
+                {/* Add guest input */}
+                {!isOverlay && (
+                  <div className="px-4 py-1">
+                    <div className="flex items-center gap-2">
+                      <IconPlus className="size-[18px] shrink-0 text-muted-foreground/40" />
+                      <AttendeeAutocomplete
+                        selectedEmails={(event.attendees || []).map(
+                          (attendee) => attendee.email,
+                        )}
+                        onAdd={handleAddAttendee}
+                        placeholder={t("eventForm.addGuest")}
+                        variant="inline"
+                        showChips={false}
+                        showAddButton
+                        inputClassName="text-foreground placeholder:text-muted-foreground/40"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Research Meeting button */}
+                {event.attendees && event.attendees.length > 0 && (
+                  <>
+                    <div className={eventPopoverDivider} />
+                    <div className="px-4 py-1">
+                      <ResearchMeetingButton event={event} />
+                    </div>
+                  </>
+                )}
+
+                <ExtensionSlot
+                  id="calendar.event-detail.bottom"
+                  context={buildEventDetailSlotContext(event)}
+                  className="my-2 border-t border-border/60 px-4 pt-2"
+                />
+              </>
+            )}
+
+            {/* Meeting link */}
+            {!isWorkingLocation &&
+              (meetingLink ? (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="px-4 py-1.5">
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={meetingLink.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`${eventPopoverPrimaryAction} relative min-w-0 flex-1 bg-conference text-conference-foreground hover:bg-conference/90`}
+                      >
+                        <IconVideo className="mr-2 size-4 opacity-80" />
+                        <span>{getMeetingLabel(meetingLink.type, t)}</span>
+                        <span className="absolute right-2 hidden items-center gap-1 opacity-70 sm:flex">
+                          <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
+                            {shortcutModifierLabel()}
+                          </kbd>
+                          <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
+                            J
+                          </kbd>
+                        </span>
+                      </a>
+                      {canRemoveGoogleMeet && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-9 shrink-0"
+                          aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
+                          title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
+                          disabled={mutationPending}
+                          onClick={handleRemoveGoogleMeet}
+                        >
+                          <IconX className="size-4" />
+                        </Button>
+                      )}
+                    </div>
+                    {(meetingLink.pin || meetingLink.passcode) && (
+                      <div className="mt-1.5 text-xs text-muted-foreground/60">
+                        {meetingLink.pin && (
+                          <span>
+                            {t("eventForm.pin", { pin: meetingLink.pin })}
+                          </span>
+                        )}
+                        {meetingLink.pin && meetingLink.passcode && (
+                          <span className="mx-1">&middot;</span>
+                        )}
+                        {meetingLink.passcode && (
+                          <span>
+                            {t("eventForm.passcode", {
+                              passcode: meetingLink.passcode,
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : pendingConferenceProvider ? (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="px-4 py-1.5">
+                    <div className="flex h-[30px] w-full items-center rounded-md bg-conference pl-2.5 pr-1 text-conference-foreground">
+                      {pendingConferenceProvider === "zoom" ? (
+                        <IconBrandZoom className="mr-2 size-4 opacity-90" />
+                      ) : (
+                        <IconVideo className="mr-2 size-4 opacity-90" />
+                      )}
+                      <span className="font-medium">
+                        {pendingConferenceProvider === "zoom"
+                          ? t("eventForm.zoom")
+                          : t("eventForm.googleMeet")}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleRemovePendingConference}
+                        aria-label={`Remove ${
+                          pendingConferenceProvider === "zoom"
+                            ? t("eventForm.zoom")
+                            : t("eventForm.googleMeet")
+                        }`}
+                        className="ml-auto rounded-md p-1 text-conference-foreground/70 transition-colors hover:bg-conference-foreground/15 hover:text-conference-foreground"
+                      >
+                        <IconX className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <p className="mt-1.5 text-xs text-muted-foreground/60">
+                      {t("eventForm.conferencingLinkOnSave")}
+                    </p>
+                  </div>
+                </>
+              ) : !isOverlay ? (
+                <>
+                  {showConferencingOptions ? (
+                    pendingVideoProvider ? (
+                      <div className="px-4 py-1.5">
+                        <MeetingLinkSkeleton provider={pendingVideoProvider} />
+                      </div>
+                    ) : editingField === "meetingLink" ? (
+                      <div className="px-4 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <IconVideo className="size-[18px] shrink-0 text-muted-foreground" />
+                          <input
+                            ref={meetingLinkRef}
+                            value={editMeetingLink}
+                            onChange={(e) => setEditMeetingLink(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSaveMeetingLink();
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                setEditMeetingLink("");
+                                setEditingField(null);
+                              }
+                              e.stopPropagation();
+                            }}
+                            onBlur={handleSaveMeetingLink}
+                            placeholder={t("eventForm.pasteMeetingLink")}
+                            className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs"
+                            disabled={mutationPending}
+                            onClick={handleAddGoogleMeet}
+                          >
+                            <IconVideo className="h-3.5 w-3.5" />
+                            {t("eventForm.meet")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs"
+                            disabled={mutationPending}
+                            onClick={handleAddZoom}
+                          >
+                            <IconBrandZoom className="h-3.5 w-3.5" />
+                            {t("eventForm.zoom")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
+                            onClick={() => setEditingField("meetingLink")}
+                          >
+                            <IconPlus className="h-3.5 w-3.5" />
+                            {t("eventForm.pasteLink")}
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-md px-4 py-1.5 text-left text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
+                      onClick={() => setShowConferencingOptions(true)}
+                    >
+                      <IconVideo className="h-4 w-4 shrink-0" />
+                      {t("bookingLinks.conferencing")}
+                    </button>
+                  )}
+                </>
+              ) : null)}
+
+            {/* Attachments */}
+            {!isOverlay &&
+              !isWorkingLocation &&
+              (showMoreOptions ||
+                editingField === "attachments" ||
+                (event.attachments?.length ?? 0) > 0) && (
+                <>
+                  <div className={eventPopoverDivider} />
+                  {editingField === "attachments" ? (
+                    <div className="px-4 py-1.5">
+                      <div className="mb-2 flex items-center gap-2">
+                        <IconPaperclip className="size-[18px] shrink-0 text-muted-foreground" />
+                        <span className="font-medium text-foreground">
+                          {t("eventForm.attachments")}
+                        </span>
+                      </div>
+                      <AttachmentControls
+                        idPrefix={`event-${event.id}`}
+                        attachments={editAttachments}
+                        onChange={setEditAttachments}
+                      />
+                      <div className="mt-2 flex justify-end gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => {
+                            setEditAttachments(
+                              attachmentsToDrafts(event.attachments),
+                            );
+                            setEditingField(null);
+                          }}
+                        >
+                          {t("eventForm.cancel")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-6 text-xs"
+                          disabled={mutationPending}
+                          onClick={handleSaveAttachments}
+                        >
+                          {t("eventForm.save")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : event.attachments && event.attachments.length > 0 ? (
+                    <div className="px-4 py-1.5 space-y-1">
+                      {event.attachments.map((att, i) => (
+                        <a
+                          key={i}
+                          href={att.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted/50 group"
+                        >
+                          {att.iconLink ? (
+                            <img
+                              src={att.iconLink}
+                              alt=""
+                              className="h-4 w-4 shrink-0"
+                            />
+                          ) : (
+                            <IconFileText className="size-[18px] shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="truncate text-foreground">
+                            {att.title}
+                          </span>
+                          <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                        </a>
+                      ))}
+                      <button
+                        type="button"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                        onClick={() => {
+                          setEditAttachments(
+                            attachmentsToDrafts(event.attachments),
+                          );
+                          setEditingField("attachments");
+                        }}
+                      >
+                        <IconPlus className="h-4 w-4" />
+                        {t("eventForm.addAttachment")}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-4 py-1.5 text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
+                      onClick={() => {
+                        setEditAttachments([attachmentsToDrafts(undefined)[0]]);
+                        setEditingField("attachments");
+                      }}
+                    >
+                      <IconPaperclip className="size-[18px] shrink-0 text-muted-foreground/40" />
+                      {t("eventForm.addAttachment")}
+                    </button>
+                  )}
+                </>
+              )}
+
+            {!isWorkingLocation && (
+              <>
+                {/* Location — always shown, editable */}
+                <div className={eventPopoverDivider} />
+                {editingField === "location" ? (
+                  <div className="flex items-start gap-2 px-4 py-1.5">
+                    <IconMapPin className="mt-1.5 size-[18px] shrink-0 text-muted-foreground" />
+                    <input
+                      ref={locationRef}
+                      value={editLocation}
+                      onChange={(e) => setEditLocation(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleSaveLocation();
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setEditLocation(editableLocationValue);
+                          setEditingField(null);
+                        }
+                        e.stopPropagation();
+                      }}
+                      onBlur={handleSaveLocation}
+                      placeholder={t("eventForm.addLocation")}
+                      className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
+                    />
+                  </div>
+                ) : event.location && !locationIsMeetingLink ? (
+                  <div
+                    className={`flex items-start gap-2 px-4 py-1.5 ${!isOverlay ? "cursor-pointer hover:bg-muted/50 rounded-md" : ""}`}
+                    onClick={() => {
+                      if (isOverlay) return;
+                      setEditingField("location");
+                    }}
+                  >
+                    <IconMapPin className="mt-0.5 size-[18px] shrink-0 text-muted-foreground" />
+                    {locationIsUrl ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={event.location}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline truncate block max-w-full"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {event.location}
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent>{event.location}</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        {event.location}
+                      </span>
+                    )}
+                  </div>
+                ) : locationIsMeetingLink && meetingLink ? (
+                  <>
+                    <div className="flex items-start gap-2 px-4 py-1.5 rounded-md">
+                      <IconVideo className="mt-0.5 size-[18px] shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <a
+                          href={meetingLink.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block max-w-full truncate text-primary hover:underline"
+                        >
+                          {getMeetingLabel(meetingLink.type, t)}
+                        </a>
+                        <div className="text-xs text-muted-foreground">
+                          {t("eventForm.savedAsVideoLink")}
+                        </div>
+                      </div>
+                    </div>
+                    {!isOverlay && (
+                      <div
+                        className="flex items-center gap-2 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
+                        onClick={() => {
+                          setEditLocation(editableLocationValue);
+                          setEditingField("location");
+                        }}
+                      >
+                        <IconMapPin className="size-[18px] shrink-0 text-muted-foreground/40" />
+                        <span className="text-muted-foreground/40">
+                          {t("eventForm.addLocation")}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : !isOverlay ? (
+                  <div
+                    className="flex items-center gap-2 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
+                    onClick={() => {
+                      setEditLocation(
+                        locationIsMeetingLink ? "" : editableLocationValue,
+                      );
+                      setEditingField("location");
+                    }}
+                  >
+                    <IconMapPin className="size-[18px] shrink-0 text-muted-foreground/40" />
+                    <span className="text-muted-foreground/40">
+                      {t("eventForm.addLocation")}
+                    </span>
+                  </div>
+                ) : null}
+              </>
+            )}
+
+            {/* Description stays compact until the user opens the empty field. */}
+            {!isWorkingLocation && (!isOverlay || event.description) && (
+              <>
+                <div className="px-4 py-1.5">
+                  <div className="flex items-start gap-2">
+                    <IconAlignLeft className="mt-1.5 size-[18px] shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      {isOverlay ? (
+                        event.description ? (
+                          <RenderedDescription
+                            description={event.description}
+                          />
+                        ) : null
+                      ) : editingField === "description" ? (
+                        <AutoGrowTextarea
+                          value={editDescription}
+                          onChange={setEditDescription}
+                          onBlur={handleSaveDescription}
+                          onSubmit={handleSaveDescription}
+                          onEscape={() => {
+                            setEditDescription(event.description || "");
+                            setEditingField(null);
+                          }}
+                          autoFocus={editingField === "description"}
+                        />
+                      ) : event.description ? (
+                        <RenderedDescription
+                          description={event.description}
+                          editable
+                          onClick={() => setEditingField("description")}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-md text-left text-muted-foreground/60 transition-colors hover:text-foreground"
+                          onClick={() => setEditingField("description")}
+                        >
+                          {t("eventForm.description")}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Reminders */}
+            {!isWorkingLocation &&
+              (!isOverlay && editingField === "reminders" ? (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="px-4 py-1.5">
+                    <div className="mb-2 flex items-center gap-2">
+                      <IconBell className="size-[18px] shrink-0 text-muted-foreground" />
+                      <span className="font-medium text-foreground">
+                        {t("eventForm.eventAlerts")}
+                      </span>
+                    </div>
+                    <ReminderControls
+                      idPrefix={`event-${event.id}`}
+                      mode={editReminderMode}
+                      reminders={editReminders}
+                      onModeChange={setEditReminderMode}
+                      onRemindersChange={setEditReminders}
+                    />
+                    <div className="mt-2 flex justify-end gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => {
+                          const reminderState = remindersToDraftState(event);
+                          setEditReminderMode(reminderState.mode);
+                          setEditReminders(reminderState.reminders);
+                          setEditingField(null);
+                        }}
+                      >
+                        {t("eventForm.cancel")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-6 text-xs"
+                        disabled={mutationPending}
+                        onClick={handleSaveReminders}
+                      >
+                        {t("eventForm.save")}
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              ) : event.reminders && event.reminders.length > 0 ? (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="flex items-start gap-2 px-4 py-1.5">
+                    <IconBell className="mt-0.5 size-[18px] shrink-0 text-muted-foreground" />
+                    <div className="space-y-0.5">
+                      {event.reminders.map((r, i) => (
+                        <div key={i} className="text-muted-foreground">
+                          {formatReminderText(r.minutes)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : null)}
+
+            {/* Availability, visibility, and alerts */}
+            {!isWorkingLocation &&
+              (!isOverlay ? (
+                showMoreOptions ? (
+                  <>
+                    <div className={eventPopoverDivider} />
+                    <div
+                      id={`event-more-options-${event.id}`}
+                      className="px-4 py-1.5"
+                    >
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-xs text-muted-foreground">
+                            {t("eventForm.showAs")}
+                          </span>
+                          <Select
+                            value={availabilityValue}
+                            onValueChange={(value) =>
+                              handleAvailabilityChange(
+                                value as AvailabilityValue,
+                              )
+                            }
+                            disabled={mutationPending}
+                          >
+                            <SelectTrigger className="h-[30px] text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="opaque">
+                                {t("eventForm.busy")}
+                              </SelectItem>
+                              <SelectItem value="transparent">
+                                {t("eventForm.free")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs text-muted-foreground">
+                            {t("eventForm.visibility")}
+                          </span>
+                          <Select
+                            value={visibilityValue}
+                            onValueChange={(value) =>
+                              handleVisibilityChange(value as VisibilityValue)
+                            }
+                            disabled={mutationPending}
+                          >
+                            <SelectTrigger className="h-[30px] text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                {t("eventForm.default")}
+                              </SelectItem>
+                              <SelectItem value="public">
+                                {t("eventForm.public")}
+                              </SelectItem>
+                              <SelectItem value="private">
+                                {t("eventForm.private")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs text-muted-foreground">
+                            {t("eventForm.alerts")}
+                          </span>
+                          <Select
+                            value={reminderValue}
+                            onValueChange={(value) =>
+                              handleReminderChange(value as ReminderValue)
+                            }
+                            disabled={mutationPending}
+                          >
+                            <SelectTrigger className="h-[30px] text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                {t("eventForm.default")}
+                              </SelectItem>
+                              <SelectItem value="none">
+                                {t("eventForm.none")}
+                              </SelectItem>
+                              <SelectItem value="0">
+                                {t("eventForm.atStart")}
+                              </SelectItem>
+                              <SelectItem value="10">10 min</SelectItem>
+                              <SelectItem value="30">30 min</SelectItem>
+                              <SelectItem value="60">1 hour</SelectItem>
+                              <SelectItem value="1440">1 day</SelectItem>
+                              <SelectItem value="custom">
+                                {t("eventForm.customEllipsis")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : null
+              ) : event.status || event.visibility ? (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="flex items-center gap-2 px-4 py-1.5 text-muted-foreground">
+                    <div className="h-4 w-4 shrink-0" />
+                    <span>
+                      {event.transparency === "transparent"
+                        ? t("eventForm.free")
+                        : t("eventForm.busy")}
+                      {event.visibility && event.visibility !== "default"
+                        ? ` · ${event.visibility} visibility`
+                        : ""}
+                    </span>
+                  </div>
+                </>
+              ) : null)}
+
+            {/* Overlay person badge */}
+            {event.overlayEmail && (
+              <>
+                <div className={eventPopoverDivider} />
+                <div className="flex items-center gap-2 px-4 py-1.5">
+                  <span
+                    aria-hidden="true"
+                    className="ml-1 size-2 shrink-0 rounded-full ring-1 ring-border"
+                    style={{ backgroundColor: event.ownerColor }}
+                  />
+                  <span className="text-muted-foreground">
+                    {t("eventForm.viewingOwnerCalendar", {
+                      owner: ownerLabel,
+                    })}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {(event.calendarPrimary === false || event.calendarReadOnly) &&
+              event.calendarName &&
+              !event.overlayEmail && (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="flex items-center gap-2 px-4 py-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="ml-1 size-2 shrink-0 rounded-full ring-1 ring-border"
+                      style={{ backgroundColor: event.color }}
+                    />
+                    <span className="truncate text-muted-foreground">
+                      {t("eventForm.viewingOwnerCalendar", {
+                        owner: `${event.calendarName} · ${event.accountEmail ?? "Google"}`,
+                      })}
+                    </span>
+                  </div>
+                </>
+              )}
+
+            {/* Bottom padding */}
+            <div className="h-3" />
+          </div>
+
+          {/* Actions */}
+          {!isOverlay && (
+            <div className="shrink-0 border-t border-border px-4 py-2.5 flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-[26px] text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                disabled={mutationPending}
+                onClick={() => {
+                  if (isDraft) onDraftDiscard?.(event.id);
+                  else onDelete(event.id);
+                  handleOpenChange(false);
+                }}
+              >
+                {isDraft ? t("eventForm.discard") : t("eventForm.delete")}
+              </Button>
+              {event.htmlLink && !isDraft && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto h-[26px] gap-1.5"
+                >
+                  <a
+                    href={event.htmlLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <IconExternalLink className="h-3.5 w-3.5" />
+                    {t("eventForm.googleCalendar")}
+                  </a>
+                </Button>
+              )}
+              {isDraft && (
+                <Button
+                  size="sm"
+                  className="ml-auto h-[26px]"
+                  disabled={!isWorkingLocationDraftReadyToCreate(event)}
+                  onClick={handleCreateDraft}
+                >
+                  {event.attendees?.length
+                    ? t("eventForm.save")
+                    : t("eventForm.createEvent")}
+                </Button>
+              )}
+            </div>
+          )}
+        </TooltipProvider>
+      </PopoverContent>
+      {guestNotificationDialog}
+    </Popover>
+  );
+}

@@ -1,0 +1,180 @@
+---
+title: "Contexte d’exécution"
+description: "Le second argument ctx passé à run() : la signature complète de ActionRunContext et l’union des appelants, pour le suivi, l’attribution des automatisations, et les préoccupations transverses."
+---
+
+# Contexte d’exécution
+
+`run` reçoit un second argument optionnel, `ctx`, qui porte l’identité résolue de la requête et la surface qui a invoqué l’action. Lisez-le au lieu d’appeler `getRequestUserEmail()` / `getRequestOrgId()` à la main, et transmettez le `ctx` entier au suivi :
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+La plupart des actions ne lisent que `ctx?.userEmail` et `ctx?.orgId`, le [découpage de contrôle d’accès](/docs/actions-access-control#access-control) utilisé dans presque chaque action réelle. Le reste de cette page couvre des préoccupations transverses comme le suivi et l’attribution des automatisations, dont moins d’actions ont besoin.
+
+## L’argument `ctx` {#ctx}
+
+`ctx` porte deux types d’information : l’identité résolue de la requête (`userEmail`, `orgId`) présente sur presque chaque appel, et des métadonnées sur la surface qui a invoqué l’action (`caller`, plus des champs spécifiques à la surface comme `threadId` ou `automation` qui ne sont peuplés que pour certains appelants). La forme complète, comme second argument de `run()` :
+
+<Signature
+  id="doc-block-actions-run-context-1"
+  name="run"
+  params={[
+    {
+      name: "args",
+      type: "TInput",
+      description: "L’entrée validée, analysée à partir de `schema`.",
+    },
+    {
+      name: "ctx",
+      type: "ActionRunContext",
+      optional: true,
+      description:
+        "L’identité résolue de la requête et la surface qui a invoqué l’action. Sûr avec undefined : un gestionnaire `run(args)` à un seul argument reste valide.",
+      fields: [
+        {
+          name: "userEmail",
+          type: "string",
+          optional: true,
+          description:
+            "Utilisateur résolu de la requête. **Jamais remplacé par défaut par une identité de développement** : `undefined` quand la requête n’a pas d’utilisateur authentifié. Appliquez votre propre repli si vous en avez besoin d’un.",
+        },
+        {
+          name: "orgId",
+          type: "string | null",
+          description:
+            "Identifiant d’organisation résolu, ou `null` quand la requête n’a pas d’organisation.",
+        },
+        {
+          name: "caller",
+          type: "ActionCaller",
+          description:
+            "Comment l’action a été invoquée. Voir [l’union des appelants](#caller) ci-dessous.",
+        },
+        {
+          name: "send",
+          type: "(event) => void",
+          optional: true,
+          description:
+            'Émet un événement SSE vers le client. Présent uniquement à l’intérieur de la boucle d’outil de l’agent (`caller: "tool"`). `undefined` ailleurs.',
+        },
+        {
+          name: "attachments",
+          type: "AgentChatAttachment[]",
+          optional: true,
+          description:
+            'Fichiers, images, et blocs de texte collés soumis avec le tour d’agent actuel. Peuplé uniquement quand `caller: "tool"`. `undefined` sur toutes les autres surfaces.',
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description:
+            'S’active quand l’exécution est interrompue en douceur par délai, annulée, ou que le serveur s’arrête. Peuplé uniquement quand `caller: "tool"`. Les actions longues peuvent l’observer pour s’annuler tôt plutôt que d’attendre le délai d’expiration strict de 60 s par outil.',
+        },
+        {
+          name: "actionName",
+          type: "string",
+          optional: true,
+          description:
+            "La clé de registre de l’action appelée (par ex. `delete-recording`), définie à chaque site de dispatch afin que des préoccupations transverses comme le journal d’audit puissent attribuer l’appel. `undefined` pour les appels `run()` programmatiques directs qui contournent le dispatcher.",
+        },
+        {
+          name: "threadId",
+          type: "string",
+          optional: true,
+          description:
+            'Le fil de conversation de l’agent qui a déclenché cet appel. Peuplé uniquement quand `caller: "tool"`, afin que le journal d’audit puisse relier une mutation à l’exécution d’agent exacte.',
+        },
+        {
+          name: "runId",
+          type: "string",
+          optional: true,
+          description:
+            'La tentative d’exécution de l’agent qui a déclenché cet appel. Peuplé uniquement quand `caller: "tool"`.',
+        },
+        {
+          name: "turnId",
+          type: "string",
+          optional: true,
+          description:
+            'Le tour précis, à l’intérieur de cette exécution, qui a déclenché cet appel. Peuplé uniquement quand `caller: "tool"`.',
+        },
+        {
+          name: "automation",
+          type: "ActionAutomationContext",
+          optional: true,
+          description:
+            'Présent uniquement quand `caller: "automation"`. Porte `triggerId`, `triggerName`, et un `policyId` optionnel pour l’automatisation déclenchée par événement qui a dispatché cet appel.',
+        },
+        {
+          name: "networkProtocol",
+          type: '"a2a" | "mcp" | "provider-api"',
+          optional: true,
+          description:
+            "Quel protocole d’appel délégué cette requête a emprunté. Défini uniquement pour ces chemins de dispatch direct.",
+        },
+        {
+          name: "networkId",
+          type: "string",
+          optional: true,
+          description:
+            "Un identifiant de corrélation pour cet appel délégué, par ex. l’id du JWT de délégation A2A.",
+        },
+        {
+          name: "networkPeer",
+          type: "string",
+          optional: true,
+          description: "L’identité du pair appelant pour cet appel délégué.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TReturn> | TReturn",
+    description:
+      "Le résultat de l’action, validé contre `outputSchema` si un est défini.",
+  }}
+/>
+
+`run()` reste rétrocompatible : les gestionnaires existants à un argument et les gestionnaires qui ne déstructurent que `{ send }` continuent de fonctionner sans changement.
+
+### L’union `caller` {#caller}
+
+`caller` est l’union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"` :
+
+| `caller`       | Défini quand…                                                                                                                                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"tool"`       | La boucle d’agent intégrée à l’application, un sous-agent ou une équipe d’agents, ou la délégation A2A inter-applications en langage naturel, qui pilote la même boucle d’agent, donc ses appels d’outil sont `"tool"`.  |
+| `"frontend"`   | Un appel navigateur via `useActionMutation()`, `useActionQuery()`, ou `callAction()` (marqué avec l’en-tête `X-Agent-Native-Frontend: 1`).                                                                               |
+| `"http"`       | Un `POST` ou `GET` programmatique brut vers `/_agent-native/actions/<name>` sans le marqueur frontend.                                                                                                                   |
+| `"cli"`        | `pnpm action <name>` (l’exécuteur CLI).                                                                                                                                                                                  |
+| `"mcp"`        | Un agent externe via le point de terminaison MCP `tools/call`.                                                                                                                                                           |
+| `"a2a"`        | Un appel HTTP direct vers `/_agent-native/actions/<name>` portant un jeton de délégation A2A signé. C’est un dispatch inter-applications explicitement exposé, distinct du chemin `"tool"` en langage naturel ci-dessus. |
+| `"automation"` | Une automatisation déclenchée par événement, dispatchée depuis un déclencheur d’espace de travail stocké. `ctx.automation` porte la lignée du déclencheur. Voir [Automatisations](/docs/automations).                    |
+
+## Quelle est la prochaine étape
+
+- [**Accès et autorisation**](/docs/actions-access-control) — le schéma de portée `ctx.userEmail`/`ctx.orgId` que ce contexte permet
+- [**Définir des actions**](/docs/actions-defining) — anatomie de `defineAction()` et configuration HTTP
+- [**Autres surfaces**](/docs/actions-other-surfaces) — comment les appelants CLI, A2A, MCP, et automatisation définissent `caller`
+- [**Journal d’audit**](/docs/audit-log) — comment `threadId`/`runId`/`turnId` relient une mutation à son exécution d’agent
+- [**Automatisations**](/docs/automations) — la lignée de déclencheur `ctx.automation`

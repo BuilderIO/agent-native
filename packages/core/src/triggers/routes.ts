@@ -1,0 +1,586 @@
+import { randomUUID } from "node:crypto";
+
+import {
+  defineEventHandler,
+  getRequestHeader,
+  getMethod,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
+import {
+  AutomationConnectorError,
+  readBoundedRequestBody,
+} from "../automation/index.js";
+import { canUpdateAutomationResource } from "../automations/service.js";
+import { getDbExec } from "../db/client.js";
+import { dispatchPendingIntegrationTask } from "../integrations/integration-durable-dispatch.js";
+import {
+  insertPendingTask,
+  isDuplicateEventError,
+} from "../integrations/pending-tasks-store.js";
+import {
+  nextOccurrence,
+  describeCron,
+  effectiveTimezone,
+  isValidCron,
+} from "../jobs/cron.js";
+import {
+  buildJobResourceContent,
+  parseJobResource,
+  type JobFrontmatter,
+} from "../jobs/frontmatter.js";
+import { getOrgContext } from "../org/context.js";
+import {
+  organizationIdFromResourceOwner,
+  organizationResourceOwner,
+  resourceGetByPath,
+  resourceListAllOwners,
+  resourcePut,
+  SHARED_OWNER,
+  type Resource,
+} from "../resources/store.js";
+import { getSession } from "../server/auth.js";
+import { readBody } from "../server/h3-helpers.js";
+import { refreshEventSubscriptions } from "./dispatcher.js";
+import type { TriggerFrontmatter } from "./types.js";
+import {
+  findAutomationWebhookTarget,
+  readAutomationWebhookPath,
+} from "./webhook-store.js";
+import {
+  AUTOMATION_WEBHOOK_MAX_BODY_BYTES,
+  AUTOMATION_WEBHOOK_PLATFORM,
+  isAutomationWebhookToken,
+  type AutomationWebhookTaskPayload,
+} from "./webhook.js";
+
+export interface AutomationRouteItem {
+  id: string;
+  name: string;
+  path: string;
+  owner: string;
+  appId?: string;
+  orgId?: string;
+  scope: "personal" | "organization";
+  canUpdate: boolean;
+  triggerType: TriggerFrontmatter["triggerType"];
+  event?: string;
+  webhookPath?: string;
+  schedule?: string;
+  scheduleDescription?: string;
+  condition?: string;
+  mode: TriggerFrontmatter["mode"];
+  domain?: string;
+  enabled: boolean;
+  timezone?: string;
+  lastStatus?: TriggerFrontmatter["lastStatus"];
+  lastRun?: string;
+  lastCheck?: string;
+  lastError?: string;
+  nextRun?: string;
+  createdBy?: string;
+  body: string;
+  model?: string;
+  mcpTools: string[];
+  runAs?: JobFrontmatter["runAs"];
+  executionHostId?: string;
+  executionEngine?: string;
+  executionCwd?: string;
+  deliveryPlatform?: string;
+  deliveryDestination?: string;
+  deliveryThreadRef?: string;
+}
+
+interface SetAutomationEnabledInput {
+  owner?: string;
+  path?: string;
+  name?: string;
+  enabled: boolean;
+}
+
+function automationName(path: string): string {
+  return path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
+function asTriggerFrontmatter(meta: JobFrontmatter): TriggerFrontmatter {
+  return {
+    ...meta,
+    triggerType: meta.triggerType ?? "schedule",
+    mode: meta.mode ?? "agentic",
+  };
+}
+
+function normalizeAutomationPath(input: SetAutomationEnabledInput): string {
+  const rawPath = input.path ?? (input.name ? `jobs/${input.name}.md` : "");
+  const path = rawPath.replace(/^\/+/, "");
+  if (
+    !path.startsWith("jobs/") ||
+    !path.endsWith(".md") ||
+    path.endsWith(".keep") ||
+    path.includes("..")
+  ) {
+    throw Object.assign(
+      new Error("A valid jobs/*.md automation path is required"),
+      {
+        statusCode: 400,
+      },
+    );
+  }
+  return path;
+}
+
+function scheduleDescription(schedule?: string, timezone?: string) {
+  if (!schedule) return undefined;
+  try {
+    return describeCron(schedule, effectiveTimezone(timezone));
+  } catch {
+    return schedule;
+  }
+}
+
+function nextRunForMeta(meta: TriggerFrontmatter): string | undefined {
+  const scheduled = Boolean(
+    meta.enabled &&
+    meta.triggerType === "schedule" &&
+    meta.schedule &&
+    isValidCron(meta.schedule),
+  );
+  if (meta.nextRun) {
+    const stored = new Date(meta.nextRun).getTime();
+    if (!scheduled || !Number.isFinite(stored) || stored > Date.now()) {
+      return meta.nextRun;
+    }
+  }
+  if (scheduled) {
+    try {
+      return nextOccurrence(
+        meta.schedule,
+        undefined,
+        meta.timezone,
+      ).toISOString();
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+async function currentUserCanUpdateAutomation(
+  event: H3Event,
+  userEmail: string,
+  resource: Resource,
+  meta: TriggerFrontmatter,
+): Promise<boolean> {
+  const resourceOwner = resource.owner;
+  if (resourceOwner === userEmail) return true;
+  const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
+  if (resourceOrgId) {
+    try {
+      const org = await getOrgContext(event);
+      if (org.orgId !== resourceOrgId) return false;
+      return await canUpdateAutomationResource(
+        { userEmail, orgId: resourceOrgId, appId: meta.appId },
+        resource,
+      );
+    } catch {
+      return false;
+    }
+  }
+  if (resourceOwner !== SHARED_OWNER) return false;
+
+  if (meta.orgId) {
+    const activeOrgId = await getOrgContext(event)
+      .then((context) => context.orgId)
+      .catch(() => null);
+    if (activeOrgId !== meta.orgId) return false;
+  }
+
+  if (
+    meta.createdBy &&
+    meta.createdBy.toLowerCase() === userEmail.toLowerCase()
+  ) {
+    return true;
+  }
+
+  let orgId = meta.orgId;
+  if (!orgId) {
+    try {
+      orgId = (await getOrgContext(event)).orgId ?? undefined;
+    } catch {
+      orgId = undefined;
+    }
+  }
+  if (!orgId) return false;
+
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [orgId, userEmail.toLowerCase()],
+    });
+    const role = String((rows[0] as any)?.role ?? "").toLowerCase();
+    return role === "owner" || role === "admin";
+  } catch {
+    return false;
+  }
+}
+
+async function resourceToAutomationItem(
+  event: H3Event,
+  userEmail: string,
+  resource: Resource,
+): Promise<AutomationRouteItem> {
+  const parsed = parseJobResource(resource.content);
+  const meta = asTriggerFrontmatter(parsed.meta);
+  const canUpdate = await currentUserCanUpdateAutomation(
+    event,
+    userEmail,
+    resource,
+    meta,
+  );
+  return {
+    id: resource.id,
+    name: automationName(resource.path),
+    path: resource.path,
+    owner: resource.owner,
+    appId: meta.appId,
+    orgId: meta.orgId,
+    scope:
+      resource.owner === userEmail && !meta.orgId ? "personal" : "organization",
+    canUpdate,
+    triggerType: meta.triggerType,
+    event: meta.event,
+    // The path is a bearer credential; read-only organization members can see
+    // the trigger without receiving permission to invoke it.
+    webhookPath:
+      canUpdate && meta.triggerType === "webhook"
+        ? await readAutomationWebhookPath(resource, meta)
+        : undefined,
+    schedule: meta.schedule || undefined,
+    scheduleDescription: scheduleDescription(meta.schedule, meta.timezone),
+    condition: meta.condition,
+    mode: meta.mode,
+    domain: meta.domain,
+    enabled: meta.enabled,
+    timezone: meta.timezone,
+    lastStatus: meta.lastStatus,
+    lastRun: meta.lastRun,
+    lastCheck: meta.lastCheck,
+    lastError: meta.lastError,
+    nextRun: nextRunForMeta(meta),
+    createdBy: meta.createdBy,
+    body: parsed.body,
+    model: meta.model,
+    mcpTools: meta.mcpTools ?? [],
+    runAs: meta.runAs,
+    executionHostId: meta.executionHostId,
+    executionEngine: meta.executionEngine,
+    executionCwd: meta.executionCwd,
+    deliveryPlatform: meta.deliveryPlatform,
+    deliveryDestination: meta.deliveryDestination,
+    deliveryThreadRef: meta.deliveryThreadRef,
+  };
+}
+
+export async function listAutomationsForOwner(
+  event: H3Event,
+  userEmail: string,
+): Promise<AutomationRouteItem[]> {
+  const allResources = await resourceListAllOwners("jobs/");
+  const activeOrgId = await getOrgContext(event)
+    .then((context) => context.orgId)
+    .catch(() => null);
+  const activeOrgOwner = activeOrgId
+    ? organizationResourceOwner(activeOrgId)
+    : null;
+  const resources = allResources.filter((resource) => {
+    if (!resource.path.endsWith(".md") || resource.path.endsWith(".keep")) {
+      return false;
+    }
+    if (
+      resource.owner !== userEmail &&
+      resource.owner !== SHARED_OWNER &&
+      resource.owner !== activeOrgOwner
+    ) {
+      return false;
+    }
+    if (resource.owner !== SHARED_OWNER) return true;
+    const { meta } = parseJobResource(resource.content);
+    return !meta.orgId || meta.orgId === activeOrgId;
+  });
+  return Promise.all(
+    resources.map((resource) =>
+      resourceToAutomationItem(event, userEmail, resource),
+    ),
+  );
+}
+
+export async function setAutomationEnabledForOwner(
+  event: H3Event,
+  userEmail: string,
+  input: SetAutomationEnabledInput,
+): Promise<AutomationRouteItem> {
+  if (typeof input.enabled !== "boolean") {
+    throw Object.assign(new Error("enabled must be a boolean"), {
+      statusCode: 400,
+    });
+  }
+
+  const path = normalizeAutomationPath(input);
+  const activeOrgId = await getOrgContext(event)
+    .then((context) => context.orgId)
+    .catch(() => null);
+  const activeOrgOwner = activeOrgId
+    ? organizationResourceOwner(activeOrgId)
+    : null;
+  const requestedOwner =
+    input.owner === SHARED_OWNER
+      ? SHARED_OWNER
+      : input.owner === activeOrgOwner
+        ? activeOrgOwner
+        : userEmail;
+  const resource = await resourceGetByPath(requestedOwner, path);
+  if (!resource) {
+    throw Object.assign(new Error("Automation not found"), { statusCode: 404 });
+  }
+
+  const parsed = parseJobResource(resource.content);
+  const meta = asTriggerFrontmatter(parsed.meta);
+  const allowed = await currentUserCanUpdateAutomation(
+    event,
+    userEmail,
+    resource,
+    meta,
+  );
+  if (!allowed) {
+    throw Object.assign(
+      new Error("Only the automation creator or an org admin can update it."),
+      { statusCode: 403 },
+    );
+  }
+
+  parsed.meta.enabled = input.enabled;
+  if (
+    parsed.meta.enabled &&
+    meta.triggerType === "schedule" &&
+    meta.schedule &&
+    isValidCron(meta.schedule)
+  ) {
+    parsed.meta.nextRun = nextOccurrence(
+      meta.schedule,
+      undefined,
+      meta.timezone,
+    ).toISOString();
+  }
+
+  const updatedContent = buildJobResourceContent(parsed.meta, parsed.body);
+  await resourcePut(resource.owner, resource.path, updatedContent);
+  await refreshEventSubscriptions();
+
+  return resourceToAutomationItem(event, userEmail, {
+    ...resource,
+    content: updatedContent,
+  });
+}
+
+function routeError(event: H3Event, err: unknown, fallback: string) {
+  const connectorCode = (err as { code?: string } | null)?.code;
+  const connectorStatus =
+    connectorCode === "payload_too_large"
+      ? 413
+      : connectorCode === "invalid_configuration"
+        ? 400
+        : undefined;
+  const statusCode =
+    connectorStatus ??
+    (typeof (err as any)?.statusCode === "number"
+      ? (err as any).statusCode
+      : 500);
+  setResponseStatus(event, statusCode);
+  return { error: (err as any)?.message ?? fallback };
+}
+
+async function findWebhookAutomation(token: string): Promise<{
+  resource: Resource;
+  meta: TriggerFrontmatter;
+  body: string;
+} | null> {
+  if (!isAutomationWebhookToken(token)) return null;
+  const target = await findAutomationWebhookTarget(token);
+  if (!target) return null;
+  const resource = await resourceGetByPath(target.owner, target.path);
+  if (!resource || resource.id !== target.automationId) return null;
+  const parsed = parseJobResource(resource.content);
+  const meta = asTriggerFrontmatter(parsed.meta);
+  return meta.triggerType === "webhook" && meta.enabled
+    ? { resource, meta, body: parsed.body }
+    : null;
+}
+
+function webhookEventId(event: H3Event, payload: unknown): string {
+  const supplied = [
+    getRequestHeader(event, "x-webhook-event-id"),
+    getRequestHeader(event, "x-event-id"),
+    getRequestHeader(event, "x-github-delivery"),
+  ].find((value) => value?.trim());
+  const bodyId =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).id
+      : undefined;
+  const value =
+    supplied?.trim() ||
+    (typeof bodyId === "string" ? bodyId.trim() : "") ||
+    randomUUID();
+  if (value.length > 256 || /[\r\n]/.test(value)) {
+    throw Object.assign(new Error("Webhook event id is too long."), {
+      statusCode: 400,
+    });
+  }
+  return value;
+}
+
+async function enqueueAutomationWebhook(
+  event: H3Event,
+  token: string,
+): Promise<Record<string, unknown>> {
+  const match = await findWebhookAutomation(token);
+  if (!match) {
+    setResponseStatus(event, 404);
+    return { error: "Webhook not found" };
+  }
+
+  const rawBody = await readBoundedRequestBody(
+    event,
+    AUTOMATION_WEBHOOK_MAX_BODY_BYTES,
+  );
+  let payload: unknown = rawBody;
+  const contentType = getRequestHeader(event, "content-type")?.toLowerCase();
+  if (contentType?.includes("json")) {
+    try {
+      payload = rawBody.trim() ? JSON.parse(rawBody) : {};
+    } catch {
+      throw new AutomationConnectorError(
+        "invalid_configuration",
+        "Webhook JSON body is invalid.",
+      );
+    }
+  }
+
+  const eventId = webhookEventId(event, payload);
+  const ownerEmail =
+    match.meta.createdBy?.trim().toLowerCase() || match.resource.owner;
+  const externalThreadId = `${match.resource.owner}:${match.resource.path}`;
+  const taskId = randomUUID();
+  const taskPayload: AutomationWebhookTaskPayload = {
+    kind: "automation-webhook",
+    automationId: match.resource.id,
+    owner: match.resource.owner,
+    path: match.resource.path,
+    eventId,
+    payload,
+  };
+
+  try {
+    await insertPendingTask({
+      id: taskId,
+      platform: AUTOMATION_WEBHOOK_PLATFORM,
+      externalThreadId,
+      payload: JSON.stringify(taskPayload),
+      ownerEmail,
+      orgId: match.meta.orgId ?? null,
+      externalEventKey: `${match.resource.id}:${eventId}`,
+    });
+  } catch (error) {
+    if (isDuplicateEventError(error)) {
+      setResponseStatus(event, 200);
+      return { accepted: true, duplicate: true, eventId };
+    }
+    throw error;
+  }
+
+  await dispatchPendingIntegrationTask({
+    taskId,
+    task: { platform: AUTOMATION_WEBHOOK_PLATFORM, externalThreadId },
+    event,
+  }).catch((error) => {
+    console.error(
+      `[automations] Webhook task ${taskId} was queued but could not be dispatched:`,
+      error,
+    );
+  });
+  setResponseStatus(event, 202);
+  return { accepted: true, eventId };
+}
+
+export function createAutomationsHandler() {
+  return defineEventHandler(async (event: H3Event) => {
+    const method = getMethod(event);
+    const pathname = (event.path || event.url?.pathname || "")
+      .split("?")[0]
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+
+    const webhookToken = pathname.match(/(?:^|\/)webhook\/([^/]+)$/)?.[1];
+    if (webhookToken && method === "POST") {
+      try {
+        return await enqueueAutomationWebhook(event, webhookToken);
+      } catch (err) {
+        return routeError(event, err, "Failed to enqueue automation webhook");
+      }
+    }
+
+    const session = await getSession(event).catch(() => null);
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthenticated" };
+    }
+
+    if (
+      (pathname === "fire-test" || pathname.endsWith("/fire-test")) &&
+      method === "POST"
+    ) {
+      try {
+        const { emit } = await import("../event-bus/index.js");
+        const body = (await readBody(event).catch(() => ({}))) as Record<
+          string,
+          unknown
+        >;
+        emit(
+          "test.event.fired",
+          { data: body.data ?? {} },
+          { owner: session.email },
+        );
+        return { ok: true };
+      } catch (err) {
+        return routeError(event, err, "Failed to emit test event");
+      }
+    }
+
+    if (method === "GET") {
+      try {
+        return await listAutomationsForOwner(event, session.email);
+      } catch (err) {
+        return routeError(event, err, "Failed to list automations");
+      }
+    }
+
+    if (method === "PATCH" || method === "PUT") {
+      try {
+        const body = (await readBody(event).catch(
+          () => ({}),
+        )) as SetAutomationEnabledInput | null;
+        return await setAutomationEnabledForOwner(event, session.email, {
+          owner: body?.owner,
+          path: body?.path,
+          name: body?.name,
+          enabled: (body as any)?.enabled,
+        } as SetAutomationEnabledInput);
+      } catch (err) {
+        return routeError(event, err, "Failed to update automation");
+      }
+    }
+
+    setResponseStatus(event, 405);
+    return { error: "Method not allowed" };
+  });
+}

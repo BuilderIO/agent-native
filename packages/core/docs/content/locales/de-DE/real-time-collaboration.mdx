@@ -1,0 +1,942 @@
+---
+title: "Zusammenarbeit in Echtzeit"
+description: "Kollaborative Bearbeitung durch mehrere Benutzer, bei der der KI-Agent ein erstklassiger Partner ist: CRDT-Zusammenführung, Live-Präsenz, SSE-Fast-Path und granulare serverseitige Zusammenführung – auf jeder SQL-Datenbank und jedem Host."
+---
+
+# Zusammenarbeit in Echtzeit
+
+Stellen Sie sich vor, Sie öffnen ein Dokument und sehen, wie der Cursor eines Kollegen zu einem Absatz scrollt.
+Dann schreibt sich der Text neu – chirurgisch, ohne seinen Platz zu verlieren. Das
+Peer könnte ein Teamkollege sein. Es könnte der Agent sein. Aus dem Framework
+Aus Sicht sind sie identisch: Beide erzeugen Yjs-Operationen, die zusammengeführt werden
+konfliktfrei in das freigegebene Dokument einfügen. Dies ist der Grundstein der
+Agent-Natives Kollaborationsmodell.
+
+## Vision {#vision}
+
+Das Bearbeiten zusammen mit dem Agenten fühlt sich an wie die Arbeit in einem kollaborativen Editor mit
+einem Kollegen, der sowohl spontan als auch unermüdlich ist:
+
+Wenn Sie UI nur zum Aktualisieren benötigen, wenn der Agent oder ein anderer Benutzer in SQL schreibt, brauchen Sie nichts davon – verwenden Sie [`useDbSync`](/docs/client-data#usedbsync). Diese Seite dient der gemeinsamen Bearbeitung eines einzelnen Rich-Text-Dokuments auf Zeichenebene (gemeinsame Cursor, konfliktfreies Zusammenführen). Beide nutzen denselben `/_agent-native/poll`-Kanal.
+
+Dies basiert auf drei kampferprobten Technologien: **Yjs** (CRDT für konfliktfreies Zusammenführen), **TipTap** (Rich-Text-Editor) und **abfragebasierte Synchronisierung** (funktioniert in allen Bereitstellungsumgebungen, einschließlich Serverless und Edge).
+
+- **CRDT Zusammenführung** – Gleichzeitige Bearbeitungen von Menschen und Agenten werden ohne Zusammenführung
+  Konflikte. Sie geben einen Absatz ein; der Agent schreibt einen anderen um; beide
+  sauber landen.
+- **Anwesenheit** – Ein `PresenceBar` zeigt an, wer sich gerade im Dokument befindet.
+  einschließlich einer Agenten-Anwesenheitsanzeige, wenn der Agent aktiv bearbeitet.
+- **Der Agent als Peer-Editor** – Agentenbearbeitungen erfolgen über dieselben Yjs
+  Infrastruktur als menschliche Bearbeitung. Sie erscheinen live, ohne den Cursor zu stören
+  Positionen, Auswahlen oder der Rückgängig-Stapel.
+- **Funktioniert überall** – Jede SQL-Datenbank, die Drizzle unterstützt (SQLite, Postgres).
+  Jedes Hosting-Ziel, das Nitro unterstützt, einschließlich Serverless und Edge.
+
+## Architektur {#architecture}
+
+Das Kollaborationssystem besteht aus fünf ineinandergreifenden Ebenen.
+
+<Diagram id="doc-block-j9pnpa" title={"Fünf ineinandergreifende Schichten"} summary={"Vom speicherinternen CRDT bis hin zum Transport, der Aktualisierungen zwischen Peers überträgt – jede Schicht hat eine Aufgabe."}>
+
+```html
+<div class="diagram-stack">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">1 &middot; Yjs Y.Doc</span
+    ><small class="diagram-muted"
+      >CRDT &mdash; konfliktfreier Merge, kein Koordinator</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">2 &middot; Kanonischer SQL-Inhalt</span
+    ><small class="diagram-muted"
+      >_collab_docs &mdash; durable source of truth, versioned</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">3 &middot; updatedAt-gesteuerter Abgleich</span
+    ><small class="diagram-muted"
+      >Agentenänderungen verbreiten sich über den SQL-Bump</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">4 &middot; Lead-Client-Wahl</span
+    ><small class="diagram-muted">genau ein Tab wendet den Snapshot an</small>
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill ok">5 &middot; SSE-Schnellpfad + Polling</span
+    ><small class="diagram-muted"
+      >~Zehner-ms, fällt überall auf 2-s-Polling zurück</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-stack .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+```
+
+</Diagram>
+
+### 1. Yjs Y.Doc (CRDT-Ebene)
+
+Jedes kollaborative Dokument ist ein `Y.Doc`, das gemeinsam genutzte Typen enthält – normalerweise ein
+`Y.XmlFragment` für Rich Text (der ProseMirror-Knotenbaum, den TipTap liest) oder
+`Y.Map` / `Y.Array` für strukturierte JSON-Daten. Yjs führt gleichzeitige Updates zusammen
+ohne zentralen Koordinator; zwei beliebige Clients, die ihre Statusreichweite austauschen
+unabhängig von der Reihenfolge das gleiche Ergebnis.
+
+### 2. SQL kanonischer Inhalt (dauerhafte Quelle der Wahrheit)
+
+Der Yjs-Status wird in einer `_collab_docs`-Tabelle als Base64-codierte Binärdatei beibehalten.
+Die Tabelle wird vom Framework verwaltet und ist anbieterunabhängig (Verwendung von SQLite und Postgres
+identische Schemata). Jede Zeile enthält eine Versionsspalte für optimistische Parallelität
+um gleichzeitige Schreibrennen zu verhindern. Die Tombstone-Komprimierung erfolgt opportunistisch
+wenn der gespeicherte Blob das Vierfache des frisch codierten Zustands überschreitet – kein Hintergrundauftrag
+erforderlich.
+
+### 3. `updatedAt`-gesteuerter Abgleich (Agent-Edit-Weitergabe)
+
+Agentenaktionen pusht nicht prozessintern in Yjs. Stattdessen bearbeitet die Aktion die
+kanonische SQL-Inhaltsspalte und Bumps `updatedAt`. Das Change-Sync-System
+erkennt die Beule, der offene Editor ruft den Datensatz erneut ab und der Lead-Client
+wendet den neuen Inhalt über `setContent` in das freigegebene Y.Doc an. Ein `updatedAt`
+Gate stellt sicher, dass nur wirklich neuere Inhalte übernommen werden – was zu Verzögerungen bei den Umfrageantworten führt
+Die Bearbeitung kann nicht rückgängig gemacht werden.
+
+### 4. Lead-Client-Wahl (Deduplizierung)
+
+Wenn mehrere Registerkarten geöffnet sind, wendet genau eine davon einen maßgeblichen SQL-Snapshot an
+in das freigegebene Y.Doc. Der Vorsprung ist der Reiter mit dem niedrigsten Yjs `clientID`
+unter den aktuell sichtbaren Peers. Der Bekanntheitseintrag des Agenten verwendet
+`AGENT_CLIENT_ID` (max int), daher kann es niemals der Lead sein. Ein Kunde, der
+allein ist immer die Hauptrolle. Die Wahl ist deterministisch und ohne Koordination
+Hin- und Rückfahrt (`isReconcileLeadClient` von `@agent-native/core/client`).
+
+### 5. SSE Fast-Path + Polling-Fallback (Transport)
+
+Collab-Update-Ereignisse werden über zwei Pfade übertragen:
+
+- **SSE Fast-Path** – Der Client abonniert `/_agent-native/poll-events`
+  (dasselbe `EventSource`, das von `useDbSync` verwendet wird). Collab-Update-Ereignisse treffen ein
+  Push-Stil, normalerweise in mehreren zehn Millisekunden. Während SSE gesund ist,
+  Die Umfrageschleife entspannt sich auf eine langsame Trittfrequenz (standardmäßig ~12 s).
+- **Polling-Fallback** – `/_agent-native/poll?since=N` wird alle 2 s abgefragt
+  wenn SSE nicht verfügbar ist. Dadurch funktioniert die Zusammenarbeit bei jeder Bereitstellung
+  Ziel – einschließlich serverloser Funktionen, bei denen dauerhafte Verbindungen bestehen
+  unmöglich und unterschiedliche Aufrufe können unterschiedliche Anfragen verarbeiten.
+
+Lokale Yjs-Updates werden entprellt und mit `Y.mergeUpdates` zusammengeführt (~80 ms)
+bevor sie an den Server gesendet werden, wodurch der Netzwerkverkehr auf Tastendruckebene reduziert wird.
+Der Stapel wird sofort auf `visibilitychange` oder `pagehide` geleert. A
+Zustandsvektordifferenz (`GET /:docId/state?stateVector=…`) wird nur abgerufen auf
+Wiederverbindung, Ringpufferüberlauf oder bei jedem 15. Abfragezyklus – nicht bei jedem
+Zyklus.
+
+Netzwerkfehler nutzen einen exponentiellen Backoff mit Jitter, der auf ~15 s begrenzt ist.
+
+<Diagram id="doc-block-2aflyu" title={"Zwei Bearbeitungspfade, einer zusammenführen"} summary={"Menschliche Tastenanschläge fließen Y.Doc → Server → SSE. Agentenänderungen durchlaufen SQL: Die Aktion stößt auf „UpdatedAt“, der Hauptkunde stimmt ab, dann wird die Änderung erneut in Yjs eingegeben."}>
+
+```html
+<div class="diagram-collab">
+  <div class="lane">
+    <span class="diagram-pill">Menschliche Bearbeitung</span>
+    <div class="diagram-node">
+      Y.Doc update<br /><small class="diagram-muted">Debounce ~80 ms</small>
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      POST /update<br /><small class="diagram-muted">apply + persist</small>
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      SSE push<br /><small class="diagram-muted">to all peers</small>
+    </div>
+  </div>
+  <div class="lane">
+    <span class="diagram-pill warn">Agentenbearbeitung</span>
+    <div class="diagram-node">
+      Action schreibt SQL<br /><small class="diagram-muted"
+        >aktualisiert updatedAt</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      Lead-Client<br /><small class="diagram-muted">setContent in Y.Doc</small>
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      POST /update<br /><small class="diagram-muted"
+        >re-enters Yjs &middot; SSE push</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-collab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-collab .lane {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-collab .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Schnellstart {#quickstart}
+
+### 1. Pakete installieren
+
+```bash
+pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap @tiptap/core
+```
+
+### 2. Fügen Sie Vite optimierenDeps
+
+Verhindert, dass Vite TipTap während der Entwicklung auf inkompatible Weise neu bündelt:
+
+```ts
+// vite.config.ts
+import { reactRouter } from "@react-router/dev/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [reactRouter(), agentNative()],
+  optimizeDeps: {
+    include: [
+      "yjs",
+      "y-protocols/awareness",
+      "@tiptap/core",
+      "@tiptap/extension-collaboration",
+      "@tiptap/extension-collaboration-caret",
+      "@tiptap/y-tiptap",
+    ],
+  },
+});
+```
+
+### 3. Fügen Sie das Collab-Server-Plugin hinzu
+
+Wählen Sie den Zugriffsmodus passend zum Datenmodell. Ressourcen mit Besitz- oder
+Freigabemodell verwenden `mode: "resource"` mit dem über
+`registerShareableResource` registrierten Typ. Ressourcen, die bewusst für alle
+authentifizierten Benutzer der Bereitstellung sichtbar sind, verwenden ausdrücklich
+`mode: "all-authenticated"`. Erfinden Sie keinen Ressourcentyp, nur um eine
+Warnung zu unterdrücken.
+
+```ts
+// server/plugins/collab.ts
+import { createCollabPlugin } from "@agent-native/core/server";
+
+export default createCollabPlugin({
+  table: "documents",
+  contentColumn: "content",
+  idColumn: "id",
+  access: { mode: "resource", resourceType: "document" },
+});
+```
+
+Das Weglassen von `access` ist veraltetes Legacy-Verhalten. Es verhält sich wie
+`all-authenticated`, protokolliert eine Warnung und wird von Doctor gemeldet.
+
+### 4. Verwenden Sie den Client-Hook
+
+```ts
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
+
+const TAB_ID = generateTabId(); // or Math.random().toString(36)
+
+const { ydoc, awareness, isLoading, activeUsers, agentActive, agentPresent } =
+  useCollaborativeDoc({
+    docId: documentId,
+    requestSource: TAB_ID,
+    user: {
+      name: emailToName(session.email),
+      email: session.email,
+      color: emailToColor(session.email),
+    },
+  });
+```
+
+### 5. Fügen Sie TipTap-Erweiterungen hinzu
+
+```ts
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+
+const editor = useEditor({
+  extensions: [
+    StarterKit.configure({ history: false }), // Yjs owns undo
+    Collaboration.configure({ document: ydoc }),
+    CollaborationCaret.configure({
+      provider: { awareness },
+      user: { name, color },
+    }),
+  ],
+  // Do NOT pass content here — Yjs owns the content
+});
+```
+
+### 6. Seed beim ersten Laden (falls Inhalt vorhanden)
+
+Die Collaboration-Erweiterung führt kein automatisches Seeding von einer `content`-Requisite durch. Wenn die
+Y.Doc ist leer und das Dokument verfügt über vorhandenen Inhalt. Seeden Sie es:
+
+```ts
+useEffect(() => {
+  if (!ydoc || !editor || !isLoaded) return;
+  const fragment = ydoc.getXmlFragment("default");
+  if (fragment.length === 0 && initialContent) {
+    editor.commands.setContent(initialContent);
+  }
+}, [ydoc, editor, isLoaded]);
+```
+
+Die Benutzeridentität wird aus der Sitzungs-E-Mail abgeleitet. Das Framework stellt die Hilfsprogramme `emailToColor()` und `emailToName()` bereit, um konsistente Cursorfarben und Anzeigenamen aus E-Mail-Adressen zu generieren.
+
+## Kommentare {#comments}
+
+Vorlagen können ein Kommentarsystem mit Thread-Diskussionen zu Dokumenten hinzufügen. Das Kommentarsystem der Inhaltsvorlage enthält eine vollständige Implementierung mit:
+
+- `document_comments` SQL-Tabelle (Threads, Antworten, gelöster Status)
+- Aktualisieren und Löschen laufen über die `update-comment` / `delete-comment` actions; Erstellen und Listenlauf über den `add-comment` / `list-comments` actions. Benutzerdefinierte Vorlagen implementieren ihre eigenen äquivalenten Endpunkte für die Kernroute `POST /_agent-native/collab/:docId/search-replace`.
+- Kommentarseitenleiste mit Thread-Ansicht und Antwort UI
+- Threads auflösen/auflösen
+- Schaltfläche **An AI senden** – sendet den Kommentar-Thread-Kontext über `sendToAgentChat()` an den Agenten-Chat
+- Agentenaktionen: `list-comments`, `add-comment`
+- Notion-Kommentarsynchronisierung: `sync-notion-comments`-Aktion für bidirektionales Ziehen/Push
+
+## Zusammenarbeitsrouten {#collab-routes}
+
+Alle Collab-Routen werden durch das Collab-Plugin automatisch unter `/_agent-native/collab/` gemountet:
+
+| Route                         | Zweck                                            |
+| ----------------------------- | ------------------------------------------------ |
+| `GET /:docId/state`           | Vollständigen Y.Doc-Status abrufen (base64)      |
+| `POST /:docId/update`         | Client-Yjs-Update anwenden                       |
+| `POST /:docId/text`           | Volltextersetzung anwenden (unterschiedsbasiert) |
+| `POST /:docId/search-replace` | Chirurgisches Suchen/Ersetzen in Y.XmlFragment   |
+| `POST /:docId/awareness`      | Cursor-/Anwesenheitsstatus synchronisieren       |
+| `GET /:docId/users`           | Aktive Benutzer in einem Dokument auflisten      |
+
+## Agent-Bearbeitungsaktion {#edit-document}
+
+Die `edit-document`-Aktion der Inhaltsvorlage ist die primäre Möglichkeit, mit der Agenten im kollaborativen Modus Änderungen an Dokumenten vornehmen:
+
+```bash
+# Einzelbearbeitung
+pnpm action edit-document --id doc123 --find "old text" --replace "new text"
+
+# Stapelbearbeitungen
+pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
+
+# Text löschen
+pnpm action edit-document --id doc123 --find "delete me" --replace ""
+```
+
+---
+
+## Präsenzset {#presence-kit}
+
+Das Presence-Kit bietet Live-Cursor- und Auswahlprimitive in Kollaborationsqualität auf der vorhandenen Awareness-Ebene.
+
+Clientseitige Präsenz und Editor UI aus dem fokussierten Browser-Unterpfad importieren:
+
+```ts
+import {
+  useCollaborativeDoc,
+  usePresence,
+} from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
+```
+
+Serverseitige Agentenpräsenz-Helfer bleiben im Collab-Paket auf niedrigerer Ebene:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+### Öffentlich API {#presence-public-api}
+
+| API                                                 | Zweck                                                                                                                                                                               |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useCollaborativeDoc(options)`                      | Erstellt die stabile `Y.Doc`- und Awareness-Instanz, kümmert sich um die Zustandsvektorsynchronisierung, SSE-Fast-Path, Polling-Fallback, aktive Benutzer und Agentenpräsenz-Flags. |
+| `usePresence(awareness, localClientId)`             | Leitet entfernte Teilnehmer ab und veröffentlicht beliebige lokale Bewusstseinsfelder wie Cursor, Auswahl, Ansichtsfenster oder Werkzeugmodus.                                      |
+| `<PresenceBar>`                                     | Rendert aktive Mitarbeiter und den KI-Agenten, mit optionaler Verkabelung im Avatar-Klick-Folgemodus.                                                                               |
+| `<LiveCursorOverlay>`                               | Rendert entfernte Cursorbeschriftungen über einem positionierten Container aus normalisierten 0-1-Koordinaten.                                                                      |
+| `<RemoteSelectionRings>`                            | Rendert farbige Ringe und Beschriftungen um ausgewählte DOM-Elemente, die von Ihrer App aufgelöst werden.                                                                           |
+| `useFollowUser(options)`                            | Ruft einen Rückruf auf, wenn der verfolgte Teilnehmer Ansichtsfensteränderungen veröffentlicht.                                                                                     |
+| `toNormalized()` / `fromNormalized()`               | Zeigerkoordinaten in/von normalisierten Containerkoordinaten konvertieren.                                                                                                          |
+| `dedupeCollabUsersByEmail()`                        | Erstellen Sie benutzerdefinierte Avatar-Stapel, ohne dass ein Benutzer einmal pro geöffnetem Tab angezeigt wird.                                                                    |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Client-Hooks für die strukturierte Y.Map/Y.Array-Zusammenarbeit. Als untergeordnete Ebene behandeln, bis eine Vorlage das genaue Produktmuster nachweist.                           |
+
+`UseCollaborativeDocOptions`:
+
+| Option                | Beschreibung                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `docId`               | Dokument-ID oder `null`, um den Hook zu deaktivieren.                                                 |
+| `pollInterval`        | Abfrageintervall, wenn SSE nicht verfügbar ist. Standard: `2000`.                                     |
+| `pollIntervalWithSse` | Langsames Abfrageintervall, während SSE fehlerfrei ist. Standard: `12000`.                            |
+| `pauseWhenHidden`     | Pausieren Sie die Remote-Update-/Anwesenheitsabfrage im ausgeblendeten Zustand. Standard: `true`.     |
+| `baseUrl`             | Collab-Endpunktpräfix. Standard: `/_agent-native/collab`.                                             |
+| `requestSource`       | Stabile Tab-/Quellen-ID wird verwendet, um selbst verursachtes Aktualisierungsrauschen zu ignorieren. |
+| `user`                | `{ name, email, color }` im Cursor angezeigt und Präsenz UI.                                          |
+
+`UseCollaborativeDocResult`:
+
+| Feld           | Beschreibung                                                                         |
+| -------------- | ------------------------------------------------------------------------------------ |
+| `ydoc`         | Stabiles `Y.Doc` für das aktuelle `docId`.                                           |
+| `awareness`    | Yjs Awareness-Instanz, die von Cursorn, Auswahlen und dem Folgemodus verwendet wird. |
+| `isLoading`    | Der anfängliche Serverstatus wird noch geladen.                                      |
+| `isSynced`     | Der Hook hat den Serverstatus erreicht.                                              |
+| `activeUsers`  | Menschliche Mitarbeiter aus dem Bewusstsein.                                         |
+| `agentActive`  | Der Agent bearbeitet gerade aktiv.                                                   |
+| `agentPresent` | Der Agent hat einen Bekanntheitseintrag für dieses Dokument.                         |
+
+### Schnelle Bekanntheit {#fast-awareness}
+
+Änderungen des Bekanntheitsstatus werden jetzt mit ca. 150 ms statt im 2-sekündigen Abfragezyklus verbreitet:
+
+- **Client → Server**: Jeder Aufruf an `setPresence()` oder `awareness.setLocalStateField()` löst innerhalb von 150 ms einen gedrosselten POST an `/_agent-native/collab/:docId/awareness` aus, wodurch schnelle Änderungen in einer Anfrage zusammengefasst werden.
+- **Server → Clients**: Der `postAwareness`-Handler gibt nach dem Speichern einen `AWARENESS_CHANGE_EVENT` aus. Der `/_agent-native/poll-events` SSE-Stream leitet diese Ereignisse im Push-Stil an verbundene Peers weiter. Bereitstellungen, die nur auf Abfragen basieren, funktionieren weiterhin – Cursor werden ohne Fehler auf die Abfragefrequenz umgestellt.
+
+### `usePresence(awareness, localClientId)` {#use-presence}
+
+Gibt eine reaktive Liste von Remote-Teilnehmern und einen Setter für die lokale Präsenznutzlast zurück:
+
+```ts
+import { usePresence } from "@agent-native/core/client/collab";
+const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
+
+// Publish cursor position (normalized 0–1)
+setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
+
+// others: OtherPresence[]
+// {
+//   clientId: number
+//   user: { name, email, color }
+//   presence: { cursor?, selection?, viewport?, ... }
+//   isAgent: boolean   ← true for AGENT_CLIENT_ID
+// }
+```
+
+Der Agent (AGENT_CLIENT_ID) erscheint als erstklassiger Teilnehmer mit `isAgent: true`. Wenn `agentUpdateSelection()` serverseitig aufgerufen wird, fließen seine Auswahlmetadaten wie jeder andere Teilnehmer über `usePresence`.
+
+### `LiveCursorOverlay` {#live-cursor-overlay}
+
+Rendert Remote-Cursor als absolut positionierte Beschriftungen über einem Containerelement:
+
+```tsx
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
+
+// cursor positions stored as { x, y } normalized 0–1 under presence.cursor
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <LiveCursorOverlay
+    others={others} // from usePresence
+    containerRef={containerRef}
+    cursorKey="cursor" // key in presence payload (default: "cursor")
+  />
+</div>;
+```
+
+Der Cursor des Agenten wird deutlich mit einem Glitzersymbol dargestellt. Cursor werden nach 10 Sekunden Inaktivität ausgeblendet, mit sanften CSS-Übergängen bei 120 ms.
+
+### `RemoteSelectionRings` {#remote-selection-rings}
+
+Rendert farbige Umrissringe + Namensschilder über entfernt ausgewählten Elementen:
+
+```tsx
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
+
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <RemoteSelectionRings
+    others={others}
+    selectionKey="selection" // key in presence payload (default: "selection")
+    resolveRect={(descriptor) =>
+      document.querySelector(descriptor)?.getBoundingClientRect() ?? null
+    }
+    containerRef={containerRef}
+  />
+</div>;
+```
+
+### `useFollowUser` {#follow-user}
+
+Rufen Sie einen Rückruf auf, wenn sich das Ansichtsfenster des verfolgten Teilnehmers ändert:
+
+```ts
+import { useFollowUser } from "@agent-native/core/client/collab";
+const { isFollowing, stopFollowing } = useFollowUser({
+  others,
+  followingId, // null to stop following
+  viewportKey: "viewport",
+  onViewport: (vp) => {
+    if (vp.fileId) setActiveFileId(vp.fileId);
+    if (vp.zoom) setZoom(vp.zoom);
+  },
+});
+```
+
+Teilnehmer veröffentlichen ihr Ansichtsfenster mit `setPresence({ viewport: { fileId, zoom } })`.
+
+### `PresenceBar` Folgemodus-Requisiten {#presence-bar-follow}
+
+Die `PresenceBar`-Komponente akzeptiert jetzt optionale Follow-Mode-Requisiten:
+
+```tsx
+<PresenceBar
+  activeUsers={activeUsers}
+  agentActive={agentActive}
+  onAvatarClick={(user) => {
+    // user is null for the agent avatar
+    const email = user?.email ?? "agent@system";
+    setFollowing((prev) => (prev === email ? null : email));
+  }}
+  followingEmail={followingEmail} // highlighted avatar + "Following X" chip
+/>
+```
+
+### Normalisierte Koordinatenhelfer {#norm-coords}
+
+```ts
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
+// In a pointer event handler:
+const norm = toNormalized(
+  e.clientX,
+  e.clientY,
+  container.getBoundingClientRect(),
+);
+setPresence({ cursor: norm });
+
+// In a cursor renderer:
+const px = fromNormalized(norm, container.getBoundingClientRect());
+```
+
+### Agent-Cursor-Installation {#agent-cursor}
+
+Serverseitiger actions-Aufruf `agentUpdateSelection()`, um zu veröffentlichen, wo der Agent arbeitet. Die Elemente `edit-design` und `generate-design` actions der Designvorlage rufen dies automatisch auf. Andere Vorlagen können dasselbe tun:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+
+agentEnterDocument(docId);
+agentUpdateSelection(docId, {
+  selection: "#target-element",
+  editingFile: "index.html",
+});
+try {
+  // ... perform edits ...
+} finally {
+  agentLeaveDocument(docId);
+}
+```
+
+Die Auswahlmetadaten fließen über `usePresence` auf verbundenen Clients als `other.presence.selection`.
+
+---
+
+## Routentabelle {#routes}
+
+Alle Routen werden von der Zusammenarbeit automatisch unter `/_agent-native/collab/` gemountet
+Plugin:
+
+| Route                         | Zweck                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| `GET /:docId/state`           | Vollständiger Y.Doc-Status (base64). Akzeptiert `?stateVector=` für Diff |
+| `POST /:docId/update`         | Wenden Sie das Client-Yjs-Update (base64) an. Standardmäßig maximal 2 MB |
+| `POST /:docId/text`           | Volltextersetzung anwenden (unterschiedsbasiert)                         |
+| `POST /:docId/search-replace` | Chirurgisches Suchen/Ersetzen in Y.XmlFragment                           |
+| `POST /:docId/json`           | Vollständiges JSON-Diff auf Y.Map/Y.Array anwenden                       |
+| `GET /:docId/json`            | Aktuellen JSON-Status lesen                                              |
+| `POST /:docId/patch`          | Wenden Sie chirurgische JSON-Patchoperationen an (Upsert/Remove/Reorder) |
+| `POST /:docId/awareness`      | Cursor-/Anwesenheitsstatus synchronisieren                               |
+| `GET /:docId/users`           | Aktive Benutzer in einem Dokument auflisten                              |
+
+## Transport und Leistung {#transport}
+
+| Eigenschaft                         | Wert                                                                   |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| Update-Entprellung                  | ~80 ms (zusammenführen schnelle Tastenanschläge über `Y.mergeUpdates`) |
+| Abfrageintervall (kein SSE)         | 2 s (konfigurierbar über `pollInterval`)                               |
+| Abfrageintervall (SSE fehlerfrei)   | ~12 s (konfigurierbar über `pollIntervalWithSse`)                      |
+| Abrufhäufigkeit des Zustandsvektors | Bei erneuter Verbindung, Ringpufferlücke oder jedem 15. Abfragezyklus  |
+| Backoff bei Fehler                  | Exponentiell mit Jitter, Obergrenze ~15 s                              |
+| Maximale Nutzlast (Schreibvorgänge) | 2 MB Standard, konfigurierbar über `maxPayloadBytes`                   |
+| Verdichtungsschwellenwert           | Gespeicherter Blob > 4× neue Codierung löst Tombstone Compact aus      |
+| DB-Lesevorgänge pro Schreibvorgang  | 1 (CAS-Version, die nur in `persistMergedState` gelesen wird)          |
+
+## Gehostetes Realtime-Sync-Gateway {#hosted-gateway}
+
+Standardmäßig verwenden Apps den oben beschriebenen Poll/SSE-Transport. Jede App
+kann sich stattdessen für das gehostete Realtime-Sync-Gateway entscheiden, das
+die `sync_events`-Tabelle der App zentral verfolgt und Änderungen an alle
+verbundenen Clients verteilt — die Zustellung von Änderungen hängt damit nicht
+mehr davon ab, dass jede Serverless-Instanz ihre eigenen langlebigen
+Verbindungen offen hält.
+
+Die Einrichtung hängt davon ab, wer die App bereitstellt.
+
+### Von Builder gehostete Apps: nichts zu tun {#hosted-gateway-builder}
+
+Eine über die Hosting-Pipeline von Builder bereitgestellte App wird automatisch
+provisioniert. Das Deployment injiziert den Transport, die Gateway-URL, die
+Kanal-ID und das Signaturgeheimnis (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) als
+reservierte Umgebungsvariablen, denn die Pipeline hat die Datenbank, die das
+Gateway liest, bereits provisioniert.
+
+Um ein Projekt ABZUMELDEN, fügen Sie seiner `builder.config.json` einen
+`realtime`-Block hinzu:
+
+```json
+{
+  "realtime": { "transport": "local" }
+}
+```
+
+### Überall sonst bereitgestellt: Selbstregistrierung {#hosted-gateway-self}
+
+Eine App auf eigenem Netlify, Vercel, Container oder VM hat keine solche
+Provisionierung und stellt sich dem Gateway daher selbst vor. Setzen Sie eine
+einzige Umgebungsvariable im Deployment:
+
+```bash
+AGENT_NATIVE_REALTIME_TRANSPORT=hosted
+```
+
+Das Setzen ist die ausdrückliche Zustimmung, und es ist die einzige Variable,
+die dieses Feature hinzufügt. Auf einem Deployment, das sie nicht gesetzt hat,
+passiert hier nichts.
+
+Das Deployment muss außerdem vier Dinge erfüllen, die auf eine normale
+Produktions-App ohnehin zutreffen:
+
+| Voraussetzung                                                      | Warum                                                                                                                                                                                                              | Wie prüfen                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres auf einem öffentlich erreichbaren Host**                | Das Gateway wählt die Datenbank aus seinem eigenen Netz an. PGlite, SQLite, `localhost`, `*.internal` und nackte IP-Adressen werden abgelehnt, bevor die Verbindungszeichenfolge Ihre Maschine überhaupt verlässt. | `DATABASE_URL` zeigt auf ein verwaltetes Postgres wie Neon                                                                                                                                                                  |
+| **`BUILDER_PRIVATE_KEY` als DEPLOYMENT-Umgebungsvariable gesetzt** | Damit wird die Registrierung authentifiziert und entschieden, welcher Builder-Organisation der Kanal gehört.                                                                                                       | Siehe den Hinweis unten — dieser Schritt wird am häufigsten übersehen                                                                                                                                                       |
+| **Ein Produktions-Deployment**                                     | Deploy-Previews bleiben bei der lokalen Synchronisierung, damit ein kurzlebiges Branch-Credential die Maschine nie verlässt und ein aktives Repository nicht pro Pull Request einen Kanal erzeugt.                 | `CONTEXT=production` / `BRANCH=production` oder `VERCEL_ENV=production`                                                                                                                                                     |
+| **Die Plattform identifiziert das Deployment**                     | Die Registrierung ist an den öffentlichen Origin der App gebunden, daher darf ein Prozess, der nicht wirklich das Deployment ist, ihn nicht beanspruchen.                                                          | Netlify, Vercel, AWS Lambda, Cloud Run, Render und Cloudflare Pages kennzeichnen sich selbst. Auf einem einfachen Container oder einer VM setzen Sie `AGENT_NATIVE_REALTIME_APP_URL` auf den eigenen Origin des Deployments |
+
+<Callout tone="warning">
+
+**Builder aus der App heraus zu verbinden genügt nicht.** Die In-App-Verbindung
+zu Builder speichert ihr Credential pro Benutzer oder pro Organisation im
+Secret-Vault der App. Die Selbstregistrierung ignoriert dieses Credential
+bewusst — die Verbindung eines einzelnen Benutzers darf nicht die Datenbank des
+gesamten Deployments unter derjenigen Organisation registrieren, die zufällig
+die erste Anfrage gestellt hat — und liest ausschließlich eine
+`BUILDER_PRIVATE_KEY`-Umgebungsvariable auf Deployment-Ebene. Eine App, die
+„Builder verbunden“ anzeigt und keine solche Variable hat, bleibt bei der
+lokalen Synchronisierung.
+
+</Callout>
+
+Die Registrierung erfolgt dann bedarfsgesteuert, bei der ersten Anfrage, die
+einen Kanal benötigt. Die App sendet ihre Verbindungszeichenfolge und ihren
+öffentlichen Origin, erhält eine Kanal-ID und ein Signaturgeheimnis zurück und
+stellt Subscribe-Token genau so aus wie eine von Builder gehostete App. Sie
+läuft von selbst erneut, sobald sich die Datenbank-URL, der App-Origin oder das
+Builder-Credential ändert, sodass eine Credential-Rotation ohne erneutes
+Deployment von irgendetwas anderem übernommen wird.
+
+Workspace-Deployments (mehrere Apps unter einem Origin) registrieren sich nicht
+selbst: Geschwister-Apps teilen sich einen Origin, und die Registrierung ist
+daran gebunden, sodass sie auf einem Kanal kollidieren würden. Sie protokollieren
+eine entsprechende Zeile und bleiben bei der lokalen Synchronisierung.
+
+### Überprüfen, ob es funktioniert hat {#hosted-gateway-verify}
+
+`GET /_agent-native/health` meldet das Ergebnis, und die Auflösung führt die
+Registrierung durch — ein einziger curl-Aufruf aktiviert und bestätigt also
+zugleich:
+
+```bash
+curl -s https://your-app.example.com/_agent-native/health | jq .realtime
+```
+
+```json
+{
+  "transport": "hosted",
+  "registered": true,
+  "channelHash": "3f9a2c17"
+}
+```
+
+| Feld          | Bedeutung                                                                                                                                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`   | `"hosted"`, sobald die Umgebungsvariable gesetzt ist, sonst `"local"`. Steht hier `local`, hat die Variable das laufende Deployment nicht erreicht.                                                                              |
+| `registered`  | Ein Kanal wurde aufgelöst. `false` bedeutet, dass die App weiterhin ihr eigenes `/_agent-native/poll` verwendet.                                                                                                                 |
+| `channelHash` | Die ersten 8 Zeichen eines SHA-256 der Kanal-ID — genug, um zwei Deployments zu unterscheiden oder eine Rotation zu bestätigen, nutzlos zum Verbinden. Der Endpunkt ist öffentlich, daher wird die ID selbst nie veröffentlicht. |
+| `unavailable` | Nur vorhanden, wenn die Auflösung FEHLGESCHLAGEN ist, im Unterschied zu „kein Kanal“. Ein nicht erreichbares Gateway und eine nicht registrierte App sind unterschiedliche Probleme.                                             |
+
+Wenn `registered` `false` ist, enthalten die Logs des Deployments eine
+`[realtime]`-Zeile mit dem Grund — ein abgelehntes Credential, eine nicht
+parsebare Datenbank-URL, ein Prozess, der nicht wie das Deployment aussieht.
+Gehen Sie die Voraussetzungstabelle oben der Reihe nach durch.
+
+### Was Builder speichert und die Vertrauensgrenze {#hosted-gateway-trust}
+
+**Selbstregistrierung bedeutet, Builder Ihre Datenbank-Verbindungszeichenfolge
+zu senden.** Builder speichert sie und verbindet sich mit Ihrer Datenbank, um
+`sync_events` zu verfolgen. Die Verbindung ist nicht schreibgeschützt: sowohl
+die Versionszuteilung als auch die Erkennung von Änderungen außerhalb des
+regulären Wegs schreiben. Wenn Sie das nicht möchten, lassen Sie die
+Transport-Variable ungesetzt. Das ist die gesamte Entscheidung, und es gibt
+keinen anderen Weg, der dieses Credential teilt.
+
+**Die Organisation ist die Vertrauensgrenze.** Jedes Credential, das sich
+registrieren kann, kann auch einen bestehenden Origin erneut registrieren, was
+das Signaturgeheimnis dieses Kanals zurückgibt und seine Datenbank umlenkt. Wer
+dieses Geheimnis besitzt, kann ein Subscribe-Token für jeden Benutzer der App
+ausstellen, wodurch dessen _Änderungsstrom_ offengelegt wird — welche Datensätze
+sich wann geändert haben — aber nicht die Datensätze selbst, da Clients Inhalte
+mit ihrer eigenen Sitzung erneut aus der App lesen. Behandeln Sie ein
+Registrierungs-Credential als organisationsweit.
+
+### Wie es funktioniert {#hosted-gateway-mechanics}
+
+- `GET /_agent-native/realtime-token` stellt ein kurzlebiges (10 Minuten),
+  sitzungsgebundenes Subscribe-Token aus, mit dem der Browser die
+  Gateway-Verbindung öffnet. Es akzeptiert nur dieselbe Origin und antwortet
+  ohne aktive Sitzung mit 401.
+- `GET /_agent-native/can-see` ist die Sichtbarkeitsprüfung des Gateways pro
+  Ereignis: Es verifiziert ein signiertes Gateway-Zugriffstoken und führt dann
+  das app-eigene `resolveAccess` erneut aus, damit das Gateway niemals ein
+  Ereignis an jemanden weiterleiten kann, der den Zugriff inzwischen verloren
+  hat. Unbekannte Ressourcentypen oder fehlgeschlagene Lookups schlagen
+  geschlossen fehl (`{ allowed: false }`).
+- Unter Postgres beziehen gehostete Apps Sync-Versionen aus der Datenbank
+  (`dbAssignedVersions`) statt aus einem In-Process-Zähler, weil
+  Gateway-Instanzen und die Serverless-Instanzen der App sich eine Datenbank
+  teilen und sich über die Schreibreihenfolge einig sein müssen.
+- `AGENT_NATIVE_REALTIME_GATEWAY_URL` überschreibt den Gateway-Endpunkt für
+  Staging. Ohne Wert wird er aus `BUILDER_GATEWAY_BASE_URL` abgeleitet.
+
+Jeder Fehlschlag hier ist bewusst weich: keine Transport-Variable, kein
+Builder-Schlüssel auf Deployment-Ebene, eine Nicht-Postgres-Datenbank oder ein
+nicht erreichbares Gateway lassen die App beim lokalen Polling, statt einen
+Fehler zu erzeugen. Ein 404 auf `GET /_agent-native/realtime-token` bedeutet,
+dass kein Kanal aufgelöst wurde.
+
+## Sicherheit {#security}
+
+### Zugriffsmodell ausdrücklich wählen
+
+Verwenden Sie für Ressourcen mit Besitz- oder Freigabemodell den über
+`registerShareableResource` registrierten Typ:
+
+```ts
+createCollabPlugin({
+  access: { mode: "resource", resourceType: "document" },
+});
+```
+
+Für eine bewusst in der gesamten Bereitstellung freigegebene Ressource:
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+Erfinden Sie keinen `resourceType`, um eine Warnung zu entfernen: Der Modus
+`resource` ist nur richtig, wenn das entsprechende Besitz- und Freigabemodell
+existiert. Das Weglassen von `access` bleibt für Legacy-Kompatibilität unterstützt,
+verhält sich wie `all-authenticated`, protokolliert eine Warnung und wird von Doctor
+gemeldet. Freigabeempfänger ohne Besitz, aber mit ausdrücklichem Zugriff, verwenden
+den State-Vector-Abgleich (sicher, aber mit höherer Latenz).
+
+### Zugriffsprüfungen
+
+Alle Collab-Routen erfordern eine Authentifizierung. Im Modus `resource`
+erfordern mindestens Betrachterzugriff und Schreibvorgänge erfordern Editorzugriff unter Verwendung von
+gleiche `resolveAccess` / `assertAccess`-Helfer wie das Freigabesystem. Ein 404
+(nicht 403) wird bei Zugriffsfehlern zurückgegeben, um zu verhindern, dass ein Dokument existiert.
+
+### Nutzlastbeschränkungen
+
+Schreibrouten (`update`, `text`, `json`, `patch`, `search-replace`) werden abgelehnt
+Nutzdaten überschreiten den konfigurierten Grenzwert mit HTTP 413. Der Standardwert ist 2 MB.
+Pro Plugin überschreiben:
+
+```ts
+createCollabPlugin({
+  access: { mode: "resource", resourceType: "document" },
+  maxPayloadBytes: 512 * 1024, // 512 KB
+});
+```
+
+### Bewusstseinsumfang
+
+Awareness-Routen (`POST /awareness`, `GET /users`) werden durch dasselbe gesteuert
+Zugriffsprüfung beim Lesen – ein Benutzer, der keinen Zuschauerzugriff hat, kann nicht erfahren, wer sonst noch ist
+bearbeitet ein Dokument.
+
+## Muster {#patterns}
+
+### Granulare serverseitige Zusammenführung für strukturierte Daten
+
+Für strukturierte Dokumente (Foliendecks, Formularersteller, Designdateien) die Yjs
+Body-Collab-Modell kann zu Konflikten führen, wenn zwei Agenten oder Benutzer dasselbe umschreiben
+Datensatz der obersten Ebene gleichzeitig erstellen. Das sicherere Muster ist **granular serverseitig
+merge**: Definieren Sie eine Aktion, die eine Reihe gezielter Vorgänge akzeptiert und
+wendet sie atomar an, sodass gleichzeitige Bearbeitungen an verschiedenen Elementen beide erhalten bleiben.
+
+**Folien (`patch-deck`)** – Anstatt bei jedem das gesamte Deck JSON auszutauschen
+Änderung, die Aktion akzeptiert Vorgänge pro Folie:
+
+```ts
+// Conceptual patch-deck action shape
+type PatchDeckOp =
+  | { type: "patch"; slideId: string; fields: Partial<SlideFields> }
+  | { type: "add"; position: number; slide: SlideData }
+  | { type: "delete"; slideId: string }
+  | { type: "reorder"; slideId: string; newIndex: number };
+```
+
+Zwei Benutzer, die unterschiedliche Folien bearbeiten, sind beide erfolgreich. Es gibt keinen LWW-Clober bei
+die Deckebene.
+
+**Formulare (`patch-form-fields`)** – Zusammenführung auf Feldebene mit Upsert/Remove/Reorder
+ops, sodass gleichzeitige Bearbeitungen an verschiedenen Formularfeldern beide überleben.
+
+Verwenden Sie dieses Muster, wenn:
+
+- Das Dokument ist strukturiert (Elemente in einem Container).
+- Gleichzeitige Bearbeitungen zielen auf verschiedene Elemente ab.
+- Body Collab (Yjs `Y.XmlFragment`) ist übertrieben oder nicht anwendbar.
+
+Verwenden Sie Body Collab (Y.XmlFragment + TipTap), wenn:
+
+- Das Dokument ist ein Rich-Text-Dokument in freier Form, in dem jeder Bereich bearbeitet werden kann.
+- CRDT-Zusammenführung auf Cursorebene ist wichtig.
+
+### Gemeinsames Rückgängig-Scoping (Y.UndoManager)
+
+Die Design-Vorlage verwendet `Y.UndoManager`, um das Rückgängigmachen/Wiederherstellen auf die lokale Ebene zu beschränken
+eigene Änderungen des Benutzers. Änderungen an Remote-Peers und Agenten werden von einem
+Cmd+Z des Benutzers.
+
+```ts
+import * as Y from "yjs";
+
+const LOCAL_EDIT_ORIGIN = "local";
+
+const undoManager = new Y.UndoManager(ydoc.getText("content"), {
+  trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+  captureTimeout: 800, // coalesce rapid slider drags into one undo step
+});
+
+// Wrap local edits with the tracked origin
+ydoc.transact(() => {
+  // apply local style change
+}, LOCAL_EDIT_ORIGIN);
+
+// Undo/redo — only reverses LOCAL_EDIT_ORIGIN transactions
+undoManager.undo(); // Cmd+Z
+undoManager.redo(); // Shift+Cmd+Z
+```
+
+Schlüsseleigenschaften:
+
+- `trackedOrigins` muss ein `Set` sein. Nur transactions mit passendem Ursprung
+  werden im Rückgängig-Stapel erfasst.
+- Remote-Updates (Ursprung `"remote"`) und Agent-Updates (Ursprung `"agent"`) sind
+  nie erfasst.
+- Erstellen Sie den Manager neu und entsorgen Sie ihn, wenn sich das aktive Dokument ändert. veraltet
+  Manager verfügen über Referenzen, die unbegrenzt wachsen können.
+
+## Bekannte Einschränkungen {#limitations}
+
+<Callout id="doc-block-1x5engc" tone="risk">
+
+**Das gleichzeitige Umschreiben in derselben Region ist das letzte Schreiben, das gewinnt.** Wenn der Agent eine Passage neu schreibt, während ein Mensch nicht gespeicherte Bearbeitungen in der _genau gleichen Region_ hat, kann der Lead-Client-Snapshot die menschliche Bearbeitung während der Übertragung beeinträchtigen. Bearbeitungen in verschiedenen Regionen werden über die CRDT immer sauber zusammengeführt. Verwenden Sie bei strukturierten Dokumenten die granulare serverseitige Zusammenführung, um dies vollständig zu umgehen.
+
+</Callout>
+
+- **Das gleichzeitige Umschreiben in derselben Region ist LWW** – Wenn der Agent einen umschreibt
+  Passage und ein Mensch hat nicht gespeicherte Änderungen in genau derselben Region, der
+  Der Lead-Client-Snapshot kann die laufenden Änderungen des Menschen überschreiben. Bearbeitungen in
+  verschiedene Regionen werden über den CRDT korrekt zusammengeführt. Granulare serverseitige Zusammenführung
+  (siehe oben) vermeidet dies für strukturierte Dokumente.
+- **In-Prozess-Schreibsperren auf serverlosen Servern** – Die `_writeLocks`-Zuordnung ist
+  prozesslokal. Gleichzeitige Anfragen landen auf verschiedenen Servern
+  Aufrufe werden eher auf der SQL CAS-Ebene serialisiert (optimistische Parallelität)
+  als die In-Memory-Sperre. Dies ist sicher, erfordert jedoch Szenarios mit hohem Durchsatz.
+  serverlos werden möglicherweise mehr CAS-Wiederholungsversuche angezeigt.
+- **Awareness ist pro Prozess** – Der Awareness-In-Memory-Store ist
+  prozesslokal. Serverlose/Multiprozess-Bereitstellungen sind teilweise bekannt
+  Status pro Aufruf. Kunden erhalten immer noch vollständige Awareness-Snapshots zu jedem
+  Abfragezyklus, sodass Anwesenheitsindikatoren innerhalb eines Abfrageintervalls aktualisiert werden.
+
+## Anwesenheit {#presence}
+
+Der `useCollaborativeDoc`-Hook gibt Folgendes zurück:
+
+- `activeUsers` – Array von `CollabUser` (Name, E-Mail, Farbe) für alle Peers
+  derzeit im Dokument (Quelle: Awareness).
+- `agentActive` – `true` kurz nachdem der Agent eine Bearbeitung vorgenommen hat (für eine
+  transiente visuelle Anzeige).
+- `agentPresent` – `true`, während der Agent einen aktiven Bekanntheitseintrag hat
+  (Dauerhafter Präsenz-Heartbeat).
+
+Verwenden Sie `emailToColor(email)` und `emailToName(email)` von
+`@agent-native/core/client` zum Generieren konsistenter Cursorfarben und -anzeigen
+Namen aus E-Mail-Adressen.
+
+Ein mit `activeUsers` gerendertes `PresenceBar` zeigt lebende Menschen und Agenten
+Mitarbeiter. Präsenz pro Folie (welche Benutzer eine bestimmte Folie ansehen)
+Ebenen über dem gleichen Bewusstseinszustand.
+
+## Verwandte Dokumente {#related}
+
+- [Sync-Interna](/docs/client-sync-internals) – der `useDbSync` + `useChangeVersion`
+  System, das den `updatedAt` Bump-Drive-Editor-Abgleich ermöglicht.
+- [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
+  und `assertAccess` für ressourcenbezogene Zusammenarbeit.
+- [Sharing](/docs/sharing) – wie Dokumente geteilt werden und wie der Zugriff gewährt wird.
+- [Template: Content](/docs/template-content) – Referenzimplementierung von
+  kollaborative Rich-Text-Bearbeitung.
+- [Template: Slides](/docs/template-slides) – granulare `patch-deck`-Aktion für
+  strukturierte gleichzeitige Bearbeitung.
+- [Template: Forms](/docs/template-forms) – `patch-form-fields` auf Feldebene
+  serverseitige Zusammenführung.
+- [Template: Design](/docs/template-design) – `Y.UndoManager` rückgängig machen/wiederholen
+  zu lokalen Benutzerbearbeitungen.

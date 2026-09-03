@@ -1,0 +1,177 @@
+---
+title: "執行情境"
+description: "傳給 run() 的第二個引數 ctx：完整的 ActionRunContext 簽章與 caller 聯合型別，用於追蹤、自動化歸因，以及跨領域關注點。"
+---
+
+# 執行情境
+
+`run` 會收到一個選用的第二個引數 `ctx`，其中帶有已解析的請求身分，以及呼叫此 action 的介面。請直接讀取它，而不要手動呼叫 `getRequestUserEmail()` / `getRequestOrgId()`，並將整個 `ctx` 傳給追蹤功能：
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+大多數 action 就只會讀取 `ctx?.userEmail` 和 `ctx?.orgId`，也就是幾乎每個實際的 action 都會用到的[存取控制範圍限定](/docs/actions-access-control#access-control)。本頁其餘部分則涵蓋追蹤與自動化歸因等跨領域關注點，這些是較少 action 需要用到的。
+
+## `ctx` 引數 {#ctx}
+
+`ctx` 帶有兩類資訊：幾乎每次呼叫都會存在的已解析請求身分（`userEmail`、`orgId`），以及關於呼叫此 action 的介面的中繼資料（`caller`，加上像 `threadId` 或 `automation` 這類只會針對特定呼叫者才填入的介面專屬欄位）。以下是作為 `run()` 第二個引數的完整結構：
+
+<Signature
+  id="doc-block-actions-run-context-1"
+  name="run"
+  params={[
+    {
+      name: "args",
+      type: "TInput",
+      description: "經過驗證的輸入，由 `schema` 解析而來。",
+    },
+    {
+      name: "ctx",
+      type: "ActionRunContext",
+      optional: true,
+      description:
+        "已解析的請求身分，以及呼叫此 action 的介面。對 undefined 安全：僅有一個引數的 `run(args)` 處理常式仍然有效。",
+      fields: [
+        {
+          name: "userEmail",
+          type: "string",
+          optional: true,
+          description:
+            "已解析的請求使用者。**絕不會預設為開發身分**：當請求沒有已驗證的使用者時為 `undefined`。若您需要備援值，請自行套用。",
+        },
+        {
+          name: "orgId",
+          type: "string | null",
+          description: "已解析的組織 id，若請求沒有組織則為 `null`。",
+        },
+        {
+          name: "caller",
+          type: "ActionCaller",
+          description:
+            "此 action 是如何被呼叫的。請參閱下方的 [caller 聯合型別](#caller)。",
+        },
+        {
+          name: "send",
+          type: "(event) => void",
+          optional: true,
+          description:
+            '向用戶端發出一個 SSE 事件。只有在代理工具迴圈內（`caller: "tool"`）才會存在，其他情況下為 `undefined`。',
+        },
+        {
+          name: "attachments",
+          type: "AgentChatAttachment[]",
+          optional: true,
+          description:
+            '隨目前這個代理回合一起提交的檔案、圖片與貼上的文字區塊。只有在 `caller: "tool"` 時才會填入，其他所有介面上皆為 `undefined`。',
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description:
+            '當此次執行被軟性逾時、取消，或伺服器關閉時會中止。只有在 `caller: "tool"` 時才會填入。長時間執行的 action 可以監聽它來提早取消，而不必等到每個工具 60 秒的強制逾時。',
+        },
+        {
+          name: "actionName",
+          type: "string",
+          optional: true,
+          description:
+            "被呼叫之 action 的註冊表鍵值（例如 `delete-recording`），會在每個分派點設定，讓稽核記錄這類跨領域關注點能夠將此次呼叫歸因。對於繞過分派器的直接程式化 `run()` 呼叫，此值為 `undefined`。",
+        },
+        {
+          name: "threadId",
+          type: "string",
+          optional: true,
+          description:
+            '觸發此次呼叫的代理對話串。只有在 `caller: "tool"` 時才會填入，讓稽核記錄能將一次變更連結回確切的代理執行。',
+        },
+        {
+          name: "runId",
+          type: "string",
+          optional: true,
+          description:
+            '觸發此次呼叫的代理執行嘗試。只有在 `caller: "tool"` 時才會填入。',
+        },
+        {
+          name: "turnId",
+          type: "string",
+          optional: true,
+          description:
+            '在該次執行中觸發此次呼叫的特定回合。只有在 `caller: "tool"` 時才會填入。',
+        },
+        {
+          name: "automation",
+          type: "ActionAutomationContext",
+          optional: true,
+          description:
+            '只有在 `caller: "automation"` 時才會存在。帶有觸發此次呼叫之事件觸發自動化的 `triggerId`、`triggerName`，以及選用的 `policyId`。',
+        },
+        {
+          name: "networkProtocol",
+          type: '"a2a" | "mcp" | "provider-api"',
+          optional: true,
+          description:
+            "此請求是透過哪一種委派呼叫協定送達的。只會針對那些直接分派路徑設定。",
+        },
+        {
+          name: "networkId",
+          type: "string",
+          optional: true,
+          description: "該次委派呼叫的關聯 id，例如 A2A 委派 JWT 的 id。",
+        },
+        {
+          name: "networkPeer",
+          type: "string",
+          optional: true,
+          description: "該次委派呼叫中，呼叫方對等節點的身分。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TReturn> | TReturn",
+    description: "此 action 的結果，若設定了 `outputSchema` 則會依此驗證。",
+  }}
+/>
+
+`run()` 維持向後相容：既有僅有一個引數的處理常式，以及只解構 `{ send }` 的處理常式，都能維持不變地繼續運作。
+
+### `caller` 聯合型別 {#caller}
+
+`caller` 是聯合型別 `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`：
+
+| `caller`       | 設定時機…                                                                                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | 應用程式內的代理迴圈、子代理或代理團隊，或是驅動同一個代理迴圈的自然語言跨應用程式 A2A 委派，其工具呼叫都會是 `"tool"`。                             |
+| `"frontend"`   | 透過 `useActionMutation()`、`useActionQuery()` 或 `callAction()` 發出的瀏覽器呼叫（標記有 `X-Agent-Native-Frontend: 1` 標頭）。                      |
+| `"http"`       | 對 `/_agent-native/actions/<name>` 發出、不帶前端標記的單純程式化 `POST` 或 `GET`。                                                                  |
+| `"cli"`        | `pnpm action <name>`（CLI 執行器）。                                                                                                                 |
+| `"mcp"`        | 透過 MCP `tools/call` 端點呼叫的外部代理。                                                                                                           |
+| `"a2a"`        | 對 `/_agent-native/actions/<name>` 發出、帶有已簽署 A2A 委派權杖的直接 HTTP 呼叫。這是明確曝露的跨應用程式分派，與上方的自然語言 `"tool"` 路徑不同。 |
+| `"automation"` | 從儲存的工作區觸發器分派的事件觸發自動化。`ctx.automation` 帶有觸發脈絡。請參閱[自動化](/docs/automations)。                                         |
+
+## 下一步是什麼
+
+- [**存取與授權**](/docs/actions-access-control) — 此情境所支援的 `ctx.userEmail`/`ctx.orgId` 範圍限定模式
+- [**定義 Actions**](/docs/actions-defining) — `defineAction()` 的結構與 HTTP 設定
+- [**其他介面**](/docs/actions-other-surfaces) — CLI、A2A、MCP 與自動化呼叫者如何設定 `caller`
+- [**稽核記錄**](/docs/audit-log) — `threadId`/`runId`/`turnId` 如何將一次變更連結回其代理執行
+- [**自動化**](/docs/automations) — `ctx.automation` 的觸發脈絡

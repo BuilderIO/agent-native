@@ -1,0 +1,303 @@
+---
+title: "Deployment"
+description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent SQL database."
+search: "deployment deploy app workspace hosting database Nitro Node.js Docker Vercel Netlify Cloudflare AWS Amplify AWS Lambda Deno Deploy Azure Static Web Apps Koyeb Render"
+---
+
+# Deployment
+
+Agent-Native apps run on [Nitro](https://nitro.build), so the same app can
+deploy to Node.js, serverless functions, edge workers, or a managed host. Pick
+the path that matches what you are shipping:
+
+<Cards columns={2}>
+
+### :server: [Deploy an app](/docs/deploy-an-app)
+
+Build and launch one standalone app, or deploy one app from a workspace on its
+own domain.
+
+### :network: [Deploy a workspace](/docs/workspace-deployment)
+
+Build several apps behind one origin with shared login and same-origin app to
+app communication.
+
+</Cards>
+
+## Before you deploy: choose a persistent database {#persistent-database}
+
+Every deployed app needs a persistent SQL database. Local development can use
+the SQLite file at `data/app.db`, but container, preview, and serverless
+filesystems can be reset at any time.
+
+<Steps>
+
+### Choose a provider
+
+Use any Drizzle-compatible SQL backend, such as Postgres, Neon, Supabase,
+Railway, RDS, Turso, or libSQL. The framework detects the database dialect from
+the connection URL.
+
+### Set the connection string
+
+Set `DATABASE_URL` in the deployment environment before the first production
+deploy. Use `DATABASE_AUTH_TOKEN` too when the provider requires a separate
+token, such as Turso or libSQL.
+
+### Add production secrets
+
+Set a stable `BETTER_AUTH_SECRET` for a standalone app. A workspace also needs
+`A2A_SECRET` when it uses signed cross-app requests or background handoffs. The
+[deployment environment reference](/docs/deployment-environment-variables)
+covers the rest of the production configuration.
+
+</Steps>
+
+<Callout tone="info">
+
+In a workspace, every app inherits the root `DATABASE_URL` by default. Set
+`<APP_NAME>_DATABASE_URL` only when one app needs a different database.
+
+</Callout>
+
+## Email delivery is optional, but recommended {#email-provider}
+
+An email provider is not required for email/password authentication. Without
+one, a deployed app uses email/password signup and login, skips signup email
+verification, and does not offer magic-link authentication.
+
+Connect Resend or SendGrid before deploying if you want magic links, email
+verification, password resets, invitations, or share notifications. Set
+`RESEND_API_KEY` or `SENDGRID_API_KEY` in the deployment environment; SendGrid
+also needs `EMAIL_FROM`. See [Authentication](/docs/authentication) for the
+available authentication modes.
+
+## Supported deployment targets
+
+Set a Nitro preset for the target you choose. The app code and database
+contract stay the same.
+
+<!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
+
+<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Amplify, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render." frame="hide" renderMode="design">
+
+```html
+<!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
+<div class="deployment-target-grid">
+  <a class="deployment-target" href="/docs/node-js">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/nodejs.svg"
+        alt=""
+      />
+    </span>
+    <strong>Node.js</strong>
+  </a>
+  <a class="deployment-target" href="/docs/docker">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/docker.svg"
+        alt=""
+      />
+    </span>
+    <strong>Docker</strong>
+  </a>
+  <a class="deployment-target" href="/docs/vercel">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/vercel.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/vercel-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Vercel</strong>
+  </a>
+  <a class="deployment-target" href="/docs/netlify">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/netlify.svg" alt="" />
+    </span>
+    <strong>Netlify</strong>
+  </a>
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-pages">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare Pages</strong>
+  </a>
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare Workers</strong>
+  </a>
+  <a class="deployment-target" href="/docs/aws-lambda">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/aws-lambda.svg"
+        alt=""
+      />
+    </span>
+    <strong>AWS Lambda</strong>
+  </a>
+  <a class="deployment-target" href="/docs/aws-amplify">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/aws-lambda.svg"
+        alt=""
+      />
+    </span>
+    <strong>AWS Amplify</strong>
+  </a>
+  <a class="deployment-target" href="/docs/deno-deploy">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/deno.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/deno-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Deno Deploy</strong>
+  </a>
+  <a class="deployment-target" href="/docs/azure-static-web-apps">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/azure.svg"
+        alt=""
+      />
+    </span>
+    <strong>Azure Static Web Apps</strong>
+  </a>
+  <a class="deployment-target" href="/docs/koyeb">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/koyeb.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/koyeb-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Koyeb</strong>
+  </a>
+  <a class="deployment-target" href="/docs/render">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/render.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/render-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Render</strong>
+  </a>
+</div>
+```
+
+```css
+.deployment-target-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.deployment-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.deployment-target:hover {
+  border-color: hsl(var(--primary));
+}
+.deployment-target-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.deployment-target-logo {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.deployment-target-logo-dark {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-light {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-dark {
+  display: block;
+}
+@media (max-width: 640px) {
+  .deployment-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+```
+
+</Diagram>
+
+## Advanced deployment
+
+Start with the path above. Use these pages when you need provider-specific
+settings or production controls:
+
+- [**Node.js**](/docs/node-js) - run the default Nitro server preset
+- [**Docker**](/docs/docker) - package the Node.js server in a container
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare Pages**](/docs/cloudflare#cloudflare-pages), and [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configure hosted targets
+- [**AWS Amplify**](/docs/aws-amplify) and [**AWS Lambda**](/docs/aws-lambda) - deploy Nitro's serverless output on AWS
+- [**Deno Deploy**](/docs/deno-deploy) - deploy to the Deno runtime
+- [**Azure Static Web Apps**](/docs/azure-static-web-apps), [**Koyeb**](/docs/koyeb), and [**Render**](/docs/render) - use additional Nitro providers
+- [Nitro's provider list](https://nitro.build/deploy/providers) - see the broader set of presets Nitro supports
+- [**SSR Caching**](/docs/ssr-caching) - configure the public shell cache
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - production secrets, runtime flags, and workspace inheritance
+- [**Production Agent Access**](/docs/actions-agent-tools) - control framework tools and code execution
+- [**Updating UI in Production**](/docs/updating-ui-in-production) - understand the managed visual-editing workflow
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+For compatibility with older links, the local Docker quickstart now lives on
+[Docker](/docs/docker#self-host-quickstart). Schema setup and
+cold-start guidance live in the [deployment environment reference](/docs/deployment-environment-variables#skip-ensure-tables).
+
+## What's next
+
+- [**Deploy an app**](/docs/deploy-an-app)
+- [**Deploy a workspace**](/docs/workspace-deployment)
+- [**Database**](/docs/server-database#production)
+- [**Security**](/docs/security)
+- [**Authentication**](/docs/authentication)

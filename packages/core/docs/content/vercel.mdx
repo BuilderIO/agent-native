@@ -1,0 +1,38 @@
+---
+title: "Vercel"
+description: "Deploy an agent-native app to Vercel with the Vercel Nitro preset, standalone or as a workspace."
+---
+
+# Vercel
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Deploy via the Vercel CLI or git push:
+
+```bash
+vercel deploy
+```
+
+For a workspace, build every app into one Vercel Build Output API bundle:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+For Vercel Git deployments, set the build command to:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+The workspace build copies each app's Nitro `vercel` output into the root `.vercel/output`, gives each function its own mount-path environment, and writes the route config that serves apps at `/<app-id>`.
+
+## What's next
+
+- [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
+- [**Workspace Deployment**](/docs/workspace-deployment) — the `deploy --preset vercel` workspace build in full
+- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare), [**AWS Lambda**](/docs/aws-lambda), and [**Deno Deploy**](/docs/deno-deploy) — the other Nitro presets

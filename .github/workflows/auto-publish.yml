@@ -1,0 +1,636 @@
+name: Publish packages
+
+# npm packages have two separate release trains:
+#
+#   1. Every matching ordinary merge to `main` publishes a `nightly` snapshot.
+#      It never changes the repository or moves npm's `latest` dist-tag.
+#   2. A maintainer dispatches this workflow with a patch/minor/major choice.
+#      That creates the normal all-package Version Packages PR. Its marked
+#      merge is the only path that publishes a stable release.
+#
+# Stable release merges produce a `[stable-release]`-marked commit. The
+# workflow verifies that marker belongs to the bot-owned release PR before
+# stable publication, so an ordinary merge cannot opt into the stable lane.
+#
+# Desktop-app publishing is OUT of changesets - it ships binaries via
+# electron-builder, not npm. Production desktop releases are dispatched from
+# `desktop-release.yml`; pushes to main only feed the Nightly desktop train.
+# npm trusted publishers are registered against this workflow file, so both
+# package trains intentionally keep this workflow path.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # npm-published packages — any source change reaches here via the
+      # Version Packages PR merge bumping their package.json.
+      - "packages/core/**"
+      - "packages/creative-context/**"
+      - "packages/dispatch/**"
+      - "packages/pinpoint/**"
+      - "packages/recap-cli/**"
+      - "packages/scheduling/**"
+      - "packages/skills/**"
+      - "packages/toolkit/**"
+      # Ignored internal packages are not versioned by changesets, but changes
+      # here should still exercise release preflight/publish no-op behavior.
+      - "packages/code-agents-ui/**"
+      - "packages/embedding/**"
+      - "packages/frame/**"
+      - "packages/migrate/**"
+      - "packages/shared-app-config/**"
+      - ".changeset/**"
+      # Release workflow plumbing changes should exercise the npm release job.
+      - ".github/workflows/auto-publish.yml"
+      - "scripts/changeset-publish-sequential.ts"
+      - "scripts/create-release-changeset.ts"
+      - "scripts/guard-no-major-changeset.mjs"
+      - "scripts/guard-public-packages.ts"
+      - "scripts/prebuild-workspace-packages.ts"
+  workflow_dispatch:
+    inputs:
+      releaseType:
+        description: "Stable release bump for all public npm packages"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      redispatchDownstream:
+        description: "Recovery: re-notify downstream repos for the versions already on npm (no build, no publish)"
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  # Stable preparation and publication must not wait behind, or be replaced
+  # by, the ordinary push-driven nightly lane.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'stable-preparation' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication' || 'nightly') }}
+  cancel-in-progress: false
+
+jobs:
+  verify-stable-merge:
+    name: Verify stable release merge
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      verified: ${{ steps.verify.outputs.verified }}
+    steps:
+      - name: Verify release PR and actor
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          verified=false
+          stable_marker="${{ contains(github.event.head_commit.message, '[stable-release]') }}"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            verified=true
+          elif [ "$EVENT_NAME" = "push" ] && [ "$stable_marker" = "true" ] && [ "$ACTOR" = "builder-io-integration[bot]" ]; then
+            release_prs="$RUNNER_TEMP/stable-release-pull-requests.json"
+            gh api --paginate --slurp \
+              "repos/$REPOSITORY/commits/$SHA/pulls" > "$release_prs"
+            if jq -e --arg repository "$REPOSITORY" --arg sha "$SHA" '
+              any(.[][];
+                .base.ref == "main" and
+                .head.ref == "changeset-release/main" and
+                .head.repo.full_name == $repository and
+                .user.login == "builder-io-integration[bot]" and
+                .merged_at != null and
+                .merge_commit_sha == $sha and
+                (.title | contains("[stable-release]"))
+              )
+            ' "$release_prs" >/dev/null; then
+              verified=true
+            fi
+          fi
+
+          echo "Stable release merge verified: $verified"
+          echo "verified=$verified" >> "$GITHUB_OUTPUT"
+
+  publish-nightly:
+    name: Publish nightly snapshot
+    needs: [verify-stable-merge]
+    # A stable Version Packages merge is intentionally stable-only. All other
+    # matching main pushes get the automatic nightly package snapshot.
+    if: ${{ github.event_name == 'push' && needs.verify-stable-merge.outputs.verified != 'true' }}
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - name: Generate Builder downstream app token
+        id: builder-downstream-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: |
+            builder-agent-native-workspace
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      # Node 24 ships with npm 11.6+, which is required for Trusted Publishing
+      # OIDC. Node 22's npm cannot complete the nightly publish handshake.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create nightly snapshot versions
+        id: snapshot
+        run: |
+          pnpm changeset version --snapshot nightly
+          pnpm install --lockfile-only
+          if git diff --quiet -- package.json pnpm-lock.yaml 'packages/*/package.json'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build all packages
+        if: steps.snapshot.outputs.changed == 'true'
+        run: pnpm -r build
+
+      - name: Publish nightly packages sequentially
+        if: steps.snapshot.outputs.changed == 'true'
+        env:
+          AGENT_NATIVE_NPM_DIST_TAG: nightly
+          # Match the stable lane's one-time escape hatch for a package that
+          # has not been created on npm yet. Existing packages still use OIDC.
+          AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+        run: node scripts/changeset-publish-sequential.ts
+
+      - name: Rebuild builder-workspace nightly
+        if: steps.snapshot.outputs.changed == 'true'
+        env:
+          WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          : "${WORKSPACE_TOKEN:?Builder workspace token is required for nightly rebuilds}"
+
+          # Keep the event name stable for the downstream workspace consumer;
+          # the npm version and dist-tag are the nightly contract here.
+          payload="$(jq -cn \
+            --arg run "$RUN_URL" \
+            '{event_type:"agent-native-beta-published",client_payload:{ref:"main",sourceRunUrl:$run}}')"
+          response_file="$RUNNER_TEMP/workspace-nightly-dispatch-response"
+          delay=2
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $WORKSPACE_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              --data "$payload" \
+              'https://api.github.com/repos/BuilderIO/builder-agent-native-workspace/dispatches')" || status=000
+            if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "Requested a builder-workspace nightly rebuild on attempt $attempt."
+              exit 0
+            fi
+            if [[ "$status" != 000 && ! "$status" =~ ^5[0-9][0-9]$ ]]; then
+              echo "Builder workspace nightly dispatch failed with HTTP $status:" >&2
+              cat "$response_file" >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              sleep "$delay"
+              delay=$((delay * 2))
+            fi
+          done
+
+          echo "Builder workspace nightly dispatch failed after 5 attempts (last HTTP $status)." >&2
+          exit 1
+
+      - name: Summarize nightly-only publish
+        if: steps.snapshot.outputs.changed == 'true'
+        run: |
+          {
+            echo "Nightly packages were published with the npm nightly dist-tag."
+            echo "The builder-workspace nightly deploy was requested after the npm publish completed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Prepare or publish stable npm packages
+    # Ordinary main pushes are nightly-only. A manual dispatch creates the
+    # marked Version Packages PR; only that PR's merge can enter stable npm
+    # publication. A downstream redispatch only re-sends a notification for
+    # versions that are already on npm, so it must not re-enter build/publish.
+    needs: [verify-stable-merge]
+    if: ${{ !inputs.redispatchDownstream && needs.verify-stable-merge.outputs.verified == 'true' }}
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
+      publishedPackages: ${{ steps.changesets.outputs.publishedPackages }}
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      # Node 24 ships with npm 11.6+ — required for Trusted Publishing OIDC
+      # (>= 11.5.1). Node 22 ships npm 10.x; the in-place self-upgrade
+      # (`npm install -g npm@latest`) is broken on the current runner image
+      # (actions/runner-images#13883), so we just use a Node version that
+      # already has the right npm baked in.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create all-package release changeset
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TYPE: ${{ inputs.releaseType }}
+        run: pnpm exec tsx scripts/create-release-changeset.ts "$RELEASE_TYPE"
+
+      - name: Enforce package bump policy
+        run: node scripts/guard-no-major-changeset.mjs
+
+      # A stable merge can race with another PR's pending changeset. Keep
+      # those changesets out of validation and publication so this merge
+      # publishes its already-versioned packages. Public-package changesets
+      # are consumed after that publication because the all-package release
+      # already includes their source changes.
+      - name: Hold pending changesets for stable publication
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          mkdir -p "$hold"
+          shopt -s nullglob
+          pending=()
+          for file in .changeset/*.md; do
+            if [[ "$file" != ".changeset/README.md" ]]; then
+              pending+=("$file")
+            fi
+          done
+          # `changeset status` exits 1 on "packages changed but no changesets",
+          # and it measures "changed" against the WORKING TREE — so any file an
+          # install regenerates makes it fail on a release commit, which has
+          # consumed every changeset by construction. Nothing pending means
+          # nothing to hold; never let a validation command decide whether an
+          # already-versioned release is allowed to publish.
+          if [ ${#pending[@]} -eq 0 ]; then
+            : > "$hold/eligible.txt"
+            echo "No pending changesets to hold."
+            exit 0
+          fi
+          pnpm changeset status --output "$hold/status.json"
+          jq -r '
+            .changesets[]
+            | select(any(.releases[]?.name;
+                . == "@agent-native/core" or
+                . == "@agent-native/creative-context" or
+                . == "@agent-native/dispatch" or
+                . == "@agent-native/pinpoint" or
+                . == "@agent-native/recap-cli" or
+                . == "@agent-native/scheduling" or
+                . == "@agent-native/skills" or
+                . == "@agent-native/toolkit"))
+            | .id + ".md"
+          ' "$hold/status.json" > "$hold/eligible.txt"
+          for file in "${pending[@]}"; do
+            mv "$file" "$hold/"
+          done
+
+      - name: Validate changesets
+        run: node scripts/check-changeset.mjs
+
+      # The dispatch only prepares a Version Packages PR. Build everything
+      # once on the marked PR merge so stable publication does not rebuild per
+      # package. The publish wrapper also packs each package independently.
+      - name: Build all packages
+        if: github.event_name == 'push'
+        run: pnpm -r build
+
+      - name: Create stable Release PR or publish to npm
+        id: changesets
+        uses: changesets/action@3841a0683d3cfa6dae0f9bb335290003010fe3f0 # v1.9.0, compatible with Changesets CLI v2
+        with:
+          # When changesets/action finds no pending changesets, it runs
+          # `publish`. @changesets/cli publishes packages concurrently, which
+          # can make several npm OIDC trusted-publishing handshakes race in the
+          # same job. The wrapper keeps changesets' version-PR behavior but
+          # serializes the actual npm publishes.
+          publish: node scripts/changeset-publish-sequential.ts
+          # On dispatch, the generated all-package changeset opens this PR
+          # with version bumps + changelogs. Its marker survives squash merge
+          # and is required before this workflow can publish stable packages.
+          # The custom version script also keeps package CHANGELOG.md files
+          # short and archives older sections under changelog/archive/.
+          version: pnpm changeset:release-version
+          title: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
+          commit: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # `npm publish` (called by `changeset publish`) requests an OIDC
+          # token when --provenance is set. publishConfig.provenance in
+          # package.json isn't honored everywhere, so set the env var —
+          # both npm and pnpm read NPM_CONFIG_PROVENANCE.
+          NPM_CONFIG_PROVENANCE: "true"
+          # Optional one-time escape hatch for brand-new public packages. The
+          # publish wrapper uses this only when npm returns 404 for the package
+          # name itself; existing packages still publish through OIDC/provenance.
+          AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Consume concurrent public-package changesets
+        id: consume-stable-changesets
+        if: ${{ github.event_name == 'push' && steps.changesets.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          eligible="$hold/eligible.txt"
+
+          if [ ! -s "$eligible" ]; then
+            echo "No concurrent public-package changesets to consume."
+            exit 0
+          fi
+
+          shopt -s nullglob
+          for file in "$hold"/*.md; do
+            if ! grep -Fqx "$(basename "$file")" "$eligible"; then
+              mv "$file" .changeset/
+            fi
+          done
+
+          git config user.name "builder-io-integration[bot]"
+          git config user.email "builder-io-integration[bot]@users.noreply.github.com"
+          git add -u .changeset
+          if git diff --cached --quiet; then
+            echo "Concurrent changesets were already consumed."
+            exit 0
+          fi
+          git commit -m "chore: consume stable release changesets [skip ci]"
+
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              echo "Consumed concurrent changesets on main."
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              git fetch origin main:refs/remotes/origin/main --quiet
+              if git merge-base --is-ancestor HEAD origin/main; then
+                while IFS= read -r file; do
+                  if [ -n "$file" ] && git cat-file -e "origin/main:.changeset/$file"; then
+                    echo "::error::Remote main still contains eligible changeset $file after cleanup commit." >&2
+                    exit 1
+                  fi
+                done < "$eligible"
+                echo "Concurrent changesets were consumed by another main update."
+                exit 0
+              fi
+              git rebase origin/main
+              sleep $((attempt * 2))
+            fi
+          done
+
+          echo "::error::Unable to consume concurrent changesets after five attempts."
+          exit 1
+
+      - name: Restore pending changesets
+        if: ${{ always() && github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          if [ -d "$hold" ]; then
+            eligible="$hold/eligible.txt"
+            shopt -s nullglob
+            for file in "$hold"/*.md; do
+              if [ "${{ steps.consume-stable-changesets.outcome }}" = "success" ] &&
+                grep -Fqx "$(basename "$file")" "$eligible"; then
+                continue
+              fi
+              mv "$file" .changeset/
+            done
+          fi
+
+  # Downstream notification lives in its own job so it can (a) run on a manual
+  # redispatch without re-entering build/publish and (b) still run — and say so
+  # in the job summary — when it decides NOT to notify. As a gated step inside
+  # `release` it was invisible when skipped: a dispatch lost to a GitHub 5xx made
+  # every later run report "no unpublished packages", skip silently, and go green
+  # while production stopped receiving releases.
+  notify-downstream:
+    name: Notify downstream repos
+    needs: [release, verify-stable-merge]
+    # A normal main push has no stable release job. Manual dispatches (including
+    # redispatch) and marked stable merges still need a written notification
+    # result even when the release job fails or is intentionally skipped.
+    if: |
+      always() &&
+      (
+        inputs.redispatchDownstream ||
+        github.event_name == 'workflow_dispatch' ||
+        needs.verify-stable-merge.outputs.verified == 'true'
+      )
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - name: Generate Builder downstream app token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: builder-downstream-token
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          # Consumer workflow lives in the workspace repo. The starter mirror is
+          # dispatched to this repo's own workflow (see below), not from here.
+          repositories: |
+            builder-agent-native-workspace
+
+      - name: Dispatch and report
+        env:
+          # The starter mirror runs in THIS repo (push-chat-template-to-starter
+          # needs the monorepo source to materialize), so it is dispatched to
+          # ourselves. Must be an app token, not GITHUB_TOKEN: repository_dispatch
+          # events created with GITHUB_TOKEN don't trigger workflow runs.
+          SELF_TOKEN: ${{ steps.app-token.outputs.token }}
+          WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
+          REDISPATCH: ${{ inputs.redispatchDownstream }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          PUBLISHED: ${{ needs.release.outputs.published }}
+          PUBLISHED_PACKAGES: ${{ needs.release.outputs.publishedPackages }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_CHANNEL: stable
+          RELEASE_DIST_TAG: latest
+        run: |
+          set -euo pipefail
+          note() { printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; }
+          hint='Re-send without republishing: Actions > Publish packages > Run workflow > "Recovery: re-notify downstream repos".'
+
+          if [ "${REDISPATCH:-false}" = "true" ]; then
+            # Read versions from npm rather than from package.json so a recovery
+            # run can never announce a version that was never published.
+            entries=""
+            for name in @agent-native/core @agent-native/creative-context @agent-native/dispatch @agent-native/toolkit; do
+              if ! version="$(npm view "$name" version --prefer-online)" || [ -z "$version" ]; then
+                echo "::error::Could not read ${name}'s published version from npm."
+                note "Downstream repos were NOT notified: npm lookup for \`${name}\` failed."
+                exit 1
+              fi
+              entries="${entries}${entries:+,}$(jq -cn --arg n "$name" --arg v "$version" '{name:$n,version:$v}')"
+            done
+            packages="[${entries}]"
+            note "Manual redispatch for the versions currently on npm."
+          elif [ "$RELEASE_RESULT" != "success" ]; then
+            note "Downstream repos were NOT notified: the release job ended in \`${RELEASE_RESULT}\`. ${hint}"
+            exit 0
+          elif [ "$PUBLISHED" != "true" ]; then
+            note "Downstream repos were not notified: this run published nothing. Expected for a Version Packages PR run. If a publish did land earlier and its dispatch was lost, that run cannot retry itself. ${hint}"
+            exit 0
+          else
+            packages="$PUBLISHED_PACKAGES"
+          fi
+
+          if ! printf '%s' "$packages" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "::error::published package list is not a JSON array: ${packages}"
+            note "Downstream repos were NOT notified: could not parse the published package list. ${hint}"
+            exit 1
+          fi
+          has() { printf '%s' "$packages" | jq -e --arg n "$1" 'any(.[]; .name == $n)' >/dev/null; }
+
+          # A stable release may publish only one of the packages consumed by
+          # builder-workspace. Send the complete stable pin set so the
+          # downstream PR never has to guess which unchanged package version
+          # belongs with this release.
+          published_version() {
+            local name="$1" version
+            version="$(printf '%s' "$packages" | jq -r --arg n "$name" '.[] | select(.name == $n) | .version' | head -n 1)"
+            if [ -z "$version" ] || [ "$version" = "null" ]; then
+              version="$(npm view "$name" version --prefer-online)"
+            fi
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Could not resolve a stable version for ${name}: ${version}" >&2
+              return 1
+            fi
+            printf '%s' "$version"
+          }
+
+          # GitHub's dispatch endpoint returns 503 "No server is currently
+          # available" under load, and a lost dispatch has no second chance —
+          # the publish that would re-send it happens exactly once. So retry 5xx
+          # and connection failures. A 4xx is a definitive answer (bad token,
+          # wrong repo, malformed payload) that no retry will change; failing
+          # immediately turns the run red now instead of after a minute of
+          # pointless backoff.
+          dispatch() {
+            local label="$1" target="$2" token="$3" payload="$4"
+            local delay=2 attempt http
+            for attempt in 1 2 3 4 5; do
+              http="$(curl -sS -o "$RUNNER_TEMP/dispatch-response" -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer ${token}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                --data "$payload" \
+                "https://api.github.com/repos/${target}/dispatches")" || http="000"
+              case "$http" in
+                2*)
+                  note "Notified ${label} (\`${target}\`) on attempt ${attempt}."
+                  return 0
+                  ;;
+                000 | 5*)
+                  echo "::warning::${label} dispatch got HTTP ${http} (attempt ${attempt}/5)."
+                  ;;
+                *)
+                  echo "::error::${label} dispatch failed with HTTP ${http}: $(cat "$RUNNER_TEMP/dispatch-response")"
+                  note "${label} (\`${target}\`) was NOT notified: HTTP ${http}. ${hint}"
+                  return 1
+                  ;;
+              esac
+              if [ "$attempt" -lt 5 ]; then
+                sleep "$delay"
+                delay=$((delay * 2))
+              fi
+            done
+            echo "::error::${label} dispatch still failing after 5 attempts (last HTTP ${http})."
+            note "${label} (\`${target}\`) was NOT notified after 5 attempts, last HTTP ${http}. ${hint}"
+            return 1
+          }
+
+          rc=0
+
+          if has @agent-native/core || has @agent-native/creative-context ||
+            has @agent-native/dispatch || has @agent-native/toolkit; then
+            core_version="$(published_version @agent-native/core)"
+            dispatch_version="$(published_version @agent-native/dispatch)"
+            toolkit_version="$(published_version @agent-native/toolkit)"
+            payload="$(jq -cn \
+              --arg p "$packages" \
+              --arg c "$RELEASE_CHANNEL" \
+              --arg rc "$RELEASE_DIST_TAG" \
+              --arg r "$REPO" \
+              --arg u "$RUN_URL" \
+              --arg core "$core_version" \
+              --arg dispatch "$dispatch_version" \
+              --arg toolkit "$toolkit_version" \
+              '{event_type:"agent-native-packages-published",client_payload:{channel:$c,releaseChannel:$rc,core_version:$core,dispatch_version:$dispatch,toolkit_version:$toolkit,publishedPackages:$p,sourceRepository:$r,sourceRunUrl:$u}}')"
+            dispatch "Builder workspace" "BuilderIO/builder-agent-native-workspace" "$WORKSPACE_TOKEN" "$payload" || rc=1
+          else
+            note "Builder workspace not notified: no package it consumes was published."
+          fi
+
+          if has @agent-native/core || has @agent-native/creative-context || has @agent-native/toolkit; then
+            payload="$(jq -cn --arg p "$packages" --arg s "$SHA" --arg c "$RELEASE_CHANNEL" --arg rc "$RELEASE_DIST_TAG" \
+              '{event_type:"agent-native-packages-published",client_payload:{channel:$c,releaseChannel:$rc,sha:$s,publishedPackages:$p}}')"
+            dispatch "Starter template mirror" "$REPO" "$SELF_TOKEN" "$payload" || rc=1
+          else
+            note "Starter template mirror not notified: no package it consumes was published."
+          fi
+
+          exit "$rc"

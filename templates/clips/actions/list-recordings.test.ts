@@ -1,0 +1,289 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockCountWhere = vi.hoisted(() => vi.fn(async () => [{ count: 3 }]));
+const mockMeetingWhere = vi.hoisted(() =>
+  vi.fn(async () => [{ id: "meeting-rec-1" }, { id: null }]),
+);
+const mockFrom = vi.hoisted(() =>
+  vi.fn((table: unknown) => {
+    if (typeof table === "object" && table !== null && "recordingId" in table) {
+      return { where: mockMeetingWhere };
+    }
+    return { where: mockCountWhere };
+  }),
+);
+const mockDb = vi.hoisted(() => ({
+  select: vi.fn(() => ({ from: mockFrom })),
+}));
+const makeLazyDbProxy = vi.hoisted(
+  () =>
+    function makeLazyDbProxy(
+      realDb: any,
+      chain: Array<{ prop: string | symbol; args?: any[] }> = [],
+    ): any {
+      return new Proxy(function () {} as any, {
+        get(_target, prop) {
+          if (prop === "then" || prop === "catch" || prop === "finally") {
+            const promise = Promise.resolve().then(() => {
+              let result: any = realDb;
+              for (const step of chain) {
+                const value = result[step.prop];
+                result =
+                  typeof value === "function"
+                    ? value.apply(result, step.args)
+                    : value;
+              }
+              return result;
+            });
+            return (promise as any)[prop].bind(promise);
+          }
+          if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+            throw new Error("unresolved query chain");
+          }
+          return makeLazyDbProxy(realDb, [...chain, { prop }]);
+        },
+        apply(_target, _thisArg, args) {
+          const last = chain[chain.length - 1];
+          return makeLazyDbProxy(realDb, [
+            ...chain.slice(0, -1),
+            { prop: last!.prop, args },
+          ]);
+        },
+      });
+    },
+);
+const mockNot = vi.hoisted(() =>
+  vi.fn((value: unknown) => ({ kind: "not", value })),
+);
+const mockOwnerEmailMatches = vi.hoisted(() =>
+  vi.fn((column: unknown, email: string) => ({
+    kind: "owner-email",
+    column,
+    email,
+  })),
+);
+
+vi.mock("@agent-native/core", () => ({
+  defineAction: (options: unknown) => options,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "viewer@example.com",
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: () => ({ kind: "access-filter" }),
+}));
+
+vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
+  asc: vi.fn(),
+  desc: vi.fn(),
+  eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
+  inArray: vi.fn(),
+  isNotNull: (column: unknown) => ({ kind: "is-not-null", column }),
+  isNull: (column: unknown) => ({ kind: "is-null", column }),
+  not: (...args: unknown[]) => mockNot(...args),
+  notInArray: (column: unknown, values: unknown) => {
+    typeof (values as { getSQL?: unknown }).getSQL;
+    return { kind: "not-in-array", column, values };
+  },
+  sql: (strings: TemplateStringsArray) => ({
+    kind: "sql",
+    text: strings.join("?"),
+  }),
+}));
+
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => makeLazyDbProxy(mockDb),
+  schema: {
+    meetings: {
+      recordingId: "meetings.recordingId",
+    },
+    recordings: {
+      id: "recordings.id",
+      ownerEmail: "recordings.ownerEmail",
+      organizationId: "recordings.organizationId",
+      archivedAt: "recordings.archivedAt",
+      trashedAt: "recordings.trashedAt",
+    },
+    recordingShares: "recordingShares",
+  },
+}));
+
+vi.mock("../server/lib/recordings.js", () => ({
+  getActiveOrganizationId: async () => "org_123",
+  ownerEmailMatches: (column: unknown, email: string) =>
+    mockOwnerEmailMatches(column, email),
+  parseSpaceIds: vi.fn(),
+}));
+
+import action, {
+  mergeViewCounts,
+  resolveListRecordingMedia,
+} from "./list-recordings";
+
+describe("list-recordings view counts", () => {
+  it("counts one view per logged session, not per viewer", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: 3 }],
+        [{ recordingId: "rec-1", count: 11 }],
+      ),
+    ).toEqual({ "rec-1": 11 });
+  });
+
+  it("falls back to counted viewers for pre-migration clips", () => {
+    expect(mergeViewCounts([{ recordingId: "rec-1", count: 5 }], [])).toEqual({
+      "rec-1": 5,
+    });
+  });
+
+  it("never reports fewer views than counted viewers", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: 9 }],
+        [{ recordingId: "rec-1", count: 2 }],
+      ),
+    ).toEqual({ "rec-1": 9 });
+  });
+
+  it("normalizes driver-provided string counts", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: "2" }],
+        [{ recordingId: "rec-1", count: "6" }],
+      ),
+    ).toEqual({ "rec-1": 6 });
+  });
+});
+
+describe("list-recordings editor media", () => {
+  it("coerces the editor media flag from GET query parameters", () => {
+    expect(action.schema.parse({ includeMedia: "true" }).includeMedia).toBe(
+      true,
+    );
+  });
+
+  it("keeps playable media out of normal library rows", () => {
+    expect(
+      resolveListRecordingMedia(
+        { id: "rec-1", videoUrl: "/api/video/rec-1", videoFormat: "mp4" },
+        false,
+      ),
+    ).toEqual({ videoUrl: null, videoFormat: null });
+  });
+
+  it("returns a same-origin media route for editor sources", () => {
+    expect(
+      resolveListRecordingMedia(
+        {
+          id: "rec-1",
+          videoUrl: "https://cdn.example.test/rec-1.webm",
+          videoFormat: "webm",
+        },
+        true,
+      ),
+    ).toEqual({ videoUrl: "/api/video/rec-1", videoFormat: "webm" });
+  });
+
+  it("drops unsupported media formats from editor rows", () => {
+    expect(
+      resolveListRecordingMedia(
+        { id: "rec-1", videoUrl: "/api/video/rec-1", videoFormat: "mov" },
+        true,
+      ),
+    ).toEqual({ videoUrl: "/api/video/rec-1", videoFormat: null });
+  });
+});
+
+describe("list-recordings shared view", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns accessible clips owned by someone else", async () => {
+    const parsed = action.schema.parse({
+      view: "shared",
+      countOnly: true,
+    });
+
+    const result = await action.run(parsed);
+
+    expect(mockOwnerEmailMatches).toHaveBeenCalledWith(
+      "recordings.ownerEmail",
+      "viewer@example.com",
+    );
+    expect(mockNot).toHaveBeenCalledWith({
+      kind: "owner-email",
+      column: "recordings.ownerEmail",
+      email: "viewer@example.com",
+    });
+    expect(mockMeetingWhere).toHaveBeenCalledWith({
+      kind: "is-not-null",
+      column: "meetings.recordingId",
+    });
+    expect(mockCountWhere).toHaveBeenCalledWith({
+      kind: "and",
+      conditions: expect.arrayContaining([
+        { kind: "access-filter" },
+        {
+          kind: "not",
+          value: {
+            kind: "owner-email",
+            column: "recordings.ownerEmail",
+            email: "viewer@example.com",
+          },
+        },
+        {
+          kind: "is-null",
+          column: "recordings.archivedAt",
+        },
+        {
+          kind: "is-null",
+          column: "recordings.trashedAt",
+        },
+      ]),
+    });
+    expect(result).toEqual({ recordings: [], total: 3 });
+  });
+
+  it("excludes meeting recordings via a database-side subquery, not a materialized id array", async () => {
+    const parsed = action.schema.parse({
+      view: "shared",
+      countOnly: true,
+    });
+
+    await action.run(parsed);
+
+    // Regression (two directions):
+    // 1. An earlier version awaited the meeting-recording query into a plain
+    //    `string[]` and bound the whole array through notInArray(). That
+    //    grows with the entire meetings table and can hit SQLite variable /
+    //    Postgres parameter limits for large libraries. The fix hands
+    //    notInArray() the query-builder chain itself (the exact object
+    //    mockMeetingWhere() returned), so real drizzle-orm compiles it to
+    //    `NOT IN (SELECT ...)` — database-side, no id list in memory.
+    // 2. An even earlier version built that chain off the possibly-still-lazy
+    //    `db` returned by getDb() and embedded it unresolved, which throws on
+    //    a cold-start request — see the "unresolved query chain" guard in
+    //    packages/core/src/db/create-get-db.ts. The fix resolves `db` first
+    //    (`await db`) and only then builds the chain, so it's never the lazy
+    //    proxy being embedded.
+    const meetingQueryResult = mockMeetingWhere.mock.results[0]?.value;
+    expect(meetingQueryResult).toBeDefined();
+    expect(Array.isArray(meetingQueryResult)).toBe(false);
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            kind: "not-in-array",
+            column: "recordings.id",
+            values: meetingQueryResult,
+          },
+        ]),
+      }),
+    );
+  });
+});

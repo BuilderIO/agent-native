@@ -1,0 +1,36 @@
+---
+title: "WebMCP"
+description: "ब्राउज़र एजेंट्स के लिए स्पष्ट Agent-Native actions उपलब्ध कराएँ और Agent-Native chat से WebMCP tools उपयोग करें।"
+---
+
+# WebMCP
+
+WebMCP एक प्रयोगात्मक browser API है, जिससे pages ऐसे tools register कर सकते
+हैं जिन्हें अधिकृत agent खोज और चला सकता है। Registration, consumption,
+browser sessions और security limits के लिए [अंग्रेज़ी WebMCP guide](/docs/webmcp)
+देखें।
+Authenticated pages मौजूदा action registry से eligible backend actions को अपने-आप
+register करते हैं। Approval माँगने वाले actions शामिल नहीं होते और चलाने से पहले
+live tool list फिर जाँची जाती है।
+Authenticated `sessionBypass` surfaces, जैसे MCP embed routes, backend action tools
+को भी register करते हैं। Public और signed-out pages इन्हें register नहीं करते।
+
+जब ब्राउज़र उपयोग करने योग्य native WebMCP surface उपलब्ध नहीं कराता, Agent-Native core `@mcp-b/webmcp-polyfill` को initialize करता है। यह polyfill केवल वर्तमान page तक सीमित है और network MCP connection नहीं बनाता।
+
+## HTTP discovery और fetch fallback
+
+जो agents browser नहीं चलाते, उनके लिए Agent-Native `GET /.well-known/mcp.json`
+पर एक fetch योग्य HTTP compatibility document भी देता है। इसमें action
+endpoints, JSON schemas और यह जानकारी होती है कि tool read-only है या
+authentication चाहता है। यह Agent-Native interoperability convention है,
+WebMCP specification का हिस्सा या MCP का replacement नहीं।
+
+Tools को `fetch` या `curl` से `POST /mcp/tool/:name` पर बुलाया जा सकता है।
+Authentication, authorization, validation और tenant scoping server पर ही रहते
+हैं। Document `/mcp`, authenticated WebMCP manifest और A2A agent card के links
+भी देता है।
+
+Page-local tools के लिए खुला WebMCP-capable browser अभी भी चाहिए। Resource pages
+अपना JSON discovery link दे सकते हैं। Clips `agentContextUrl` के ज़रिए complete
+transcript और JPEG frame URLs देता है, इसलिए player खोले बिना HTTP access बना
+रहता है।

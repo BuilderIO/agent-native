@@ -1,0 +1,3289 @@
+import {
+  CodeAgentsApp,
+  SessionWatchPanel,
+  type CodeAgentComputerSetupAction,
+  type CodeAgentForkRunRequest,
+  type CodeAgentRestoreWorktreeRequest,
+  type CodeAgentModelListResult,
+  type CodeAgentPermissionMode,
+  type CodeAgentTranscriptEvent,
+  type CodeAgentTranscriptRequest,
+  type CodeAgentRun,
+  type CodeAgentWorktreeListResult,
+  type ChatFirstKeyboardNavigation,
+  type CodeAgentsHost,
+  type CodeAgentsNewSessionExtension,
+} from "@agent-native/code-agents-ui";
+import {
+  chatFirstSurfaceTabId,
+  closeChatFirstSessionWatch,
+  emitChatFirstOpenApp,
+  emitChatFirstSessionWatch,
+  getChatFirstSurfaceTabsStore,
+  orderChatFirstAppIds,
+  preloadAgentChatSurface,
+  readChatFirstAppLayout,
+  resolveChatFirstAppTarget,
+  resolveChatFirstBrowserTarget,
+  subscribeChatFirstOpenBrowser,
+  type ChatFirstAppLayoutPreference,
+  writeChatFirstAppLayout,
+  subscribeChatFirstOpenApp,
+  useChatFirstSessionWatch,
+  useChatFirstSurfaceResize,
+  useChatFirstSurfacePanel,
+  useChatFirstSurfaceTabs,
+  type ChatFirstAppRegistration,
+  type ChatFirstAppResolution,
+  type ChatFirstAppSurfacePlacement,
+  type ChatFirstOpenAppDetail,
+  type ChatFirstOpenBrowserDetail,
+  type ChatFirstAgentActivity,
+  type ChatFirstSurfaceKind,
+  type ChatFirstSurfaceTab,
+} from "@agent-native/core/client/agent-chat";
+import {
+  ChatFirstAgentsPane,
+  ChatFirstAppPane,
+  ChatFirstAppsRail,
+  ChatFirstBrowserPane,
+  ChatFirstSessionWatchPane,
+  ChatFirstSurfacePanel,
+  ChatFirstSurfaceContent,
+  ChatFirstSurfaceTabs,
+  AppOpenActions,
+  defaultChatFirstCopy,
+  type ChatFirstAppItem,
+  type ChatFirstEmbedTarget,
+  type ChatFirstPrimaryTab,
+} from "@agent-native/core/client/chat-first";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import { cn } from "@agent-native/toolkit";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui";
+import { Input } from "@agent-native/toolkit/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@agent-native/toolkit/ui/select";
+import { ToastAction } from "@agent-native/toolkit/ui/toast";
+import { toast } from "@agent-native/toolkit/ui/use-toast";
+import {
+  DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS,
+  getDesktopVisibleApps,
+  isDesktopAppVisible,
+  toAppDefinition,
+  type AppConfig,
+} from "@shared/app-registry";
+import { isDesktopChatToggleShortcut } from "@shared/desktop-shortcuts";
+import {
+  IconArrowLeft,
+  IconGripVertical,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconMessageCircle,
+  IconPlus,
+  IconPin,
+  IconSearch,
+  IconSettings,
+  IconWorld,
+} from "@tabler/icons-react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+} from "react";
+
+import type {
+  DesktopCreateAppResult,
+  DesktopIdentityStatus,
+  DesktopPrepareLocalCodeChangeResult,
+  DesktopWorkspaceAppListResult,
+} from "../../../shared/ipc-channels.js";
+import type {
+  MultiFrontierIpcEvent,
+  MultiFrontierProviderId,
+  MultiFrontierRendererState,
+} from "../../../shared/multi-frontier-ipc.js";
+import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
+import {
+  DESKTOP_TERMINAL_AGENT_OPTIONS,
+  type DesktopTerminalAgentId,
+  writeDesktopTerminalPreferences,
+  useDesktopTerminalPreferences,
+} from "../lib/desktop-terminal-preferences.js";
+import { useRendererTheme } from "../lib/theme.js";
+import AppWebview, {
+  isDesktopIdentityAuthenticated,
+  isDesktopIdentityGateUnauthenticated,
+  resolveAppWebviewUrl,
+  type AppWebviewAuthState,
+  type AppWebviewHandle,
+} from "./AppWebview.js";
+import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
+import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
+import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
+import DesktopAppChatShell from "./DesktopAppChatShell.js";
+import DesktopChatFirstSurfaceMenu from "./DesktopChatFirstSurfaceMenu.js";
+import DesktopIntegrationsPage from "./DesktopIntegrationsPage.js";
+import DesktopTerminalSurface, {
+  type DesktopTerminalPromptRequest,
+} from "./DesktopTerminalSurface.js";
+import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
+import {
+  initialMultiFrontierRunAutoContinue,
+  providerOperationFailureNotice,
+  readNewerMultiFrontierSnapshot,
+} from "./multi-frontier-renderer-state.js";
+import {
+  multiFrontierFailureCategory,
+  trackMultiFrontierLifecycle,
+} from "./multi-frontier-telemetry.js";
+import {
+  MultiFrontierParticipantSettings,
+  MultiFrontierWorkspace,
+  type MultiFrontierNotice,
+  type MultiFrontierSecondaryActionInput,
+} from "./MultiFrontierWorkspace.js";
+import { UpdateIndicator } from "./UpdateIndicator.js";
+import UpdatePrompt from "./UpdatePrompt.js";
+
+function DesktopRailTooltip({
+  children,
+  label,
+}: {
+  children: ReactElement;
+  label: string;
+}) {
+  return (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+const agentNativeIconUrl = new URL(
+  "../assets/agent-native-icon-dark.svg",
+  import.meta.url,
+).href;
+const codeAgentsQueryClient = createAgentNativeQueryClient();
+const CHAT_FIRST_RAIL_COLLAPSED_STORAGE_KEY =
+  "agent-native:desktop-chat-first-rail-collapsed";
+const DESKTOP_FEEDBACK_FORM_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+const MULTI_FRONTIER_PROVIDERS: readonly MultiFrontierProviderId[] = [
+  "codex",
+  "claude",
+];
+const MULTI_FRONTIER_RUN_MODES = [
+  {
+    value: "plan",
+    label: "Plan",
+    description: "Inspect and propose only",
+  },
+  {
+    value: "auto",
+    label: "Auto",
+    description: "One agent plans and builds",
+  },
+  {
+    value: "multi-frontier",
+    label: "Multi-Frontier",
+    description: "Codex + Claude plan, review, then one builds",
+  },
+] as const;
+
+export function orderDesktopApps<T extends Pick<AppConfig, "id" | "enabled">>(
+  apps: readonly T[],
+  layout: ChatFirstAppLayoutPreference,
+): T[] {
+  const visibleApps = getDesktopVisibleApps(apps).filter(
+    (app) => app.enabled && app.id !== "agent",
+  );
+  const orderedVisibleIds = orderChatFirstAppIds(
+    visibleApps.map((app) => app.id),
+    layout,
+    DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS,
+  );
+  const byId = new Map(visibleApps.map((app) => [app.id, app]));
+  return orderedVisibleIds
+    .map((id) => byId.get(id))
+    .filter((app): app is T => Boolean(app));
+}
+
+export function mergeDesktopAppLists<T extends Pick<AppConfig, "id">>(
+  localApps: readonly T[],
+  workspaceApps: readonly T[],
+): T[] {
+  const localIds = new Set(localApps.map((app) => app.id));
+  return [
+    ...localApps,
+    ...workspaceApps.filter((app) => !localIds.has(app.id)),
+  ];
+}
+
+export function filterDesktopApps<
+  T extends { name: string; description?: string },
+>(apps: readonly T[], query: string): T[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return [...apps];
+  return apps.filter((app) => {
+    const haystack = [app.name, app.description].join(" ").toLowerCase();
+    return haystack.includes(normalized);
+  });
+}
+
+function chatFirstResolutionMessage(
+  reason: Exclude<ChatFirstAppResolution, { status: "ready" }>["reason"],
+): string {
+  switch (reason) {
+    case "empty-detail":
+      return "The agent did not provide an app target to open.";
+    case "invalid-url":
+      return "The requested app route is not registered for this app.";
+    case "unknown-app":
+      return "That app is not enabled in the desktop workspace.";
+  }
+  return "The requested app could not be opened.";
+}
+
+function chatFirstBrowserResolutionMessage(
+  reason: "empty-detail" | "invalid-url",
+): string {
+  return reason === "empty-detail"
+    ? "The agent did not provide a browser URL to open."
+    : "The requested browser URL is not a safe HTTP(S) address.";
+}
+
+export function isChatFirstSurfaceTabActive(input: {
+  surfaceActive: boolean;
+  tabId: string;
+  activeTabId?: string | null;
+}): boolean {
+  return input.surfaceActive && input.tabId === input.activeTabId;
+}
+
+export function chatFirstPreviewPartitionKey(
+  appId: string | undefined,
+): string {
+  return appId?.trim()
+    ? `persist:app-${appId.trim()}`
+    : "persist:chat-first-browser";
+}
+
+export function chatFirstAppSurfaceTab(
+  app: Pick<AppConfig, "id" | "name">,
+  path?: string,
+  view?: string,
+  placement?: ChatFirstAppSurfacePlacement,
+): ChatFirstSurfaceTab {
+  const target = [app.id, path ?? "/", view ?? ""].join(":");
+  return {
+    id: chatFirstSurfaceTabId("app", target),
+    kind: "app",
+    title: app.name,
+    appId: app.id,
+    ...(placement ? { placement } : {}),
+    ...(path ? { path } : {}),
+    ...(view ? { view } : {}),
+  };
+}
+
+const DISPATCH_CONTROL_PLANE_PATHS = [
+  "/integrations",
+  "/automations",
+  "/admin/integrations",
+  "/admin/automations",
+] as const;
+
+export function isDispatchControlPlanePath(path?: string): boolean {
+  if (!path?.trim()) return false;
+  const base = "http://agent-native.invalid";
+  if (!URL.canParse(path, base)) return false;
+  const pathname = new URL(path, base).pathname;
+  return DISPATCH_CONTROL_PLANE_PATHS.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
+}
+
+export function dispatchControlPlaneTitle(path?: string): string | null {
+  if (!isDispatchControlPlanePath(path)) return null;
+  const pathname = new URL(path!, "http://agent-native.invalid").pathname;
+  if (
+    pathname === "/integrations" ||
+    pathname.startsWith("/integrations/") ||
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "Integrations";
+  }
+  return "Automations";
+}
+
+export function isNativeDesktopIntegrationsPath(path?: string): boolean {
+  if (!path?.trim()) return false;
+  try {
+    const pathname = new URL(path, "http://agent-native.invalid").pathname;
+    return pathname === "/integrations" || pathname === "/admin/integrations";
+    // coercion-ok: malformed tab paths are absent from the native integrations route.
+  } catch {
+    return false;
+  }
+}
+
+export function shouldUseDesktopAppChatShell(path?: string): boolean {
+  return !isNativeDesktopIntegrationsPath(path);
+}
+
+export function shouldShowNativeDesktopIntegrations(input: {
+  appId: string;
+  path?: string;
+  appAuthState?: AppWebviewAuthState;
+}): boolean {
+  return (
+    input.appId === "dispatch" &&
+    isNativeDesktopIntegrationsPath(input.path) &&
+    input.appAuthState !== "unauthenticated"
+  );
+}
+
+export function shouldShowNativeDesktopIntegrationsGuest(input: {
+  showNativeIntegrations: boolean;
+  nativeOAuthActive: boolean;
+}): boolean {
+  return !input.showNativeIntegrations || input.nativeOAuthActive;
+}
+
+function isVisibleChatFirstSurfaceTab(
+  tab: ChatFirstSurfaceTab,
+  apps: AppConfig[],
+): boolean {
+  if (tab.kind !== "app" || !tab.appId) return true;
+  const app = apps.find(
+    (candidate) => candidate.id === tab.appId && candidate.enabled,
+  );
+  return Boolean(
+    app &&
+    (isDesktopAppVisible(app) ||
+      (app.id === "dispatch" && isDispatchControlPlanePath(tab.path))),
+  );
+}
+
+export function dispatchControlPlaneUrlParams(
+  path?: string,
+): Record<string, string | null> {
+  return isDispatchControlPlanePath(path)
+    ? { embedded: "1", chatFirst: null, electron: "1" }
+    : { embedded: "1", chatFirst: "1" };
+}
+
+function DesktopAppsGrid({
+  apps,
+  layout,
+  workspaceAppIds,
+  reorderable = false,
+  onCreateApp,
+  onOpenApp,
+  onOpenInBrowser,
+  onReorder,
+  onTogglePinned,
+  fullPage = false,
+  onBack,
+}: {
+  apps: AppConfig[];
+  layout: ChatFirstAppLayoutPreference;
+  workspaceAppIds?: ReadonlySet<string>;
+  reorderable?: boolean;
+  onCreateApp?: () => void;
+  onOpenApp: (app: AppConfig) => void;
+  onOpenInBrowser: (app: AppConfig) => void;
+  onReorder?: (orderedIds: string[]) => void;
+  onTogglePinned: (appId: string) => void;
+  fullPage?: boolean;
+  onBack?: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [draggedAppId, setDraggedAppId] = useState<string | null>(null);
+  const [dragOverAppId, setDragOverAppId] = useState<string | null>(null);
+  const orderedApps = orderDesktopApps(apps, layout);
+  const visibleApps = filterDesktopApps(orderedApps, search);
+  const hasSearch = search.trim().length > 0;
+
+  const reorderApps = useCallback(
+    (targetId: string) => {
+      if (!reorderable || !onReorder || !draggedAppId) return;
+      const fromIndex = orderedApps.findIndex((app) => app.id === draggedAppId);
+      const targetIndex = orderedApps.findIndex((app) => app.id === targetId);
+      if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return;
+      const nextOrder = orderedApps.map((app) => app.id);
+      nextOrder.splice(fromIndex, 1);
+      nextOrder.splice(targetIndex, 0, draggedAppId);
+      onReorder(nextOrder);
+    },
+    [draggedAppId, onReorder, orderedApps, reorderable],
+  );
+
+  return (
+    <section
+      className={cn(
+        "desktop-apps-grid",
+        fullPage && "desktop-apps-grid--full-page",
+      )}
+      aria-label={fullPage ? "All apps" : "Apps"}
+    >
+      <div className="desktop-apps-grid__header">
+        <div className="desktop-apps-grid__heading">
+          {fullPage && onBack ? (
+            <button
+              type="button"
+              className="desktop-apps-grid__back"
+              onClick={onBack}
+            >
+              <IconArrowLeft size={14} aria-hidden="true" />
+              <span>Back to chats</span>
+            </button>
+          ) : null}
+          <h3 className="desktop-apps-grid__title">
+            {fullPage ? "All apps" : "Apps"}
+          </h3>
+        </div>
+        <div className="desktop-apps-grid__actions">
+          <label className="desktop-apps-grid__search">
+            <IconSearch size={14} aria-hidden="true" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.currentTarget.value)}
+              className="desktop-apps-grid__search-input"
+              placeholder="Search apps"
+              aria-label="Search apps"
+            />
+          </label>
+          {onCreateApp ? (
+            <button
+              type="button"
+              className="desktop-apps-grid__action desktop-apps-grid__action--primary"
+              onClick={onCreateApp}
+            >
+              <IconPlus size={14} aria-hidden="true" />
+              <span>New</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {visibleApps.length === 0 ? (
+        <div className="desktop-apps-grid__empty" role="status">
+          <p className="desktop-apps-grid__empty-title">
+            {hasSearch ? `No apps match “${search.trim()}”.` : "No apps yet."}
+          </p>
+          <p className="desktop-apps-grid__empty-description">
+            {hasSearch
+              ? "Try a different name or description."
+              : "Create or enable an app to show it here."}
+          </p>
+          {hasSearch ? (
+            <button
+              type="button"
+              className="desktop-apps-grid__empty-action"
+              onClick={() => setSearch("")}
+            >
+              Clear search
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="desktop-apps-grid__list">
+          {visibleApps.map((app) => {
+            const pinned = layout.pinnedIds.includes(app.id);
+            const isWorkspaceApp = workspaceAppIds?.has(app.id) === true;
+            return (
+              <div
+                key={app.id}
+                className={cn(
+                  "desktop-app-card",
+                  reorderable && draggedAppId === app.id && "is-dragging",
+                  reorderable && dragOverAppId === app.id && "is-drag-over",
+                )}
+                draggable={reorderable}
+                onDragStart={(event) => {
+                  if (!reorderable) return;
+                  event.dataTransfer.effectAllowed = "move";
+                  setDraggedAppId(app.id);
+                }}
+                onDragOver={(event) => {
+                  if (!reorderable) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverAppId(app.id);
+                }}
+                onDrop={(event) => {
+                  if (!reorderable) return;
+                  event.preventDefault();
+                  reorderApps(app.id);
+                  setDraggedAppId(null);
+                  setDragOverAppId(null);
+                }}
+                onDragEnd={() => {
+                  setDraggedAppId(null);
+                  setDragOverAppId(null);
+                }}
+              >
+                <button
+                  type="button"
+                  className="desktop-app-card__body"
+                  data-desktop-app-card
+                  data-app-id={app.id}
+                  onClick={() => onOpenApp(app)}
+                  aria-label={`Open ${app.name}`}
+                >
+                  <span className="desktop-app-card__icon" aria-hidden="true">
+                    <CodeAgentsAppIcon
+                      id={app.id}
+                      name={app.name}
+                      icon={app.icon}
+                      color={app.color}
+                    />
+                  </span>
+                  <span className="desktop-app-card__copy">
+                    <span className="desktop-app-card__name">{app.name}</span>
+                    <span className="desktop-app-card__description">
+                      {app.description}
+                    </span>
+                    {isWorkspaceApp ? (
+                      <span className="desktop-app-card__source">
+                        <IconWorld size={11} aria-hidden="true" />
+                        Workspace
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+                {reorderable ? (
+                  <span
+                    className="desktop-app-card__drag-handle"
+                    title="Drag to rearrange"
+                    aria-label="Drag to rearrange"
+                  >
+                    <IconGripVertical size={16} aria-hidden="true" />
+                  </span>
+                ) : null}
+                <AppOpenActions
+                  name={app.name}
+                  labels={{ openApp: "Open" }}
+                  onOpen={() => onOpenApp(app)}
+                  className="desktop-app-card__actions"
+                  menuItems={[
+                    {
+                      id: "browser",
+                      label: "Open in browser",
+                      icon: <IconWorld size={14} />,
+                      onSelect: () => onOpenInBrowser(app),
+                    },
+                    {
+                      id: "pin",
+                      label: pinned ? "Unpin this app" : "Pin this app",
+                      icon: (
+                        <IconPin size={14} strokeWidth={pinned ? 2.2 : 1.6} />
+                      ),
+                      onSelect: () => onTogglePinned(app.id),
+                    },
+                  ]}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function updateDesktopIdentityStatusByTab(
+  current: Readonly<Record<string, DesktopIdentityStatus | "checking">>,
+  tabId: string,
+  status: DesktopIdentityStatus | "checking",
+): Record<string, DesktopIdentityStatus | "checking"> {
+  return current[tabId] === status ? current : { ...current, [tabId]: status };
+}
+
+export function updateAppAuthStateByTab(
+  current: Readonly<Record<string, AppWebviewAuthState>>,
+  tabId: string,
+  state: AppWebviewAuthState,
+): Record<string, AppWebviewAuthState> {
+  // Navigation probes publish unknown while the guest session settles. Keep
+  // the last confirmed state so host-owned surfaces do not remount per route.
+  if (state === "unknown" && current[tabId] !== undefined) return current;
+  return current[tabId] === state ? current : { ...current, [tabId]: state };
+}
+
+export function updateWebContentsIdByTab(
+  current: Readonly<Record<string, number>>,
+  tabId: string,
+  webContentsId: number | undefined,
+): Record<string, number> {
+  if (webContentsId === undefined) {
+    if (!(tabId in current)) return current;
+    const next = { ...current };
+    delete next[tabId];
+    return next;
+  }
+  return current[tabId] === webContentsId
+    ? current
+    : { ...current, [tabId]: webContentsId };
+}
+
+interface CodeAgentsHubProps {
+  apps: AppConfig[];
+  workspaceAppList?: DesktopWorkspaceAppListResult;
+  isActive?: boolean;
+  openRequest?: { goalId?: string; runId?: string; nonce: number };
+  chatFirstAppOpenRequest?: {
+    appId: string;
+    path?: string;
+    nonce: number;
+    focusNonce?: number;
+  };
+  chatFirstPreviewRequest?: { appId: string; nonce: number };
+  chatFirstPreviewStatus?: "starting" | "ready" | "error";
+  chatFirstPreviewStatusMessage?: string;
+  refreshKey?: number;
+  onOpenSettings?: (tab?: string) => void;
+  onCreateApp?: () => void;
+  onChatFirstAppCreated?: (result: DesktopCreateAppResult) => void;
+  onLocalCodeChangeStarted?: (
+    result: DesktopPrepareLocalCodeChangeResult,
+  ) => void;
+  onChatFirstAppRemove?: (app: ChatFirstAppItem) => void;
+  onChatFirstAppSelectionChange?: (appId?: string) => void;
+}
+
+type CodeAgentTranscriptSubscriptionBatch = {
+  status: "ok" | "unavailable";
+  runId?: string;
+  events: CodeAgentTranscriptEvent[];
+  eventFile?: string;
+  error?: string;
+  subscriptionId?: string;
+  reason?: string;
+};
+
+interface CodeAgentsHostWithTranscriptSubscription extends CodeAgentsHost {
+  subscribeTranscript?(
+    request: CodeAgentTranscriptRequest,
+    cb: (batch: CodeAgentTranscriptSubscriptionBatch) => void,
+  ): () => void;
+}
+
+export default function CodeAgentsHub({
+  apps,
+  workspaceAppList,
+  isActive = true,
+  openRequest,
+  chatFirstAppOpenRequest,
+  chatFirstPreviewRequest,
+  chatFirstPreviewStatus,
+  chatFirstPreviewStatusMessage,
+  refreshKey = 0,
+  onOpenSettings,
+  onCreateApp,
+  onChatFirstAppCreated,
+  onLocalCodeChangeStarted,
+  onChatFirstAppRemove,
+  onChatFirstAppSelectionChange,
+}: CodeAgentsHubProps) {
+  const theme = useRendererTheme();
+  useEffect(() => {
+    void preloadAgentChatSurface();
+  }, []);
+  const terminalPreferences = useDesktopTerminalPreferences();
+  const emitChatFirstOpenAppStable = useCallback(
+    (detail: ChatFirstOpenAppDetail) => emitChatFirstOpenApp(detail),
+    [],
+  );
+  const chatFirstSurfaceTabs = useChatFirstSurfaceTabs("desktop");
+  const chatFirstSurfaceTabsStore = getChatFirstSurfaceTabsStore("desktop");
+  const chatFirstSurfaceResize = useChatFirstSurfaceResize("desktop");
+  const chatFirstSurfacePanel = useChatFirstSurfacePanel("desktop");
+  const { setOpen: setChatFirstSurfacePanelOpen } = chatFirstSurfacePanel;
+  const workspaceAppListEnabled = workspaceAppList?.enabled === true;
+  const workspaceApps = workspaceAppListEnabled ? workspaceAppList.apps : [];
+  const listApps = useMemo(
+    () =>
+      workspaceAppListEnabled
+        ? mergeDesktopAppLists(apps, workspaceApps)
+        : apps,
+    [apps, workspaceAppListEnabled, workspaceApps],
+  );
+  const surfaceApps = listApps;
+  const [desktopIdentityStatusByTab, setDesktopIdentityStatusByTab] = useState<
+    Record<string, DesktopIdentityStatus | "checking">
+  >({});
+  const [appAuthStateByTab, setAppAuthStateByTab] = useState<
+    Record<string, AppWebviewAuthState>
+  >({});
+  const [webContentsIdByTab, setWebContentsIdByTab] = useState<
+    Record<string, number>
+  >({});
+  const appWebviewRefs = useRef<Record<string, AppWebviewHandle | null>>({});
+  const [nativeOAuthActiveByTab, setNativeOAuthActiveByTab] = useState<
+    Record<string, boolean>
+  >({});
+  const handleDesktopIdentityStatusChange = useCallback(
+    (tabId: string, status: DesktopIdentityStatus | "checking") => {
+      setDesktopIdentityStatusByTab((current) =>
+        updateDesktopIdentityStatusByTab(current, tabId, status),
+      );
+    },
+    [],
+  );
+  const handleAppAuthStateChange = useCallback(
+    (tabId: string, state: AppWebviewAuthState) => {
+      setAppAuthStateByTab((current) =>
+        updateAppAuthStateByTab(current, tabId, state),
+      );
+    },
+    [],
+  );
+  const handleWebContentsIdChange = useCallback(
+    (tabId: string, webContentsId: number | undefined) => {
+      setWebContentsIdByTab((current) =>
+        updateWebContentsIdByTab(current, tabId, webContentsId),
+      );
+    },
+    [],
+  );
+  const handleNativeOAuthActiveChange = useCallback(
+    (tabId: string, active: boolean) => {
+      setNativeOAuthActiveByTab((current) => {
+        if (!active) {
+          if (!(tabId in current)) return current;
+          const next = { ...current };
+          delete next[tabId];
+          return next;
+        }
+        return current[tabId] === true
+          ? current
+          : { ...current, [tabId]: true };
+      });
+    },
+    [],
+  );
+  useEffect(() => {
+    const openTabIds = new Set(chatFirstSurfaceTabs.tabs.map((tab) => tab.id));
+    setDesktopIdentityStatusByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+    setAppAuthStateByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+    setWebContentsIdByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+    setNativeOAuthActiveByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+  }, [chatFirstSurfaceTabs.tabs]);
+  const localAppIds = useMemo(() => new Set(apps.map((app) => app.id)), [apps]);
+  const workspaceAppIds = useMemo(
+    () =>
+      workspaceAppListEnabled
+        ? new Set(
+            workspaceApps
+              .filter((app) => !localAppIds.has(app.id))
+              .map((app) => app.id),
+          )
+        : undefined,
+    [localAppIds, workspaceAppListEnabled, workspaceApps],
+  );
+  const [chatFirstAppLayout, setChatFirstAppLayout] =
+    useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
+  const chatFirstSessionWatch = useChatFirstSessionWatch();
+  const [chatFirstWatchedRun, setChatFirstWatchedRun] =
+    useState<CodeAgentRun | null>(null);
+  const [chatFirstWatchedSourceRunId, setChatFirstWatchedSourceRunId] =
+    useState<string | null>(null);
+  const [chatFirstAgentActivities, setChatFirstAgentActivities] = useState<
+    ChatFirstAgentActivity[]
+  >([]);
+  const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
+  const visibleChatFirstSurfaceTabs = useMemo(
+    () =>
+      chatFirstSurfaceTabs.tabs.filter(
+        (tab) =>
+          isVisibleChatFirstSurfaceTab(tab, surfaceApps) &&
+          !(terminalPreferences.enabled && tab.kind === "terminal"),
+      ),
+    [chatFirstSurfaceTabs.tabs, surfaceApps, terminalPreferences.enabled],
+  );
+  const visibleActiveChatFirstSurfaceTabId = visibleChatFirstSurfaceTabs.some(
+    (tab) => tab.id === chatFirstSurfaceTabs.activeTabId,
+  )
+    ? chatFirstSurfaceTabs.activeTabId
+    : visibleChatFirstSurfaceTabs[0]?.id;
+  const activeChatFirstSurfaceTab = useMemo(
+    () =>
+      visibleChatFirstSurfaceTabs.find(
+        (tab) => tab.id === visibleActiveChatFirstSurfaceTabId,
+      ) ?? null,
+    [visibleActiveChatFirstSurfaceTabId, visibleChatFirstSurfaceTabs],
+  );
+  useEffect(() => {
+    closeChatFirstSessionWatch();
+  }, []);
+  const chatFirstAppTakesMain = activeChatFirstSurfaceTab?.kind === "app";
+  const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
+  const chatFirstAppChatEnabled =
+    chatFirstAppSelected &&
+    shouldUseDesktopAppChatShell(activeChatFirstSurfaceTab?.path);
+  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
+  const activeChatFirstPrimaryTab = useMemo<
+    ChatFirstPrimaryTab | undefined
+  >(() => {
+    if (scheduledTasksOpen) return "scheduled";
+    if (
+      !chatFirstAppSelected ||
+      activeChatFirstSurfaceTab?.kind !== "app" ||
+      activeChatFirstSurfaceTab.appId !== "dispatch"
+    ) {
+      return chatFirstAppSelected ? undefined : "new-chat";
+    }
+    if (
+      activeChatFirstSurfaceTab.path === "/admin/integrations" ||
+      activeChatFirstSurfaceTab.path === "/integrations"
+    ) {
+      return "integrations";
+    }
+    if (
+      activeChatFirstSurfaceTab.path === "/admin/automations" ||
+      activeChatFirstSurfaceTab.path === "/automations"
+    ) {
+      return "scheduled";
+    }
+    return undefined;
+  }, [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen]);
+  const [, setChatFirstBrowserSelection] = useState<{
+    url: string;
+    title?: string;
+  } | null>(null);
+  const [chatFirstAllAppsOpen, setChatFirstAllAppsOpen] = useState(false);
+  const [hasChatFirstChats, setHasChatFirstChats] = useState(false);
+  const [hasChatFirstActiveChat, setHasChatFirstActiveChat] = useState(false);
+  const [terminalSessionStarted, setTerminalSessionStarted] = useState(false);
+  const [terminalPromptRequest, setTerminalPromptRequest] =
+    useState<DesktopTerminalPromptRequest | null>(null);
+  const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
+  const [chatFirstRailCollapsed, setChatFirstRailCollapsed] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : window.localStorage.getItem(CHAT_FIRST_RAIL_COLLAPSED_STORAGE_KEY) ===
+        "1",
+  );
+  const handledChatFirstAppOpenNonceRef = useRef<number | null>(null);
+  const handledChatFirstPreviewNonceRef = useRef<number | null>(null);
+  const terminalPromptSequence = useRef(0);
+  const [multiFrontierMode, setMultiFrontierMode] = useState(false);
+  const [multiFrontierState, setMultiFrontierState] =
+    useState<MultiFrontierRendererState>();
+  const [multiFrontierSubscriptions, setMultiFrontierSubscriptions] = useState<
+    Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>
+  >({});
+  const [multiFrontierDefaultSettings, setMultiFrontierDefaultSettings] =
+    useState<MultiFrontierSettings>({ autoContinueAfterAgreement: false });
+  const [multiFrontierRunAutoContinue, setMultiFrontierRunAutoContinue] =
+    useState(false);
+  const [multiFrontierBusy, setMultiFrontierBusy] = useState(false);
+  const [multiFrontierNotices, setMultiFrontierNotices] = useState<
+    MultiFrontierNotice[]
+  >([]);
+  const multiFrontierSequence = useRef(-1);
+  const multiFrontierSettingsHydrated = useRef(false);
+  const multiFrontierNoticeNonce = useRef(0);
+  const multiFrontierActivationTracked = useRef(false);
+  const multiFrontierLastPhaseTelemetry = useRef("");
+  const multiFrontierLastProviderTelemetry = useRef<
+    Partial<Record<MultiFrontierProviderId, string>>
+  >({});
+  const activeMultiFrontierCollaborationId =
+    multiFrontierState?.collaborationId;
+
+  const openChatFirstApp = useCallback(
+    (appId: string, path?: string, view?: string) => {
+      const app = surfaceApps.find(
+        (candidate) => candidate.id === appId && candidate.enabled,
+      );
+      if (!app) {
+        setChatFirstNotice("That app is not enabled in the desktop workspace.");
+        return;
+      }
+      const dispatchControlPlane =
+        app.id === "dispatch" && isDispatchControlPlanePath(path);
+      if (!isDesktopAppVisible(app) && !dispatchControlPlane) {
+        setChatFirstNotice(
+          "That app is not available in the desktop workspace.",
+        );
+        return;
+      }
+      setChatFirstRailCollapsed(true);
+      setChatFirstAllAppsOpen(false);
+      setScheduledTasksOpen(false);
+      window.electronAPI?.setActiveApp?.(app.id);
+      setChatFirstNotice(null);
+      setChatFirstBrowserSelection(null);
+      closeChatFirstSessionWatch();
+      const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");
+      chatFirstSurfaceTabsStore.open(
+        dispatchControlPlane
+          ? {
+              ...surfaceTab,
+              title: dispatchControlPlaneTitle(path) ?? surfaceTab.title,
+            }
+          : surfaceTab,
+      );
+    },
+    [chatFirstSurfaceTabsStore, setScheduledTasksOpen, surfaceApps],
+  );
+
+  useEffect(() => {
+    if (
+      !isActive ||
+      !chatFirstAppOpenRequest ||
+      handledChatFirstAppOpenNonceRef.current === chatFirstAppOpenRequest.nonce
+    ) {
+      return;
+    }
+    const app = surfaceApps.find(
+      (candidate) =>
+        candidate.id === chatFirstAppOpenRequest.appId && candidate.enabled,
+    );
+    if (!app) return;
+    handledChatFirstAppOpenNonceRef.current = chatFirstAppOpenRequest.nonce;
+    openChatFirstApp(app.id, chatFirstAppOpenRequest.path);
+  }, [chatFirstAppOpenRequest, isActive, openChatFirstApp, surfaceApps]);
+
+  useEffect(() => {
+    const appId =
+      isActive && activeChatFirstSurfaceTab?.kind === "app"
+        ? activeChatFirstSurfaceTab.appId
+        : undefined;
+    onChatFirstAppSelectionChange?.(appId);
+  }, [
+    activeChatFirstSurfaceTab?.appId,
+    activeChatFirstSurfaceTab?.kind,
+    isActive,
+    onChatFirstAppSelectionChange,
+  ]);
+
+  const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(
+    () =>
+      surfaceApps.map((app) => ({
+        id: app.id,
+        name: app.name,
+        url: app.url,
+        devUrl: app.devUrl,
+        enabled: app.enabled,
+      })),
+    [surfaceApps],
+  );
+  const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
+    () =>
+      getDesktopVisibleApps(listApps)
+        .filter((app) => app.enabled && app.id !== "agent")
+        .map((app) => ({
+          id: app.id,
+          name: app.name,
+          ...(app.icon ? { icon: app.icon } : {}),
+          ...(app.color ? { color: app.color } : {}),
+        })),
+    [listApps],
+  );
+  const toggleChatFirstAppPinned = useCallback((appId: string) => {
+    setChatFirstAppLayout((layout) => {
+      const pinnedIds = layout.pinnedIds.includes(appId)
+        ? layout.pinnedIds.filter((id) => id !== appId)
+        : [appId, ...layout.pinnedIds];
+      const next = { ...layout, pinnedIds };
+      writeChatFirstAppLayout(next);
+      return next;
+    });
+  }, []);
+  const reorderChatFirstApps = useCallback((orderedIds: string[]) => {
+    setChatFirstAppLayout((layout) => {
+      const next = { ...layout, orderedIds };
+      writeChatFirstAppLayout(next);
+      return next;
+    });
+  }, []);
+  const returnToChatFirstChats = useCallback(() => {
+    setChatFirstAllAppsOpen(false);
+    setScheduledTasksOpen(false);
+    setTerminalSessionStarted(false);
+    setTerminalPromptRequest(null);
+    closeChatFirstSessionWatch();
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
+  }, [
+    chatFirstSurfaceTabsStore,
+    setChatFirstSurfacePanelOpen,
+    setScheduledTasksOpen,
+  ]);
+  const openChatFirstNewChat = useCallback(() => {
+    setHasChatFirstActiveChat(false);
+    returnToChatFirstChats();
+  }, [returnToChatFirstChats]);
+  const handleTerminalPromptSubmit = useCallback((prompt: string) => {
+    const request: DesktopTerminalPromptRequest = {
+      id: ++terminalPromptSequence.current,
+      text: prompt,
+    };
+    setTerminalPromptRequest(request);
+    setTerminalSessionStarted(true);
+  }, []);
+  const handleTerminalPromptSubmitted = useCallback(
+    (request: DesktopTerminalPromptRequest) => {
+      setTerminalPromptRequest((current) =>
+        current?.id === request.id ? null : current,
+      );
+    },
+    [],
+  );
+  const handleNewTerminal = useCallback(() => {
+    setTerminalPromptRequest(null);
+    setTerminalSessionStarted(true);
+  }, []);
+  const setDesktopTerminalMode = useCallback(
+    (enabled: boolean, startSession = false) => {
+      const state = chatFirstSurfaceTabsStore.getSnapshot();
+      const activeTab = state.tabs.find(
+        (tab) => tab.id === state.activeTabId && tab.kind === "app",
+      );
+      const appTab = activeTab ?? state.tabs.find((tab) => tab.kind === "app");
+      if (appTab?.kind === "app") {
+        chatFirstSurfaceTabsStore.open({
+          ...appTab,
+          placement: "main",
+        });
+      } else if (!enabled) {
+        setChatFirstSurfacePanelOpen(false);
+      }
+      writeDesktopTerminalPreferences({ enabled });
+      if (enabled && startSession) {
+        setTerminalPromptRequest(null);
+        setTerminalSessionStarted(true);
+      }
+    },
+    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen],
+  );
+  const handleTerminalModeChange = useCallback(
+    (enabled: boolean) => {
+      const wasEnabled = terminalPreferences.enabled;
+      setDesktopTerminalMode(enabled);
+      if (wasEnabled && !enabled) {
+        toast({
+          title: "Terminal mode is off",
+          description: "Turn it back on in Terminal tabs settings.",
+          action: onOpenSettings ? (
+            <ToastAction
+              altText="Open terminal settings"
+              onClick={() => onOpenSettings("terminal")}
+            >
+              Open settings
+            </ToastAction>
+          ) : undefined,
+        });
+      }
+    },
+    [onOpenSettings, setDesktopTerminalMode, terminalPreferences.enabled],
+  );
+  const handleNewCliTab = useCallback(
+    () => setDesktopTerminalMode(true, true),
+    [setDesktopTerminalMode],
+  );
+  const handleTerminalAgentChange = useCallback(
+    (agent: DesktopTerminalAgentId) => {
+      writeDesktopTerminalPreferences({ agent });
+    },
+    [],
+  );
+  const handleNewUiTab = useCallback(() => {
+    setTerminalPromptRequest(null);
+    setTerminalSessionStarted(false);
+    setDesktopTerminalMode(false);
+  }, [setDesktopTerminalMode]);
+  const openChatFirstAllApps = useCallback(() => {
+    setChatFirstAllAppsOpen(true);
+    setScheduledTasksOpen(false);
+    closeChatFirstSessionWatch();
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
+  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const openScheduledTasks = useCallback(() => {
+    setScheduledTasksOpen(true);
+    setChatFirstAllAppsOpen(false);
+    closeChatFirstSessionWatch();
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
+  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const openScheduledChatWithPrompt = useCallback(
+    (prompt: string) => {
+      returnToChatFirstChats();
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:scheduled-chat-prompt", {
+            detail: { prompt },
+          }),
+        );
+      }, 250);
+    },
+    [returnToChatFirstChats],
+  );
+  const chatFirstNavigation = useMemo(
+    () => ({
+      activeTab: activeChatFirstPrimaryTab,
+      onNewChat: openChatFirstNewChat,
+      onOpenChats: returnToChatFirstChats,
+      onOpenAllApps: openChatFirstAllApps,
+      onOpenIntegrations: () => openChatFirstApp("dispatch", "/integrations"),
+      onOpenScheduled: openScheduledTasks,
+    }),
+    [
+      activeChatFirstPrimaryTab,
+      openChatFirstApp,
+      openChatFirstAllApps,
+      openChatFirstNewChat,
+      openScheduledTasks,
+      returnToChatFirstChats,
+    ],
+  );
+  const openChatFirstAppFromRail = useCallback(
+    (app: ChatFirstAppItem) => openChatFirstApp(app.id, undefined, undefined),
+    [openChatFirstApp],
+  );
+  const reloadChatFirstApp = useCallback(
+    (app: ChatFirstAppItem) => {
+      let reloaded = false;
+      for (const tab of chatFirstSurfaceTabs.tabs) {
+        if (tab.kind !== "app" || tab.appId !== app.id) continue;
+        const webview = appWebviewRefs.current[tab.id];
+        if (!webview) continue;
+        webview.reload();
+        reloaded = true;
+      }
+      if (!reloaded) openChatFirstAppFromRail(app);
+    },
+    [chatFirstSurfaceTabs.tabs, openChatFirstAppFromRail],
+  );
+  const openChatFirstAppFromGrid = useCallback(
+    (app: AppConfig) => openChatFirstApp(app.id, undefined, undefined),
+    [openChatFirstApp],
+  );
+  const selectChatFirstAppFromKeyboard = useCallback(
+    (appId: string) => openChatFirstApp(appId, undefined, undefined),
+    [openChatFirstApp],
+  );
+  const chatFirstKeyboardNavigation = useMemo<ChatFirstKeyboardNavigation>(
+    () => ({
+      appIds: orderDesktopApps(listApps, chatFirstAppLayout).map(
+        (app) => app.id,
+      ),
+      activeAppId:
+        activeChatFirstSurfaceTab?.kind === "app"
+          ? activeChatFirstSurfaceTab.appId
+          : undefined,
+      onSelectApp: selectChatFirstAppFromKeyboard,
+      subscribe: (listener) =>
+        window.electronAPI?.shortcuts?.onKeydown(listener) ?? (() => {}),
+    }),
+    [
+      activeChatFirstSurfaceTab?.appId,
+      activeChatFirstSurfaceTab?.kind,
+      chatFirstAppLayout,
+      listApps,
+      selectChatFirstAppFromKeyboard,
+    ],
+  );
+  useEffect(() => {
+    const shortcutApi = window.electronAPI?.shortcuts;
+    if (!shortcutApi?.onKeydown) return;
+    return shortcutApi.onKeydown((input) => {
+      if (
+        !isDesktopChatToggleShortcut({
+          key: input.key,
+          code: input.code,
+          shift: input.shiftKey,
+          alt: input.altKey,
+        })
+      ) {
+        return;
+      }
+      window.dispatchEvent(new Event("agent-panel:toggle"));
+    });
+  }, []);
+  const openChatFirstAppInBrowser = useCallback((app: AppConfig) => {
+    const url = resolveAppWebviewUrl(toAppDefinition(app), app);
+    if (url === "about:blank") return;
+    void window.electronAPI.shell.openExternal(url);
+  }, []);
+  const renderChatFirstAppIcon = useCallback(
+    (
+      app: ChatFirstAppItem,
+      { isInactive }: { isInactive: boolean } = { isInactive: false },
+    ) => (
+      <CodeAgentsAppIcon
+        id={app.id}
+        name={app.name}
+        icon={app.icon}
+        color={app.color}
+        monochrome={isInactive}
+      />
+    ),
+    [],
+  );
+  const chatFirstRailWorkspaceSlot = useMemo(() => {
+    return (
+      <>
+        {chatFirstNotice ? (
+          <div
+            className="flex items-start gap-1.5 border-b border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
+            role="status"
+            aria-live="polite"
+            data-chat-first-notice
+          >
+            <span className="min-w-0 flex-1">{chatFirstNotice}</span>
+            <button
+              type="button"
+              className="shrink-0 font-semibold underline underline-offset-2"
+              onClick={() => setChatFirstNotice(null)}
+            >
+              {defaultChatFirstCopy("dismiss")}
+            </button>
+          </div>
+        ) : null}
+        <ChatFirstAppsRail
+          apps={chatFirstAppItems}
+          defaultAppIds={DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS}
+          activeAppId={
+            activeChatFirstSurfaceTab?.kind === "app"
+              ? activeChatFirstSurfaceTab.appId
+              : undefined
+          }
+          collapsed={chatFirstRailCollapsed}
+          layout={chatFirstAppLayout}
+          createAppTrigger={
+            onChatFirstAppCreated ? (
+              <CreateAppPromptPopover onCreated={onChatFirstAppCreated} />
+            ) : undefined
+          }
+          onCreateApp={onCreateApp}
+          onLayoutChange={(layout) => {
+            setChatFirstAppLayout(layout);
+          }}
+          onRemoveApp={onChatFirstAppRemove}
+          onReloadApp={reloadChatFirstApp}
+          onOpenAllApps={openChatFirstAllApps}
+          onOpenApp={openChatFirstAppFromRail}
+          renderIcon={renderChatFirstAppIcon}
+          copy={defaultChatFirstCopy}
+        />
+      </>
+    );
+  }, [
+    activeChatFirstSurfaceTab?.appId,
+    activeChatFirstSurfaceTab?.kind,
+    chatFirstAppItems,
+    chatFirstRailCollapsed,
+    chatFirstNotice,
+    onChatFirstAppCreated,
+    onChatFirstAppRemove,
+    onCreateApp,
+    openChatFirstAllApps,
+    openChatFirstAppFromRail,
+    reloadChatFirstApp,
+    renderChatFirstAppIcon,
+  ]);
+
+  const resolveChatFirstOpenApp = useCallback(
+    (detail: ChatFirstOpenAppDetail) => {
+      const resolution = resolveChatFirstAppTarget(
+        detail,
+        chatFirstAppRegistrations,
+      );
+      if (resolution.status === "unresolved") {
+        setChatFirstNotice(chatFirstResolutionMessage(resolution.reason));
+        return;
+      }
+      openChatFirstApp(
+        resolution.target.appId,
+        resolution.target.path,
+        resolution.target.view,
+      );
+    },
+    [chatFirstAppRegistrations, openChatFirstApp],
+  );
+
+  const resolveChatFirstOpenBrowser = useCallback(
+    (detail: ChatFirstOpenBrowserDetail) => {
+      const resolution = resolveChatFirstBrowserTarget(detail);
+      if (resolution.status === "unresolved") {
+        setChatFirstNotice(
+          chatFirstBrowserResolutionMessage(resolution.reason),
+        );
+        return;
+      }
+      if (!hasChatFirstActiveChat) {
+        setChatFirstNotice("Open a chat to view browser surfaces.");
+        return;
+      }
+      setChatFirstNotice(null);
+      closeChatFirstSessionWatch();
+      chatFirstSurfaceTabsStore.open({
+        id: chatFirstSurfaceTabId("browser", resolution.target.url),
+        kind: "browser",
+        title: resolution.target.title ?? "Browser",
+        url: resolution.target.url,
+      });
+      setChatFirstBrowserSelection(resolution.target);
+    },
+    [hasChatFirstActiveChat, chatFirstSurfaceTabsStore],
+  );
+
+  useEffect(() => {
+    const request = chatFirstPreviewRequest;
+    if (!request || handledChatFirstPreviewNonceRef.current === request.nonce) {
+      return;
+    }
+    if (!hasChatFirstActiveChat) return;
+    const app = apps.find(
+      (candidate) => candidate.id === request.appId && candidate.enabled,
+    );
+    if (!app) return;
+    handledChatFirstPreviewNonceRef.current = request.nonce;
+    if (!app.devUrl?.trim()) {
+      setChatFirstNotice(
+        `${app.name} is building locally, but it has not published a preview URL yet.`,
+      );
+      return;
+    }
+    resolveChatFirstOpenBrowser({
+      url: app.devUrl,
+      title: `${app.name} preview`,
+    });
+  }, [
+    apps,
+    chatFirstPreviewRequest,
+    hasChatFirstActiveChat,
+    resolveChatFirstOpenBrowser,
+  ]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      CHAT_FIRST_RAIL_COLLAPSED_STORAGE_KEY,
+      chatFirstRailCollapsed ? "1" : "0",
+    );
+  }, [chatFirstRailCollapsed]);
+
+  useEffect(() => {
+    if (window.electronAPI?.platform !== "darwin") return;
+    const setNativeTrafficLightsVisible = window.electronAPI.windowControls
+      ? (visible: boolean) =>
+          window.electronAPI.windowControls!.setNativeTrafficLightsVisible(
+            visible,
+          )
+      : undefined;
+    if (!setNativeTrafficLightsVisible) return;
+    setNativeTrafficLightsVisible(!chatFirstRailCollapsed);
+  }, [chatFirstRailCollapsed]);
+
+  useEffect(() => {
+    setChatFirstBrowserSelection(null);
+    setChatFirstNotice(null);
+    const unsubscribeApp = subscribeChatFirstOpenApp(resolveChatFirstOpenApp);
+    const unsubscribeDesktopApp =
+      window.electronAPI?.desktopChat?.onOpenApp(resolveChatFirstOpenApp) ??
+      (() => undefined);
+    const unsubscribeBrowser = subscribeChatFirstOpenBrowser(
+      resolveChatFirstOpenBrowser,
+    );
+    return () => {
+      unsubscribeApp();
+      unsubscribeDesktopApp();
+      unsubscribeBrowser();
+    };
+  }, [
+    chatFirstSurfaceTabsStore,
+    resolveChatFirstOpenApp,
+    resolveChatFirstOpenBrowser,
+  ]);
+
+  useEffect(() => {
+    const target = chatFirstSessionWatch.target;
+    if (!target) return;
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.open({
+      id: chatFirstSurfaceTabId("side-chat", target.sessionId),
+      kind: "side-chat",
+      title: target.title ? `Watch · ${target.title}` : "Watched session",
+      session: target,
+    });
+  }, [chatFirstSessionWatch.target, chatFirstSurfaceTabsStore]);
+
+  useEffect(() => {
+    const tabCount = visibleChatFirstSurfaceTabs.length;
+    const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
+    if (tabCount === 0 && previousTabCount !== null && previousTabCount > 0) {
+      setChatFirstSurfacePanelOpen(false);
+    }
+    previousChatFirstSurfaceTabCountRef.current = tabCount;
+  }, [setChatFirstSurfacePanelOpen, visibleChatFirstSurfaceTabs.length]);
+
+  useEffect(() => {
+    if (
+      !hasChatFirstActiveChat &&
+      !(
+        activeChatFirstSurfaceTab?.kind === "app" &&
+        activeChatFirstSurfaceTab.placement === "side"
+      )
+    ) {
+      setChatFirstSurfacePanelOpen(false);
+    }
+  }, [
+    activeChatFirstSurfaceTab,
+    hasChatFirstActiveChat,
+    setChatFirstSurfacePanelOpen,
+  ]);
+
+  useEffect(() => {
+    if (!terminalPreferences.enabled) return;
+    for (const tab of chatFirstSurfaceTabs.tabs) {
+      if (tab.kind === "terminal") chatFirstSurfaceTabsStore.close(tab.id);
+    }
+  }, [
+    chatFirstSurfaceTabs.tabs,
+    chatFirstSurfaceTabsStore,
+    terminalPreferences.enabled,
+  ]);
+
+  useEffect(() => {
+    if (terminalPreferences.enabled) return;
+    setTerminalSessionStarted(false);
+    setTerminalPromptRequest(null);
+  }, [terminalPreferences.enabled]);
+
+  useEffect(() => {
+    const activeTab = activeChatFirstSurfaceTab;
+    if (
+      activeTab?.kind !== "side-chat" ||
+      !activeTab.session ||
+      chatFirstSessionWatch.target
+    ) {
+      return;
+    }
+    emitChatFirstSessionWatch(activeTab.session);
+  }, [activeChatFirstSurfaceTab, chatFirstSessionWatch.target]);
+
+  const activateChatFirstSurfaceTab = useCallback(
+    (tab: ChatFirstSurfaceTab) => {
+      chatFirstSurfaceTabsStore.activate(tab.id);
+      if (tab.kind === "app" && tab.appId) {
+        closeChatFirstSessionWatch();
+        setChatFirstBrowserSelection(null);
+        return;
+      }
+      if (tab.kind === "browser" && tab.url) {
+        closeChatFirstSessionWatch();
+        setChatFirstBrowserSelection({ url: tab.url, title: tab.title });
+        return;
+      }
+      if (tab.kind === "side-chat" && tab.session) {
+        setChatFirstBrowserSelection(null);
+        emitChatFirstSessionWatch(tab.session);
+      }
+    },
+    [chatFirstSurfaceTabsStore],
+  );
+
+  const closeChatFirstSurfaceTab = useCallback(
+    (tab: ChatFirstSurfaceTab) => {
+      const isActive = chatFirstSurfaceTabs.activeTabId === tab.id;
+      if (tab.kind === "browser") setChatFirstBrowserSelection(null);
+      if (tab.kind === "side-chat" && isActive) {
+        closeChatFirstSessionWatch();
+      }
+      chatFirstSurfaceTabsStore.close(tab.id);
+    },
+    [chatFirstSurfaceTabs, chatFirstSurfaceTabsStore],
+  );
+
+  const closeAllChatFirstSurfaceTabs = useCallback(() => {
+    setChatFirstBrowserSelection(null);
+    closeChatFirstSessionWatch();
+    chatFirstSurfaceTabsStore.closeAll();
+  }, [chatFirstSurfaceTabsStore]);
+
+  useEffect(() => {
+    for (const tab of chatFirstSurfaceTabs.tabs) {
+      if (tab.kind !== "app" || !tab.appId) continue;
+      const app = surfaceApps.find(
+        (candidate) => candidate.id === tab.appId && candidate.enabled,
+      );
+      const dispatchControlPlane =
+        app?.id === "dispatch" && isDispatchControlPlanePath(tab.path);
+      if (!app || (!isDesktopAppVisible(app) && !dispatchControlPlane)) {
+        chatFirstSurfaceTabsStore.close(tab.id);
+      }
+    }
+  }, [chatFirstSurfaceTabs.tabs, chatFirstSurfaceTabsStore, surfaceApps]);
+
+  const openChatFirstSurface = useCallback(
+    (kind: ChatFirstSurfaceKind) => {
+      if (kind === "browser") {
+        setChatFirstBrowserSelection({
+          url: "https://www.google.com/",
+          title: "Browser",
+        });
+        chatFirstSurfaceTabsStore.open({
+          id: chatFirstSurfaceTabId("browser", "homepage"),
+          kind: "browser",
+          title: "Browser",
+          url: "https://www.google.com/",
+        });
+        return;
+      }
+      if (kind === "terminal") {
+        if (terminalPreferences.enabled) return;
+        closeChatFirstSessionWatch();
+        chatFirstSurfaceTabsStore.open({
+          id: chatFirstSurfaceTabId("terminal", "desktop"),
+          kind: "terminal",
+          title: "Terminal",
+        });
+        return;
+      }
+      if (kind !== "agents") return;
+      closeChatFirstSessionWatch();
+      chatFirstSurfaceTabsStore.open({
+        id: chatFirstSurfaceTabId(kind, "activity"),
+        kind,
+        title: "Agents",
+      });
+    },
+    [
+      chatFirstSurfaceTabsStore,
+      setChatFirstSurfacePanelOpen,
+      terminalPreferences.enabled,
+    ],
+  );
+
+  const watchChatFirstAgent = useCallback(
+    (activity: ChatFirstAgentActivity) => {
+      emitChatFirstSessionWatch({
+        sessionId: activity.sessionId,
+        title: activity.title,
+        kind: "code-agent",
+        ...(activity.goalId ? { goalId: activity.goalId } : {}),
+      });
+    },
+    [],
+  );
+
+  const handleChatFirstRunsChange = useCallback((runs: CodeAgentRun[]) => {
+    setHasChatFirstChats(runs.length > 0);
+    const nextActivities = runs.map((run) => ({
+      sessionId: run.id,
+      title: run.title || "Untitled agent session",
+      subtitle: run.subtitle || run.phase,
+      status: run.status,
+      updatedAt: run.updatedAt,
+      progressPercent: run.progress?.percent,
+      goalId: run.goalId,
+    }));
+    setChatFirstAgentActivities((current) =>
+      areChatFirstAgentActivitiesEqual(current, nextActivities)
+        ? current
+        : nextActivities,
+    );
+  }, []);
+
+  const handleChatFirstSelectedRunChange = useCallback(
+    (runId: string | null) => {
+      setHasChatFirstActiveChat(Boolean(runId));
+    },
+    [],
+  );
+  const handleChatFirstMainKindChange = useCallback(
+    (kind: "agent" | "code") => {
+      if (kind === "code") returnToChatFirstChats();
+    },
+    [returnToChatFirstChats],
+  );
+
+  const handleChatFirstWatchedRunChange = useCallback(
+    (run: CodeAgentRun | null, sourceRunId?: string | null) => {
+      setChatFirstWatchedRun(run);
+      setChatFirstWatchedSourceRunId(sourceRunId ?? null);
+    },
+    [],
+  );
+
+  const appendMultiFrontierNotice = useCallback(
+    (notice: MultiFrontierNotice) => {
+      setMultiFrontierNotices((current) =>
+        [
+          ...current.filter((currentNotice) => currentNotice.id !== notice.id),
+          notice,
+        ].slice(-8),
+      );
+    },
+    [],
+  );
+
+  const appendProviderOperationFailure = useCallback(
+    (
+      providerId: MultiFrontierProviderId,
+      operation: "connect" | "refresh" | "load",
+    ) => {
+      multiFrontierNoticeNonce.current += 1;
+      appendMultiFrontierNotice(
+        providerOperationFailureNotice(
+          providerId,
+          operation,
+          `subscription:${providerId}:${operation}:${multiFrontierNoticeNonce.current}`,
+        ),
+      );
+      trackMultiFrontierLifecycle({
+        kind: "failure",
+        category: operation === "connect" ? "auth" : "provider",
+      });
+    },
+    [appendMultiFrontierNotice],
+  );
+
+  const applyMultiFrontierSnapshot = useCallback(
+    (snapshot: MultiFrontierRendererState | undefined) => {
+      if (!snapshot) return;
+      setMultiFrontierState(snapshot);
+      setMultiFrontierSubscriptions((current) => ({
+        ...current,
+        ...snapshot.subscriptions,
+      }));
+    },
+    [],
+  );
+
+  const applyMultiFrontierEvent = useCallback(
+    (event: MultiFrontierIpcEvent) => {
+      const collaborationId = activeMultiFrontierCollaborationId;
+      if (!collaborationId) return;
+      const next = readNewerMultiFrontierSnapshot(
+        collaborationId,
+        multiFrontierSequence.current,
+        event,
+      );
+      if (!next) return;
+      multiFrontierSequence.current = next.sequence;
+      applyMultiFrontierSnapshot(next.snapshot);
+      if (next.notice) {
+        appendMultiFrontierNotice(next.notice);
+      }
+    },
+    [
+      appendMultiFrontierNotice,
+      applyMultiFrontierSnapshot,
+      activeMultiFrontierCollaborationId,
+    ],
+  );
+
+  useEffect(() => {
+    if (!multiFrontierMode) {
+      multiFrontierActivationTracked.current = false;
+      return;
+    }
+    if (multiFrontierActivationTracked.current) return;
+    multiFrontierActivationTracked.current = true;
+    trackMultiFrontierLifecycle({
+      kind: "mode_activation",
+      autoContinueAfterAgreement: multiFrontierRunAutoContinue,
+    });
+  }, [multiFrontierMode, multiFrontierRunAutoContinue]);
+
+  useEffect(() => {
+    if (!multiFrontierState) return;
+    const checkpointCount = multiFrontierState.artifacts.filter(
+      (artifact) => artifact.kind === "checkpoint",
+    ).length;
+    const reviewCount = multiFrontierState.artifacts.filter(
+      (artifact) => artifact.kind === "review",
+    ).length;
+    const key = [
+      multiFrontierState.phase,
+      multiFrontierState.round,
+      multiFrontierState.approvalState,
+      checkpointCount,
+      reviewCount,
+      multiFrontierState.requiresPlanningPrompt === true,
+    ].join(":");
+    if (multiFrontierLastPhaseTelemetry.current === key) return;
+    multiFrontierLastPhaseTelemetry.current = key;
+    trackMultiFrontierLifecycle({
+      kind: "phase",
+      phase: multiFrontierState.phase,
+      round: multiFrontierState.round,
+      approvalState: multiFrontierState.approvalState,
+      autoContinueAfterAgreement:
+        multiFrontierState.autoContinueAfterAgreement ?? false,
+      checkpointCount,
+      reviewCount,
+      requiresPlanningPrompt:
+        multiFrontierState.requiresPlanningPrompt === true,
+    });
+  }, [multiFrontierState]);
+
+  useEffect(() => {
+    for (const providerId of MULTI_FRONTIER_PROVIDERS) {
+      const status = multiFrontierSubscriptions[providerId];
+      if (!status) continue;
+      const key = [
+        status.connectionState,
+        status.telemetry.state,
+        status.telemetry.capabilities.rateLimits,
+        status.telemetry.capabilities.liveUpdates,
+      ].join(":");
+      if (multiFrontierLastProviderTelemetry.current[providerId] === key) {
+        continue;
+      }
+      multiFrontierLastProviderTelemetry.current[providerId] = key;
+      trackMultiFrontierLifecycle({
+        kind: "provider_status",
+        providerId,
+        connectionState: status.connectionState,
+        telemetryState: status.telemetry.state,
+        hasRateLimits: status.telemetry.capabilities.rateLimits,
+        hasLiveUpdates: status.telemetry.capabilities.liveUpdates,
+      });
+    }
+  }, [multiFrontierSubscriptions]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    let disposed = false;
+    const unsubscribeProviderStatus = api.subscribeProviderStatus((event) => {
+      if (disposed) return;
+      setMultiFrontierSubscriptions((current) => ({
+        ...current,
+        [event.providerId]: event.status,
+      }));
+    });
+    void api
+      .getSettings()
+      .then((settings) => {
+        if (disposed) return;
+        setMultiFrontierDefaultSettings(settings);
+        if (!multiFrontierSettingsHydrated.current) {
+          multiFrontierSettingsHydrated.current = true;
+          setMultiFrontierRunAutoContinue(
+            initialMultiFrontierRunAutoContinue(settings),
+          );
+        }
+      })
+      .catch(() => undefined);
+    for (const providerId of MULTI_FRONTIER_PROVIDERS) {
+      void api
+        .getProviderStatus(providerId)
+        .then((result) => {
+          if (disposed) return;
+          if (result.error || !result.status) {
+            appendProviderOperationFailure(providerId, "load");
+            return;
+          }
+          setMultiFrontierSubscriptions((current) => ({
+            ...current,
+            [providerId]: result.status!,
+          }));
+        })
+        .catch(() => {
+          if (!disposed) appendProviderOperationFailure(providerId, "load");
+        });
+    }
+    return () => {
+      disposed = true;
+      unsubscribeProviderStatus();
+    };
+  }, [appendProviderOperationFailure, isActive]);
+
+  useEffect(() => {
+    if (!isActive || !activeMultiFrontierCollaborationId) return;
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    multiFrontierSequence.current = -1;
+    setMultiFrontierNotices([]);
+    return api.subscribe(
+      activeMultiFrontierCollaborationId,
+      applyMultiFrontierEvent,
+    );
+  }, [activeMultiFrontierCollaborationId, applyMultiFrontierEvent, isActive]);
+
+  const refreshMultiFrontierSubscription = useCallback(
+    async (providerId: MultiFrontierProviderId) => {
+      const api = window.electronAPI?.multiFrontier;
+      if (!api) return;
+      setMultiFrontierBusy(true);
+      try {
+        const result = await api.refreshProviderStatus(providerId);
+        if (result.error || !result.status) {
+          appendProviderOperationFailure(providerId, "refresh");
+          return;
+        }
+        setMultiFrontierSubscriptions((current) => ({
+          ...current,
+          [providerId]: result.status!,
+        }));
+      } catch {
+        appendProviderOperationFailure(providerId, "refresh");
+      } finally {
+        setMultiFrontierBusy(false);
+      }
+    },
+    [appendProviderOperationFailure],
+  );
+
+  const connectMultiFrontierSubscription = useCallback(
+    async (providerId: MultiFrontierProviderId) => {
+      const api = window.electronAPI?.multiFrontier;
+      if (!api) return;
+      setMultiFrontierBusy(true);
+      try {
+        const result = await api.beginProviderLogin(providerId);
+        if (result.status) {
+          setMultiFrontierSubscriptions((current) => ({
+            ...current,
+            [providerId]: result.status!,
+          }));
+        }
+        if (result.error || !result.status) {
+          appendProviderOperationFailure(providerId, "connect");
+        }
+      } catch {
+        appendProviderOperationFailure(providerId, "connect");
+      } finally {
+        setMultiFrontierBusy(false);
+      }
+    },
+    [appendProviderOperationFailure],
+  );
+
+  const updateMultiFrontierDefaultSettings = useCallback(
+    async (autoContinueAfterAgreement: boolean) => {
+      const previous = multiFrontierDefaultSettings;
+      const next = { autoContinueAfterAgreement };
+      setMultiFrontierDefaultSettings(next);
+      const api = window.electronAPI?.multiFrontier;
+      if (!api) return;
+      try {
+        setMultiFrontierDefaultSettings(await api.updateSettings(next));
+      } catch {
+        setMultiFrontierDefaultSettings(previous);
+      }
+    },
+    [multiFrontierDefaultSettings],
+  );
+
+  const runMultiFrontierAction = useCallback(
+    async (
+      action:
+        | "start"
+        | "go"
+        | "pause"
+        | "resume"
+        | "cancel"
+        | "re-review"
+        | "role-swap",
+      collaborationId: string,
+      input: {
+        nextDriverParticipantId?: string;
+        reviewArtifactId?: string;
+        prompt?: string;
+      } = {},
+    ) => {
+      const api = window.electronAPI?.multiFrontier;
+      if (!api) return;
+      trackMultiFrontierLifecycle({ kind: "action", action });
+      setMultiFrontierBusy(true);
+      try {
+        const result =
+          action === "role-swap"
+            ? await api.roleSwap(
+                collaborationId,
+                input.nextDriverParticipantId ?? "",
+              )
+            : action === "re-review"
+              ? await api.reReview(collaborationId, {
+                  reviewArtifactId: input.reviewArtifactId ?? "",
+                })
+              : action === "resume"
+                ? await api.resume(collaborationId, input.prompt)
+                : await api[action](collaborationId);
+        applyMultiFrontierSnapshot(result.snapshot);
+        if (result.error) {
+          trackMultiFrontierLifecycle({
+            kind: "failure",
+            category: multiFrontierFailureCategory(result.error.message),
+          });
+          multiFrontierNoticeNonce.current += 1;
+          appendMultiFrontierNotice({
+            id: `action:${action}:${multiFrontierNoticeNonce.current}`,
+            kind: "failure",
+            message: result.error.message,
+          });
+        }
+      } catch {
+        trackMultiFrontierLifecycle({
+          kind: "failure",
+          category: "unknown",
+        });
+        multiFrontierNoticeNonce.current += 1;
+        appendMultiFrontierNotice({
+          id: `action:${action}:${multiFrontierNoticeNonce.current}`,
+          kind: "failure",
+          message:
+            "The collaboration could not continue. Check both subscriptions, then retry recovery.",
+        });
+      } finally {
+        setMultiFrontierBusy(false);
+      }
+    },
+    [appendMultiFrontierNotice, applyMultiFrontierSnapshot],
+  );
+
+  const _multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
+    () => ({
+      active: multiFrontierMode,
+      disabled: multiFrontierBusy,
+      renderModeControl({ permissionMode, onPermissionModeChange }) {
+        return (
+          <MultiFrontierModeControl
+            active={multiFrontierMode}
+            permissionMode={permissionMode}
+            subscriptions={multiFrontierSubscriptions}
+            busy={multiFrontierBusy}
+            autoContinueAfterAgreement={multiFrontierRunAutoContinue}
+            defaultAutoContinueAfterAgreement={
+              multiFrontierDefaultSettings.autoContinueAfterAgreement
+            }
+            onModeChange={(mode) => {
+              if (mode === "multi-frontier") return;
+              setMultiFrontierMode(false);
+              onPermissionModeChange(
+                mode === "plan" ? "read-only" : "full-auto",
+              );
+            }}
+            onConnectSubscription={(providerId) =>
+              void connectMultiFrontierSubscription(providerId)
+            }
+            onRefreshSubscription={(providerId) =>
+              void refreshMultiFrontierSubscription(providerId)
+            }
+            onAutoContinueAfterAgreementChange={(value) =>
+              setMultiFrontierRunAutoContinue(value)
+            }
+            onDefaultAutoContinueAfterAgreementChange={(value) =>
+              void updateMultiFrontierDefaultSettings(value)
+            }
+          />
+        );
+      },
+      async submit({ prompt, cwd, attachments }) {
+        if (attachments.length > 0) {
+          return {
+            ok: false,
+            message: "Multi-Frontier does not accept attachments yet.",
+          };
+        }
+        const api = window.electronAPI?.multiFrontier;
+        if (!api) {
+          return {
+            ok: false,
+            message: "Multi-Frontier is not available in this desktop build.",
+          };
+        }
+        const allConnected = MULTI_FRONTIER_PROVIDERS.every(
+          (providerId) =>
+            multiFrontierSubscriptions[providerId]?.connectionState ===
+            "connected",
+        );
+        if (!allConnected) {
+          return {
+            ok: false,
+            message: "Connect both subscription participants before starting.",
+          };
+        }
+        setMultiFrontierBusy(true);
+        try {
+          const result = await api.create({
+            prompt,
+            ...(cwd ? { cwd } : {}),
+            autoContinueAfterAgreement: multiFrontierRunAutoContinue,
+          });
+          applyMultiFrontierSnapshot(result.snapshot);
+          if (!result.snapshot) {
+            return {
+              ok: false,
+              message:
+                result.error?.message ?? "Could not start collaboration.",
+            };
+          }
+          return { ok: true, detailId: result.snapshot.collaborationId };
+        } finally {
+          setMultiFrontierBusy(false);
+        }
+      },
+      renderDetail({ detailId }: { detailId: string }) {
+        const state =
+          multiFrontierState?.collaborationId === detailId
+            ? multiFrontierState
+            : undefined;
+        return (
+          <MultiFrontierWorkspace
+            state={state}
+            subscriptions={multiFrontierSubscriptions}
+            notices={multiFrontierNotices}
+            busy={multiFrontierBusy}
+            autoContinueAfterAgreement={multiFrontierRunAutoContinue}
+            defaultAutoContinueAfterAgreement={
+              multiFrontierDefaultSettings.autoContinueAfterAgreement
+            }
+            onConnectSubscription={(providerId) =>
+              void connectMultiFrontierSubscription(providerId)
+            }
+            onRefreshSubscription={(providerId) =>
+              void refreshMultiFrontierSubscription(providerId)
+            }
+            onAutoContinueAfterAgreementChange={
+              state
+                ? undefined
+                : (value) => setMultiFrontierRunAutoContinue(value)
+            }
+            onDefaultAutoContinueAfterAgreementChange={(value) =>
+              void updateMultiFrontierDefaultSettings(value)
+            }
+            onStart={(collaborationId) =>
+              void runMultiFrontierAction("start", collaborationId)
+            }
+            onGo={(collaborationId) =>
+              void runMultiFrontierAction("go", collaborationId)
+            }
+            onSecondaryAction={(input: MultiFrontierSecondaryActionInput) =>
+              void runMultiFrontierAction(input.action, input.collaborationId, {
+                ...(input.nextDriverParticipantId
+                  ? { nextDriverParticipantId: input.nextDriverParticipantId }
+                  : {}),
+                ...(input.reviewArtifactId
+                  ? { reviewArtifactId: input.reviewArtifactId }
+                  : {}),
+                ...(input.prompt ? { prompt: input.prompt } : {}),
+              })
+            }
+          />
+        );
+      },
+    }),
+    [
+      applyMultiFrontierSnapshot,
+      connectMultiFrontierSubscription,
+      multiFrontierBusy,
+      multiFrontierDefaultSettings.autoContinueAfterAgreement,
+      multiFrontierMode,
+      multiFrontierNotices,
+      multiFrontierRunAutoContinue,
+      multiFrontierState,
+      multiFrontierSubscriptions,
+      refreshMultiFrontierSubscription,
+      runMultiFrontierAction,
+      updateMultiFrontierDefaultSettings,
+    ],
+  );
+
+  const host = useMemo<CodeAgentsHostWithTranscriptSubscription>(
+    () => ({
+      async listRuns(goalId?: string) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listRuns) {
+          return {
+            status: "unavailable",
+            goalId,
+            runs: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listRuns(goalId);
+      },
+      async listSchedules() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listSchedules) {
+          return {
+            status: "unavailable",
+            schedules: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listSchedules();
+      },
+      async createSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.createSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.createSchedule(request);
+      },
+      async updateSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.updateSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.updateSchedule(request);
+      },
+      async deleteSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.deleteSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.deleteSchedule(request);
+      },
+      async runScheduleNow(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.runScheduleNow) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.runScheduleNow(request);
+      },
+      async listWorktrees(cwd?: string) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listWorktrees) {
+          return {
+            status: "unavailable",
+            sourcePath: cwd ?? "",
+            worktrees: [],
+            error: "Desktop bridge is not available.",
+          } satisfies CodeAgentWorktreeListResult;
+        }
+        return api.listWorktrees(cwd);
+      },
+      async createRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.createRun) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.createRun(request);
+      },
+      async forkRun(request: CodeAgentForkRunRequest) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.forkRun) {
+          return {
+            ok: false,
+            sourceRunId: request.sourceRunId,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.forkRun(request);
+      },
+      async restoreWorktree(request: CodeAgentRestoreWorktreeRequest) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.restoreWorktree) {
+          return {
+            ok: false,
+            worktreeId: request.worktreeId,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.restoreWorktree(request);
+      },
+      async submitRemoteWaitlist(request: {
+        email: string;
+        pageUrl?: string;
+        source?: string;
+        useCase?: string;
+      }) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.submitRemoteWaitlist) {
+          return {
+            ok: false,
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.submitRemoteWaitlist(request);
+      },
+      async listModels(options?: { refresh?: boolean }) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listModels) {
+          return {
+            status: "unavailable",
+            models: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listModels(options) as Promise<CodeAgentModelListResult>;
+      },
+      async getHostMetadata() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.getHostMetadata) {
+          return {
+            status: "unavailable",
+            llmProvider: { configured: false },
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.getHostMetadata();
+      },
+      async runComputerSetupAction(action: CodeAgentComputerSetupAction) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.runComputerSetupAction) {
+          return {
+            ok: false,
+            action,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.runComputerSetupAction(action);
+      },
+      async listCodePacks(cwd?: string) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listCodePacks) {
+          return {
+            status: "unavailable",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listCodePacks(cwd);
+      },
+      async listProjects() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listProjects) {
+          return {
+            status: "unavailable",
+            projects: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listProjects();
+      },
+      async selectProject(cwd) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.selectProject) {
+          return {
+            ok: false,
+            projects: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.selectProject(cwd);
+      },
+      async chooseProject() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.chooseProject) {
+          return {
+            ok: false,
+            projects: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.chooseProject();
+      },
+      async readTranscript(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.readTranscript) {
+          return {
+            status: "unavailable",
+            runId: request.runId,
+            events: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.readTranscript(request);
+      },
+      subscribeTranscript(request, callback) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.subscribeTranscript) return () => {};
+        return api.subscribeTranscript(request, callback);
+      },
+      async appendFollowUp(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.appendFollowUp) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.appendFollowUp(request);
+      },
+      async transferRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.transferRun) {
+          return {
+            ok: false,
+            runId: request.runId,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.transferRun(request);
+      },
+      async transferAll(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.transferAll) {
+          return {
+            ok: false,
+            transferred: [],
+            skipped: [],
+            failed: [],
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.transferAll(request);
+      },
+      async updateRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.updateRun) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.updateRun(request);
+      },
+      async retryRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.retryRun) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.retryRun(request);
+      },
+      async rerunRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.rerunRun) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.rerunRun(request);
+      },
+      async controlRun(goalId, runId, command, permissionMode) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.controlRun) {
+          return {
+            ok: false,
+            command,
+            action: "none",
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.controlRun(goalId, runId, command, permissionMode);
+      },
+      async openTerminal(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.openTerminal) {
+          return {
+            ok: false,
+            cwd:
+              request?.cwd ?? request?.outputRoot ?? request?.sourceRoot ?? "",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.openTerminal(request);
+      },
+      async openCodexLogin() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.openCodexLogin) {
+          return {
+            ok: false,
+            cwd: "",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.openCodexLogin();
+      },
+      async openClaudeLogin() {
+        const api = window.electronAPI?.multiFrontier;
+        if (!api) {
+          return {
+            ok: false,
+            cwd: "",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        const result = await api.beginProviderLogin("claude");
+        return result.error
+          ? { ok: false, cwd: "", error: result.error.message }
+          : { ok: true, cwd: "" };
+      },
+      async getRemoteConnectorStatus() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.getRemoteConnectorStatus) {
+          return {
+            state: "error",
+            enabled: false,
+            configured: false,
+            configPath: "",
+            restartCount: 0,
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.getRemoteConnectorStatus();
+      },
+      async setRemoteConnectorEnabled(enabled) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.setRemoteConnectorEnabled) {
+          return {
+            ok: false,
+            status: {
+              state: "error",
+              enabled: false,
+              configured: false,
+              configPath: "",
+              restartCount: 0,
+              error: "Desktop bridge is not available.",
+            },
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.setRemoteConnectorEnabled(enabled);
+      },
+      async pairRemoteConnector(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.pairRemoteConnector) {
+          return {
+            ok: false,
+            status: {
+              state: "error",
+              enabled: false,
+              configured: false,
+              configPath: "",
+              restartCount: 0,
+              error: "Desktop bridge is not available.",
+            },
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.pairRemoteConnector(request);
+      },
+      async connectBuilderProvider() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.connectBuilderProvider) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.connectBuilderProvider();
+      },
+    }),
+    [],
+  );
+
+  const chatFirstPreviewApp = chatFirstPreviewRequest
+    ? getDesktopVisibleApps(apps).find(
+        (app) => app.id === chatFirstPreviewRequest.appId && app.enabled,
+      )
+    : undefined;
+  const chatFirstPreviewUrl = chatFirstPreviewApp?.devUrl?.trim();
+  const renderChatFirstSurfaceTab = useCallback(
+    (tab: ChatFirstSurfaceTab) => {
+      if (tab.kind === "side-chat") {
+        const target =
+          tab.session ??
+          (tab.id === chatFirstSurfaceTabs.activeTabId
+            ? chatFirstSessionWatch.target
+            : null);
+        if (!target) return null;
+        const watchedRunForTab =
+          chatFirstWatchedRun?.id === target.sessionId
+            ? chatFirstWatchedRun
+            : null;
+        return (
+          <ChatFirstSessionWatchPane
+            target={target}
+            onClose={() => closeChatFirstSurfaceTab(tab)}
+            renderChat={(session) =>
+              watchedRunForTab ? (
+                <SessionWatchPanel
+                  host={host}
+                  run={watchedRunForTab}
+                  sourceRunId={chatFirstWatchedSourceRunId}
+                  onClose={closeChatFirstSessionWatch}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+                  {session.kind === "agent-chat"
+                    ? "Agent chat sessions are available in Dispatch."
+                    : session.kind === "external"
+                      ? "This session is only available in its source app."
+                      : session.title || "Selected session is unavailable."}
+                </div>
+              )
+            }
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "browser" && tab.url) {
+        const isPreviewTab = tab.url === chatFirstPreviewUrl;
+        const isTabActive = isChatFirstSurfaceTabActive({
+          surfaceActive: isActive,
+          tabId: tab.id,
+          activeTabId: activeChatFirstSurfaceTab?.id,
+        });
+        return (
+          <ChatFirstBrowserPane
+            url={tab.url}
+            title={tab.title}
+            status={
+              isPreviewTab && tab.id === activeChatFirstSurfaceTab?.id
+                ? chatFirstPreviewStatus
+                : undefined
+            }
+            statusMessage={
+              isPreviewTab && tab.id === activeChatFirstSurfaceTab?.id
+                ? chatFirstPreviewStatusMessage
+                : undefined
+            }
+            onClose={() => closeChatFirstSurfaceTab(tab)}
+            renderEmbed={({ url, key }: ChatFirstEmbedTarget) => (
+              <AppWebview
+                key={key}
+                app={{
+                  id: "chat-first-browser",
+                  name: "Browser",
+                  icon: "Globe",
+                  description: "Browser surface",
+                  devPort: 0,
+                }}
+                sourceUrl={url}
+                isActive={isTabActive}
+                partitionKey={
+                  isPreviewTab
+                    ? chatFirstPreviewPartitionKey(chatFirstPreviewApp?.id)
+                    : undefined
+                }
+                refreshKey={isPreviewTab ? refreshKey : 0}
+                syncTheme={isPreviewTab}
+                theme={theme}
+              />
+            )}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "terminal") {
+        return (
+          <DesktopTerminalTabs
+            agent={terminalPreferences.agent}
+            theme={theme}
+            className="desktop-terminal-tabs--side-surface"
+          />
+        );
+      }
+      if (tab.kind === "app" && tab.appId) {
+        const app = surfaceApps.find((candidate) => candidate.id === tab.appId);
+        if (!app) return null;
+        const dispatchControlPlane =
+          tab.appId === "dispatch" && isDispatchControlPlanePath(tab.path);
+        const surfaceApp = dispatchControlPlane
+          ? { ...app, name: dispatchControlPlaneTitle(tab.path) ?? app.name }
+          : app;
+        const isTabActive = isChatFirstSurfaceTabActive({
+          surfaceActive: isActive,
+          tabId: tab.id,
+          activeTabId: activeChatFirstSurfaceTab?.id,
+        });
+        const shouldFocusRequestedTab =
+          isTabActive &&
+          chatFirstAppOpenRequest?.appId === tab.appId &&
+          chatFirstAppOpenRequest.path === tab.path;
+        const appAuthState = appAuthStateByTab[tab.id];
+        const desktopIdentityStatus = desktopIdentityStatusByTab[tab.id];
+        const showNativeIntegrations = shouldShowNativeDesktopIntegrations({
+          appId: surfaceApp.id,
+          path: tab.path,
+          appAuthState,
+        });
+        const nativeOAuthActive =
+          appAuthState !== "unauthenticated" &&
+          surfaceApp.id === "dispatch" &&
+          isNativeDesktopIntegrationsPath(tab.path) &&
+          nativeOAuthActiveByTab[tab.id] === true;
+        const nativeIntegrationsSurface =
+          showNativeIntegrations || nativeOAuthActive;
+        const showNativeIntegrationsGuest =
+          shouldShowNativeDesktopIntegrationsGuest({
+            showNativeIntegrations: nativeIntegrationsSurface,
+            nativeOAuthActive,
+          });
+        return (
+          <ChatFirstAppPane
+            app={surfaceApp}
+            status="ready"
+            embedUrl={tab.path ?? "/"}
+            renderEmbed={() => (
+              <DesktopAppChatShell
+                appId={surfaceApp.id}
+                appName={surfaceApp.name}
+                onOpenSettings={onOpenSettings}
+                desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
+                  desktopIdentityStatus,
+                )}
+                desktopIdentityAuthenticated={isDesktopIdentityAuthenticated(
+                  desktopIdentityStatus,
+                )}
+                desktopIdentityStatus={desktopIdentityStatus}
+                appAuthState={appAuthState}
+                isActive={isTabActive}
+                chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
+                toggleScopeId={tab.id}
+                defaultMode={
+                  terminalPreferences.enabled && isTabActive ? "cli" : "chat"
+                }
+                terminal={
+                  terminalPreferences.enabled
+                    ? {
+                        agent: terminalPreferences.agent,
+                        theme,
+                        ...(tab.path ? { path: tab.path } : {}),
+                        ...(tab.view ? { view: tab.view } : {}),
+                      }
+                    : undefined
+                }
+                onLocalCodeChangeStarted={onLocalCodeChangeStarted}
+              >
+                <div
+                  className={
+                    nativeIntegrationsSurface
+                      ? "relative h-full min-h-0"
+                      : "h-full"
+                  }
+                >
+                  <div
+                    className={
+                      showNativeIntegrationsGuest
+                        ? "h-full"
+                        : "invisible h-full"
+                    }
+                    aria-hidden={!showNativeIntegrationsGuest}
+                  >
+                    <AppWebview
+                      ref={(webview) => {
+                        if (webview) appWebviewRefs.current[tab.id] = webview;
+                        else delete appWebviewRefs.current[tab.id];
+                      }}
+                      app={toAppDefinition(surfaceApp)}
+                      appConfig={surfaceApp}
+                      isActive={isTabActive}
+                      focusNonce={
+                        shouldFocusRequestedTab
+                          ? chatFirstAppOpenRequest.focusNonce
+                          : undefined
+                      }
+                      showDesktopIdentityGate={false}
+                      surfaceHidden={!showNativeIntegrationsGuest}
+                      refreshKey={refreshKey}
+                      theme={theme}
+                      urlPath={tab.path}
+                      urlParams={
+                        dispatchControlPlane
+                          ? dispatchControlPlaneUrlParams(tab.path)
+                          : { embedded: "1", chatFirst: "1" }
+                      }
+                      onAuthStateChange={(state) =>
+                        handleAppAuthStateChange(tab.id, state)
+                      }
+                      onMainFrameLoadFailure={() => {
+                        if (
+                          !nativeOAuthActive &&
+                          isNativeDesktopIntegrationsPath(tab.path)
+                        ) {
+                          handleAppAuthStateChange(tab.id, "unauthenticated");
+                        }
+                      }}
+                      onDesktopIdentityStatusChange={(status) => {
+                        handleDesktopIdentityStatusChange(tab.id, status);
+                      }}
+                      onWebContentsIdChange={(webContentsId) =>
+                        handleWebContentsIdChange(tab.id, webContentsId)
+                      }
+                    />
+                  </div>
+                  {nativeIntegrationsSurface && (
+                    <div
+                      className={
+                        nativeOAuthActive
+                          ? "invisible pointer-events-none absolute inset-0 z-10"
+                          : "absolute inset-0 z-10"
+                      }
+                      aria-hidden={nativeOAuthActive}
+                    >
+                      <DesktopIntegrationsPage
+                        appAuthState={appAuthState}
+                        targetWebContentsId={webContentsIdByTab[tab.id]}
+                        onOAuthActiveChange={(active) =>
+                          handleNativeOAuthActiveChange(tab.id, active)
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              </DesktopAppChatShell>
+            )}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "agents") {
+        return (
+          <ChatFirstAgentsPane
+            activities={chatFirstAgentActivities}
+            onWatch={watchChatFirstAgent}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      return null;
+    },
+    [
+      activeChatFirstSurfaceTab?.id,
+      appAuthStateByTab,
+      chatFirstAgentActivities,
+      chatFirstPreviewStatus,
+      chatFirstPreviewStatusMessage,
+      chatFirstPreviewUrl,
+      chatFirstSessionWatch.target,
+      chatFirstSurfaceTabs.activeTabId,
+      chatFirstWatchedRun,
+      chatFirstWatchedSourceRunId,
+      closeChatFirstSurfaceTab,
+      desktopIdentityStatusByTab,
+      handleDesktopIdentityStatusChange,
+      handleAppAuthStateChange,
+      handleWebContentsIdChange,
+      handleNativeOAuthActiveChange,
+      handleNewCliTab,
+      host,
+      isActive,
+      onLocalCodeChangeStarted,
+      onOpenSettings,
+      refreshKey,
+      surfaceApps,
+      terminalPreferences.agent,
+      terminalPreferences.enabled,
+      theme,
+      nativeOAuthActiveByTab,
+      webContentsIdByTab,
+      watchChatFirstAgent,
+    ],
+  );
+  const showTerminalSurface =
+    terminalPreferences.enabled &&
+    !chatFirstAppSelected &&
+    (terminalSessionStarted || hasChatFirstActiveChat);
+  const canRenderChatFirstSurfacePanel =
+    (hasChatFirstActiveChat || terminalSessionStarted) &&
+    !chatFirstAllAppsOpen &&
+    !scheduledTasksOpen &&
+    !chatFirstAppSelected;
+  const canToggleChatFirstSurfacePanel = canRenderChatFirstSurfacePanel;
+  const activeTerminalApp = useMemo(() => {
+    if (activeChatFirstSurfaceTab?.kind !== "app") return undefined;
+    const app = surfaceApps.find(
+      (candidate) => candidate.id === activeChatFirstSurfaceTab.appId,
+    );
+    if (!app) return undefined;
+    return {
+      id: app.id,
+      name: app.name,
+      ...(activeChatFirstSurfaceTab.path
+        ? { path: activeChatFirstSurfaceTab.path }
+        : {}),
+      ...(activeChatFirstSurfaceTab.view
+        ? { view: activeChatFirstSurfaceTab.view }
+        : {}),
+    };
+  }, [activeChatFirstSurfaceTab, surfaceApps]);
+  return (
+    <QueryClientProvider client={codeAgentsQueryClient}>
+      <div
+        style={
+          {
+            "--chat-first-surface-width": `${chatFirstSurfaceResize.width}px`,
+          } as CSSProperties
+        }
+        className={[
+          "desktop-chat-first-hub",
+          !hasChatFirstChats ? "desktop-chat-first-hub--no-chats" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <CodeAgentsApp
+          apps={apps}
+          host={host}
+          isActive={isActive}
+          openRequest={openRequest}
+          refreshKey={refreshKey}
+          brandIconUrl={agentNativeIconUrl}
+          onOpenSettings={onOpenSettings}
+          mainToolbarSlot={
+            !showTerminalSurface &&
+            !chatFirstAllAppsOpen &&
+            !scheduledTasksOpen &&
+            !chatFirstAppSelected ? (
+              <DesktopChatFirstSurfaceMenu
+                sidebarOpen={chatFirstSurfacePanel.open}
+                onToggleSidebar={chatFirstSurfacePanel.toggle}
+                onNewCliTab={handleNewCliTab}
+                onNewUiTab={openChatFirstNewChat}
+                onClose={
+                  hasChatFirstActiveChat ? openChatFirstNewChat : undefined
+                }
+              />
+            ) : undefined
+          }
+          activeChatFirstSurfaceKind={activeChatFirstSurfaceTab?.kind}
+          railCollapsed={chatFirstRailCollapsed}
+          chatFirstMainKind={
+            scheduledTasksOpen || chatFirstAllAppsOpen || chatFirstAppTakesMain
+              ? "agent"
+              : "code"
+          }
+          renderChatFirstMainSurface={
+            scheduledTasksOpen ? (
+              <CodeAgentSchedulesPanel
+                host={host}
+                onCreateWithAgent={openScheduledChatWithPrompt}
+              />
+            ) : chatFirstAllAppsOpen ? (
+              <DesktopAppsGrid
+                apps={listApps}
+                layout={chatFirstAppLayout}
+                workspaceAppIds={workspaceAppIds}
+                reorderable={workspaceAppListEnabled}
+                fullPage
+                onBack={returnToChatFirstChats}
+                onCreateApp={onCreateApp}
+                onOpenApp={openChatFirstAppFromGrid}
+                onOpenInBrowser={openChatFirstAppInBrowser}
+                onReorder={reorderChatFirstApps}
+                onTogglePinned={toggleChatFirstAppPinned}
+              />
+            ) : chatFirstAppTakesMain && activeChatFirstSurfaceTab ? (
+              <ChatFirstSurfaceContent
+                tabs={visibleChatFirstSurfaceTabs}
+                activeTabId={visibleActiveChatFirstSurfaceTabId}
+                renderTab={renderChatFirstSurfaceTab}
+              />
+            ) : undefined
+          }
+          renderChatFirstChatSurface={
+            showTerminalSurface ? (
+              <DesktopTerminalSurface
+                agent={terminalPreferences.agent}
+                theme={theme}
+                activeApp={activeTerminalApp}
+                submitRequest={terminalPromptRequest ?? undefined}
+                onPromptSubmitted={handleTerminalPromptSubmitted}
+                onNewUiTab={handleNewUiTab}
+                onClose={handleNewUiTab}
+                sidebarOpen={
+                  canToggleChatFirstSurfacePanel
+                    ? chatFirstSurfacePanel.open
+                    : undefined
+                }
+                onToggleSidebar={
+                  canToggleChatFirstSurfacePanel
+                    ? chatFirstSurfacePanel.toggle
+                    : undefined
+                }
+                onAgentChange={handleTerminalAgentChange}
+              />
+            ) : undefined
+          }
+          terminalMode={
+            terminalPreferences.enabled
+              ? {
+                  agentId: terminalPreferences.agent,
+                  agentLabel:
+                    DESKTOP_TERMINAL_AGENT_OPTIONS.find(
+                      (option) => option.id === terminalPreferences.agent,
+                    )?.label ?? terminalPreferences.agent,
+                  onSubmit: handleTerminalPromptSubmit,
+                }
+              : undefined
+          }
+          terminalModeControl={{
+            enabled: terminalPreferences.enabled,
+            onChange: handleTerminalModeChange,
+            onNewTerminal: handleNewTerminal,
+          }}
+          keyboardNavigation={chatFirstKeyboardNavigation}
+          onChatFirstMainKindChange={handleChatFirstMainKindChange}
+          suppressChatFirstUnavailableNotice
+          onRunsChange={handleChatFirstRunsChange}
+          onSelectedRunChange={handleChatFirstSelectedRunChange}
+          onWatchedRunChange={handleChatFirstWatchedRunChange}
+          chatFirstNavigation={chatFirstNavigation}
+          onChatFirstOpenApp={emitChatFirstOpenAppStable}
+          railWorkspaceSlot={chatFirstRailWorkspaceSlot}
+          overviewFooterSlot={
+            <DesktopAppsGrid
+              apps={listApps}
+              layout={chatFirstAppLayout}
+              workspaceAppIds={workspaceAppIds}
+              reorderable={workspaceAppListEnabled}
+              onCreateApp={onCreateApp}
+              onOpenApp={openChatFirstAppFromGrid}
+              onOpenInBrowser={openChatFirstAppInBrowser}
+              onReorder={reorderChatFirstApps}
+              onTogglePinned={toggleChatFirstAppPinned}
+            />
+          }
+          railFooterSlot={
+            <TooltipProvider delayDuration={0}>
+              <>
+                {chatFirstAppChatEnabled ? (
+                  <DesktopRailTooltip label="Toggle chat sidebar">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-chat"
+                      data-chat-first-rail-chat
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("agent-panel:toggle", {
+                            detail: {
+                              scopeId: activeChatFirstSurfaceTab?.id,
+                            },
+                          }),
+                        )
+                      }
+                      aria-label="Toggle chat sidebar"
+                      title="Toggle chat sidebar"
+                    >
+                      <IconMessageCircle
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Chat</span>
+                    </button>
+                  </DesktopRailTooltip>
+                ) : null}
+                <UpdatePrompt />
+                <UpdateIndicator />
+                {onOpenSettings ? (
+                  <DesktopRailTooltip label="Settings">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-settings"
+                      onClick={() => onOpenSettings()}
+                      aria-label="Settings"
+                      title="Settings"
+                    >
+                      <IconSettings
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Settings</span>
+                    </button>
+                  </DesktopRailTooltip>
+                ) : null}
+                <div className="desktop-chat-first-rail-footer-actions">
+                  <FeedbackButton
+                    url={DESKTOP_FEEDBACK_FORM_URL}
+                    variant={chatFirstRailCollapsed ? "icon" : "sidebar"}
+                    side="right"
+                    className={cn(
+                      "code-agents-nav-link desktop-chat-first-rail-feedback",
+                      chatFirstRailCollapsed ? "h-8 w-8" : "min-w-0",
+                    )}
+                  />
+                  <DesktopRailTooltip
+                    label={
+                      chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-collapse"
+                      data-chat-first-rail-collapse
+                      onClick={() =>
+                        setChatFirstRailCollapsed((collapsed) => !collapsed)
+                      }
+                      aria-label={
+                        chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
+                      }
+                      title={
+                        chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
+                      }
+                    >
+                      {chatFirstRailCollapsed ? (
+                        <IconLayoutSidebarLeftExpand
+                          size={15}
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <IconLayoutSidebarLeftCollapse
+                          size={15}
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </button>
+                  </DesktopRailTooltip>
+                </div>
+              </>
+            </TooltipProvider>
+          }
+          renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
+            <div className="code-agents-embedded-app-surface">
+              <AppWebview
+                app={toAppDefinition(app)}
+                appConfig={app}
+                isActive={isActive}
+                showDesktopIdentityGate={false}
+                theme={theme}
+                urlParams={urlParams}
+                // Shell key folded in: a lane change remounts every hosted
+                // surface, not just the ones with their own refresh reason.
+                refreshKey={appRefreshKey + refreshKey}
+              />
+            </div>
+          )}
+        />
+        {chatFirstSurfacePanel.open && canRenderChatFirstSurfacePanel ? (
+          <ChatFirstSurfacePanel
+            width={chatFirstSurfaceResize.width}
+            onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
+            copy={defaultChatFirstCopy}
+          >
+            {activeChatFirstSurfaceTab?.kind !== "app" ? (
+              <ChatFirstSurfaceTabs
+                tabs={visibleChatFirstSurfaceTabs}
+                activeTabId={visibleActiveChatFirstSurfaceTabId}
+                onActivate={activateChatFirstSurfaceTab}
+                onClose={closeChatFirstSurfaceTab}
+                onCloseOthers={(tab) => {
+                  activateChatFirstSurfaceTab(tab);
+                  chatFirstSurfaceTabsStore.closeOthers(tab.id);
+                }}
+                onCloseToRight={(tab) => {
+                  const targetIndex = visibleChatFirstSurfaceTabs.findIndex(
+                    (candidate) => candidate.id === tab.id,
+                  );
+                  const activeIndex = visibleChatFirstSurfaceTabs.findIndex(
+                    (candidate) =>
+                      candidate.id === visibleActiveChatFirstSurfaceTabId,
+                  );
+                  if (activeIndex > targetIndex) {
+                    activateChatFirstSurfaceTab(tab);
+                  }
+                  chatFirstSurfaceTabsStore.closeToRight(tab.id);
+                }}
+                onCloseAll={closeAllChatFirstSurfaceTabs}
+                onOpenSurface={openChatFirstSurface}
+                hiddenSurfaceKinds={
+                  terminalPreferences.enabled ? ["terminal"] : undefined
+                }
+                apps={chatFirstAppItems}
+                onOpenApp={(app) => openChatFirstApp(app.id)}
+                renderAppIcon={renderChatFirstAppIcon}
+                copy={defaultChatFirstCopy}
+              />
+            ) : null}
+            {visibleChatFirstSurfaceTabs.length > 0 ? (
+              <ChatFirstSurfaceContent
+                tabs={visibleChatFirstSurfaceTabs}
+                activeTabId={visibleActiveChatFirstSurfaceTabId}
+                renderTab={renderChatFirstSurfaceTab}
+              />
+            ) : null}
+          </ChatFirstSurfacePanel>
+        ) : null}
+      </div>
+    </QueryClientProvider>
+  );
+}
+
+function areChatFirstAgentActivitiesEqual(
+  current: ChatFirstAgentActivity[],
+  next: ChatFirstAgentActivity[],
+): boolean {
+  return (
+    current.length === next.length &&
+    current.every((activity, index) => {
+      const candidate = next[index];
+      if (!candidate) return false;
+      return (
+        activity.sessionId === candidate.sessionId &&
+        activity.title === candidate.title &&
+        activity.subtitle === candidate.subtitle &&
+        activity.status === candidate.status &&
+        activity.updatedAt === candidate.updatedAt &&
+        activity.progressPercent === candidate.progressPercent &&
+        activity.goalId === candidate.goalId
+      );
+    })
+  );
+}
+
+export function MultiFrontierModeControl({
+  active,
+  permissionMode,
+  subscriptions,
+  busy,
+  autoContinueAfterAgreement,
+  defaultAutoContinueAfterAgreement,
+  onModeChange,
+  onConnectSubscription,
+  onRefreshSubscription,
+  onAutoContinueAfterAgreementChange,
+  onDefaultAutoContinueAfterAgreementChange,
+}: {
+  active: boolean;
+  permissionMode: CodeAgentPermissionMode;
+  subscriptions: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
+  busy: boolean;
+  autoContinueAfterAgreement: boolean;
+  defaultAutoContinueAfterAgreement: boolean;
+  onModeChange: (mode: "plan" | "auto" | "multi-frontier") => void;
+  onConnectSubscription: (providerId: MultiFrontierProviderId) => void;
+  onRefreshSubscription: (providerId: MultiFrontierProviderId) => void;
+  onAutoContinueAfterAgreementChange: (value: boolean) => void;
+  onDefaultAutoContinueAfterAgreementChange: (value: boolean) => void;
+}) {
+  const value = active
+    ? "multi-frontier"
+    : permissionMode === "read-only"
+      ? "plan"
+      : "auto";
+  return (
+    <div className="code-agents-multi-frontier-control">
+      <Select value={value} disabled={busy} onValueChange={onModeChange}>
+        <SelectTrigger
+          className="desktop-select-trigger code-agents-mode-select code-agents-multi-frontier-mode-select"
+          aria-label="Run mode"
+        >
+          <span>
+            {
+              MULTI_FRONTIER_RUN_MODES.find((mode) => mode.value === value)
+                ?.label
+            }
+          </span>
+        </SelectTrigger>
+        <SelectContent className="code-agents-select-content code-agents-mode-menu code-agents-multi-frontier-mode-menu">
+          {MULTI_FRONTIER_RUN_MODES.map((mode) => (
+            <SelectItem
+              key={mode.value}
+              className="code-agents-multi-frontier-mode-menu-item"
+              value={mode.value}
+            >
+              <span className="code-agents-multi-frontier-mode-option">
+                <span className="code-agents-multi-frontier-mode-option__label">
+                  {mode.label}
+                </span>
+                <span className="code-agents-multi-frontier-mode-option__description">
+                  {mode.description}
+                </span>
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {active ? (
+        <MultiFrontierParticipantSettings
+          statuses={subscriptions}
+          busy={busy}
+          autoContinueAfterAgreement={autoContinueAfterAgreement}
+          defaultAutoContinueAfterAgreement={defaultAutoContinueAfterAgreement}
+          onConnect={onConnectSubscription}
+          onRefresh={onRefreshSubscription}
+          onAutoContinueAfterAgreementChange={
+            onAutoContinueAfterAgreementChange
+          }
+          onDefaultAutoContinueAfterAgreementChange={
+            onDefaultAutoContinueAfterAgreementChange
+          }
+        />
+      ) : null}
+    </div>
+  );
+}

@@ -1,0 +1,626 @@
+---
+title: "Superficies del agente"
+description: "Elige cómo una aplicación agéntica crece desde el chat hacia la interfaz de usuario integrada, páginas de aplicación duraderas, sidecars embebidos, automatización y acceso de agentes externos."
+search: "aplicación agéntica chat enriquecido chat nativo interfaz de usuario completa automatización headless BYO agent runtime AgentChatRuntime embeber acciones MCP A2A HTTP CLI"
+---
+
+# Superficies del agente
+
+Una **superficie** es la forma en que los usuarios (u otros sistemas) interactúan con tu aplicación: una ventana de chat, una página de panel, un trabajo en segundo plano, una llamada a la API desde otro agente. Agent-Native te permite combinar estas superficies sin reconstruir la lógica central, porque cada superficie ejecuta las mismas acciones subyacentes. Si eres nuevo en Agent-Native, lee primero [Conceptos clave](/docs/key-concepts).
+
+## Cómo se relacionan las superficies entre sí
+
+Las cuatro formas principales de producto se sitúan en un espectro que va desde lo más interactivo hasta completamente headless. Lo que las hace componibles es que comparten las mismas acciones y el estado de la aplicación respaldado por SQL. Usa el bucle del agente cuando una superficie necesite un agente. Añadir una nueva superficie no significa reescribir lo que hay debajo — solo estás añadiendo una nueva forma de acceder a las mismas operaciones.
+
+<Diagram id="doc-block-hvdxgh" title="El espectro de superficies" summary={"Una superficie de acción, cuatro formas de producto, cada una añadiendo interfaz de usuario sin cambiar la operación subyacente."}>
+
+```html
+<div class="diagram-spectrum">
+  <div class="diagram-card">
+    <strong>Chat</strong
+    ><small class="diagram-muted"
+      >compositor, transcripción, llamadas a herramientas</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Interfaz de usuario integrada</strong
+    ><small class="diagram-muted">tablas, gráficos, tarjetas</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Página de aplicación</strong
+    ><small class="diagram-muted">pantallas duraderas, datos SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">headless</span
+    ><strong>Automatización</strong
+    ><small class="diagram-muted">trabajos, scripts, agentes externos</small>
+  </div>
+</div>
+<div class="diagram-base" data-rough>
+  <span class="diagram-muted"
+    >mismas acciones · estado respaldado por SQL · bucle del agente cuando se
+    use</span
+  >
+</div>
+```
+
+```css
+.diagram-spectrum {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-spectrum .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+  flex: 1;
+}
+.diagram-spectrum .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-base {
+  margin-top: 12px;
+  padding: 10px 14px;
+  text-align: center;
+}
+```
+
+</Diagram>
+
+## Elige un punto de partida
+
+El chat es el punto de entrada más común. Las aplicaciones suelen añadir interfaz de usuario integrada a medida que el resultado se enriquece, y luego añaden páginas de aplicación completas cuando los usuarios necesitan objetos persistentes para explorar y compartir. Las mismas acciones impulsan los botones, los trabajos programados y los agentes externos que vienen después. Usa el sidecar embebido cuando añadas un agente a un producto que ya posees, o el modo Automatización-primero para trabajos que se ejecutan sin un navegador. Aquí está el panorama completo:
+
+| Superficie                                                         | Úsala cuando                                                                                                 | Comienza con                                                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| **[Chat enriquecido](#rich-chat)**                                 | Los usuarios hablan con el agente, ven las llamadas a herramientas y mantienen un historial de hilo.         | [Plantilla de chat](/docs/template-chat), `<AgentChatSurface>`        |
+| **[Interfaz de usuario nativa integrada](#native-inline-ui)**      | Los resultados de las acciones deben renderizarse como tablas, gráficos, tarjetas o aprobaciones en el chat. | [Native Chat UI](/docs/native-chat-ui), `chatUI.renderer`             |
+| **[Interfaz de usuario generada integrada](#generated-inline-ui)** | El agente debe crear controles temporales o reutilizables dentro del chat sobre la marcha.                   | [Generative UI](/docs/generative-ui), `render-inline-extension`       |
+| **[Aplicación completa](#full-application)**                       | Los usuarios necesitan pantallas duraderas, datos compartidos, navegación y colaboración.                    | Plantillas, acciones, estado SQL, reconocimiento de contexto          |
+| **[Sidecar embebido](#embedded-sidecar)**                          | Ya tienes una aplicación SaaS y quieres un agente junto a ella con contexto de página.                       | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`            |
+| **[Automatización-primero](#headless)**                            | Trabajos, scripts u otros agentes llaman al trabajo directamente sin interfaz de usuario en el navegador.    | `agent-native create --headless`, `defineAction`, HTTP, CLI, MCP, A2A |
+| **[Chat enriquecido sobre tu agente](#byo-agent)**                 | Construiste el agente en otro lugar y quieres la interfaz de chat de Agent-Native a su alrededor.            | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`               |
+
+## Chat enriquecido en Agent-Native {#rich-chat}
+
+Usa el chat integrado cuando el usuario deba hablar con el agente, ver las llamadas a herramientas,
+aprobar trabajo, inspeccionar resultados nativos y mantener un historial de hilo duradero.
+
+Para un punto de partida de aplicación completa, usa la [Plantilla de chat](/docs/template-chat):
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+```
+
+El chat de página completa más sencillo:
+
+```tsx
+import { AgentChatSurface } from "@agent-native/core/client/chat";
+
+export default function ChatRoute() {
+  return <AgentChatSurface mode="page" className="h-screen" />;
+}
+```
+
+Cuando una aplicación tiene tanto una pestaña de chat de página completa como un `AgentSidebar`, usa la misma
+`storageKey` en ambas superficies, habilita `chatViewTransition` e instala los
+asistentes de transferencia chat-home en el diseño. Los enlaces normales dentro de la aplicación fuera de la página
+de chat pueden entonces transformar el chat completo en la barra lateral mientras mantienen el hilo activo:
+
+```tsx
+import {
+  AgentChatSurface,
+  AgentSidebar,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+} from "@agent-native/core/client/chat";
+import { useLocation } from "react-router";
+
+function ChatRoute() {
+  return (
+    <AgentChatSurface mode="page" storageKey="my-app" chatViewTransition />
+  );
+}
+
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const handoffActive = useAgentChatHomeHandoff({
+    storageKey: "my-app",
+    activePath: location.pathname,
+    enabled: location.pathname !== "/chat",
+  });
+  useAgentChatHomeHandoffLinks({ storageKey: "my-app", chatPath: "/chat" });
+
+  return (
+    <AgentSidebar
+      storageKey="my-app"
+      chatViewTransition
+      openOnChatRunning={handoffActive}
+    >
+      {children}
+    </AgentSidebar>
+  );
+}
+```
+
+El chat embebido más sencillo con tu propio chrome:
+
+```tsx
+import { AssistantChat } from "@agent-native/core/client/chat";
+
+export function ProjectChat({ threadId }: { threadId: string }) {
+  return <AssistantChat threadId={threadId} />;
+}
+```
+
+Las acciones pueden devolver resultados de widgets nativos explícitos para que la salida del chat no sea solo
+texto. Tablas, gráficos y tarjetas de producto tipadas se renderizan como componentes React de primera clase
+en el chat, sin iframes. Consulta [Native Chat UI](/docs/native-chat-ui).
+Cuando el agente necesita controles generados arbitrariamente en lugar de un
+widget React predefinido, usa [Generative UI](/docs/generative-ui): renderiza interfaz de usuario Alpine/Tailwind
+aislada en línea, puede leer el estado de la aplicación y el contexto del slot, y puede enviar
+los valores seleccionados de vuelta al chat.
+
+### Superficies de acciones por solicitud
+
+Usa `resolveActionSurface` cuando el agente o hilo seleccionado deba exponer
+solo un subconjunto de acciones nativas autorizado por el servidor. El callback
+se ejecuta en cada solicitud de chat interactivo después de `prepareRequest`.
+Los nombres devueltos forman una lista permitida estricta: las acciones omitidas
+no aparecen en los esquemas del proveedor, el registro de ejecución, la
+precarga del modo Plan ni la búsqueda de `tool-search`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+Cuando el mismo resolver también gestione el chat predeterminado sin
+restricciones, devuelve `{ mode: "default" }`. Así se conservan el filtrado
+normal mediante `initialToolNames` y el descubrimiento con `tool-search`, en
+lugar de cargar todos los esquemas disponibles en la primera solicitud al
+modelo. El modo explícito se conserva en las continuaciones duraderas.
+
+Una lista vacía no expone acciones nativas. Los nombres desconocidos hacen
+fallar la solicitud en vez de ampliar el acceso. Todas las acciones permitidas
+se cargan directamente en la primera solicitud al modelo; incluye
+`tool-search` de forma explícita solo si deseas descubrir herramientas dentro
+del catálogo ya autorizado. El callback solo limita el chat interactivo, no
+HTTP, MCP, A2A, jobs ni triggers. En desarrollo local, usa acciones nativas y
+las instrucciones predeterminadas del framework y los subagentes iniciados
+heredan la misma superficie. Las herramientas shell de confianza se reducen
+automáticamente al sandbox filtrado por solicitud, porque una shell sin
+restricciones no puede imponer una frontera estricta de acciones.
+
+## Interfaz de usuario nativa integrada {#native-inline-ui}
+
+Úsala cuando tus acciones devuelvan datos estructurados — una lista de registros, un conjunto de datos de gráfico, un resumen de estado — que deban renderizarse como un componente de interfaz de usuario real dentro del hilo de chat en lugar de una descripción de texto simple. Defines un renderizador `chatUI` en la acción, y Agent-Native lo renderiza como un componente React de primera clase: sin iframes, sin ruta de renderizado separada.
+
+Esta es la elección correcta cuando la salida tiene una forma clara y reutilizable que diseñarías una vez y usarías en muchas respuestas del agente. Para controles que el agente necesita crear dinámicamente en tiempo de ejecución, consulta [Interfaz de usuario generada integrada](#generated-inline-ui) en su lugar.
+
+Consulta [Native Chat UI](/docs/native-chat-ui) para la API completa del renderizador, la biblioteca de widgets y la integración del runtime de agente BYO.
+
+## Interfaz de usuario generada integrada {#generated-inline-ui}
+
+Úsala cuando el agente necesite crear un control que aún no existe como widget preconstruido — un formulario personalizado, un selector construido alrededor del contexto actual, una calculadora de uso único. A diferencia de los widgets nativos, la interfaz de usuario generada es compuesta por el agente en tiempo de ejecución usando Alpine.js y Tailwind, se ejecuta aislada en un iframe y puede enviar los valores seleccionados de vuelta al hilo de chat.
+
+La interfaz de usuario generada puede ser transitoria (renderizada una vez y descartada) o guardada como una extensión reutilizable que persiste para el usuario.
+
+Consulta [Generative UI](/docs/generative-ui) para la API completa, las restricciones del sandbox y el modelo de persistencia de extensiones.
+
+## Aplicación completa {#full-application}
+
+Usa la ruta de aplicación completa cuando los usuarios necesiten objetos y flujos de trabajo duraderos: formularios,
+paneles, calendarios, bandejas de entrada, editores, documentos, activos o informes.
+
+Las aplicaciones completas añaden interfaz de usuario de producto alrededor del mismo contrato de acción y agente:
+
+<Cards>
+
+### Estado SQL
+
+Los datos de la aplicación, la navegación, la configuración y el historial de chat son persistentes en SQL. El agente lee y escribe las mismas filas que la interfaz de usuario.
+
+### Reconocimiento de contexto
+
+El agente conoce la ruta actual, la selección y el objeto enfocado, por lo que "editar esto" siempre significa lo correcto.
+
+### Sincronización en vivo
+
+Los cambios del agente actualizan la interfaz de usuario mediante sincronización en vivo, y los cambios de la interfaz de usuario actualizan el contexto del agente. El framework usa SSE con sondeo de respaldo, por lo que no hay que actualizar manualmente.
+
+### Vínculos profundos
+
+Los resultados de las acciones pueden abrir directamente la vista correcta de la aplicación: un gráfico enlaza al panel, un borrador enlaza a la bandeja de entrada.
+
+### Widgets de chat nativos
+
+Tablas, gráficos, tarjetas, aprobaciones y resultados tipados se renderizan como componentes React de primera clase en línea en el chat.
+
+### Interfaz de usuario generativa y extensiones
+
+El agente puede crear controles en línea sobre la marcha y guardar mini-aplicaciones reutilizables cuando un flujo de trabajo necesita persistir.
+
+</Cards>
+
+Comienza desde la [Plantilla de chat](/docs/template-chat) cuando quieras una aplicación mínima
+alrededor de tus acciones, o desde una [plantilla](/docs/cloneable-saas) de dominio cuando quieras
+una forma de producto completa.
+
+### Gestión del agente en página completa {#agent-page}
+
+Toda aplicación Agent-Native eventualmente necesita un lugar donde los usuarios puedan configurar su agente: establecer instrucciones permanentes, revisar lo que ha hecho, conectar servidores MCP, gestionar automatizaciones y controlar el acceso. Construir esa interfaz de usuario desde cero es mucho trabajo. Agent-Native incluye un componente de página completa preconstruido, `AgentTabsPage`, que cubre todo esto en doce pestañas.
+
+Móntalo en `/settings/agent` en tu aplicación. Las plantillas actuales usan esta como ruta canónica y pasan `agentPageHref="/settings/agent"` a `AgentSidebar`. `/agent` se conserva como redirección heredada.
+
+```tsx filename="app/routes/settings.agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+La página compartida actualmente proporciona doce pestañas en dos grupos:
+
+| Grupo    | Pestaña           | Muestra                                                                                                                                                                                                                                                                                                  |
+| -------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recursos | **Files**         | El `ResourcesPanel` existente para archivos personales o de la organización                                                                                                                                                                                                                              |
+| Recursos | **Instructions**  | Reglas de estilo AGENTS.md siempre activas                                                                                                                                                                                                                                                               |
+| Recursos | **Agents**        | Perfiles de subagentes personalizados                                                                                                                                                                                                                                                                    |
+| Recursos | **Memory**        | Notas de memoria a largo plazo                                                                                                                                                                                                                                                                           |
+| Recursos | **Skills**        | Flujos de trabajo reutilizables                                                                                                                                                                                                                                                                          |
+| Recursos | **Learnings**     | Correcciones y patrones capturados a lo largo del tiempo                                                                                                                                                                                                                                                 |
+| Recursos | **Remote agents** | Conexiones A2A a otras aplicaciones agent-native (reemplaza lo que la pestaña Connections solía mostrar)                                                                                                                                                                                                 |
+| Agente   | **Snapshots**     | Una vista previa del alcance, presupuesto de tokens, secciones del sistema ordenadas agrupadas por procedencia/gobernanza/fuente, y la última instantánea de hilo en vivo. Renombrada desde "Context"; los enlaces antiguos `#context` redirigen aquí.                                                   |
+| Agente   | **Connections**   | Solo gestión de servidores MCP                                                                                                                                                                                                                                                                           |
+| Agente   | **Automations**   | Automatizaciones Programadas/por Evento personales y de la organización con flujos de pausa/reanudación, detalles y eliminación. La URL de compatibilidad estable permanece en `/agent#jobs`.                                                                                                            |
+| Agente   | **Settings**      | Modelo del agente, claves de API, límites, voz y configuración de automatización                                                                                                                                                                                                                         |
+| Agente   | **MCP**           | La URL MCP de la aplicación, una tarjeta de agente A2A cuando esté disponible, y guías de configuración compartidas para Claude, ChatGPT, Cursor, Claude Code, Codex y otros clientes. Encuéntrala en **Settings → MCP** o usa `/mcp/connect` para el flujo de conexión completo y el respaldo de token. |
+
+La página muestra datos solo de ámbito personal (`user`). No hay un interruptor a nivel de organización hoy. Es una envoltura delgada sobre componentes existentes y verificaciones de acceso, no una nueva consola de administración: Connections describe lo que la aplicación puede llamar; MCP describe cómo los clientes externos se conectan a ella.
+
+Aún no incluido:
+
+- Vista con ámbito de organización
+- Concesiones y edición de alcance
+- Interfaz de usuario de revocación
+- Historial de procedencia por iteración
+
+## Sidecar embebido {#embedded-sidecar}
+
+Usa el sidecar embebido cuando el producto principal ya existe y quieres un
+agente junto a él.
+
+El plugin del servidor monta las rutas de Agent-Native en tu aplicación host y resuelve
+la identidad del host en el lado del servidor:
+
+```ts
+import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
+
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.AGENT_NATIVE_DATABASE_URL,
+  auth: getHostSession,
+  actions: hostActions,
+});
+```
+
+El sidecar React pasa el contexto de página y los comandos del host:
+
+```tsx
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
+export function AppShell({ children }) {
+  return (
+    <AgentNativeEmbedded
+      getContext={() => ({
+        route: { pathname: window.location.pathname },
+        selection: { text: window.getSelection()?.toString() || undefined },
+      })}
+      onNavigate={(payload) =>
+        router.navigate((payload as { path: string }).path)
+      }
+      onRefresh={() => queryClient.invalidateQueries()}
+    >
+      {children}
+    </AgentNativeEmbedded>
+  );
+}
+```
+
+### Cómo se conecta
+
+Las dos piezas funcionan como un puente: la aplicación host pasa el contexto de página (ruta actual, texto seleccionado, objeto enfocado) a `AgentNativeEmbedded`, y el agente envía comandos de vuelta a través de `onNavigate` y `onRefresh`. El plugin del servidor gestiona la identidad — resuelve la sesión del host para que el agente actúe como el usuario correcto sin un inicio de sesión separado. Nada en la aplicación host necesita cambiar; el plugin adjunta las rutas de Agent-Native junto a las tuyas existentes.
+
+<Diagram id="doc-block-27ug5y" title="Cómo el sidecar conecta con una aplicación host" summary={"El plugin monta las rutas de Agent-Native en el lado del servidor; el sidecar React transmite el contexto de página hacia adentro y los comandos del host hacia afuera."}>
+
+```html
+<div class="diagram-sidecar">
+  <div class="diagram-panel">
+    <strong>Aplicación host</strong
+    ><small class="diagram-muted">tu SaaS existente</small>
+    <div class="diagram-node">
+      getContext()<br /><small class="diagram-muted">ruta · selección</small>
+    </div>
+    <div class="diagram-node">
+      onNavigate / onRefresh<br /><small class="diagram-muted"
+        >comandos del host</small
+      >
+    </div>
+  </div>
+  <div class="diagram-col-arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  </div>
+  <div class="diagram-panel accent-panel">
+    <span class="diagram-pill accent">AgentNativeEmbedded</span
+    ><small class="diagram-muted">agente + recursos</small>
+    <div class="diagram-box" data-rough>
+      Rutas de Agent-Native<br /><small class="diagram-muted"
+        >montadas por el plugin del servidor</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-sidecar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sidecar .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 200px;
+}
+.diagram-sidecar .diagram-col-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-sidecar .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Consulta [SDK de Embedding](/docs/embedding-sdk) para autenticación del host, aislamiento de base de datos,
+modo iframe/selector y APIs de puente de nivel inferior.
+
+## Aplicación Automatización-primero {#headless}
+
+Usa la ruta de automatización-primero cuando nadie necesite una pantalla de navegador personalizada mientras
+el trabajo se ejecuta: trabajos programados, integraciones, flujos de trabajo de backend, bucles de CLI,
+otro agente, o un producto existente que llama a Agent-Native.
+
+Esta es la forma a elegir cuando la automatización es la superficie del producto. Envías una solicitud desde la terminal, Slack, correo electrónico, un trabajo programado, otro agente, o el Chat ("resume mis correos electrónicos no leídos," "publica las métricas diarias en Slack," "encuentra los candidatos que respondieron la semana pasada") y el agente actúa y devuelve el resultado donde corresponda. Sigue siendo una aplicación real, no un prompt sin estado:
+las acciones, las sesiones de autenticación, el estado de la aplicación, el historial de hilo/ejecución, la configuración, las credenciales
+y los registros de compartición todos viven en SQL.
+
+Elige este patrón cuando:
+
+- **El trabajo ocurre en segundo plano.** La mayor parte del valor se crea mientras el usuario no está mirando: agentes de clasificación, agentes de informes diarios, respondedores de guardia.
+- **La salida sale de la aplicación.** El agente publica en Slack, envía correo electrónico o actualiza un sistema de terceros; no hay nada que explorar dentro de la aplicación.
+- **El dominio es de un solo uso.** Bot de investigación, generador de resúmenes, escritor de informes sin objeto persistente que necesite una vista de lista.
+- **Estás prototipando una automatización.** Lanza la operación ahora; añade chat o páginas de aplicación cuando los usuarios necesiten inspeccionarla y dirigirla.
+
+Si tu producto está construido alrededor de objetos persistentes que los usuarios exploran, pivotean y comparten (correos electrónicos, eventos, documentos, gráficos), elige una [aplicación completa](#full-application) o una [plantilla](/docs/cloneable-saas) en su lugar; esas añaden una interfaz de usuario completa _más_ el agente.
+
+### Qué viene incluido {#in-the-box}
+
+Una aplicación de automatización-primero omite el trabajo de panel, y es agnóstica al canal desde el primer día. El mismo agente se ejecuta desde la web, Slack, Telegram, correo electrónico y otros agentes porque todo pasa por las mismas acciones. La contrapartida es que no hay una vista de "ver-todo-de-un-vistazo"; si los usuarios necesitan eso, comienza desde [Chat](/docs/template-chat) o añade una pequeña página de estado o vista de lista.
+
+Cuando añades el shell de Chat integrado, el framework proporciona cinco superficies de gestión que no tienes que construir: **Chat** (la entrada principal), **Resources** (habilidades, memoria, instrucciones, subagentes y servidores MCP conectados), **Automations**, **Thread history** y **Settings**. Esas suelen ser suficientes: hablar con él, ver lo que ha hecho, configurar cómo se comporta. Ve a [Chat](/docs/template-chat) cuando estés listo para añadir esa interfaz de usuario en el navegador, o a la [plantilla Dispatch](/docs/template-dispatch) para un punto de partida estilo espacio de trabajo con Slack/Telegram, trabajos programados y secretos compartidos listos para usar.
+
+La ruta local más pequeña sin navegador es un scaffold más una acción:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+cd my-agent
+pnpm install
+```
+
+Luego define la operación duradera:
+
+```ts filename="actions/summarize-week.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Summarize this week's submissions.",
+  readOnly: true,
+  schema: z.object({ formId: z.string() }),
+  run: async ({ formId }) => {
+    return { formId, summary: "34 submissions, up 18% from last week." };
+  },
+});
+```
+
+Una acción es entonces invocable como:
+
+- **HTTP:** `POST /_agent-native/actions/summarize-week`
+- **CLI:** `pnpm action summarize-week --formId form_123`
+- **CLI del agente de la aplicación:** `pnpm agent "Summarize form_123"`
+- **MCP:** desde Claude, ChatGPT, Codex, Cursor, OpenCode, Copilot y otros hosts MCP
+- **A2A:** desde otra aplicación agent-native o par de agente
+- **Interfaz de usuario:** a través de `useActionQuery`, `useActionMutation` o `callAction`
+- **Herramienta del agente:** desde el bucle de chat integrado
+
+<Endpoint id="doc-block-kdx289" title="Llamar a una acción por HTTP" method="POST" path="/_agent-native/actions/summarize-week" summary="Invocar cualquier acción por nombre a través de HTTP" request={{
+  "contentType": "application/json",
+  "example": "{ \"formId\": \"form_123\" }"
+}} responses={[
+  {
+    "status": "200",
+    "description": "El valor de retorno de la acción como JSON",
+    "example": "{ \"formId\": \"form_123\", \"summary\": \"34 submissions, up 18% from last week.\" }"
+  },
+  {
+    "status": "400",
+    "description": "La entrada falló la validación del esquema"
+  }
+]}>
+
+Cada `defineAction` se monta automáticamente en `/_agent-native/actions/<name>`. El cuerpo JSON se valida contra el esquema zod de la acción antes de que se ejecute `run`. Para llamarlo desde un sistema externo con un token de portador de larga duración, consulta [API HTTP](/docs/http-api).
+
+</Endpoint>
+
+Este no es un modo sin base de datos ni sin estado. El bucle de agente de la aplicación almacena sesiones,
+hilos, ejecuciones, configuración, credenciales, estado de la aplicación y registros de compartición en
+SQL. El desarrollo local usa SQLite por defecto; las aplicaciones de automatización-primero alojadas deben
+usar una base de datos SQL persistente.
+
+Si necesitas todo el bucle del agente sin navegador desde la carpeta del proyecto, usa:
+
+```bash
+pnpm agent "Summarize this week's forms."
+```
+
+Si otra aplicación o script necesita llamar a todo el agente, usa
+`agentNative.invoke("analytics", "...")` o la CLI `agent-native invoke`. Eso
+mantiene el trabajo entre aplicaciones en la ruta A2A mientras el trabajo local permanece en las acciones.
+
+Los workers, trabajos, webhooks de integración y hosts personalizados pueden dirigir el bucle del agente
+directamente a través de la API del servidor. Esto es de nivel más bajo que las acciones — tú proporcionas
+el motor, el modelo, los mensajes, las herramientas, las acciones, un sumidero de eventos y una señal de aborto
+tú mismo:
+
+```ts
+import { runAgentLoop } from "@agent-native/core/server";
+
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  actions,
+  messages,
+  send,
+  signal,
+});
+```
+
+Para la mayoría de las aplicaciones, los prompts programados y los webhooks de integración ya llaman a este bucle
+por ti. Úsalo directamente solo cuando construyas un host personalizado sin navegador, un ejecutor de evaluaciones
+o una superficie de orquestación del lado del servidor. Consulta [Servidor: Manejador de agente en producción](/docs/server-plugins#agent-chat-plugin) para la firma completa.
+
+### Ejecutar contra una carpeta {#folder-loop}
+
+Si tu objetivo es "ejecutar un agente contra esta carpeta," comienza con el bucle del agente de la aplicación
+en esa carpeta: crea el scaffold de la aplicación de automatización-primero, añade acciones/instrucciones, ejecuta
+`pnpm agent "..."`. Eso mantiene el trabajo dentro del mismo contrato de acción/runtime/estado
+que la aplicación usará en producción.
+
+Los arneses de codificación externos son una superficie de producto separada para embeber Claude
+Code, Codex, Pi, Cursor, Mastra o runtimes similares dentro de una aplicación Agent-Native.
+Úsalos cuando estés construyendo un producto de agente de codificación, no como la forma predeterminada de
+iniciar un flujo de trabajo agent-native local.
+
+### Acceso a repositorios en la nube {#cloud-repo-access}
+
+Para aplicaciones de automatización-primero en la nube que necesiten acceso a repositorios, usa el conector de GitHub
+más el modelo CRUD de tokens: listar repositorios, buscar archivos, leer archivos, crear o
+editar archivos, eliminar archivos y revocar el acceso a través de credenciales con ámbito de proveedor.
+En el desarrollo local, establece el repositorio destino explícitamente:
+
+```bash
+GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next action."
+```
+
+No trates un clon de VM o un checkout de sandbox de larga duración como el modelo principal de
+acceso a repositorios en la nube. Los sandboxes siguen siendo importantes para la ejecución aislada de código, pero
+el acceso al repositorio debe ser explícito, con permisos, auditable y revocable
+a través de la capa del conector.
+
+### Compartir sesiones y ejecuciones {#sharing-runs}
+
+Las sesiones y ejecuciones de automatización-primero son objetos duraderos. La capacidad de compartición debe ser
+escalonada: primero los enlaces de lectura/compartición, para que los compañeros de equipo puedan inspeccionar los prompts saneados,
+las salidas y el estado de ejecución; luego la colaboración de escritura con permisos, para que
+continuar una ejecución, aprobar acciones, editar horarios o cambiar la
+configuración pase a través de verificaciones de acceso explícitas.
+
+## Chat enriquecido sobre tu agente {#byo-agent}
+
+Usa esta ruta cuando tu agente ya esté construido con otro framework o
+runtime y quieras la interfaz de chat de Agent-Native a su alrededor. `AgentChatRuntime` es el
+límite: tu runtime transmite eventos normalizados, y Agent-Native renderiza el
+compositor, la transcripción, las llamadas a herramientas, las aprobaciones, los widgets nativos y el diseño de la aplicación.
+
+```tsx
+import {
+  AssistantChat,
+  createHttpAgentChatRuntime,
+} from "@agent-native/core/client/chat";
+
+const runtime = createHttpAgentChatRuntime({
+  endpoint: "/api/support-agent/chat",
+});
+
+export function SupportAgentChat() {
+  return <AssistantChat runtime={runtime} threadId="support" />;
+}
+```
+
+Existen asistentes de runtime listos para OpenAI Agents, OpenAI Responses, el SDK de agente de Claude,
+el SDK de IA de Vercel y AG-UI, además del runtime HTTP normalizado anterior
+para cualquier otro agente (Mastra, Flue, Eve, LangGraph o un servicio personalizado). ACP no es
+el chat de aplicación para el usuario final ni el transporte A2A, y Agent-Native actualmente no
+reclama compatibilidad con A2UI. ACP está soportado en un lugar específico: dirigir un agente de codificación
+local (Gemini CLI, Claude Code, ...) a través de la
+[capa de arnés](/docs/harness-agents#acp), no como el runtime de chat aquí.
+
+[Native Chat UI: Runtimes de agente BYO](/docs/native-chat-ui#byo-agent-runtimes)
+es el lugar canónico para las formas de eventos, los asistentes de runtime y los metadatos de resultado de herramienta `chatUI`. Comienza allí al conectar un agente externo al chat.
+
+## Qué sigue {#related-docs}
+
+<Cards>
+
+### [Acciones](/docs/actions-overview)
+
+Define la operación una vez. Cada superficie anterior llama a la misma.
+
+### [Native Chat UI](/docs/native-chat-ui)
+
+Renderiza resultados de acciones tipados como tablas, gráficos y tarjetas directamente en el chat.
+
+### [Generative UI](/docs/generative-ui)
+
+Genera interfaz de usuario aislada transitoria o persistida en línea en el chat.
+
+### [Aplicaciones Automatización-Primero](/docs/pure-agent-apps)
+
+El patrón completo sin navegador para trabajos, colas, scripts y agentes externos.
+
+### [Agentes externos](/docs/external-agents)
+
+Conecta hosts compatibles con MCP a tu aplicación como servidor de herramientas.
+
+### [Protocolo A2A](/docs/a2a-protocol)
+
+Llama a agentes desde otras aplicaciones agent-native a través del estándar A2A.
+
+</Cards>
