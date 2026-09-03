@@ -806,178 +806,186 @@ export const DayView = memo(function DayView({
 
       {/* Working locations and ordinary all-day events */}
       {(allDayEvents.length > 0 || onClickTimeSlot) && (
-        <div className="max-h-[88px] overflow-y-auto border-b border-border bg-card/50">
-          {workingLocations.length > 0 && (
-            <div data-working-location-lane className="px-4 py-1.5">
-              <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground">
-                <IconMapPin aria-hidden="true" className="size-3" />
-                {t("eventForm.workingLocation")}
-              </p>
-              <div className="grid gap-1 sm:grid-cols-2">
-                {workingLocations.map((event) => {
-                  const color = getEventDisplayColor(event, prefs);
-                  return (
-                    <EventDetailPopover
-                      key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
-                      event={event}
-                      timezone={timezone}
-                      onDelete={onDeleteEvent}
-                      isDraft={draftEventIds.includes(event.id)}
-                      defaultOpen={quickEditEventId === event.id}
-                      popoverSide="bottom"
-                      onTitleSave={onQuickEditSave}
-                      onDismissNew={onQuickEditCancel}
-                      onDraftUpdate={onDraftUpdate}
-                      onDraftCreate={onDraftCreate}
-                      onDraftDiscard={onDraftDiscard}
-                    >
-                      <button
-                        className={cn(
-                          "relative flex h-6 w-full items-center gap-1.5 truncate rounded-sm px-2 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80",
-                          event.ownerColor && "pr-5",
-                        )}
-                        aria-label={
-                          event.ownerName || event.overlayEmail
-                            ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
-                                event.ownerName || event.overlayEmail
-                              }'s calendar`
-                            : getWorkingLocationTitle(
-                                event,
-                                workingLocationLabels,
-                              )
-                        }
-                        style={{
-                          backgroundColor: color
-                            ? `${color}1f`
-                            : "hsl(var(--muted))",
-                          borderLeft: `2px solid ${
-                            color ?? "hsl(var(--muted-foreground))"
-                          }`,
-                        }}
-                      >
-                        <IconMapPin
-                          aria-hidden="true"
-                          className="size-3 shrink-0 opacity-70"
-                        />
-                        <span className="truncate">
-                          {getWorkingLocationChipLabel(
-                            event,
-                            workingLocationLabels,
-                          )}
-                        </span>
-                        {event.ownerColor && (
-                          <span
-                            aria-hidden="true"
-                            className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
-                            style={{ backgroundColor: event.ownerColor }}
-                          />
-                        )}
-                      </button>
-                    </EventDetailPopover>
-                  );
-                })}
-              </div>
+        <div className="flex max-h-[88px] flex-col overflow-hidden border-b border-border bg-card/50">
+          {onClickTimeSlot && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-4 py-1">
+              <span className="text-[11px] font-medium uppercase text-muted-foreground">
+                {t("eventForm.allDay")}
+              </span>
+              <button
+                type="button"
+                data-calendar-create-surface="all-day"
+                aria-label={`${t("eventForm.createEvent")}: ${t("eventForm.allDay")}, ${format(date, "EEE, MMM d")}`}
+                className="min-h-6 min-w-0 flex-1 rounded-sm text-left hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                onClick={() =>
+                  onClickTimeSlot(date, "00:00", "00:00", {
+                    allDay: true,
+                  })
+                }
+              >
+                <span className="sr-only">{t("eventForm.allDay")}</span>
+              </button>
             </div>
           )}
 
-          {(regularAllDayEvents.length > 0 || onClickTimeSlot) && (
-            <div
-              data-all-day-event-lane
-              className={cn(
-                "px-4 py-2",
-                workingLocations.length > 0 && "border-t border-border/60",
-              )}
-            >
-              <p className="mb-1.5 text-[11px] font-medium uppercase text-muted-foreground">
-                {t("eventForm.allDay")}
-              </p>
-              <div className="flex flex-col gap-1">
-                {regularAllDayEvents.map((event) => {
-                  const color = getEventDisplayColor(event, prefs);
-                  return (
-                    <EventDetailPopover
-                      key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
-                      event={event}
-                      timezone={timezone}
-                      onDelete={onDeleteEvent}
-                      isDraft={draftEventIds.includes(event.id)}
-                      defaultOpen={quickEditEventId === event.id}
-                      popoverSide="bottom"
-                      onTitleSave={onQuickEditSave}
-                      onDismissNew={onQuickEditCancel}
-                      onDraftUpdate={onDraftUpdate}
-                      onDraftCreate={onDraftCreate}
-                      onDraftDiscard={onDraftDiscard}
-                    >
-                      <button
-                        className={cn(
-                          "relative flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110",
-                          event.ownerColor && "pr-5",
-                        )}
-                        aria-label={
-                          event.ownerName || event.overlayEmail
-                            ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
-                                event.ownerName || event.overlayEmail
-                              }'s calendar`
-                            : getWorkingLocationTitle(
-                                event,
-                                workingLocationLabels,
-                              )
-                        }
-                        style={
-                          color
-                            ? {
-                                backgroundColor: `${color}30`,
-                                borderLeft: `3px solid ${color}`,
-                              }
-                            : {
-                                backgroundColor: "hsl(var(--primary) / 0.15)",
-                                borderLeft: "3px solid hsl(var(--primary))",
-                              }
-                        }
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {workingLocations.length > 0 && (
+              <div data-working-location-lane className="px-4 py-1.5">
+                <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground">
+                  <IconMapPin aria-hidden="true" className="size-3" />
+                  {t("eventForm.workingLocation")}
+                </p>
+                <div className="grid gap-1 sm:grid-cols-2">
+                  {workingLocations.map((event) => {
+                    const color = getEventDisplayColor(event, prefs);
+                    return (
+                      <EventDetailPopover
+                        key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                        event={event}
+                        timezone={timezone}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={quickEditEventId === event.id}
+                        popoverSide="bottom"
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
                       >
-                        {allOtherDeclined(event) && (
-                          <IconAlertTriangleFilled
-                            size={14}
-                            className="shrink-0 text-current opacity-70"
-                          />
-                        )}
-                        <EventStatusIcon event={event} className="shrink-0" />
-                        <span className="truncate">
-                          {getWorkingLocationChipLabel(
-                            event,
-                            workingLocationLabels,
+                        <button
+                          className={cn(
+                            "relative flex h-6 w-full items-center gap-1.5 truncate rounded-sm px-2 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80",
+                            event.ownerColor && "pr-5",
                           )}
-                        </span>
-                        {event.ownerColor && (
-                          <span
+                          aria-label={
+                            event.ownerName || event.overlayEmail
+                              ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
+                                  event.ownerName || event.overlayEmail
+                                }'s calendar`
+                              : getWorkingLocationTitle(
+                                  event,
+                                  workingLocationLabels,
+                                )
+                          }
+                          style={{
+                            backgroundColor: color
+                              ? `${color}1f`
+                              : "hsl(var(--muted))",
+                            borderLeft: `2px solid ${
+                              color ?? "hsl(var(--muted-foreground))"
+                            }`,
+                          }}
+                        >
+                          <IconMapPin
                             aria-hidden="true"
-                            className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
-                            style={{ backgroundColor: event.ownerColor }}
+                            className="size-3 shrink-0 opacity-70"
                           />
-                        )}
-                      </button>
-                    </EventDetailPopover>
-                  );
-                })}
-                {onClickTimeSlot && (
-                  <button
-                    type="button"
-                    data-calendar-create-surface="all-day"
-                    aria-label={`${t("eventForm.createEvent")}: ${t("eventForm.allDay")}, ${format(date, "EEE, MMM d")}`}
-                    className="min-h-6 w-full rounded-sm text-left hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    onClick={() =>
-                      onClickTimeSlot(date, "00:00", "00:00", {
-                        allDay: true,
-                      })
-                    }
-                  >
-                    <span className="sr-only">{t("eventForm.allDay")}</span>
-                  </button>
-                )}
+                          <span className="truncate">
+                            {getWorkingLocationChipLabel(
+                              event,
+                              workingLocationLabels,
+                            )}
+                          </span>
+                          {event.ownerColor && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                              style={{ backgroundColor: event.ownerColor }}
+                            />
+                          )}
+                        </button>
+                      </EventDetailPopover>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {regularAllDayEvents.length > 0 && (
+              <div
+                data-all-day-event-lane
+                className={cn(
+                  "px-4 py-2",
+                  workingLocations.length > 0 && "border-t border-border/60",
+                )}
+              >
+                <p className="mb-1.5 text-[11px] font-medium uppercase text-muted-foreground">
+                  {t("eventForm.allDay")}
+                </p>
+                <div className="flex flex-col gap-1">
+                  {regularAllDayEvents.map((event) => {
+                    const color = getEventDisplayColor(event, prefs);
+                    return (
+                      <EventDetailPopover
+                        key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                        event={event}
+                        timezone={timezone}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={quickEditEventId === event.id}
+                        popoverSide="bottom"
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                      >
+                        <button
+                          className={cn(
+                            "relative flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110",
+                            event.ownerColor && "pr-5",
+                          )}
+                          aria-label={
+                            event.ownerName || event.overlayEmail
+                              ? `${getWorkingLocationTitle(event, workingLocationLabels)}, ${
+                                  event.ownerName || event.overlayEmail
+                                }'s calendar`
+                              : getWorkingLocationTitle(
+                                  event,
+                                  workingLocationLabels,
+                                )
+                          }
+                          style={
+                            color
+                              ? {
+                                  backgroundColor: `${color}30`,
+                                  borderLeft: `3px solid ${color}`,
+                                }
+                              : {
+                                  backgroundColor: "hsl(var(--primary) / 0.15)",
+                                  borderLeft: "3px solid hsl(var(--primary))",
+                                }
+                          }
+                        >
+                          {allOtherDeclined(event) && (
+                            <IconAlertTriangleFilled
+                              size={14}
+                              className="shrink-0 text-current opacity-70"
+                            />
+                          )}
+                          <EventStatusIcon event={event} className="shrink-0" />
+                          <span className="truncate">
+                            {getWorkingLocationChipLabel(
+                              event,
+                              workingLocationLabels,
+                            )}
+                          </span>
+                          {event.ownerColor && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute right-2 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                              style={{ backgroundColor: event.ownerColor }}
+                            />
+                          )}
+                        </button>
+                      </EventDetailPopover>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
