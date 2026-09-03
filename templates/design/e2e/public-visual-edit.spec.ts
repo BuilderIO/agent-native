@@ -174,11 +174,15 @@ test.describe.serial("public visual edit", () => {
           .getByRole("link", { name: /sign up free to save/i })
           .first(),
       ).toBeVisible();
-      // Sharing is gated on canRenderAuthenticatedShare (isSignedIn ||
-      // canEditDesign), so a read-only public visitor gets no Share control.
+      // A read-only visitor DOES get a Share control — it is a sign-in CTA
+      // rendered as `<Button asChild><a>`, so it carries role "link", not
+      // "button". Asserting no *button* named share passed for the wrong
+      // reason: it is vacuously true whether or not the control renders.
+      // `signed-out save and share buttons send visitors to the sign-in
+      // return URL` covers where that link goes.
       await expect(
-        signedOut.page.getByRole("button", { name: /^share$/i }),
-      ).toHaveCount(0);
+        signedOut.page.getByRole("link", { name: /^share$/i }),
+      ).toHaveCount(1);
 
       signedOut.mutationRequests.length = 0;
       await installBridge(signedOut.page);

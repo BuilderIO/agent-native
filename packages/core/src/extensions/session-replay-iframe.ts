@@ -123,14 +123,19 @@ export function buildSessionReplayIframeBootstrap(): string {
  * the first `</script>` is HTML's own rule, so the mask and the browser agree
  * on where each body ends.
  *
- * `title` and `textarea` are RCDATA — their content is text, not markup — and
- * `title` sits inside the head, so a literal `</head>` there precedes the real
- * one and would win, inserting the bootstrap as title text.
+ * Raw-text and RCDATA elements hold text, not markup. `title` even sits inside
+ * the head, so a literal `</head>` there precedes the real one and would win,
+ * inserting the bootstrap where it never executes. `plaintext` has no end tag
+ * and swallows the rest of the document.
  */
 function maskUnparsedRegions(html: string): string {
   const regions =
-    /<!--[\s\S]*?-->|<(script|style|title|textarea)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
-  return html.replace(regions, (region) => " ".repeat(region.length));
+    /<!--[\s\S]*?-->|<(script|style|title|textarea|xmp|noembed|noframes|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+  // `plaintext` has no end tag — everything after it is text, to EOF.
+  const plaintext = /<plaintext\b[^>]*>[\s\S]*$/i;
+  return html
+    .replace(regions, (region) => " ".repeat(region.length))
+    .replace(plaintext, (region) => " ".repeat(region.length));
 }
 
 export function injectSessionReplayIframeBootstrap(html: string): string {

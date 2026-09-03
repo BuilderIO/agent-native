@@ -129,6 +129,25 @@ describe("cooperative iframe session replay", () => {
     );
   });
 
+  it("does not inject into a </head> inside any raw-text element", () => {
+    // `xmp`, `noembed`, `noframes` and `iframe` hold raw text, and
+    // `plaintext` swallows everything to EOF. A literal `</head>` in any of
+    // them would be picked as the insertion point, putting the bootstrap
+    // somewhere it never executes and silently disabling replay.
+    for (const tag of ["xmp", "noembed", "noframes", "iframe"]) {
+      const raw = `<${tag}></head></${tag}>`;
+      const html =
+        `<!doctype html><html><head>${raw}</head>` +
+        `<body><p>preview</p></body></html>`;
+      const out = injectSessionReplayIframeBootstrap(html);
+      expect(out, `${tag} raw text was split`).toContain(raw);
+      expect(
+        out.indexOf(SESSION_REPLAY_IFRAME_PROBE),
+        `bootstrap landed inside <${tag}>`,
+      ).toBeGreaterThan(out.indexOf(raw));
+    }
+  });
+
   it("marks every first-party extension iframe host", () => {
     const hostFiles = [
       "AgentNativeExtensionFrame.tsx",

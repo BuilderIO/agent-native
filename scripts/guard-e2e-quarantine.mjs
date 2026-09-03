@@ -69,8 +69,11 @@ for (const [dir, ceiling] of Object.entries(CEILINGS)) {
   for (const name of files) {
     const lines = readFileSync(join(dir, name), "utf8").split("\n");
     lines.forEach((line, index) => {
-      if (line.includes("test.skip(")) skipCount += 1;
-      if (!line.includes("test.fixme(")) return;
+      // Playwright parks a whole suite with `test.describe.fixme(...)` and
+      // `test.describe.skip(...)`. Matching only the per-test forms let an
+      // entire file be quarantined without moving either counter.
+      if (/test\.(?:describe\.)?skip\(/.test(line)) skipCount += 1;
+      if (!/test\.(?:describe\.)?fixme\(/.test(line)) return;
       count += 1;
       let cursor = index - 1;
       while (cursor >= 0 && lines[cursor].trim() === "") cursor -= 1;
