@@ -98,6 +98,63 @@ export function jobBelongsToApp(
   return !meta.orgId?.trim();
 }
 
+function isFactoryAutomationPath(path: string): boolean {
+  return (
+    /^jobs\/factories\/[^/]+\/[^/]+\.md$/.test(path) ||
+    /^jobs\/factory-[^/]+\.md$/.test(path)
+  );
+}
+
+/** Same prefix as `organizationResourceOwner`; keep this file free of store. */
+function organizationIdFromOwner(
+  owner: string | null | undefined,
+): string | null {
+  if (!owner?.startsWith("__organization__:")) return null;
+  const encoded = owner.slice("__organization__:".length);
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    // coercion-ok: a malformed owner key is not an organization id
+    return null;
+  }
+}
+
+/**
+ * Organization id for a recovered Factory-folder job. Null when the path is
+ * not Factory-owned, the resource is not organization-scoped, another app
+ * owns it, or a declared `orgId` does not match the resource owner.
+ */
+export function recoveredFactoryOwnerOrgId(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  path: string,
+  owner: string | null | undefined,
+): string | null {
+  if (!isFactoryAutomationPath(path)) return null;
+  const ownerOrgId = organizationIdFromOwner(owner);
+  if (!ownerOrgId) return null;
+  const ownerAppId = meta.appId?.trim();
+  if (ownerAppId && ownerAppId !== "factory") return null;
+  const declaredOrgId = meta.orgId?.trim();
+  if (declaredOrgId && declaredOrgId !== ownerOrgId) return null;
+  return ownerOrgId;
+}
+
+/**
+ * Path-scoped recovery for Factory-folder org jobs that lost `appId`.
+ * Owner must be organization-scoped; a personal resource on a Factory-looking
+ * path is not Factory-owned. Do not loosen `jobBelongsToApp` for other apps.
+ */
+export function isRecoveredFactoryJob(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  path: string,
+  actorAppId: string | null | undefined,
+  owner: string | null | undefined,
+): boolean {
+  if (actorAppId?.trim() !== "factory") return false;
+  return recoveredFactoryOwnerOrgId(meta, path, owner) !== null;
+}
+
 export interface JobResourceClassification {
   kind: "job" | "automation";
   hasExplicitTriggerType: boolean;
@@ -534,4 +591,104 @@ export function buildJobResourceContent(
   );
   lines.push("---", "", body);
   return lines.join("\n");
+}
+
+/** Execution bookkeeping the scheduler may patch; everything else stays as stored. */
+export const JOB_EXECUTION_FRONTMATTER_FIELDS = [
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "nextRun",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+] as const;
+
+export type JobExecutionFrontmatterPatch = {
+  lastRun?: string;
+  lastCheck?: string;
+  lastStatus?: JobLastStatus;
+  lastError?: string;
+  nextRun?: string;
+  remoteRequestId?: string;
+  remoteCommandId?: string;
+  remoteRunId?: string;
+  remoteAutomationRunId?: string;
+  remoteAdvanceSchedule?: boolean;
+};
+
+function serializeExecutionFrontmatterValue(
+  key: (typeof JOB_EXECUTION_FRONTMATTER_FIELDS)[number],
+  value: string | boolean,
+): string {
+  if (typeof value === "boolean") return String(value);
+  if (key === "lastStatus") return value;
+  return JSON.stringify(value);
+}
+
+function setOrRemoveFrontmatterField(
+  content: string,
+  key: string,
+  serialized: string | undefined,
+): string {
+  const newline = content.startsWith("---\r\n")
+    ? "\r\n"
+    : content.startsWith("---\n")
+      ? "\n"
+      : null;
+  if (!newline) {
+    throw new Error(
+      "Job resource is missing frontmatter; cannot patch execution fields.",
+    );
+  }
+  const opener = `---${newline}`;
+  const closer = `${newline}---`;
+  const end = content.indexOf(closer, opener.length);
+  if (end === -1) {
+    throw new Error(
+      "Job resource is missing frontmatter; cannot patch execution fields.",
+    );
+  }
+  const frontmatter = content.slice(opener.length, end);
+  const pattern = new RegExp(`^${key}:.*(?:\\r?\\n)?`, "m");
+  if (serialized === undefined) {
+    if (!pattern.test(frontmatter)) return content;
+    const nextFrontmatter = frontmatter.replace(pattern, "").trimEnd();
+    return nextFrontmatter
+      ? `${opener}${nextFrontmatter}${content.slice(end)}`
+      : `${opener}${content.slice(end)}`;
+  }
+  if (pattern.test(frontmatter)) {
+    return `${opener}${frontmatter.replace(pattern, `${key}: ${serialized}${newline}`)}${content.slice(end)}`;
+  }
+  return `${content.slice(0, end)}${newline}${key}: ${serialized}${content.slice(end)}`;
+}
+
+/**
+ * Update scheduler-owned YAML keys on the stored document.
+ *
+ * A parse-then-rebuild from a partial in-memory meta object drops tags the
+ * editor still has on disk (`triggerType`, `domain`, `appId`, extras). Status
+ * writes must only touch execution fields.
+ */
+export function patchJobFrontmatterFields(
+  content: string,
+  fields: JobExecutionFrontmatterPatch,
+): string {
+  let next = content;
+  for (const key of JOB_EXECUTION_FRONTMATTER_FIELDS) {
+    if (!Object.hasOwn(fields, key)) continue;
+    const value = fields[key];
+    next = setOrRemoveFrontmatterField(
+      next,
+      key,
+      value === undefined
+        ? undefined
+        : serializeExecutionFrontmatterValue(key, value),
+    );
+  }
+  return next;
 }

@@ -14,10 +14,7 @@ import {
   defineNitroPlugin,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import {
-  deleteAutomationRuns,
-  listAutomationDefinitions,
-} from "@agent-native/core/triggers";
+import { deleteAutomationRuns } from "@agent-native/core/triggers";
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
@@ -41,6 +38,7 @@ import {
   type FactoryAutomationTemplateId,
 } from "../lib/factory-automation-config.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
+import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
 import {
   DEFAULT_FACTORY_ID,
   assignCreatedByIfMissing,
@@ -49,7 +47,6 @@ import {
   factoryAutomationLeafName,
   factoryAutomationRunHistoryKey,
   factoryConfigRowId,
-  readAutomationFactoryId,
   readFactoryIdFromAutomationPath,
   readTriageConfigRow,
   setAutomationFrontmatterField,
@@ -609,7 +606,7 @@ export type FactoryAutomationSnapshot = {
 };
 
 export async function listFactoryAutomationResources(
-  ownerEmail: string,
+  _ownerEmail: string,
   orgId: string,
   factoryId: string,
 ): Promise<
@@ -621,24 +618,14 @@ export async function listFactoryAutomationResources(
     enabled: boolean;
   }>
 > {
-  const definitions = await listAutomationDefinitions(
-    { userEmail: ownerEmail, orgId, appId: "factory" },
-    "organization",
-  );
-  return definitions
-    .filter(
-      ({ meta, resource }) =>
-        meta.domain === "factory" &&
-        readAutomationFactoryId(meta, resource.content, resource.path) ===
-          factoryId,
-    )
-    .map(({ resource, name, meta }) => ({
-      id: resource.id,
-      name,
-      path: resource.path,
-      content: resource.content,
-      enabled: meta.enabled,
-    }));
+  const definitions = await listFactoryAutomationDefinitions(orgId, factoryId);
+  return definitions.map(({ resource, name, meta }) => ({
+    id: resource.id,
+    name,
+    path: resource.path,
+    content: resource.content,
+    enabled: meta.enabled,
+  }));
 }
 
 export async function listFactoryAutomationCleanupPaths(
