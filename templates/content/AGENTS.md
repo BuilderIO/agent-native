@@ -83,7 +83,7 @@ Read the relevant skill before deeper work:
 | `delete-document` | Move a page and its children to Trash |
 | `list-content-database-blocks` | List stable blocks and revisions in one exact database row/property |
 | `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
-| `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
+| `migrate-content-database-rows` | Validate/apply/verify; terminal phases use `manage-content-database-migration` |
 
 Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as

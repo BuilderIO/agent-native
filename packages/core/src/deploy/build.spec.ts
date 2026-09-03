@@ -75,6 +75,8 @@ import {
   NITRO_RUNTIME_IGNORE_PATTERNS,
   bundleImportsLibsqlNativeAddon,
   nitroNoExternalsForPreset,
+  nitroServerCodeSplittingConfigForPreset,
+  nitroServerCodeSplittingGroupsForPreset,
   patchCloudflareModuleNitroEntry,
   pruneServerlessFunctionDeadWeight,
   removeNetlifyStaticRootShell,
@@ -134,6 +136,119 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
     }
     expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
     expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
+  });
+});
+
+describe("nitroServerCodeSplittingGroupsForPreset", () => {
+  it("co-locates Core and Creative Context for Node-style output", () => {
+    for (const preset of [
+      "vercel",
+      "netlify",
+      "aws_amplify",
+      "aws-amplify",
+      "awsAmplify",
+    ]) {
+      const groups = nitroServerCodeSplittingGroupsForPreset(preset);
+      expect(groups).toHaveLength(1);
+      expect(
+        groups[0]?.test.test("/node_modules/@agent-native/core/server.js"),
+      ).toBe(true);
+      expect(
+        groups[0]?.test.test(
+          "/node_modules/@agent-native/creative-context/server.js",
+        ),
+      ).toBe(true);
+      expect(
+        groups[0]?.test.test("/node_modules/@agent-native/toolkit/server.js"),
+      ).toBe(false);
+    }
+    expect(nitroServerCodeSplittingGroupsForPreset("cloudflare-pages")).toEqual(
+      [],
+    );
+  });
+
+  it("passes the group through Nitro's Rolldown configuration", () => {
+    const config = nitroServerCodeSplittingConfigForPreset("vercel");
+
+    expect(config.output?.codeSplitting?.groups).toHaveLength(1);
+  });
+});
+
+describe("Nitro server code-splitting output", { timeout: 30_000 }, () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits Core and Creative Context in the configured package chunk", async () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-nitro-chunk-test-"),
+    );
+    dirs.push(appDir);
+
+    for (const [packageName, source] of [
+      [
+        "core",
+        'import { creativeMarker } from "@agent-native/creative-context"; export const coreMarker = "core-marker"; export const coreValue = coreMarker + creativeMarker;\n',
+      ],
+      [
+        "creative-context",
+        'import { coreMarker } from "@agent-native/core"; export const creativeMarker = "creative-marker"; export const contextValue = coreMarker + creativeMarker;\n',
+      ],
+    ]) {
+      const packageDir = path.join(
+        appDir,
+        "node_modules",
+        "@agent-native",
+        packageName,
+      );
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ type: "module", exports: "./index.js" }),
+      );
+      fs.writeFileSync(path.join(packageDir, "index.js"), source);
+    }
+
+    const routesDir = path.join(appDir, "server", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(routesDir, "index.ts"),
+      'import { coreValue } from "@agent-native/core"; export default defineEventHandler(() => coreValue);\n',
+    );
+
+    const { build, createNitro, prepare } = await import("nitro/builder");
+    const nitro = await createNitro({
+      rootDir: appDir,
+      preset: "node",
+      dev: false,
+      minify: false,
+      noExternals: true,
+      serverDir: "./server",
+      rolldownConfig: nitroServerCodeSplittingConfigForPreset("node"),
+    });
+    await prepare(nitro);
+    await build(nitro);
+
+    const outputDir = nitro.options.output.serverDir;
+    const packageChunks = fs
+      .readdirSync(outputDir)
+      .filter(
+        (file) =>
+          file.startsWith("agent-native-core+") && file.endsWith(".mjs"),
+      );
+
+    expect(packageChunks).toHaveLength(1);
+    const packageChunk = fs.readFileSync(
+      path.join(outputDir, packageChunks[0]!),
+      "utf8",
+    );
+    expect(packageChunk).toContain("core-marker");
+    expect(packageChunk).toContain("creative-marker");
+    await nitro.close();
   });
 });
 

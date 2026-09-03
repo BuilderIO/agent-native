@@ -86,7 +86,10 @@ import { useOptionalLocale, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
-import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
+import {
+  BuilderConnectCard,
+  BuilderConnectionMenu,
+} from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { cn } from "../utils.js";
@@ -279,164 +282,6 @@ function SettingsSelect({
   );
 }
 
-// ─── Disconnect button for the Builder card's connected state ───────────────
-//
-// Two-step confirmation: first click arms the button ("Confirm?"), second
-// click actually disconnects. Arm auto-reverts after 4s of idle so a user
-// who wandered off doesn't come back to a disconnect waiting for them.
-//
-// Hits /_agent-native/builder/disconnect which removes request-scoped
-// Builder credentials from app_secrets. Deployment env credentials are left
-// alone and remain as fallback. On success we dispatch
-// `agent-engine:configured-changed` so dependent cards refresh inline.
-function DisconnectBuilderButton() {
-  const { status } = useBuilderStatus();
-  const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
-  const [err, setErr] = useState<string | null>(null);
-  const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearArmedTimer = useCallback(() => {
-    if (armedTimerRef.current) {
-      clearTimeout(armedTimerRef.current);
-      armedTimerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => clearArmedTimer();
-  }, [clearArmedTimer]);
-
-  const performDisconnect = useCallback(async () => {
-    setPhase("busy");
-    setErr(null);
-    clearArmedTimer();
-    try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/builder/disconnect"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-      // Parse defensively — a nitro 404 fallback returns HTML, not JSON,
-      // and res.json() on that would throw.
-      const text = await res.text();
-      let body: {
-        ok?: boolean;
-        error?: string;
-        warnings?: Record<string, string>;
-      } = {};
-      if (text) {
-        try {
-          body = JSON.parse(text);
-        } catch {
-          // Non-JSON response — likely a 404/HTML fallback.
-        }
-      }
-      if (!res.ok) {
-        throw new Error(
-          body.error ||
-            `Failed (${res.status}). Is your dev server up to date?`,
-        );
-      }
-      if (body.ok !== true) {
-        throw new Error(body.error || "Disconnect didn't confirm ok");
-      }
-      if (body.warnings && Object.keys(body.warnings).length > 0) {
-        // Disconnect flag persisted (we only reach here when ok:true), so
-        // the user IS disconnected — but some ancillary cleanup failed.
-        // Log so it's visible during dev; don't block the success path.
-        console.warn(
-          "[builder-disconnect] completed with warnings:",
-          body.warnings,
-        );
-      }
-      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
-      setPhase("idle");
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Disconnect failed");
-      setPhase("idle");
-    }
-  }, [clearArmedTimer]);
-
-  const handleDisconnectClick = useCallback(() => {
-    if (phase === "busy") return;
-    if (phase === "idle") {
-      // First click — arm the button. Auto-revert after 4s to avoid a
-      // stale "confirm" state someone else could hit by accident.
-      setPhase("armed");
-      setErr(null);
-      clearArmedTimer();
-      armedTimerRef.current = setTimeout(() => {
-        setPhase("idle");
-        armedTimerRef.current = null;
-      }, 4000);
-      return;
-    }
-    // phase === "armed" — user confirmed, actually disconnect.
-    void performDisconnect();
-  }, [phase, performDisconnect, clearArmedTimer]);
-
-  const handleCancel = useCallback(() => {
-    clearArmedTimer();
-    setPhase("idle");
-  }, [clearArmedTimer]);
-
-  // When only the deploy fallback is active there is nothing request-scoped
-  // for this button to remove. The early return MUST come after every hook
-  // above to satisfy rules-of-hooks.
-  if (status?.credentialSource === "env") return null;
-
-  if (phase === "armed") {
-    return (
-      <>
-        <Button
-          type="button"
-          intent="danger"
-          emphasis="solid"
-          onClick={handleDisconnectClick}
-          className="inline-flex items-center gap-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20"
-        >
-          Confirm disconnect
-        </Button>
-        <Button
-          type="button"
-          intent="neutral"
-          emphasis="outline"
-          onClick={handleCancel}
-          className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
-        >
-          Cancel
-        </Button>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <Button
-        type="button"
-        intent="danger"
-        emphasis="outline"
-        onClick={handleDisconnectClick}
-        disabled={phase === "busy"}
-        className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60 disabled:cursor-wait"
-        aria-busy={phase === "busy"}
-      >
-        {phase === "busy" ? (
-          <>
-            <IconLoader2 size={10} className="animate-spin" />
-            Disconnecting…
-          </>
-        ) : (
-          "Disconnect"
-        )}
-      </Button>
-      {err && <span className="text-[10px] text-destructive">{err}</span>}
-    </>
-  );
-}
-
 // ─── "Connect Builder.io" card (shared across all sections) ─────────────────
 
 function UseBuilderCard({
@@ -470,6 +315,8 @@ function UseBuilderCard({
   const isPage = useSettingsSurface() === "page";
   const effectiveConnected = connected || builderFlow.configured;
   const effectiveOrgName = builderFlow.orgName ?? orgName;
+  const effectiveCredentialSource =
+    credentialSource ?? builderFlow.credentialSource;
   const bgClass = dim ? "" : "bg-accent/30";
   const titleCls = isPage ? "text-sm" : "text-[11px]";
   const bodyCls = isPage ? "text-xs" : "text-[10px]";
@@ -516,38 +363,14 @@ function UseBuilderCard({
               : "Using your connected Builder account. Deployment fallback is still available."}
           </p>
         ) : null}
-        {connectUrl || credentialSource !== "env" ? (
-          <div className="flex items-center gap-2 mt-2.5">
-            {connectUrl && (
-              <BuilderConnectPopover
-                flow={builderFlow}
-                onConnect={(provisionAccount) =>
-                  builderFlow.start({
-                    trackingSource,
-                    trackingFlow,
-                    provisionAccount,
-                  })
-                }
-              >
-                <Button
-                  type="button"
-                  intent="neutral"
-                  emphasis="ghost"
-                  disabled={builderFlow.connecting}
-                  className={cn(
-                    pillButtonClass(isPage, "ghost"),
-                    "no-underline",
-                  )}
-                >
-                  {builderFlow.connecting
-                    ? "Connecting..."
-                    : credentialSource === "env"
-                      ? "Connect account"
-                      : "Reconnect"}
-                </Button>
-              </BuilderConnectPopover>
-            )}
-            {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
+        {connectUrl || effectiveCredentialSource !== "env" ? (
+          <div className="mt-2.5 flex items-center justify-end">
+            <BuilderConnectionMenu
+              flow={builderFlow}
+              credentialSource={effectiveCredentialSource}
+              trackingSource={trackingSource}
+              trackingFlow={trackingFlow}
+            />
           </div>
         ) : null}
       </div>
@@ -3828,7 +3651,7 @@ export function ConnectionsSettingsContent({
       <Suspense fallback={null}>
         <IntegrationsPanel />
       </Suspense>
-      <BuilderConnectCard trackingSource="settings_connections" />
+      <BuilderConnectCard trackingSource="settings_connections" showManage />
       <SettingsPanelContent
         {...settingsPanelProps}
         surface="page"

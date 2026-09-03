@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-03
+
+### Improved
+
+- Mail keeps Gmail labels and agent-created drafts in sync with the inbox.
+
+## 2026-09-02
+
+### Improved
+
+- Mail now links pasted URLs, offers a combined inbox, and restores recipient contact autocomplete.
+
 ## 2026-08-28
 
 ### Fixed

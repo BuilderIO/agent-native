@@ -37,11 +37,9 @@ export const AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL =
 
 const WIDTH = AGENT_NATIVE_OG_IMAGE_WIDTH;
 const HEIGHT = AGENT_NATIVE_OG_IMAGE_HEIGHT;
-const BRAND_BLUE = "#00B5FF";
-const BRAND_MINT = "#48FFE4";
-const BG = "#000000";
-const FG = "#f5f5f5";
-const GRID_SIZE = 48;
+const BG = "#0A0A0A";
+const FG = "#FAF9F5";
+const ACCENT_FG = "#9A9997";
 const DEFAULT_FONT_FAMILY = `${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
 const ARABIC_FONT_FAMILY = `${OG_ARABIC_FONT_FAMILY}, ${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
 const DEFAULT_ACCENT_TEXT = "100% free and open source";
@@ -54,8 +52,8 @@ const LOGO_DATA_URL_RE = new RegExp(
 );
 
 const LOGO_MARK = `
-  <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
-  <path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="url(#brand)"/>
+  <path d="M26.8789 71.999H0L16.5146 43.1992L41.2793 0L66.2197 43.1992H43.3945L26.8789 71.999Z" fill="white"/>
+  <path d="M97.914 0H124.794L83.5143 72H56.6348L97.914 0Z" fill="white"/>
 `;
 
 function escapeSvg(value: string): string {
@@ -553,21 +551,7 @@ export function renderAgentNativeOgImageSvg(
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>${escapeSvg(title)}${mode === "agent-native" ? " - Agent-Native preview" : " preview"}</title>
-  <defs>
-    ${
-      mode === "agent-native"
-        ? `<linearGradient id="brand" x1="101.702" y1="67.4791" x2="113.672" y2="-37.4275" gradientUnits="userSpaceOnUse">
-      <stop stop-color="${BRAND_BLUE}"/>
-      <stop offset="1" stop-color="${BRAND_MINT}"/>
-    </linearGradient>`
-        : ""
-    }
-    <pattern id="grid" width="${GRID_SIZE}" height="${GRID_SIZE}" patternUnits="userSpaceOnUse">
-      <path d="M 0 0.5 H ${GRID_SIZE} M 0.5 0 V ${GRID_SIZE}" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
-    </pattern>
-  </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#grid)"/>
   ${logo ? `<g transform="translate(80 116) scale(0.94)">${logo}</g>` : ""}
   <g>
     ${textBlock({
@@ -594,7 +578,7 @@ export function renderAgentNativeOgImageSvg(
             fontSize: 34,
             lineHeight: 40,
             weight: 800,
-            fill: BRAND_BLUE,
+            fill: ACCENT_FG,
             anchor: textAnchor,
             fontFamily: fontFamilyForText(accentText),
           })

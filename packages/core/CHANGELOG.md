@@ -51,6 +51,249 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.176.5
+
+### Patch Changes
+
+- 345fcd7: Allow signed Creative Context background processors to bypass session auth and
+  cover both processor HMAC routes.
+- 1670de6: Fix a cold-start latency bug where `/_agent-native/auth/session` (and the
+  other early auth/sign-in routes) waited for the entire default-plugin
+  bootstrap chain — agent-chat, org, integrations, and every other unrelated
+  default plugin — before Better Auth even mounted. The default (non-BYOA)
+  branch of `createAuthPlugin` now marks its own routes ready and mounts
+  Better Auth the same way the BYOA branch already did: without serializing
+  behind `awaitBootstrap`. Better Auth and the DB client are lazy singletons
+  that only need the database reachable when a request actually runs, not
+  anything the rest of bootstrap sets up.
+- d729669: Auth marketing pages always place the "New to {app}? Learn more" link in the bottom-right corner. Removed the `learnMorePlacement` opt-in that only `slides` and `calendar` set — every app now shares the same layout.
+- 938400f: Initialize the page-local WebMCP polyfill when native WebMCP is unavailable.
+- f082ec8: Expose default MCP guidance and human-readable action titles across WebMCP and MCP metadata.
+- 3e53f82: Clear stale browser-session WebMCP tools when live discovery fails.
+- 7dccc22: Make external AI hosts discoverable from Integrations and route familiar Claude, OpenAI, Codex, Cursor, and Grok names into one shared MCP setup flow.
+- 345dc58: Export `deleteAutomationRuns` so apps can clear reusable automation history when deleting scoped jobs.
+- 8d2e8d8: Allow review composers to hide the human comment action when a host provides a dedicated agent workflow while keeping implicit submission aligned with the visible action.
+- 2b25c01: Keep desktop UI and terminal chats in the same sidebar surface with scoped terminal workspaces and friendlier Claude errors.
+- 1670de6: `/_agent-native/health/google` now probes the actual configured redirect URI
+  against Google, not just the client id/secret. `redirect_uri_mismatch` — the
+  most common real-world Google OAuth failure — used to be invisible to this
+  health check; it now shows up as `redirectUriStatus: "mismatched"` and pages
+  (503) alongside the existing `status: "invalid"` case, gated so a managed pair
+  intentionally left unregistered (declared `managedConnection` other than
+  `"required"`) doesn't false-page.
+
+  `/_agent-native/identity` and `/_agent-native/embed/start` (the workspace-app
+  SSO and MCP App embed handshake routes) are now registered synchronously
+  before the DB-dependent bootstrap chain, alongside `/ping` and `/health` —
+  previously a cold function made the desktop/mobile shell's embed handshake
+  wait 4-5s for unrelated init before first paint. Security response headers
+  and the framework CORS middleware moved earlier with them so both routes
+  still get baseline protection.
+
+  `/_agent-native/health` also reports an additive
+  `alerts.chatHealthSlackWebhookConfigured` boolean so an unconfigured
+  `NOTIFICATIONS_SLACK_WEBHOOK_URL` — which silently no-ops the chat-health
+  outage alert — is visible instead of only discoverable by nobody getting
+  paged during an outage.
+
+- 1027d81: Re-registering an agent engine no longer keeps its previous priority slot.
+  `Map.set` on an existing key preserves the original insertion position, so an
+  engine re-registered over an earlier one silently stayed wherever it first
+  landed. Engine detection walks that map in order, which left a stale entry
+  ahead of Builder and read a provider key on the path that is supposed to
+  resolve without touching one.
+- 1466345: Nudge users toward their host agent chat from prompt popovers and shared
+  sidebar surfaces.
+- acf64f9: Keep auth marketing previews flush to the viewport, add a softer preview shadow, and show verification copy in light mode and local development flows.
+- 9528d62: Fix the auth marketing screenshot blur, which was set to 0.3px instead of the
+  intended 3px.
+- ea85886: Fix Builder personal access token uploads by including their target space.
+- 9c3eded: Allow Builder resumable upload retries to cancel stale GCS sessions.
+- 765f263: Fix an infinite redirect loop when an app sets `homePath: "/"`. The auth guard
+  served the framework login document at `/` whenever marketing content was
+  configured, but for a root-home app `/` is the authenticated app shell — so a
+  signed-in visitor was bounced from `/` to `/` forever. The guard now serves the
+  app shell at `/` (letting the client session gate own sign-in) when the app home
+  is the root, and only serves the login document there for apps whose home is a
+  separate path.
+- 0a1317c: Keep Core and Creative Context in one Node-style Nitro server chunk to prevent standalone cold-start failures.
+- f44279a: Fix WebMCP action execution when hosts omit an abort signal.
+- 3d73d24: Focus the agent sidebar composer when a user opens it.
+- 1670de6: `/_agent-native/health?strict=1&schema=1` no longer reports a deploy healthy
+  when it silently fell back to a local SQLite file, and its schema probe now
+  covers Better Auth's own tables. `runDatabaseSchemaHealthCheck` requires
+  `user`, `session`, `account`, `verification`, and `jwks` whenever auth is
+  enabled (skipped only when `AUTH_DISABLED` is set), so a missing `jwks` table
+  now shows up as `schema.ok: false` instead of only surfacing as a 500 on the
+  Better Auth route. The response also carries an additive `auth` object
+  (`baseUrlHost`, `requestHost`, `hostMismatch`) so a probe can tell a
+  configured production host apart from the host actually being served.
+
+  `getDbExec()` now throws a typed `HostedRuntimeLocalDatabaseError` instead of
+  silently opening `file:./data/app.db` when a hosted function invocation (not
+  a Netlify build step, which also sets `NETLIFY=true`) resolves no database
+  URL — a serverless instance's local filesystem is ephemeral and per-instance,
+  so this was a deploy that looked green while quietly running on throwaway
+  data.
+
+  Adds `scripts/smoke-check-health.ts`, used by the prebuilt Netlify deploy
+  workflow's smoke-test step to assert the health body (readiness, dialect,
+  schema, and — for production — the host match) instead of only the HTTP
+  status code, and to check the Better Auth `jwks` route returns real keys.
+
+- 1670de6: The LLM-completion retry loop now honors a provider's `Retry-After` header
+  (seconds or HTTP-date, capped at 60s) instead of always sleeping a fixed
+  exponential backoff. `classifyProviderError` parses the header (reusing the
+  provider-api quota governor's parser via a new shared
+  `packages/core/src/shared/retry-after.ts` helper) and the engine error/stop
+  event shape carries the result as `retryAfterMs`. The retry loop's sleep and
+  its run-budget estimate now use the same number, so a 429 with a longer
+  provider-requested wait either waits that long or — if it would not fit the
+  remaining run budget — surfaces the error instead of silently truncating the
+  wait.
+- 4fa738a: Improve local authentication and Builder connection onboarding.
+- 1670de6: Log the real Better Auth error code/message and report it to Sentry before
+  sanitizing the direct Better Auth handler's error responses, so a
+  misconfiguration like `INVALID_ORIGIN` is visible in logs/Sentry instead of
+  only showing the generic public error message.
+- d5506c1: Include Google Contacts scopes in the reusable Gmail workspace connection so Mail contact autocomplete can read saved and other contacts.
+- Release all public npm packages with a patch version bump.
+- 1670de6: `decodeOAuthState` no longer returns a success-shaped object on a missing,
+  tampered, or malformed OAuth `state` parameter — it now returns a
+  discriminated `{ ok: true, ...payload } | { ok: false, reason, redirectUri }`
+  result, so a bad-signature or corrupted state (e.g. a rotated
+  `OAUTH_STATE_SECRET`/`BETTER_AUTH_SECRET`) can no longer be silently processed
+  as an anonymous plain sign-in with owner/org/desktop context dropped. All 13
+  callers now check `ok` and log a structured
+  `[agent-native][oauth] state decode failed` warning (via the new
+  `logOAuthStateDecodeFailure`) before falling back to their existing OAuth
+  error page.
+
+  `checkGoogleSignInCredential` and `checkGoogleManagedCredential` accept an
+  optional `redirectUri` and, when supplied, also probe Google's authorize
+  endpoint (`probeGoogleRedirectUri`) to classify it as `registered`,
+  `mismatched`, or `unknown` — the credential-only token-exchange probe used a
+  constant fake redirect URI and structurally could not detect
+  `redirect_uri_mismatch`, the most common real Google OAuth failure.
+
+  `describeGoogleSignInCredentialPairs` gained test coverage confirming
+  `mismatched` is a plain fact about the two credential pairs, independent of
+  credential mode.
+
+- ba865ef: Keep scheduler status writes from dropping job frontmatter the editor owns. Let Factory claim and queue recovered folder jobs that lost domain or appId tags.
+- 8ff5fe7: Expose safe public actions through page-local WebMCP and provide a reusable
+  registration component for custom app roots.
+- 41c7ebb: Restore the auth marketing link and refine its responsive, themed screenshot layout.
+- eb59867: Update the default Agent-Native OG image template: new monochrome logo mark, solid `#0A0A0A` background (grid pattern removed), and updated title/accent text colors.
+- d5506c1: Put recommended guided-question choices first and preselect them in question flows.
+- 1670de6: Records which app first owns a shared database, and surfaces it on
+  `/_agent-native/health`. `runFrameworkReleaseMigrations` now writes a
+  `framework.database_identity` setting (`{ app, recordedAt }`, keyed by the
+  app slug falling back to app id) right after the framework schema exists,
+  using a write-once CAS so a second app booting against the same database can
+  never repoint an existing record. The health probe reads it back through the
+  same connection its `SELECT 1` already opened, bounded by the same deadline,
+  and reports `database.identity` (`recorded` / `unrecorded` / `unreadable` /
+  `timeout`), `database.identityMismatch`, and a pooler-agnostic
+  `database.fingerprint` next to the existing `urlHash`. `identityMismatch` is
+  only ever true when a recorded identity disagrees with the app actually
+  running — nothing else on this axis existed before, which is how a
+  copy-pasted repair once pointed several beta sites' database URL at another
+  app's production database undetected. `scripts/smoke-check-health.ts` now
+  fails a deploy on `identityMismatch: true` and warns (without failing) on the
+  other three states.
+- e3900a6: Retry managed messaging requests through a distinct usable model provider when the selected credential is rejected before agent output, and make terminal delivery retries idempotent.
+- 9755eb0: Restore the Slides sign-in marketing composition with a blurred preview, an overlapping auth card, and a stable image layout.
+- 341c6d5: Scope workspace-file persistence to the active organization instead of the global legacy shared owner.
+- eb59867: Update `AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE` to the new marketing OG/social preview image.
+- 647ebfb: Preserve Builder signup attribution through standard OAuth and track failed first-run completion requests.
+- cc0a806: Make the `turn-into-app` skill stop and report when a scaffold fails, times out, or is denied instead of substituting another stack, post the source brief before scaffolding rather than at handoff, and read spreadsheet inputs from structure and the sheet's own instruction text rather than from an assumed colour convention.
+- cf8a596: Let authenticated Builder consumers share one request-authorization resolver, including the org-scoped, read-only Publish MCP grant used by Content database sources, while preserving legacy key fallback.
+- 4071795: Mark delegated app-agent responses as unverified until the caller reads back persisted state.
+- f44279a: Publish WebMCP registration progress so a partial tool list is distinguishable
+  from a complete one. Tools register one at a time, so a discovery caller that
+  read `document.modelContext.getTools()` mid-flight saw a truncated list with no
+  way to tell it was truncated, and reported live tools as missing. Read the new
+  state with `getAgentNativeWebMcpStatus()`, or from the page world via
+  `window.__agentNativeWebMcpStatus`, which reports `registering`, `ready`, or
+  `failed` with registered/total counts. Concurrent starts share one in-flight
+  registration, and failed passes preserve the number of tools accepted before
+  the failure.
+- Updated dependencies
+- Updated dependencies [760d108]
+  - @agent-native/recap-cli@0.5.25
+  - @agent-native/toolkit@0.19.3
+
+## 0.176.4
+
+### Patch Changes
+
+- 24c0a3e: Return HTTP 500 for unclassified signup failures instead of reporting them as account conflicts.
+- afea78a: Re-check the stored `_collab_docs` version on every cached Y.Doc read, so a
+  serverless instance no longer serves collaboration text that a peer instance
+  moved past. `applyText` gains a `validateBase` hook for callers that need the
+  converged pre-diff text checked inside the write lock.
+- 56404c7: Restore Creative context as a Share tab and compact its submission controls.
+- afea78a: Add an `emptyStateFooter` slot to the agent chat, rendered below the empty-state suggestions. Unlike `threadFooterSlot` it never survives the first message, so a first-run affordance can sit with the suggestions without following the user through the conversation. Also forwards `onMessageCountChange` through `AgentPanel`/`AgentChatSurface` so a host can tell an empty thread from a started one. Fixes `onMessageCountChange` being swallowed by the multi-tab chat's own tab counter instead of reaching the host.
+- 3e4a129: Prefer direct WebMCP and cataloged app actions before delegated app-agent work.
+- 9a1011e: Register direct WebMCP action tools on token-authenticated app surfaces.
+- 9de6cb9: `createDrizzleConfig` accepts a `url` option that takes precedence over `DATABASE_URL` and `<APP_NAME>_DATABASE_URL`, so an app can point drizzle-kit at a direct database endpoint while the app itself keeps querying through a pooler. A Neon pooler is PgBouncer in transaction mode and cannot run migration DDL. A blank or unset `url` still falls back to the environment, so `url: process.env.DATABASE_URL_UNPOOLED` is correct on hosts that set only `DATABASE_URL`.
+- 63dfbc8: Report effective deployment database configuration in env-status checks.
+- c9ed8ff: Batch provider secret reads when agent engine detection has to check provider keys. `detectEngineFromUserSecrets` probed each engine's keys one at a time and `resolveSecret` walks four scopes per key, so `/_agent-native/agent-engine/status` cost roughly 50 serial reads per poll for accounts without a Builder connection — bring-your-own-key users, and anyone with no provider configured at all. It now warms the request memo with one batched read per scope. Builder-connected accounts already resolved without reading a provider key and are unaffected.
+- 3275e6f: Make `detectEngineFromUserSecrets` batch-load candidate provider credentials
+  in one read per identity scope instead of sweeping the whole engine registry
+  one point read at a time. An unconfigured request (e.g. the polled
+  `/_agent-native/agent-engine/status` gate in local dev) previously issued ~80
+  sequential `app_secrets` reads per call; it now reuses the existing
+  `prefetchSecrets` memo so the per-engine usability checks answer from the
+  request cache. Same precedence, identity scoping, and unreadable-store
+  propagation.
+- 1cd665a: Redirect returning Builder employees from production to beta before the app bundle loads.
+- 8b060aa: Bound database admin table catalog row-count queries.
+- 6d5f99a: Avoid prefetching provider secrets before checking a connected Builder account.
+- 79861ce: Expose fetchable WebMCP compatibility manifests and direct action endpoints alongside the existing browser, MCP, and A2A surfaces.
+- ea7c5f3: Allow a usable Builder key pair to remain available when an unreadable OAuth row is present.
+- 0566ce9: Make `/act` implement the latest plan when the plan-mode callout is available.
+- 485642e: Keep hosted Dispatch app launches inline outside Builder editor sessions.
+- Release all public npm packages with a patch version bump.
+- 9c047e3: Batch provider credential reads while building the model catalog.
+- ee3a826: Keep the global chat shortcut from intercepting editable content.
+- 5404eca: Make MCP settings more scannable with a distinct app icon and click-to-reveal host instructions.
+- a5686be: Refresh open app data after successful mutating actions run through direct MCP tools.
+- 5eeee8d: Launch terminal providers with a reliable native PTY environment and lifecycle cleanup.
+- 1aad450: Let apps outside the Builder hosting pipeline use the hosted Realtime Gateway.
+
+  Set `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` on a Postgres-backed production
+  deploy that already has a `BUILDER_PRIVATE_KEY`, and the app registers its own
+  database and origin with the gateway on demand, then mints subscribe tokens against the
+  channel it gets back. The gateway URL is now derived from
+  `BUILDER_GATEWAY_BASE_URL` when unset, so hosted realtime needs one env var
+  instead of four. Pipeline-injected channels still win, and anything missing
+  (no key, a non-Postgres database, a deploy preview, the org not in the rollout)
+  leaves the app on its own `/_agent-native/poll`.
+
+  Registering an origin requires positive evidence that this process is the
+  deployment serving it, so a production build run on a laptop cannot repoint
+  production's channel at another database. A platform runtime marker counts
+  (`NETLIFY`, `VERCEL`, `K_SERVICE`, `AWS_LAMBDA_FUNCTION_NAME` and the like, plus
+  Netlify's per-deploy `DEPLOY_PRIME_URL` / `DEPLOY_URL`); `NODE_ENV` and the
+  generic `URL` deliberately do not, because both travel with a copied `.env`.
+
+  A self-hosted container or VM has no such marker and declares its origin
+  instead, with `AGENT_NATIVE_REALTIME_APP_URL`. That value wins over the resolved
+  self URL when set. Without either, registration declines and logs why.
+
+- 8b393d4: Route chat health outage alerts to Slack instead of the in-app notification inbox.
+- 08aa90d: Allow OAuth state to carry a signed provider-resource target for reconnect flows.
+- d75ca12: Add `splitAgentChatContextFromMessage`, the inverse of `appendAgentChatContextToMessage`, so a consumer can tell the user's prompt apart from the context an app attached to it.
+- c9aa273: Keep ambient composer context chips stable when their label changes.
+- b9fd516: Sync generated action field guidance across workspace and template scaffolds.
+- 65abfdd: Redirect Builder employees to beta instantly from the cached browser marker, without waiting on a session round trip.
+- Updated dependencies
+- Updated dependencies [0566ce9]
+  - @agent-native/recap-cli@0.5.24
+  - @agent-native/toolkit@0.19.2
+
 ## 0.176.3
 
 ### Patch Changes
@@ -1999,24 +2242,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 0d81f46: Keep the core tool-schema seam regression test formatted with the current source formatter.
 - 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
-
-## 0.161.20
-
-### Patch Changes
-
-- 814f0ad: Allow explicitly configured public ingestion routes to complete cross-origin preflight requests without enabling credentialed CORS.
-- c54d918: `useSemanticNavigationState` no longer reports an unserializable navigation state
-  once per render. The write-dedup token fell back to a fresh symbol, and
-  `navigationKeys` is typically a new array each render, so every re-render issued
-  another failing write and another `onError`. It now falls back to the state's own
-  identity, which still lets a genuinely different unserializable state reach the
-  write path and surface its real error.
-
-## 0.161.19
-
-### Patch Changes
-
-- efc5f92: Improve the self-hosting documentation with a fast local Docker quickstart and downloadable Chat fixture.
-- 9fed363: Teach generated workspaces to reuse shared settings, vault, OAuth, and onboarding primitives before building custom integration setup UI.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

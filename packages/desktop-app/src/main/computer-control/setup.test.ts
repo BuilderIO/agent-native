@@ -14,6 +14,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     openExternal: vi.fn(async () => {}),
     extensionPath: vi.fn(() => "/bundled/chrome-extension"),
     pathExists: vi.fn(() => true),
+    prepareBrowserSetup: vi.fn(async () => {}),
     revealExtensionFolder: vi.fn(async () => {}),
     openChromeExtensions: vi.fn(),
     restart: vi.fn(),
@@ -57,6 +58,7 @@ describe("computer access setup", () => {
     expect(deps.pathExists).toHaveBeenCalledWith(
       "/bundled/chrome-extension/manifest.json",
     );
+    expect(deps.prepareBrowserSetup).toHaveBeenCalledOnce();
     expect(deps.revealExtensionFolder).toHaveBeenCalledWith(
       "/bundled/chrome-extension",
     );
@@ -72,6 +74,22 @@ describe("computer access setup", () => {
       ok: false,
       error: "Chrome extension bundle is missing.",
     });
+    expect(deps.openChromeExtensions).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when browser preparation fails", async () => {
+    const deps = dependencies({
+      prepareBrowserSetup: vi.fn(async () => {
+        throw new Error("Chrome native host installation failed.");
+      }),
+    });
+    const result = await runComputerSetupAction("open-chrome-setup", deps);
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: "Chrome native host installation failed.",
+    });
+    expect(deps.revealExtensionFolder).not.toHaveBeenCalled();
     expect(deps.openChromeExtensions).not.toHaveBeenCalled();
   });
 

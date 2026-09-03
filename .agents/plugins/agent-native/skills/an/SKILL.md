@@ -42,10 +42,10 @@ localhost URL, or route around the Dispatch grant.
 ## Work in Slides
 
 Prefer direct app tools when the host exposes them. After opening an app, call
-`list-host-webmcp-tools` when available, then use `run-host-webmcp-tool` with
-the exact listed name and origin. Page-local tools reflect current app state
-and selection, so use `view-screen` before selection-dependent edits and read
-back writes.
+`list-host-webmcp-tools` when available, then use `run-host-webmcp-tool`
+with the exact listed name and origin. Page-local tools reflect current app
+state and selection, so use `view-screen` before selection-dependent edits
+and read back writes.
 
 Use `ask_app` only when the host has no direct page tools, the requested
 capability is not exposed, the task needs the app agent's interpretation or
@@ -54,7 +54,7 @@ Dispatch's unified `/mcp` endpoint still exposes generic cross-app verbs; a
 direct app MCP connection or page WebMCP surface is where named app actions
 appear.
 
-Every Slides edit request, whether direct or delegated, must:
+Every Slides edit request must tell the app agent to:
 
 1. Call `view-screen` before editing when the current deck, slide, layout,
    or selection is relevant.

@@ -1,7 +1,7 @@
 ---
-title: "Agentes Externos: Claude, ChatGPT, Codex, Cursor, Cowork"
-description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork ou qualquer host compatível com MCP a um aplicativo nativo de agente hospedado e, em seguida, faça o retorno dos artefatos ao UI em execução com aplicativos MCP e links diretos."
-search: "Claude ChatGPT Claude Código Codex Cursor Claude Cowork MCP Aplicativos agente nativo conectar ferramentas de agente local agentes externos"
+title: "Agentes Externos: Claude, ChatGPT, Codex, Cursor, Cowork, Grok"
+description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok ou qualquer host compatível com MCP a um aplicativo nativo de agente hospedado e, em seguida, faça o retorno dos artefatos ao UI em execução com aplicativos MCP e links diretos."
+search: "Claude Anthropic ChatGPT OpenAI Claude Código Codex Cursor Claude Cowork Grok xAI MCP Aplicativos agente nativo conectar ferramentas de agente local agentes externos"
 ---
 
 # Agentes Externos
@@ -99,9 +99,11 @@ Cada aplicativo Agent-Native expõe uma URL MCP canônica:
 https://<your-app>.agent-native.com/mcp
 ```
 
-No aplicativo, abra **Settings**, pesquise **MCP** e copie a **MCP server URL**. Cole essa
-URL no host de IA que você deseja usar. A URL é a URL base do aplicativo implantado seguida de `/mcp`;
-você não precisa procurar uma configuração de desenvolvedor.
+No aplicativo, abra **Settings → Integrations** e pesquise pelo nome de host que
+você já conhece: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
+Codex, Grok ou xAI. O único resultado de host externo abre **Settings → MCP**
+com o guia mais adequado selecionado. Copie a **MCP server URL** e cole-a no
+host de IA. A URL é a URL base do aplicativo implantado seguida de `/mcp`.
 
 Para trabalho em espaço de trabalho ou entre aplicativos, use Dispatch:
 
@@ -123,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 Todo aplicativo hospedado também tem uma página auxiliar em
 `https://&lt;app&gt;/mcp/connect` com o URL copiável e
-guias específicas do host para Claude, ChatGPT, Cursor, Código Claude, Codex e Outros.
+guias específicas do host para Claude, ChatGPT, Cursor, Claude Code, Codex, Grok e Outros.
 
 <a id="access-tab"></a>
 

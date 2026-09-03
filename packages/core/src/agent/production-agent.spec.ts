@@ -3546,6 +3546,174 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(1);
   });
 
+  it("honors a classified Retry-After wait longer than the fixed backoff", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError("Too many requests", {
+            errorCode: "http_429",
+            statusCode: 429,
+            retryAfterMs: 5_000,
+          });
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // The fixed exponential backoff for attempt 0 (~2.2s incl. jitter) is
+      // well under the classified 5s Retry-After — the retry must not have
+      // fired yet at 2.5s.
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(streamCalls).toBe(1);
+
+      // Past the 5s Retry-After, the retry fires.
+      await vi.advanceTimersByTimeAsync(2_600);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
+  });
+
+  it("does not retry when the classified Retry-After alone exceeds the remaining run budget", async () => {
+    vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "15000");
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        throw new EngineError("Too many requests", {
+          errorCode: "http_429",
+          statusCode: 429,
+          // The fixed backoff alone (~2.2s) would fit a 15s budget; only the
+          // 12s Retry-After pushes the estimate past what's left, and the
+          // wait must not be silently truncated to fit.
+          retryAfterMs: 12_000,
+        });
+      },
+    };
+
+    try {
+      await expect(
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow("Too many requests");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(streamCalls).toBe(1);
+  });
+
+  it("keeps the plain exponential backoff when no Retry-After was classified", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError("Connection error.", {
+            errorCode: "provider_network_error",
+          });
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Below the ~1.8s-2.2s backoff window (2s base ± 10% jitter): no retry yet.
+      await vi.advanceTimersByTimeAsync(1_700);
+      expect(streamCalls).toBe(1);
+
+      // Comfortably past the max of that window.
+      await vi.advanceTimersByTimeAsync(1_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
+  });
+
   // End-to-end shape of the Analytics outage: the gateway answered 200, emitted
   // its unhandled-500 envelope in-stream, and the turn ended on the first
   // attempt — 14 turns, every one at exactly 1.00 runs/turn. The envelope now

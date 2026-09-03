@@ -436,7 +436,11 @@ function EditToolPopover({
         </TooltipTrigger>
         <TooltipContent>Edit</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" sideOffset={6} className="w-[420px] p-3">
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="relative w-[420px] p-3"
+      >
         <p className="px-1 pb-2 text-sm font-semibold text-foreground">
           Edit extension
         </p>

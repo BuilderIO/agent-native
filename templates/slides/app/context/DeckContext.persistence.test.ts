@@ -1625,6 +1625,107 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(deckId)?.slides).toEqual([]);
   });
 
+  it("clears omitted deck metadata before an immediate replacement flush and reload", async () => {
+    window.history.pushState({}, "", "/deck/restore-deck");
+    const initial = {
+      id: "restore-deck",
+      title: "Imported",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      aspectRatio: "4:3",
+      designSystemId: "brand-1",
+      tweaks: { titleCase: true },
+      starred: true,
+      sourceImport: { mode: "source-preserving", format: "pptx" },
+      slides: [
+        { id: "slide-1", content: "<h1>Old</h1>", notes: "", layout: "title" },
+      ],
+    } as Deck;
+    const { fetchMock, resolveDeferredPut, setAccessibleDeck } = setupFetch({
+      deferredPut: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let flushPromise: Promise<void> | undefined;
+    act(() => {
+      result.current.setDeckSlides(
+        initial.id,
+        [
+          {
+            id: "slide-2",
+            content: "<h1>Restored</h1>",
+            notes: "",
+            layout: "content",
+          },
+        ],
+        {
+          deckFields: {
+            title: "Restored",
+            aspectRatio: "16:9",
+            designSystemId: null,
+          },
+          clearDeckFields: [
+            "aspectRatio",
+            "designSystemId",
+            "tweaks",
+            "starred",
+            "sourceImport",
+          ],
+          persistence: "immediate",
+          forcePersistence: true,
+        },
+      );
+      flushPromise = result.current.flushDeckSave(initial.id);
+    });
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          requestString(url).includes("/_agent-native/actions/save-deck") &&
+          actionCallBody(init).deckId === initial.id,
+      );
+      expect(putCall).toBeTruthy();
+    });
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === initial.id,
+    );
+    const savedDeck = actionCallBody(putCall?.[1]).deck as Record<
+      string,
+      unknown
+    >;
+    expect(savedDeck.aspectRatio).toBe("16:9");
+    expect(savedDeck.designSystemId).toBeNull();
+    expect(savedDeck).not.toHaveProperty("tweaks");
+    expect(savedDeck).not.toHaveProperty("starred");
+    expect(savedDeck).not.toHaveProperty("sourceImport");
+    expect(result.current.getDeck(initial.id)).not.toHaveProperty(
+      "sourceImport",
+    );
+
+    resolveDeferredPut();
+    await act(async () => {
+      await flushPromise;
+    });
+
+    setAccessibleDeck({
+      ...initial,
+      ...savedDeck,
+      designSystemId: null,
+    } as unknown as Deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(result.current.getDeck(initial.id)?.designSystemId).toBeNull();
+  });
+
   it("persists immediate edits queued after a generated slide replacement", async () => {
     window.history.pushState({}, "", "/");
     const { fetchMock, resolveCreate } = setupFetch();

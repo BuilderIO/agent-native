@@ -110,7 +110,6 @@ type RenamedFileResult = {
 export default defineAction({
   description:
     "Atomically rename one Design screen and rewrite exact data-screen links in every HTML screen.",
-  agentTool: false,
   schema: z
     .object({
       id: z.string().min(1).max(256).describe("design_files.id to rename"),

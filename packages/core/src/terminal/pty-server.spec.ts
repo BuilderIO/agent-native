@@ -400,8 +400,11 @@ describe("createPtyWebSocketServer", () => {
   });
 
   it("passes the active app context to each PTY session setup", async () => {
+    const sessionCwd = mkdtempSync(path.join(os.tmpdir(), "agent-terminal-"));
+    tempDirs.push(sessionCwd);
     const onClose = vi.fn();
     const getSessionSetup = vi.fn(() => ({
+      cwd: sessionCwd,
       commandArgs: ["--from-session-setup"],
       environment: { SESSION_CONTEXT: "mail" },
       onClose,
@@ -424,6 +427,7 @@ describe("createPtyWebSocketServer", () => {
       expect.any(String),
       ["--from-session-setup"],
       expect.objectContaining({
+        cwd: sessionCwd,
         env: expect.objectContaining({ SESSION_CONTEXT: "mail" }),
       }),
     );

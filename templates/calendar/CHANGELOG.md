@@ -3,10 +3,29 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-09-01
+## 2026-09-03
 
 ### Improved
 
+- Calendar now supports reliable batch event updates and booking cancellations.
+- The agent now asks for your approval before it deletes events in bulk, emails your guests about a cancellation or change, or moves an event to another calendar.
+
+## 2026-09-02
+
+### Improved
+
+- Creating an event with guests now uses Save while still sending invitations
+- Updated the booking-link OG preview image with the new monochrome logo and dark background.
+
+## 2026-09-01
+
+### Added
+
+- Calendars shared with your connected Google accounts can now appear alongside your primary calendars.
+
+### Improved
+
+- Calendar keeps the learn-more link clear of the language control on every screen size.
 - Signed-in coworkers now see their own calendar conflicts and booking details are prefilled.
 
 ## 2026-08-31
@@ -210,6 +229,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Secondary controls and dashboard surfaces now use quieter borderless styling.
 - Sidebar utility controls now follow a consistent footer order.
 
+## 2026-07-23
+
+### Improved
+
+- Booking links now derive an overlay-listed host's time zone from their general calendar settings when they haven't set explicit working hours
+
 ## 2026-07-22
 
 ### Improved
@@ -219,6 +244,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Calendar views now render, navigate, and create events in the timezone selected in Calendar settings.
+
+## 2026-07-21
+
+### Added
+
+- Group booking links can now enforce a peer's real working hours and time zone when they're in your calendar overlay, with an optional multi-time-zone grid on the public booking page.
 
 ## 2026-07-20
 

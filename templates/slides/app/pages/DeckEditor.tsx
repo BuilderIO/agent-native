@@ -92,6 +92,7 @@ import {
   type CommentThread,
 } from "@/hooks/use-slide-comments";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
+import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
   deckAccessCheckKey,
   shouldShowDeckEditorSkeleton,
@@ -121,10 +122,10 @@ import {
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
   getSlideClipboardStorageKey,
-  normalizeSlideClipboard,
-  readSlideClipboard,
-  resolveSlideClipboardForPaste,
-  writeSlideClipboard,
+  normalizeSlideClipboards,
+  readSlideClipboards,
+  resolveSlideClipboardsForPaste,
+  writeSlideClipboards,
 } from "@/lib/slide-clipboard";
 import {
   applyOptimisticImagePreview,
@@ -193,15 +194,34 @@ export function isSourceImportedDeck(deck: Deck | null | undefined): boolean {
     return false;
   }
   const metadata = sourceImport as {
+    editableSnapshot?: unknown;
     mode?: unknown;
     format?: unknown;
     slides?: unknown;
   };
   return (
+    metadata.editableSnapshot !== true &&
     metadata.mode === "source-preserving" &&
     (metadata.format === "pdf" || metadata.format === "pptx") &&
     Array.isArray(metadata.slides)
   );
+}
+
+export function getAltDragPlacement(
+  slides: readonly Pick<Slide, "id">[],
+  activeSlideId: string,
+  overSlideId: string,
+  copyAfterSlideId = activeSlideId,
+): { afterSlideId: string; beforeSlideId?: string } | null {
+  const activeIndex = slides.findIndex((slide) => slide.id === activeSlideId);
+  const overIndex = slides.findIndex((slide) => slide.id === overSlideId);
+  if (activeIndex === -1 || overIndex === -1) return null;
+  if (activeIndex === overIndex) return { afterSlideId: copyAfterSlideId };
+  if (activeIndex < overIndex) return { afterSlideId: overSlideId };
+  return {
+    afterSlideId: slides[overIndex - 1]?.id ?? overSlideId,
+    beforeSlideId: overSlideId,
+  };
 }
 
 export function syncSlideContentSnapshots(
@@ -244,6 +264,7 @@ export default function DeckEditor() {
     addSlide,
     flushDeckSave,
     reorderSlides,
+    setDeckSlides,
     undo,
     loading,
     loadError,
@@ -370,6 +391,9 @@ export default function DeckEditor() {
     useState<HTMLDivElement | null>(null);
   const [wideContextToolbarSlot, setWideContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
+  const [layersPanelSlot, setLayersPanelSlot] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [accessRequestSentDeckId, setAccessRequestSentDeckId] = useState<
     string | null
@@ -887,10 +911,51 @@ export default function DeckEditor() {
     (event: DragEndEvent) => {
       if (!deck || !id || sourceImportedDeck) return;
       const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      reorderSlides(id, String(active.id), String(over.id), selectedSlideIds);
+      if (!over) return;
+
+      const activeSlideId = String(active.id);
+      const overSlideId = String(over.id);
+      const isAltDrag = Boolean((event.activatorEvent as MouseEvent).altKey);
+      if (isAltDrag) {
+        const slidesToCopy = selectedSlideIds.includes(activeSlideId)
+          ? deck.slides.filter((slide) => selectedSlideIds.includes(slide.id))
+          : deck.slides.filter((slide) => slide.id === activeSlideId);
+        if (slidesToCopy.length === 0) return;
+
+        const placement = getAltDragPlacement(
+          deck.slides,
+          activeSlideId,
+          overSlideId,
+          slidesToCopy[slidesToCopy.length - 1]?.id,
+        );
+        if (!placement) return;
+        const newIds = pasteSlides(
+          id,
+          placement.afterSlideId,
+          slidesToCopy.map(({ id: _slideId, ...fields }) => fields),
+          placement.beforeSlideId
+            ? { beforeSlideId: placement.beforeSlideId }
+            : undefined,
+        );
+        if (newIds.length > 0) {
+          selectionAnchorSlideIdRef.current = newIds[0] ?? null;
+          setSelectedSlideIds(newIds);
+          setActiveSlideId(newIds[newIds.length - 1] ?? null);
+        }
+        return;
+      }
+
+      if (active.id === over.id) return;
+      reorderSlides(id, activeSlideId, overSlideId, selectedSlideIds);
     },
-    [deck, id, reorderSlides, selectedSlideIds, sourceImportedDeck],
+    [
+      deck,
+      id,
+      pasteSlides,
+      reorderSlides,
+      selectedSlideIds,
+      sourceImportedDeck,
+    ],
   );
 
   const handleSlideSelection = useCallback(
@@ -1222,6 +1287,11 @@ export default function DeckEditor() {
       toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
+        closeButton: true,
+        classNames: {
+          closeButton:
+            "!static !order-1 !size-6 !transform-none !rounded-md !border-0 !bg-transparent !p-0 !text-muted-foreground hover:!bg-muted",
+        },
         action: {
           label: "Undo",
           onClick: () => undo(),
@@ -1345,68 +1415,11 @@ export default function DeckEditor() {
       document.removeEventListener("keydown", handleItalicShortcut, true);
   }, []);
 
-  // Delete key deletes the current slide
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!deck || !id || !activeSlideId) return;
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      // Don't intercept while the user is in an annotation mode (pin / draw)
-      // — they are clearly composing, not navigating slides.
-      if (pinMode || drawMode) return;
-      // Bail if the focused element OR the event target is editable, lives
-      // inside the agent sidebar, lives inside a pin popover, or is a slide
-      // element selection. Walking ancestors instead of relying on tagName
-      // alone catches Tiptap (contenteditable), portaled popovers, and
-      // shadcn wrappers that re-route focus.
-      const isInsideSafeZone = (el: Element | null) => {
-        if (!el) return false;
-        if (el instanceof HTMLInputElement) return true;
-        if (el instanceof HTMLTextAreaElement) return true;
-        if (el instanceof HTMLElement) {
-          if (el.isContentEditable) return true;
-          if (el.closest("[contenteditable='true']")) return true;
-          if (el.closest("input, textarea, [role='textbox']")) return true;
-          if (el.closest("[data-pin-popover]")) return true;
-          if (el.closest(".agent-panel-root")) return true;
-        }
-        return false;
-      };
-      const target = e.target as Element | null;
-      if (isInsideSafeZone(target)) return;
-      if (isInsideSafeZone(document.activeElement)) return;
-      // Belt-and-suspenders: if a pin composer is mounted anywhere, the user
-      // is in mid-comment. The textarea has autoFocus but autoFocus isn't
-      // instantaneous, so the first keystroke can land on the canvas before
-      // focus moves — without this check, Backspace would delete the slide
-      // the user is trying to comment on.
-      if (document.querySelector("[data-pin-popover]")) return;
-      // Skip if the SlideEditor reports an element is selected (image, text
-      // block, or builder-id selector). Slide-level delete is reserved for
-      // when the canvas itself has focus.
-      if (document.querySelector("[data-slide-element-selected='true']"))
-        return;
-      deleteSlideIds(
-        selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId],
-      );
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [
-    deck,
-    id,
-    activeSlideId,
-    deleteSlideIds,
-    selectedSlideIds,
-    pinMode,
-    drawMode,
-  ]);
-
   // Slide-level clipboard backing both the Cmd+C/Cmd+V shortcut below and the
-  // rail's right-click Cut/Copy/Paste menu. Holds a full slide snapshot
-  // (rather than just an id) so paste still works after Cut has already
-  // removed the original slide from the deck.
-  const slideClipboardRef = useRef<Slide | null>(null);
+  // rail's right-click Cut/Copy/Paste menu. Holds full slide snapshots
+  // (rather than just ids) so multi-slide paste works across tabs and paste
+  // still works after Cut has already removed the original slides from the
+  // deck.
   const slideClipboardSlidesRef = useRef<Slide[] | null>(null);
   const slideClipboardScopeRef = useRef<string | null>(null);
   const slideClipboardPersistenceFailedRef = useRef(false);
@@ -1424,34 +1437,34 @@ export default function DeckEditor() {
   const syncSlideClipboard = useCallback(() => {
     if (!slideClipboardStorageKey) {
       if (
-        slideClipboardRef.current !== null &&
+        slideClipboardSlidesRef.current !== null &&
         slideClipboardScopeRef.current === null
       ) {
         setHasSlideClipboard(true);
-        return slideClipboardRef.current;
+        return slideClipboardSlidesRef.current;
       }
-      slideClipboardRef.current = null;
+      slideClipboardSlidesRef.current = null;
       slideClipboardScopeRef.current = null;
       slideClipboardPersistenceFailedRef.current = false;
       slideClipboardArmedAtRef.current = null;
       setHasSlideClipboard(false);
       return null;
     }
-    const result = readSlideClipboard(slideClipboardStorageKey);
-    const cachedSlide = slideClipboardRef.current;
+    const result = readSlideClipboards(slideClipboardStorageKey);
+    const cachedSlides = slideClipboardSlidesRef.current;
     const cachedCopiedAt = slideClipboardArmedAtRef.current;
     const isPendingSessionClipboard =
-      cachedSlide !== null && slideClipboardScopeRef.current === null;
-    const slide = resolveSlideClipboardForPaste(
+      cachedSlides !== null && slideClipboardScopeRef.current === null;
+    const slides = resolveSlideClipboardsForPaste(
       result,
-      cachedSlide,
+      cachedSlides,
       slideClipboardScopeRef.current,
       slideClipboardStorageKey,
       cachedCopiedAt,
       slideClipboardPersistenceFailedRef.current,
     );
-    const usedCachedClipboard = slide !== null && slide === cachedSlide;
-    slideClipboardRef.current = slide;
+    const usedCachedClipboard = slides !== null && slides === cachedSlides;
+    slideClipboardSlidesRef.current = slides;
     slideClipboardScopeRef.current = slideClipboardStorageKey;
     slideClipboardArmedAtRef.current = usedCachedClipboard
       ? cachedCopiedAt
@@ -1461,18 +1474,19 @@ export default function DeckEditor() {
     if (
       isPendingSessionClipboard &&
       usedCachedClipboard &&
-      cachedCopiedAt !== null
+      cachedCopiedAt !== null &&
+      slides !== null
     ) {
-      slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+      slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
         slideClipboardStorageKey,
-        slide,
+        slides,
         cachedCopiedAt,
       );
     } else if (!usedCachedClipboard) {
       slideClipboardPersistenceFailedRef.current = false;
     }
-    setHasSlideClipboard(slide !== null);
-    return slide;
+    setHasSlideClipboard(slides !== null);
+    return slides;
   }, [slideClipboardStorageKey]);
 
   useEffect(() => {
@@ -1485,19 +1499,19 @@ export default function DeckEditor() {
     return () => window.removeEventListener("storage", handleStorage);
   }, [slideClipboardStorageKey, syncSlideClipboard]);
 
-  const saveSlideToClipboard = useCallback(
-    (slide: Slide) => {
+  const saveSlidesToClipboard = useCallback(
+    (slides: Slide[]) => {
       const copiedAt = Date.now();
-      const snapshot = normalizeSlideClipboard(slide);
-      if (!snapshot) return;
-      slideClipboardRef.current = snapshot;
+      const snapshots = normalizeSlideClipboards(slides);
+      if (!snapshots) return;
+      slideClipboardSlidesRef.current = snapshots;
       slideClipboardScopeRef.current = slideClipboardStorageKey;
       slideClipboardArmedAtRef.current = copiedAt;
       setHasSlideClipboard(true);
       if (slideClipboardStorageKey) {
-        slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+        slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
           slideClipboardStorageKey,
-          snapshot,
+          snapshots,
           copiedAt,
         );
       } else {
@@ -1512,14 +1526,9 @@ export default function DeckEditor() {
       const selected = new Set(slideIds);
       const slides = deck?.slides.filter((slide) => selected.has(slide.id));
       if (!slides?.length) return;
-      slideClipboardSlidesRef.current = slides.length > 1 ? slides : null;
-      if (slides.length === 1) saveSlideToClipboard(slides[0]);
-      else {
-        slideClipboardArmedAtRef.current = Date.now();
-        setHasSlideClipboard(true);
-      }
+      saveSlidesToClipboard(slides);
     },
-    [deck, saveSlideToClipboard],
+    [deck, saveSlidesToClipboard],
   );
 
   const cutSlides = useCallback(
@@ -1527,19 +1536,14 @@ export default function DeckEditor() {
       if (!deck || !id || sourceImportedDeck) return;
       const slides = selectedSlideIdsForAction(slideIds);
       if (!slides.length || slides.length >= deck.slides.length) return;
-      slideClipboardSlidesRef.current = slides;
-      if (slides.length === 1) saveSlideToClipboard(slides[0]);
-      else {
-        slideClipboardArmedAtRef.current = Date.now();
-        setHasSlideClipboard(true);
-      }
+      saveSlidesToClipboard(slides);
       deleteSlideIds(slideIds);
     },
     [
       deck,
       deleteSlideIds,
       id,
-      saveSlideToClipboard,
+      saveSlidesToClipboard,
       selectedSlideIdsForAction,
       sourceImportedDeck,
     ],
@@ -1548,12 +1552,7 @@ export default function DeckEditor() {
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
       if (!id || sourceImportedDeck) return;
-      const clipboard =
-        slideClipboardSlidesRef.current ??
-        (() => {
-          const slide = syncSlideClipboard();
-          return slide ? [slide] : null;
-        })();
+      const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();
       if (!clipboard) return;
       const newIds = pasteSlides(
         id,
@@ -1642,8 +1641,11 @@ export default function DeckEditor() {
       if (!deck || !id || !canEdit) return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "c" && key !== "v") return;
+      if (key !== "c" && key !== "v" && key !== "d") return;
       if (pinMode || drawMode) return;
+      if (!document.activeElement?.closest("[data-slide-thumbnail-id]")) {
+        return;
+      }
 
       // A live browser text selection (e.g. the user triple-clicked rendered,
       // non-editable slide copy) means Cmd/Ctrl+C is a normal text copy —
@@ -1705,9 +1707,19 @@ export default function DeckEditor() {
 
       if (key === "c") {
         if (!activeSlideId) return;
+        e.preventDefault();
+        e.stopPropagation();
         copySlides(
           selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId],
         );
+        return;
+      }
+
+      if (key === "d") {
+        if (!activeSlideId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleDuplicateSlideFromRail([activeSlideId]);
         return;
       }
 
@@ -1717,6 +1729,8 @@ export default function DeckEditor() {
         !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
       )
         return;
+      e.preventDefault();
+      e.stopPropagation();
       if (slidePasteFallbackRef.current !== null) {
         window.clearTimeout(slidePasteFallbackRef.current);
       }
@@ -1733,6 +1747,7 @@ export default function DeckEditor() {
     canEdit,
     activeSlideId,
     copySlides,
+    handleDuplicateSlideFromRail,
     hasSlideClipboard,
     pasteSlideAfter,
     selectedSlideIds,
@@ -2040,6 +2055,54 @@ export default function DeckEditor() {
     );
   }
 
+  const handleDownloadDeckBackup = () => {
+    inlineEditFlushRef.current?.();
+    const backupDeck: Deck = {
+      ...deck,
+      slides: deck.slides.map((slide) => {
+        const content = latestSlideContentRef.current.get(slide.id);
+        return content === undefined ? slide : { ...slide, content };
+      }),
+    };
+    try {
+      downloadDeckBackup(backupDeck);
+      toast.success(t("editorToolbar.backupDownloaded"));
+    } catch (error) {
+      console.error("[slides] deck backup download failed:", error);
+      toast.error(t("editorToolbar.backupDownloadFailed"));
+    }
+  };
+
+  const handleImportDeckBackup = async (file: File) => {
+    const backup = parseDeckBackup(await file.text());
+    setDeckSlides(id, backup.deck.slides, {
+      deckFields: {
+        title: backup.deck.title,
+        ...(backup.deck.aspectRatio !== undefined
+          ? { aspectRatio: backup.deck.aspectRatio }
+          : {}),
+        designSystemId: backup.deck.designSystemId ?? null,
+        ...(backup.deck.tweaks !== undefined
+          ? { tweaks: backup.deck.tweaks }
+          : {}),
+        ...(backup.deck.starred !== undefined
+          ? { starred: backup.deck.starred }
+          : {}),
+      },
+      clearDeckFields: [
+        "aspectRatio",
+        "designSystemId",
+        "tweaks",
+        "starred",
+        "sourceImport",
+      ],
+      persistence: "immediate",
+      forcePersistence: true,
+    });
+    await flushDeckSave(id);
+    return { slideCount: backup.deck.slides.length };
+  };
+
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
@@ -2184,6 +2247,7 @@ export default function DeckEditor() {
         deckTitle={deck.title}
         canEdit={canEdit}
         canComment={canComment}
+        sourceImported={sourceImportedDeck}
         onTitleChange={(title) => updateDeck(id, { title })}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
         sidebarOpen={sidebarOpen}
@@ -2204,6 +2268,8 @@ export default function DeckEditor() {
         }
         addSlideGenerating={addSlideGenerating}
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
+        onDownloadBackup={handleDownloadDeckBackup}
+        onImportDeckBackup={handleImportDeckBackup}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
@@ -2245,27 +2311,14 @@ export default function DeckEditor() {
           if (optimistic) void navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
-          try {
-            // Whole slides, not just ids: the exporter embeds this source in
-            // the PDF so re-importing it restores editable slides rather than
-            // a picture of them.
-            const exportSlides = deck.slides;
-            if (exportSlides.length === 0) {
-              toast.error(t("deckEditor.exportFailed"), {
-                description: t("deckEditor.deckHasNoSlides"),
-              });
-              return;
-            }
-            await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio);
-          } catch (err) {
-            console.error("[pdf-export] failed:", err);
-            toast.error(t("deckEditor.exportFailed"), {
-              description:
-                err instanceof Error
-                  ? err.message
-                  : t("deckEditor.pdfRenderFailed"),
-            });
+          // Whole slides, not just ids: the exporter embeds this source in
+          // the PDF so re-importing it restores editable slides rather than
+          // a picture of them.
+          const exportSlides = deck.slides;
+          if (exportSlides.length === 0) {
+            throw new Error(t("deckEditor.deckHasNoSlides"));
           }
+          await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio);
         }}
         onExportPptx={async () => {
           const slides = deck.slides.map((s) => ({
@@ -2445,6 +2498,7 @@ export default function DeckEditor() {
             comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
+            layersPanelSlot={layersPanelSlot}
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
@@ -2583,6 +2637,12 @@ export default function DeckEditor() {
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}
+
+        <div
+          ref={setLayersPanelSlot}
+          data-layers-panel-host="true"
+          className="flex h-full shrink-0"
+        />
 
         {commentsOpen && (
           <SlideCommentsPanel

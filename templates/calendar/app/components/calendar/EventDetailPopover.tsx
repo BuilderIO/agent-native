@@ -501,11 +501,17 @@ export function EventDetailPopover({
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const isMobile = useIsMobile();
   const eventTimezone = timezone || event.startTimeZone || getLocalTimezone();
+  const isReadOnlySource =
+    !!event.overlayEmail ||
+    event.calendarPrimary === false ||
+    event.calendarReadOnly === true;
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
-    defaultOpen ? getEditableEventTitle(event) : "",
+    defaultOpen && !isReadOnlySource ? getEditableEventTitle(event) : "",
   );
-  const [isEditingTitle, setIsEditingTitle] = useState(defaultOpen);
+  const [isEditingTitle, setIsEditingTitle] = useState(
+    defaultOpen && !isReadOnlySource,
+  );
   const isNewEventRef = useRef(defaultOpen);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const popoverTokenRef = useRef<symbol | null>(null);
@@ -570,13 +576,13 @@ export function EventDetailPopover({
     string | null
   >(() => getStoredZoomAfterConnectEventId());
   const [showConferencingOptions, setShowConferencingOptions] = useState(false);
-  const isOverlay = !!event.overlayEmail;
+  const isOverlay = isReadOnlySource;
   const ownerLabel = event.ownerName || event.overlayEmail;
 
   const updateEvent = useUpdateEvent();
   const masterEventId =
     open && event.recurringEventId ? `google-${event.recurringEventId}` : "";
-  const masterEvent = useEvent(masterEventId);
+  const masterEvent = useEvent(masterEventId, event.calendarSourceKey);
   const recurrenceRules =
     event.recurrence && event.recurrence.length > 0
       ? event.recurrence
@@ -1810,7 +1816,7 @@ export function EventDetailPopover({
           <div ref={detailsScrollRef} className="flex-1 overflow-y-auto">
             <div className="px-2 py-2">
               {/* Title — always editable */}
-              {isEditingTitle && !isWorkingLocation ? (
+              {isEditingTitle && !isWorkingLocation && !isOverlay ? (
                 <input
                   ref={titleInputRef}
                   value={editingTitle}
@@ -2738,6 +2744,26 @@ export function EventDetailPopover({
               </>
             )}
 
+            {(event.calendarPrimary === false || event.calendarReadOnly) &&
+              event.calendarName &&
+              !event.overlayEmail && (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="flex items-center gap-2 px-4 py-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="ml-1 size-2 shrink-0 rounded-full ring-1 ring-border"
+                      style={{ backgroundColor: event.color }}
+                    />
+                    <span className="truncate text-muted-foreground">
+                      {t("eventForm.viewingOwnerCalendar", {
+                        owner: `${event.calendarName} · ${event.accountEmail ?? "Google"}`,
+                      })}
+                    </span>
+                  </div>
+                </>
+              )}
+
             {/* Bottom padding */}
             <div className="h-3" />
           </div>
@@ -2783,7 +2809,7 @@ export function EventDetailPopover({
                   onClick={handleCreateDraft}
                 >
                   {event.attendees?.length
-                    ? t("eventForm.createAndSend")
+                    ? t("eventForm.save")
                     : t("eventForm.createEvent")}
                 </Button>
               )}

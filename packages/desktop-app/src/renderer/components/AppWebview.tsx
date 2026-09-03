@@ -1531,7 +1531,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         const details = event as WebviewIpcMessageEvent;
         if (details.channel !== "agent-native:chat-command") return;
         const eventName = resolveGuestChatCommand(details.args?.[0]);
-        if (eventName) window.dispatchEvent(new Event(eventName));
+        const focus =
+          (details.args?.[1] as { focus?: unknown } | undefined)?.focus ===
+          true;
+        if (eventName) {
+          window.dispatchEvent(
+            focus
+              ? new CustomEvent(eventName, { detail: { focus: true } })
+              : new Event(eventName),
+          );
+        }
       };
 
       const onEnterFullscreen = () => setIsFullscreen(true);

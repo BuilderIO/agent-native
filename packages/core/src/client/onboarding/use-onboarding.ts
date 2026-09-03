@@ -258,11 +258,22 @@ export function useOnboarding(
     } catch (e) {
       const message =
         e instanceof Error ? e.message : "first-run completion request failed";
+      trackEvent("onboarding_failed", {
+        flow: "first_run",
+        stage: "complete",
+        reason: "network_error",
+      });
       setCompleteFirstRunError(message);
       throw e instanceof Error ? e : new Error(message);
     }
     if (!response.ok) {
       const message = `first-run completion failed: ${response.status}`;
+      trackEvent("onboarding_failed", {
+        flow: "first_run",
+        stage: "complete",
+        reason: "http_error",
+        status_code: response.status,
+      });
       setCompleteFirstRunError(message);
       throw new Error(message);
     }

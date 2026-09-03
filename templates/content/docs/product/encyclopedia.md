@@ -9,11 +9,11 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 - Chapters: 6
 - Features: 32
 - Named increments: 1
-- Capabilities: 124
+- Capabilities: 125
 
 | Capability state | Count |
 | ---------------- | ----: |
-| Verified         |     3 |
+| Verified         |     4 |
 | Failing          |     1 |
 | Stale            |     0 |
 | In Progress      |    18 |
@@ -137,6 +137,7 @@ graph LR
   family_object --> family_knowledge
   family_object --> family_layout
   family_object --> family_navigation
+  family_object --> family_portability
   family_object --> family_relationship
   family_object --> family_research
   family_object --> family_source
@@ -146,6 +147,7 @@ graph LR
   family_portability --> family_security
   family_portability --> family_source
   family_property --> family_form
+  family_property --> family_portability
   family_property --> family_relationship
   family_property --> family_renderer
   family_property --> family_time
@@ -186,6 +188,7 @@ graph LR
   family_time --> family_view
   family_version --> family_publish
   family_version --> family_research
+  family_view --> family_portability
   family_view --> family_renderer
   family_view --> family_share
   family_view --> family_system
@@ -374,12 +377,13 @@ graph LR
 
 ## Portability
 
-| Capability                                                                                  | State          | User promise                                                                                                                                  |
-| ------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| [PDF export](capabilities/content.portability.pdf-export.md)                                | In Progress    | Create a readable PDF of an authorized Content representation without confusing it with the editable or lossless export.                      |
-| [Faithful round-tripping](capabilities/content.portability.roundtrip.md)                    | Approved Shape | Content preserves provider-owned meaning it cannot safely render or edit, so a supported change never silently destroys the rest of the work. |
-| [Portable Source representation](capabilities/content.portability.source-representation.md) | Approved Shape | Connected and local material has a portable Content representation without pretending Content owns every original.                            |
-| [Portable vault export](capabilities/content.portability.vault-export.md)                   | Approved Shape | Take the authorized Content vault away in open files plus a lossless archive instead of remaining dependent on one service.                   |
+| Capability                                                                                  | State          | User promise                                                                                                                                    |
+| ------------------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Bounded collection export](capabilities/content.portability.collection-export.md)          | Verified       | Export the authorized records in one Database or View to a readable file without changing what the View means or implying a whole-vault backup. |
+| [PDF export](capabilities/content.portability.pdf-export.md)                                | In Progress    | Create a readable PDF of an authorized Content representation without confusing it with the editable or lossless export.                        |
+| [Faithful round-tripping](capabilities/content.portability.roundtrip.md)                    | Approved Shape | Content preserves provider-owned meaning it cannot safely render or edit, so a supported change never silently destroys the rest of the work.   |
+| [Portable Source representation](capabilities/content.portability.source-representation.md) | Approved Shape | Connected and local material has a portable Content representation without pretending Content owns every original.                              |
+| [Portable vault export](capabilities/content.portability.vault-export.md)                   | Approved Shape | Take the authorized Content vault away in open files plus a lossless archive instead of remaining dependent on one service.                     |
 
 ## Presentation
 

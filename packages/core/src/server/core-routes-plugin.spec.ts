@@ -806,14 +806,17 @@ describe("resolveAvatarEmailParam", () => {
 
 describe("runDbHealthProbe", () => {
   it("reports db:true when SELECT 1 succeeds", async () => {
-    let ran: string | undefined;
+    // Captures every statement, not just the last one: `db:true` also
+    // triggers the identity read on this same exec (see the "database
+    // identity" describe block below), so more than one call is expected.
+    const queries: unknown[] = [];
     const result = await runDbHealthProbe(() => ({
-      execute: async (sql: string) => {
-        ran = sql;
+      execute: async (sql: unknown) => {
+        queries.push(sql);
         return { rows: [], rowsAffected: 0 };
       },
     }));
-    expect(ran).toBe("SELECT 1");
+    expect(queries[0]).toBe("SELECT 1");
     expect(result.ok).toBe(true);
     expect(result.db).toBe(true);
     expect(result.ms).toBeGreaterThanOrEqual(0);
@@ -853,14 +856,22 @@ describe("runDbHealthProbe", () => {
   });
 
   it("omits pressure unless asked, so the warm cron pays nothing for it", async () => {
-    const ran: string[] = [];
+    const queries: unknown[] = [];
     const result = await runDbHealthProbe(() => ({
-      execute: async (sql: string) => {
-        ran.push(sql);
+      execute: async (sql: unknown) => {
+        queries.push(sql);
         return { rows: [], rowsAffected: 0 };
       },
     }));
-    expect(ran).toEqual(["SELECT 1"]);
+    // The one query pressure would add, not counting the identity read that
+    // every db:true probe now makes on this same connection.
+    expect(queries).toEqual([
+      "SELECT 1",
+      {
+        sql: "SELECT value FROM settings WHERE key = ?",
+        args: ["framework.database_identity"],
+      },
+    ]);
     expect(result.pressure).toBeUndefined();
   });
 
@@ -869,17 +880,23 @@ describe("runDbHealthProbe", () => {
   // the monitor must not read unmeasured as healthy. The measured path is
   // covered in db-pressure.spec.ts.
   it("reports pressure as unmeasured on a dialect that cannot answer", async () => {
-    const ran: string[] = [];
+    const queries: unknown[] = [];
     const result = await runDbHealthProbe(
       () => ({
-        execute: async (sql: string) => {
-          ran.push(sql);
+        execute: async (sql: unknown) => {
+          queries.push(sql);
           return { rows: [], rowsAffected: 0 };
         },
       }),
       { pressure: true },
     );
-    expect(ran).toEqual(["SELECT 1"]);
+    expect(queries).toEqual([
+      "SELECT 1",
+      {
+        sql: "SELECT value FROM settings WHERE key = ?",
+        args: ["framework.database_identity"],
+      },
+    ]);
     expect(result.pressure).toEqual({
       measured: false,
       reason: "dialect sqlite has no pg_stat_activity",
@@ -902,5 +919,112 @@ describe("runDbHealthProbe", () => {
       measured: false,
       reason: "database unreachable",
     });
+  });
+});
+
+describe("runDbHealthProbe: database identity", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const settingsRowExec = (row: Record<string, unknown> | null) => () => ({
+    execute: async (sql: unknown) => {
+      if (sql === "SELECT 1") return { rows: [], rowsAffected: 0 };
+      return {
+        rows: row ? [{ value: JSON.stringify(row) }] : [],
+        rowsAffected: 0,
+      };
+    },
+  });
+
+  it("omits identity entirely when the database is unreachable", async () => {
+    const result = await runDbHealthProbe(() => ({
+      execute: async () => {
+        throw new Error("connection refused");
+      },
+    }));
+    expect(result.database.identity).toBeUndefined();
+    expect(result.database.identityMismatch).toBeUndefined();
+  });
+
+  it("reports unrecorded when db is healthy but nothing has been written yet", async () => {
+    const result = await runDbHealthProbe(settingsRowExec(null));
+    expect(result.database.identity).toEqual({ state: "unrecorded" });
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("reports no mismatch when the recorded app matches the running app", async () => {
+    vi.stubEnv("APP_ID", "chat");
+    const result = await runDbHealthProbe(
+      settingsRowExec({ app: "chat", recordedAt: "2026-08-19T00:00:00.000Z" }),
+    );
+    expect(result.database.identity).toEqual({
+      state: "recorded",
+      app: "chat",
+      recordedAt: "2026-08-19T00:00:00.000Z",
+    });
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  // The exact incident this exists to catch: a database recorded for one app
+  // while a different app is actually running against it.
+  it("reports a mismatch when the recorded app differs from the running app", async () => {
+    vi.stubEnv("APP_ID", "chat");
+    const result = await runDbHealthProbe(
+      settingsRowExec({
+        app: "factory",
+        recordedAt: "2026-08-19T00:00:00.000Z",
+      }),
+    );
+    expect(result.database.identity).toMatchObject({
+      state: "recorded",
+      app: "factory",
+    });
+    expect(result.database.identityMismatch).toBe(true);
+  });
+
+  // The first crm production promotion failed on exactly this: the release
+  // migration recorded "crm" while the hosted bundle could not derive any
+  // identity for itself. An unknown runtime identity is a gap to report, not a
+  // mismatch to block on.
+  it("does not claim a mismatch when the runtime cannot derive its own app identity", async () => {
+    vi.stubEnv("APP_ID", "");
+    const result = await runDbHealthProbe(
+      settingsRowExec({ app: "crm", recordedAt: "2026-09-03T17:29:04.800Z" }),
+    );
+    expect(result.database.identity).toMatchObject({
+      state: "recorded",
+      app: "crm",
+    });
+    expect(result.database.runningApp).toBeNull();
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("reports unreadable, not unrecorded, for a malformed stored value", async () => {
+    const result = await runDbHealthProbe(settingsRowExec({ app: 42 }));
+    expect(result.database.identity?.state).toBe("unreadable");
+    // Only "recorded" can prove a mismatch — a check that failed proves nothing.
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("times out the identity read instead of hanging the probe", async () => {
+    vi.useFakeTimers();
+    try {
+      const probe = runDbHealthProbe(() => ({
+        execute: async (sql: unknown) => {
+          if (sql === "SELECT 1") return { rows: [], rowsAffected: 0 };
+          return new Promise(() => {}); // never settles
+        },
+      }));
+      await vi.advanceTimersByTimeAsync(6_000);
+      const result = await probe;
+      expect(result.db).toBe(true);
+      // A hung read is its own state, not "unrecorded" — the exact coercion
+      // this file already bans for `dbTimedOut` above, applied here too.
+      expect(result.database.identity).toEqual({ state: "timeout" });
+      expect(result.database.identityMismatch).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

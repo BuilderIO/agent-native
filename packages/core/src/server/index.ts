@@ -528,12 +528,15 @@ export {
   isAllowedOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
   oauthDesktopExchangePage,
   type OAuthStatePayload,
+  type OAuthStateDecodeFailureReason,
+  type DecodeOAuthStateResult,
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
@@ -585,11 +588,18 @@ export {
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
+  resolveBuilderRequestAuthorization,
+  type BuilderLegacyCredentialKey,
+  type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
-export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
+export {
+  BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_OAUTH_SCOPE,
+} from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,

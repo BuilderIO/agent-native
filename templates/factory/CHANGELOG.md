@@ -3,6 +3,26 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-02
+
+### Improved
+
+- PR babysitting no longer fills an inbox item with the same “needs attention” line every few minutes. After it asks once, it steps out of the review queue until new human review feedback or a real merge conflict shows up.
+
+### Fixed
+
+- Factory automations stay listed, savable, runnable, and on schedule after a scheduler run updates their status.
+- PR babysitting now asks Builder when a reviewer leaves body-only feedback, not only inline comments.
+- PR babysitting no longer reopens a parked pull request when the author replies on an existing review thread.
+- PR babysitting now reopens a parked pull request for a new reviewer body, and for a later merge conflict after an earlier one was cleared.
+
+## 2026-09-01
+
+### Fixed
+
+- Deleting a factory now removes its automations, their run history, and polling cursors so leftover jobs cannot keep running.
+- PR babysitting posts one ask to Builder and does not poke again when GitHub finishes mergeability or the bot pushes a commit.
+
 ## 2026-08-31
 
 ### Improved
