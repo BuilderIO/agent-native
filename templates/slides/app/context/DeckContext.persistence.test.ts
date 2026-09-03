@@ -1625,7 +1625,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(deckId)?.slides).toEqual([]);
   });
 
-  it("clears omitted deck metadata before an immediate replacement flush", async () => {
+  it("clears omitted deck metadata before an immediate replacement flush and reload", async () => {
     window.history.pushState({}, "", "/deck/restore-deck");
     const initial = {
       id: "restore-deck",
@@ -1665,7 +1665,11 @@ describe("DeckContext deck creation persistence", () => {
           },
         ],
         {
-          deckFields: { title: "Restored", aspectRatio: "16:9" },
+          deckFields: {
+            title: "Restored",
+            aspectRatio: "16:9",
+            designSystemId: null,
+          },
           clearDeckFields: [
             "aspectRatio",
             "designSystemId",
@@ -1698,7 +1702,7 @@ describe("DeckContext deck creation persistence", () => {
       unknown
     >;
     expect(savedDeck.aspectRatio).toBe("16:9");
-    expect(savedDeck).not.toHaveProperty("designSystemId");
+    expect(savedDeck.designSystemId).toBeNull();
     expect(savedDeck).not.toHaveProperty("tweaks");
     expect(savedDeck).not.toHaveProperty("starred");
     expect(savedDeck).not.toHaveProperty("sourceImport");
@@ -1710,6 +1714,16 @@ describe("DeckContext deck creation persistence", () => {
     await act(async () => {
       await flushPromise;
     });
+
+    setAccessibleDeck({
+      ...initial,
+      ...savedDeck,
+      designSystemId: null,
+    } as unknown as Deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    expect(result.current.getDeck(initial.id)?.designSystemId).toBeNull();
   });
 
   it("persists immediate edits queued after a generated slide replacement", async () => {

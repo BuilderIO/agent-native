@@ -2087,9 +2087,7 @@ export default function DeckEditor() {
         ...(backup.deck.aspectRatio !== undefined
           ? { aspectRatio: backup.deck.aspectRatio }
           : {}),
-        ...(backup.deck.designSystemId !== undefined
-          ? { designSystemId: backup.deck.designSystemId }
-          : {}),
+        designSystemId: backup.deck.designSystemId ?? null,
         ...(backup.deck.tweaks !== undefined
           ? { tweaks: backup.deck.tweaks }
           : {}),

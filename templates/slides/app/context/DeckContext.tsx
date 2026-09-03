@@ -191,11 +191,8 @@ export interface Deck {
 
 export interface SetDeckSlidesOptions {
   deckFields?: Partial<
-    Pick<
-      Deck,
-      "title" | "aspectRatio" | "designSystemId" | "tweaks" | "starred"
-    >
-  >;
+    Pick<Deck, "title" | "aspectRatio" | "tweaks" | "starred">
+  > & { designSystemId?: string | null };
   clearDeckFields?: readonly ClearableDeckField[];
   persistence?: "debounced" | "immediate";
   forcePersistence?: boolean;
