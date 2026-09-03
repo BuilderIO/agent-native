@@ -25,6 +25,7 @@ export const SHARED_CALENDAR_DEMO_STATUS: GoogleAuthStatus = {
 export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   {
     sourceKey: "demo:builder-primary",
+    canonicalKey: "demo:builder-primary",
     accountEmail: "alice@builder.io",
     calendarId: "alice@builder.io",
     name: "Alice · Builder",
@@ -36,6 +37,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   },
   {
     sourceKey: "demo:personal-primary",
+    canonicalKey: "demo:personal-primary",
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     name: "Alice Alexandra",
@@ -47,6 +49,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   },
   {
     sourceKey: "demo:friends",
+    canonicalKey: "demo:friends",
     accountEmail: "emdistal@gmail.com",
     calendarId: "friends@example.com",
     name: "Friends",
@@ -58,6 +61,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   },
   {
     sourceKey: "demo:tempo-primary",
+    canonicalKey: "demo:tempo-primary",
     accountEmail: "tempoimmaterial@gmail.com",
     calendarId: "tempoimmaterial@gmail.com",
     name: "Tempo Immaterial",
@@ -69,6 +73,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   },
   {
     sourceKey: "demo:studio",
+    canonicalKey: "demo:studio",
     accountEmail: "tempoimmaterial@gmail.com",
     calendarId: "studio@example.com",
     name: "Studio schedule",
@@ -174,6 +179,7 @@ function demoEvent(
   return {
     ...event,
     calendarSourceKey: source?.sourceKey ?? "",
+    canonicalKey: source?.canonicalKey,
     calendarPrimary: source?.primary,
     description: "",
     location: "",

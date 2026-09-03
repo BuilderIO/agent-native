@@ -3,7 +3,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -13,7 +12,6 @@ import {
   isValidCalendarColor,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
-import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 
 const hexColor = z
   .string()
@@ -57,18 +55,24 @@ export default defineAction({
         .describe(
           "Map of connected Google Calendar account email to hex color, for setting multiple accounts at once",
         ),
-      googleCalendarSourceKey: z
+      googleCalendarPreferenceKey: z
         .string()
         .min(1)
         .optional()
         .describe(
-          "Opaque sourceKey returned by list-google-calendars whose Agent-Native visibility should change",
+          "Opaque canonicalKey returned by list-google-calendars whose local display preferences should change",
         ),
       googleCalendarVisible: z
         .boolean()
         .optional()
         .describe(
           "Whether the Google calendar source should appear in Agent-Native; does not change Google Calendar selection",
+        ),
+      googleCalendarColor: hexColor
+        .nullable()
+        .optional()
+        .describe(
+          "Local display color for the Google calendar, or null to resume its provider color",
         ),
       hideWeekends: z
         .boolean()
@@ -87,24 +91,31 @@ export default defineAction({
     .refine(
       (args) =>
         args.googleCalendarVisible === undefined ||
-        !!args.googleCalendarSourceKey,
+        !!args.googleCalendarPreferenceKey,
       {
         message:
-          "googleCalendarVisible requires googleCalendarSourceKey to be set",
-        path: ["googleCalendarSourceKey"],
+          "googleCalendarVisible requires googleCalendarPreferenceKey to be set",
+        path: ["googleCalendarPreferenceKey"],
+      },
+    )
+    .refine(
+      (args) =>
+        args.googleCalendarColor === undefined ||
+        !!args.googleCalendarPreferenceKey,
+      {
+        message:
+          "googleCalendarColor requires googleCalendarPreferenceKey to be set",
+        path: ["googleCalendarPreferenceKey"],
       },
     ),
-  run: async (args, ctx) => {
-    if (args.googleCalendarSourceKey) {
-      if (!(await isFeatureFlagEnabled(SHARED_GOOGLE_CALENDARS, ctx))) {
-        throw new Error("Shared Google calendars is not enabled");
-      }
+  run: async (args) => {
+    if (args.googleCalendarPreferenceKey) {
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) throw new Error("no authenticated user");
       const sourceResult = await listGoogleCalendars(ownerEmail);
       if (
         !sourceResult.calendars.some(
-          (source) => source.sourceKey === args.googleCalendarSourceKey,
+          (source) => source.canonicalKey === args.googleCalendarPreferenceKey,
         )
       ) {
         throw new Error("Unknown Google calendar source");
@@ -149,14 +160,29 @@ export default defineAction({
         accountColorModes,
         googleCalendarVisibility: {
           ...current.googleCalendarVisibility,
-          ...(args.googleCalendarSourceKey &&
+          ...(args.googleCalendarPreferenceKey &&
           args.googleCalendarVisible !== undefined
             ? {
-                [args.googleCalendarSourceKey]: args.googleCalendarVisible,
+                [args.googleCalendarPreferenceKey]: args.googleCalendarVisible,
+              }
+            : {}),
+        },
+        googleCalendarColors: {
+          ...current.googleCalendarColors,
+          ...(args.googleCalendarPreferenceKey && args.googleCalendarColor
+            ? {
+                [args.googleCalendarPreferenceKey]: args.googleCalendarColor,
               }
             : {}),
         },
       });
+
+      if (
+        args.googleCalendarPreferenceKey &&
+        args.googleCalendarColor === null
+      ) {
+        delete next.googleCalendarColors[args.googleCalendarPreferenceKey];
+      }
 
       await writeAppState(
         CALENDAR_VIEW_PREFERENCES_KEY,

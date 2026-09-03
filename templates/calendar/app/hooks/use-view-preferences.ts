@@ -1,6 +1,17 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  createContext,
+  createElement,
+  useState,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
 
 import {
   CALENDAR_COLOR_MODE_KEY,
@@ -16,6 +27,27 @@ import {
 import { isSharedCalendarDemo } from "@/lib/shared-calendar-demo";
 
 export type ViewPreferences = CalendarViewPreferences;
+
+interface ViewPreferencesContextValue {
+  prefs: ViewPreferences;
+  update: (patch: Partial<ViewPreferences>) => void;
+  updateAccountColor: (accountEmail: string, accountColor: string) => void;
+  updateAccountColorMode: (
+    accountEmail: string,
+    accountColorMode: CalendarColorMode,
+  ) => void;
+  updateGoogleCalendarVisibility: (
+    preferenceKey: string,
+    visible: boolean,
+  ) => void;
+  updateGoogleCalendarColor: (
+    preferenceKey: string,
+    color: string | null,
+  ) => void;
+}
+
+const ViewPreferencesContext =
+  createContext<ViewPreferencesContextValue | null>(null);
 
 const PENDING_ACCOUNT_COLORS_KEY = `${CALENDAR_VIEW_PREFERENCES_KEY}:pending-account-colors`;
 const PENDING_ACCOUNT_COLORS_TTL_MS = 30_000;
@@ -129,12 +161,17 @@ async function readAppStatePreferences(): Promise<CalendarViewPreferences | null
   return normalizeCalendarViewPreferences(await res.json());
 }
 
-export function useViewPreferences() {
+function useViewPreferencesState(): ViewPreferencesContextValue {
+  const t = useT();
   const demo = isSharedCalendarDemo();
   const [prefs, setPrefs] = useState<ViewPreferences>(load);
   const accountColorRequestIds = useRef<Record<string, number>>({});
   const accountModeRequestIds = useRef<Record<string, number>>({});
   const pendingAccountColors = useRef<Record<string, string>>({});
+  const visibilityRequestIds = useRef<Record<string, number>>({});
+  const pendingVisibility = useRef<Record<string, boolean>>({});
+  const colorRequestIds = useRef<Record<string, number>>({});
+  const pendingGoogleColors = useRef<Record<string, string | null>>({});
 
   useEffect(() => {
     function handle() {
@@ -171,10 +208,22 @@ export function useViewPreferences() {
               ...(pendingPreferences?.colors ?? {}),
               ...pendingAccountColors.current,
             };
-            const next =
-              Object.keys(pendingColors).length > 0
-                ? normalizeCalendarViewPreferences({
-                    ...remote,
+            const next = normalizeCalendarViewPreferences({
+              ...remote,
+              googleCalendarVisibility: {
+                ...remote.googleCalendarVisibility,
+                ...pendingVisibility.current,
+              },
+              googleCalendarColors: {
+                ...remote.googleCalendarColors,
+                ...Object.fromEntries(
+                  Object.entries(pendingGoogleColors.current).filter(
+                    (entry): entry is [string, string] => entry[1] !== null,
+                  ),
+                ),
+              },
+              ...(Object.keys(pendingColors).length > 0
+                ? {
                     accountColorModes: {
                       ...remote.accountColorModes,
                       ...Object.fromEntries(
@@ -188,8 +237,15 @@ export function useViewPreferences() {
                       ...remote.accountColors,
                       ...pendingColors,
                     },
-                  })
-                : remote;
+                  }
+                : {}),
+            });
+
+            for (const [key, color] of Object.entries(
+              pendingGoogleColors.current,
+            )) {
+              if (color === null) delete next.googleCalendarColors[key];
+            }
 
             if (calendarViewPreferencesEqual(current, next)) return current;
             save(next);
@@ -427,42 +483,118 @@ export function useViewPreferences() {
   );
 
   const updateGoogleCalendarVisibility = useCallback(
-    (sourceKey: string, visible: boolean) => {
-      const rollbackPrefs = prefs;
-      const next = normalizeCalendarViewPreferences({
-        ...prefs,
-        googleCalendarVisibility: {
-          ...prefs.googleCalendarVisibility,
-          [sourceKey]: visible,
-        },
+    (preferenceKey: string, visible: boolean) => {
+      const requestId = (visibilityRequestIds.current[preferenceKey] ?? 0) + 1;
+      visibilityRequestIds.current[preferenceKey] = requestId;
+      pendingVisibility.current[preferenceKey] = visible;
+      let rollbackValue: boolean | undefined;
+      setPrefs((current) => {
+        rollbackValue = current.googleCalendarVisibility[preferenceKey];
+        const next = normalizeCalendarViewPreferences({
+          ...current,
+          googleCalendarVisibility: {
+            ...current.googleCalendarVisibility,
+            [preferenceKey]: visible,
+          },
+        });
+        save(next);
+        return next;
       });
-      setPrefs(next);
-      save(next);
-      window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
 
       if (demo) return;
 
       callAction("update-calendar-visual-preferences", {
-        googleCalendarSourceKey: sourceKey,
+        googleCalendarPreferenceKey: preferenceKey,
         googleCalendarVisible: visible,
-      }).catch(() => {
-        setPrefs((current) => {
-          if (current.googleCalendarVisibility[sourceKey] !== visible) {
-            return current;
+      })
+        .then(() => {
+          if (visibilityRequestIds.current[preferenceKey] === requestId) {
+            delete pendingVisibility.current[preferenceKey];
           }
-          const next = normalizeCalendarViewPreferences({
-            ...current,
-            googleCalendarVisibility: rollbackPrefs.googleCalendarVisibility,
+        })
+        .catch(() => {
+          if (visibilityRequestIds.current[preferenceKey] !== requestId) return;
+          delete pendingVisibility.current[preferenceKey];
+          setPrefs((current) => {
+            if (current.googleCalendarVisibility[preferenceKey] !== visible) {
+              return current;
+            }
+            const googleCalendarVisibility = {
+              ...current.googleCalendarVisibility,
+            };
+            if (rollbackValue === undefined) {
+              delete googleCalendarVisibility[preferenceKey];
+            } else {
+              googleCalendarVisibility[preferenceKey] = rollbackValue;
+            }
+            const next = normalizeCalendarViewPreferences({
+              ...current,
+              googleCalendarVisibility,
+            });
+            save(next);
+            return next;
           });
-          save(next);
-          window.dispatchEvent(
-            new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
-          );
-          return next;
+          toast.error(`${t("settings.saveFailed")}. ${t("common.tryAgain")}`);
         });
-      });
     },
-    [demo, prefs],
+    [demo, t],
+  );
+
+  const updateGoogleCalendarColor = useCallback(
+    (preferenceKey: string, color: string | null) => {
+      const requestId = (colorRequestIds.current[preferenceKey] ?? 0) + 1;
+      colorRequestIds.current[preferenceKey] = requestId;
+      pendingGoogleColors.current[preferenceKey] = color;
+      let rollbackValue: string | undefined;
+      setPrefs((current) => {
+        rollbackValue = current.googleCalendarColors[preferenceKey];
+        const googleCalendarColors = { ...current.googleCalendarColors };
+        if (color) googleCalendarColors[preferenceKey] = color;
+        else delete googleCalendarColors[preferenceKey];
+        const next = normalizeCalendarViewPreferences({
+          ...current,
+          googleCalendarColors,
+        });
+        save(next);
+        return next;
+      });
+
+      if (demo) return;
+
+      callAction("update-calendar-visual-preferences", {
+        googleCalendarPreferenceKey: preferenceKey,
+        googleCalendarColor: color,
+      })
+        .then(() => {
+          if (colorRequestIds.current[preferenceKey] === requestId) {
+            delete pendingGoogleColors.current[preferenceKey];
+          }
+        })
+        .catch(() => {
+          if (colorRequestIds.current[preferenceKey] !== requestId) return;
+          delete pendingGoogleColors.current[preferenceKey];
+          setPrefs((current) => {
+            const currentValue = current.googleCalendarColors[preferenceKey];
+            if (currentValue !== color && !(color === null && !currentValue)) {
+              return current;
+            }
+            const googleCalendarColors = { ...current.googleCalendarColors };
+            if (rollbackValue) {
+              googleCalendarColors[preferenceKey] = rollbackValue;
+            } else {
+              delete googleCalendarColors[preferenceKey];
+            }
+            const next = normalizeCalendarViewPreferences({
+              ...current,
+              googleCalendarColors,
+            });
+            save(next);
+            return next;
+          });
+          toast.error(`${t("settings.saveFailed")}. ${t("common.tryAgain")}`);
+        });
+    },
+    [demo, t],
   );
 
   return {
@@ -471,5 +603,19 @@ export function useViewPreferences() {
     updateAccountColor,
     updateAccountColorMode,
     updateGoogleCalendarVisibility,
+    updateGoogleCalendarColor,
   };
+}
+
+export function ViewPreferencesProvider({ children }: { children: ReactNode }) {
+  const value = useViewPreferencesState();
+  return createElement(ViewPreferencesContext.Provider, { value }, children);
+}
+
+export function useViewPreferences(): ViewPreferencesContextValue {
+  const value = useContext(ViewPreferencesContext);
+  if (!value) {
+    throw new Error("useViewPreferences requires ViewPreferencesProvider");
+  }
+  return value;
 }

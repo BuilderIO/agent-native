@@ -2,11 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const listGoogleCalendarsMock = vi.hoisted(() => vi.fn());
-const isFeatureFlagEnabledMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: isFeatureFlagEnabledMock,
-}));
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
@@ -22,7 +17,6 @@ describe("list-google-calendars action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getRequestUserEmailMock.mockReturnValue("owner@example.com");
-    isFeatureFlagEnabledMock.mockResolvedValue(true);
   });
 
   it("discovers sources for the authenticated owner", async () => {
@@ -40,15 +34,6 @@ describe("list-google-calendars action", () => {
 
     await expect((action as any).run({})).rejects.toThrow(
       "no authenticated user",
-    );
-    expect(listGoogleCalendarsMock).not.toHaveBeenCalled();
-  });
-
-  it("refuses discovery while the feature is disabled", async () => {
-    isFeatureFlagEnabledMock.mockResolvedValue(false);
-
-    await expect((action as any).run({}, {})).rejects.toThrow(
-      "Shared Google calendars is not enabled",
     );
     expect(listGoogleCalendarsMock).not.toHaveBeenCalled();
   });

@@ -29,6 +29,7 @@ export interface CalendarColorPreferences {
   singleColor?: string;
   accountColorModes?: Record<CalendarColorSourceKey, CalendarColorMode>;
   accountColors?: Record<CalendarColorSourceKey, string>;
+  googleCalendarColors?: Record<string, string>;
 }
 
 // ─── Free email providers (skip internal/external when user is on one) ───────
@@ -138,6 +139,11 @@ export function getEventDisplayColor(
   }
 
   if (event.source === "google" && !event.overlayEmail && preferences) {
+    const sourceColor = event.canonicalKey
+      ? preferences.googleCalendarColors?.[event.canonicalKey]
+      : undefined;
+    if (sourceColor) return sourceColor;
+
     const accountKey = event.accountEmail;
     const accountMode = accountKey
       ? preferences.accountColorModes?.[accountKey]

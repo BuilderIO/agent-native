@@ -17,8 +17,8 @@ describe("Calendar mini-calendar navigation", () => {
   it("groups non-primary Google calendars under their connected account", () => {
     const source = sidebarSource();
 
-    expect(source).toContain("function SharedGoogleCalendarsGroup");
-    expect(source).toContain("!calendar.primary");
+    expect(source).toContain("function GoogleCalendarsSections");
+    expect(source).toContain('calendar.accessRole !== "owner"');
     expect(source).toContain("calendar.accountEmail");
     expect(source).toContain("updateGoogleCalendarVisibility");
   });
