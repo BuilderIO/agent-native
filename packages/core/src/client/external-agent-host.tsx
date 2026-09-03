@@ -1,12 +1,6 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import { IconMessageCircle } from "@tabler/icons-react";
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { getFrameOrigin } from "./frame.js";
 import { useT } from "./i18n.js";
@@ -192,7 +186,9 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   ).filter((element) => !element.hasAttribute("aria-hidden"));
 }
 
-export function isExternalAgentNudgeSurfaceVisible(element: HTMLElement): boolean {
+export function isExternalAgentNudgeSurfaceVisible(
+  element: HTMLElement,
+): boolean {
   if (typeof window === "undefined") return false;
 
   let current: HTMLElement | null = element;
