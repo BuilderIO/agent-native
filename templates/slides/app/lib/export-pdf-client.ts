@@ -27,6 +27,23 @@ export function imageProxyUrl(src: string): string {
   return `${appBasePath()}/api/image-proxy?url=${encodeURIComponent(src)}`;
 }
 
+function throwIfExportAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("PDF export cancelled");
+  error.name = "AbortError";
+  throw signal.reason ?? error;
+}
+
+async function decodeImage(
+  image: HTMLImageElement,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfExportAborted(signal);
+  if (typeof image.decode !== "function") return;
+  await image.decode();
+  throwIfExportAborted(signal);
+}
+
 /**
  * Cross-origin <img> elements without an explicit `crossOrigin="anonymous"`
  * attribute taint the canvas when rasterized via <foreignObject>, producing
@@ -37,6 +54,7 @@ export function imageProxyUrl(src: string): string {
  */
 export async function preloadImagesWithCors(
   root: HTMLElement,
+  signal?: AbortSignal,
 ): Promise<() => void> {
   const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
   // The slide DOM is the live editor canvas. Anything rewritten here would
@@ -44,67 +62,86 @@ export async function preloadImagesWithCors(
   // every mutation is recorded and undone once the capture is done.
   const restores: Array<() => void> = [];
 
-  await Promise.all(
-    imgs.map(async (img) => {
-      const src = img.currentSrc || img.src;
-      if (!src || src.startsWith("data:") || src.startsWith("blob:")) return;
-      let isCrossOrigin = false;
-      try {
-        isCrossOrigin =
-          new URL(src, window.location.href).origin !== window.location.origin;
-      } catch {
-        isCrossOrigin = false;
-      }
-      if (!isCrossOrigin) return;
-
-      const originalCrossOrigin = img.getAttribute("crossorigin");
-      const originalSrc = img.getAttribute("src");
-      const restore = () => {
-        if (originalCrossOrigin === null) img.removeAttribute("crossorigin");
-        else img.setAttribute("crossorigin", originalCrossOrigin);
-        if (originalSrc === null) img.removeAttribute("src");
-        else img.setAttribute("src", originalSrc);
-      };
-
-      if (img.crossOrigin === "anonymous") {
-        // Already CORS-enabled; just make sure it's decoded.
-        try {
-          await img.decode();
+  try {
+    await Promise.all(
+      imgs.map(async (img) => {
+        throwIfExportAborted(signal);
+        const src = img.currentSrc || img.src;
+        if (!src) return;
+        if (src.startsWith("data:") || src.startsWith("blob:")) {
+          await decodeImage(img, signal);
           return;
-        } catch {
-          // coercion-ok: a failed direct load is the signal to try the proxy,
-          // and the proxy attempt below reports its own failure.
         }
-      } else {
+        let isCrossOrigin = false;
+        try {
+          isCrossOrigin =
+            new URL(src, window.location.href).origin !==
+            window.location.origin;
+        } catch {
+          isCrossOrigin = false;
+        }
+        if (!isCrossOrigin) {
+          await decodeImage(img, signal);
+          return;
+        }
+
+        const originalCrossOrigin = img.getAttribute("crossorigin");
+        const originalSrc = img.getAttribute("src");
+        const restore = () => {
+          if (originalCrossOrigin === null) img.removeAttribute("crossorigin");
+          else img.setAttribute("crossorigin", originalCrossOrigin);
+          if (originalSrc === null) img.removeAttribute("src");
+          else img.setAttribute("src", originalSrc);
+        };
+
+        if (img.crossOrigin === "anonymous") {
+          // Already CORS-enabled; just make sure it's decoded.
+          try {
+            await decodeImage(img, signal);
+            return;
+          } catch {
+            throwIfExportAborted(signal);
+            // coercion-ok: a failed direct load is the signal to try the proxy,
+            // and the proxy attempt below reports its own failure.
+          }
+        } else {
+          img.crossOrigin = "anonymous";
+          // Re-set src to retrigger the load with the new CORS attribute.
+          img.src = src;
+          restores.push(restore);
+          try {
+            await decodeImage(img, signal);
+            return;
+          } catch {
+            throwIfExportAborted(signal);
+            // coercion-ok: same as above — this is the CORS probe, not the
+            // final outcome.
+          }
+        }
+
+        // The host does not send Access-Control-Allow-Origin, and no client-side
+        // flag can override that. Re-serve the image from our own origin so the
+        // canvas stays clean instead of rasterizing a blank rect.
+        if (!restores.includes(restore)) restores.push(restore);
         img.crossOrigin = "anonymous";
-        // Re-set src to retrigger the load with the new CORS attribute.
-        img.src = src;
-        restores.push(restore);
+        img.src = imageProxyUrl(src);
         try {
-          await img.decode();
-          return;
-        } catch {
-          // coercion-ok: same as above — this is the CORS probe, not the
-          // final outcome.
+          await decodeImage(img, signal);
+        } catch (err) {
+          throwIfExportAborted(signal);
+          console.warn(
+            `[export-pdf] image could not be loaded for export: ${src}`,
+            err,
+          );
         }
-      }
+      }),
+    );
+  } catch (error) {
+    for (const restore of restores) restore();
+    throw error;
+  }
 
-      // The host does not send Access-Control-Allow-Origin, and no client-side
-      // flag can override that. Re-serve the image from our own origin so the
-      // canvas stays clean instead of rasterizing a blank rect.
-      if (!restores.includes(restore)) restores.push(restore);
-      img.crossOrigin = "anonymous";
-      img.src = imageProxyUrl(src);
-      try {
-        await img.decode();
-      } catch (err) {
-        console.warn(
-          `[export-pdf] image could not be loaded for export: ${src}`,
-          err,
-        );
-      }
-    }),
-  );
+  throwIfExportAborted(signal);
 
   return () => {
     for (const restore of restores) restore();
@@ -155,6 +192,54 @@ export type PdfExportSlide = {
   id: string;
   notes?: string;
 } & Partial<SlidesPdfSidecarSlide>;
+
+function exportStageHasPendingRenderers(stage: HTMLElement): boolean {
+  const pendingImages = Array.from(
+    stage.querySelectorAll<HTMLImageElement>("img"),
+  ).some((image) => !image.complete);
+  if (pendingImages) return true;
+
+  const pendingMermaid = Array.from(
+    stage.querySelectorAll<HTMLElement>("[data-mermaid-index]"),
+  ).some((node) => !node.querySelector("svg") && !node.textContent?.trim());
+  if (pendingMermaid) return true;
+
+  return stage.querySelector('[data-excalidraw-renderer="pending"]') !== null;
+}
+
+function waitForExportFrame(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    requestAnimationFrame(() => {
+      try {
+        throwIfExportAborted(signal);
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+async function waitForExportStage(
+  stage: HTMLElement,
+  signal?: AbortSignal,
+): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    throwIfExportAborted(signal);
+    if (!exportStageHasPendingRenderers(stage)) {
+      await waitForExportFrame(signal);
+      if (!exportStageHasPendingRenderers(stage)) {
+        await waitForExportFrame(signal);
+        if (!exportStageHasPendingRenderers(stage)) return;
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("PDF export renderers did not become ready");
+    }
+    await waitForExportFrame(signal);
+  }
+}
 
 /**
  * Base64 of the UTF-8 JSON, chunked: `String.fromCharCode(...bytes)` on a
@@ -235,6 +320,7 @@ function drawSelectableTextLayer(
 
   const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
   const range = document.createRange();
+  const exportStage = source.closest("[data-pdf-export-stage]");
   pdf.setTextColor(0, 0, 0);
 
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -244,7 +330,8 @@ function drawSelectableTextLayer(
     if (!parent) continue;
     // Bullet glyphs the importer marks decorative would otherwise be extracted
     // as content and re-imported as their own text runs.
-    if (parent.closest('[aria-hidden="true"]')) continue;
+    const hiddenAncestor = parent.closest('[aria-hidden="true"]');
+    if (hiddenAncestor && hiddenAncestor !== exportStage) continue;
 
     const style = window.getComputedStyle(parent);
     if (style.visibility === "hidden" || style.display === "none") continue;
@@ -403,6 +490,7 @@ export async function exportDeckAsPdf(
   deckTitle: string,
   slides: PdfExportSlide[],
   aspectRatio?: AspectRatio,
+  signal?: AbortSignal,
 ): Promise<void> {
   // modern-screenshot uses <foreignObject> SVG rendering, which delegates
   // text layout back to the browser. html2canvas / html2canvas-pro
@@ -410,10 +498,12 @@ export async function exportDeckAsPdf(
   // on negative letter-spacing (very visible on our 900-weight headings).
   // JPEG (vs PNG) keeps a typical 8-slide deck under ~10 MB instead of
   // ~100 MB — at 0.92 quality the difference is invisible on slide content.
+  throwIfExportAborted(signal);
   const [{ domToJpeg }, { jsPDF }] = await Promise.all([
     importExportModule(() => import("modern-screenshot")),
     importExportModule(() => import("jspdf")),
   ]);
+  throwIfExportAborted(signal);
 
   // Web fonts (Poppins) must finish loading before capture — otherwise
   // text lays out with fallback metrics and draws with the real font,
@@ -421,6 +511,7 @@ export async function exportDeckAsPdf(
   if (typeof document !== "undefined" && document.fonts?.ready) {
     await document.fonts.ready;
   }
+  throwIfExportAborted(signal);
 
   // Defensive fallback: getAspectRatioDims returns undefined for unknown
   // ratio strings (callers normally pass the validated Zod enum, but
@@ -439,7 +530,9 @@ export async function exportDeckAsPdf(
   const exportStage = document.querySelector<HTMLElement>(
     "[data-pdf-export-stage]",
   );
+  if (exportStage) await waitForExportStage(exportStage, signal);
   for (let i = 0; i < slides.length; i++) {
+    throwIfExportAborted(signal);
     const slideId = slides[i].id;
     const source = findSlideExportSource(
       slideId,
@@ -451,10 +544,15 @@ export async function exportDeckAsPdf(
     // Force CORS-enabled re-fetch on every cross-origin <img> before
     // capture — otherwise the canvas tainting check inside modern-screenshot
     // produces a blank rect for the image.
-    const restoreImages = await preloadImagesWithCors(source);
+    const restoreImages = await preloadImagesWithCors(source, signal);
+    if (exportStage) {
+      await waitForExportFrame(signal);
+      await waitForExportFrame(signal);
+    }
 
     let dataUrl: string;
     try {
+      throwIfExportAborted(signal);
       dataUrl = await domToJpeg(source, {
         width: dims.width,
         height: dims.height,
@@ -481,10 +579,12 @@ export async function exportDeckAsPdf(
           },
         },
       });
+      throwIfExportAborted(signal);
     } finally {
       restoreImages();
     }
 
+    throwIfExportAborted(signal);
     if (i > 0) pdf.addPage([dims.width, dims.height], orientation);
     pdf.addImage(dataUrl, "JPEG", 0, 0, dims.width, dims.height);
     drawSelectableTextLayer(pdf, source, dims);
@@ -515,11 +615,13 @@ export async function exportDeckAsPdf(
   });
   if (sidecar) pdf.addMetadata(sidecar, SLIDES_PDF_SIDECAR_NAMESPACE);
 
+  throwIfExportAborted(signal);
   const safeName = deckTitle.replace(/[^a-zA-Z0-9]/g, "-");
   // Explicit blob + anchor download: jsPDF's pdf.save() can be silently
   // blocked by some browsers when the call lands outside a direct user
   // gesture (e.g. after the async render loop above).
   const blob = pdf.output("blob");
+  throwIfExportAborted(signal);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

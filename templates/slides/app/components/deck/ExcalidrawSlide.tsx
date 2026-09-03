@@ -157,10 +157,11 @@ export function ExcalidrawThumbnail({ data }: { data: string }) {
     });
   }, [data]);
 
-  if (!svg) return null;
+  if (!svg) return <div data-excalidraw-renderer="pending" />;
 
   return (
     <div
+      data-excalidraw-renderer="ready"
       className="w-full h-full flex items-center justify-center [&_svg]:max-w-full [&_svg]:max-h-full"
       dangerouslySetInnerHTML={{ __html: svg }}
     />

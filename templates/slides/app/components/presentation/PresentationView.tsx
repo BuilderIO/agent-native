@@ -643,16 +643,18 @@ export default function PresentationView({
   useEffect(() => {
     if (!pdfExporting || !pdfExportTitle) return;
     let cancelled = false;
+    const abortController = new AbortController();
 
     const exportPdf = async () => {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-      });
-      if (cancelled) return;
-
       try {
-        await exportDeckAsPdf(pdfExportTitle, safeSlides, aspectRatio);
+        await exportDeckAsPdf(
+          pdfExportTitle,
+          safeSlides,
+          aspectRatio,
+          abortController.signal,
+        );
       } catch (error) {
+        if (cancelled || abortController.signal.aborted) return;
         console.error("[slides] shared PDF export failed:", error);
         toast.error(t("deckEditor.pdfRenderFailed"));
       } finally {
@@ -663,6 +665,7 @@ export default function PresentationView({
     void exportPdf();
     return () => {
       cancelled = true;
+      abortController.abort();
     };
   }, [aspectRatio, pdfExportTitle, pdfExporting, safeSlides, t]);
 
