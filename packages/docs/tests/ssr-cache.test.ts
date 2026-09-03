@@ -41,10 +41,18 @@ describe("Docs SSR cache key wrapper", () => {
     expect(headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
-  it("shortens only mutable community app routes", () => {
+  it("keeps mutable community app routes in the durable cache", () => {
     const communityHeaders = new Headers();
     applyCommunityAppSsrCacheHeaders(communityHeaders, "/es-es/apps/");
-    expect(communityHeaders.get("cache-control")).toContain("max-age=30");
+    expect(communityHeaders.get("cache-control")).toBe(
+      "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
+    expect(communityHeaders.get("cdn-cache-control")).toBe(
+      "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
+    expect(communityHeaders.get("netlify-cdn-cache-control")).toBe(
+      "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
 
     const staticHeaders = new Headers();
     applyCommunityAppSsrCacheHeaders(staticHeaders, "/docs/getting-started/");
