@@ -93,7 +93,7 @@ describe("injectBetaOptOutPersistence", () => {
     expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
   });
 
-  it("embeds no request-derived path in the inline redirect script", () => {
+  it("does not embed a request-derived path in the inline redirect script", () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
 
@@ -101,11 +101,12 @@ describe("injectBetaOptOutPersistence", () => {
       "<html><head></head><body>Sign in</body></html>",
     );
 
-    // The early redirect decides from the browser's own location and storage.
-    // Nothing from the request reaches this inline script, so the login shell
-    // has no injection surface to escape in the first place.
+    // The session probe uses the framework-root path and derives any workspace
+    // mount from the browser's location at runtime. Build-time configuration
+    // must not leak a request-derived path into this inline script.
     expect(html).toContain(SSR_BETA_REDIRECT_MARKER);
-    expect(html).not.toContain("_agent-native/auth/session");
+    expect(html).toContain("/_agent-native/auth/session");
+    expect(html).not.toContain("/dispatch/_agent-native/auth/session");
   });
 
   it("keeps the existing onboarding switcher instead of injecting a second one", () => {
