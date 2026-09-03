@@ -1,4 +1,7 @@
-import { resolveSsrCacheKeyHeaders } from "@agent-native/core/server/ssr-handler";
+import {
+  DEFAULT_SSR_CACHE_HEADERS,
+  resolveSsrCacheKeyHeaders,
+} from "@agent-native/core/server/ssr-handler";
 
 export const COMMUNITY_APP_SSR_CACHE_HEADERS = {
   "cache-control":
@@ -40,6 +43,14 @@ export function applyCommunityAppSsrCacheHeaders(
   status = 200,
 ): void {
   if (status >= 500 || !isMutableCommunityAppPath(pathname)) return;
+
+  if (
+    headers.has("cache-control") &&
+    headers.get("cache-control") !== DEFAULT_SSR_CACHE_HEADERS["cache-control"]
+  ) {
+    return;
+  }
+
   for (const [name, value] of Object.entries(COMMUNITY_APP_SSR_CACHE_HEADERS)) {
     headers.set(name, value);
   }

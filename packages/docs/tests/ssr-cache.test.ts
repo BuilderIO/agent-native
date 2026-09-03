@@ -59,6 +59,25 @@ describe("Docs SSR cache key wrapper", () => {
     expect(staticHeaders.get("cache-control")).toBeNull();
   });
 
+  it("preserves deployment-wide cache overrides on mutable community routes", () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "5m");
+    const durationHeaders = new Headers(resolveSsrCacheHeaders());
+    applyCommunityAppSsrCacheHeaders(durationHeaders, "/apps/");
+    expect(durationHeaders.get("cache-control")).toBe(
+      "public, max-age=300, stale-while-revalidate=300, stale-if-error=3600",
+    );
+    expect(durationHeaders.get("netlify-cdn-cache-control")).toBe(
+      "public, durable, s-maxage=300, stale-while-revalidate=300, stale-if-error=3600",
+    );
+
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
+    const disabledHeaders = new Headers(resolveSsrCacheHeaders());
+    applyCommunityAppSsrCacheHeaders(disabledHeaders, "/apps/community/foo/");
+    expect(disabledHeaders.get("cache-control")).toBe("no-store");
+    expect(disabledHeaders.get("cdn-cache-control")).toBe("no-store");
+    expect(disabledHeaders.get("netlify-cdn-cache-control")).toBe("no-store");
+  });
+
   it("keeps prerendered public pages on core's default SWR cache policy", () => {
     const coreHeaders = resolveSsrCacheHeaders({});
     const netlifyHeaders = renderNetlifyHeaders({});
