@@ -6838,6 +6838,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         dropMode: "absolute-container"
       };
     }
+    function clipsOverflow(value) {
+      return value === "hidden" || value === "clip" || value === "auto" || value === "scroll";
+    }
     function liftOverflowOnAncestors(els) {
       var captured = [];
       var seen = [];
@@ -6847,7 +6850,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var htmlEl = cursor;
           if (seen.indexOf(htmlEl) === -1) {
             var cs = window.getComputedStyle(htmlEl);
-            if (cs.overflow === "hidden" || cs.overflow === "clip" || cs.overflowX === "hidden" || cs.overflowX === "clip" || cs.overflowY === "hidden" || cs.overflowY === "clip") {
+            if (clipsOverflow(cs.overflow) || clipsOverflow(cs.overflowX) || clipsOverflow(cs.overflowY)) {
               captured.push({
                 el: htmlEl,
                 overflow: htmlEl.style.overflow,

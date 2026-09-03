@@ -9731,6 +9731,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function clipsOverflow(value: string) {
+    return (
+      value === "hidden" ||
+      value === "clip" ||
+      value === "auto" ||
+      value === "scroll"
+    );
+  }
+
   function liftOverflowOnAncestors(els: Element[]) {
     var captured: {
       el: HTMLElement;
@@ -9749,13 +9758,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var htmlEl = cursor as HTMLElement;
         if (seen.indexOf(htmlEl) === -1) {
           var cs = window.getComputedStyle(htmlEl);
+          // `auto` and `scroll` clip absolutely-positioned descendants to the
+          // padding box exactly as `hidden` does, so a child dragged out of a
+          // scrollable frame vanishes unless they are lifted too.
           if (
-            cs.overflow === "hidden" ||
-            cs.overflow === "clip" ||
-            cs.overflowX === "hidden" ||
-            cs.overflowX === "clip" ||
-            cs.overflowY === "hidden" ||
-            cs.overflowY === "clip"
+            clipsOverflow(cs.overflow) ||
+            clipsOverflow(cs.overflowX) ||
+            clipsOverflow(cs.overflowY)
           ) {
             captured.push({
               el: htmlEl,

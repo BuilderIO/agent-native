@@ -6421,6 +6421,88 @@ it(
 );
 
 it(
+  "editor chrome bridge lifts SCROLLABLE clipping ancestors during a drag",
+  { timeout: 30_000 },
+  async () => {
+    // `auto` and `scroll` clip absolutely-positioned descendants to the
+    // ancestor's padding box exactly as `hidden` does, so a child dragged out
+    // of a scrollable frame disappears mid-gesture unless the lift covers them.
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { position: relative; background: white; }
+      #screen { position: absolute; left: 0; top: 0; width: 900px; height: 700px; }
+      #scroller {
+        position: absolute; left: 100px; top: 100px;
+        width: 300px; height: 200px; background: #f0f0f4;
+        overflow: auto;
+      }
+      #item {
+        position: absolute; left: 20px; top: 20px;
+        width: 60px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="screen" data-agent-native-node-id="screen">
+      <div id="scroller" data-an-primitive="frame" data-agent-native-node-id="scroller">
+        <div id="item" data-agent-native-node-id="item"></div>
+      </div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const box = (await page.locator("#item").boundingBox())!;
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      await page.mouse.click(startX, startY);
+      await page.waitForTimeout(30);
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
+      // Mid-gesture, still holding: the scrollable ancestor must not clip.
+      await page.mouse.move(600, 500, { steps: 8 });
+      const midDrag = await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>("#scroller")!;
+        const cs = window.getComputedStyle(scroller);
+        return { overflow: cs.overflow, overflowX: cs.overflowX };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(50);
+
+      expect(midDrag).toEqual({
+        overflow: "visible",
+        overflowX: "visible",
+      });
+      // And the lift is undone once the gesture ends.
+      const afterDrop = await page.evaluate(
+        () =>
+          window.getComputedStyle(
+            document.querySelector<HTMLElement>("#scroller")!,
+          ).overflow,
+      );
+      expect(afterDrop).toBe("auto");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge round-trips flow child through freeform root, flow, and absolute container",
   { timeout: 30_000 },
   async () => {

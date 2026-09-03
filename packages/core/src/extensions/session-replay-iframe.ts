@@ -121,10 +121,15 @@ export function buildSessionReplayIframeBootstrap(): string {
  * Blank the interiors of comments and raw-text elements, preserving length so
  * every index still refers to the same character in `html`. Lazy matching to
  * the first `</script>` is HTML's own rule, so the mask and the browser agree
- * on where a script body ends.
+ * on where each body ends.
+ *
+ * `title` and `textarea` are RCDATA — their content is text, not markup — and
+ * `title` sits inside the head, so a literal `</head>` there precedes the real
+ * one and would win, inserting the bootstrap as title text.
  */
 function maskUnparsedRegions(html: string): string {
-  const regions = /<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+  const regions =
+    /<!--[\s\S]*?-->|<(script|style|title|textarea)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
   return html.replace(regions, (region) => " ".repeat(region.length));
 }
 

@@ -111,6 +111,24 @@ describe("cooperative iframe session replay", () => {
     );
   });
 
+  it("does not inject into a </head> inside an RCDATA element", () => {
+    // `title` and `textarea` hold text, not markup, and `title` sits INSIDE
+    // the head — so a literal `</head>` there precedes the real one and would
+    // win, inserting the bootstrap as title text and silently disabling replay.
+    const html =
+      "<!doctype html><html><head><title>How to close a </head> tag</title>" +
+      "</head><body><textarea></head></textarea><p>preview</p></body></html>";
+
+    const out = injectSessionReplayIframeBootstrap(html);
+
+    expect(out).toContain(SESSION_REPLAY_IFRAME_PROBE);
+    // The title must survive intact, and the bootstrap must land after it.
+    expect(out).toContain("<title>How to close a </head> tag</title>");
+    expect(out.indexOf(SESSION_REPLAY_IFRAME_PROBE)).toBeGreaterThan(
+      out.indexOf("</title>"),
+    );
+  });
+
   it("marks every first-party extension iframe host", () => {
     const hostFiles = [
       "AgentNativeExtensionFrame.tsx",
