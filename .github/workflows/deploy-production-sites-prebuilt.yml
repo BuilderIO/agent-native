@@ -142,9 +142,12 @@ jobs:
             )
             .map(([name]) => name);
           const completeFleet =
-            unsupported.length === 0 &&
             productionNames.length > 0 &&
-            productionNames.every((name) => names.includes(name));
+            productionNames.every(
+              (name) =>
+                names.includes(name) &&
+                buildable.some((site) => site.site === name),
+            );
 
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,

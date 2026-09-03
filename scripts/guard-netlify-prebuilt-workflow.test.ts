@@ -287,6 +287,19 @@ describe("production Netlify site concurrency guard", () => {
       String(productionDiscover.steps[1].run),
       /completeFleet.*productionNames/s,
     );
+    assert.match(
+      String(productionDiscover.steps[1].run),
+      /productionNames\.every/,
+    );
+    assert.match(
+      String(productionDiscover.steps[1].run),
+      /names\.includes\(name\)/,
+    );
+    assert.match(String(productionDiscover.steps[1].run), /buildable\.some/);
+    assert.doesNotMatch(
+      String(productionDiscover.steps[1].run),
+      /unsupported\.length\s*===\s*0/,
+    );
     const productionMarker = (production.jobs as Workflow)[
       "record-beta-migration"
     ] as Workflow;

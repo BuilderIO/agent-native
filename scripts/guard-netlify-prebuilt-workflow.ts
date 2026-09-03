@@ -791,7 +791,11 @@ if (
     (step) =>
       typeof step.run === "string" &&
       step.run.includes("completeFleet") &&
-      step.run.includes("productionNames"),
+      step.run.includes("productionNames") &&
+      step.run.includes("productionNames.every") &&
+      step.run.includes("names.includes(name)") &&
+      step.run.includes("buildable.some") &&
+      !step.run.includes("unsupported.length === 0"),
   ) ||
   !productionMigrationMarkerJob ||
   !String(productionMigrationMarkerJob.if).includes(
