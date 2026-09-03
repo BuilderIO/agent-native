@@ -82,20 +82,24 @@ export default defineAction({
         title: event.title,
       });
     }
-    const slots = computeFindTimeSlots({
-      range,
-      participants: [{ email: ownerEmail, role: "organizer" }],
-      busyBlocks,
-      schedule: availability.schedule,
-      durationMinutes: args.duration,
-      slotStepMinutes: args.duration,
-    });
+    const slots =
+      listed.errors.length > 0
+        ? []
+        : computeFindTimeSlots({
+            range,
+            participants: [{ email: ownerEmail, role: "organizer" }],
+            busyBlocks,
+            schedule: availability.schedule,
+            durationMinutes: args.duration,
+            slotStepMinutes: args.duration,
+          });
 
     return {
       date: dateStr,
       day: dayName(dateStr, timezone),
       timezone,
       minDuration: args.duration,
+      actionable: listed.errors.length === 0,
       slots: slots.map((slot) => ({
         start: formatSlotTime(slot.start, timezone),
         end: formatSlotTime(slot.end, timezone),

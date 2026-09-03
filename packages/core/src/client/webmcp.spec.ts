@@ -426,6 +426,42 @@ describe("WebMCP registration readiness", () => {
     expect(getAgentNativeWebMcpStatus()).toBeUndefined();
   });
 
+  it("does not let one registration's stop() erase another's status", async () => {
+    // The status key is per-document. An unconditional delete on stop() would
+    // erase a second, still-live registration and make its finished tool list
+    // look like one that never started.
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const doc = documentWithModelContext(modelContext);
+
+    const first = createAgentNativeWebMcpRegistration({
+      document: doc,
+      actions: [action("one")],
+    });
+    await first.start();
+
+    const second = createAgentNativeWebMcpRegistration({
+      document: doc,
+      actions: [action("two"), action("three")],
+    });
+    await second.start();
+
+    // The status is aggregated per document, so stopping one registration
+    // must leave the other registration's readiness visible.
+    first.stop();
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "ready",
+      registered: 2,
+      total: 2,
+    });
+
+    second.stop();
+    expect(getAgentNativeWebMcpStatus()).toBeUndefined();
+  });
+
   it("marks a failed registration instead of leaving it stuck at registering", async () => {
     const modelContext = {
       registerTool: vi.fn(async (tool: { name: string }) => {

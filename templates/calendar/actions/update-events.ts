@@ -302,7 +302,7 @@ export default defineAction({
         matched: proposed.length + skipped.length,
         updated: 0,
         skipped: skipped.length,
-        failed: 0,
+        failed: skipped.filter((event) => event.outcome === "failed").length,
         events: [...proposed, ...skipped],
       };
     }
@@ -363,7 +363,9 @@ export default defineAction({
       matched: updated.length + skipped.length,
       updated: updated.filter((event) => event.outcome === "updated").length,
       skipped: skipped.length,
-      failed: updated.filter((event) => event.outcome === "failed").length,
+      failed:
+        skipped.filter((event) => event.outcome === "failed").length +
+        updated.filter((event) => event.outcome === "failed").length,
       events: [...updated, ...skipped],
     };
   },
