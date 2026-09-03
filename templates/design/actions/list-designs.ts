@@ -39,6 +39,12 @@ export default defineAction({
       .max(DESIGN_LIST_MAX_PAGE_SIZE)
       .optional()
       .describe("Maximum designs returned in this page"),
+    includeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set to true only for a lightweight UI picker that must receive every matching design; otherwise use pagination.",
+      ),
     createdBy: z
       .enum(["all", "me"])
       .optional()
@@ -65,6 +71,7 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async (args) => {
+    const includeAll = args.includeAll === true;
     const page = args.page ?? 1;
     const pageSize = args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE;
     const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
@@ -91,7 +98,7 @@ export default defineAction({
         ? sql`lower(${schema.designs.title}) LIKE ${`%${escapeLike(search)}%`} ESCAPE '\\'`
         : undefined,
     );
-    const offset = (page - 1) * pageSize;
+    const offset = includeAll ? 0 : (page - 1) * pageSize;
 
     // Project only the columns the list path uses. The `data` TEXT column holds
     // the full design JSON (tweaks, selections, etc.) which can be large and is
@@ -111,7 +118,9 @@ export default defineAction({
       .from(schema.designs)
       .where(where)
       .orderBy(desc(schema.designs.updatedAt), desc(schema.designs.id));
-    const rowsPromise = designsQuery.limit(pageSize).offset(offset);
+    const rowsPromise = includeAll
+      ? designsQuery
+      : designsQuery.limit(pageSize).offset(offset);
     const [countRows, rows] = await Promise.all([
       db
         .select({ count: sql<number>`count(*)` })
@@ -200,14 +209,20 @@ export default defineAction({
       return base;
     });
 
-    const hasMore = offset + rows.length < totalCount;
-    const totalPages = Math.ceil(totalCount / pageSize);
+    const hasMore = !includeAll && offset + rows.length < totalCount;
+    const totalPages = includeAll
+      ? totalCount > 0
+        ? 1
+        : 0
+      : Math.ceil(totalCount / pageSize);
     return {
       count: totalCount,
       totalCount,
       hasMore,
       page,
-      pageSize,
+      pageSize: includeAll
+        ? totalCount || DESIGN_LIST_DEFAULT_PAGE_SIZE
+        : pageSize,
       totalPages,
       designs: items,
     };

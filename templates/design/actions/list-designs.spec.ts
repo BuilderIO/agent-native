@@ -274,6 +274,26 @@ describe("list-designs", () => {
     expect(mocks.pageCalls).toEqual([{ limit: 12, offset: 0 }]);
   });
 
+  it("keeps the complete lightweight list available to explicit UI pickers", async () => {
+    mocks.designRows = [design("design-1", "One"), design("design-2", "Two")];
+
+    const result = await action.run({ includeAll: true });
+
+    expect(result.designs.map((item) => item.id)).toEqual([
+      "design-1",
+      "design-2",
+    ]);
+    expect(result).toMatchObject({
+      count: 2,
+      totalCount: 2,
+      hasMore: false,
+      page: 1,
+      pageSize: 2,
+      totalPages: 1,
+    });
+    expect(mocks.pageCalls).toEqual([]);
+  });
+
   it("applies Mine to the authenticated owner while retaining access scoping", async () => {
     mocks.designRows = [
       design("mine", "Mine", "Owner@Example.com"),
