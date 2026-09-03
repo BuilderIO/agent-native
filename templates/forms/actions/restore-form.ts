@@ -16,33 +16,38 @@ export default defineAction({
   }),
   run: async (args) => {
     const ids = Array.isArray(args.id) ? args.id : [args.id];
+    const restoreOne = async (id: string) => {
+      await assertAccess("form", id, "admin");
+
+      const db = getDb();
+      const [existing] = await db
+        .select()
+        .from(schema.forms)
+        .where(eq(schema.forms.id, id))
+        .limit(1);
+
+      if (!existing) {
+        fail(`Form ${id} not found`, {
+          errorCode: "form_not_found",
+          statusCode: 404,
+        });
+      }
+
+      const now = new Date().toISOString();
+      await db
+        .update(schema.forms)
+        .set({ deletedAt: null, updatedAt: now })
+        .where(eq(schema.forms.id, id));
+
+      invalidatePublicFormCache(existing);
+      return { id, success: true, restoredAt: now };
+    };
+
+    if (ids.length === 1) return restoreOne(ids[0]!);
     const results = [];
     for (const id of ids) {
       try {
-        await assertAccess("form", id, "admin");
-
-        const db = getDb();
-        const [existing] = await db
-          .select()
-          .from(schema.forms)
-          .where(eq(schema.forms.id, id))
-          .limit(1);
-
-        if (!existing) {
-          fail(`Form ${id} not found`, {
-            errorCode: "form_not_found",
-            statusCode: 404,
-          });
-        }
-
-        const now = new Date().toISOString();
-        await db
-          .update(schema.forms)
-          .set({ deletedAt: null, updatedAt: now })
-          .where(eq(schema.forms.id, id));
-
-        invalidatePublicFormCache(existing);
-        results.push({ id, success: true, restoredAt: now });
+        results.push(await restoreOne(id));
       } catch (error) {
         results.push({
           id,
@@ -51,8 +56,6 @@ export default defineAction({
         });
       }
     }
-
-    if (ids.length === 1) return results[0];
     return {
       success: results.every((result) => result.success),
       results,

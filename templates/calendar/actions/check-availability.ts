@@ -73,11 +73,10 @@ export default defineAction({
     const busyBlocks: FindTimeBusyBlock[] = [];
     for (const event of listed.events.filter(eventBlocksAvailability)) {
       busyBlocks.push({
-        participantEmail: (
-          event.accountEmail ||
-          event.overlayEmail ||
-          ownerEmail
-        ).toLowerCase(),
+        // listCalendarEvents includes every owned calendar. Availability is
+        // for the signed-in user, so secondary-account conflicts belong to the
+        // organizer even though the source event keeps its account metadata.
+        participantEmail: ownerEmail.toLowerCase(),
         start: event.allDay ? range.from : event.start,
         end: event.allDay ? range.to : event.end,
         title: event.title,

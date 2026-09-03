@@ -671,6 +671,21 @@ describe("animation target validation", () => {
     ).toThrow(/reveal-title.*does not resolve/);
   });
 
+  it("validates animation paths on newly added slides", () => {
+    expect(() =>
+      applyAndValidate({ slides: [] }, [
+        {
+          op: "add-slide",
+          slideId: "s2",
+          fields: {
+            content,
+            animations: [animation({ elementPath: [9, 9] })],
+          },
+        },
+      ]),
+    ).toThrow(/reveal-title.*does not resolve/);
+  });
+
   it("rejects duplicate reveal targets instead of creating a phantom step", () => {
     expect(() =>
       applyAndValidate(

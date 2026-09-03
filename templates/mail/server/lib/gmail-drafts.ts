@@ -109,3 +109,34 @@ export async function saveGmailDraft(args: {
   );
   return { draftId: created.id, created: true };
 }
+
+export async function deleteGmailDraft(args: {
+  ownerEmail: string;
+  accountEmail?: string;
+  draftId: string;
+}): Promise<void> {
+  const accountEmail = await resolveAccountEmail(
+    args.accountEmail,
+    args.ownerEmail,
+  );
+  const accessToken = await getAccessToken(accountEmail);
+  if (!accessToken) {
+    throw new Error(
+      "Gmail draft could not be deleted because the account is not connected.",
+    );
+  }
+
+  try {
+    await googleFetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${args.draftId}`,
+      accessToken,
+      { method: "DELETE" },
+    );
+  } catch (error) {
+    // Deletion is idempotent: if Gmail already removed the draft, local state
+    // can still be cleaned up safely. Other provider failures must be visible.
+    if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
+      throw error;
+    }
+  }
+}

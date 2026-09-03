@@ -28,6 +28,8 @@ describe("manage-draft MCP App", () => {
     expect(source).toContain('action: z.literal("update")');
     expect(source).toContain('action: z.literal("delete")');
     expect(source).toContain('errorCode: "draft_not_found"');
+    expect(source).toContain("deleteGmailDraft");
+    expect(source).toContain('listAppState("compose-")');
   });
 });
 

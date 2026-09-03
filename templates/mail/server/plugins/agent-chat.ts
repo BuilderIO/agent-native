@@ -17,6 +17,7 @@ const INITIAL_TOOL_NAMES = [
   "manage-draft",
   "list-labels",
   "create-scheduled-job",
+  "create-scheduled-send",
   "list-scheduled-jobs",
   "send-email",
   "archive-email",

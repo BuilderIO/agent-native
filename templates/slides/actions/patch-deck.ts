@@ -592,7 +592,7 @@ export function assertPatchedSlideAnimationsResolve(
 ): void {
   const slideIdsToValidate = new Set(
     operations.flatMap((operation) =>
-      operation.op === "patch-slide" &&
+      (operation.op === "patch-slide" || operation.op === "add-slide") &&
       (operation.fields.content !== undefined ||
         operation.fields.animations !== undefined)
         ? [operation.slideId]

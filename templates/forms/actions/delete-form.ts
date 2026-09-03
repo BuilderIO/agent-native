@@ -23,48 +23,47 @@ export default defineAction({
   }),
   run: async (args) => {
     const ids = Array.isArray(args.id) ? args.id : [args.id];
+    const deleteOne = async (id: string) => {
+      await assertAccess("form", id, "admin");
+
+      const db = getDb();
+      const [existing] = await db
+        .select()
+        .from(schema.forms)
+        .where(eq(schema.forms.id, id))
+        .limit(1);
+
+      if (!existing) {
+        fail(`Form ${id} not found`, {
+          errorCode: "form_not_found",
+          statusCode: 404,
+        });
+      }
+
+      if (args.purge) {
+        await db
+          .delete(schema.responses)
+          .where(eq(schema.responses.formId, id));
+        await db.delete(schema.forms).where(eq(schema.forms.id, id));
+        invalidatePublicFormCache(existing);
+        return { id, success: true, purged: true };
+      }
+
+      const now = new Date().toISOString();
+      await db
+        .update(schema.forms)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(eq(schema.forms.id, id));
+
+      invalidatePublicFormCache(existing);
+      return { id, success: true, purged: false, deletedAt: now };
+    };
+
+    if (ids.length === 1) return deleteOne(ids[0]!);
     const results = [];
     for (const id of ids) {
       try {
-        await assertAccess("form", id, "admin");
-
-        const db = getDb();
-        const [existing] = await db
-          .select()
-          .from(schema.forms)
-          .where(eq(schema.forms.id, id))
-          .limit(1);
-
-        if (!existing) {
-          fail(`Form ${id} not found`, {
-            errorCode: "form_not_found",
-            statusCode: 404,
-          });
-        }
-
-        if (args.purge) {
-          await db
-            .delete(schema.responses)
-            .where(eq(schema.responses.formId, id));
-          await db.delete(schema.forms).where(eq(schema.forms.id, id));
-          invalidatePublicFormCache(existing);
-          results.push({ id, success: true, purged: true });
-          continue;
-        }
-
-        const now = new Date().toISOString();
-        await db
-          .update(schema.forms)
-          .set({ deletedAt: now, updatedAt: now })
-          .where(eq(schema.forms.id, id));
-
-        invalidatePublicFormCache(existing);
-        results.push({
-          id,
-          success: true,
-          purged: false,
-          deletedAt: now,
-        });
+        results.push(await deleteOne(id));
       } catch (error) {
         results.push({
           id,
@@ -73,8 +72,6 @@ export default defineAction({
         });
       }
     }
-
-    if (ids.length === 1) return results[0];
     return {
       success: results.every((result) => result.success),
       purged: args.purge,

@@ -17,6 +17,7 @@ import {
 } from "../server/source-workspace.js";
 import {
   applyVisualEdit,
+  buildCodeLayerProjection,
   type AutoLayoutEditIntent,
   type ClassEditIntent,
   type CodeLayerSource,
@@ -758,7 +759,7 @@ function applyIntentBatch(
     if (patch.result.status !== "applied") {
       return {
         content: html,
-        projection: patch.projection,
+        projection: buildCodeLayerProjection(html, { source }),
         results,
         scopedIntents,
       };

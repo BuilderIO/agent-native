@@ -5,12 +5,16 @@ import {
   writeAppState,
   deleteAppState,
   deleteAppStateByPrefix,
+  listAppState,
 } from "@agent-native/core/application-state";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import { saveGmailDraft } from "../server/lib/gmail-drafts.js";
+import {
+  deleteGmailDraft,
+  saveGmailDraft,
+} from "../server/lib/gmail-drafts.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
@@ -115,6 +119,21 @@ export default defineAction({
     const action = args.action;
 
     if (action === "delete-all") {
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("Unauthenticated");
+      const storedDrafts = await listAppState("compose-");
+      for (const { value } of storedDrafts) {
+        const savedDraftId = value.savedDraftId;
+        if (typeof savedDraftId !== "string" || !savedDraftId) continue;
+        await deleteGmailDraft({
+          ownerEmail,
+          accountEmail:
+            typeof value.accountEmail === "string"
+              ? value.accountEmail
+              : undefined,
+          draftId: savedDraftId,
+        });
+      }
       const count = await deleteAppStateByPrefix("compose-");
       return `Deleted ${count} draft(s)`;
     }
@@ -125,6 +144,25 @@ export default defineAction({
         fail(`Invalid draft ID "${args.id}"`, {
           errorCode: "draft_invalid_id",
         });
+      const storedDraft = await readAppState(`compose-${safeId}`);
+      if (!storedDraft)
+        fail(`Draft "${safeId}" not found`, {
+          errorCode: "draft_not_found",
+          statusCode: 404,
+        });
+      const savedDraftId = storedDraft.savedDraftId;
+      if (typeof savedDraftId === "string" && savedDraftId) {
+        const ownerEmail = getRequestUserEmail();
+        if (!ownerEmail) throw new Error("Unauthenticated");
+        await deleteGmailDraft({
+          ownerEmail,
+          accountEmail:
+            typeof storedDraft.accountEmail === "string"
+              ? storedDraft.accountEmail
+              : undefined,
+          draftId: savedDraftId,
+        });
+      }
       const deleted = await deleteAppState(`compose-${safeId}`);
       if (!deleted)
         fail(`Draft "${safeId}" not found`, {
