@@ -2492,6 +2492,10 @@ export default function DeckEditor() {
           <SlideEditor
             slide={editorSlide ?? currentSlide}
             deckId={id}
+            onFlushInlineEdit={() => {
+              flushPendingSaves();
+              return flushDeckSave(id);
+            }}
             flushInlineEditRef={inlineEditFlushRef}
             readOnly={!canEdit}
             canComment={canComment}

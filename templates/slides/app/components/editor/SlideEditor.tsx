@@ -759,7 +759,7 @@ function selectionItemForElement(
         : "element",
     tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
     text: snapshot?.textPreview ?? fullText.slice(0, 200),
-    selectedText: selectedText || undefined,
+    selectedText: selectedText?.trim() ? selectedText : undefined,
     textTruncated: fullText.length > textLimit,
     imageSrc:
       element instanceof HTMLImageElement
@@ -915,6 +915,8 @@ interface SlideEditorProps {
    *  (see the slide-switch effect), so callers must not substitute their own
    *  "current slide" state for this argument. */
   onInlineEditEnd?: (slideId: string) => void;
+  /** Wait for an inline-edit write to reach the server before an agent uses it. */
+  onFlushInlineEdit?: () => Promise<void>;
   /** Called by the editor shell before a navigation that must persist the
    *  current contentEditable draft. Returns true when a draft was active. */
   flushInlineEditRef?: { current: (() => boolean) | null };
@@ -1346,6 +1348,7 @@ export default function SlideEditor({
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
+  onFlushInlineEdit,
   flushInlineEditRef,
   presentUsers = [],
   recentEdits = [],
@@ -2349,6 +2352,12 @@ export default function SlideEditor({
     onInlineEditEnd,
   ]);
 
+  const commitInlineEditForAgent = useCallback(async () => {
+    const contentHash = exitInlineEdit();
+    await onFlushInlineEdit?.();
+    return contentHash;
+  }, [exitInlineEdit, onFlushInlineEdit]);
+
   const handleRichTextEditorReady = useCallback((editor: Editor) => {
     const session = richTextEditorSessionRef.current;
     if (!session || session.apiRef.current?.getEditor() !== editor) return;
@@ -2375,7 +2384,7 @@ export default function SlideEditor({
         !nativeRange.collapsed &&
         el.contains(nativeRange.startContainer) &&
         el.contains(nativeRange.endContainer)
-          ? nativeRange.toString().trim()
+          ? nativeRange.toString()
           : undefined;
       const initialSelection =
         nativeRange &&
@@ -2573,7 +2582,7 @@ export default function SlideEditor({
             selector,
             snapshot,
             undefined,
-            richTextSelectionRef.current?.toString().trim(),
+            richTextSelectionRef.current?.toString(),
           ),
         ]),
       );
@@ -2660,7 +2669,7 @@ export default function SlideEditor({
       );
       const selectedText =
         editingElRef.current === element
-          ? richTextSelectionRef.current?.toString().trim()
+          ? richTextSelectionRef.current?.toString()
           : undefined;
       setSelectedElementMeasurement({
         key: selectionOverlayMeasurementKey,
@@ -7505,7 +7514,7 @@ export default function SlideEditor({
         slideId={slide.id}
         deckId={deckId}
         slideContentHash={hashSlideContent(slide.content)}
-        onCommitInlineEdit={exitInlineEdit}
+        onCommitInlineEdit={commitInlineEditForAgent}
       />
 
       {pendingUpdateCount > 0 && (

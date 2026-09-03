@@ -41,7 +41,7 @@ interface BlockBubbleMenuProps {
    * contentEditable serializes its stale text on the user's next click and
    * overwrites the revision the agent just wrote.
    */
-  onCommitInlineEdit?: () => string | undefined;
+  onCommitInlineEdit?: () => string | undefined | Promise<string | undefined>;
   /** Shared Content editor mounted inside the selected slide text block. */
   richTextEditor?: SlideRichTextEditorHandle | null;
 }
@@ -283,8 +283,8 @@ export function BlockBubbleMenu({
     }
     // Snapshot the text now: opening the input moves focus out of the
     // contentEditable and the live selection collapses.
-    const selected = savedRangeRef.current?.toString().trim() ?? "";
-    if (!selected) return;
+    const selected = savedRangeRef.current?.toString() ?? "";
+    if (!selected.trim()) return;
     setAiTargetText(selected);
     setAiTargetContentHash(slideContentHash ?? "");
     setAiInstruction("");
@@ -296,15 +296,14 @@ export function BlockBubbleMenu({
 
   const submitAiRevision = async () => {
     const instruction = aiInstruction;
-    if (!instruction.trim() || !aiTargetText || aiSending) return;
+    if (!instruction.trim() || !aiTargetText.trim() || aiSending) return;
 
     // Close the inline edit first. The block is still a live contentEditable
     // session; leaving it open means the next click away serializes the old
     // text over whatever the agent writes.
-    const committedContentHash = onCommitInlineEdit?.();
-
     setAiSending(true);
     try {
+      const committedContentHash = await onCommitInlineEdit?.();
       const delivery = await sendToAgentChatAndConfirm({
         message: instruction,
         context: buildReviseSelectionContext({
