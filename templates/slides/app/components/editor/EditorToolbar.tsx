@@ -94,6 +94,8 @@ interface EditorToolbarProps {
   canEdit?: boolean;
   /** Whether the user may create and manage comments without editing slides. */
   canComment?: boolean;
+  /** Source-preserving imports keep slide structure fixed while canvas edits remain available. */
+  sourceImported?: boolean;
   onTitleChange: (title: string) => void;
   currentSlideIndex: number;
   sidebarOpen: boolean;
@@ -225,6 +227,7 @@ export default function EditorToolbar({
   addSlideGenerating,
   canEdit = true,
   canComment = canEdit,
+  sourceImported = false,
 }: EditorToolbarProps) {
   const t = useT();
   // Public decks default to the read-only presentation URL so recipients do
@@ -731,6 +734,21 @@ export default function EditorToolbar({
       />
 
       {/* "View only" badge — mirrors Google Slides' viewer chrome */}
+      {sourceImported && canEdit && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="inline-flex flex-shrink-0 cursor-help items-center rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground"
+            >
+              {t("editorToolbar.sourcePreserving")}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-72 whitespace-normal text-center">
+            {t("editorToolbar.sourcePreservingDescription")}
+          </TooltipContent>
+        </Tooltip>
+      )}
       {!canEdit && (
         <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
           {t("editorToolbar.viewOnly")}

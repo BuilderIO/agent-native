@@ -241,6 +241,29 @@ describe("<EditorToolbar>", () => {
     expect(onSelectShape).not.toHaveBeenCalled();
   });
 
+  it("labels source-preserving decks as limited editing", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          sourceImported
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByText("editorToolbar.sourcePreserving")).toBeTruthy();
+  });
+
   it("surfaces history from the top-right overflow menu", async () => {
     const onShowHistory = vi.fn();
     const historyButtonRef = createRef<HTMLButtonElement>();
