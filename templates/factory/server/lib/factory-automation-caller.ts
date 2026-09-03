@@ -1,10 +1,13 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { listAutomationDefinitions } from "@agent-native/core/triggers";
 
 import {
   readFactoryAutomationConfig,
   type FactoryAutomationConfig,
 } from "./factory-automation-config.js";
+import {
+  factoryIdFromAutomationName,
+  findFactoryAutomationDefinition,
+} from "./factory-automation-resources.js";
 import type { WorkspaceMemberIdentity } from "./require-workspace-member.js";
 
 export async function readCallingFactoryAutomation(
@@ -16,16 +19,14 @@ export async function readCallingFactoryAutomation(
   config: FactoryAutomationConfig;
 } | null> {
   if (context?.caller !== "automation" || !context.automation) return null;
-  const definition = (
-    await listAutomationDefinitions(
-      {
-        userEmail: identity.userEmail,
-        orgId: identity.orgId,
-        appId: "factory",
-      },
-      "organization",
-    )
-  ).find((entry) => entry.resource.id === context.automation?.triggerId);
+  const factoryId = factoryIdFromAutomationName(context.automation.triggerName);
+  const definition = factoryId
+    ? await findFactoryAutomationDefinition(
+        identity.orgId,
+        factoryId,
+        context.automation.triggerId,
+      )
+    : null;
   if (!definition) return null;
   return {
     name: definition.name,

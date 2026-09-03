@@ -7,9 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { useDecksMock } = vi.hoisted(() => ({ useDecksMock: vi.fn() }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: ({ children }: { children: ReactNode }) => (
-    <div data-testid="agent-sidebar">{children}</div>
-  ),
+  AgentSidebar: ({ children, ...props }: { children: ReactNode }) => {
+    void props;
+    return <div data-testid="agent-sidebar">{children}</div>;
+  },
+  focusAgentChat: vi.fn(),
+  isAgentChatHomeHandoffActive: vi.fn(() => false),
+  navigateWithAgentChatViewTransition: vi.fn(),
+  useAgentChatHomeHandoff: vi.fn(() => false),
+  useAgentChatHomeHandoffLinks: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -46,7 +52,7 @@ vi.mock("../editor/GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => null,
 }));
 vi.mock("./AgentWorkIndicator", () => ({
-  AgentWorkIndicator: () => null,
+  AgentWorkIndicator: () => <div data-testid="agent-work-indicator" />,
 }));
 vi.mock("./Header", () => ({ Header: () => <div data-testid="header" /> }));
 vi.mock("./Sidebar", () => ({
@@ -78,6 +84,7 @@ describe("Slides Layout", () => {
     expect(screen.getByTestId("app-sidebar")).toBeTruthy();
     expect(screen.getByTestId("header")).toBeTruthy();
     expect(screen.getByTestId("invitation-banner")).toBeTruthy();
+    expect(screen.getByTestId("agent-work-indicator")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeTruthy();
@@ -92,6 +99,15 @@ describe("Slides Layout", () => {
     expect(
       screen.queryByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeNull();
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
+  it("renders full-page chat without the sidebar wrapper", () => {
+    renderLayout("/chat");
+
+    expect(screen.queryByTestId("agent-sidebar")).toBeNull();
+    expect(screen.queryByTestId("agent-work-indicator")).toBeNull();
+    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
     expect(screen.getByTestId("page-content")).toBeTruthy();
   });
 });

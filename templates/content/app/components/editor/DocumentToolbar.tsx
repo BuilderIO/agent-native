@@ -479,6 +479,7 @@ interface DocumentToolbarProps {
   isFavorite?: boolean;
   onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: "info" | "comments" | null;
+  commentsHistoryOpen?: boolean;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
   databaseExportContext?: DatabaseExportContext | null;
@@ -508,6 +509,7 @@ export function DocumentToolbar({
   isFavorite = false,
   onToggleFavorite,
   utilityPanel,
+  commentsHistoryOpen = false,
   onUtilityPanelChange,
   showCommentsControl = true,
   databaseExportContext,
@@ -987,6 +989,30 @@ export function DocumentToolbar({
             </>
           )}
 
+          {showCommentsControl ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    commentsHistoryOpen && "bg-accent text-accent-foreground",
+                  )}
+                  aria-label={t("comments.title")}
+                  aria-pressed={commentsHistoryOpen}
+                  onClick={() =>
+                    onUtilityPanelChange(
+                      commentsHistoryOpen ? null : "comments",
+                    )
+                  }
+                >
+                  <IconMessageCircle size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("comments.title")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+
           <DropdownMenu modal={false}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -994,7 +1020,7 @@ export function DocumentToolbar({
                   <button
                     className={cn(
                       "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                      utilityPanel && "bg-accent text-foreground",
+                      utilityPanel === "info" && "bg-accent text-foreground",
                     )}
                     aria-label={t("editor.toolbar.morePageActions")}
                   >
@@ -1050,22 +1076,6 @@ export function DocumentToolbar({
                   <IconInfoCircle className="me-2 h-4 w-4" />
                   {t("editor.toolbar.info")}
                 </DropdownMenuItem>
-                {showCommentsControl ? (
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      onUtilityPanelChange(
-                        utilityPanel === "comments" ? null : "comments",
-                      )
-                    }
-                    className={cn(
-                      utilityPanel === "comments" &&
-                        "bg-accent text-accent-foreground",
-                    )}
-                  >
-                    <IconMessageCircle className="me-2 h-4 w-4" />
-                    {t("comments.title")}
-                  </DropdownMenuItem>
-                ) : null}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               {isLocalFileDocument ? (
@@ -1105,48 +1115,50 @@ export function DocumentToolbar({
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
-                      {exportDocument.isPending ? (
-                        <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <IconDownload className="me-2 h-4 w-4" />
-                      )}
+                  {databaseExportContext ? (
+                    <DropdownMenuItem
+                      onSelect={() => setDatabaseExportOpen(true)}
+                    >
+                      <IconDownload className="me-2 h-4 w-4" />
                       {t("editor.toolbar.export")}
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-44">
-                      {databaseExportContext ? (
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger
+                        disabled={exportDocument.isPending}
+                      >
+                        {exportDocument.isPending ? (
+                          <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <IconDownload className="me-2 h-4 w-4" />
+                        )}
+                        {t("editor.toolbar.export")}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-44">
                         <DropdownMenuItem
                           disabled={exportDocument.isPending}
-                          onSelect={() => setDatabaseExportOpen(true)}
+                          onSelect={() => void handleExport("pdf")}
                         >
-                          <IconDownload className="me-2 h-4 w-4" />
-                          CSV
+                          <IconFileTypePdf className="me-2 h-4 w-4" />
+                          PDF
                         </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("pdf")}
-                      >
-                        <IconFileTypePdf className="me-2 h-4 w-4" />
-                        PDF
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("markdown")}
-                      >
-                        <IconMarkdown className="me-2 h-4 w-4" />
-                        Markdown
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("html")}
-                      >
-                        <IconFileTypeHtml className="me-2 h-4 w-4" />
-                        HTML
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                        <DropdownMenuItem
+                          disabled={exportDocument.isPending}
+                          onSelect={() => void handleExport("markdown")}
+                        >
+                          <IconMarkdown className="me-2 h-4 w-4" />
+                          Markdown
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={exportDocument.isPending}
+                          onSelect={() => void handleExport("html")}
+                        >
+                          <IconFileTypeHtml className="me-2 h-4 w-4" />
+                          HTML
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
                 </>
               )}
               <DropdownMenuSeparator />
@@ -1551,7 +1563,6 @@ export function DocumentToolbar({
       <DatabaseExportDialog
         documentId={documentId}
         context={databaseExportContext ?? null}
-        defaultScope="current_view"
         open={databaseExportOpen}
         onOpenChange={setDatabaseExportOpen}
       />

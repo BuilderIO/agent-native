@@ -4,7 +4,6 @@ import {
   resourceGetByPath,
   resourcePutIfCurrent,
 } from "@agent-native/core/resources";
-import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { z } from "zod";
 
 import {
@@ -22,10 +21,10 @@ import {
   replaceUserPrompt,
   scheduleCron,
 } from "../server/lib/factory-automation-config.js";
+import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
 import {
   factoryIdSchema,
   readAutomationEnabled,
-  readAutomationFactoryId,
   readAutomationModel,
   readAutomationSchedule,
   resolveAutomationDisplayName,
@@ -77,25 +76,12 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    const definitions = await listAutomationDefinitions(
-      { userEmail, orgId, appId: "factory" },
-      "organization",
-    );
-    const definition = definitions.find(
-      (entry) =>
-        entry.meta.domain === "factory" &&
-        entry.resource.id === input.automationId,
+    const definition = await findFactoryAutomationDefinition(
+      orgId,
+      input.factoryId,
+      input.automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
-    if (
-      readAutomationFactoryId(
-        definition.meta,
-        definition.resource.content,
-        definition.resource.path,
-      ) !== input.factoryId
-    ) {
-      throw new Error("Factory automation not found.");
-    }
     if (definition.name !== input.name) {
       throw new Error(
         "Factory automation id and name do not refer to the same automation.",
@@ -196,7 +182,10 @@ export default defineAction({
       ),
     };
     const schedule = scheduleCron(config);
-    if (definition.meta.triggerType === "schedule" && !isValidCron(schedule)) {
+    const scheduleOwned =
+      definition.meta.triggerType === "schedule" ||
+      definition.meta.triggerType == null;
+    if (scheduleOwned && !isValidCron(schedule)) {
       throw new Error(`Invalid cron expression "${schedule}".`);
     }
     let content = applyAutomationConfigFrontmatter(resource.content, config);
@@ -211,6 +200,7 @@ export default defineAction({
       "factoryId",
       input.factoryId,
     );
+    content = setAutomationFrontmatterField(content, "appId", "factory");
     if (input.model !== undefined) {
       content = setAutomationFrontmatterField(
         content,
@@ -225,7 +215,7 @@ export default defineAction({
         input.displayName,
       );
     }
-    if (definition.meta.triggerType === "schedule" && isValidCron(schedule)) {
+    if (scheduleOwned && isValidCron(schedule)) {
       const nextRun = nextOccurrence(
         schedule,
         undefined,

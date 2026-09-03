@@ -146,6 +146,8 @@ const messages = {
     clearSelection: "Clear selection",
     sendToAgent: "Send to agent",
     saveReconnect: "Changes will save when reconnected",
+    saveFailedDescription:
+      "Your latest edits are only on this device. Download a backup before leaving.",
     offline: "Offline",
     selected: "selected",
     chooseDesignSystem: "Choose a design system",
@@ -205,6 +207,9 @@ const messages = {
     usingDesignSystem: "Using {{title}}",
     usingLinkedDesignSystem: "Using a linked design system",
     viewOnly: "View only",
+    sourcePreserving: "Limited editing",
+    sourcePreservingDescription:
+      "Text and object edits are available. Adding, deleting, or reordering slides is disabled for this imported deck.",
     commenterRoleLabel: "Commenter",
     commenterRoleDescription: "Can view and add comments",
     slideSettings: "Slide settings",
@@ -260,6 +265,11 @@ const messages = {
     more: "More",
     importing: "Importing...",
     importFile: "Import file",
+    downloadBackup: "Download backup",
+    importBackup: "Import backup",
+    backupDownloaded: "Backup downloaded",
+    backupDownloadFailed: "Could not download backup",
+    invalidBackup: "Choose a valid Slides backup JSON file.",
     savedVersions: "History",
     lightTheme: "Light theme",
     darkTheme: "Dark theme",
@@ -267,6 +277,7 @@ const messages = {
   editorExport: {
     pptxFailed: "Could not generate PPTX file.",
     exportFailed: "Export failed",
+    exporting: "Exporting...",
     exportPptxError: "Something went wrong exporting as PPTX.",
     googleSlidesDownloaded: "Downloaded for Google Slides",
     googleSlidesImportHint:

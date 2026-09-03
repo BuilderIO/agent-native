@@ -78,6 +78,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "에이전트",
   "agentPanel.mode": "모드",
   "agentPanel.uiMode": "UI",
+  "agentHostNudge.sidebarTitle": "{{agent}} 채팅 사용",
+  "agentHostNudge.sidebarDescription":
+    "이미 {{agent}}와 대화 중입니다. 이 앱에서 직접 작업하도록 요청하세요.",
+  "agentHostNudge.promptTitle": "대신 {{agent}}에게 요청",
+  "agentHostNudge.promptDescription":
+    "{{agent}}에게 여기에서 만들거나 변경하도록 요청할 수 있습니다.",
+  "agentHostNudge.useThisChat": "이 채팅 사용",
+  "agentHostNudge.useThisPrompt": "이 입력 사용",
   "common.cancel": "취소",
   "common.collapse": "접기",
   "common.connect": "연결",

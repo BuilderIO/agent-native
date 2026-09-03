@@ -25,6 +25,12 @@ const messages = {
     themeTitle: "Theme",
     themeDescription: "Toggle dark / light",
   },
+  common: {
+    cancel: "Cancel",
+    confirmDisconnect: "Confirm disconnect",
+    disconnect: "Disconnect",
+    disconnecting: "Disconnecting…",
+  },
   onboarding: {
     back: "Back",
     chooseRole: "Choose your role",
@@ -58,6 +64,9 @@ const messages = {
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
+    builderConnection: {
+      manage: "Manage Builder.io connection",
+    },
     mcpConnectionsTitle: "Agent integrations",
     mcpConnectionsDescription:
       "Connect tools and services so the agent can use them.",

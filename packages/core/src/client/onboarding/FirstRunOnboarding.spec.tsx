@@ -160,6 +160,75 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
   });
 
+  it("lets users dismiss setup and records completion", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    const dismissButton = document.body.querySelector(
+      '[data-testid="first-run-dismiss"]',
+    );
+    expect(dismissButton).not.toBeNull();
+
+    await act(async () => {
+      (dismissButton as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces a failed dismissal with a retry action", async () => {
+    mocks.completeFirstRun.mockRejectedValue(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-dismiss"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain(
+      "first-run completion failed: 500",
+    );
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Try again",
+    );
+    expect(retry).not.toBeUndefined();
+
+    await act(async () => {
+      retry?.click();
+      await Promise.resolve();
+    });
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the legacy Builder connection when account provisioning is disabled", () => {
     act(() => {
       root.render(
@@ -392,9 +461,9 @@ describe("FirstRunOnboarding", () => {
     const shell = document.body.querySelector(
       "[data-onboarding-screen='intro']",
     );
-    expect(shell?.firstElementChild?.getAttribute("data-testid")).toBe(
-      "onboarding-progress",
-    );
+    expect(
+      shell?.querySelector('[data-testid="onboarding-progress"]'),
+    ).toBeTruthy();
     expect(shell?.querySelector("header")).toBeNull();
     expect(document.body.textContent).not.toContain("Builder App");
     expect(document.body.textContent).not.toMatch(/\b[123] \/ 3\b/);
@@ -888,6 +957,9 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain("Extension Skip");
+    expect(
+      document.body.querySelector('[data-testid="first-run-dismiss"]'),
+    ).not.toBeNull();
 
     await act(async () => {
       [...document.body.querySelectorAll("button")]

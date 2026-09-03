@@ -146,6 +146,8 @@ const messages = {
     clearSelection: "選択を解除",
     sendToAgent: "에이전트에게 보내기",
     saveReconnect: "再接続時に変更が保存されます",
+    saveFailedDescription:
+      "최신 변경 사항이 이 기기에만 있습니다. 나가기 전에 백업을 다운로드하세요.",
     offline: "오프라인",
     selected: "선택됨",
     chooseDesignSystem: "デザインシステムを選択",
@@ -205,6 +207,9 @@ const messages = {
     usingDesignSystem: "{{title}} 사용 중",
     usingLinkedDesignSystem: "연결된 디자인 시스템 사용 중",
     viewOnly: "보기 전용",
+    sourcePreserving: "제한된 편집",
+    sourcePreservingDescription:
+      "텍스트와 개체는 편집할 수 있습니다. 이 가져온 덱에서는 슬라이드 추가, 삭제 및 순서 변경이 비활성화됩니다.",
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 댓글을 추가할 수 있습니다",
     slideSettings: "슬라이드 설정",
@@ -260,6 +265,11 @@ const messages = {
     more: "더 보기",
     importing: "가져오는 중...",
     importFile: "파일 가져오기",
+    downloadBackup: "백업 다운로드",
+    importBackup: "백업 가져오기",
+    backupDownloaded: "백업을 다운로드했습니다",
+    backupDownloadFailed: "백업을 다운로드할 수 없습니다",
+    invalidBackup: "유효한 Slides 백업 JSON 파일을 선택하세요.",
     savedVersions: "저장된 버전",
     lightTheme: "라이트 테마",
     darkTheme: "다크 테마",
@@ -267,6 +277,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX 파일을 생성할 수 없습니다.",
     exportFailed: "내보내기 실패",
+    exporting: "내보내는 중...",
     exportPptxError: "PPTX로 내보내는 중 문제가 발생했습니다.",
     googleSlidesDownloaded: "Google Slides용으로 다운로드됨",
     googleSlidesImportHint:

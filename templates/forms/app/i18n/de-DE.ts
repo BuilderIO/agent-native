@@ -410,6 +410,14 @@ const messages = {
     page: "Page",
     source: "Quelle",
     sortBy: "Sort by {{label}}",
+    communityReview: "Prüfen",
+    communityPublish: "Auf der Website veröffentlichen",
+    communityPublishing: "Wird veröffentlicht...",
+    communityPublished: "Veröffentlicht",
+    communityView: "Auf der Website ansehen",
+    communityNeedsCheck: "Builder vor dem erneuten Versuch prüfen",
+    communityPromotionFailed:
+      "Diese Einreichung konnte nicht veröffentlicht werden.",
   },
 };
 

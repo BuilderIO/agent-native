@@ -280,7 +280,7 @@ export type EditCapability =
     }
   | {
       kind: "structure";
-      operations: Array<"moveNode">;
+      operations: Array<"moveNode" | "deleteNode">;
       confidence: number;
       reason?: string;
     }
@@ -452,6 +452,11 @@ export interface AttributeEditIntent {
   value: string;
 }
 
+export interface DeleteNodeEditIntent {
+  kind: "deleteNode";
+  target: EditIntentTarget;
+}
+
 export interface MoveNodeEditIntent {
   kind: "moveNode";
   target: EditIntentTarget;
@@ -602,6 +607,7 @@ export type EditIntent =
   | ClassEditIntent
   | TextEditIntent
   | AttributeEditIntent
+  | DeleteNodeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
   | UnwrapEditIntent
@@ -984,6 +990,18 @@ function escapeHtmlText(value: string): string {
 
 function decodeBasicHtmlEntities(value: string): string {
   return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
+    .replace(/&#([0-9]+);?/g, (_, decimal: string) => {
+      const codePoint = Number.parseInt(decimal, 10);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -2944,10 +2962,48 @@ function applyClassEdit(
 
 // Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
 // — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
-// `on*` event handler. Deliberately conservative: this path is for host-side
-// bookkeeping writes (pending node-id persistence today), not general-purpose
-// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
+// `on*` event handler. URL-bearing values get a second scheme check below so a
+// general attribute edit cannot persist executable markup.
 const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+const URL_ATTRIBUTE_NAMES = new Set([
+  "action",
+  "background",
+  "cite",
+  "data",
+  "formaction",
+  "href",
+  "poster",
+  "src",
+  "srcset",
+  "xlink:href",
+]);
+
+function isSafeAttributeValue(name: string, value: string): boolean {
+  const lowerName = name.toLowerCase();
+  if (lowerName === "style" || lowerName === "srcdoc") return false;
+  if (!URL_ATTRIBUTE_NAMES.has(lowerName)) return true;
+
+  const decoded = decodeBasicHtmlEntities(value);
+  if (/[\u0000-\u001f\u007f]/.test(decoded)) return false;
+  const candidates =
+    lowerName === "srcset"
+      ? decoded
+          .split(",")
+          .map((candidate) => candidate.trim().split(/\s+/, 1)[0] ?? "")
+      : [decoded.trim()];
+  return candidates.every((candidate) => {
+    if (!candidate) return true;
+    const compact = candidate.replace(/[\u0000-\u0020]+/g, "");
+    if (/^(?:javascript|vbscript):/i.test(compact)) return false;
+    if (/^data:/i.test(compact)) {
+      return /^data:image\/(?:png|jpe?g|gif|webp);/i.test(compact);
+    }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(compact)) {
+      return /^(?:https?|mailto|tel):/i.test(compact);
+    }
+    return true;
+  });
+}
 
 function applyAttributeEdit(
   html: string,
@@ -2957,6 +3013,7 @@ function applyAttributeEdit(
   if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
     return "unsupported";
   }
+  if (!isSafeAttributeValue(intent.name, intent.value)) return "unsupported";
   return {
     content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
     capability: {
@@ -3915,6 +3972,7 @@ function applyAutoLayout(
   if (!enabled) {
     const childRects = intent.childRects;
     const hasRects = !!childRects && Object.keys(childRects).length > 0;
+    if (!hasRects) return "needsAgent";
     const currentStyle = attributeValue(element, "style");
     const declarations = parseStyleDeclarations(currentStyle);
     const setOnContainer = (property: string, value: string) => {
@@ -3955,13 +4013,6 @@ function applyAutoLayout(
       "style",
       serializeStyleDeclarations(declarations),
     );
-    if (!hasRects) {
-      return {
-        content: result,
-        capability: { kind: "style", properties: ["display"], confidence: 0.9 },
-      };
-    }
-
     const updatedElements = parseHtmlElements(result);
     const targetAttr = attributeValue(element, "data-agent-native-node-id");
     const updatedTarget =
@@ -4332,6 +4383,44 @@ export function applyVisualEdit(
         "The target node does not have editable source spans.",
         beforeNode,
         undefined,
+        before,
+      ),
+    };
+  }
+
+  if (intent.kind === "deleteNode") {
+    const deleted = removeCodeLayerNodeFromHtml(html, beforeNode);
+    if (deleted === null) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "unsupported",
+          source,
+          intent,
+          false,
+          "This node cannot be deleted from the editable source.",
+          beforeNode,
+          undefined,
+          before,
+        ),
+      };
+    }
+    return {
+      content: deleted,
+      projection: buildCodeLayerProjection(deleted, { source }),
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        deleted !== html,
+        "Node deleted.",
+        beforeNode,
+        {
+          kind: "structure",
+          operations: ["deleteNode"],
+          confidence: 0.95,
+        },
         before,
       ),
     };

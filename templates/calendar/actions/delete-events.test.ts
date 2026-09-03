@@ -1007,4 +1007,16 @@ describe("delete-events", () => {
     ).rejects.toThrow(/over the 200 limit/i);
     expect(deleteEventMock).not.toHaveBeenCalled();
   });
+
+  it("gates a committed bulk delete and leaves a dry run unblocked", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    // Absent dryRun is a real delete, so the gate has to fail closed.
+    expect(await gate({} as never)).toBe(true);
+    expect(await gate({ dryRun: true } as never)).toBe(false);
+    // The predicate sees raw tool input, before cliBoolean coerces it.
+    expect(await gate({ dryRun: "true" } as never)).toBe(false);
+    expect(await gate({ dryRun: "false" } as never)).toBe(true);
+  });
 });

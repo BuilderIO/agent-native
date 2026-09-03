@@ -12,6 +12,11 @@ Browsersitzungen und Sicherheitsgrenzen.
 Authentifizierte Seiten registrieren geeignete Backend-Aktionen automatisch aus
 dem bestehenden Aktionsregister. Genehmigungspflichtige Aktionen bleiben ausgeschlossen;
 vor der Ausführung wird die aktuelle Tool-Liste erneut geprüft.
+Authentifizierte `sessionBypass`-Oberflächen, etwa MCP-Embed-Routen, registrieren
+Backend-Aktionswerkzeuge ebenfalls. Öffentliche und abgemeldete Seiten tun dies
+nicht.
+
+Der Agent-Native-Kern initialisiert `@mcp-b/webmcp-polyfill`, wenn der Browser keine nutzbare native WebMCP-Oberfläche bereitstellt. Das Polyfill ist auf die Seite beschränkt und stellt keine Netzwerk-MCP-Verbindung her.
 
 ## HTTP-Erkennung und fetch-Fallback
 

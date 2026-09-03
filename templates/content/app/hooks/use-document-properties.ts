@@ -11,6 +11,8 @@ import type {
   DuplicateDocumentPropertyRequest,
   ReorderDocumentPropertyRequest,
   SetDocumentPropertyRequest,
+  UpdateDatabaseItemsRequest,
+  UpdateDatabaseItemsResponse,
 } from "@shared/api";
 import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 
@@ -180,6 +182,24 @@ export function useSetDocumentProperty(
     },
   });
   return withDatabaseScope(mutation, databaseId);
+}
+
+export function useUpdateDatabaseItems(databaseDocumentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    UpdateDatabaseItemsResponse,
+    UpdateDatabaseItemsRequest
+  >("update-database-items", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () => {
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+  });
 }
 
 export function useDuplicateDocumentProperty(

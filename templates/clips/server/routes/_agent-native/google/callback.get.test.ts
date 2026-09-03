@@ -8,6 +8,7 @@ vi.mock("@agent-native/core/server", () => ({
   decodeOAuthState: vi.fn(),
   ensureGoogleAuthIdentity: vi.fn(),
   getAppUrl: vi.fn(),
+  logOAuthStateDecodeFailure: vi.fn(),
   matchesDesktopOAuthBrowserBinding: vi.fn(),
   oauthCallbackResponse: vi.fn(),
   oauthErrorPage: vi.fn(),
@@ -87,6 +88,7 @@ describe("persistGoogleProfileImage", () => {
   it("passes the canonical new-user result into Google signup tracking", async () => {
     const core = await import("@agent-native/core/server");
     vi.mocked(core.decodeOAuthState).mockReturnValue({
+      ok: true,
       redirectUri:
         "https://clips.agent-native.com/_agent-native/google/callback",
     } as never);

@@ -93,6 +93,14 @@ on:
         required: false
         type: string
         default: direct
+      migration_only:
+        required: false
+        type: boolean
+        default: false
+      skip_build_migrations:
+        required: false
+        type: boolean
+        default: false
     secrets:
       NETLIFY_AUTH_TOKEN:
         required: true
@@ -106,17 +114,23 @@ permissions:
 
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
-  # manager, and promotion jobs. A called workflow gets a distinct child queue
-  # because the fleet caller already owns the shared per-site lock.
+  # manager, and promotion jobs. Release migrations use a separate queue.
   group: >-
-    ${{ inputs.caller == 'fleet'
+    ${{ inputs.caller == 'release-migration'
+        && inputs.target == 'production'
+        && format('agent-native-production-site-{0}', inputs.site)
+        || inputs.caller == 'release-migration'
+        && 'agent-native-release-migrations'
+        || inputs.target == 'beta'
+        && format('netlify-prebuilt-beta-{0}', inputs.site)
+        || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
-  # Beta follows the newest moving ref. Never cancel a production publish that
-  # may already be uploading or becoming live.
-  cancel-in-progress: ${{ inputs.target == 'beta' }}
+  # Caller workflows own their workflow-level queues. These per-site child
+  # queues remain non-canceling for accepted uploads.
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -168,8 +182,8 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # Beta sites are dedicated production sites whose source branch is
-          # beta. Production sites continue to build from main.
+          # Beta and production sites both build from the exact source revision
+          # selected by their publisher.
           ref: ${{ steps.source.outputs.source_ref }}
           fetch-depth: 1
 
@@ -188,6 +202,7 @@ jobs:
           BUILD_CONTEXT: ${{ inputs.build_context }}
           DEPLOY: ${{ inputs.deploy }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          MIGRATION_ONLY: ${{ inputs.migration_only }}
           SITE: ${{ inputs.site }}
           TARGET: ${{ inputs.target }}
         run: |
@@ -198,8 +213,13 @@ jobs:
             exit 1
           fi
 
-          if [[ "$BUILD_CONTEXT" == "production" && ( "$DEPLOY" != "true" || "$DEPLOY_MODE" != "production" ) ]]; then
+          if [[ "$BUILD_CONTEXT" == "production" && "$MIGRATION_ONLY" != "true" && ( "$DEPLOY" != "true" || "$DEPLOY_MODE" != "production" ) ]]; then
             echo "::error::The production Netlify build context can run migrations; pair it with an explicit production deploy."
+            exit 1
+          fi
+
+          if [[ "$MIGRATION_ONLY" == "true" && ( "$DEPLOY" == "true" || "$DEPLOY_MODE" != "draft" ) ]]; then
+            echo "::error::Migration-only runs cannot create a Netlify deploy."
             exit 1
           fi
 
@@ -224,11 +244,50 @@ jobs:
           --site "$SITE"
           --github-output "$GITHUB_OUTPUT"
 
-      - name: Build with the Netlify project configuration
+      - name: Run the release migration from the Netlify environment
+        if: inputs.migration_only
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$(
+            netlify api getEnvVars \
+              --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter "$SOURCE_TEMPLATE" migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Release migration failed after 3 attempts."
+          exit 1
+
+      - name: Build with the Netlify project configuration
+        if: inputs.migration_only != true
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          MIGRATION_ONLY: ${{ inputs.migration_only }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           TARGET: ${{ inputs.target }}
         run: |
@@ -246,17 +305,31 @@ jobs:
             if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then
               export AGENT_NATIVE_RELEASE_MIGRATIONS=1
               export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
+              if [[ "$MIGRATION_ONLY" != "true" ]]; then
+                unset AGENT_NATIVE_RUN_RELEASE_MIGRATIONS
+              fi
             else
               export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
             fi
             export AGENT_NATIVE_ENABLE_KEEP_WARM=1
             export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
             export AGENT_NATIVE_HOSTED_HARNESS=true
+            if [[ "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then
+              export VITE_AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT=beta
+            fi
+          fi
+          if [[ "$SKIP_BUILD_MIGRATIONS" == "true" && "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then
+            export AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS=1
           fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
             # Netlify's local CLI receives masked site secrets. These templates
             # only need valid build-time shapes; uploaded Functions read the
             # real site-scoped values at runtime.
+            export agentNativePrebuiltBuild=true
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
+          if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
             export agentNativePrebuiltBuild=true
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
@@ -271,6 +344,9 @@ jobs:
             export agentNativePrebuiltAuthSecret
           fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+          fi
+          if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
@@ -302,6 +378,7 @@ jobs:
           pnpm --filter clips migrate:production
 
       - name: Verify deploy directories
+        if: inputs.migration_only != true
         env:
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
@@ -316,7 +393,9 @@ jobs:
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
 
       - name: Verify static SSR cache artifact
-        if: steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs'
+        if: >-
+          inputs.migration_only != true &&
+          (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')
         env:
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
         run: |
@@ -328,6 +407,7 @@ jobs:
       # sat above the whole fleet; this measures growth from where each app
       # actually is. An app with no recorded baseline is named, not passed.
       - name: Check serverless function sizes against their baseline
+        if: inputs.migration_only != true
         env:
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
           # source_template, not inputs.site: the input is a caller-facing alias
@@ -436,6 +516,44 @@ jobs:
             process.exitCode = 1;
           });
           NODE
+
+      - name: Run CRM release migrations
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'crm'
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$(
+            netlify api getSiteDatabase \
+              --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter crm migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "CRM migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::CRM release migration failed after 3 attempts."
+          exit 1
 
       - name: Unlock the published production deploy
         id: unlock
@@ -723,9 +841,37 @@ jobs:
           });
           NODE
 
+      - name: Verify beta source is current before publish
+        id: beta_freshness
+        if: inputs.target == 'beta' && inputs.deploy
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceRef = process.env.SOURCE_REF.trim();
+            if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
+              core.setOutput('current', 'true');
+              return;
+            }
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            const current = mainSha.toLowerCase() === sourceRef.toLowerCase();
+            core.setOutput('current', String(current));
+            if (!current) {
+              core.notice(
+                `Skipping stale beta source ${sourceRef}; main is now ${mainSha}.`,
+              );
+            }
+
       - name: Upload the prebuilt deploy
         id: deploy
-        if: inputs.deploy
+        if: >-
+          inputs.deploy &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
@@ -772,7 +918,9 @@ jobs:
           echo "Uploaded prebuilt ${DEPLOY_MODE} deploy: $deploy_url"
 
       - name: Wait for the Netlify deploy to publish
-        if: inputs.deploy
+        if: >-
+          inputs.deploy &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
         env:
           DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
@@ -834,7 +982,9 @@ jobs:
           NODE
 
       - name: Smoke-test the uploaded deploy
-        if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
+        if: >-
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
@@ -842,13 +992,17 @@ jobs:
         run: |
           set -euo pipefail
           url="$DEPLOY_URL"
+          # A status-only `curl --fail` cannot see a green deploy silently
+          # running on local SQLite or 500ing on Better Auth's jwks route —
+          # smoke-check-health.ts asserts the health body, not just the code.
           if [[ "$DEPLOY_MODE" == "production" ]]; then
             url="https://$HOST"
+            node --experimental-strip-types scripts/smoke-check-health.ts \
+              --url "$url" --canonical-host "$HOST" --auth-routes
+          else
+            node --experimental-strip-types scripts/smoke-check-health.ts \
+              --url "$url" --auth-routes
           fi
-          curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
-          echo "Smoke check passed: ${url%/}/"
-          curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
-          echo "Health check passed: ${url%/}/_agent-native/health"
 
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared
@@ -860,7 +1014,8 @@ jobs:
       - name: Verify Google OAuth redirect registration
         id: google_redirect
         if: >-
-          inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template != '@agent-native/docs'
         continue-on-error: true
         env:
@@ -951,19 +1106,10 @@ jobs:
           echo "::error::Google OAuth callback verification failed (exit code ${probe_exit_code:-2})."
           exit "${probe_exit_code:-2}"
 
-      # An unknown URL must still be storable. When it is not, every dead link
-      # and crawler miss re-invokes the render function, and Netlify runs one
-      # request per container — so a single site's regression drains the
-      # concurrency pool the whole account shares. Source review and green
-      # builds both missed this; only the live response shows it.
-      - name: Verify the deployed site still caches a miss
-        if: inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production'
-        env:
-          HOST: ${{ steps.target.outputs.host }}
-        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
-
       - name: Smoke-test the static docs deploy
-        if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'
+        if: >-
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
@@ -1013,6 +1159,20 @@ jobs:
             process.exitCode = 1;
           });
           NODE
+
+      # An unknown URL must still be storable. When it is not, every dead link
+      # and crawler miss re-invokes the render function, and Netlify runs one
+      # request per container — so a single site's regression drains the
+      # concurrency pool the whole account shares. Source review and green
+      # builds both missed this; only the live response shows it. Run after
+      # purge so this observes the deployment just published, not its predecessor.
+      - name: Verify the deployed site still caches a miss
+        if: >-
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && inputs.deploy_mode == 'production' && success()
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
 
       - name: Lock the published production deploy
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()

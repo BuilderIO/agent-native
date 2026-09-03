@@ -103,7 +103,6 @@ export default defineAction({
       deck.id = deckId;
       deck.updatedAt = now;
       const requestedTitle = deckTitle(deck);
-      const nextDesignSystemId = deckDesignSystemId(deck);
 
       // Resolve access first — this loads the row AND tells us the caller's
       // effective role in one pass, so we never run an unscoped existence
@@ -125,13 +124,13 @@ export default defineAction({
           requestedTitle;
         assertHumanReadableDeckTitle(title);
         deck.title = title;
-        await assertDesignSystemReadable(nextDesignSystemId);
+        await assertDesignSystemReadable(deckDesignSystemId(deck));
         try {
           await db.insert(schema.decks).values({
             id: deckId,
             title,
             data: JSON.stringify(deck),
-            designSystemId: nextDesignSystemId,
+            designSystemId: deckDesignSystemId(deck),
             ownerEmail,
             orgId: getRequestOrgId() ?? null,
             createdAt: now,
@@ -157,6 +156,9 @@ export default defineAction({
         deck.title = title;
         const updatedAt = nextDeckRevision(access.resource.updatedAt);
         deck.updatedAt = updatedAt;
+        const nextDesignSystemId = Object.hasOwn(deck, "designSystemId")
+          ? deckDesignSystemId(deck)
+          : (access.resource.designSystemId ?? null);
         await assertDesignSystemReadable(nextDesignSystemId);
         await db.transaction(async (tx: any) => {
           if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
@@ -175,8 +177,7 @@ export default defineAction({
             .set({
               title,
               data: JSON.stringify(deck),
-              designSystemId:
-                nextDesignSystemId ?? access.resource.designSystemId,
+              designSystemId: nextDesignSystemId,
               updatedAt,
             })
             .where(

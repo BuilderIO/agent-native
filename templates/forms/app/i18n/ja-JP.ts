@@ -399,6 +399,13 @@ const messages = {
     page: "Page",
     source: "ソース",
     sortBy: "Sort by {{label}}",
+    communityReview: "確認",
+    communityPublish: "サイトに公開",
+    communityPublishing: "公開中...",
+    communityPublished: "公開済み",
+    communityView: "サイトで表示",
+    communityNeedsCheck: "再試行する前に Builder を確認",
+    communityPromotionFailed: "この送信を公開できませんでした。",
   },
 };
 

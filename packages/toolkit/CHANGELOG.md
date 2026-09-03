@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.19.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0566ce9: Expose resolved composer model selections so hosts can preserve them during attachment and recovery flows.
+
 ## 0.19.1
 
 ### Patch Changes

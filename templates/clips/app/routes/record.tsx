@@ -80,6 +80,7 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
+import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import { cn } from "@/lib/utils";
 
@@ -1587,6 +1588,15 @@ export default function RecordRoute() {
         createdId = info.id;
         fileUploadRecordingIdRef.current = createdId;
         await saveBugReportContextRef.current(info.id);
+        if (isStale()) throw makeAbortError("Upload cancelled");
+        void uploadVideoBlobThumbnail(createdId, uploadBlob, {
+          signal: abort.signal,
+        }).catch((err) => {
+          console.warn("[recorder] local-file thumbnail upload skipped", {
+            recordingId: createdId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
         if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
 
