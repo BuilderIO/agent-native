@@ -1119,6 +1119,7 @@ describe("Builder CMS read client", () => {
       String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
     );
     expect(browseBody.params.arguments.limit).toBe(100);
+    expect(browseBody.params.arguments.includeDrafts).toBe(true);
     expect(result).toMatchObject({
       state: "live",
       entries: [{ id: "builder-entry-1" }],
@@ -1213,6 +1214,7 @@ describe("Builder CMS read client", () => {
       String((fetchImpl.mock.calls[3]?.[1] as RequestInit).body),
     );
     expect(secondPageBody.params.arguments.offset).toBe(100);
+    expect(secondPageBody.params.arguments.includeDrafts).toBe(true);
   });
 
   it("advances MCP pagination by the provider window when entries are invalid", async () => {
@@ -1675,6 +1677,7 @@ describe("Builder CMS read client", () => {
         arguments: {
           modelName: "blog_article",
           limit: 100,
+          includeDrafts: true,
         },
       },
     });
@@ -1833,6 +1836,7 @@ describe("Builder CMS read client", () => {
       String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
     );
     expect(secondPageBody.params.arguments.offset).toBe(100);
+    expect(secondPageBody.params.arguments.includeDrafts).toBe(true);
   });
 
   it("uses the legacy content tool for private-key-only hydration", async () => {

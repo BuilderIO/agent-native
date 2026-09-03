@@ -932,6 +932,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
           arguments: {
             modelName: args.model,
             limit: pageLimit,
+            ...(args.source === "oauth" ? { includeDrafts: true } : {}),
             ...(offset > 0 ? { offset } : {}),
             ...(args.source === "legacy"
               ? { enrich: args.rawData !== true }
@@ -1254,6 +1255,9 @@ export async function readBuilderCmsContentEntryResult(args: {
               arguments: {
                 modelName: args.model,
                 limit: BUILDER_CMS_PAGE_SIZE,
+                ...(authorization?.source === "oauth"
+                  ? { includeDrafts: true }
+                  : {}),
                 ...(offset > 0 ? { offset } : {}),
                 ...(authorization?.source === "legacy" ? { enrich: true } : {}),
                 fields: `${builderCmsListEntryFields()},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
