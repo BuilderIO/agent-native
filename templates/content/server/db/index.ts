@@ -1,6 +1,5 @@
 import { createGetDb } from "@agent-native/core/db";
 import { registerShareableResource } from "@agent-native/core/sharing";
-import { inArray } from "drizzle-orm";
 
 import {
   DOCUMENT_AGENT_CONTEXT_ENDPOINT,
@@ -24,24 +23,10 @@ registerShareableResource({
     getContextPath: () => DOCUMENT_AGENT_CONTEXT_ENDPOINT,
     getPagePath: (document) => `/p/${document.id}`,
   },
-  persistVisibilityChange: async ({
-    resource,
-    resourceId,
-    update,
-    userEmail,
-  }) => {
-    const ownerEmail = String(resource.ownerEmail ?? userEmail ?? "");
-    const { collectDocumentSubtreeIds } =
-      await import("../../actions/set-document-discoverability.js");
-    const ids = await collectDocumentSubtreeIds({
-      db: getDb(),
-      rootId: resourceId,
-      ownerEmail,
-    });
-    await getDb()
-      .update(schema.documents)
-      .set(update)
-      .where(inArray(schema.documents.id, ids));
-  },
+  // No persistVisibilityChange: the framework default (update the single
+  // requested resourceId) is correct here. Do not cascade to descendants —
+  // a child page can have its own, deliberately narrower visibility, and a
+  // parent going public/org must never widen it. Bulk visibility changes are
+  // a separate, explicit, opt-in operation, not a side effect of this hook.
   getDb,
 });

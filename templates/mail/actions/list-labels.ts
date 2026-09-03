@@ -1,4 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
@@ -66,15 +67,40 @@ export default defineAction({
     const requested = accountEmails?.length
       ? new Set(accountEmails.map((email) => email.toLowerCase()))
       : undefined;
-    const accounts = (await getAccessTokens()).filter(
-      ({ email }) => !requested || requested.has(email.toLowerCase()),
-    );
-    if (accounts.length === 0) {
+
+    // Ground truth for "is a Gmail account connected/requested at all",
+    // independent of whether its token currently resolves. getAccessTokens()
+    // silently drops an account whose refresh fails, which would otherwise be
+    // indistinguishable from "no Google account connected" and fall through
+    // to local labels as if the mailbox were complete.
+    const connectedEmails = (
+      await listOAuthAccountsByOwner("google", ownerEmail)
+    )
+      .map((account) => account.accountId.toLowerCase())
+      .filter((email) => !requested || requested.has(email));
+
+    if (connectedEmails.length === 0) {
       const local = await getUserSetting(ownerEmail, "labels");
       const labels = Array.isArray((local as any)?.labels)
         ? ((local as any).labels as Label[])
         : [];
       return recomputeLocalCounts(labels, await readLocalEmails(ownerEmail));
+    }
+
+    const accounts = (await getAccessTokens()).filter(
+      ({ email }) => !requested || requested.has(email.toLowerCase()),
+    );
+    const resolvedEmails = new Set(
+      accounts.map(({ email }) => email.toLowerCase()),
+    );
+    const unresolved = connectedEmails.filter(
+      (email) => !resolvedEmails.has(email),
+    );
+    if (unresolved.length > 0) {
+      fail(
+        `Unable to load Gmail labels for ${unresolved.join(", ")}: the account's Google connection needs to be reconnected.`,
+        { errorCode: "labels_account_unavailable" },
+      );
     }
 
     const labelsById = new Map<string, Label>();

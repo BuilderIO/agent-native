@@ -652,6 +652,78 @@ describe("applyVisualEdit", () => {
     expect(patch.content).toContain('href="https://example.com"');
   });
 
+  it("rejects vbscript: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "vbscript:msgbox(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("rejects non-image data: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "data:text/html,<script>alert(1)</script>",
+      "data:image/svg+xml,<svg onload=alert(1)>",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("allows safe data:image attribute URLs", () => {
+    const patch = applyVisualEdit(`<img id="pic" />`, {
+      kind: "attribute",
+      target: { selector: "#pic" },
+      name: "src",
+      value: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    expect(patch.result.status).toBe("applied");
+  });
+
+  it("rejects control-character and whitespace evasions of javascript:", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "java\tscript:alert(1)",
+      "java\nscript:alert(1)",
+      " javascript:alert(1)",
+      " javascript:alert(1)",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status, `value ${JSON.stringify(value)}`).toBe(
+        "unsupported",
+      );
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("rejects on* event-handler attribute names outright, regardless of value", () => {
+    const html = `<button id="btn">Click</button>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#btn" },
+      name: "onclick",
+      value: "alert(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
   it("applies textContent edits only to leaf elements", () => {
     const html = `<div><button data-testid="cta">Buy now</button></div>`;
     const patch = applyVisualEdit(html, {

@@ -1,5 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -49,6 +49,10 @@ export default defineAction({
       try {
         results.push(await restoreOne(id));
       } catch (error) {
+        // A forbidden target is a security-relevant failure, not an ordinary
+        // per-item outcome like "not found" — reject the whole batch instead
+        // of reporting it as a completed action with a false-looking result.
+        if (error instanceof ForbiddenError) throw error;
         results.push({
           id,
           success: false,
