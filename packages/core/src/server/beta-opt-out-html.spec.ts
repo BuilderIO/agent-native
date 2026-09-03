@@ -93,20 +93,56 @@ describe("injectBetaOptOutPersistence", () => {
     expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
   });
 
-  it("does not embed a request-derived path in the inline redirect script", () => {
-    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
-    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+  it("uses the Vite SSR base path for the auth session probe", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("VITE_APP_BASE_PATH", "/starter/");
 
     const html = injectBetaOptOutPersistence(
       "<html><head></head><body>Sign in</body></html>",
     );
 
-    // The session probe uses the framework-root path and derives any workspace
-    // mount from the browser's location at runtime. Build-time configuration
-    // must not leak a request-derived path into this inline script.
-    expect(html).toContain(SSR_BETA_REDIRECT_MARKER);
-    expect(html).toContain("/_agent-native/auth/session");
+    expect(html).toContain("/starter/_agent-native/auth/session");
+  });
+
+  it("uses the mounted workspace path when no build-time base exists", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/plan/login",
+    );
+
+    expect(html).toContain("/plan/_agent-native/auth/session");
+  });
+
+  it("prefers the request mount over a stale build-time base", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/diagrams/login",
+    );
+
+    expect(html).toContain("/diagrams/_agent-native/auth/session");
     expect(html).not.toContain("/dispatch/_agent-native/auth/session");
+  });
+
+  it("escapes a request-derived session probe path in the inline script", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/<script>alert(1)/login",
+    );
+
+    expect(html).toContain("\\u003cscript\\u003ealert(1)");
+    expect(html).not.toContain("<script>alert(1)");
   });
 
   it("keeps the existing onboarding switcher instead of injecting a second one", () => {

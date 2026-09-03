@@ -146,11 +146,27 @@ describe("getSsrBetaRedirectScript", () => {
         [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
       }),
       workspaceRuntime: true,
+      workspaceAppMountPaths: ["/plan"],
     });
 
     expect(result.fetched).toEqual(["/plan/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
       "https://beta.agent-workspace.builder.io/plan/inbox",
+    );
+  });
+
+  it("keeps the root probe path when workspace mounts are unavailable", async () => {
+    const result = await runScript({
+      href: "https://agent-workspace.builder.io/settings/inbox",
+      localStorage: createStorage({
+        [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+      }),
+      workspaceRuntime: true,
+    });
+
+    expect(result.fetched).toEqual(["/_agent-native/auth/session"]);
+    expect(result.redirectedTo).toBe(
+      "https://beta.agent-workspace.builder.io/settings/inbox",
     );
   });
 
@@ -409,6 +425,29 @@ describe("getSsrBetaRedirectScript", () => {
     });
     await Promise.resolve();
     sessionStorage.setItem(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY, "1");
+    resolveProbe!({ email: "employee@builder.io" });
+
+    const result = await pending;
+
+    expect(result.redirectedTo).toBeNull();
+  });
+
+  it("does not navigate after another tab clears the marker while probing", async () => {
+    const localStorage = createStorage({
+      [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+    });
+    let resolveProbe: ((session: Record<string, unknown>) => void) | undefined;
+    const sessionProbe = new Promise<Record<string, unknown>>((resolve) => {
+      resolveProbe = resolve;
+    });
+
+    const pending = runScript({
+      href: "https://plan.agent-native.com/inbox",
+      localStorage,
+      sessionProbe,
+    });
+    await Promise.resolve();
+    localStorage.removeItem(BETA_REDIRECT_STORAGE_KEY);
     resolveProbe!({ email: "employee@builder.io" });
 
     const result = await pending;
