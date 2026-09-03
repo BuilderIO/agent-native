@@ -203,6 +203,24 @@ describe("list-decks", () => {
     });
   });
 
+  it("normalizes offset timestamps before incremental sync comparisons", async () => {
+    await action.run({
+      updatedSince: "2026-05-03T00:00:00-07:00",
+      limit: 1,
+    });
+
+    const pagedWhere = whereFn.mock.calls.at(-1)?.[0] as {
+      and?: Array<{ values?: unknown[] }>;
+    };
+    expect(pagedWhere.and).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          values: ["updated_at_col", "2026-05-03T07:00:00.000Z"],
+        }),
+      ]),
+    );
+  });
+
   it("does not bypass Mine filtering for a whitespace-only identity", async () => {
     requestUserEmail = "   ";
 

@@ -72,7 +72,10 @@ describe("resolveSlidesRequestAuth", () => {
   });
 
   it("uses the org scoped to a connect token instead of a browser org setting", async () => {
-    mockGetSession.mockResolvedValue(null);
+    mockGetSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "token-org",
+    });
     mockGetMcpOAuthBearerSession.mockResolvedValue({
       email: "owner@example.com",
       orgId: "token-org",
@@ -84,6 +87,7 @@ describe("resolveSlidesRequestAuth", () => {
       orgId: "token-org",
     });
     expect(mockGetOrgContext).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
   });
 
   it("resolves ok:false with a non-401 status when the session lookup fails, never as unauthorized", async () => {

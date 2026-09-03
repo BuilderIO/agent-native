@@ -145,9 +145,12 @@ export default defineAction({
       args.cursor !== undefined;
     if (paged) {
       const cursor = args.cursor ? decodeDeckCursor(args.cursor) : undefined;
+      const updatedSince = args.updatedSince
+        ? new Date(args.updatedSince).toISOString()
+        : undefined;
       const pageConditions = [
-        ...(args.updatedSince
-          ? [sql`${schema.decks.updatedAt} > ${args.updatedSince}`]
+        ...(updatedSince
+          ? [sql`${schema.decks.updatedAt} > ${updatedSince}`]
           : []),
         ...(cursor
           ? [

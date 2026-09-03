@@ -36,17 +36,20 @@ export class SlidesSessionLookupError extends Error {
 export async function resolveSlidesRequestAuthContext(
   event: H3Event,
 ): Promise<SlidesRequestAuthContext> {
+  // Check the connect token first. On framework action routes, getSession can
+  // already resolve it, but it does not mark the result as token-scoped; doing
+  // the browser org lookup after that would let a stale active-org cookie
+  // replace the org carried by the bearer token.
+  const mcpSession = await getMcpOAuthBearerSession(event);
   let session: Awaited<ReturnType<typeof getSession>>;
-  try {
-    session = await getSession(event);
-  } catch (err) {
-    throw new SlidesSessionLookupError(err);
-  }
-
-  let mcpSession: Awaited<ReturnType<typeof getMcpOAuthBearerSession>> = null;
-  if (!session?.email) {
-    mcpSession = await getMcpOAuthBearerSession(event);
-    if (mcpSession?.email) session = mcpSession;
+  if (mcpSession?.email) {
+    session = mcpSession;
+  } else {
+    try {
+      session = await getSession(event);
+    } catch (err) {
+      throw new SlidesSessionLookupError(err);
+    }
   }
 
   // Prefer the live active org context over `session.orgId`. Better Auth's
