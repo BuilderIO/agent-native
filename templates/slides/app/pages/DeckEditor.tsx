@@ -193,15 +193,34 @@ export function isSourceImportedDeck(deck: Deck | null | undefined): boolean {
     return false;
   }
   const metadata = sourceImport as {
+    editableSnapshot?: unknown;
     mode?: unknown;
     format?: unknown;
     slides?: unknown;
   };
   return (
+    metadata.editableSnapshot !== true &&
     metadata.mode === "source-preserving" &&
     (metadata.format === "pdf" || metadata.format === "pptx") &&
     Array.isArray(metadata.slides)
   );
+}
+
+export function getAltDragPlacement(
+  slides: readonly Pick<Slide, "id">[],
+  activeSlideId: string,
+  overSlideId: string,
+  copyAfterSlideId = activeSlideId,
+): { afterSlideId: string; beforeSlideId?: string } | null {
+  const activeIndex = slides.findIndex((slide) => slide.id === activeSlideId);
+  const overIndex = slides.findIndex((slide) => slide.id === overSlideId);
+  if (activeIndex === -1 || overIndex === -1) return null;
+  if (activeIndex === overIndex) return { afterSlideId: copyAfterSlideId };
+  if (activeIndex < overIndex) return { afterSlideId: overSlideId };
+  return {
+    afterSlideId: slides[overIndex - 1]?.id ?? overSlideId,
+    beforeSlideId: overSlideId,
+  };
 }
 
 export function syncSlideContentSnapshots(
@@ -887,10 +906,51 @@ export default function DeckEditor() {
     (event: DragEndEvent) => {
       if (!deck || !id || sourceImportedDeck) return;
       const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      reorderSlides(id, String(active.id), String(over.id), selectedSlideIds);
+      if (!over) return;
+
+      const activeSlideId = String(active.id);
+      const overSlideId = String(over.id);
+      const isAltDrag = Boolean((event.activatorEvent as MouseEvent).altKey);
+      if (isAltDrag) {
+        const slidesToCopy = selectedSlideIds.includes(activeSlideId)
+          ? deck.slides.filter((slide) => selectedSlideIds.includes(slide.id))
+          : deck.slides.filter((slide) => slide.id === activeSlideId);
+        if (slidesToCopy.length === 0) return;
+
+        const placement = getAltDragPlacement(
+          deck.slides,
+          activeSlideId,
+          overSlideId,
+          slidesToCopy[slidesToCopy.length - 1]?.id,
+        );
+        if (!placement) return;
+        const newIds = pasteSlides(
+          id,
+          placement.afterSlideId,
+          slidesToCopy.map(({ id: _slideId, ...fields }) => fields),
+          placement.beforeSlideId
+            ? { beforeSlideId: placement.beforeSlideId }
+            : undefined,
+        );
+        if (newIds.length > 0) {
+          selectionAnchorSlideIdRef.current = newIds[0] ?? null;
+          setSelectedSlideIds(newIds);
+          setActiveSlideId(newIds[newIds.length - 1] ?? null);
+        }
+        return;
+      }
+
+      if (active.id === over.id) return;
+      reorderSlides(id, activeSlideId, overSlideId, selectedSlideIds);
     },
-    [deck, id, reorderSlides, selectedSlideIds, sourceImportedDeck],
+    [
+      deck,
+      id,
+      pasteSlides,
+      reorderSlides,
+      selectedSlideIds,
+      sourceImportedDeck,
+    ],
   );
 
   const handleSlideSelection = useCallback(
@@ -1585,8 +1645,11 @@ export default function DeckEditor() {
       if (!deck || !id || !canEdit) return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "c" && key !== "v") return;
+      if (key !== "c" && key !== "v" && key !== "d") return;
       if (pinMode || drawMode) return;
+      if (!document.activeElement?.closest("[data-slide-thumbnail-id]")) {
+        return;
+      }
 
       // A live browser text selection (e.g. the user triple-clicked rendered,
       // non-editable slide copy) means Cmd/Ctrl+C is a normal text copy —
@@ -1648,9 +1711,19 @@ export default function DeckEditor() {
 
       if (key === "c") {
         if (!activeSlideId) return;
+        e.preventDefault();
+        e.stopPropagation();
         copySlides(
           selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId],
         );
+        return;
+      }
+
+      if (key === "d") {
+        if (!activeSlideId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleDuplicateSlideFromRail([activeSlideId]);
         return;
       }
 
@@ -1660,6 +1733,8 @@ export default function DeckEditor() {
         !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
       )
         return;
+      e.preventDefault();
+      e.stopPropagation();
       if (slidePasteFallbackRef.current !== null) {
         window.clearTimeout(slidePasteFallbackRef.current);
       }
@@ -1676,6 +1751,7 @@ export default function DeckEditor() {
     canEdit,
     activeSlideId,
     copySlides,
+    handleDuplicateSlideFromRail,
     hasSlideClipboard,
     pasteSlideAfter,
     selectedSlideIds,
@@ -2127,6 +2203,7 @@ export default function DeckEditor() {
         deckTitle={deck.title}
         canEdit={canEdit}
         canComment={canComment}
+        sourceImported={sourceImportedDeck}
         onTitleChange={(title) => updateDeck(id, { title })}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
         sidebarOpen={sidebarOpen}

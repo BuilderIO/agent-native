@@ -247,6 +247,30 @@ describe("get-deck", () => {
     });
   });
 
+  it("reports editable source snapshots without structural restrictions", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Copied source",
+      slides: [{ id: "slide-1", content: "One" }],
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pptx",
+        fidelity: "source-faithful",
+        slideCount: 1,
+        slideIds: ["slide-1"],
+        slides: [{ id: "slide-1" }],
+        editableSnapshot: true,
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.sourceImport.editableSnapshot).toBe(true);
+    expect(result.sourceEditability).toEqual({ structuralEdits: "allowed" });
+  });
+
   it("lets agent calls opt into full slide HTML", async () => {
     const result = (await action.run(
       { id: "deck-1", compact: "false" },

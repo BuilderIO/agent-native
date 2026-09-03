@@ -205,6 +205,9 @@ const messages = {
     usingDesignSystem: "{{title}} を使用中",
     usingLinkedDesignSystem: "リンクされたデザインシステムを使用中",
     viewOnly: "表示のみ",
+    sourcePreserving: "編集に制限あり",
+    sourcePreservingDescription:
+      "テキストとオブジェクトは編集できます。このインポート済みデッキでは、スライドの追加、削除、並べ替えは無効です。",
     commenterRoleLabel: "コメント可",
     commenterRoleDescription: "表示とコメントの追加ができます",
     slideSettings: "スライド設定",
