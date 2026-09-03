@@ -29,6 +29,14 @@ const REPO_ROOT = path.resolve(
 
 /** Directives that stop a shared cache from storing the response at all. */
 const UNCACHEABLE = ["no-store", "no-cache", "private"];
+const DEFAULT_CACHE_SETTINGS = new Set([
+  "",
+  "on",
+  "default",
+  "true",
+  "1",
+  "yes",
+]);
 
 /**
  * Real pages probed alongside the synthetic miss. The synthetic probe proves an
@@ -91,7 +99,12 @@ function hostsFor(environment) {
 
 function directiveSeconds(policy, name) {
   const match = new RegExp(`(?:^|[,;\\s])${name}=(\\d+)`).exec(policy);
-  return match ? Number(match[1]) : 0;
+  return match ? Number(match[1]) : undefined;
+}
+
+function hasDeploymentWideCacheOverride() {
+  const value = process.env.AGENT_NATIVE_SSR_CACHE?.trim().toLowerCase();
+  return value !== undefined && !DEFAULT_CACHE_SETTINGS.has(value);
 }
 
 /**
@@ -100,11 +113,11 @@ function directiveSeconds(policy, name) {
  */
 function effectiveLifetimeSeconds(policy) {
   const normalized = policy.toLowerCase();
-  const fresh = Math.max(
-    directiveSeconds(normalized, "s-maxage"),
-    directiveSeconds(normalized, "max-age"),
-  );
-  return fresh + directiveSeconds(normalized, "stale-while-revalidate");
+  const fresh =
+    directiveSeconds(normalized, "s-maxage") ??
+    directiveSeconds(normalized, "max-age") ??
+    0;
+  return fresh + (directiveSeconds(normalized, "stale-while-revalidate") ?? 0);
 }
 
 async function probe(host) {
@@ -169,17 +182,28 @@ async function probeUrl(host, pathname) {
         "no cache-control header (a Netlify function response is uncached by default)",
     };
   }
-  const normalized = cacheControl.toLowerCase();
-  const offending = UNCACHEABLE.filter((directive) =>
-    normalized.includes(directive),
-  );
+  const cacheHeaders = [
+    ["cache-control", cacheControl],
+    ["cdn-cache-control", response.headers.get("cdn-cache-control")],
+    [
+      "netlify-cdn-cache-control",
+      response.headers.get("netlify-cdn-cache-control"),
+    ],
+  ];
+  const offending = cacheHeaders.flatMap(([name, value]) => {
+    if (!value) return [];
+    const normalized = value.toLowerCase();
+    return UNCACHEABLE.filter((directive) =>
+      normalized.includes(directive),
+    ).map((directive) => `${name}=${directive}`);
+  });
   if (offending.length > 0) {
     return {
       host,
       label,
       outcome: "violation",
       status: response.status,
-      detail: `cache-control: ${cacheControl}`,
+      detail: `${offending.join(", ")}; cache-control: ${cacheControl}`,
     };
   }
   // Only real pages, and only 2xx: a redirect or error shell has its own
@@ -189,7 +213,10 @@ async function probeUrl(host, pathname) {
     // shared-cache policy visible from outside is cdn-cache-control.
     const shared = response.headers.get("cdn-cache-control") ?? cacheControl;
     const lifetime = effectiveLifetimeSeconds(shared);
-    if (lifetime < MIN_EFFECTIVE_LIFETIME_SECONDS) {
+    if (
+      lifetime < MIN_EFFECTIVE_LIFETIME_SECONDS &&
+      !hasDeploymentWideCacheOverride()
+    ) {
       return {
         host,
         label,

@@ -661,9 +661,16 @@ function checkDocsSsrSurfaces() {
   ]) {
     for (const rel of files) {
       const content = readFileSafe(path.join(REPO_ROOT, rel));
-      // Docs may legitimately drop or rename one of these; absence is not a
-      // violation, but it must not silently reduce coverage to nothing either.
-      if (content === null) continue;
+      if (content === null) {
+        violations.push({
+          file: rel,
+          line: 1,
+          col: 1,
+          rule: "expected Docs SSR surface is missing; cache-contract coverage must not disappear with a rename",
+          snippet: rel,
+        });
+        continue;
+      }
       violations.push(...scan(rel, content));
     }
   }
