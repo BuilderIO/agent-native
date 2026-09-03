@@ -290,6 +290,32 @@ describe("builderFileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("cancels a resumable session so a hosted retry can restart it", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 499,
+      statusText: "Client Closed Request",
+      headers: new Headers(),
+      text: async () => "",
+    } as unknown as Response);
+
+    await expect(
+      builderFileUploadProvider.resumable!.abortSession!({
+        sessionId: "https://storage.googleapis.com/session",
+        meta: { assetId: "asset-1" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://storage.googleapis.com/session",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: { "Content-Length": "0" },
+        body: expect.any(Uint8Array),
+      }),
+    );
+  });
+
   it("passes only stableUrl through signed URL completion when requested", async () => {
     fetchMock
       .mockResolvedValueOnce(

@@ -189,6 +189,22 @@ export interface Deck {
   previewSlide?: Slide;
 }
 
+export interface SetDeckSlidesOptions {
+  deckFields?: Partial<
+    Pick<Deck, "title" | "aspectRatio" | "tweaks" | "starred">
+  > & { designSystemId?: string | null };
+  clearDeckFields?: readonly ClearableDeckField[];
+  persistence?: "debounced" | "immediate";
+  forcePersistence?: boolean;
+}
+
+type ClearableDeckField =
+  | "aspectRatio"
+  | "designSystemId"
+  | "tweaks"
+  | "starred"
+  | "sourceImport";
+
 export type DeckPersistenceResult =
   | { persisted: true }
   | { persisted: false; reason: "request-failed"; error: unknown }
@@ -306,7 +322,11 @@ interface DeckContextType {
     overSlideId: string,
     selectedSlideIds?: string[],
   ) => void;
-  setDeckSlides: (deckId: string, slides: Slide[]) => void;
+  setDeckSlides: (
+    deckId: string,
+    slides: Slide[],
+    options?: SetDeckSlidesOptions,
+  ) => void;
   /**
    * Mark a deck as having uncommitted local changes without modifying its data.
    * Use this when the user begins an interaction (e.g. inline text editing) that
@@ -490,13 +510,24 @@ export function clearSlideEditingActive(deckId: string, slideId: string) {
   if (set.size === 0) activeInlineEditSlides.delete(deckId);
 }
 
-// Cached snapshot for useSyncExternalStore. MUST be stable when either value
-// is unchanged or React will infinite-loop (it compares snapshots with
-// Object.is — a fresh object literal every call schedules a new update,
-// which calls getSnapshot again, which returns a new object… etc).
-let cachedSnapshot: { saving: boolean; hasUnsavedChanges: boolean } = {
+// Cached snapshot for useSyncExternalStore. It must stay stable between
+// notifications or React will infinite-loop when it compares snapshots.
+type SaveStateSnapshot = {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+  revision: number;
+};
+
+let cachedSnapshot: SaveStateSnapshot = {
   saving: false,
   hasUnsavedChanges: false,
+  revision: 0,
+};
+
+const serverSaveSnapshot: SaveStateSnapshot = {
+  saving: false,
+  hasUnsavedChanges: false,
+  revision: 0,
 };
 
 function recomputeSnapshot() {
@@ -507,12 +538,22 @@ function recomputeSnapshot() {
     saving !== cachedSnapshot.saving ||
     hasUnsavedChanges !== cachedSnapshot.hasUnsavedChanges
   ) {
-    cachedSnapshot = { saving, hasUnsavedChanges };
+    cachedSnapshot = {
+      ...cachedSnapshot,
+      saving,
+      hasUnsavedChanges,
+    };
   }
 }
 
 function notifySaveListeners() {
   recomputeSnapshot();
+  // Aggregate booleans can stay unchanged when a different deck changes. The
+  // revision keeps subscribers live so deck-specific flags are read again.
+  cachedSnapshot = {
+    ...cachedSnapshot,
+    revision: cachedSnapshot.revision + 1,
+  };
   saveStateListeners.forEach((fn) => {
     try {
       fn();
@@ -539,11 +580,12 @@ export function hasUnsavedDeckChanges(deckId: string): boolean {
   );
 }
 
+export function hasFailedDeckSave(deckId: string): boolean {
+  return failedSaveDecks.has(deckId);
+}
+
 /** Snapshot of save state — true when anything is debounced or in flight. */
-export function getSaveSnapshot(): {
-  saving: boolean;
-  hasUnsavedChanges: boolean;
-} {
+export function getSaveSnapshot(): SaveStateSnapshot {
   return cachedSnapshot;
 }
 
@@ -3304,7 +3346,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
         return;
       }
-      markDeckDirty(deckId);
+      // A preserved editor draft already has an explicit granular op queued.
+      // Marking it dirty also arms the legacy full-replace fallback, which can
+      // later serialize stale React state after that granular op succeeds.
+      if (!options?.preserveLocalState) markDeckDirty(deckId);
       if (!options?.preserveLocalState) {
         setDecksLocal((prev: Deck[]) =>
           prev.map((d) => {
@@ -3561,7 +3606,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const newSlides: Slide[] = [];
       const ops: PatchDeckOp[] = [];
       for (const fields of slideFields) {
-        const newSlide: Slide = { ...fields, id: nanoid(8) };
+        const newSlide: Slide = {
+          ...fields,
+          id: nanoid(8),
+          content: normalizeSlidePadding(fields.content),
+        };
         newSlides.push(newSlide);
         ops.push({
           op: "add-slide",
@@ -3647,15 +3696,21 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const setDeckSlides = useCallback(
-    (deckId: string, slides: Slide[]) => {
+    (deckId: string, slides: Slide[], options?: SetDeckSlidesOptions) => {
       const before = decksRef.current.find((deck) => deck.id === deckId);
-      const after = before
-        ? { ...before, slides, updatedAt: new Date().toISOString() }
-        : null;
+      if (!before) return;
+      const after: Deck = {
+        ...before,
+        slides,
+        updatedAt: new Date().toISOString(),
+      };
+      for (const field of options?.clearDeckFields ?? []) {
+        delete (after as unknown as Record<string, unknown>)[field];
+      }
+      Object.assign(after, options?.deckFields ?? {});
       if (
-        before &&
-        after &&
-        deckContentSignature(before) === deckContentSignature(after)
+        deckContentSignature(before) === deckContentSignature(after) &&
+        !options?.forcePersistence
       ) {
         return;
       }
@@ -3669,37 +3724,25 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // setDeckSlides replaces ALL slides wholesale (used by AI generation and
       // imports), so its undo entry is a deck-level full replacement instead of
       // a fine-grained slide patch.
-      setDecksLocal((prev) =>
-        prev.map((d) => {
-          if (d.id !== deckId) return d;
-          const next = after ?? {
-            ...d,
-            slides,
-            updatedAt: new Date().toISOString(),
-          };
-          enqueueDeckOp(
-            deckId,
-            { op: "full-replace", deck: next },
-            {
-              onSaveSuccess,
-              onPersisted: (results, slideWriteSequences) =>
-                reconcilePersistedLayoutFit(
-                  deckId,
-                  results,
-                  slideWriteSequences,
-                ),
-            },
-          );
-          return next;
-        }),
+      decksRef.current = decksRef.current.map((d) =>
+        d.id === deckId ? after : d,
       );
-      if (before && after) {
-        undoControllerRef.current?.push({
-          undo: [{ op: "replace-deck", deckId, deck: before }],
-          redo: [{ op: "replace-deck", deckId, deck: after }],
-          label: "Replace slides",
-        });
-      }
+      setDecksLocal((prev) => prev.map((d) => (d.id === deckId ? after : d)));
+      enqueueDeckOp(
+        deckId,
+        { op: "full-replace", deck: after },
+        {
+          onSaveSuccess,
+          persistence: options?.persistence,
+          onPersisted: (results, slideWriteSequences) =>
+            reconcilePersistedLayoutFit(deckId, results, slideWriteSequences),
+        },
+      );
+      undoControllerRef.current?.push({
+        undo: [{ op: "replace-deck", deckId, deck: before }],
+        redo: [{ op: "replace-deck", deckId, deck: after }],
+        label: "Replace slides",
+      });
     },
     [
       captureReplacedSlideDeleteTombstones,
@@ -3768,8 +3811,13 @@ export function useSaveState(): {
   saving: boolean;
   hasUnsavedChanges: boolean;
 } {
-  return useSyncExternalStore(subscribeSaveState, getSaveSnapshot, () => ({
-    saving: false,
-    hasUnsavedChanges: false,
-  }));
+  const snapshot = useSyncExternalStore(
+    subscribeSaveState,
+    getSaveSnapshot,
+    () => serverSaveSnapshot,
+  );
+  return {
+    saving: snapshot.saving,
+    hasUnsavedChanges: snapshot.hasUnsavedChanges,
+  };
 }

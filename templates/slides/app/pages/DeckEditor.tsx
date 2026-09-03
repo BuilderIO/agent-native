@@ -92,6 +92,7 @@ import {
   type CommentThread,
 } from "@/hooks/use-slide-comments";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
+import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
   deckAccessCheckKey,
   shouldShowDeckEditorSkeleton,
@@ -121,10 +122,10 @@ import {
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
   getSlideClipboardStorageKey,
-  normalizeSlideClipboard,
-  readSlideClipboard,
-  resolveSlideClipboardForPaste,
-  writeSlideClipboard,
+  normalizeSlideClipboards,
+  readSlideClipboards,
+  resolveSlideClipboardsForPaste,
+  writeSlideClipboards,
 } from "@/lib/slide-clipboard";
 import {
   applyOptimisticImagePreview,
@@ -263,6 +264,7 @@ export default function DeckEditor() {
     addSlide,
     flushDeckSave,
     reorderSlides,
+    setDeckSlides,
     undo,
     loading,
     loadError,
@@ -389,6 +391,9 @@ export default function DeckEditor() {
     useState<HTMLDivElement | null>(null);
   const [wideContextToolbarSlot, setWideContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
+  const [layersPanelSlot, setLayersPanelSlot] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [accessRequestSentDeckId, setAccessRequestSentDeckId] = useState<
     string | null
@@ -1282,6 +1287,11 @@ export default function DeckEditor() {
       toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
+        closeButton: true,
+        classNames: {
+          closeButton:
+            "!static !order-1 !size-6 !transform-none !rounded-md !border-0 !bg-transparent !p-0 !text-muted-foreground hover:!bg-muted",
+        },
         action: {
           label: "Undo",
           onClick: () => undo(),
@@ -1406,10 +1416,10 @@ export default function DeckEditor() {
   }, []);
 
   // Slide-level clipboard backing both the Cmd+C/Cmd+V shortcut below and the
-  // rail's right-click Cut/Copy/Paste menu. Holds a full slide snapshot
-  // (rather than just an id) so paste still works after Cut has already
-  // removed the original slide from the deck.
-  const slideClipboardRef = useRef<Slide | null>(null);
+  // rail's right-click Cut/Copy/Paste menu. Holds full slide snapshots
+  // (rather than just ids) so multi-slide paste works across tabs and paste
+  // still works after Cut has already removed the original slides from the
+  // deck.
   const slideClipboardSlidesRef = useRef<Slide[] | null>(null);
   const slideClipboardScopeRef = useRef<string | null>(null);
   const slideClipboardPersistenceFailedRef = useRef(false);
@@ -1427,34 +1437,34 @@ export default function DeckEditor() {
   const syncSlideClipboard = useCallback(() => {
     if (!slideClipboardStorageKey) {
       if (
-        slideClipboardRef.current !== null &&
+        slideClipboardSlidesRef.current !== null &&
         slideClipboardScopeRef.current === null
       ) {
         setHasSlideClipboard(true);
-        return slideClipboardRef.current;
+        return slideClipboardSlidesRef.current;
       }
-      slideClipboardRef.current = null;
+      slideClipboardSlidesRef.current = null;
       slideClipboardScopeRef.current = null;
       slideClipboardPersistenceFailedRef.current = false;
       slideClipboardArmedAtRef.current = null;
       setHasSlideClipboard(false);
       return null;
     }
-    const result = readSlideClipboard(slideClipboardStorageKey);
-    const cachedSlide = slideClipboardRef.current;
+    const result = readSlideClipboards(slideClipboardStorageKey);
+    const cachedSlides = slideClipboardSlidesRef.current;
     const cachedCopiedAt = slideClipboardArmedAtRef.current;
     const isPendingSessionClipboard =
-      cachedSlide !== null && slideClipboardScopeRef.current === null;
-    const slide = resolveSlideClipboardForPaste(
+      cachedSlides !== null && slideClipboardScopeRef.current === null;
+    const slides = resolveSlideClipboardsForPaste(
       result,
-      cachedSlide,
+      cachedSlides,
       slideClipboardScopeRef.current,
       slideClipboardStorageKey,
       cachedCopiedAt,
       slideClipboardPersistenceFailedRef.current,
     );
-    const usedCachedClipboard = slide !== null && slide === cachedSlide;
-    slideClipboardRef.current = slide;
+    const usedCachedClipboard = slides !== null && slides === cachedSlides;
+    slideClipboardSlidesRef.current = slides;
     slideClipboardScopeRef.current = slideClipboardStorageKey;
     slideClipboardArmedAtRef.current = usedCachedClipboard
       ? cachedCopiedAt
@@ -1464,18 +1474,19 @@ export default function DeckEditor() {
     if (
       isPendingSessionClipboard &&
       usedCachedClipboard &&
-      cachedCopiedAt !== null
+      cachedCopiedAt !== null &&
+      slides !== null
     ) {
-      slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+      slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
         slideClipboardStorageKey,
-        slide,
+        slides,
         cachedCopiedAt,
       );
     } else if (!usedCachedClipboard) {
       slideClipboardPersistenceFailedRef.current = false;
     }
-    setHasSlideClipboard(slide !== null);
-    return slide;
+    setHasSlideClipboard(slides !== null);
+    return slides;
   }, [slideClipboardStorageKey]);
 
   useEffect(() => {
@@ -1488,19 +1499,19 @@ export default function DeckEditor() {
     return () => window.removeEventListener("storage", handleStorage);
   }, [slideClipboardStorageKey, syncSlideClipboard]);
 
-  const saveSlideToClipboard = useCallback(
-    (slide: Slide) => {
+  const saveSlidesToClipboard = useCallback(
+    (slides: Slide[]) => {
       const copiedAt = Date.now();
-      const snapshot = normalizeSlideClipboard(slide);
-      if (!snapshot) return;
-      slideClipboardRef.current = snapshot;
+      const snapshots = normalizeSlideClipboards(slides);
+      if (!snapshots) return;
+      slideClipboardSlidesRef.current = snapshots;
       slideClipboardScopeRef.current = slideClipboardStorageKey;
       slideClipboardArmedAtRef.current = copiedAt;
       setHasSlideClipboard(true);
       if (slideClipboardStorageKey) {
-        slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+        slideClipboardPersistenceFailedRef.current = !writeSlideClipboards(
           slideClipboardStorageKey,
-          snapshot,
+          snapshots,
           copiedAt,
         );
       } else {
@@ -1515,14 +1526,9 @@ export default function DeckEditor() {
       const selected = new Set(slideIds);
       const slides = deck?.slides.filter((slide) => selected.has(slide.id));
       if (!slides?.length) return;
-      slideClipboardSlidesRef.current = slides.length > 1 ? slides : null;
-      if (slides.length === 1) saveSlideToClipboard(slides[0]);
-      else {
-        slideClipboardArmedAtRef.current = Date.now();
-        setHasSlideClipboard(true);
-      }
+      saveSlidesToClipboard(slides);
     },
-    [deck, saveSlideToClipboard],
+    [deck, saveSlidesToClipboard],
   );
 
   const cutSlides = useCallback(
@@ -1530,19 +1536,14 @@ export default function DeckEditor() {
       if (!deck || !id || sourceImportedDeck) return;
       const slides = selectedSlideIdsForAction(slideIds);
       if (!slides.length || slides.length >= deck.slides.length) return;
-      slideClipboardSlidesRef.current = slides;
-      if (slides.length === 1) saveSlideToClipboard(slides[0]);
-      else {
-        slideClipboardArmedAtRef.current = Date.now();
-        setHasSlideClipboard(true);
-      }
+      saveSlidesToClipboard(slides);
       deleteSlideIds(slideIds);
     },
     [
       deck,
       deleteSlideIds,
       id,
-      saveSlideToClipboard,
+      saveSlidesToClipboard,
       selectedSlideIdsForAction,
       sourceImportedDeck,
     ],
@@ -1551,12 +1552,7 @@ export default function DeckEditor() {
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
       if (!id || sourceImportedDeck) return;
-      const clipboard =
-        slideClipboardSlidesRef.current ??
-        (() => {
-          const slide = syncSlideClipboard();
-          return slide ? [slide] : null;
-        })();
+      const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();
       if (!clipboard) return;
       const newIds = pasteSlides(
         id,
@@ -2059,6 +2055,54 @@ export default function DeckEditor() {
     );
   }
 
+  const handleDownloadDeckBackup = () => {
+    inlineEditFlushRef.current?.();
+    const backupDeck: Deck = {
+      ...deck,
+      slides: deck.slides.map((slide) => {
+        const content = latestSlideContentRef.current.get(slide.id);
+        return content === undefined ? slide : { ...slide, content };
+      }),
+    };
+    try {
+      downloadDeckBackup(backupDeck);
+      toast.success(t("editorToolbar.backupDownloaded"));
+    } catch (error) {
+      console.error("[slides] deck backup download failed:", error);
+      toast.error(t("editorToolbar.backupDownloadFailed"));
+    }
+  };
+
+  const handleImportDeckBackup = async (file: File) => {
+    const backup = parseDeckBackup(await file.text());
+    setDeckSlides(id, backup.deck.slides, {
+      deckFields: {
+        title: backup.deck.title,
+        ...(backup.deck.aspectRatio !== undefined
+          ? { aspectRatio: backup.deck.aspectRatio }
+          : {}),
+        designSystemId: backup.deck.designSystemId ?? null,
+        ...(backup.deck.tweaks !== undefined
+          ? { tweaks: backup.deck.tweaks }
+          : {}),
+        ...(backup.deck.starred !== undefined
+          ? { starred: backup.deck.starred }
+          : {}),
+      },
+      clearDeckFields: [
+        "aspectRatio",
+        "designSystemId",
+        "tweaks",
+        "starred",
+        "sourceImport",
+      ],
+      persistence: "immediate",
+      forcePersistence: true,
+    });
+    await flushDeckSave(id);
+    return { slideCount: backup.deck.slides.length };
+  };
+
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
@@ -2224,6 +2268,8 @@ export default function DeckEditor() {
         }
         addSlideGenerating={addSlideGenerating}
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
+        onDownloadBackup={handleDownloadDeckBackup}
+        onImportDeckBackup={handleImportDeckBackup}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
@@ -2452,6 +2498,7 @@ export default function DeckEditor() {
             comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
+            layersPanelSlot={layersPanelSlot}
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
@@ -2590,6 +2637,12 @@ export default function DeckEditor() {
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}
+
+        <div
+          ref={setLayersPanelSlot}
+          data-layers-panel-host="true"
+          className="flex h-full shrink-0"
+        />
 
         {commentsOpen && (
           <SlideCommentsPanel

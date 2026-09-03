@@ -3791,6 +3791,17 @@ export function AgentSidebar({
   useEffect(() => {
     const toggleHandler = (event: Event) => {
       if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
+      const sidebarIsOpen = isPerAppChatHosted
+        ? perAppChatState.open
+        : frameCodeMode && shouldParentFrameOwnAgentPanel()
+          ? frameSidebarOpen
+          : open;
+      if (focusOnOpen && !sidebarIsOpen) {
+        focusAgentChat();
+        return;
+      }
       if (isPerAppChatHosted) {
         requestPerAppChatCommand("toggle");
         return;
@@ -3805,18 +3816,27 @@ export function AgentSidebar({
         setOpenPersisted((prev) => !prev);
       }
     };
-    const openHandler = () => {
+    const openHandler = (event: Event) => {
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
       if (isPerAppChatHosted) {
-        requestPerAppChatCommand("open");
+        requestPerAppChatCommand(
+          "open",
+          focusOnOpen ? { focus: true } : undefined,
+        );
         return;
       }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         window.parent.postMessage(
-          { type: "agentNative.toggleSidebar", data: { open: true } },
+          {
+            type: "agentNative.toggleSidebar",
+            data: { open: true, ...(focusOnOpen ? { focus: true } : {}) },
+          },
           parentFrameTargetOrigin(),
         );
       } else {
         setOpenPersisted(true);
+        if (focusOnOpen) focusAgentChatComposer();
       }
     };
     const closeHandler = () => {
@@ -3841,7 +3861,15 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted, toggleScopeId]);
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    isPerAppChatHosted,
+    open,
+    perAppChatState.open,
+    setOpenPersisted,
+    toggleScopeId,
+  ]);
 
   // Listen for sidebar mode commands from the frame parent.
   // When frame is in "code" mode, hide the app sidebar.
@@ -3921,7 +3949,9 @@ export function AgentSidebar({
         (e.key === "\\" || e.code === "Backslash")
       ) {
         e.preventDefault();
-        window.dispatchEvent(new Event("agent-panel:toggle"));
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
+        );
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
@@ -4364,21 +4394,35 @@ export function focusAgentChat() {
       detail: { mode: "chat" },
     }),
   );
-  window.dispatchEvent(new Event("agent-panel:open"));
-  // Wait for sidebar to render, then focus the composer
-  requestAnimationFrame(() => {
-    const panel = document.querySelector(".agent-sidebar-panel");
-    if (!panel) return;
-    const prosemirror = panel.querySelector(
-      ".ProseMirror",
-    ) as HTMLElement | null;
-    if (prosemirror) {
-      prosemirror.focus();
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+  );
+  focusAgentChatComposer();
+}
+
+function focusAgentChatComposer() {
+  const focusComposer = (attempt = 0) => {
+    const panel = document.querySelector(
+      ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
+        ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",
+    );
+    const composer = panel?.querySelector<HTMLElement>(
+      ".ProseMirror, textarea",
+    );
+    if (
+      composer &&
+      composer.getAttribute("contenteditable") !== "false" &&
+      !composer.hasAttribute("disabled")
+    ) {
+      composer.focus();
       return;
     }
-    const textarea = panel.querySelector("textarea") as HTMLElement | null;
-    if (textarea) textarea.focus();
-  });
+    if (attempt < 10) {
+      window.setTimeout(() => focusComposer(attempt + 1), 50);
+    }
+  };
+  // ponytail: retry for 500ms; use a mounted composer ref if lazy loading outgrows it.
+  requestAnimationFrame(() => focusComposer());
 }
 
 /**
@@ -4410,7 +4454,13 @@ export function AgentToggleButton({ className }: { className?: string }) {
           onPointerEnter={() => void preloadAgentChatSurface()}
           onFocus={() => void preloadAgentChatSurface()}
           onPointerDown={() => void preloadAgentChatSurface()}
-          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
+          onClick={() =>
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:toggle", {
+                detail: { focus: true },
+              }),
+            )
+          }
           className={cn(
             "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             className,
