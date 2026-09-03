@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -36,7 +36,10 @@ export default defineAction({
           .limit(1);
 
         if (!existing) {
-          throw new Error(`Form ${id} not found`);
+          fail(`Form ${id} not found`, {
+            errorCode: "form_not_found",
+            statusCode: 404,
+          });
         }
 
         if (args.purge) {

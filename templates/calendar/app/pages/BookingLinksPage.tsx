@@ -1134,7 +1134,7 @@ export default function BookingLinksPage({
   async function handleDelete() {
     if (!draft.id) return;
     try {
-      await deleteBookingLink.mutateAsync(draft.id);
+      await deleteBookingLink.mutateAsync({ id: draft.id });
       void navigate("/booking-links");
       toast.success(t("bookingLinks.bookingLinkDeleted"));
     } catch {

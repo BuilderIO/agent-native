@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { buildDeepLink, getAppProductionUrl } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -93,7 +93,7 @@ export default defineAction({
         try {
           fields = JSON.parse(args.fields);
         } catch {
-          throw new Error("--fields must be valid JSON");
+          fail("--fields must be valid JSON", { errorCode: "invalid_fields" });
         }
       } else {
         fields = args.fields as unknown as FormField[];
@@ -115,7 +115,9 @@ export default defineAction({
         try {
           incomingSettings = JSON.parse(args.settings) as FormSettings;
         } catch {
-          throw new Error("--settings must be valid JSON");
+          fail("--settings must be valid JSON", {
+            errorCode: "invalid_settings",
+          });
         }
       } else {
         incomingSettings = args.settings as unknown as FormSettings;
@@ -128,7 +130,11 @@ export default defineAction({
     assertIntegrationUrlsAllowed(settings);
 
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
     const orgId = getRequestOrgId();
     const status = args.status || "draft";
     if (status === "published") {

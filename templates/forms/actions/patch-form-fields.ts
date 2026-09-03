@@ -16,7 +16,7 @@
  * The legacy `update-form --fields <json>` path remains available for agents
  * and bulk imports that want to replace the whole fields array at once.
  */
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -104,7 +104,10 @@ export default defineAction({
         .limit(1);
 
       if (!existing) {
-        throw new Error(`Form ${args.id} not found`);
+        fail(`Form ${args.id} not found`, {
+          errorCode: "form_not_found",
+          statusCode: 404,
+        });
       }
 
       let ops: Array<{ op: string; [k: string]: unknown }>;
@@ -112,14 +115,14 @@ export default defineAction({
         try {
           ops = JSON.parse(args.ops);
         } catch {
-          throw new Error("--ops must be valid JSON");
+          fail("--ops must be valid JSON", { errorCode: "invalid_ops" });
         }
       } else {
         ops = args.ops as Array<{ op: string; [k: string]: unknown }>;
       }
 
       if (!Array.isArray(ops)) {
-        throw new Error("ops must be an array");
+        fail("ops must be an array", { errorCode: "invalid_ops" });
       }
 
       // Parse current fields from the DB row.
