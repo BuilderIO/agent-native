@@ -39,23 +39,81 @@ const FAILURE_MESSAGE: Record<RemoteImageFailure, string> = {
   "too-large": "Image too large",
 };
 
+const SHARED_IMAGE_PATTERN =
+  /<img\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>/gi;
+
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&#x27;/gi, "'")
+    .trim();
+}
+
+function normalizeImageUrl(value: string): string {
+  const decoded = decodeHtmlAttribute(value);
+  try {
+    return new URL(decoded).href;
+  } catch {
+    return decoded;
+  }
+}
+
+export function sharedDeckContainsImage(
+  slidesJson: string,
+  requestedUrl: string,
+): boolean {
+  let slides: unknown;
+  try {
+    slides = JSON.parse(slidesJson);
+  } catch {
+    // coercion-ok: malformed persisted share snapshots cannot authorize proxy access.
+    return false;
+  }
+  if (!Array.isArray(slides)) return false;
+
+  const requested = normalizeImageUrl(requestedUrl);
+  return slides.some((slide) => {
+    if (!slide || typeof slide !== "object" || Array.isArray(slide)) {
+      return false;
+    }
+    const content = (slide as { content?: unknown }).content;
+    if (typeof content !== "string") return false;
+    for (const match of content.matchAll(SHARED_IMAGE_PATTERN)) {
+      const source = match[1] ?? match[2];
+      if (source && normalizeImageUrl(source) === requested) return true;
+    }
+    return false;
+  });
+}
+
 export default defineEventHandler(async (event) => {
-  const shareToken = getQuery(event).shareToken;
+  const query = getQuery(event);
+  const shareToken = query.shareToken;
+  const raw = query.url;
   let publicShare = false;
   if (typeof shareToken === "string" && shareToken) {
     const [shared] = await getDb()
-      .select({ createdAt: schema.deckShareLinks.createdAt })
+      .select({
+        createdAt: schema.deckShareLinks.createdAt,
+        slides: schema.deckShareLinks.slides,
+      })
       .from(schema.deckShareLinks)
       .where(eq(schema.deckShareLinks.token, shareToken))
       .limit(1);
-    publicShare =
+    const isLive =
       Boolean(shared) &&
       Date.now() - new Date(shared.createdAt).getTime() <=
         30 * 24 * 60 * 60 * 1000;
-    if (!publicShare) {
+    if (!shared || !isLive || typeof raw !== "string") {
       setResponseStatus(event, 404);
       return { error: "Shared presentation not found or has expired" };
     }
+    if (!sharedDeckContainsImage(shared.slides, raw)) {
+      setResponseStatus(event, 404);
+      return { error: "Image is not part of the shared presentation" };
+    }
+    publicShare = true;
   } else {
     const session = await getSession(event);
     if (!session?.email) {
@@ -64,7 +122,6 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const raw = getQuery(event).url;
   if (typeof raw !== "string") {
     setResponseStatus(event, 400);
     return { error: "Missing url" };

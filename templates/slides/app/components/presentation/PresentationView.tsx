@@ -273,7 +273,14 @@ export default function PresentationView({
   const [showControls, setShowControls] = useState(false);
   const [cursorVisible, setCursorVisible] = useState(true);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
-  const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfExportRequest, setPdfExportRequest] = useState<{
+    deckId: string;
+    title: string;
+    slides: Slide[];
+    aspectRatio?: AspectRatio;
+    shareToken?: string;
+  } | null>(null);
+  const pdfExporting = pdfExportRequest !== null;
   const enteredFullscreenRef = useRef(false);
   const transitionTimerRef = useRef<number | null>(null);
   const queuedNavigationRef = useRef<"next" | "prev" | null>(null);
@@ -639,26 +646,48 @@ export default function PresentationView({
 
   const handleDownloadPdf = useCallback(() => {
     if (!pdfExportTitle || pdfExporting || safeSlides.length === 0) return;
-    setPdfExporting(true);
-  }, [pdfExportTitle, pdfExporting, safeSlides.length]);
+    setPdfExportRequest({
+      deckId,
+      title: pdfExportTitle,
+      slides: safeSlides,
+      aspectRatio,
+      shareToken: pdfExportToken,
+    });
+  }, [
+    aspectRatio,
+    deckId,
+    pdfExportTitle,
+    pdfExportToken,
+    pdfExporting,
+    safeSlides,
+  ]);
 
   useEffect(() => {
-    if (!pdfExporting || !pdfExportTitle) return;
+    if (!pdfExportRequest) return;
+    if (pdfExportRequest.deckId !== deckId) {
+      setPdfExportRequest(null);
+      return;
+    }
     let cancelled = false;
     const abortController = new AbortController();
 
     const exportPdf = async () => {
       try {
-        await exportDeckAsPdf(pdfExportTitle, safeSlides, aspectRatio, {
-          signal: abortController.signal,
-          shareToken: pdfExportToken,
-        });
+        await exportDeckAsPdf(
+          pdfExportRequest.title,
+          pdfExportRequest.slides,
+          pdfExportRequest.aspectRatio,
+          {
+            signal: abortController.signal,
+            shareToken: pdfExportRequest.shareToken,
+          },
+        );
       } catch (error) {
         if (cancelled || abortController.signal.aborted) return;
         console.error("[slides] shared PDF export failed:", error);
         toast.error(t("deckEditor.pdfRenderFailed"));
       } finally {
-        if (!cancelled) setPdfExporting(false);
+        if (!cancelled) setPdfExportRequest(null);
       }
     };
 
@@ -667,14 +696,7 @@ export default function PresentationView({
       cancelled = true;
       abortController.abort();
     };
-  }, [
-    aspectRatio,
-    pdfExportTitle,
-    pdfExportToken,
-    pdfExporting,
-    safeSlides,
-    t,
-  ]);
+  }, [deckId, pdfExportRequest, t]);
 
   const displaySlide = useMemo(() => {
     if (!currentSlide || !animSteps || animSteps.length === 0)
@@ -874,10 +896,10 @@ export default function PresentationView({
         </button>
       )}
 
-      {pdfExportTitle && pdfExporting && (
+      {pdfExportRequest && (
         <PdfExportStage
-          slides={safeSlides}
-          aspectRatio={aspectRatio}
+          slides={pdfExportRequest.slides}
+          aspectRatio={pdfExportRequest.aspectRatio}
           designSystem={designSystem}
         />
       )}
