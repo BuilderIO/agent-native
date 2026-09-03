@@ -4,14 +4,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   findSmartBlock,
+  isRichTextBlock,
   isTextLeaf,
   isSlideTextEditingTarget,
+  resolveRichTextEditingBlock,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
   it("keeps inline style runs inside their containing text block", () => {
     const root = document.createElement("div");
+    root.className = "slide-content";
     root.innerHTML =
       '<h2>Keep <span data-slide-inline-style="true">this word</span></h2>';
 
@@ -66,5 +69,19 @@ describe("slide text targets", () => {
         includeTextBoxes: false,
       }),
     ).toBeNull();
+  });
+
+  it("treats semantic rich text as one canvas block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text"><ul><li>First</li><li>Second</li></ul></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const list = block.querySelector("ul") as HTMLElement;
+    const item = block.querySelector("li") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(resolveRichTextEditingBlock(list)).toBe(block);
+    expect(findSmartBlock(item, root)).toBe(block);
   });
 });
