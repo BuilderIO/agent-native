@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { initializeWebMCPPolyfill } = vi.hoisted(() => ({
   initializeWebMCPPolyfill: vi.fn(),
@@ -15,8 +15,10 @@ import {
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
   createAgentNativeServerActionWebMcpRegistration,
+  getAgentNativeWebMcpStatus,
   initializeAgentNativeWebMcp,
 } from "./webmcp.js";
+import type { AgentNativeWebMcpStatus } from "./webmcp.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -292,6 +294,12 @@ describe("automatic server action WebMCP registration", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "order-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const registration = createAgentNativeServerActionWebMcpRegistration({
@@ -314,6 +322,9 @@ describe("automatic server action WebMCP registration", () => {
     ).resolves.toBe('{"id":"order-1"}');
     await expect(
       registrations[0]?.tool.execute({ id: "order-1" }),
+    ).resolves.toBe('{"id":"order-1"}');
+    await expect(
+      registrations[0]?.tool.execute({ id: "order-1" }, {}),
     ).resolves.toBe('{"id":"order-1"}');
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -359,6 +370,151 @@ describe("automatic server action WebMCP registration", () => {
 
     expect(registration.registered).toBe(101);
     expect(modelContext.registerTool).toHaveBeenCalledTimes(101);
+  });
+});
+
+describe("WebMCP registration readiness", () => {
+  // The status lives on the page's window, so a registration from an earlier
+  // test in this file would otherwise leak into these assertions.
+  beforeEach(() => {
+    delete (window as unknown as Record<string, unknown>)
+      .__agentNativeWebMcpStatus;
+  });
+
+  function action(name: string): AgentNativeClientAction {
+    return {
+      name,
+      description: `Do ${name}`,
+      parameters: { type: "object", properties: {} },
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    } as unknown as AgentNativeClientAction;
+  }
+
+  it("reports a partial tool list as still registering, not as complete", async () => {
+    // A caller that reads getTools() mid-flight sees a truncated list which is
+    // otherwise indistinguishable from the finished one.
+    const midFlight: Array<AgentNativeWebMcpStatus | undefined> = [];
+    const modelContext = {
+      registerTool: vi.fn(async () => {
+        midFlight.push(getAgentNativeWebMcpStatus());
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [action("one"), action("two"), action("three")],
+    });
+
+    expect(getAgentNativeWebMcpStatus()).toBeUndefined();
+    await registration.start();
+
+    expect(midFlight.map((status) => status?.registered)).toEqual([0, 1, 2]);
+    expect(midFlight.every((status) => status?.state === "registering")).toBe(
+      true,
+    );
+    expect(midFlight.every((status) => status?.total === 3)).toBe(true);
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "ready",
+      registered: 3,
+      total: 3,
+    });
+
+    registration.stop();
+    expect(getAgentNativeWebMcpStatus()).toBeUndefined();
+  });
+
+  it("does not let one registration's stop() erase another's status", async () => {
+    // The status key is per-document. An unconditional delete on stop() would
+    // erase a second, still-live registration and make its finished tool list
+    // look like one that never started.
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const doc = documentWithModelContext(modelContext);
+
+    const first = createAgentNativeWebMcpRegistration({
+      document: doc,
+      actions: [action("one")],
+    });
+    await first.start();
+
+    const second = createAgentNativeWebMcpRegistration({
+      document: doc,
+      actions: [action("two"), action("three")],
+    });
+    await second.start();
+
+    // The status is aggregated per document, so stopping one registration
+    // must leave the other registration's readiness visible.
+    first.stop();
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "ready",
+      registered: 2,
+      total: 2,
+    });
+
+    second.stop();
+    expect(getAgentNativeWebMcpStatus()).toBeUndefined();
+  });
+
+  it("marks a failed registration instead of leaving it stuck at registering", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async (tool: { name: string }) => {
+        if (tool.name === "two") throw new Error("registerTool exploded");
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [action("one"), action("two")],
+    });
+
+    await expect(registration.start()).rejects.toThrow("registerTool exploded");
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "failed",
+      registered: 1,
+      total: 2,
+      error: "registerTool exploded",
+    });
+
+    registration.stop();
+  });
+
+  it("shares one in-flight start with concurrent callers", async () => {
+    let resolveActions!: (actions: AgentNativeClientAction[]) => void;
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: () =>
+        new Promise<AgentNativeClientAction[]>((resolve) => {
+          resolveActions = resolve;
+        }),
+    });
+
+    const first = registration.start();
+    const second = registration.start();
+    expect(second).toBe(first);
+    resolveActions([action("one")]);
+    await Promise.all([first, second]);
+    expect(registration.registered).toBe(1);
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "ready",
+      registered: 1,
+      total: 1,
+    });
+
+    registration.stop();
   });
 });
 

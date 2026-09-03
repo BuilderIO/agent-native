@@ -14,12 +14,14 @@ import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
 import listDocuments from "./list-documents.js";
+import manageContentDatabaseMigration from "./manage-content-database-migration.js";
 import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
 import refreshList from "./refresh-list.js";
 import searchDocuments from "./search-documents.js";
 import updateComment from "./update-comment.js";
 import updateDatabaseItem from "./update-database-item.js";
+import updateDatabaseItems from "./update-database-items.js";
 import updateDocument from "./update-document.js";
 import upsertDatabaseItemByKey from "./upsert-database-item-by-key.js";
 import viewScreen from "./view-screen.js";
@@ -39,14 +41,16 @@ describe("Content action-owned agent catalogs", () => {
     "get-content-database": getContentDatabase,
     "add-database-item": addDatabaseItem,
     "update-database-item": updateDatabaseItem,
+    "update-database-items": updateDatabaseItems,
     "upsert-database-item-by-key": upsertDatabaseItemByKey,
+    "migrate-content-database-rows": migrateContentDatabaseRows,
   };
 
   const deferredDatabaseActions = {
     "add-content-database-source-field-property":
       addContentDatabaseSourceFieldProperty,
     "delete-content-database": deleteContentDatabase,
-    "migrate-content-database-rows": migrateContentDatabaseRows,
+    "manage-content-database-migration": manageContentDatabaseMigration,
   };
 
   it("owns compact MCP membership beside each directly callable action", () => {

@@ -226,14 +226,10 @@ export function FormsListPage() {
       : toast.loading(t("forms.movingToArchive"));
     setBulkDeletePending(true);
     try {
-      await Promise.all(
-        ids.map((id) =>
-          deleteForm.mutateAsync({
-            id,
-            purge,
-          }),
-        ),
-      );
+      await deleteForm.mutateAsync({
+        id: ids,
+        purge,
+      });
       toast.success(
         ids.length === 1
           ? purge

@@ -52,6 +52,7 @@ const OUTSIDER = "synthetic-migration-outsider@example.test";
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let action: typeof import("./migrate-content-database-rows.js").default;
+let terminalAction: typeof import("./manage-content-database-migration.js").default;
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let touchContentDatabase: typeof import("./_content-database-mutation-lock.js").touchContentDatabase;
 let serializeMigrationValue: typeof import("./_content-database-row-migration.js").serializeMigrationValue;
@@ -66,6 +67,8 @@ beforeAll(async () => {
     await import("./_content-database-row-migration.js")
   ).serializeMigrationValue;
   action = (await import("./migrate-content-database-rows.js")).default;
+  terminalAction = (await import("./manage-content-database-migration.js"))
+    .default;
   ({ lockContentDatabaseMutation, touchContentDatabase } =
     await import("./_content-database-mutation-lock.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
@@ -405,7 +408,7 @@ describe("migrate-content-database-rows", () => {
       await runWithRequestContext({ userEmail: OWNER }, () =>
         phase === "apply"
           ? action.run({ phase: "apply", plan: input })
-          : action.run({
+          : terminalAction.run({
               phase: "rollback",
               databaseId: seed.databaseId,
               idempotencyKey: input.idempotencyKey,
@@ -1042,7 +1045,7 @@ describe("migrate-content-database-rows", () => {
 
     await expect(
       runWithRequestContext({ userEmail: OUTSIDER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: seed.databaseId,
           idempotencyKey: input.idempotencyKey,
@@ -1074,7 +1077,7 @@ describe("migrate-content-database-rows", () => {
     const rolledBack: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: rollbackSeed.databaseId,
           idempotencyKey: rollbackPlan.idempotencyKey,
@@ -1091,7 +1094,7 @@ describe("migrate-content-database-rows", () => {
     const rollbackReplay: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: rollbackSeed.databaseId,
           idempotencyKey: rollbackPlan.idempotencyKey,
@@ -1109,7 +1112,7 @@ describe("migrate-content-database-rows", () => {
     );
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: rollbackSeed.databaseId,
           idempotencyKey: rollbackPlan.idempotencyKey,
@@ -1137,7 +1140,7 @@ describe("migrate-content-database-rows", () => {
     );
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: finalizeSeed.databaseId,
           idempotencyKey: finalizePlan.idempotencyKey,
@@ -1179,7 +1182,7 @@ describe("migrate-content-database-rows", () => {
     const finalized: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: finalizeSeed.databaseId,
           idempotencyKey: finalizePlan.idempotencyKey,
@@ -1192,7 +1195,7 @@ describe("migrate-content-database-rows", () => {
     const finalizeReplay: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: finalizeSeed.databaseId,
           idempotencyKey: finalizePlan.idempotencyKey,
@@ -1246,7 +1249,7 @@ describe("migrate-content-database-rows", () => {
       .where(eq(schema.documents.id, driftSeed.rows[0].documentId));
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: driftSeed.databaseId,
           idempotencyKey: driftPlan.idempotencyKey,
@@ -1273,7 +1276,7 @@ describe("migrate-content-database-rows", () => {
 
     const transitions = await Promise.allSettled([
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "rollback",
           databaseId: seed.databaseId,
           idempotencyKey: input.idempotencyKey,
@@ -1281,7 +1284,7 @@ describe("migrate-content-database-rows", () => {
         }),
       ),
       runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({
+        terminalAction.run({
           phase: "finalize",
           databaseId: seed.databaseId,
           idempotencyKey: input.idempotencyKey,

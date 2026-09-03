@@ -147,36 +147,33 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
   });
 });
 
+export async function deleteBookingLinkById(id: string) {
+  if (!id)
+    throw createError({ statusCode: 400, statusMessage: "id is required" });
+
+  // Sharing: only owner / admin grantees can delete.
+  await assertAccess("booking-link", id, "admin");
+
+  const toDelete = await getDb()
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(eq(schema.bookingLinks.id, id));
+  await getDb()
+    .delete(schema.bookingLinks)
+    .where(eq(schema.bookingLinks.id, id));
+
+  if (toDelete.length > 0) {
+    await getDb()
+      .delete(schema.bookingSlugRedirects)
+      .where(eq(schema.bookingSlugRedirects.newSlug, toDelete[0].slug));
+  }
+  return { ok: true };
+}
+
 export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {
   return requireRequestContext(event, async () => {
     try {
-      const id = getRouterParam(event, "id");
-      if (!id) {
-        setResponseStatus(event, 400);
-        return { error: "id is required" };
-      }
-
-      // Sharing: only owner / admin grantees can delete.
-      await assertAccess("booking-link", id, "admin");
-
-      // Get the slug before deleting so we can clean up redirects
-      const toDelete = await getDb()
-        .select({ slug: schema.bookingLinks.slug })
-        .from(schema.bookingLinks)
-        .where(eq(schema.bookingLinks.id, id));
-
-      await getDb()
-        .delete(schema.bookingLinks)
-        .where(eq(schema.bookingLinks.id, id));
-
-      // Clean up redirects that point to the deleted link's slug
-      if (toDelete.length > 0) {
-        await getDb()
-          .delete(schema.bookingSlugRedirects)
-          .where(eq(schema.bookingSlugRedirects.newSlug, toDelete[0].slug));
-      }
-
-      return { ok: true };
+      return await deleteBookingLinkById(getRouterParam(event, "id") ?? "");
     } catch (error: any) {
       const status = error?.statusCode ?? 500;
       setResponseStatus(event, status);

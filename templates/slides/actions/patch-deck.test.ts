@@ -725,6 +725,21 @@ describe("animation target validation", () => {
     ).toThrow(/reveal-title.*does not resolve/);
   });
 
+  it("validates animation paths on newly added slides", () => {
+    expect(() =>
+      applyAndValidate({ slides: [] }, [
+        {
+          op: "add-slide",
+          slideId: "s2",
+          fields: {
+            content,
+            animations: [animation({ elementPath: [9, 9] })],
+          },
+        },
+      ]),
+    ).toThrow(/reveal-title.*does not resolve/);
+  });
+
   it("rejects duplicate reveal targets instead of creating a phantom step", () => {
     expect(() =>
       applyAndValidate(
@@ -942,7 +957,7 @@ describe("patch-deck agent schema", () => {
       (operation: any) => operation.properties?.op?.const === "reorder-slides",
     );
 
-    expect(operations).toHaveLength(4);
+    expect(operations).toHaveLength(5);
     expect(deckFields.properties.fields.properties.title).toMatchObject({
       type: "string",
     });
@@ -1378,6 +1393,26 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
+  it("reports slide ids that were actually deleted", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [{ op: "delete-slide", slideId: "slide-1" }],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      ok: true,
+      updatedSlideIds: [],
+      deletedSlideIds: ["slide-1"],
+    });
+    expect(JSON.parse(lastUpdatedDeckData!).slides).toEqual([
+      expect.objectContaining({ id: "slide-2" }),
+    ]);
+  });
+
   it("omits layout fit metadata when content was not patched", async () => {
     const result = (await patchDeckAction.run(
       {
@@ -1498,6 +1533,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       ok: true,
       sourceRewritten: true,
       updatedSlideIds: [],
+      deletedSlideIds: ["slide-1"],
     });
     const persisted = JSON.parse(lastUpdatedDeckData!);
     expect(persisted.sourceImport).toBeUndefined();

@@ -194,6 +194,7 @@ vi.mock("@/hooks/use-content-database", () => ({
 vi.mock("@/hooks/use-document-properties", () => ({
   useSetDocumentProperty: () => benignMutation,
   useConfigureDocumentProperty: () => benignMutation,
+  useUpdateDatabaseItems: () => benignMutation,
 }));
 
 vi.mock("@/hooks/use-content-spaces", () => ({
