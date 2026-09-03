@@ -276,6 +276,59 @@ describe("<EditorToolbar>", () => {
     await waitFor(() => expect(onShowHistory).toHaveBeenCalledTimes(1));
   });
 
+  it("keeps transition choices, media tools, and theme toggles out of the overflow menu", async () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          currentSlide={{
+            id: "slide-1",
+            content: "",
+            notes: "",
+            layout: "blank",
+            transition: "instant",
+          }}
+          onChangeSlideTransition={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "editorToolbar.more" }),
+      { button: 0, ctrlKey: false },
+    );
+
+    await screen.findByRole("menu");
+    expect(
+      screen.queryByRole("menuitem", {
+        name: "editorToolbar.transition_instant",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", {
+        name: "editorToolbar.generateImage",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", {
+        name: "editorToolbar.assetLibrary",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "editorToolbar.lightTheme" }),
+    ).toBeNull();
+  });
+
   it("passes the shared Slides share contract through the core ShareButton", () => {
     render(
       <TooltipProvider>
