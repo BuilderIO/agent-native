@@ -80,7 +80,7 @@ export default defineEventHandler(async (event) => {
   event.node?.res?.setHeader("Content-Length", String(result.body.byteLength));
   event.node?.res?.setHeader(
     "Cache-Control",
-    publicShare ? "public, max-age=3600" : "private, max-age=3600",
+    publicShare ? "private, no-store" : "private, max-age=3600",
   );
   // The canvas reads these pixels back, so the response must be explicitly
   // usable cross-origin even though it is served from our own host.

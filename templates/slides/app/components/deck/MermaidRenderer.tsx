@@ -59,6 +59,8 @@ export function MermaidRenderer({
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
+    setSvg("");
+    setError("");
     if (!definition.trim()) return;
 
     let cancelled = false;
