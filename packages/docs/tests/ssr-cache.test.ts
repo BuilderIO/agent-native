@@ -42,7 +42,9 @@ describe("Docs SSR cache key wrapper", () => {
   });
 
   it("keeps mutable community app routes in the durable cache", () => {
-    const communityHeaders = new Headers();
+    const communityHeaders = new Headers({
+      "content-type": "text/html; charset=utf-8",
+    });
     applyCommunityAppSsrCacheHeaders(communityHeaders, "/es-es/apps/");
     expect(communityHeaders.get("cache-control")).toBe(
       "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
@@ -61,7 +63,10 @@ describe("Docs SSR cache key wrapper", () => {
 
   it("preserves deployment-wide cache overrides on mutable community routes", () => {
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "5m");
-    const durationHeaders = new Headers(resolveSsrCacheHeaders());
+    const durationHeaders = new Headers({
+      ...resolveSsrCacheHeaders(),
+      "content-type": "text/html; charset=utf-8",
+    });
     applyCommunityAppSsrCacheHeaders(durationHeaders, "/apps/");
     expect(durationHeaders.get("cache-control")).toBe(
       "public, max-age=300, stale-while-revalidate=300, stale-if-error=3600",
@@ -71,11 +76,48 @@ describe("Docs SSR cache key wrapper", () => {
     );
 
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
-    const disabledHeaders = new Headers(resolveSsrCacheHeaders());
+    const disabledHeaders = new Headers({
+      ...resolveSsrCacheHeaders(),
+      "content-type": "text/html; charset=utf-8",
+    });
     applyCommunityAppSsrCacheHeaders(disabledHeaders, "/apps/community/foo/");
     expect(disabledHeaders.get("cache-control")).toBe("no-store");
     expect(disabledHeaders.get("cdn-cache-control")).toBe("no-store");
     expect(disabledHeaders.get("netlify-cdn-cache-control")).toBe("no-store");
+  });
+
+  it("does not cache auth-shaped or non-SSR community responses", () => {
+    for (const status of [401, 403]) {
+      const headers = new Headers({
+        "content-type": "text/html; charset=utf-8",
+      });
+
+      applyCommunityAppSsrCacheHeaders(headers, "/apps/", status);
+
+      expect(headers.get("cache-control")).toBeNull();
+    }
+
+    const jsonHeaders = new Headers({ "content-type": "application/json" });
+    applyCommunityAppSsrCacheHeaders(jsonHeaders, "/apps/", 200);
+    expect(jsonHeaders.get("cache-control")).toBeNull();
+  });
+
+  it("preserves restrictive provider cache headers", () => {
+    const headers = new Headers({
+      ...resolveSsrCacheHeaders({}),
+      "content-type": "text/html; charset=utf-8",
+      "netlify-cdn-cache-control": "no-store",
+    });
+
+    applyCommunityAppSsrCacheHeaders(headers, "/apps/");
+
+    expect(headers.get("cache-control")).toBe(
+      "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
+    expect(headers.get("cdn-cache-control")).toBe(
+      "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
+    expect(headers.get("netlify-cdn-cache-control")).toBe("no-store");
   });
 
   it("keeps prerendered public pages on core's default SWR cache policy", () => {

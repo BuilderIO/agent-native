@@ -42,11 +42,13 @@ export function applyCommunityAppSsrCacheHeaders(
   pathname: string,
   status = 200,
 ): void {
-  if (status >= 500 || !isMutableCommunityAppPath(pathname)) return;
+  if (!isCacheableSsrResponse(headers, status, pathname)) return;
+  if (!isMutableCommunityAppPath(pathname)) return;
 
   if (
-    headers.has("cache-control") &&
-    headers.get("cache-control") !== DEFAULT_SSR_CACHE_HEADERS["cache-control"]
+    Object.entries(DEFAULT_SSR_CACHE_HEADERS).some(
+      ([name, value]) => headers.has(name) && headers.get(name) !== value,
+    )
   ) {
     return;
   }
@@ -54,4 +56,18 @@ export function applyCommunityAppSsrCacheHeaders(
   for (const [name, value] of Object.entries(COMMUNITY_APP_SSR_CACHE_HEADERS)) {
     headers.set(name, value);
   }
+}
+
+const CACHEABLE_ERROR_STATUSES = new Set([404, 410]);
+
+function isCacheableSsrResponse(
+  headers: Headers,
+  status: number,
+  pathname: string,
+): boolean {
+  if (status < 200) return false;
+  if (status >= 400 && !CACHEABLE_ERROR_STATUSES.has(status)) return false;
+  const contentType = headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("text/html")) return true;
+  return pathname.endsWith(".data") && contentType.includes("text/x-script");
 }
