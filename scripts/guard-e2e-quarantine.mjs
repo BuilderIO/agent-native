@@ -52,7 +52,9 @@ for (const [dir, ceiling] of Object.entries(CEILINGS)) {
     // A budgeted directory that cannot be read is never "0 quarantined,
     // passing": it was renamed, or the checkout is broken. Either way this is
     // a failure to inspect, not a clean result.
-    console.error(`guard:e2e-quarantine: cannot read ${dir} — ${error.message}`);
+    console.error(
+      `guard:e2e-quarantine: cannot read ${dir} — ${error.message}`,
+    );
     console.error("Renamed or moved? Update CEILINGS in this file.");
     process.exit(2);
   }

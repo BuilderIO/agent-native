@@ -95,7 +95,11 @@ for (const [absFile, lineNumbers] of added) {
 // list was empty. Expression-level, so it lives here rather than in RULES.
 const COERCED_DEFAULTS = {
   false: [/\.toBe\(\s*false\s*\)/],
-  "0": [/\.toBe\(\s*0\s*\)/, /\.toHaveLength\(\s*0\s*\)/, /\.toHaveCount\(\s*0\s*\)/],
+  0: [
+    /\.toBe\(\s*0\s*\)/,
+    /\.toHaveLength\(\s*0\s*\)/,
+    /\.toHaveCount\(\s*0\s*\)/,
+  ],
   null: [/(?<!not)\.toBeNull\(\)/],
   "[]": [/\.toEqual\(\s*\[\s*\]\s*\)/, /\.toHaveLength\(\s*0\s*\)/],
 };
