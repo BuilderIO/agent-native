@@ -395,6 +395,7 @@ const parsedPauseIndex = parsedStepIndex(
 const parsedClipsMigrationIndex = parsedStepIndex(
   "Run Clips release migrations",
 );
+const parsedCrmMigrationIndex = parsedStepIndex("Run CRM release migrations");
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -424,6 +425,15 @@ if (
 ) {
   issues.push(
     `${reusablePath} must run Clips release migrations against CLIPS_DATABASE_URL before a production prebuilt deploy`,
+  );
+}
+if (
+  parsedCrmMigrationIndex < 0 ||
+  parsedCrmMigrationIndex <= parsedPauseIndex ||
+  parsedCrmMigrationIndex >= parsedUnlockIndex
+) {
+  issues.push(
+    `${reusablePath} must pause automatic Netlify builds before running CRM release migrations`,
   );
 }
 if (
