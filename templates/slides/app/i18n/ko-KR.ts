@@ -205,6 +205,9 @@ const messages = {
     usingDesignSystem: "{{title}} 사용 중",
     usingLinkedDesignSystem: "연결된 디자인 시스템 사용 중",
     viewOnly: "보기 전용",
+    sourcePreserving: "제한된 편집",
+    sourcePreservingDescription:
+      "텍스트와 개체는 편집할 수 있습니다. 이 가져온 덱에서는 슬라이드 추가, 삭제 및 순서 변경이 비활성화됩니다.",
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 댓글을 추가할 수 있습니다",
     slideSettings: "슬라이드 설정",
@@ -267,6 +270,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX 파일을 생성할 수 없습니다.",
     exportFailed: "내보내기 실패",
+    exporting: "내보내는 중...",
     exportPptxError: "PPTX로 내보내는 중 문제가 발생했습니다.",
     googleSlidesDownloaded: "Google Slides용으로 다운로드됨",
     googleSlidesImportHint:

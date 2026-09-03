@@ -196,6 +196,9 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已關聯的設計系統",
     viewOnly: "僅檢視",
+    sourcePreserving: "有限編輯",
+    sourcePreservingDescription:
+      "可以編輯文字和物件。此匯入的簡報已停用新增、刪除或重新排序投影片。",
     commenterRoleLabel: "評論者",
     commenterRoleDescription: "可以檢視並新增評論",
     slideSettings: "幻燈片設定",
@@ -258,6 +261,7 @@ const messages = {
   editorExport: {
     pptxFailed: "無法生成 PPTX 檔案。",
     exportFailed: "匯出失敗",
+    exporting: "正在匯出...",
     exportPptxError: "匯出為 PPTX 時出了點問題。",
     googleSlidesDownloaded: "已為 Google Slides 下載",
     googleSlidesImportHint:

@@ -1,3 +1,4 @@
+import { isAgentActionStopError } from "@agent-native/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hashSlideContent } from "../shared/slide-fit";
@@ -39,6 +40,22 @@ const mockDb = {
 
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
 const mockRecordGenerationCreativeContext = vi.fn(async () => undefined);
+const mockCreateDeckVersionSnapshot = vi.fn(async () => ({ created: true }));
+const mockDeckVersionChatContextFromAction = vi.fn(
+  (context?: {
+    caller?: string;
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  }) =>
+    context?.caller === "webmcp"
+      ? {
+          threadId: context.threadId,
+          runId: context.runId,
+          turnId: context.turnId,
+        }
+      : undefined,
+);
 const mockValidateGenerationCreativeContext = vi.fn(
   async (input: {
     contextPackId?: string;
@@ -110,11 +127,18 @@ vi.mock("@agent-native/core/collab", () => ({
 // on add-slide's own logic without exercising the shared lock module.
 vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({
-  createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
-  deckVersionChatContextFromAction: vi.fn(() => undefined),
+  createDeckVersionSnapshot: (...args: unknown[]) =>
+    mockCreateDeckVersionSnapshot(...args),
+  deckVersionChatContextFromAction: (...args: unknown[]) =>
+    mockDeckVersionChatContextFromAction(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -151,6 +175,128 @@ beforeEach(() => {
 describe("add-slide", () => {
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
+  });
+
+  it.each(["tool", "webmcp"] as const)(
+    "rejects agent additions after the requested slide count for %s callers",
+    async (caller) => {
+      deckData.generationContext = { targetSlideCount: 2 };
+
+      const error = await action
+        .run(
+          {
+            deckId: "deck-1",
+            slideId: "slide-new",
+            content: "<div>New</div>",
+          },
+          { caller },
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(isAgentActionStopError(error)).toBe(true);
+      expect(error).toMatchObject({
+        name: "AgentActionStopError",
+        errorCode: "target_slide_count_reached",
+        details: {
+          deckId: "deck-1",
+          currentSlideCount: 2,
+          targetSlideCount: 2,
+        },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      name: "before the persisted target",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      targetSlideCount: 2,
+      targetSlideCountOverride: 3,
+    },
+    {
+      name: "below the current deck size",
+      slides: [
+        { id: "slide-1", content: "<div>One</div>" },
+        { id: "slide-2", content: "<div>Two</div>" },
+        { id: "slide-3", content: "<div>Three</div>" },
+      ],
+      targetSlideCount: 2,
+      targetSlideCountOverride: 2,
+    },
+  ])("rejects target overrides $name", async (input) => {
+    deckData.slides = input.slides;
+    deckData.generationContext = {
+      targetSlideCount: input.targetSlideCount,
+    };
+
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-new",
+          content: "<div>New</div>",
+          targetSlideCountOverride: input.targetSlideCountOverride,
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "target_slide_count_override_invalid",
+      details: {
+        currentSlideCount: input.slides.length,
+        targetSlideCount: input.targetSlideCount,
+        targetSlideCountOverride: input.targetSlideCountOverride,
+      },
+    });
+    expect(updateFn).not.toHaveBeenCalled();
+  });
+
+  it("forces a WebMCP version snapshot with its run context", async () => {
+    deckData.generationContext = { targetSlideCount: 3 };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+      },
+      {
+        caller: "webmcp",
+        threadId: "thread-webmcp",
+        runId: "run-webmcp",
+        turnId: "turn-webmcp",
+      },
+    );
+
+    expect(mockCreateDeckVersionSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "deck-1" }),
+      expect.objectContaining({
+        force: true,
+        chatContext: {
+          threadId: "thread-webmcp",
+          runId: "run-webmcp",
+          turnId: "turn-webmcp",
+        },
+      }),
+    );
+  });
+
+  it("allows an agent to extend the target after an explicit follow-up", async () => {
+    deckData.generationContext = { targetSlideCount: 2 };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-follow-up",
+        content: "<div>Follow-up</div>",
+        targetSlideCountOverride: 3,
+      },
+      { caller: "tool" },
+    );
+
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.generationContext.targetSlideCount).toBe(3);
+    expect(updated.slides).toHaveLength(3);
   });
 
   it("repairs an opaque generated title from the first slide", async () => {

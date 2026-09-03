@@ -72,6 +72,7 @@ async function getAction(
 async function openLayerStack(
   page: Page,
   frame: FrameLocator = designFrame(page),
+  openSelectLayer = true,
 ) {
   await installBridge(page);
   await page.evaluate(() => ((window as any).__bridge = []));
@@ -102,6 +103,7 @@ async function openLayerStack(
   await waitForBridge(page, "element-contextmenu");
   const trigger = page.getByText("Select layer", { exact: true });
   await expect(trigger).toBeVisible();
+  if (!openSelectLayer) return page.getByRole("menu").last();
   await trigger.hover();
   const submenu = page.getByRole("menu").last();
   await expect(
@@ -258,6 +260,52 @@ test("Select layer on a non-active overview screen routes selection to that exac
       .poll(() => new URL(page.url()).searchParams.get("screen"))
       .toBe(aboutId);
     await expect.poll(() => selectedTreeLabel(page)).toContain("Nested child");
+
+    await openLayerStack(page, aboutFrame, false);
+    const editWithAi = page.getByRole("menuitem", {
+      name: "Edit with AI…",
+      exact: true,
+    });
+    await editWithAi.hover();
+    await expect(editWithAi).toHaveAttribute("data-state", "open");
+    const editMenu = page.getByRole("menu").last();
+    await editMenu.getByText("Nested child", { exact: true }).click();
+
+    await expect(
+      page.getByText("Ask or change selection", { exact: true }),
+    ).toBeVisible();
+    const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
+    await expect(editPrompt).toBeVisible();
+    await expect(editPrompt).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "Comment", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Edit with AI", exact: true }),
+    ).toBeVisible();
+    const editPopover = page
+      .locator("[data-review-popover]")
+      .filter({ has: editPrompt })
+      .last();
+    await expect
+      .poll(async () => (await editPopover.boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(300);
+    await page.waitForTimeout(500);
+    const editPromptBox = await editPrompt.boundingBox();
+    expect(editPromptBox).not.toBeNull();
+    await page.mouse.move(
+      editPromptBox!.x + editPromptBox!.width / 2,
+      editPromptBox!.y + editPromptBox!.height / 2,
+      { steps: 12 },
+    );
+    await page.mouse.down();
+    await page.mouse.up();
+    await editPrompt.pressSequentially("Make this heading more concise");
+    await expect(editPrompt).toHaveValue("Make this heading more concise");
+    await expect(
+      page.getByText("Ask or change selection", { exact: true }),
+    ).toBeVisible();
+
     const after = await getAction(request, "get-design", { id: designId });
     expect(
       after.files?.find((file: { id?: string }) => file.id === aboutId)

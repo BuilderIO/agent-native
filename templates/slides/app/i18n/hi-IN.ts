@@ -204,6 +204,9 @@ const messages = {
     usingDesignSystem: "{{title}} उपयोग हो रहा है",
     usingLinkedDesignSystem: "लिंक किया गया डिज़ाइन सिस्टम उपयोग हो रहा है",
     viewOnly: "केवल देखें",
+    sourcePreserving: "सीमित संपादन",
+    sourcePreservingDescription:
+      "टेक्स्ट और ऑब्जेक्ट संपादित किए जा सकते हैं। इस इंपोर्ट किए गए डेक में स्लाइड जोड़ना, हटाना या क्रम बदलना अक्षम है।",
     commenterRoleLabel: "टिप्पणीकार",
     commenterRoleDescription: "देख सकते हैं और टिप्पणियां जोड़ सकते हैं",
     slideSettings: "स्लाइड सेटिंग्स",
@@ -266,6 +269,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX फ़ाइल जनरेट नहीं हो सकी।",
     exportFailed: "निर्यात विफल",
+    exporting: "निर्यात हो रहा है...",
     exportPptxError: "PPTX के रूप में निर्यात करते समय कुछ गलत हुआ।",
     googleSlidesDownloaded: "Google Slides के लिए डाउनलोड किया गया",
     googleSlidesImportHint:

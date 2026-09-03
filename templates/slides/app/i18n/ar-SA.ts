@@ -208,6 +208,9 @@ const messages = {
     usingDesignSystem: "يتم استخدام {{title}}",
     usingLinkedDesignSystem: "يتم استخدام نظام تصميم مرتبط",
     viewOnly: "عرض فقط",
+    sourcePreserving: "تحرير محدود",
+    sourcePreservingDescription:
+      "يمكن تعديل النصوص والعناصر. تمت تعطيل إضافة الشرائح أو حذفها أو إعادة ترتيبها في هذا العرض المستورد.",
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة التعليقات",
     slideSettings: "إعدادات الشريحة",
@@ -270,6 +273,7 @@ const messages = {
   editorExport: {
     pptxFailed: "تعذر إنشاء ملف PPTX.",
     exportFailed: "فشل التصدير",
+    exporting: "جارٍ التصدير...",
     exportPptxError: "حدث خطأ أثناء التصدير بصيغة PPTX.",
     googleSlidesDownloaded: "تم التنزيل من أجل Google Slides",
     googleSlidesImportHint:

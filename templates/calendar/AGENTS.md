@@ -33,9 +33,10 @@ Detailed event, availability, booking, storage, and UI rules live in
   requires the signed-in browser session.
 - Satisfy a multi-event request with one batch call, never a loop of per-event
   writes: `delete-events` handles every "remove all …" / "clear …" request,
-  including day-of-week filters, and `delete-event` is for exactly one event.
-  Preview with `dryRun` first, then report the returned `deleted` / `failed` /
-  `skipped` counts. See `event-management` and `reliable-mutations`.
+  `update-events` handles bulk shifts or reschedules, and the singular
+  `delete-event` / `update-event` actions are for exactly one event. Preview
+  destructive batches with `dryRun` first, then report returned counts. See
+  `event-management` and `reliable-mutations`.
 - The action schema is authoritative when a parameter is unclear.
 - Use the current date from runtime context, not a visible calendar date, when
   the user says today/tomorrow/yesterday.

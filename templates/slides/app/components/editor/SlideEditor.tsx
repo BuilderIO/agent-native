@@ -6,7 +6,6 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import {
-  readClientAppState,
   setClientAppState,
   usePinchZoom,
   useAvatarUrl,
@@ -1242,13 +1241,6 @@ function syncOverflowToAppState(
   }
 }
 
-function layoutWarningDismissalStateKey(
-  deckId: string | undefined,
-  slideId: string,
-): string {
-  return `slides-layout-warning-dismissed:${deckId ?? "local"}:${slideId}`;
-}
-
 export default function SlideEditor({
   slide,
   onUpdateSlide,
@@ -1425,54 +1417,19 @@ export default function SlideEditor({
   const repairRequestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const overflowWarningStateKey = layoutWarningDismissalStateKey(
-    deckId,
-    slide.id,
+  const [overflowWarningDismissed, setOverflowWarningDismissed] = useState(() =>
+    Boolean(slide.layoutWarningDismissed),
   );
-  const overflowContentHash = hashSlideContent(slide.content);
-  const [dismissedOverflowWarningHash, setDismissedOverflowWarningHash] =
-    useState<string | null>(null);
-  const [overflowWarningDismissalStatus, setOverflowWarningDismissalStatus] =
-    useState<"loading" | "loaded" | "error">("loading");
   useEffect(() => {
-    let cancelled = false;
-    setDismissedOverflowWarningHash(null);
-    setOverflowWarningDismissalStatus("loading");
-    void readClientAppState<unknown>(overflowWarningStateKey)
-      .then((value) => {
-        if (cancelled) return;
-        setDismissedOverflowWarningHash(
-          typeof value === "string" ? value : null,
-        );
-        setOverflowWarningDismissalStatus("loaded");
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        console.error("Could not read slide overflow warning dismissal", error);
-        setDismissedOverflowWarningHash(null);
-        setOverflowWarningDismissalStatus("error");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [overflowWarningStateKey]);
-  const warningVisible =
-    overflowWarningDismissalStatus === "error" ||
-    (overflowWarningDismissalStatus === "loaded" &&
-      dismissedOverflowWarningHash !== overflowContentHash);
+    setOverflowWarningDismissed(Boolean(slide.layoutWarningDismissed));
+  }, [slide.id, slide.layoutWarningDismissed]);
+  const warningVisible = !overflowWarningDismissed;
   const dismissWarning = useCallback(() => {
-    setDismissedOverflowWarningHash(overflowContentHash);
-    setOverflowWarningDismissalStatus("loaded");
-    void setClientAppState(overflowWarningStateKey, overflowContentHash, {
-      keepalive: true,
-      requestSource: TAB_ID,
-    }).catch((error: unknown) => {
-      console.error(
-        "Could not persist slide overflow warning dismissal",
-        error,
-      );
+    setOverflowWarningDismissed(true);
+    onUpdateSlide({ layoutWarningDismissed: true }, slide.id, {
+      persistence: "immediate",
     });
-  }, [overflowContentHash, overflowWarningStateKey]);
+  }, [onUpdateSlide, slide.id]);
   const dims = getAspectRatioDims(aspectRatio);
   const [, setFitCanvasZoom] = useState(100);
   const userSetCanvasZoomRef = useRef(false);
@@ -1584,8 +1541,8 @@ export default function SlideEditor({
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
-  // dismissal key is derived from slide content, so a delayed save cannot
-  // make the same warning reappear after the user closes it.
+  // warning dismissal itself is persisted on the slide and is cleared by
+  // agent layout writes, not by ordinary human edits.
   useEffect(() => {
     if (repairRequestTimerRef.current) {
       clearTimeout(repairRequestTimerRef.current);
@@ -7152,7 +7109,7 @@ export default function SlideEditor({
                           onSelect={cutSelectedObjects}
                         >
                           {t("editorSidebar.cut")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+x")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7161,7 +7118,7 @@ export default function SlideEditor({
                           onSelect={copySelectedObjects}
                         >
                           {t("styleInspector.copy")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+c")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7170,7 +7127,7 @@ export default function SlideEditor({
                           onSelect={pasteSelectedObjects}
                         >
                           {t("styleInspector.paste")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+v")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7179,7 +7136,7 @@ export default function SlideEditor({
                           onSelect={duplicateSelectedObjects}
                         >
                           {t("editorSidebar.duplicate")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+d")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7188,7 +7145,9 @@ export default function SlideEditor({
                           onSelect={() => deleteSelectedElements()}
                         >
                           {t("editorSidebar.delete")}
-                          <ContextMenuShortcut>⌫</ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
+                            ⌫
+                          </ContextMenuShortcut>
                         </ContextMenuItem>
                         <ContextMenuSeparator />
                         <ContextMenuItem
@@ -7196,7 +7155,7 @@ export default function SlideEditor({
                           onSelect={copySelectedElementStyle}
                         >
                           {t("styleInspector.copyStyle")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+alt+c")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7208,7 +7167,7 @@ export default function SlideEditor({
                           onSelect={pasteCopiedElementStyle}
                         >
                           {t("styleInspector.pasteStyle")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+alt+v")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>

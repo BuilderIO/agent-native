@@ -201,6 +201,9 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已关联的设计系统",
     viewOnly: "仅查看",
+    sourcePreserving: "有限编辑",
+    sourcePreservingDescription:
+      "可以编辑文本和对象。此导入的演示文稿已禁用添加、删除或重新排序幻灯片。",
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加评论",
     slideSettings: "幻灯片设置",
@@ -263,6 +266,7 @@ const messages = {
   editorExport: {
     pptxFailed: "无法生成 PPTX 文件。",
     exportFailed: "导出失败",
+    exporting: "正在导出...",
     exportPptxError: "导出为 PPTX 时出了点问题。",
     googleSlidesDownloaded: "已为 Google Slides 下载",
     googleSlidesImportHint:

@@ -211,6 +211,9 @@ const messages = {
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando un sistema de diseño vinculado",
     viewOnly: "Solo lectura",
+    sourcePreserving: "Edición limitada",
+    sourcePreservingDescription:
+      "Puedes editar texto y objetos. Añadir, eliminar o reordenar diapositivas está desactivado para este deck importado.",
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Puede ver y añadir comentarios",
     slideSettings: "Ajustes de diapositiva",
@@ -274,6 +277,7 @@ const messages = {
   editorExport: {
     pptxFailed: "No se pudo generar el archivo PPTX.",
     exportFailed: "Error al exportar",
+    exporting: "Exportando...",
     exportPptxError: "Algo salió mal al exportar como PPTX.",
     googleSlidesDownloaded: "Descargado para Google Slides",
     googleSlidesImportHint:
