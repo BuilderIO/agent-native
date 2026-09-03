@@ -85,10 +85,22 @@ describe("slide rich text normalization", () => {
         "H2",
         '<h2 style="position:absolute;left:107px;top:190px">Title</h2>',
       ),
-    ).toBe("Title");
+    ).toBe("<p>Title</p>");
     expect(contentForSlideTextContainer("UL", "<ul><li>First</li></ul>")).toBe(
-      "<li>First</li>",
+      "<ul><li>First</li></ul>",
     );
+    expect(
+      contentForSlideTextContainer(
+        "OL",
+        '<ol style="position:absolute;left:20px"><li>First</li></ol>',
+      ),
+    ).toBe("<ol><li>First</li></ol>");
+    expect(
+      contentForSlideTextContainer(
+        "BLOCKQUOTE",
+        "<blockquote><p>Quote</p></blockquote>",
+      ),
+    ).toBe("<blockquote><p>Quote</p></blockquote>");
   });
 
   it("round-trips a positioned heading without losing its semantic root", () => {
@@ -101,10 +113,7 @@ describe("slide rich text normalization", () => {
       heading.outerHTML,
     );
 
-    const restored = restoreSlideTextContainerContent(
-      heading,
-      `<p>${editorContent}</p>`,
-    );
+    const restored = restoreSlideTextContainerContent(heading, editorContent);
 
     expect(restored).toBe(heading);
     expect(restored.tagName).toBe("H2");
@@ -130,6 +139,26 @@ describe("slide rich text normalization", () => {
     expect(restored.style.color).toBe("red");
     expect(restored.getAttribute("dir")).toBe("rtl");
     expect(restored.getAttribute("data-pptx-paragraph")).toBe("2");
+  });
+
+  it("clears removed heading formatting without clearing its position", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<h2 style="position:absolute;left:107px;top:190px;color:red;font-size:56px" dir="rtl" data-pptx-paragraph="2">Title</h2>';
+    const heading = root.firstElementChild as HTMLElement;
+
+    restoreSlideTextContainerContent(
+      heading,
+      '<p style="color:red;font-size:56px" dir="rtl" data-pptx-paragraph="2">Title</p>',
+    );
+    const restored = restoreSlideTextContainerContent(heading, "<p>Title</p>");
+
+    expect(restored.style.position).toBe("absolute");
+    expect(restored.style.left).toBe("107px");
+    expect(restored.style.color).toBe("");
+    expect(restored.style.fontSize).toBe("");
+    expect(restored.getAttribute("dir")).toBeNull();
+    expect(restored.getAttribute("data-pptx-paragraph")).toBeNull();
   });
 
   it("keeps all blocks when a heading becomes structurally multi-block", () => {
@@ -172,6 +201,10 @@ describe("slide rich text normalization", () => {
     expect(restoredList.querySelector("li")?.textContent).toBe("First");
     expect(restoredItem).toBe(item);
     expect(restoredItem.tagName).toBe("LI");
+
+    const unquoted = restoreSlideTextContainerContent(quote, "<p>Quote</p>");
+    expect(unquoted.tagName).toBe("DIV");
+    expect(unquoted.querySelector("p")?.textContent).toBe("Quote");
   });
 
   it("promotes semantic containers to one wrapper for structural edits", () => {

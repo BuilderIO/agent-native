@@ -45,6 +45,44 @@ const SLIDE_TEXT_CONTAINER_TAGS = new Set([
   "UL",
 ]);
 
+const SLIDE_EDITOR_BLOCK_ATTRIBUTES = ["dir", "data-pptx-paragraph"] as const;
+const SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "min-height",
+  "text-align",
+  "text-decoration",
+] as const;
+
+function syncSlideEditorBlockFormatting(
+  source: HTMLElement,
+  target: HTMLElement,
+  clearMissing = false,
+): void {
+  for (const attributeName of SLIDE_EDITOR_BLOCK_ATTRIBUTES) {
+    const value = source.getAttribute(attributeName);
+    if (value !== null) target.setAttribute(attributeName, value);
+    else if (clearMissing) target.removeAttribute(attributeName);
+  }
+  for (const property of SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES) {
+    const value = source.style.getPropertyValue(property);
+    if (value) {
+      target.style.setProperty(
+        property,
+        value,
+        source.style.getPropertyPriority(property),
+      );
+    } else if (clearMissing) {
+      target.style.removeProperty(property);
+    }
+  }
+}
+
 export function isSlideTextContainerTag(tagName: string): boolean {
   return SLIDE_TEXT_CONTAINER_TAGS.has(tagName.toUpperCase());
 }
@@ -63,10 +101,29 @@ export function contentForSlideTextContainer(
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   const first = doc.body.firstElementChild;
-  return doc.body.children.length === 1 &&
-    first?.tagName.toUpperCase() === tagName.toUpperCase()
-    ? first.innerHTML
-    : html;
+  if (
+    doc.body.children.length !== 1 ||
+    first?.tagName.toUpperCase() !== tagName.toUpperCase()
+  ) {
+    return html;
+  }
+  if (/^H[1-6]$/.test(tagName.toUpperCase())) {
+    const source = first as HTMLElement;
+    const hasParagraphRoot =
+      source.children.length === 1 && source.firstElementChild?.tagName === "P";
+    const paragraph = hasParagraphRoot
+      ? (source.firstElementChild!.cloneNode(true) as HTMLElement)
+      : doc.createElement("p");
+    if (!hasParagraphRoot) paragraph.innerHTML = source.innerHTML;
+    syncSlideEditorBlockFormatting(source, paragraph);
+    return paragraph.outerHTML;
+  }
+  if (["BLOCKQUOTE", "OL", "UL"].includes(tagName.toUpperCase())) {
+    const wrapper = doc.createElement(tagName.toLowerCase());
+    wrapper.innerHTML = first.innerHTML;
+    return wrapper.outerHTML;
+  }
+  return first.innerHTML;
 }
 
 /** Keep a semantic canvas target valid when rich text changes its block root. */
@@ -83,20 +140,22 @@ export function restoreSlideTextContainerContent(
     return element;
   }
 
+  const nextDocument = new DOMParser().parseFromString(html, "text/html");
+  const nextRoot = nextDocument.body.firstElementChild as HTMLElement | null;
+  const nextChildren = Array.from(nextDocument.body.children);
+  const nextTags = nextChildren.map((child) => child.tagName);
+  if (nextChildren.length === 1 && nextRoot?.tagName === element.tagName) {
+    element.innerHTML = nextRoot.innerHTML;
+    return element;
+  }
+
   const content = contentForSlideTextContainer(element.tagName, html);
   if (content !== html) {
     element.innerHTML = content;
     return element;
   }
 
-  const nextDocument = new DOMParser().parseFromString(html, "text/html");
-  const nextRoot = nextDocument.body.firstElementChild as HTMLElement | null;
-  const nextChildren = Array.from(nextDocument.body.children);
-  const nextTags = nextChildren.map((child) => child.tagName);
   const preservesRoot =
-    (element.tagName === "BLOCKQUOTE" &&
-      nextTags.length > 0 &&
-      nextTags.every((tagName) => tagName === "P")) ||
     (element.tagName === "LI" &&
       nextTags.length > 0 &&
       nextTags.every((tagName) => tagName === "P")) ||
@@ -108,17 +167,7 @@ export function restoreSlideTextContainerContent(
     /^H[1-6]$/.test(element.tagName) &&
     nextRoot?.tagName === "P"
   ) {
-    for (const attributeName of ["dir", "data-pptx-paragraph"]) {
-      const value = nextRoot.getAttribute(attributeName);
-      if (value !== null) element.setAttribute(attributeName, value);
-    }
-    for (const property of Array.from(nextRoot.style)) {
-      element.style.setProperty(
-        property,
-        nextRoot.style.getPropertyValue(property),
-        nextRoot.style.getPropertyPriority(property),
-      );
-    }
+    syncSlideEditorBlockFormatting(nextRoot, element, true);
     element.innerHTML = nextRoot.innerHTML;
     return element;
   }
