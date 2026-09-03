@@ -124,6 +124,37 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       {
+        id: "database-providers",
+        labelKey: "databaseProviders",
+        children: [
+          {
+            id: "database-neon",
+            labelKey: "databaseNeon",
+            slug: "neon",
+          },
+          {
+            id: "database-supabase",
+            labelKey: "databaseSupabase",
+            slug: "supabase",
+          },
+          {
+            id: "database-turso",
+            labelKey: "databaseTurso",
+            slug: "turso",
+          },
+          {
+            id: "database-d1",
+            labelKey: "databaseD1",
+            slug: "cloudflare-d1",
+          },
+          {
+            id: "database-postgres",
+            labelKey: "databasePostgres",
+            slug: "postgres",
+          },
+        ],
+      },
+      {
         id: "deployment-production",
         labelKey: "deploymentProduction",
         children: [
@@ -570,37 +601,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "server-routes",
             labelKey: "serverRoutes",
             slug: "server-routes",
-          },
-        ],
-      },
-      {
-        id: "database-providers",
-        labelKey: "deploymentProviders",
-        children: [
-          {
-            id: "database-neon",
-            labelKey: "databaseNeon",
-            slug: "neon",
-          },
-          {
-            id: "database-supabase",
-            labelKey: "databaseSupabase",
-            slug: "supabase",
-          },
-          {
-            id: "database-turso",
-            labelKey: "databaseTurso",
-            slug: "turso",
-          },
-          {
-            id: "database-d1",
-            labelKey: "databaseD1",
-            slug: "cloudflare-d1",
-          },
-          {
-            id: "database-postgres",
-            labelKey: "databasePostgres",
-            slug: "postgres",
           },
         ],
       },

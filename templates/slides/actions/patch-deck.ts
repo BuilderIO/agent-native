@@ -304,9 +304,9 @@ export function assertSourceImportSlidesCovered(
   );
 }
 
-// The browser uses the full operation union above. Agents additionally use
-// this action for bounded deck and slide edits, including structural operations
-// that the browser editor batches through this same action.
+// The browser uses the full operation union above. Agents use the same bounded
+// operations, including structural edits, with source-import guards preserving
+// imported structure unless an explicit rewrite is requested.
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
   rewriteSource: z
@@ -661,6 +661,7 @@ export default defineAction({
     "operation with content for every imported slide in one call; the action " +
     "rejects partial coverage. For animations, inspect the final slide HTML, " +
     "then patch content and the complete ordered animations list together; " +
+    "use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
     "Then call get-deck with compact=true to verify the persisted slide IDs, " +
     "count, and animation metadata before reporting success. Content writes " +

@@ -2042,6 +2042,7 @@ const zhCN = {
     actionsAgentTools: "生产环境 Agent 访问权限",
     publicAgentWeb: "公共 Agent Web",
     database: "数据库",
+    databaseProviders: "数据库提供商",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

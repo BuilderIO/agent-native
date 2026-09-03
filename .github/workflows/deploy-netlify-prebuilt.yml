@@ -93,6 +93,14 @@ on:
         required: false
         type: string
         default: direct
+      migration_only:
+        required: false
+        type: boolean
+        default: false
+      skip_build_migrations:
+        required: false
+        type: boolean
+        default: false
     secrets:
       NETLIFY_AUTH_TOKEN:
         required: true
@@ -109,8 +117,13 @@ concurrency:
   # manager, and promotion jobs. A called workflow gets a distinct child queue
   # because the fleet caller already owns the shared per-site lock.
   group: >-
-    ${{ inputs.target == 'beta'
-        && format('netlify-prebuilt-beta-{0}-{1}', inputs.source_ref || github.sha, inputs.site)
+    ${{ inputs.caller == 'release-migration'
+        && inputs.target == 'production'
+        && format('agent-native-production-site-{0}', inputs.site)
+        || inputs.caller == 'release-migration'
+        && 'agent-native-release-migrations'
+        || inputs.target == 'beta'
+        && format('netlify-prebuilt-beta-{0}', inputs.site)
         || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
@@ -190,6 +203,7 @@ jobs:
           BUILD_CONTEXT: ${{ inputs.build_context }}
           DEPLOY: ${{ inputs.deploy }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          MIGRATION_ONLY: ${{ inputs.migration_only }}
           SITE: ${{ inputs.site }}
           TARGET: ${{ inputs.target }}
         run: |
@@ -200,8 +214,13 @@ jobs:
             exit 1
           fi
 
-          if [[ "$BUILD_CONTEXT" == "production" && ( "$DEPLOY" != "true" || "$DEPLOY_MODE" != "production" ) ]]; then
+          if [[ "$BUILD_CONTEXT" == "production" && "$MIGRATION_ONLY" != "true" && ( "$DEPLOY" != "true" || "$DEPLOY_MODE" != "production" ) ]]; then
             echo "::error::The production Netlify build context can run migrations; pair it with an explicit production deploy."
+            exit 1
+          fi
+
+          if [[ "$MIGRATION_ONLY" == "true" && ( "$DEPLOY" == "true" || "$DEPLOY_MODE" != "draft" ) ]]; then
+            echo "::error::Migration-only runs cannot create a Netlify deploy."
             exit 1
           fi
 
@@ -226,11 +245,52 @@ jobs:
           --site "$SITE"
           --github-output "$GITHUB_OUTPUT"
 
-      - name: Build with the Netlify project configuration
+      - name: Run the release migration from the Netlify environment
+        if: inputs.migration_only
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url=""
+          for variable in NETLIFY_DATABASE_URL_UNPOOLED NETLIFY_DATABASE_URL DATABASE_URL; do
+            if value="$(netlify env:get "$variable" --context "$BUILD_CONTEXT" --site "$NETLIFY_SITE_ID" 2>/dev/null)" && [[ "$value" == postgres* ]]; then
+              migration_database_url="$value"
+              break
+            fi
+          done
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter "$SOURCE_TEMPLATE" migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "Migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Release migration failed after 3 attempts."
+          exit 1
+
+      - name: Build with the Netlify project configuration
+        if: inputs.migration_only != true
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          MIGRATION_ONLY: ${{ inputs.migration_only }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           TARGET: ${{ inputs.target }}
         run: |
@@ -248,6 +308,9 @@ jobs:
             if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then
               export AGENT_NATIVE_RELEASE_MIGRATIONS=1
               export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
+              if [[ "$MIGRATION_ONLY" != "true" ]]; then
+                unset AGENT_NATIVE_RUN_RELEASE_MIGRATIONS
+              fi
             else
               export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
             fi
@@ -257,6 +320,9 @@ jobs:
             if [[ "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then
               export VITE_AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT=beta
             fi
+          fi
+          if [[ "$SKIP_BUILD_MIGRATIONS" == "true" && "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then
+            export AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS=1
           fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
             # Netlify's local CLI receives masked site secrets. These templates
@@ -307,6 +373,7 @@ jobs:
           pnpm --filter clips migrate:production
 
       - name: Verify deploy directories
+        if: inputs.migration_only != true
         env:
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
@@ -321,7 +388,9 @@ jobs:
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
 
       - name: Verify static SSR cache artifact
-        if: steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs'
+        if: >-
+          inputs.migration_only != true &&
+          (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')
         env:
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
         run: |
@@ -333,6 +402,7 @@ jobs:
       # sat above the whole fleet; this measures growth from where each app
       # actually is. An app with no recorded baseline is named, not passed.
       - name: Check serverless function sizes against their baseline
+        if: inputs.migration_only != true
         env:
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
           # source_template, not inputs.site: the input is a caller-facing alias

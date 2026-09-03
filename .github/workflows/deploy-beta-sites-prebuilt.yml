@@ -13,15 +13,15 @@ permissions:
   contents: read
   actions: read
 
-# Do not add a shared workflow concurrency group here. GitHub retains only one
-# pending run per group. Each push run waits for the prior push's beta run
-# instead, so every main push remains in the publish order.
+# Every main push gets its own workflow. The reusable beta deploy serializes
+# each site's remote Netlify publish, while its source freshness check skips
+# artifacts that are no longer the current main commit.
 
 jobs:
   resolve-source:
     name: Resolve beta source revision
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 10
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
     steps:
@@ -29,63 +29,6 @@ jobs:
         id: source
         with:
           script: |
-            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-            async function waitForPredecessor() {
-              if (!['push', 'workflow_dispatch'].includes(context.eventName)) {
-                return;
-              }
-
-              const discoveryDeadline = Date.now() + 60_000;
-              const completionDeadline = Date.now() + 110 * 60_000;
-              let predecessorRunId;
-              while (Date.now() < completionDeadline) {
-                if (!predecessorRunId) {
-                  const runs = await github.rest.actions.listWorkflowRuns({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    workflow_id: 'deploy-beta-sites-prebuilt.yml',
-                    per_page: 100,
-                  });
-                  const predecessor = runs.data.workflow_runs
-                    .filter(
-                      (run) =>
-                        run.id < context.runId &&
-                        ['push', 'workflow_dispatch'].includes(run.event),
-                    )
-                    .sort((left, right) => right.id - left.id)[0];
-                  if (predecessor) predecessorRunId = predecessor.id;
-                }
-
-                if (predecessorRunId) {
-                  const predecessor = await github.rest.actions.getWorkflowRun({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    run_id: predecessorRunId,
-                  });
-                  if (predecessor.data.status === 'completed') {
-                    core.info(
-                      `Predecessor beta run ${predecessorRunId} completed with ${predecessor.data.conclusion ?? 'no conclusion'}.`,
-                    );
-                    return;
-                  }
-                  core.info(
-                    `Waiting for predecessor beta run ${predecessorRunId} (${predecessor.data.status}).`,
-                  );
-                } else if (Date.now() >= discoveryDeadline) {
-                  core.info('No earlier beta workflow run was found; continuing.');
-                  return;
-                } else {
-                  core.info('Waiting for the earlier beta workflow run to appear.');
-                }
-                await sleep(30_000);
-              }
-
-              core.setFailed(
-                `Predecessor beta run ${predecessorRunId ?? 'discovery'} did not finish within 110 minutes.`,
-              );
-            }
-
             const sourceSha =
               context.eventName === 'workflow_dispatch'
                 ? (await github.rest.git.getRef({
@@ -94,7 +37,6 @@ jobs:
                     ref: 'heads/main',
                   })).data.object.sha
                 : context.sha;
-            await waitForPredecessor();
             core.setOutput('source_sha', sourceSha);
             core.info(`beta source is pinned to ${sourceSha}`);
 
@@ -104,6 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      migration_matrix: ${{ steps.matrix.outputs.migration_matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -123,23 +66,50 @@ jobs:
           );
           if (!sites.length) throw new Error('No beta sites configured.');
           const matrix = { include: sites.map(({ id }) => ({ site: id })) };
+          const migrationMatrix = {
+            include: sites
+              .filter(({ id }) => !['clips', 'plan'].includes(id))
+              .map(({ id }) => ({ site: id })),
+          };
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `matrix=${JSON.stringify(matrix)}\n`,
+            [
+              `matrix=${JSON.stringify(matrix)}`,
+              `migration_matrix=${JSON.stringify(migrationMatrix)}`,
+              '',
+            ].join('\n'),
           );
           console.log(`Discovered ${sites.length} beta sites.`);
           NODE
 
-  deploy:
-    name: ${{ matrix.site }} beta prebuilt deploy
+  migrate:
+    name: ${{ matrix.site }} beta release migration
     needs: [resolve-source, discover-sites]
     strategy:
       fail-fast: false
-      # Each beta build can run release migrations against the shared production
-      # database. Keep those migrations from opening a connection burst.
-      # ponytail: one global beta build at a time; split migration into a single
-      # preflight job if fleet duration becomes a problem.
+      # Migration duty is the only serialized part of the fleet. Builds do
+      # not touch the database and can run concurrently after this completes.
       max-parallel: 1
+      matrix: ${{ fromJSON(needs.discover-sites.outputs.migration_matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: beta
+      site: ${{ matrix.site }}
+      caller: release-migration
+      source_ref: ${{ needs.resolve-source.outputs.source_sha }}
+      build_context: branch-deploy
+      deploy: false
+      deploy_mode: draft
+      smoke: false
+      migration_only: true
+    secrets: inherit
+
+  deploy:
+    name: ${{ matrix.site }} beta prebuilt deploy
+    needs: [resolve-source, discover-sites, migrate]
+    strategy:
+      fail-fast: false
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -151,4 +121,5 @@ jobs:
       deploy: true
       deploy_mode: production
       smoke: true
+      migration_only: false
     secrets: inherit

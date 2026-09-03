@@ -2087,6 +2087,7 @@ const ptBR = {
     actionsAgentTools: "Acesso do Agente em Produção",
     publicAgentWeb: "Agent Web público",
     database: "Banco de dados",
+    databaseProviders: "Provedores de banco de dados",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

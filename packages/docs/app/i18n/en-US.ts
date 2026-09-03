@@ -2073,6 +2073,7 @@ const enUS = {
     actionsAgentTools: "Production Agent Access",
     publicAgentWeb: "Public Agent Web",
     database: "Database",
+    databaseProviders: "Database providers",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

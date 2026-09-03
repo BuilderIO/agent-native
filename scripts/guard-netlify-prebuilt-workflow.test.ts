@@ -202,21 +202,32 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("keeps automatic beta runs independent and source-keyed", () => {
+  it("keeps automatic beta runs latest-main and source-keyed", () => {
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
     assert.equal(beta.concurrency, undefined);
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
+      8,
+    );
+    assert.equal(
+      ((beta.jobs as Workflow).migrate as Workflow).strategy?.["max-parallel"],
       1,
     );
     const reusable = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
+    const validation = (
+      ((reusable.jobs as Workflow).deploy as Workflow).steps as Array<Workflow>
+    ).find((step) => step.name === "Validate rollout mode");
+    assert.match(
+      String(validation?.run),
+      /BUILD_CONTEXT.*MIGRATION_ONLY.*production/,
+    );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /inputs\.source_ref/,
+      /format\('netlify-prebuilt-beta-\{0\}', inputs\.site\)/,
     );
     assert.match(
       reusableSource,
@@ -230,19 +241,14 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
     );
-    const betaSource = readFileSync(
-      ".github/workflows/deploy-beta-sites-prebuilt.yml",
-      "utf8",
-    );
-    assert.match(betaSource, /actions\.listWorkflowRuns/);
-    assert.match(betaSource, /context\.runId/);
-    assert.match(betaSource, /run\.id < context\.runId/);
-    assert.match(betaSource, /actions\.getWorkflowRun/);
     assert.match(
-      betaSource,
-      /\['push', 'workflow_dispatch'\]\.includes\(run\.event\)/,
+      reusableSource,
+      /for variable in NETLIFY_DATABASE_URL_UNPOOLED NETLIFY_DATABASE_URL DATABASE_URL/,
     );
-    assert.match(betaSource, /workflow_dispatch/);
+    const betaMigrate = (beta.jobs as Workflow).migrate as Workflow;
+    assert.equal((betaMigrate.with as Workflow).caller, "release-migration");
+    assert.equal((betaMigrate.with as Workflow).migration_only, true);
+    assert.equal((betaMigrate.with as Workflow).deploy, false);
   });
 
   it("rejects the dead workflow_call event check", () => {
@@ -441,7 +447,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(artifact);
     assert.equal(
       artifact.if,
-      "steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs'",
+      "inputs.migration_only != true && (steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs')",
     );
     assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
   });
@@ -902,7 +908,8 @@ describe("production Netlify site concurrency guard", () => {
     const jobs = workflow.jobs as Record<string, Workflow>;
     const deploy = jobs.deploy;
     const ownership = jobs["pause-netlify-builds"];
-    assert.equal(deploy?.needs, "pause-netlify-builds");
+    assert.deepEqual(deploy?.needs, ["pause-netlify-builds", "migrate"]);
+    assert.equal((jobs.migrate.with as Workflow).migration_only, true);
     const steps = (ownership?.steps as Array<Workflow>).filter(Boolean);
     const disable = steps.find(
       (step) =>
@@ -923,6 +930,31 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(run, /changedStopBuilds/);
     assert.match(run, /verificationError/);
     assert.match(run, /Netlify docs build pause rollback/);
+    assert.equal(
+      (ownership?.concurrency as Workflow)?.group,
+      "agent-native-production-site-fw",
+    );
+    assert.equal(
+      (ownership?.outputs as Workflow)?.cutover_acquired,
+      "${{ steps.pause.outputs.cutover_acquired }}",
+    );
+    const restore = jobs["restore-netlify-builds"];
+    assert.deepEqual(restore?.needs, [
+      "pause-netlify-builds",
+      "migrate",
+      "deploy",
+    ]);
+    assert.match(String(restore?.if), /always\(\)/);
+    assert.equal(
+      (restore?.concurrency as Workflow)?.group,
+      "agent-native-production-site-fw",
+    );
+    const restoreStep = (restore?.steps as Array<Workflow>).find(
+      (step) => step.name === "Restore the prior docs build setting",
+    );
+    assert(restoreStep);
+    assert.match(String(restoreStep.if), /cutover_acquired/);
+    assert.match(String(restoreStep.run), /stop_builds: false/);
   });
 
   it("requires the exact shared queue on deploy, manage, and promote jobs", () => {
