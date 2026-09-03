@@ -230,9 +230,22 @@ describe("production Netlify site concurrency guard", () => {
         step.name ===
         "Block schema-dependent beta code until production migration",
     );
-    assert.match(String(schemaGateStep?.run), /inputs\.schema_migrated/);
+    assert.match(String(schemaGateStep?.run), /migrated_source_sha/);
+    assert.match(String(schemaGateStep?.run), /base_sha_input/);
+    assert.equal(
+      schemaGateStep?.env?.base_sha_input,
+      "${{ github.event.before }}",
+    );
+    assert.match(
+      String(schemaGateStep?.run),
+      /git hash-object -t tree \/dev\/null/,
+    );
     assert.match(String(schemaGateStep?.run), /git diff --name-only/);
     assert.match(String(schemaGateStep?.run), /schema_files/);
+    assert.equal(
+      (schemaGate.steps as Array<Workflow>)[0].with?.["fetch-depth"],
+      0,
+    );
     const reusable = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );

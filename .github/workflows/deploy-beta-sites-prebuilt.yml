@@ -9,11 +9,16 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      schema_migrated:
-        description: Set true only after the production twin migration succeeds
-        required: true
-        type: boolean
-        default: false
+      source_ref:
+        description: Exact main SHA to publish; blank uses the latest main
+        required: false
+        type: string
+        default: ""
+      migrated_source_sha:
+        description: Exact source SHA already migrated in the production twin
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -29,16 +34,33 @@ jobs:
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: source
+        env:
+          source_ref: ${{ inputs.source_ref }}
         with:
           script: |
-            const sourceSha =
-              context.eventName === 'workflow_dispatch'
-                ? (await github.rest.git.getRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: 'heads/main',
-                  })).data.object.sha
-                : context.sha;
+            const requested = process.env.source_ref.trim();
+            if (requested && !/^[0-9a-f]{40}$/i.test(requested)) {
+              core.setFailed('source_ref must be a full 40-character commit SHA.');
+              return;
+            }
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            const sourceSha = requested || (context.eventName === 'push' ? context.sha : mainSha);
+            if (requested) {
+              const comparison = await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: sourceSha,
+                head: mainSha,
+              });
+              if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                core.setFailed(`source_ref ${sourceSha} is not an ancestor of main ${mainSha}.`);
+                return;
+              }
+            }
             core.setOutput('source_sha', sourceSha);
             core.info(`beta source is pinned to ${sourceSha}`);
 
@@ -86,27 +108,45 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve-source.outputs.source_sha }}
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Block schema-dependent beta code until production migration
         env:
-          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+          base_sha_input: ${{ github.event.before }}
+          migrated_source_sha: ${{ inputs.migrated_source_sha }}
+          source_sha: ${{ needs.resolve-source.outputs.source_sha }}
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.schema_migrated }}" == "true" ]]; then
-            echo "Production migration was explicitly confirmed for $SOURCE_SHA."
+          if [[ -n "$migrated_source_sha" && ! "$migrated_source_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::migrated_source_sha must be a full 40-character commit SHA."
+            exit 1
+          fi
+          if [[ -n "$migrated_source_sha" && "${migrated_source_sha,,}" != "${source_sha,,}" ]]; then
+            echo "::error::migrated_source_sha must exactly match the source SHA being published."
+            exit 1
+          fi
+          if [[ -n "$migrated_source_sha" ]]; then
+            echo "Production migration was explicitly confirmed for $source_sha."
             exit 0
           fi
 
-          base_sha="$(git rev-parse "$SOURCE_SHA^")"
-          changed_files="$(git diff --name-only "$base_sha" "$SOURCE_SHA")"
+          if [[ "$base_sha_input" =~ ^0+$ ]]; then
+            # An initial push can contain the whole repository history; compare
+            # with the empty tree so an older schema change cannot hide.
+            base_sha="$(git hash-object -t tree /dev/null)"
+          elif [[ -n "$base_sha_input" ]]; then
+            base_sha="$base_sha_input"
+          else
+            base_sha="$(git rev-parse "$source_sha^" 2>/dev/null || git hash-object -t tree /dev/null)"
+          fi
+          changed_files="$(git diff --name-only "$base_sha" "$source_sha")"
           # ponytail: path-based schema gate; replace with production migration
           # status when GitHub Actions can access Netlify's masked secrets.
           schema_files="$(printf '%s\n' "$changed_files" | rg -N '(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(?:scripts/)?migrate-production\.ts|drizzle(?:\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$' || true)"
           if [[ -n "$schema_files" ]]; then
             echo "::error::Beta is withheld until the production twin is migrated. Changed schema paths:"
             printf '%s\n' "$schema_files"
-            echo "Re-run this workflow manually with schema_migrated=true after production migration succeeds."
+            echo "Re-run this workflow manually with source_ref=$source_sha and migrated_source_sha=$source_sha after production migration succeeds."
             exit 1
           fi
           echo "No schema-dependent paths changed; beta may publish automatically."

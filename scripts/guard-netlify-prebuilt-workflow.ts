@@ -695,6 +695,12 @@ const betaSchemaGateStep = (
   (step) =>
     step.name === "Block schema-dependent beta code until production migration",
 );
+const betaSchemaGateCheckoutStep = (
+  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
+).find(
+  (step) =>
+    typeof step.uses === "string" && step.uses.startsWith("actions/checkout@"),
+);
 const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
   ? betaDeployJob.needs
   : [];
@@ -706,9 +712,14 @@ if (betaMigrateJob || betaDeployNeeds.includes("migrate")) {
 if (
   betaSchemaGateJob?.needs !== "resolve-source" ||
   typeof betaSchemaGateStep?.run !== "string" ||
-  !betaSchemaGateStep.run.includes("inputs.schema_migrated") ||
+  !betaSchemaGateStep.run.includes("migrated_source_sha") ||
+  !betaSchemaGateStep.run.includes("base_sha_input") ||
+  asRecord(betaSchemaGateStep.env)?.base_sha_input !==
+    "${{ github.event.before }}" ||
+  !betaSchemaGateStep.run.includes("git hash-object -t tree /dev/null") ||
   !betaSchemaGateStep.run.includes("git diff --name-only") ||
   !betaSchemaGateStep.run.includes("schema_files") ||
+  asRecord(betaSchemaGateCheckoutStep?.with)?.["fetch-depth"] !== 0 ||
   !betaDeployNeeds.includes("schema-gate")
 ) {
   issues.push(
