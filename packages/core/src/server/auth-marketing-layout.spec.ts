@@ -69,11 +69,9 @@ describe("built-in auth marketing layout contract", () => {
       expect(html).toContain('class="split');
       expect(html).toContain('class="form-panel');
 
-      // (b) the learn-more link renders with a non-empty href/text, and only
-      // carries the bottom-right placement class when the config asks for it
-      expect(props.marketing?.learnMorePlacement).toBe(
-        marketing.learnMorePlacement,
-      );
+      // (b) the learn-more link renders with a non-empty href/text. Since
+      // #4262 it is bottom-right for every app unconditionally — there is no
+      // per-app placement knob left to assert, only the link itself.
       const linkMatch = html.match(
         /<a class="auth-marketing-learn-more"[^>]*href="([^"]+)"/,
       );
@@ -83,9 +81,7 @@ describe("built-in auth marketing layout contract", () => {
       expect(html).toContain(">Learn more<");
 
       const homeClass = marketingHomeClassAttr(html);
-      expect(homeClass.includes("has-bottom-right-learn-more")).toBe(
-        marketing.learnMorePlacement === "bottom-right",
-      );
+      expect(homeClass).toContain("auth-marketing-home");
 
       // (d) the marketing screenshot resolves to a file that exists on disk
       if (marketing.screenshotPath) {
@@ -97,7 +93,7 @@ describe("built-in auth marketing layout contract", () => {
     },
   );
 
-  it("declares the placement-class CSS rules and the screenshot blur/opacity treatment", () => {
+  it("declares the bottom-right link CSS rule and the screenshot blur/opacity treatment", () => {
     const html = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
@@ -106,9 +102,9 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;/,
     );
-    // bottom-right placement override
+    // the link container is pinned bottom-right for every app (#4262)
     expect(html).toMatch(
-      /\.auth-marketing-home\.has-bottom-right-learn-more \.auth-marketing-top-right\s*{[^}]*bottom:/,
+      /\.auth-marketing-top-right\s*{[^}]*position:\s*absolute;[^}]*bottom:\s*max\(/,
     );
     // the product-screenshot dim/blur treatment used by the marketing panel
     expect(html).toMatch(
