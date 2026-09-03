@@ -1367,7 +1367,11 @@ function parseDetailsBody(
     const indent = leadingTabs(line);
     const dedented = line.slice(indent);
     if (fence) {
-      const promoted = `${"\t".repeat(fence.promoteBy)}${line}`;
+      const promoteBy =
+        fence.promoteBy > 0
+          ? fence.promoteBy
+          : Math.max(0, childIndent - indent);
+      const promoted = `${"\t".repeat(promoteBy)}${line}`;
       const close = dedented.match(/^(`{3,})\s*$/);
       if (close && close[1].length >= fence.length) fence = undefined;
       return promoted;
@@ -2188,7 +2192,7 @@ function parseContainer(
     const ld = lines[i].slice(li);
     if (fence) {
       const close = ld.match(/^(`{3,})\s*$/);
-      if (li >= fence.indent && close && close[1].length >= fence.length) {
+      if (close && close[1].length >= fence.length) {
         fence = undefined;
       }
       continue;

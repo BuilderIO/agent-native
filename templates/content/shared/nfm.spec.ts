@@ -1285,6 +1285,39 @@ describe("bug fixes — reliability sweep", () => {
         ),
       );
     });
+
+    it("normalizes an unindented closing fence after a canonical opening fence", () => {
+      const source = L(
+        "<details>",
+        "<summary>Mixed fence</summary>",
+        "\t```ts",
+        "const answer = 42;",
+        "```",
+        "</details>",
+        "After toggle",
+      );
+
+      const doc = nfmToDoc(source);
+      expect(doc.content.map((node) => node.type)).toEqual([
+        "notionToggle",
+        "paragraph",
+      ]);
+      expect(doc.content[0]?.content?.[0]).toMatchObject({
+        type: "codeBlock",
+        content: [{ type: "text", text: "const answer = 42;" }],
+      });
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>Mixed fence</summary>",
+          "\t```ts",
+          "\tconst answer = 42;",
+          "\t```",
+          "</details>",
+          "After toggle",
+        ),
+      );
+    });
   });
 
   // n20: canonicalization must never apply the editor-only
