@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyAutomationConfigFrontmatter,
   assertAuthorFilter,
   authorMatchesFilter,
   buildGuardrailsText,
@@ -83,5 +84,23 @@ Classify Slack items.
     expect(next).toContain("Never post Slack messages");
     expect(next).not.toContain("Stale skip text");
     expect(next).toContain("Classify Slack items.");
+  });
+
+  it("does not delete a stored Slack channel when the config omits one", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+slackChannelId: C0BUK2293SA
+slackChannelName: feedback
+---
+
+Observe Slack.
+`;
+    const next = applyAutomationConfigFrontmatter(
+      content,
+      defaultAutomationConfig("slack", "slack-feedback"),
+    );
+    expect(next).toContain("slackChannelId: C0BUK2293SA");
+    expect(next).toContain("slackChannelName: feedback");
   });
 });

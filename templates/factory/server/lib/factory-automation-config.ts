@@ -335,6 +335,15 @@ export function readFactoryAutomationConfig(
   };
 }
 
+const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
+  "slackChannelId",
+  "slackChannelName",
+  "repository",
+  "sentryOrgSlug",
+  "sentryProjectSlug",
+  "sentryEnvironment",
+]);
+
 export function applyAutomationConfigFrontmatter(
   content: string,
   config: FactoryAutomationConfig,
@@ -364,6 +373,9 @@ export function applyAutomationConfigFrontmatter(
     ["schedule", scheduleCron(config)],
   ];
   for (const [key, value] of fields) {
+    if (OPTIONAL_DESTINATION_FRONTMATTER_FIELDS.has(key) && !value.trim()) {
+      continue;
+    }
     next = setAutomationFrontmatterField(next, key, value);
   }
   return next;

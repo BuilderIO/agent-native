@@ -159,6 +159,13 @@ describe("remote automation execution", () => {
       lastStatus: "running",
       executionHostId: "remote-device-laptop",
     });
+    current = {
+      ...current,
+      content: current.content.replace(
+        "\n---\n",
+        "\nslackChannelId: C0BUK2293SA\ndisplayName: Nightly\n---\n",
+      ),
+    };
     resourceGetByPathMock.mockImplementation(async () => current);
     resourcePutIfCurrentMock.mockImplementation(async (input) => {
       current = {
@@ -199,6 +206,8 @@ describe("remote automation execution", () => {
       enqueueRemoteCommandMock.mock.calls[0]?.[0].idempotencyKey,
     );
     expect(current.content).toContain('remoteCommandId: "remote-command-1"');
+    expect(current.content).toContain("slackChannelId: C0BUK2293SA");
+    expect(current.content).toContain("displayName: Nightly");
   });
 
   it("keeps a running relay command active and recognizes a terminal run", async () => {
