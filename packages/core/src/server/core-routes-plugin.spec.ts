@@ -983,6 +983,23 @@ describe("runDbHealthProbe: database identity", () => {
     expect(result.database.identityMismatch).toBe(true);
   });
 
+  // The first crm production promotion failed on exactly this: the release
+  // migration recorded "crm" while the hosted bundle could not derive any
+  // identity for itself. An unknown runtime identity is a gap to report, not a
+  // mismatch to block on.
+  it("does not claim a mismatch when the runtime cannot derive its own app identity", async () => {
+    vi.stubEnv("APP_ID", "");
+    const result = await runDbHealthProbe(
+      settingsRowExec({ app: "crm", recordedAt: "2026-09-03T17:29:04.800Z" }),
+    );
+    expect(result.database.identity).toMatchObject({
+      state: "recorded",
+      app: "crm",
+    });
+    expect(result.database.runningApp).toBeNull();
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
   it("reports unreadable, not unrecorded, for a malformed stored value", async () => {
     const result = await runDbHealthProbe(settingsRowExec({ app: 42 }));
     expect(result.database.identity?.state).toBe("unreadable");
