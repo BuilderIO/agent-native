@@ -254,6 +254,14 @@ async function assetAuthorization(): Promise<{
   const { resolveBuilderCredentialsDetailed } =
     await import("../server/credential-provider.js");
   const credentials = await resolveBuilderCredentialsDetailed();
+  if (credentials.lookupFailed) {
+    throw (
+      credentials.cause ??
+      new Error(
+        "Could not read saved Builder credentials. Try again in a moment.",
+      )
+    );
+  }
   const privateKey = credentials.privateKey?.trim();
   const publicKey = credentials.publicKey?.trim();
   if (!privateKey || !publicKey) {

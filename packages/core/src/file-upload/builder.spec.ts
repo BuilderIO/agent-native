@@ -290,6 +290,28 @@ describe("builderFileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("propagates credential lookup failures instead of reporting a missing space", async () => {
+    const lookupError = new Error("secrets store unavailable");
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-agent-native",
+    );
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-agent-native",
+      publicKey: "space-agent-native",
+      lookupFailed: true,
+      cause: lookupError,
+    });
+
+    await expect(
+      builderFileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "clip.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toBe(lookupError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("cancels a resumable session so a hosted retry can restart it", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
