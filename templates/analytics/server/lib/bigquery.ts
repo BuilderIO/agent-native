@@ -253,10 +253,11 @@ export interface RestrictedSchemaPolicyOptions {
 export class BigQueryRestrictedSchemaError extends Error {
   readonly code = "bigquery_restricted_schema";
 
-  constructor(readonly datasetId: string) {
-    super(
-      `BigQuery dataset "${datasetId}" is restricted because it is reserved for archived or testing data. Access it only when the latest end-user request explicitly names this dataset.`,
-    );
+  constructor(
+    readonly datasetId: string,
+    message = `BigQuery dataset "${datasetId}" is restricted because it is reserved for archived or testing data. Access it only when the latest end-user request explicitly names this dataset.`,
+  ) {
+    super(message);
     this.name = "BigQueryRestrictedSchemaError";
   }
 }
@@ -329,28 +330,39 @@ function stripSqlCommentsAndStrings(sql: string): string {
   return sanitized;
 }
 
-export function findRestrictedBigQueryDataset(sql: string): string | null {
-  const sanitized = stripSqlCommentsAndStrings(sql);
-  const referencePattern =
-    /(?:`(?:[A-Za-z][A-Za-z0-9-]*\.)?(dbt_dev|dbt_backup)\.[^`]+`|(?:^|[^A-Za-z0-9_-])(?:[A-Za-z][A-Za-z0-9-]*\.)?(dbt_dev|dbt_backup)\.[A-Za-z_][A-Za-z0-9_$]*)/gi;
+function normalizedSqlIdentifiers(sql: string): string {
+  return stripSqlCommentsAndStrings(sql)
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\s*\.\s*/g, ".");
+}
 
-  for (const match of sanitized.matchAll(referencePattern)) {
-    const datasetId = (match[1] ?? match[2])?.toLowerCase();
-    if (datasetId && RESTRICTED_BIGQUERY_DATASETS.has(datasetId)) {
-      return datasetId;
-    }
-  }
-  return null;
+export function findRestrictedBigQueryDataset(sql: string): string | null {
+  const normalized = normalizedSqlIdentifiers(sql);
+  const match = normalized.match(
+    /(?:^|[^A-Za-z0-9_-])(dbt_dev|dbt_backup)\.[A-Za-z_][A-Za-z0-9_$]*/i,
+  );
+  const datasetId = match?.[1]?.toLowerCase();
+  return datasetId && RESTRICTED_BIGQUERY_DATASETS.has(datasetId)
+    ? datasetId
+    : null;
 }
 
 export function enforceBigQueryRestrictedSchemaPolicy(
   sql: string,
   options: RestrictedSchemaPolicyOptions = {},
 ): void {
-  const datasetId = findRestrictedBigQueryDataset(sql);
-  if (datasetId && options.restrictedSchemaAccess !== "user-explicit-request") {
-    throw new BigQueryRestrictedSchemaError(datasetId);
+  if (options.restrictedSchemaAccess === "user-explicit-request") return;
+
+  const sanitized = stripSqlCommentsAndStrings(sql);
+  if (/\bEXECUTE\s+IMMEDIATE\b/i.test(sanitized)) {
+    throw new BigQueryRestrictedSchemaError(
+      "dynamic-sql",
+      "BigQuery dynamic SQL is restricted because its table references cannot be safely verified. Use static SQL, or use it only when the latest end-user request explicitly names dbt_dev or dbt_backup.",
+    );
   }
+
+  const datasetId = findRestrictedBigQueryDataset(sql);
+  if (datasetId) throw new BigQueryRestrictedSchemaError(datasetId);
 }
 
 export interface RunQueryOptions extends RestrictedSchemaPolicyOptions {
@@ -511,6 +523,7 @@ export async function dryRunQuery(
     projectId,
     appEventsTable,
   );
+  enforceBigQueryRestrictedSchemaPolicy(resolvedSql);
 
   const token = await getAccessToken();
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
@@ -581,6 +594,7 @@ export async function runQuery(
     projectId,
     appEventsTable,
   );
+  enforceBigQueryRestrictedSchemaPolicy(resolvedSql, options);
 
   const cacheKey = getCacheKey(resolvedSql, projectId, cacheScope);
   const l1Hit = getL1(cacheKey);

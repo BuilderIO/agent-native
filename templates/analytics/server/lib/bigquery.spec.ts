@@ -49,6 +49,9 @@ describe("restricted BigQuery schema policy", () => {
     ["SELECT * FROM `example-project.dbt_dev.signups`", "dbt_dev"],
     ["SELECT * FROM dbt_backup.signups", "dbt_backup"],
     ["SELECT * FROM example_project.dbt_backup.signups", "dbt_backup"],
+    ["SELECT * FROM `dbt_backup`.signups", "dbt_backup"],
+    ["SELECT * FROM `example-project`.`dbt_dev`.`signups`", "dbt_dev"],
+    ["SELECT * FROM dbt_backup /* hidden */ . signups", "dbt_backup"],
   ])("detects restricted table references in %s", (sql, datasetId) => {
     expect(findRestrictedBigQueryDataset(sql)).toBe(datasetId);
     expect(() => enforceBigQueryRestrictedSchemaPolicy(sql)).toThrow(
@@ -66,6 +69,20 @@ describe("restricted BigQuery schema policy", () => {
     `;
 
     expect(findRestrictedBigQueryDataset(sql)).toBeNull();
+  });
+
+  it("rejects dynamic SQL unless the direct path has explicit access", () => {
+    const sql =
+      "EXECUTE IMMEDIATE CONCAT('SELECT * FROM dbt_', 'backup.signups')";
+
+    expect(() => enforceBigQueryRestrictedSchemaPolicy(sql)).toThrow(
+      BigQueryRestrictedSchemaError,
+    );
+    expect(() =>
+      enforceBigQueryRestrictedSchemaPolicy(sql, {
+        restrictedSchemaAccess: "user-explicit-request",
+      }),
+    ).not.toThrow();
   });
 
   it.each(["dbt_dev", "dbt_backup"])(
@@ -132,6 +149,31 @@ describe("runQuery cancellation", () => {
       }),
     ).resolves.toMatchObject({ rows: [{ value: 1 }] });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks the configured app-events relation after placeholder expansion", async () => {
+    resolveCredential.mockImplementation(async (key: string) => {
+      if (key === "BIGQUERY_PROJECT_ID") return "test-project";
+      if (key === "ANALYTICS_BIGQUERY_EVENTS_TABLE") {
+        return "test-project.dbt_backup.events";
+      }
+      return null;
+    });
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(runQuery("SELECT * FROM @app_events")).rejects.toMatchObject({
+      code: "bigquery_restricted_schema",
+      datasetId: "dbt_backup",
+    });
+    await expect(
+      dryRunQuery("SELECT * FROM @app_events"),
+    ).rejects.toMatchObject({
+      code: "bigquery_restricted_schema",
+      datasetId: "dbt_backup",
+    });
+    expect(getAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps dry-run validation blocked for restricted schemas", async () => {

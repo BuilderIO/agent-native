@@ -1,3 +1,4 @@
+import { AgentActionStopError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -24,6 +25,7 @@ interface DatasetListResponse {
     labels?: Record<string, string>;
     location?: string;
   }>;
+  nextPageToken?: string;
 }
 
 interface TableListResponse {
@@ -81,6 +83,71 @@ function assertIdentifier(
     throw new Error(`${label} must be a BigQuery identifier, got "${value}"`);
   }
   return clean;
+}
+
+function requestedDatasetId(
+  dataset: string | undefined,
+  table: string,
+): string | undefined {
+  const cleanTable = table.trim().replace(/^`|`$/g, "");
+  const parts = cleanTable.split(".");
+  if (parts.length === 2) return assertIdentifier("dataset", parts[0]);
+  if (parts.length === 3) return assertIdentifier("dataset", parts[1]);
+  if (parts.length === 1 && dataset) {
+    return assertIdentifier("dataset", dataset);
+  }
+  return undefined;
+}
+
+function stopForRestrictedSchema(err: unknown): never {
+  const error = err as {
+    code?: unknown;
+    datasetId?: unknown;
+    message?: unknown;
+  };
+  const datasetId =
+    typeof error.datasetId === "string"
+      ? error.datasetId
+      : "restricted dataset";
+  const message =
+    typeof error.message === "string"
+      ? error.message
+      : `BigQuery dataset "${datasetId}" is restricted.`;
+  throw new AgentActionStopError(message, {
+    errorCode: "bigquery_restricted_schema",
+    toolResult: JSON.stringify(
+      {
+        error: "bigquery_restricted_schema",
+        datasetId,
+        message,
+        recoverable: false,
+      },
+      null,
+      2,
+    ),
+  });
+}
+
+function enforceRequestedDatasetPolicy(
+  datasetId: string | undefined,
+  restrictedSchemaAccess: "user-explicit-request" | undefined,
+): void {
+  if (!datasetId) return;
+  try {
+    enforceBigQueryRestrictedDatasetPolicy(datasetId, {
+      restrictedSchemaAccess,
+    });
+  } catch (err) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: unknown }).code === "bigquery_restricted_schema"
+    ) {
+      stopForRestrictedSchema(err);
+    }
+    throw err;
+  }
 }
 
 function parseTableRef(
@@ -226,35 +293,56 @@ function matchesSearch(meta: TableMetadata, search: string): boolean {
 }
 
 async function listDatasets(projectId: string, limit: number, search: string) {
-  const url = new URL(
-    `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets`,
-  );
-  url.searchParams.set("maxResults", String(Math.min(limit, 1000)));
-  const result = await bigQueryGet<DatasetListResponse>(url.toString());
+  const datasets: Array<{
+    projectId?: string;
+    datasetId?: string;
+    friendlyName?: string;
+    labels?: Record<string, string>;
+    location?: string;
+  }> = [];
   const q = search.toLowerCase();
-  return (result.datasets ?? [])
-    .map((dataset) => ({
-      projectId: dataset.datasetReference?.projectId,
-      datasetId: dataset.datasetReference?.datasetId,
-      friendlyName: dataset.friendlyName,
-      labels: dataset.labels,
-      location: dataset.location,
-    }))
-    .filter((dataset) => {
+  let pageToken: string | undefined;
+
+  do {
+    const url = new URL(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets`,
+    );
+    url.searchParams.set("maxResults", String(Math.min(limit + 2, 1000)));
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const result = await bigQueryGet<DatasetListResponse>(url.toString());
+    for (const dataset of result.datasets ?? []) {
+      const compact = {
+        projectId: dataset.datasetReference?.projectId,
+        datasetId: dataset.datasetReference?.datasetId,
+        friendlyName: dataset.friendlyName,
+        labels: dataset.labels,
+        location: dataset.location,
+      };
       if (
-        typeof dataset.datasetId === "string" &&
-        isRestrictedBigQueryDataset(dataset.datasetId)
+        typeof compact.datasetId === "string" &&
+        isRestrictedBigQueryDataset(compact.datasetId)
       ) {
-        return false;
+        continue;
       }
-      if (!q) return true;
-      return [dataset.datasetId, dataset.friendlyName, dataset.location]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q);
-    })
-    .slice(0, limit);
+      if (
+        q &&
+        ![compact.datasetId, compact.friendlyName, compact.location]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q)
+      ) {
+        continue;
+      }
+      datasets.push(compact);
+    }
+    pageToken = result.nextPageToken;
+  } while (datasets.length < limit && pageToken);
+
+  return {
+    datasets: datasets.slice(0, limit),
+    truncated: datasets.length > limit || Boolean(pageToken),
+  };
 }
 
 async function listTables(projectId: string, datasetId: string, limit: number) {
@@ -278,18 +366,20 @@ async function searchAcrossDatasets(
   search: string,
   limit: number,
 ) {
-  const datasets = await listDatasets(
+  const datasetPage = await listDatasets(
     projectId,
     GLOBAL_SEARCH_DATASET_LIMIT + 1,
     "",
   );
+  const datasets = datasetPage.datasets;
   const scannableDatasets = datasets.slice(0, GLOBAL_SEARCH_DATASET_LIMIT);
   const tables: BigQueryTableSummary[] = [];
   const datasetCount = scannableDatasets.filter(
     (dataset) => typeof dataset.datasetId === "string" && dataset.datasetId,
   ).length;
   let datasetsScanned = 0;
-  let truncated = datasets.length > GLOBAL_SEARCH_DATASET_LIMIT;
+  let truncated =
+    datasetPage.truncated || datasets.length > GLOBAL_SEARCH_DATASET_LIMIT;
 
   for (const dataset of scannableDatasets) {
     const datasetId = dataset.datasetId;
@@ -428,15 +518,22 @@ export default defineAction({
   readOnly: true,
   toolCallable: true,
   run: async (args) => {
+    enforceRequestedDatasetPolicy(
+      args.table
+        ? requestedDatasetId(args.dataset, args.table)
+        : args.dataset
+          ? assertIdentifier("dataset", args.dataset)
+          : undefined,
+      args.restrictedSchemaAccess,
+    );
+
     const configuredProjectId = await getBigQueryProjectId();
     const limit = args.limit ?? 50;
     const search = (args.search ?? "").trim();
 
     if (args.table) {
       const ref = parseTableRef(configuredProjectId, args.dataset, args.table);
-      enforceBigQueryRestrictedDatasetPolicy(ref.datasetId, {
-        restrictedSchemaAccess: args.restrictedSchemaAccess,
-      });
+      enforceRequestedDatasetPolicy(ref.datasetId, args.restrictedSchemaAccess);
       const meta = await getTableMetadata(
         ref.projectId,
         ref.datasetId,
@@ -455,16 +552,14 @@ export default defineAction({
       return {
         mode: "datasets",
         projectId: configuredProjectId,
-        datasets: await listDatasets(configuredProjectId, limit, search),
+        ...(await listDatasets(configuredProjectId, limit, search)),
         nextStep:
           "Pass dataset=<datasetId> to list tables, or table=dataset.table to inspect columns.",
       };
     }
 
     const datasetId = assertIdentifier("dataset", args.dataset);
-    enforceBigQueryRestrictedDatasetPolicy(datasetId, {
-      restrictedSchemaAccess: args.restrictedSchemaAccess,
-    });
+    enforceRequestedDatasetPolicy(datasetId, args.restrictedSchemaAccess);
     const tables = await listTables(configuredProjectId, datasetId, limit);
     const includeColumns = args.includeColumns === true || !!search;
 

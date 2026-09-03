@@ -7,6 +7,19 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core", () => ({
+  AgentActionStopError: class AgentActionStopError extends Error {
+    errorCode?: string;
+    toolResult?: string;
+
+    constructor(
+      message: string,
+      details?: { errorCode?: string; toolResult?: string },
+    ) {
+      super(message);
+      this.errorCode = details?.errorCode;
+      this.toolResult = details?.toolResult;
+    }
+  },
   defineAction: (definition: unknown) => definition,
 }));
 vi.mock("../server/lib/bigquery", () => ({
@@ -230,14 +243,61 @@ describe("search-bigquery-schema", () => {
     [{ dataset: "dbt_backup" }, "dbt_backup"],
     [{ table: "dbt_dev.signups" }, "dbt_dev"],
   ])(
-    "rejects direct restricted metadata access by default",
+    "rejects direct restricted metadata access before credentials or network",
     async (args, datasetId) => {
-      await expect(action.run(args)).rejects.toMatchObject({
-        code: "bigquery_restricted_schema",
-        datasetId,
+      await expect(action.run(args)).rejects.toSatisfy((err: unknown) => {
+        if (!err || typeof err !== "object") return false;
+        const stopped = err as { errorCode?: unknown; toolResult?: unknown };
+        expect(stopped.errorCode).toBe("bigquery_restricted_schema");
+        expect(String(stopped.toolResult)).toContain(
+          `"datasetId": "${datasetId}"`,
+        );
+        expect(String(stopped.toolResult)).toContain('"recoverable": false');
+        return true;
       });
+      expect(mocks.getBigQueryProjectId).not.toHaveBeenCalled();
+      expect(mocks.getAccessToken).not.toHaveBeenCalled();
+      expect(mocks.fetch).not.toHaveBeenCalled();
     },
   );
+
+  it("pages past restricted datasets to return allowed datasets", async () => {
+    mocks.fetch.mockImplementation(async (input: URL | string) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("pageToken") === "next-page") {
+        return jsonResponse({
+          datasets: [
+            {
+              datasetReference: {
+                projectId: "test-project",
+                datasetId: "product",
+              },
+            },
+          ],
+        });
+      }
+      return jsonResponse({
+        datasets: [
+          {
+            datasetReference: {
+              projectId: "test-project",
+              datasetId: "dbt_backup",
+            },
+          },
+        ],
+        nextPageToken: "next-page",
+      });
+    });
+
+    const result = await action.run({ limit: 1 });
+
+    expect(result).toMatchObject({
+      mode: "datasets",
+      datasets: [{ datasetId: "product" }],
+      truncated: false,
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
 
   it("allows a specifically requested restricted dataset with the explicit marker", async () => {
     const tablesResult = await action.run({
