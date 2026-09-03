@@ -2096,8 +2096,6 @@ const koKR = {
     databaseProviders: "데이터베이스 프로바이더",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "국제화",
     localFileMode: "로컬 파일 모드",

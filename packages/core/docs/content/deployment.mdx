@@ -34,15 +34,16 @@ filesystems can be reset at any time.
 
 ### Choose a provider
 
-Use any Drizzle-compatible SQL backend, such as Postgres, Neon, Supabase,
-Railway, RDS, Turso, or libSQL. The framework detects the database dialect from
-the connection URL.
+Use a Drizzle-compatible PostgreSQL backend, such as [Neon](/docs/neon),
+[Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](https://aws.amazon.com/rds/postgresql/),
+[Cloud SQL for PostgreSQL](https://cloud.google.com/sql/postgresql), or [Azure Database for PostgreSQL](https://learn.microsoft.com/en-us/azure/postgresql/overview).
+The framework detects the PostgreSQL dialect from the connection URL.
 
 ### Set the connection string
 
 Set `DATABASE_URL` in the deployment environment before the first production
-deploy. Use `DATABASE_AUTH_TOKEN` too when the provider requires a separate
-token, such as Turso or libSQL.
+deploy. Standard PostgreSQL connection URLs begin with `postgres://` or
+`postgresql://`.
 
 ### Add production secrets
 

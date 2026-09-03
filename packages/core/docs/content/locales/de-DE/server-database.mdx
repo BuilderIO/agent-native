@@ -91,11 +91,17 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
+# Amazon RDS for PostgreSQL
+DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
+
+# Cloud SQL for PostgreSQL
+DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
+
+# Azure Database for PostgreSQL
+DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
+
 # Einfaches Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
-
-# Turso (libSQL). Erfordert außerdem DATABASE_AUTH_TOKEN.
-DATABASE_URL=libsql://my-db-org.turso.io
 ```
 
 Das Framework erkennt den Dialekt automatisch anhand des URL-Präfixes und konfiguriert Drizzle entsprechend.
@@ -443,7 +449,6 @@ const { rows } = await getDbExec().execute({
 | Variable              | Zweck                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Dauerhafte SQL-Verbindungszeichenfolge (nicht gesetzt = lokales SQLite; `pglite:./data/pglite` = lokales Postgres-Opt-in) |
-| `DATABASE_AUTH_TOKEN` | Auth-Token für Anbieter, die ein separates Token benötigen, wie Turso/libSQL                                              |
 
 ## Was kommt als nächstes? {#whats-next}
 
