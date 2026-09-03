@@ -310,6 +310,7 @@ describe("slide clipboard storage", () => {
           version: 1,
           slide: {
             ...slide,
+            layoutWarningDismissed: true,
             imageLoading: true,
             unexpected: "stale data",
             animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
@@ -323,6 +324,7 @@ describe("slide clipboard storage", () => {
       status: "ready",
       slide: {
         ...slide,
+        layoutWarningDismissed: true,
         animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
       },
       copiedAt: 2_500,

@@ -178,7 +178,11 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
     normalized.transition = candidate.transition as Slide["transition"];
   }
 
-  for (const key of ["splitByParagraph", "skipped"] as const) {
+  for (const key of [
+    "layoutWarningDismissed",
+    "splitByParagraph",
+    "skipped",
+  ] as const) {
     const field = candidate[key];
     if (field !== undefined && typeof field !== "boolean") return null;
     if (field !== undefined) normalized[key] = field;
