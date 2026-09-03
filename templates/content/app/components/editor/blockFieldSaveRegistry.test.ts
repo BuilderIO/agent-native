@@ -6,7 +6,7 @@ import {
   acquireBlockFieldSaveController,
   activeControllerCount,
   blockFieldSaveImplRef,
-  flushBlockFieldSaveControllersForDocument,
+  flushBlockFieldSaveController,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
@@ -233,7 +233,7 @@ describe("blockFieldSaveRegistry", () => {
     await k1Flush;
   });
 
-  it("flushes only the requested document's additional fields", async () => {
+  it("flushes only the exact requested additional field", async () => {
     const saved: string[] = [];
     for (const key of ["doc-a:notes", "doc-a:draft", "doc-b:notes"]) {
       blockFieldSaveImplRef(key).current = (value) => {
@@ -244,9 +244,10 @@ describe("blockFieldSaveRegistry", () => {
       controller.change("pending");
     }
 
-    await flushBlockFieldSaveControllersForDocument("doc-a");
+    await flushBlockFieldSaveController("doc-a", "notes");
 
-    expect(saved).toEqual(["doc-a:notes=pending", "doc-a:draft=pending"]);
+    expect(saved).toEqual(["doc-a:notes=pending"]);
+    expect(peekBlockFieldSaveController("doc-a:draft")?.lastSaved).toBe("");
     expect(peekBlockFieldSaveController("doc-b:notes")?.lastSaved).toBe("");
   });
 
@@ -257,9 +258,9 @@ describe("blockFieldSaveRegistry", () => {
     const controller = acquireBlockFieldSaveController(key, factoryFor(key));
     controller.change("pending");
 
-    await expect(
-      flushBlockFieldSaveControllersForDocument("doc"),
-    ).rejects.toThrow("could not be saved");
+    await expect(flushBlockFieldSaveController("doc", "notes")).rejects.toThrow(
+      "could not be saved",
+    );
   });
 });
 

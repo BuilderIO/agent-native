@@ -83,21 +83,18 @@ export function peekBlockFieldSaveController(
   return registry.get(key)?.controller;
 }
 
-/** Persist every mounted additional Blocks field before a field-scoped read. */
-export async function flushBlockFieldSaveControllersForDocument(
+/** Persist one mounted additional Blocks field before its exact read. */
+export async function flushBlockFieldSaveController(
   documentId: string,
+  propertyId: string,
 ): Promise<void> {
-  const prefix = `${documentId}:`;
-  const controllers = [...registry.entries()]
-    .filter(([key]) => key.startsWith(prefix))
-    .map(([, entry]) => entry.controller);
+  const controller = registry.get(`${documentId}:${propertyId}`)?.controller;
+  if (!controller) {
+    throw new Error("The requested Blocks field is not open in this editor.");
+  }
 
-  await Promise.all(controllers.map((controller) => controller.flush()));
-  if (
-    controllers.some(
-      (controller) => controller.pending !== controller.lastSaved,
-    )
-  ) {
+  await controller.flush();
+  if (controller.pending !== controller.lastSaved) {
     throw new Error("A Blocks field could not be saved before reading it.");
   }
 }

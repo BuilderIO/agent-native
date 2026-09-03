@@ -92,7 +92,7 @@ import {
 import { isDatabaseChoicePending } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
-import { flushBlockFieldSaveControllersForDocument } from "./blockFieldSaveRegistry";
+import { flushBlockFieldSaveController } from "./blockFieldSaveRegistry";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
@@ -1753,6 +1753,7 @@ function DocumentEditorBody({
             id?: string;
             ts?: number;
             requestId?: string;
+            propertyId?: string;
             status?: "pending" | "success" | "error";
             error?: string;
           } | null;
@@ -1772,8 +1773,12 @@ function DocumentEditorBody({
               updates.content = content;
             }
             try {
-              await flushBlockFieldSaveControllersForDocument(documentId);
-              if (Object.keys(updates).length > 0) {
+              if (pending.propertyId) {
+                await flushBlockFieldSaveController(
+                  documentId,
+                  pending.propertyId,
+                );
+              } else if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdatesRef.current(updates);
                 if (isDocumentUpdateConflict(saved)) {
                   // Do not acknowledge a CAS loss as a successful flush. The

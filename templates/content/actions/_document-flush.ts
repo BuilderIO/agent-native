@@ -56,6 +56,7 @@ function awarenessFlushCandidate(entry: {
 export async function flushOpenDocumentEditorToSql(args: {
   documentId: string;
   ownerEmail?: string | null;
+  propertyId?: string;
 }) {
   // If a live Yjs collab session is open, the in-memory editor doc is fresher
   // than the SQL column. Ask the open editor to serialize + save, then wait
@@ -74,6 +75,18 @@ export async function flushOpenDocumentEditorToSql(args: {
     .filter((candidate): candidate is NonNullable<typeof candidate> => {
       return candidate !== null;
     });
+  if (args.propertyId && flushCandidates.length > 0) {
+    const exactCandidate = flushCandidates[0];
+    if (
+      flushCandidates.length !== 1 ||
+      exactCandidate?.required !== true ||
+      !exactCandidate.sessionEmail
+    ) {
+      throw new Error(
+        "An exact fresh Blocks field value cannot be established while multiple or legacy editors are open.",
+      );
+    }
+  }
   if (flushCandidates.length === 0) return;
   const acknowledgementRequired = flushCandidates.some(
     (candidate) => candidate.required,
@@ -90,11 +103,10 @@ export async function flushOpenDocumentEditorToSql(args: {
   const callerEmail = getRequestUserEmail() || undefined;
   const targetSessions = Array.from(
     new Set(
-      [
-        ...activeSessionEmails,
-        args.ownerEmail ?? undefined,
-        callerEmail,
-      ].filter((s): s is string => typeof s === "string" && s.length > 0),
+      (args.propertyId
+        ? activeSessionEmails
+        : [...activeSessionEmails, args.ownerEmail ?? undefined, callerEmail]
+      ).filter((s): s is string => typeof s === "string" && s.length > 0),
     ),
   );
   if (targetSessions.length === 0) {
@@ -107,6 +119,7 @@ export async function flushOpenDocumentEditorToSql(args: {
     id: args.documentId,
     ts: Date.now(),
     requestId,
+    ...(args.propertyId ? { propertyId: args.propertyId } : {}),
     status: "pending",
   };
   const writes = await Promise.allSettled(

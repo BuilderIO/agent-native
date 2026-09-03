@@ -1,6 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-import { wordCountResult } from "./get-blocks-field-word-count";
+import {
+  selectReadableBlocksField,
+  wordCountResult,
+} from "./get-blocks-field-word-count";
+
+function field(args: {
+  id: string;
+  primary?: boolean;
+  type?: string;
+  visibility?: string;
+  value?: unknown;
+}) {
+  return {
+    definition: {
+      id: args.id,
+      name: args.id,
+      type: args.type ?? "blocks",
+      visibility: args.visibility ?? "always_show",
+      options: { blocks: { primary: args.primary === true } },
+    },
+    value: args.value ?? "words",
+  } as any;
+}
 
 describe("get-blocks-field-word-count", () => {
   it("returns the selected field identity with its word count", () => {
@@ -31,5 +53,46 @@ describe("get-blocks-field-word-count", () => {
         content: "",
       }),
     ).toMatchObject({ propertyId: null, primary: true, wordCount: 0 });
+  });
+
+  it("does not invent a primary field for a database Page without one", () => {
+    expect(() =>
+      selectReadableBlocksField(
+        { properties: [field({ id: "notes" })], hasDatabase: true },
+        undefined,
+      ),
+    ).toThrow(/no visible primary Content field/i);
+  });
+
+  it("rejects hidden, scalar, primary, and mismatched additional fields", () => {
+    const properties = [
+      field({ id: "primary", primary: true }),
+      field({ id: "hidden", visibility: "always_hide" }),
+      field({ id: "empty", visibility: "hide_when_empty", value: "" }),
+      field({ id: "scalar", type: "text" }),
+    ];
+    for (const propertyId of [
+      "primary",
+      "hidden",
+      "empty",
+      "scalar",
+      "missing",
+    ]) {
+      expect(() =>
+        selectReadableBlocksField(
+          { properties, hasDatabase: true },
+          propertyId,
+        ),
+      ).toThrow(/not found for this Page/i);
+    }
+  });
+
+  it("keeps the implicit primary field only for standalone Pages", () => {
+    expect(
+      selectReadableBlocksField(
+        { properties: [], hasDatabase: false },
+        undefined,
+      ),
+    ).toBeNull();
   });
 });

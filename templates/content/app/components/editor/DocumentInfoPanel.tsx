@@ -4,6 +4,7 @@ import {
   countWords,
   DEFAULT_BLOCKS_FIELD_NAME,
   isBlocksPropertyType,
+  isEmptyPropertyValue,
   isPrimaryBlocksField,
 } from "@shared/properties";
 
@@ -140,7 +141,13 @@ export function documentInfoBlockFields(args: {
   }
 
   return args.properties
-    .filter((property) => isBlocksPropertyType(property.definition.type))
+    .filter(
+      (property) =>
+        isBlocksPropertyType(property.definition.type) &&
+        property.definition.visibility !== "always_hide" &&
+        (property.definition.visibility !== "hide_when_empty" ||
+          !isEmptyPropertyValue(property.value)),
+    )
     .sort((a, b) => a.definition.position - b.definition.position)
     .map((property) => ({
       propertyId: property.definition.id,

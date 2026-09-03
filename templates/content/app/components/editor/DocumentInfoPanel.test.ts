@@ -8,6 +8,7 @@ function blocksProperty(args: {
   name: string;
   position: number;
   primary?: boolean;
+  visibility?: "always_show" | "hide_when_empty" | "always_hide";
   value: string;
 }): DocumentProperty {
   return {
@@ -18,7 +19,7 @@ function blocksProperty(args: {
       name: args.name,
       type: "blocks",
       description: "",
-      visibility: "always_show",
+      visibility: args.visibility ?? "always_show",
       options: { blocks: { primary: args.primary === true } },
       position: args.position,
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -78,5 +79,48 @@ describe("documentInfoBlockFields", () => {
         content: "Unsaved local notes",
       },
     ]);
+  });
+
+  it("shows a single database Content field from the current editor body", () => {
+    expect(
+      documentInfoBlockFields({
+        documentContent: "Fresh editor body",
+        properties: [
+          blocksProperty({
+            id: "content",
+            name: "Content",
+            position: 1,
+            primary: true,
+            value: "Stale stored body",
+          }),
+        ],
+      }),
+    ).toEqual([
+      { propertyId: "content", name: "Content", content: "Fresh editor body" },
+    ]);
+  });
+
+  it("does not reveal hidden Blocks fields", () => {
+    expect(
+      documentInfoBlockFields({
+        documentContent: "Primary",
+        properties: [
+          blocksProperty({
+            id: "hidden",
+            name: "Private notes",
+            position: 1,
+            visibility: "always_hide",
+            value: "Secret words",
+          }),
+          blocksProperty({
+            id: "empty",
+            name: "Empty notes",
+            position: 2,
+            visibility: "hide_when_empty",
+            value: "",
+          }),
+        ],
+      }),
+    ).toEqual([]);
   });
 });

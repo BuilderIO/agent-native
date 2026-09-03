@@ -74,6 +74,81 @@ describe("flushOpenDocumentEditorToSql", () => {
     );
   });
 
+  it("targets one exact additional Blocks field", async () => {
+    mocks.appStateGet.mockImplementation(async () => ({
+      id: "doc-1",
+      requestId: mocks.appStatePut.mock.calls[0]?.[2]?.requestId,
+      status: "success",
+    }));
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(flush).resolves.toBeUndefined();
+    expect(mocks.appStatePut).toHaveBeenCalledTimes(1);
+    expect(mocks.appStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      expect.objectContaining({ propertyId: "notes" }),
+      { requestSource: "agent" },
+    );
+  });
+
+  it("fails an exact-field read when multiple editors are open", async () => {
+    mocks.loadAwarenessRowsStrict.mockResolvedValue([
+      {
+        clientId: 123,
+        state: JSON.stringify({
+          canFlushDocument: true,
+          visible: true,
+          user: { email: "owner@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+      {
+        clientId: 456,
+        state: JSON.stringify({
+          canFlushDocument: true,
+          visible: true,
+          user: { email: "collaborator@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+    ]);
+
+    await expect(
+      flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        propertyId: "notes",
+      }),
+    ).rejects.toThrow(/exact fresh Blocks field value/i);
+    expect(mocks.appStatePut).not.toHaveBeenCalled();
+  });
+
+  it("fails an exact-field read when only a legacy editor is identifiable", async () => {
+    mocks.loadAwarenessRowsStrict.mockResolvedValue([
+      {
+        clientId: 456,
+        state: JSON.stringify({
+          visible: true,
+          user: { email: "legacy@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+    ]);
+
+    await expect(
+      flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        propertyId: "notes",
+      }),
+    ).rejects.toThrow(/exact fresh Blocks field value/i);
+    expect(mocks.appStatePut).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the live editor reports a save error", async () => {
     mocks.appStateGet.mockImplementation(async () => ({
       id: "doc-1",
