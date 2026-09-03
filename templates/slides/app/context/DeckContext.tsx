@@ -3346,7 +3346,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
         return;
       }
-      markDeckDirty(deckId);
+      // A preserved editor draft already has an explicit granular op queued.
+      // Marking it dirty also arms the legacy full-replace fallback, which can
+      // later serialize stale React state after that granular op succeeds.
+      if (!options?.preserveLocalState) markDeckDirty(deckId);
       if (!options?.preserveLocalState) {
         setDecksLocal((prev: Deck[]) =>
           prev.map((d) => {
