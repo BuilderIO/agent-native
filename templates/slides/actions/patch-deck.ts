@@ -799,7 +799,13 @@ export default defineAction({
       }
 
       const layoutFitSlideIds = new Set<string>();
+      const deletedSlideIds = new Set<string>();
       for (const op of operations) {
+        const existedBeforeDelete =
+          op.op === "delete-slide" &&
+          (deck.slides as Array<{ id?: string }>).some(
+            (slide) => slide.id === op.slideId,
+          );
         const previousSlide =
           op.op === "patch-slide" || op.op === "add-slide"
             ? (
@@ -819,6 +825,14 @@ export default defineAction({
             }
           : null;
         applyOperation(deck, op);
+        if (
+          existedBeforeDelete &&
+          !(deck.slides as Array<{ id?: string }>).some(
+            (slide) => slide.id === op.slideId,
+          )
+        ) {
+          deletedSlideIds.add(op.slideId);
+        }
         if (op.op === "add-slide" && !previousSlide) {
           layoutFitSlideIds.add(op.slideId);
         } else if (op.op === "patch-slide" && previousFitFields) {
@@ -1070,6 +1084,7 @@ export default defineAction({
         deckId,
         updatedAt: now,
         updatedSlideIds,
+        deletedSlideIds: [...deletedSlideIds],
         ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),
         ...(layoutFitSlideIdList.length
           ? {

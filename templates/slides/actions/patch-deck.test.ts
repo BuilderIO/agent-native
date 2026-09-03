@@ -1281,6 +1281,26 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
+  it("reports slide ids that were actually deleted", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [{ op: "delete-slide", slideId: "slide-1" }],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      ok: true,
+      updatedSlideIds: [],
+      deletedSlideIds: ["slide-1"],
+    });
+    expect(JSON.parse(lastUpdatedDeckData!).slides).toEqual([
+      expect.objectContaining({ id: "slide-2" }),
+    ]);
+  });
+
   it("omits layout fit metadata when content was not patched", async () => {
     const result = (await patchDeckAction.run(
       {
@@ -1349,6 +1369,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       ok: true,
       sourceRewritten: true,
       updatedSlideIds: [],
+      deletedSlideIds: ["slide-1"],
     });
     const persisted = JSON.parse(lastUpdatedDeckData!);
     expect(persisted.sourceImport).toBeUndefined();

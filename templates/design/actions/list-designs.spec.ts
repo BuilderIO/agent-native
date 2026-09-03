@@ -253,7 +253,7 @@ describe("list-designs", () => {
     expect(designProjection).not.toHaveProperty("data");
   });
 
-  it("keeps no-argument callers on the complete lightweight list", async () => {
+  it("keeps no-argument callers on a bounded lightweight page", async () => {
     mocks.designRows = [design("design-1", "One"), design("design-2", "Two")];
 
     const result = await action.run({});
@@ -267,10 +267,10 @@ describe("list-designs", () => {
       totalCount: 2,
       hasMore: false,
       page: 1,
-      pageSize: 2,
+      pageSize: 12,
       totalPages: 1,
     });
-    expect(mocks.pageCalls).toEqual([]);
+    expect(mocks.pageCalls).toEqual([{ limit: 12, offset: 0 }]);
   });
 
   it("applies Mine to the authenticated owner while retaining access scoping", async () => {

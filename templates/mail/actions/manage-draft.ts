@@ -1,4 +1,5 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { embedApp } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -39,6 +40,54 @@ function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
 
+const draftFields = {
+  to: z.string().optional().describe("Recipient email(s)"),
+  cc: z.string().optional().describe("CC email(s)"),
+  bcc: z.string().optional().describe("BCC email(s)"),
+  subject: z.string().optional().describe("Email subject"),
+  body: z
+    .string()
+    .optional()
+    .describe(
+      "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
+    ),
+  mode: z
+    .enum(["compose", "reply", "forward"])
+    .optional()
+    .describe("compose, reply, or forward"),
+  replyToId: z.string().optional().describe("Message ID being replied to"),
+  replyToThreadId: z.string().optional().describe("Thread ID for grouping"),
+  accountEmail: z
+    .string()
+    .optional()
+    .describe("The 'from' account email address to send from"),
+};
+
+const draftId = z
+  .string()
+  .regex(/^[a-zA-Z0-9_-]{1,64}$/)
+  .describe("Draft ID");
+
+const manageDraftSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("create").describe("Create a new draft"),
+    id: draftId.optional().describe("Optional caller-provided draft ID"),
+    ...draftFields,
+  }),
+  z.object({
+    action: z.literal("update").describe("Update an existing draft"),
+    id: draftId,
+    ...draftFields,
+  }),
+  z.object({
+    action: z.literal("delete").describe("Delete one draft"),
+    id: draftId,
+  }),
+  z.object({
+    action: z.literal("delete-all").describe("Delete all compose drafts"),
+  }),
+]);
+
 async function readConfiguredSignature(): Promise<string | undefined> {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return undefined;
@@ -50,38 +99,7 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 export default defineAction({
   description:
     "Create, update, or delete a compose draft. Opening a draft makes it appear in the compose panel UI automatically.",
-  schema: z.object({
-    action: z
-      .enum(["create", "update", "delete", "delete-all"])
-      .optional()
-      .describe("Action to perform"),
-    id: z
-      .string()
-      .optional()
-      .describe(
-        "Draft ID (auto-generated for create; required for update/delete)",
-      ),
-    to: z.string().optional().describe("Recipient email(s)"),
-    cc: z.string().optional().describe("CC email(s)"),
-    bcc: z.string().optional().describe("BCC email(s)"),
-    subject: z.string().optional().describe("Email subject"),
-    body: z
-      .string()
-      .optional()
-      .describe(
-        "Email body in markdown. Use [text](url) for links, **bold**, *italic*, - lists, etc.",
-      ),
-    mode: z
-      .enum(["compose", "reply", "forward"])
-      .optional()
-      .describe("compose, reply, or forward"),
-    replyToId: z.string().optional().describe("Message ID being replied to"),
-    replyToThreadId: z.string().optional().describe("Thread ID for grouping"),
-    accountEmail: z
-      .string()
-      .optional()
-      .describe("The 'from' account email address to send from"),
-  }),
+  schema: manageDraftSchema,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -95,10 +113,6 @@ export default defineAction({
   },
   run: async (args) => {
     const action = args.action;
-    if (!action)
-      throw new Error(
-        "--action is required (create, update, delete, delete-all)",
-      );
 
     if (action === "delete-all") {
       const count = await deleteAppStateByPrefix("compose-");
@@ -106,17 +120,27 @@ export default defineAction({
     }
 
     if (action === "delete") {
-      if (!args.id) throw new Error("--id is required for delete");
       const safeId = sanitizeDraftId(args.id);
-      if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
+      if (!safeId)
+        fail(`Invalid draft ID "${args.id}"`, {
+          errorCode: "draft_invalid_id",
+        });
       const deleted = await deleteAppState(`compose-${safeId}`);
-      if (!deleted) throw new Error(`Draft "${safeId}" not found`);
+      if (!deleted)
+        fail(`Draft "${safeId}" not found`, {
+          errorCode: "draft_not_found",
+          statusCode: 404,
+        });
       return `Deleted draft ${safeId}`;
     }
 
     if (action === "create") {
       const rawId = args.id || `draft-${Date.now()}`;
-      const id = sanitizeDraftId(rawId) ?? `draft-${Date.now()}`;
+      const id = sanitizeDraftId(rawId);
+      if (!id)
+        fail(`Invalid draft ID "${rawId}"`, {
+          errorCode: "draft_invalid_id",
+        });
       const signature = await readConfiguredSignature();
       const ownerEmail = getRequestUserEmail();
       const body = appendSignatureToBody(args.body || "", signature);
@@ -154,11 +178,17 @@ export default defineAction({
     }
 
     if (action === "update") {
-      if (!args.id) throw new Error("--id is required for update");
       const safeId = sanitizeDraftId(args.id);
-      if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
+      if (!safeId)
+        fail(`Invalid draft ID "${args.id}"`, {
+          errorCode: "draft_invalid_id",
+        });
       const storedDraft = await readAppState(`compose-${safeId}`);
-      if (!storedDraft) throw new Error(`Draft "${safeId}" not found`);
+      if (!storedDraft)
+        fail(`Draft "${safeId}" not found`, {
+          errorCode: "draft_not_found",
+          statusCode: 404,
+        });
       if (typeof storedDraft !== "object" || Array.isArray(storedDraft)) {
         throw new Error(`Draft "${safeId}" has invalid stored data`);
       }
@@ -207,9 +237,9 @@ export default defineAction({
       };
     }
 
-    throw new Error(
-      `Unknown action "${String(action)}". Valid: create, update, delete, delete-all`,
-    );
+    return fail(`Unknown action "${String(action)}"`, {
+      errorCode: "draft_action_invalid",
+    });
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
