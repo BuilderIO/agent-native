@@ -185,6 +185,7 @@ import {
   getOrigin,
   encodeOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
   createOAuthSession,
   oauthCallbackResponse,
   oauthDesktopExchangePage,
@@ -404,7 +405,6 @@ export interface AuthOptions {
     screenshotWidth?: number;
     screenshotHeight?: number;
     learnMoreUrl?: string;
-    learnMorePlacement?: "top-right" | "bottom-right";
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -1471,6 +1471,7 @@ function betterAuthErrorFallback(path: string): string {
 async function sanitizeBetterAuthErrorResponse(
   response: Response,
   fallback: string,
+  request: { path: string; method: string },
 ): Promise<Response> {
   if (response.status < 400) return response;
   const payload = await response
@@ -1480,11 +1481,38 @@ async function sanitizeBetterAuthErrorResponse(
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return response;
   }
+  const rawPayload = payload as Record<string, unknown>;
 
-  const authError = publicAuthErrorFromPayload(
-    payload as Record<string, unknown>,
-    fallback,
+  // The response below is deliberately generic (see publicAuthErrorFromPayload)
+  // so the real Better Auth code/message must be logged here or it is gone —
+  // this is the only place that ever sees it. Regression for the 2026-08-29
+  // INVALID_ORIGIN outage: magic-link signup 403'd for a full day and every
+  // log/Sentry surface only showed the sanitized fallback copy.
+  const code =
+    typeof rawPayload.code === "string"
+      ? rawPayload.code
+      : typeof rawPayload.errorCode === "string"
+        ? rawPayload.errorCode
+        : typeof rawPayload.error === "string"
+          ? rawPayload.error
+          : undefined;
+  const message =
+    typeof rawPayload.message === "string" ? rawPayload.message : undefined;
+  console.error("[agent-native][auth] better-auth error", {
+    status: response.status,
+    code,
+    message,
+    path: request.path,
+    method: request.method,
+  });
+  captureAuthError(
+    new Error(
+      `Better Auth ${response.status} ${code ?? "UNKNOWN"}: ${message ?? "no message"}`,
+    ),
+    { route: "better-auth", path: request.path },
   );
+
+  const authError = publicAuthErrorFromPayload(rawPayload, fallback);
   const headers = new Headers(response.headers);
   headers.delete("content-length");
   headers.set("content-type", "application/json");
@@ -4738,6 +4766,18 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
+          const state = decodeOAuthState(
+            query.state as string | undefined,
+            getAppUrl(event, "/_agent-native/google/callback"),
+          );
+          if (!state.ok) {
+            logOAuthStateDecodeFailure(event, state.reason, "google");
+            logGoogleOAuthDebug(event, "callback-error", {
+              message: AUTH_GOOGLE_START_FALLBACK,
+              code: state.reason,
+            });
+            return oauthErrorPage(AUTH_GOOGLE_START_FALLBACK);
+          }
           const {
             redirectUri,
             desktop,
@@ -4748,10 +4788,7 @@ async function mountBetterAuthRoutes(
             desktopBrowserBindingHash,
             signupAttribution,
             signupAnonymousId,
-          } = decodeOAuthState(
-            query.state as string | undefined,
-            getAppUrl(event, "/_agent-native/google/callback"),
-          );
+          } = state;
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
           callbackMobile = mobile ?? false;
@@ -5675,6 +5712,7 @@ async function mountBetterAuthRoutes(
         response = await sanitizeBetterAuthErrorResponse(
           response as Response,
           betterAuthErrorFallback(reqPath),
+          { path: reqPath, method: getMethod(event) },
         );
       }
 

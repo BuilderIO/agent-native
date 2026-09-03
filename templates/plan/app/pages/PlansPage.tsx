@@ -249,6 +249,7 @@ import {
   type PlanAccessStatusResponse,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
+import { sendToPlanCreationAgentChat } from "@/lib/agent-chat";
 import {
   assessPlanPrompt,
   isProbablyImportedPlan,
@@ -8463,7 +8464,7 @@ function CreatePlanDialog({
       toast.message(t("plansPage.create.describeFirst"));
       return;
     }
-    sendToAgentChat({
+    sendToPlanCreationAgentChat({
       type: "content",
       submit: true,
       message: buildCreatePlanAgentMessage({ prompt, source, planKind, t }),
