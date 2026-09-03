@@ -6309,8 +6309,6 @@ export default function SlideEditor({
       // then run the existing single-select / style-editing flow.
       if (multiSelection.size > 0) clearMultiSelection();
 
-      showImageOverlay(target);
-
       // For editable text, a single click edits the whole smart block (a text
       // leaf, or an entire bullet list) — not the individual line — so typing,
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
@@ -6350,7 +6348,6 @@ export default function SlideEditor({
       }
     },
     [
-      showImageOverlay,
       editingEl,
       getSlideContent,
       findSelectableId,

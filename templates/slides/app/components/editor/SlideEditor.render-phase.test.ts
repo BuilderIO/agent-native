@@ -65,6 +65,14 @@ describe("SlideEditor render-phase safety", () => {
     const clickEnd = source.indexOf("// Non-text elements", clickStart);
     const clickBody = source.slice(clickStart, clickEnd);
     expect(clickBody).toContain("includeTextBoxes: false");
+    const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
+    const doubleClickEnd = source.indexOf(
+      "const slideElementSelected =",
+      doubleClickStart,
+    );
+    const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
+    expect(clickBody).not.toContain("showImageOverlay");
+    expect(doubleClickBody).toContain("showImageOverlay(target);");
     expect(source).toContain(
       "const block = findSmartBlock(target, slideContent);",
     );
