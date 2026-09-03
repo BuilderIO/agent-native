@@ -111,7 +111,10 @@ async function drawClosedTriangle(page: Page, designId: string) {
     })
     .toBeGreaterThan(0);
   await page.waitForTimeout(3000);
-  const card = (await page.locator("[data-screen-card]").first().boundingBox())!;
+  const card = (await page
+    .locator("[data-screen-card]")
+    .first()
+    .boundingBox())!;
   const a = { x: card.x + 60, y: card.y + 200 };
 
   await page.keyboard.press("p");
