@@ -121,18 +121,22 @@ describe("stale-meeting-sweeper", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW_MS);
     state.transcriptText = "Recovered meeting transcript";
+    // Default fixture is deliberately clear of every time-bound predicate
+    // (scheduledEnd only 5 min ago, well inside the 20-min grace) so tests 1
+    // & 2 below isolate the original no-activity rule, and each time-bound
+    // test overrides scheduledEnd/actualStart/transcriptUpdatedAt itself.
     state.candidates = [
       {
         id: "meeting_1",
         recordingId: "rec_1",
         ownerEmail: "owner@example.com",
         orgId: "org_1",
-        updatedAt: isoMinutesAgo(30),
-        scheduledEnd: isoMinutesAgo(30),
-        actualStart: isoMinutesAgo(60),
+        updatedAt: isoMinutesAgo(70),
+        scheduledEnd: isoMinutesAgo(5),
+        actualStart: isoMinutesAgo(90),
       },
     ];
-    state.transcriptUpdatedAt = isoMinutesAgo(45);
+    state.transcriptUpdatedAt = isoMinutesAgo(70);
     state.selectCall = 0;
     state.requestContexts = [];
     state.updateSets = [];
@@ -142,7 +146,7 @@ describe("stale-meeting-sweeper", () => {
     vi.useRealTimers();
   });
 
-  it("finalizes recovered stale meetings with transcript text", async () => {
+  it("finalizes recovered stale meetings with transcript text (60-min no-activity rule)", async () => {
     const { runStaleMeetingSweepOnce } =
       await import("./stale-meeting-sweeper.js");
 
@@ -176,21 +180,6 @@ describe("stale-meeting-sweeper", () => {
     );
   });
 
-  it("closes a scheduled meeting 25 min past end even with transcript activity 1 min ago", async () => {
-    const { runStaleMeetingSweepOnce } =
-      await import("./stale-meeting-sweeper.js");
-    state.candidates[0].scheduledEnd = isoMinutesAgo(25);
-    state.transcriptUpdatedAt = isoMinutesAgo(1);
-
-    await runStaleMeetingSweepOnce();
-
-    expect(state.updateSets).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ actualEnd: isoMinutesAgo(1) }),
-      ]),
-    );
-  });
-
   it("does not close a scheduled meeting only 10 min past end with fresh activity", async () => {
     const { runStaleMeetingSweepOnce } =
       await import("./stale-meeting-sweeper.js");
@@ -202,18 +191,28 @@ describe("stale-meeting-sweeper", () => {
     expect(state.updateSets).toEqual([]);
   });
 
-  it("closes an ad-hoc meeting 5 hours old even with fresh transcript activity", async () => {
+  it("(a) does not close a scheduled meeting 25 min past end with activity 1 min ago", async () => {
     const { runStaleMeetingSweepOnce } =
       await import("./stale-meeting-sweeper.js");
-    state.candidates[0].scheduledEnd = null;
-    state.candidates[0].actualStart = new Date(NOW_MS - 5 * HOUR).toISOString();
+    state.candidates[0].scheduledEnd = isoMinutesAgo(25);
     state.transcriptUpdatedAt = isoMinutesAgo(1);
+
+    await runStaleMeetingSweepOnce();
+
+    expect(state.updateSets).toEqual([]);
+  });
+
+  it("(b) closes a scheduled meeting 25 min past end once activity is 6 min old", async () => {
+    const { runStaleMeetingSweepOnce } =
+      await import("./stale-meeting-sweeper.js");
+    state.candidates[0].scheduledEnd = isoMinutesAgo(25);
+    state.transcriptUpdatedAt = isoMinutesAgo(6);
 
     await runStaleMeetingSweepOnce();
 
     expect(state.updateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ actualEnd: isoMinutesAgo(1) }),
+        expect.objectContaining({ actualEnd: isoMinutesAgo(6) }),
       ]),
     );
   });
@@ -228,5 +227,35 @@ describe("stale-meeting-sweeper", () => {
     await runStaleMeetingSweepOnce();
 
     expect(state.updateSets).toEqual([]);
+  });
+
+  it("(c) does not close a 5-hour-old ad-hoc meeting with activity 1 min ago", async () => {
+    const { runStaleMeetingSweepOnce } =
+      await import("./stale-meeting-sweeper.js");
+    state.candidates[0].scheduledEnd = null;
+    state.candidates[0].actualStart = new Date(NOW_MS - 5 * HOUR).toISOString();
+    state.transcriptUpdatedAt = isoMinutesAgo(1);
+
+    await runStaleMeetingSweepOnce();
+
+    expect(state.updateSets).toEqual([]);
+  });
+
+  it("(d) closes a 13-hour-old ad-hoc meeting via the hard cap even with activity 1 min ago", async () => {
+    const { runStaleMeetingSweepOnce } =
+      await import("./stale-meeting-sweeper.js");
+    state.candidates[0].scheduledEnd = null;
+    state.candidates[0].actualStart = new Date(
+      NOW_MS - 13 * HOUR,
+    ).toISOString();
+    state.transcriptUpdatedAt = isoMinutesAgo(1);
+
+    await runStaleMeetingSweepOnce();
+
+    expect(state.updateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ actualEnd: isoMinutesAgo(1) }),
+      ]),
+    );
   });
 });

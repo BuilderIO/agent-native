@@ -52,6 +52,13 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
       );
       await mountPromise;
     })();
+    // Marking these paths early only skips the UNRELATED default-plugin
+    // bootstrap wait above — it does not skip waiting for auth's own mount.
+    // `trackPluginInit` registers `initPromise` scoped to these same paths,
+    // so `awaitPluginsReady` still holds any request to them until this
+    // promise resolves (which only happens after the handler above is
+    // actually registered). Do not split "mark early" from this call, or a
+    // request could fall through before Better Auth is mounted.
     trackPluginInit(nitroApp, initPromise, {
       paths: [...FRAMEWORK_AUTH_EARLY_PATHS],
     });

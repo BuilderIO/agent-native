@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -185,5 +187,65 @@ describe("createAuthPlugin", () => {
 
     resolveMount(true);
     await mocks.trackPluginInit.mock.calls[0]?.[1];
+  });
+});
+
+// Source-slice: the reviewed invariant (PR #4261) is that
+// `markFrameworkRoutesReadyBeforeBootstrap` — which lets these paths skip
+// the unrelated default-plugin bootstrap wait — must never be the ONLY thing
+// standing between a request and a not-yet-registered handler. It is only
+// safe because `trackPluginInit` is called with `initPromise` scoped to the
+// SAME `FRAMEWORK_AUTH_EARLY_PATHS`, so `awaitPluginsReady` still holds those
+// requests until the mount promise settles. Assert the source keeps both
+// halves of that pairing rather than re-deriving it from mocked call order,
+// which would not catch someone dropping the `paths` option later.
+describe("createAuthPlugin source: early-mark is paired with scoped trackPluginInit", () => {
+  function pluginSource(): string {
+    return readFileSync(new URL("./auth-plugin.ts", import.meta.url), "utf8");
+  }
+
+  it("passes FRAMEWORK_AUTH_EARLY_PATHS as trackPluginInit's `paths`, not an unscoped call", () => {
+    const source = pluginSource();
+    const trackCallIndex = source.indexOf(
+      "trackPluginInit(nitroApp, initPromise, {",
+    );
+    expect(trackCallIndex).toBeGreaterThan(-1);
+    const trackCall = source.slice(
+      trackCallIndex,
+      source.indexOf("});", trackCallIndex),
+    );
+    expect(trackCall).toContain("paths: [...FRAMEWORK_AUTH_EARLY_PATHS]");
+  });
+
+  it("marks the default (Better Auth) branch's routes ready before the mount promise is awaited", () => {
+    const source = pluginSource();
+    const defaultBranchStart = source.indexOf("// Default (Better Auth) path:");
+    const markIndex = source.indexOf(
+      "markFrameworkRoutesReadyBeforeBootstrap(",
+      defaultBranchStart,
+    );
+    const awaitMountIndex = source.indexOf(
+      "await mountPromise;",
+      defaultBranchStart,
+    );
+    expect(defaultBranchStart).toBeGreaterThan(-1);
+    expect(markIndex).toBeGreaterThan(defaultBranchStart);
+    expect(awaitMountIndex).toBeGreaterThan(markIndex);
+  });
+
+  it("marks the BYOA branch's routes ready before the mount promise is awaited", () => {
+    const source = pluginSource();
+    const byoaBranchStart = source.indexOf("if (isByoa) {");
+    const markIndex = source.indexOf(
+      "markFrameworkRoutesReadyBeforeBootstrap(",
+      byoaBranchStart,
+    );
+    const awaitMountIndex = source.indexOf(
+      "await mountPromise;",
+      byoaBranchStart,
+    );
+    expect(byoaBranchStart).toBeGreaterThan(-1);
+    expect(markIndex).toBeGreaterThan(byoaBranchStart);
+    expect(awaitMountIndex).toBeGreaterThan(markIndex);
   });
 });
