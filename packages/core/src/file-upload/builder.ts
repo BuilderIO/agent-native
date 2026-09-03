@@ -475,7 +475,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
       ) {
         return;
       }
-      const body = await response.text().catch(() => "");
+      const body = await response.text();
       throw new Error(
         `GCS resumable session cancellation failed (${response.status}): ${body || response.statusText}`,
       );
