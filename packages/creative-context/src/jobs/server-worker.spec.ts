@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  signInternalToken,
+  verifyInternalToken as verifySignedInternalToken,
+} from "../../../core/src/integrations/internal-token.js";
+
 const mocks = vi.hoisted(() => ({
   fireInternalDispatch: vi.fn(async () => {}),
+  extractInternalBearerToken: vi.fn(),
   getH3App: vi.fn(),
   readBody: vi.fn(),
   registerDispatcher: vi.fn(),
@@ -18,7 +24,8 @@ const mocks = vi.hoisted(() => ({
     failed: 0,
   })),
   h3Use: vi.fn(),
-  verifyInternalToken: vi.fn(() => true),
+  verifyInternalToken: vi.fn(),
+  processBackground: vi.fn(),
   isLocalDatabase: vi.fn(() => true),
   isInBackgroundFunctionRuntime: vi.fn(() => false),
 }));
@@ -30,7 +37,7 @@ vi.mock("@agent-native/core/db", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/server", () => ({
   awaitBootstrap: vi.fn(async () => {}),
-  extractInternalBearerToken: vi.fn(() => "token"),
+  extractInternalBearerToken: mocks.extractInternalBearerToken,
   fireInternalDispatch: mocks.fireInternalDispatch,
   FRAMEWORK_ROUTE_PREFIX: "/_agent-native",
   getH3App: mocks.getH3App,
@@ -47,12 +54,13 @@ vi.mock("./worker.js", () => ({
 
 vi.mock("./background-worker.js", () => ({
   enqueueCreativeContextDailyMaintenance: mocks.enqueueDailyMaintenance,
-  processCreativeContextBackgroundJob: vi.fn(),
+  processCreativeContextBackgroundJob: mocks.processBackground,
   processDueCreativeContextBackgroundJobs: mocks.processDueBackground,
   registerCreativeContextBackgroundDispatcher: vi.fn(),
 }));
 
 const {
+  CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE,
   CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE,
   createCreativeContextWorkerPlugin,
 } = await import("./server-worker.js");
@@ -66,9 +74,22 @@ describe("creative context hosted worker", () => {
     mocks.processDue.mockClear();
     mocks.processDueBackground.mockClear();
     mocks.enqueueDailyMaintenance.mockClear();
+    mocks.processImport.mockReset();
+    mocks.processImport.mockResolvedValue({
+      yielded: false,
+      reason: "completed",
+      job: { status: "completed" },
+    });
+    mocks.processBackground.mockReset();
+    mocks.processBackground.mockResolvedValue({ status: "completed" });
+    mocks.extractInternalBearerToken.mockReset();
+    mocks.extractInternalBearerToken.mockImplementation(
+      (authorization?: string) =>
+        authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? null,
+    );
     mocks.h3Use.mockClear();
     mocks.verifyInternalToken.mockReset();
-    mocks.verifyInternalToken.mockReturnValue(true);
+    mocks.verifyInternalToken.mockImplementation(verifySignedInternalToken);
     mocks.isLocalDatabase.mockReset();
     mocks.isLocalDatabase.mockReturnValue(true);
     mocks.isInBackgroundFunctionRuntime.mockReset();
@@ -156,6 +177,38 @@ describe("creative context hosted worker", () => {
     });
     expect(response.status).toBe(401);
     expect(mocks.processImport).not.toHaveBeenCalled();
+  });
+
+  it("accepts valid signed dispatches for both processors", async () => {
+    vi.stubEnv("A2A_SECRET", "configured-secret");
+
+    for (const [route, processor] of [
+      [CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE, mocks.processImport],
+      [CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE, mocks.processBackground],
+    ] as const) {
+      const jobId = `job-valid-${route.endsWith("background") ? "background" : "import"}`;
+      mocks.readBody.mockResolvedValue({
+        jobId,
+        ownerEmail: "owner@example.com",
+      });
+      await createCreativeContextWorkerPlugin({ appId: "design" })({});
+      const handler = mocks.h3Use.mock.calls.find(
+        ([mountedRoute]) => mountedRoute === route,
+      )?.[1] as ((event: unknown) => Promise<Response>) | undefined;
+      expect(handler).toBeTypeOf("function");
+
+      const response = await handler!({
+        req: {
+          method: "POST",
+          headers: new Headers({
+            authorization: `Bearer ${signInternalToken(jobId)}`,
+          }),
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(processor).toHaveBeenCalled();
+    }
   });
 
   it("fails closed without A2A_SECRET outside local development", async () => {
