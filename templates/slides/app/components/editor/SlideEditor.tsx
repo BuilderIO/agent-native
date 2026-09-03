@@ -2637,6 +2637,23 @@ export default function SlideEditor({
     syncSelectionToAppState(null);
   }, [slide.id]);
 
+  // Content reconciliation can replace the DOM node behind an open overlay.
+  useEffect(() => {
+    if (!imageOverlay) return;
+    const target = selectedImg;
+    const targetIsLive = Boolean(
+      target &&
+      target.isConnected &&
+      containerRef.current?.contains(target) &&
+      (target.tagName !== "IMG" ||
+        target.getAttribute("src") === imageOverlay.src),
+    );
+    if (targetIsLive) return;
+    setSelectedImg(null);
+    setImageOverlay(null);
+    syncSelectionToAppState(null);
+  }, [imageOverlay, selectedImg, slide.content]);
+
   // Stamp all elements with data-builder-id after render
   useEffect(() => {
     const container = containerRef.current;
@@ -2693,9 +2710,9 @@ export default function SlideEditor({
       if (ids.size > 0) {
         clearSelectedElement();
         setSelectedStyleSnapshot(mergeSlideStyleSnapshots(styleSnapshots));
+        setSelectedImg(null);
+        setImageOverlay(null);
       }
-      setSelectedImg(null);
-      setImageOverlay(null);
       // Anchor the chip to the slide canvas (clickable wrapper)
       const canvas = containerRef.current?.querySelector(
         ".slide-image-clickable",
@@ -6353,11 +6370,14 @@ export default function SlideEditor({
         return;
       }
 
+      // Plain clicks only select; keep the action menu for intentional
+      // double-clicks and discard any menu left by a previous image.
+      setSelectedImg(null);
+      setImageOverlay(null);
+
       // --- Plain click on an element → drop multi-selection back to single,
       // then run the existing single-select / style-editing flow.
       if (multiSelection.size > 0) clearMultiSelection();
-
-      showImageOverlay(target);
 
       // For editable text, a single click edits the whole smart block (a text
       // leaf, or an entire bullet list) — not the individual line — so typing,
@@ -6398,7 +6418,6 @@ export default function SlideEditor({
       }
     },
     [
-      showImageOverlay,
       editingEl,
       getSlideContent,
       findSelectableId,
@@ -6763,6 +6782,8 @@ export default function SlideEditor({
 
       // For images / placeholders, show overlay
       if (target.tagName === "IMG" || target.closest(".fmd-img-placeholder")) {
+        e.preventDefault();
+        e.stopPropagation();
         showImageOverlay(target);
         return;
       }

@@ -61,13 +61,32 @@ describe("SlideEditor render-phase safety", () => {
   });
 
   it("selects persisted text boxes on plain click while keeping double-click editing", () => {
-    const clickStart = source.indexOf("// For editable text");
-    const clickEnd = source.indexOf("// Non-text elements", clickStart);
+    const clickStart = source.indexOf("const handleSlideClick");
+    const clickEnd = source.indexOf("const handleSlideDoubleClick", clickStart);
     const clickBody = source.slice(clickStart, clickEnd);
     expect(clickBody).toContain("includeTextBoxes: false");
+    expect(clickBody).toContain("setSelectedImg(null);");
+    expect(clickBody).toContain("setImageOverlay(null);");
+    expect(clickBody).not.toContain("showImageOverlay");
+    const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
+    const doubleClickEnd = source.indexOf(
+      "const slideElementSelected =",
+      doubleClickStart,
+    );
+    const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
+    expect(doubleClickBody).toContain("showImageOverlay(target);");
     expect(source).toContain(
       "const block = findSmartBlock(target, slideContent);",
     );
+  });
+
+  it("drops an image overlay when reconciliation replaces its target", () => {
+    const start = source.indexOf("// Content reconciliation can replace");
+    const end = source.indexOf("// Stamp all elements", start);
+    const body = source.slice(start, end);
+    expect(body).toContain("target.isConnected");
+    expect(body).toContain('target.getAttribute("src") === imageOverlay.src');
+    expect(body).toContain("setImageOverlay(null);");
   });
 
   it("records arrange selection before replacing the live slide DOM", () => {
