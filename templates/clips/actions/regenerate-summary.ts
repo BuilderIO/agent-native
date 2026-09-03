@@ -1,0 +1,139 @@
+/**
+ * Delegate: regenerate the recording's description from its transcript.
+ *
+ * See regenerate-title.ts for the delegation pattern.
+ *
+ * Usage:
+ *   pnpm action regenerate-summary --recordingId=<id>
+ */
+
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import cleanupTranscript from "./cleanup-transcript.js";
+import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
+
+export default defineAction({
+  description:
+    "Ask the agent to regenerate this recording's description/summary based on its transcript (and the full video when Include full video is enabled).",
+  schema: z.object({
+    recordingId: z.string().describe("Recording ID"),
+    openInChat: z
+      .boolean()
+      .optional()
+      .describe(
+        "When true, focus the queued generation request in the agent chat instead of keeping it hidden.",
+      ),
+  }),
+  run: async (args) => {
+    await assertAccess("recording", args.recordingId, "editor");
+
+    const db = getDb();
+    const [rec] = await db
+      .select({
+        id: schema.recordings.id,
+        title: schema.recordings.title,
+        description: schema.recordings.description,
+      })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+    if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
+
+    const [transcript] = await db
+      .select()
+      .from(schema.recordingTranscripts)
+      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+      .limit(1);
+
+    const includeFullVideoInAi = await readIncludeFullVideoInAi();
+
+    if (
+      !includeFullVideoInAi &&
+      (transcript?.status !== "ready" || !transcript.fullText?.trim())
+    ) {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "transcript_not_ready",
+        recordingId: args.recordingId,
+        transcriptStatus: transcript?.status ?? "missing",
+      };
+    }
+
+    if (!includeFullVideoInAi) {
+      const result = await cleanupTranscript.run({
+        transcript: transcript?.fullText ?? "",
+        task: "summary",
+        context: `Clip title: ${rec.title}`,
+      });
+      const description = result.summaryMd?.trim();
+      if (!description) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "summary_empty",
+          recordingId: args.recordingId,
+          provider: result.provider,
+        };
+      }
+
+      await db
+        .update(schema.recordings)
+        .set({ description, updatedAt: new Date().toISOString() })
+        .where(eq(schema.recordings.id, args.recordingId));
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      return {
+        updated: true,
+        recordingId: args.recordingId,
+        description,
+        provider: result.provider,
+      };
+    }
+
+    const baseMessage =
+      `Regenerate the description for recording ${args.recordingId}. ` +
+      `Read the transcript in this request's context and call ` +
+      `\`update-recording --id=${args.recordingId} --description="..."\` with a 2–4 ` +
+      `sentence summary of what the recording covers. Title: "${rec.title}". ` +
+      `Write the description the way the person who made this recording would ` +
+      `describe it themselves: lead with the subject matter, and never use ` +
+      `outside-narrator framing like "the speaker", "the presenter", "the video", ` +
+      `"this recording", or "this clip".`;
+
+    const request = {
+      kind: "regenerate-summary" as const,
+      recordingId: args.recordingId,
+      requestedAt: new Date().toISOString(),
+      currentTitle: rec.title,
+      currentDescription: rec.description,
+      transcriptStatus: transcript?.status ?? "pending",
+      transcriptText: transcript?.fullText ?? "",
+      includeFullVideoInAi,
+      openInChat: args.openInChat === true,
+      message: withFullVideoAiInstructions(
+        baseMessage,
+        args.recordingId,
+        includeFullVideoInAi,
+      ),
+    };
+
+    await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    console.log(
+      `Delegation queued: regenerate-summary for ${args.recordingId}`,
+    );
+    return {
+      queued: true,
+      recordingId: args.recordingId,
+      includeFullVideoInAi,
+    };
+  },
+});

@@ -1,0 +1,5945 @@
+/* Clips tray popover — Loom-style layout, Clips brand, dark/light modes. */
+
+:root {
+  color-scheme: light dark;
+
+  /* Clips brand */
+  --brand: #1a1a1a;
+  --brand-hover: #2e2e2e;
+  --brand-ring: rgba(26, 26, 26, 0.28);
+
+  /* Light palette */
+  --bg: #ffffff;
+  --surface: #f7f7f7;
+  --surface-hover: #f0f0f0;
+  --surface-strong: #ebebeb;
+  --fg: #171717;
+  --fg-muted: #737373;
+  --fg-subtle: #a3a3a3;
+  --border: #e5e5e5;
+  --border-strong: #d9d9d9;
+
+  --status-ok: #22c55e;
+  --status-warn: #f97316;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-pill: 999px;
+  /* Transparent apron reserved for CSS-painted shadows on the overlays that
+     still use them (bubble, countdown). The popover and other converted
+     windows are sized to their content exactly and use the native NSWindow
+     shadow instead. */
+  --overlay-shadow-gutter: 18px;
+
+  --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
+  --shadow-md:
+    0 4px 16px rgba(23, 23, 23, 0.08), 0 2px 4px rgba(23, 23, 23, 0.04);
+
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #212121;
+    --surface: #262626;
+    --surface-hover: #2e2e2e;
+    --surface-strong: #3d3d3d;
+    --fg: #f5f5f5;
+    --fg-muted: #a3a3a3;
+    --fg-subtle: #737373;
+    --border: #3d3d3d;
+    --border-strong: #4d4d4d;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+    /* Invert brand on dark bg: zinc-900 would disappear, use zinc-100. */
+    --brand: #f5f5f5;
+    --brand-hover: #e5e5e5;
+    --brand-ring: rgba(245, 245, 245, 0.28);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Tauri window is `transparent: true` + `decorations: false`, so the HTML
+   paints the visible shape. The popover window is sized to the rounded panel
+   exactly; macOS derives a native shadow from the panel's alpha, giving us
+   the round-cornered chromeless popover with no transparent apron. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  overflow: visible;
+}
+
+body[data-clips-route="popover"] {
+  overflow: hidden;
+}
+
+html[data-clips-route]:not([data-clips-route="popover"]),
+body[data-clips-route]:not([data-clips-route="popover"]) {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+#root {
+  width: 100vw;
+  background: transparent;
+}
+
+body[data-clips-route="popover"] #root {
+  min-height: 100vh;
+  padding: 0;
+}
+
+body[data-clips-route]:not([data-clips-route="popover"]) #root {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------------- */
+/* App shell                                                                  */
+/* ------------------------------------------------------------------------- */
+
+.app {
+  margin: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  /* The rounded corners shape the native NSWindow shadow — the window is
+     sized to this panel exactly, so a CSS box-shadow would just clip. */
+  border-radius: 14px;
+  /* No fixed height — the Tauri window is resized to match the rendered
+     content via resize_popover, so the shell just flows naturally. */
+  max-height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.app-settings {
+  gap: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+/* Recorder Home keeps its navigation present even when active-recording
+   content exceeds the restored popover height. Only the content region may
+   scroll; the window shell and bottom destinations stay put. */
+.app-recorder {
+  position: relative;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.recorder-home-content {
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.app-recorder > .bottom-row {
+  flex: 0 0 auto;
+  padding: 7px 14px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+/* Header — logo + mode toggle + close */
+
+.header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+/* Mode toggle lives in the first column — center it horizontally so the
+   close button on the right doesn't make the layout look lopsided. */
+.header .mode-toggle {
+  justify-self: center;
+}
+
+/* Variant: truly-centered mode-toggle with an absolutely positioned close X.
+   Using a grid column for the close button nudges the mode tabs left by the
+   close button's width, which read as "off center" in Steve's screenshot.
+   Absolute positioning keeps the X in the top-right corner while the tabs
+   occupy the visual center of the popover. */
+.header.header-centered {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 28px;
+}
+
+.header.header-centered .header-close {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.header.header-centered .header-feedback {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: auto;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--brand);
+  color: var(--bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.mode-toggle {
+  display: inline-flex;
+  background: var(--surface);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  justify-self: center;
+  border: 1px solid var(--border);
+}
+
+.mode-toggle button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms,
+    box-shadow 120ms;
+}
+
+.mode-toggle button:hover {
+  color: var(--fg);
+}
+
+.mode-toggle button.active {
+  background: var(--bg);
+  color: var(--brand);
+  box-shadow: var(--shadow-sm);
+}
+
+.mode-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 40;
+  pointer-events: none;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--fg);
+  box-shadow: var(--shadow-md);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 6px 8px;
+  white-space: nowrap;
+  animation: mode-tooltip-in 120ms ease-out;
+}
+
+@keyframes mode-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.icon-button:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.icon-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Feedback popover                                                           */
+/* ------------------------------------------------------------------------- */
+
+.feedback-popover-content {
+  width: min(320px, calc(100vw - 36px));
+  z-index: 50;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow-md);
+  padding: 12px;
+  outline: none;
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+
+.feedback-popover-content[data-state="open"] {
+  animation: feedback-popover-in 120ms ease-out;
+}
+
+.feedback-popover-content[data-state="closed"] {
+  animation: feedback-popover-out 90ms ease-out;
+}
+
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.feedback-textarea {
+  width: 100%;
+  min-height: 108px;
+  resize: none;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.feedback-textarea::placeholder {
+  color: var(--fg-subtle);
+}
+
+.feedback-textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.feedback-honeypot {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.feedback-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feedback-hint {
+  min-width: 0;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.feedback-hint.is-error {
+  color: #b91c1c;
+}
+
+.feedback-submit {
+  flex-shrink: 0;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--bg);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    opacity 120ms,
+    transform 80ms;
+}
+
+.feedback-submit:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+
+.feedback-submit:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.feedback-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.feedback-submit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+.feedback-success {
+  min-height: 142px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.feedback-success-icon {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.feedback-success-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (prefers-color-scheme: dark) {
+  .feedback-success-icon {
+    background: rgba(34, 197, 94, 0.14);
+    color: #4ade80;
+  }
+}
+
+@keyframes feedback-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes feedback-popover-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98) translateY(-2px);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Source / device rows                                                       */
+/* ------------------------------------------------------------------------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: default;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.row-off {
+  opacity: 0.6;
+}
+
+.row-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+.row-on .row-icon {
+  color: var(--fg);
+}
+
+/* Custom device picker — button + popover menu (replaces native <select>). */
+.row-button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  outline: none;
+  text-align: left;
+}
+
+.row-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.row-button:focus-visible {
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  border-radius: 4px;
+}
+
+.row-label {
+  /* Never shrink the label — the wave line gives up space first so the device
+     name always stays fully visible. Cap + ellipsis only for pathological
+     long names. */
+  flex: 0 0 auto;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Flexible filler between the label and the chevron when there's no meter
+   (camera rows / mic off) — keeps the chevron pinned to the right. */
+.row-flex {
+  flex: 1 1 auto;
+}
+
+.row-chev {
+  display: inline-flex;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+/* Popover menu rendered below a device row. */
+.media-device-picker {
+  position: relative;
+}
+
+.row-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 10;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.row-menu-item:hover {
+  background: var(--surface-hover);
+}
+
+.row-menu-item.selected {
+  color: var(--fg);
+  font-weight: 600;
+  background: var(--surface-hover);
+}
+
+.row-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.row-menu-trigger:focus-visible {
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  border-radius: 4px;
+}
+
+.row-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.row-menu-setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.row-menu-setting-label {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.row-menu-check {
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--fg);
+  flex-shrink: 0;
+}
+
+.row-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-menu-empty {
+  padding: 10px 12px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+/* Toggle chip — mirrors Loom's On/Off pill. Green when on, subtle when off. */
+.toggle {
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.toggle-on {
+  background: #16a34a;
+  color: white;
+}
+
+.toggle-on:hover {
+  background: #15803d;
+}
+
+.toggle-off {
+  background: var(--surface-strong);
+  color: var(--fg-muted);
+}
+
+.toggle-off:hover {
+  color: var(--fg);
+}
+
+/* Shadcn-style switch — slim track + sliding thumb. Used in Settings for the
+   Voice dictation enable/disable toggle. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 32px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background 120ms;
+  flex-shrink: 0;
+}
+
+.switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+.switch:disabled {
+  opacity: 0.42;
+  filter: grayscale(0.55);
+  cursor: not-allowed;
+}
+
+.switch-on {
+  background: #16a34a;
+}
+
+.switch-off {
+  background: var(--surface-strong);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 120ms;
+  pointer-events: none;
+}
+
+.switch-on .switch-thumb {
+  transform: translateX(14px);
+}
+
+/* Live mic level meter — a single wave line driven by real audio, sitting
+   inline between the device label and the chevron. The ends are masked so the
+   line fades in/out instead of butting against the label or chevron. */
+.mic-wave {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  margin: 0 4px;
+  pointer-events: none;
+  /* Soft fade at both ends so the line reads as ambient, not boxed-in. */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+}
+
+.mic-wave-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.mic-wave-path {
+  fill: none;
+  /* Matches the recording pill's mic waveform accent. */
+  stroke: rgba(74, 222, 128, 0.95);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* Keep the line crisp regardless of the non-uniform x-stretch. */
+  vector-effect: non-scaling-stroke;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Primary CTA                                                                */
+/* ------------------------------------------------------------------------- */
+
+.primary {
+  width: 100%;
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  background: var(--brand);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 44px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition:
+    background 120ms,
+    transform 80ms,
+    box-shadow 120ms;
+}
+
+.primary:hover {
+  background: var(--brand-hover);
+}
+
+.primary:active {
+  transform: translateY(1px);
+}
+
+.secondary {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms;
+}
+
+.secondary:hover {
+  background: var(--surface-hover);
+}
+
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.setup-connect-button {
+  height: 38px;
+  margin-top: 2px;
+}
+
+.primary.start {
+  margin-top: 2px;
+}
+
+.primary.start.start-loading {
+  position: relative;
+  overflow: hidden;
+  cursor: progress;
+}
+
+.primary.start.start-loading .start-label {
+  position: relative;
+  z-index: 1;
+}
+
+.start-loading-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  /* The CTA reverses foreground/background in dark mode; invert the shared
+     foreground shine so the sweep stays visible on either button fill. */
+  filter: invert(1);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Readiness disclosure                                                       */
+/* ------------------------------------------------------------------------- */
+
+.recorder-disclosures {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.readiness {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.readiness-open {
+  border-color: transparent;
+  background: transparent;
+}
+
+.readiness-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: 7px 12px;
+  text-align: left;
+  transition: color 120ms;
+}
+
+.readiness-summary:hover,
+.readiness-summary:focus-visible {
+  color: var(--fg);
+}
+
+.readiness-summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.readiness-open .readiness-summary {
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  background: transparent;
+}
+
+.readiness-title {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.readiness-open .readiness-title {
+  color: inherit;
+}
+
+.readiness-action {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.readiness-action svg {
+  width: 11px;
+  height: 11px;
+}
+
+.readiness-open .readiness-action {
+  color: inherit;
+}
+
+.readiness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.readiness-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.readiness-item:hover {
+  background: var(--surface);
+}
+
+.readiness-item-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.readiness-item-title {
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.readiness-item-detail {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.readiness-open-button {
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 9px;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    box-shadow 120ms;
+}
+
+.readiness-open-button:hover {
+  background: var(--surface-hover);
+}
+
+.readiness-open-button:focus-visible {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.readiness-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.readiness-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.readiness-status-ok {
+  color: var(--status-ok);
+}
+
+.readiness-status-warn {
+  color: var(--status-warn);
+}
+
+.readiness-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition:
+    opacity 120ms,
+    color 120ms,
+    background 120ms;
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.readiness-item:hover .readiness-refresh,
+.readiness-item:focus-within .readiness-refresh,
+.readiness-item .readiness-refresh-rotating {
+  opacity: 1;
+}
+
+.readiness-refresh:hover {
+  color: var(--fg);
+  background: var(--surface-hover);
+}
+
+.readiness-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.readiness-refresh-rotating svg {
+  animation: readiness-spin 420ms ease-out;
+}
+
+@keyframes readiness-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .readiness-refresh-rotating svg {
+    animation: none;
+  }
+}
+
+.readiness-empty {
+  padding: 8px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+}
+
+.active-recording-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.active-recording-dot {
+  margin-top: 4px;
+}
+
+.active-recording-copy strong {
+  display: block;
+  font-size: 13px;
+}
+
+.active-recording-copy p {
+  margin: 3px 0 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.active-recording-stop {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+.active-recording-card-compact {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.active-recording-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.active-recording-live-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.active-recording-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: inherit;
+  animation: active-recording-pulse 1.2s ease-out infinite;
+}
+
+@keyframes active-recording-pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  75%,
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.active-recording-card-compact .active-recording-stop {
+  grid-column: auto;
+  margin-top: 0;
+  min-height: 28px;
+  height: 28px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .active-recording-live-dot::after {
+    animation: none;
+    opacity: 0.65;
+    transform: none;
+  }
+}
+
+/* Active-recording state on the primary button: softened orange-red
+   (Tailwind orange-700) — semantic "recording is live" without the harsh
+   pure-red assault. White square icon + live pulsing dot still read as
+   "stop". Hover stays the same shade (no brighten-on-hover) to keep the
+   affordance calm. */
+.primary.start.rec-active {
+  background: #c2410c;
+  color: #fff;
+}
+.primary.start.rec-active:hover {
+  background: #9a3412;
+}
+
+.rec-dot-live {
+  position: relative;
+  background: white;
+}
+
+.rec-dot-live::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  animation: rec-live-pulse 1.2s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes rec-live-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot-live::after {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Bottom quick-actions row                                                   */
+/* ------------------------------------------------------------------------- */
+
+.bottom-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.bottom-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.bottom-btn:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.bottom-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+}
+
+.bottom-btn:hover .bottom-icon {
+  color: var(--fg);
+}
+
+.bottom-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Popover drill-in views                                                     */
+/* ------------------------------------------------------------------------- */
+
+.app-popover-view {
+  gap: 0;
+  padding: 0;
+}
+
+.popover-view {
+  min-height: 260px;
+}
+
+.popover-view-header {
+  margin-bottom: 2px;
+}
+
+.popover-view-header-spacer {
+  flex: 1;
+}
+
+.popover-view-link {
+  font-size: 11px;
+}
+
+.rewind-settings-entry-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+}
+
+.rewind-consent-primary:focus-visible,
+.rewind-quiet-button:focus-visible,
+.rewind-search-row input:focus-visible,
+.rewind-search-row button:focus-visible,
+.rewind-settings-entry .secondary:focus-visible,
+.rewind-evidence-card .secondary:focus-visible,
+.rewind-memory-empty .secondary:focus-visible,
+.setup-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.rewind-surface-lede {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rewind-local-promise {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  width: 100%;
+  padding: 11px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg-muted);
+  text-align: left;
+}
+
+.rewind-local-promise p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.rewind-local-promise strong {
+  color: var(--fg);
+}
+
+.rewind-consent-primary {
+  width: 100%;
+  min-height: 42px;
+}
+
+.rewind-quiet-button {
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rewind-memory-surface,
+.rewind-settings-surface {
+  gap: 14px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.rewind-settings-surface {
+  padding-bottom: 18px;
+}
+
+.rewind-search-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding-left: 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: var(--bg);
+}
+
+.rewind-search-row input {
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+}
+
+.rewind-search-row button {
+  align-self: stretch;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0 10px 10px 0;
+  background: var(--surface);
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rewind-search-row button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rewind-search-results {
+  display: grid;
+  gap: 8px;
+}
+
+.rewind-result-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+}
+
+.rewind-result-summary strong {
+  color: var(--fg);
+}
+
+.rewind-evidence-card {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.rewind-evidence-card p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.rewind-evidence-meta {
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rewind-memory-empty {
+  margin-top: 4px;
+}
+
+.rewind-coverage-details {
+  margin-top: 2px;
+}
+
+.rewind-agent-guide {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 78%, var(--bg));
+}
+
+.rewind-agent-guide-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.rewind-agent-guide p {
+  margin: 2px 0 5px;
+  line-height: 1.45;
+}
+
+.rewind-detail-label {
+  font-size: 11px;
+}
+
+.setup .rewind-settings-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.rewind-settings-entry .secondary {
+  width: auto;
+}
+
+.setup .setup-rewind-legacy {
+  display: none;
+}
+
+.popover-empty-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.popover-empty-card strong {
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.popover-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.popover-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.popover-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.popover-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.popover-list::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-subtle);
+}
+
+.popover-list-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.popover-list-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+.popover-list-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.popover-list-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-list-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--fg-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popover-list-action {
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.popover-list-action:hover {
+  background: var(--surface-hover);
+}
+
+.popover-list-action-primary {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--bg);
+}
+
+.popover-list-action-primary:hover {
+  background: var(--brand-hover);
+}
+
+.popover-list-action-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-color: rgba(34, 197, 94, 0.36);
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+}
+
+.popover-list-action-active:hover {
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.popover-list-action-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.popover-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.popover-kv span {
+  color: var(--fg-subtle);
+}
+
+.popover-kv strong {
+  min-width: 0;
+  text-align: right;
+  font-size: 11px;
+}
+
+.badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--brand);
+  color: var(--bg);
+  font-size: 9px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.bottom-dot {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--ui-info));
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Recent list (collapsible)                                                  */
+/* ------------------------------------------------------------------------- */
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background 120ms;
+}
+
+.recent-item:hover {
+  background: var(--surface-hover);
+}
+
+.thumb {
+  width: 48px;
+  height: 28px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--surface-strong);
+}
+
+.thumb-placeholder {
+  background: linear-gradient(
+    135deg,
+    var(--surface-strong),
+    var(--surface-hover)
+  );
+}
+
+.recent-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-sub {
+  font-size: 11px;
+  color: var(--fg-subtle);
+  margin-top: 1px;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Footer                                                                     */
+/* ------------------------------------------------------------------------- */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--fg-subtle);
+  padding: 0 4px;
+}
+
+.kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg-muted);
+  letter-spacing: 0.5px;
+}
+
+.footer-link {
+  color: var(--fg-muted);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.footer-link:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Setup overlay (server URL change)                                          */
+/* ------------------------------------------------------------------------- */
+
+.setup {
+  width: 100%;
+  background: var(--bg);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: contain;
+}
+
+/* Meetings / dictation drill-ins: a touch more room under the last row so
+   content isn't flush with the panel edge. Must follow `.setup` so it wins
+   over the shorthand padding above. */
+.setup.popover-view {
+  padding-bottom: 32px;
+}
+
+.setup h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.setup p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.setup input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 120ms;
+}
+
+.setup input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.setup-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setup-advanced {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.setup-advanced-summary {
+  padding: 9px 10px;
+  cursor: pointer;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  list-style-position: inside;
+}
+
+.setup-advanced-summary:hover {
+  color: var(--fg);
+}
+
+.setup-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding: 10px;
+}
+
+.setup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-header h2 {
+  margin: 0;
+}
+
+.setup-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.setup-back:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.setup-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Tooltip (shadcn-style, Radix-backed)                                       */
+/* ------------------------------------------------------------------------- */
+
+.tooltip-content {
+  z-index: 60;
+  max-width: 260px;
+  /* No border: shadcn's tooltip is borderless (solid bg + shadow). A border
+     would also detach visually from the Radix arrow, whose flush base can't
+     carry a matching CSS border. Shadow alone gives separation in both
+     themes. */
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow-md);
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  user-select: none;
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+}
+
+.tooltip-content-wide {
+  max-width: 320px;
+}
+
+.tooltip-content[data-state="delayed-open"] {
+  animation: tooltip-in 120ms ease-out;
+}
+
+.tooltip-content[data-state="instant-open"] {
+  animation: none;
+}
+
+.tooltip-content[data-state="closed"] {
+  animation: tooltip-out 90ms ease-out;
+}
+
+.tooltip-arrow {
+  fill: var(--bg);
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tooltip-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Microphone-off confirmation                                                */
+/* ------------------------------------------------------------------------- */
+
+.mic-off-confirmation {
+  min-height: 430px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.mic-off-confirmation-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 18px 8px;
+}
+
+.mic-off-confirmation-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 6px 4px 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 650;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.mic-off-confirmation-back:hover {
+  background: var(--surface-hover);
+}
+
+.mic-off-confirmation-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.mic-off-confirmation-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 28px 30px;
+  text-align: center;
+}
+
+.mic-off-confirmation-visual {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: var(--surface-strong);
+  color: var(--status-warn);
+}
+
+.mic-off-confirmation-slash {
+  position: absolute;
+  width: 58px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--status-warn);
+  transform: rotate(45deg);
+}
+
+.mic-off-confirmation-body h2 {
+  margin: 24px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mic-off-confirmation-body p {
+  max-width: 300px;
+  margin: 8px 0 0;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mic-off-confirmation-continue {
+  max-width: 300px;
+  margin-top: 24px;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Alert dialog                                                              */
+/* ------------------------------------------------------------------------- */
+
+/* `position: absolute`, not `fixed` — see AlertDialog.tsx: this must stay
+   inside `.app-recorder`'s clipped, rounded bounds rather than the raw
+   (square-cornered) Tauri window. */
+.alert-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  /* guard:allow-raw-color — modal scrim is theme-invariant black, same as shadcn's own bg-black/80 overlay */
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.alert-dialog-overlay[data-state="open"] {
+  animation: alert-dialog-overlay-in 120ms ease-out;
+}
+
+.alert-dialog-overlay[data-state="closed"] {
+  animation: alert-dialog-overlay-out 100ms ease-in;
+}
+
+.alert-dialog-content {
+  position: absolute;
+  z-index: 71;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100% - 32px);
+  max-width: 320px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: var(--shadow-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.alert-dialog-content[data-state="open"] {
+  animation: alert-dialog-content-in 120ms ease-out;
+}
+
+.alert-dialog-content[data-state="closed"] {
+  animation: alert-dialog-content-out 100ms ease-in;
+}
+
+.alert-dialog-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.alert-dialog-description {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.alert-dialog-footer {
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 8px;
+}
+
+.alert-dialog-footer .primary,
+.alert-dialog-footer .secondary {
+  width: auto;
+  flex: 1;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@keyframes alert-dialog-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes alert-dialog-overlay-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes alert-dialog-content-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes alert-dialog-content-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+}
+
+.setup-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setup-permission-button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms,
+    box-shadow 120ms;
+}
+
+.setup-permission-button:hover {
+  background: var(--surface-hover);
+}
+
+.setup-permission-button:focus-visible {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.setup-permission-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.setup-permission-button {
+  min-height: 38px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
+}
+
+.setup-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.setup-warning {
+  margin: 0;
+  font-size: 11px;
+  color: #b45309;
+  line-height: 1.4;
+}
+
+.setup-success {
+  margin: 0;
+  font-size: 11px;
+  color: #15803d;
+  line-height: 1.4;
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-mini-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.setup-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.setup-button-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(94px, 1fr));
+  gap: 8px;
+}
+
+.setup-button-row .secondary {
+  min-width: 0;
+  height: 36px;
+  padding-inline: 10px;
+}
+
+.setup-key-save {
+  width: auto;
+  min-width: 72px;
+  height: 38px;
+  padding-inline: 12px;
+}
+
+.setup-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.setup-account--no-border {
+  border-top: none;
+  padding-top: 0;
+}
+
+.setup-account-email {
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 120ms;
+}
+
+.link-button:hover {
+  background: var(--surface-hover);
+}
+
+.storage-flow-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.storage-flow-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.storage-flow-copy {
+  min-width: 0;
+}
+
+.storage-flow-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.storage-flow-sub {
+  margin-top: 3px;
+  color: #3b5f9a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.storage-flow-connect {
+  grid-column: 2;
+  justify-self: start;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: white;
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.storage-flow-connect:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.pending-upload-icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.pending-upload-copy {
+  min-width: 0;
+}
+
+.pending-upload-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.pending-upload-sub {
+  margin-top: 2px;
+  color: #3b5f9a;
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-upload-sub-wrap {
+  overflow: visible;
+  white-space: normal;
+}
+
+.pending-upload-why {
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #737373;
+  cursor: help;
+  font-size: 11px;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.pending-upload-why:hover,
+.pending-upload-why:focus-visible {
+  color: #334155;
+  outline: none;
+}
+
+.pending-upload-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pending-upload-connect,
+.pending-upload-retry {
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: white;
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    opacity 120ms;
+}
+
+.pending-upload-connect {
+  padding: 0 8px;
+}
+
+.pending-upload-dismiss {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #3b5f9a;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    color 120ms,
+    opacity 120ms;
+}
+
+.pending-upload-folder {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.76);
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms,
+    opacity 120ms;
+}
+
+.pending-upload-retry:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-retry-spinning svg {
+  animation: readiness-spin 0.8s linear infinite;
+}
+
+.pending-upload-connect:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-folder:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.pending-upload-dismiss:hover {
+  color: #1e3a8a;
+}
+
+.pending-upload-retry:disabled,
+.pending-upload-connect:disabled,
+.pending-upload-folder:disabled,
+.pending-upload-dismiss:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending-upload-retry-spinning svg {
+    animation: none;
+  }
+}
+
+.local-recording-banner,
+.local-save-banner,
+.share-link-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 11px;
+  line-height: 1.3;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.local-recording-banner svg {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+}
+
+.local-save-banner,
+.share-link-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.local-save-copy {
+  min-width: 0;
+}
+
+.local-save-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.local-save-sub {
+  margin-top: 2px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-save-banner button,
+.share-link-banner button {
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--fg);
+  color: var(--bg);
+  cursor: pointer;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.local-save-banner button:hover,
+.share-link-banner button:hover {
+  background: var(--brand-hover);
+  border-color: transparent;
+}
+
+.local-save-banner .local-save-dismiss,
+.share-link-banner .local-save-dismiss {
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.local-save-banner .local-save-dismiss:hover,
+.share-link-banner .local-save-dismiss:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.error-banner {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.permission-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.permission-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.permission-title {
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.permission-actions button {
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.65);
+  color: #991b1b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 8px;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.permission-actions button:hover {
+  background: white;
+  border-color: #fca5a5;
+}
+
+.permission-actions .permission-retry {
+  background: #991b1b;
+  border-color: #991b1b;
+  color: white;
+}
+
+.permission-actions .permission-retry:hover {
+  background: #7f1d1d;
+  border-color: #7f1d1d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .setup-warning {
+    color: #fbbf24;
+  }
+
+  .setup-success {
+    color: #86efac;
+  }
+
+  .pending-upload-banner {
+    background: rgba(29, 78, 216, 0.16);
+    border-color: rgba(96, 165, 250, 0.42);
+    color: #bfdbfe;
+  }
+
+  .pending-upload-icon {
+    background: rgba(96, 165, 250, 0.14);
+    color: #93c5fd;
+  }
+
+  .pending-upload-sub {
+    color: #93c5fd;
+  }
+
+  .pending-upload-why {
+    color: #a3a3a3;
+  }
+
+  .pending-upload-why:hover,
+  .pending-upload-why:focus-visible {
+    color: #cbd5e1;
+  }
+
+  .pending-upload-connect,
+  .pending-upload-retry {
+    background: rgba(23, 23, 23, 0.7);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #dbeafe;
+  }
+
+  .pending-upload-dismiss {
+    color: #93c5fd;
+  }
+
+  .pending-upload-folder {
+    background: rgba(23, 23, 23, 0.58);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #dbeafe;
+  }
+
+  .pending-upload-retry:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-connect:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-folder:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-dismiss:hover {
+    color: #dbeafe;
+  }
+
+  .error-banner {
+    background: rgba(185, 28, 28, 0.14);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #fca5a5;
+  }
+
+  .permission-title {
+    color: #fecaca;
+  }
+
+  .permission-actions button {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fecaca;
+  }
+
+  .permission-actions button:hover {
+    background: rgba(239, 68, 68, 0.18);
+    border-color: rgba(248, 113, 113, 0.6);
+  }
+
+  .permission-actions .permission-retry {
+    background: #fecaca;
+    border-color: #fecaca;
+    color: #7f1d1d;
+  }
+
+  .permission-actions .permission-retry:hover {
+    background: white;
+    border-color: white;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: countdown                                                         */
+/* ------------------------------------------------------------------------- */
+
+.countdown-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+
+/*
+ * Horizontal row of [cancel] [number] [skip]. The two circular buttons are
+ * absolutely centered at exactly ±200px (logical) from the row center so the
+ * native cursor-poll hit-rects in clips/mod.rs (CONTROL_OFFSET_X = 200.0,
+ * CONTROL_DIAMETER = 64.0) line up with the rendered controls. Keep these
+ * numbers in sync with that Rust code.
+ */
+.countdown-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.countdown-control {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  background: rgba(10, 12, 16, 0.42);
+  color: #ffffff;
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(8px);
+  transform: translateY(-50%);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.countdown-control-cancel {
+  /* center at -200px from row center: -200 - (64 / 2) = -232px */
+  left: -232px;
+}
+
+.countdown-control-skip {
+  /* center at +200px from row center: 200 - (64 / 2) = 168px */
+  left: 168px;
+}
+
+.countdown-control:hover {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.95);
+  color: #0b0d12;
+}
+
+.countdown-control:active {
+  transform: translateY(-50%) scale(0.94);
+}
+
+.countdown-control:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 2px;
+}
+
+/*
+ * Absolutely centers the number without contributing width to .countdown-controls.
+ * This keeps the controls div at zero width so the cancel/skip button positions
+ * (left: -232px, left: 168px) line up exactly with the Rust cursor-poll hit-rects
+ * (CONTROL_OFFSET_X = 200.0) measured from the window center.
+ */
+.countdown-number-wrap {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.countdown-number {
+  font-size: 240px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+  animation: cd-pop 1s ease-out forwards;
+  line-height: 1;
+}
+
+@keyframes cd-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  25% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  80% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: recording preparation                                              */
+/* ------------------------------------------------------------------------- */
+
+.preparing-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.preparing-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: white;
+}
+
+.preparing-label {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.preparing-spinner {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-top-color: currentColor;
+  animation: finalizing-spin 0.9s linear infinite;
+}
+
+/*
+ * Compact transparent window shown after the user clicks Stop. Keeping the OS
+ * window close to the card's bounds lets its open/dismiss controls stay
+ * interactive without blocking the rest of the screen.
+ */
+.finalizing-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 10px;
+  background: transparent;
+}
+
+.finalizing-card {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: white;
+}
+
+/*
+ * CSS-only spinner — no dependency on @tabler/icons-react (the desktop
+ * bundle doesn't pull that in). A ring with one highlighted quadrant is
+ * rotated continuously.
+ */
+.finalizing-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #ffffff;
+  animation: finalizing-spin 0.9s linear infinite;
+}
+
+.finalizing-status-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+.finalizing-status-icon-success {
+  color: #8ce99a;
+}
+
+.finalizing-status-icon-failed {
+  color: #ffb4a8;
+}
+
+@keyframes finalizing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.finalizing-caption {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  color: white;
+  text-align: left;
+}
+
+.finalizing-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.finalizing-action {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.64);
+  cursor: pointer;
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out;
+}
+
+.finalizing-action:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.finalizing-action:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 1px;
+}
+
+.finalizing-action svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+}
+
+.finalizing-progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.finalizing-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.88);
+  transition: width 180ms ease;
+}
+
+.finalizing-progress-fill-indeterminate {
+  width: 42%;
+  animation: finalizing-progress-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes finalizing-progress-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: toolbar                                                           */
+/* ------------------------------------------------------------------------- */
+
+.toolbar-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.toolbar-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: white;
+  cursor: grab;
+}
+
+.toolbar-inner:active {
+  cursor: grabbing;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    transform 80ms;
+}
+
+.toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.toolbar-btn:active {
+  transform: scale(0.94);
+}
+
+.toolbar-stop {
+  background: #ef4444;
+  color: white;
+}
+
+.toolbar-stop:hover {
+  background: #dc2626;
+}
+
+.stop-square {
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.toolbar-cancel {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.toolbar-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.toolbar-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  min-width: 56px;
+  justify-content: center;
+}
+
+.rec-pulse {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+.rec-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  animation: rec-live-pulse 1.4s ease-out infinite;
+  pointer-events: none;
+}
+
+.rec-pulse-paused {
+  background: #f59e0b;
+}
+
+.rec-pulse-paused::after {
+  animation: none;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-pulse::after {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
+  }
+}
+
+.toolbar-paused .toolbar-inner {
+  background: rgba(60, 45, 15, 0.94);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: camera bubble                                                     */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * The Tauri bubble window is sized (in Rust) to exactly the circle diameter
+ * PLUS a `--bubble-controls-budget` strip at the top, so the hover pill
+ * has real window real-estate to render into. Everything outside window
+ * bounds is invisible no matter the CSS `overflow` — you can't paint where
+ * the OS hasn't given you pixels — so we build in the budget up front.
+ *
+ *   ┌──────────────┐
+ *   │  ·  ●        │  ← .bubble-controls pill (hover-faded)
+ *   └──────────────┘
+ *   ┌──────────────┐
+ *   │ .bubble-root │  ← circle (drag region, data-tauri-drag-region)
+ *   │     ◯        │    Canvas lives here with pointer-events: none so
+ *   │              │    drags reach the drag-region parent.
+ *   └──────────────┘
+ */
+.bubble-wrapper {
+  position: fixed;
+  inset: var(--overlay-shadow-gutter);
+  display: flex;
+  /* Reverse the stack so the circle stays at the bottom of the window and
+     the hover pill occupies the reserved space above it. */
+  flex-direction: column-reverse;
+  align-items: center;
+  /* Transparent background — the Tauri window is `transparent: true`,
+     so the circular camera surface below paints through. */
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.bubble-root {
+  /* Circle fills the bottom of the wrapper. We use `flex: 0 0 auto` + a
+     1:1 aspect-ratio so the circle is always square regardless of the
+     actual window height (which includes the controls budget above it). */
+  flex: 0 0 auto;
+  aspect-ratio: 1 / 1;
+  /* Width = 100% of wrapper → the wrapper is exactly bubble-diameter
+     wide (Rust sizes the window that way). */
+  width: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+  /* Position context for absolute children (close X, canvas). */
+  position: relative;
+  /* Cursor hint — the drag region is here. */
+  cursor: grab;
+}
+
+.bubble-root:active {
+  cursor: grabbing;
+}
+
+.bubble-video {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+  /* compositing-ok: live <video> is composited regardless. */
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  /* CRITICAL: clicks MUST pass through the canvas to the
+     `data-tauri-drag-region` parent. Without this, the canvas swallows
+     mousedown and the bubble can't be dragged — cursor shows the grab
+     affordance but the window never moves. */
+  pointer-events: none;
+}
+
+.bubble-wrapper[data-path="canvas"] .bubble-root {
+  animation: bubble-compositor-heartbeat 1s steps(60) infinite;
+}
+
+@keyframes bubble-compositor-heartbeat {
+  from {
+    transform: translateZ(0);
+  }
+  to {
+    transform: translateZ(0);
+  }
+}
+
+.bubble-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+  text-align: center;
+  padding: 12px;
+}
+
+/* Hover controls — close X + size-toggle pill. */
+
+.bubble-close,
+.bubble-controls {
+  /* Snappy fade — per Steve's 150ms-max rule for decorative transitions. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+
+.bubble-close.is-visible,
+.bubble-controls.is-visible {
+  opacity: 1;
+  /* Close button and pill MUST receive clicks — they sit over the
+     drag region / inside the hover wrapper but must not be treated as
+     drag surfaces. */
+  pointer-events: auto;
+}
+
+/* Top-right X close button. Small circle with a subtle dark backdrop so it
+   reads against any camera feed (light or dark subjects). */
+.bubble-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(20, 20, 20, 0.7);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 3;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.bubble-close:hover {
+  background: rgba(60, 60, 60, 0.85);
+  color: white;
+}
+
+/* Size-control pill — lives in the top strip of the wrapper (above
+   the circle). Centered horizontally, fades in on hover, matches Loom's
+   visual weight. Because it's a sibling of `.bubble-root` (not a child),
+   the border-radius clipping on the circle can't eat it. */
+.bubble-controls {
+  /* `flex: 0 0 auto` + margin-bottom creates the small gap between the
+     pill and the circle. */
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 3;
+  /* Cursor over the pill should not be a grab cursor (we're not dragging
+     the bubble when clicking its controls). */
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Dot buttons — filled circles sized to convey Small vs Medium at a glance,
+   matching Loom's tiny / slightly-larger dots. Active dot gets a white ring
+   so the current size is always legible. */
+.bubble-dot {
+  border: none;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  transition: background 120ms;
+}
+
+.bubble-control-button {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.86);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.bubble-control-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.bubble-dot:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.bubble-dot.is-active {
+  background: white;
+}
+
+.bubble-dot-small {
+  width: 10px;
+  height: 10px;
+}
+
+.bubble-dot-medium {
+  width: 16px;
+  height: 16px;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Inline sign-in form                                                        */
+/* ------------------------------------------------------------------------- */
+
+.signin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px 0;
+}
+
+/* Agent-Native's mark, so the first screen says whose app this is. */
+.signin-mark {
+  display: block;
+  width: 26px;
+  height: auto;
+  margin: 2px auto 8px;
+  color: var(--fg);
+}
+
+.signin-title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  text-align: center;
+  margin-bottom: 3px;
+}
+
+.signin-subtitle {
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.signin-success {
+  align-items: center;
+  text-align: center;
+}
+
+.signin-success-copy {
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.signin-success-copy strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.signin input:not([data-tw-surface] *) {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  outline: none;
+}
+
+.signin input:not([data-tw-surface] *):focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.signin .primary {
+  margin-top: 2px;
+}
+
+.signin .primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.signin-alt {
+  background: transparent;
+  border: none;
+  padding: 4px 0 0;
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.signin-mode-link {
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.signin-mode-link:hover {
+  color: var(--fg);
+}
+
+.signin-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--fg-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 4px 0;
+}
+
+.signin-divider::before,
+.signin-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.signin-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.signin-google:hover {
+  background: var(--surface-hover, var(--surface));
+  border-color: var(--border-strong, var(--border));
+}
+
+/* --- Update banner -------------------------------------------------------
+ * Slots into the top of the popover when an update is in flight or ready.
+ * Two visual states:
+ *  - pending: subtle inline row, just keeps the user informed.
+ *  - ready:   accent color + actions (dismiss / Restart) since clicking
+ *             Restart is the thing we actually want them to do.
+ */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.update-banner--pending {
+  background: var(--surface);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+
+.update-banner--ready {
+  background: var(--surface-strong);
+  color: var(--fg);
+  border: 1px solid var(--border-strong, var(--border));
+  flex-wrap: nowrap;
+}
+
+.update-banner--error {
+  background: color-mix(in srgb, var(--error, #dc2626) 10%, transparent);
+  color: var(--error, #dc2626);
+  border: 1px solid color-mix(in srgb, var(--error, #dc2626) 40%, transparent);
+  flex-wrap: wrap;
+}
+
+.update-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.update-banner-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.update-banner-btn--ghost {
+  background: transparent;
+  color: var(--fg-muted);
+  border-color: var(--border);
+}
+
+.update-banner-btn--ghost:hover {
+  background: var(--surface-hover, var(--surface));
+  color: var(--fg);
+}
+
+.update-banner-btn--dismiss {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.update-banner-btn--dismiss:hover {
+  background: var(--surface-hover, var(--surface));
+  color: var(--fg);
+}
+
+.update-banner-btn--dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+.update-banner-btn--primary {
+  background: var(--brand);
+  color: var(--bg);
+}
+
+.update-banner-btn--primary:hover {
+  background: var(--brand-hover, var(--brand));
+}
+
+.update-spinner {
+  animation: update-spin 1s linear infinite;
+}
+
+@keyframes update-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: meeting notification                                              */
+/* ------------------------------------------------------------------------- */
+
+.meeting-notification-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  /* Keep the card and its edge controls inside the transparent window. */
+  padding: 12px 32px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.meeting-notification {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: white;
+  pointer-events: auto;
+  min-width: 320px;
+  max-width: 440px;
+}
+
+.meeting-notification-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+.meeting-notification-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meeting-notification-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.meeting-notification-split {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  overflow: visible;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.meeting-notification-split-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: white;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+  min-height: 40px;
+}
+
+.meeting-notification-split-main:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.meeting-notification-split-main:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+.meeting-notification-split-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.15;
+}
+
+.meeting-notification-split-primary {
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+}
+
+.meeting-notification-split-secondary {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+}
+
+.meeting-notification-split-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  border-radius: 0 10px 10px 0;
+}
+
+.meeting-notification-split-chevron:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+}
+
+.meeting-notification-provider {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: white;
+}
+
+.meeting-notification-provider-zoom {
+  background: #2d8cff;
+}
+
+.meeting-notification-provider-meet {
+  background: #34a853;
+}
+
+.meeting-notification-provider-teams {
+  background: #6264a7;
+}
+
+.meeting-notification-provider-other {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.meeting-notification-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(24, 26, 32, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meeting-notification-menu-item {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.meeting-notification-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.meeting-notification-menu-item:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.meeting-notification-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #fca5a5;
+}
+
+.meeting-notification-close {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(28, 30, 38, 0.98);
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 6;
+}
+
+.meeting-notification-close:hover {
+  background: rgba(48, 50, 60, 0.98);
+  color: white;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: meeting nub                                                       */
+/* ------------------------------------------------------------------------- */
+
+.meeting-nub-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.meeting-nub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 10px;
+  border-radius: 22px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  color: white;
+}
+
+.meeting-nub-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #16a34a;
+}
+
+.meeting-nub-dot::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(22, 163, 74, 0.55);
+  animation: rec-live-pulse 1.4s ease-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meeting-nub-dot::after {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
+  }
+}
+
+.meeting-nub-initial {
+  font-size: 16px;
+  font-weight: 700;
+  color: white;
+  line-height: 1;
+}
+
+.meeting-nub-handle {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  opacity: 0.4;
+  cursor: grab;
+}
+
+.meeting-nub-handle span {
+  display: block;
+  width: 16px;
+  height: 1.5px;
+  background: white;
+  border-radius: 1px;
+}
+
+.meeting-nub-handle:active {
+  cursor: grabbing;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: flow bar (voice dictation)                                        */
+/* ------------------------------------------------------------------------- */
+
+/* Wispr Flow-style dictation pill: small capsule anchored to the bottom
+   of its (transparent) overlay window. The window itself is positioned
+   bottom-center on the primary display by show_flow_bar in Rust, sized to
+   the content exactly — elevation is the native NSWindow shadow, so there
+   is no transparent shadow-gutter apron here. */
+.flow-bar-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-bottom: 8px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.flow-bar-transcript-preview {
+  max-width: 560px;
+  max-height: 90px;
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(18, 18, 20, 0.92);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
+  word-break: break-word;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.flow-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border-radius: 16px;
+  background: rgba(18, 18, 20, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: white;
+  pointer-events: auto;
+  /* Subtle fade-in so the pill doesn't hard-pop on appear. */
+  animation: flow-bar-in 140ms ease-out;
+  /* Fade out to opacity 0 when state goes idle (after Fn release).
+     Keeping the pill in the DOM lets the waveform fade instead of pop. */
+  transition: opacity 220ms ease-out;
+}
+
+/* When the dictation engine reports idle, fade the pill out without
+   unmounting it. Pointer-events go off so the invisible pill cannot
+   catch clicks. */
+.flow-bar-idle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.flow-bar-recording {
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flow-bar-meter {
+  height: 18px;
+}
+
+.flow-bar-processing {
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flow-bar-shimmer {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.1px;
+  animation: flow-shimmer 1.2s ease-in-out infinite;
+}
+
+.flow-bar-error {
+  font-size: 12px;
+  font-weight: 500;
+  color: #fecaca;
+}
+
+/* Right-edge cancel — subtle monochrome chip, only there if the user
+   needs it. Reads as a quiet utility affordance, not an alarm. Hover
+   ramps up so the button still registers as clickable. */
+.flow-bar-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  /* Tight against the right edge — the chip should feel like it lives
+     at the pill's perimeter, not inset. Vertical centering is automatic
+     via flex (pill 32px ÷ chip 18px → 7px above/below). */
+  margin: 0 4px 0 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  /* Override the root's `pointer-events: none` so the click registers. */
+  pointer-events: auto;
+  transition:
+    background 100ms ease-out,
+    color 100ms ease-out;
+}
+
+.flow-bar-cancel:hover {
+  background: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.flow-bar-cancel:active {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.flow-bar-cancel svg {
+  display: block;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: private screen region guides                                      */
+/* ------------------------------------------------------------------------- */
+
+.region-guides-layer,
+.region-guides-editor {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.region-guides-layer {
+  pointer-events: none;
+}
+
+.region-guides-editor {
+  cursor: crosshair;
+  user-select: none;
+  background: rgba(0, 0, 0, 0.015);
+  touch-action: none;
+}
+
+.region-guide-rect {
+  position: absolute;
+  border: 1.5px solid rgba(255, 255, 255, 0.62);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.region-guide-rect-editable {
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+
+.region-guide-rect-editable:hover,
+.region-guide-rect-editable.selected {
+  border-color: rgba(255, 255, 255, 0.92);
+}
+
+.region-guide-rect-editable:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.98);
+}
+
+.region-guide-rect-draft {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.region-guide-handle {
+  position: absolute;
+  z-index: 2;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(23, 23, 23, 0.38);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.region-guide-handle-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+  transform: translate(-50%, -50%);
+}
+
+.region-guide-handle-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+  transform: translate(50%, -50%);
+}
+
+.region-guide-handle-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+  transform: translate(-50%, 50%);
+}
+
+.region-guide-handle-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+  transform: translate(50%, 50%);
+}
+
+.region-guide-editor-bar {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(760px, calc(100vw - 36px));
+  padding: 9px 10px 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(15, 17, 21, 0.74);
+  color: #f8fafc;
+  transform: translateX(-50%);
+  backdrop-filter: blur(18px);
+}
+
+.region-guide-editor-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.region-guide-editor-count {
+  color: rgba(248, 250, 252, 0.58);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.region-guide-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.region-guide-editor-button,
+.region-guide-editor-icon {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms;
+}
+
+.region-guide-editor-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 72px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.region-guide-editor-button-primary {
+  background: rgba(255, 255, 255, 0.92);
+  color: #111827;
+}
+
+.region-guide-editor-button:hover,
+.region-guide-editor-icon:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.region-guide-editor-button-primary:hover {
+  background: #ffffff;
+}
+
+.region-guide-editor-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.region-guide-editor-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.region-guide-editor-message {
+  min-width: 78px;
+  color: rgba(248, 250, 252, 0.68);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.region-guide-editor-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 10;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(15, 17, 21, 0.6);
+  color: rgba(248, 250, 252, 0.76);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  transform: translateX(-50%);
+  backdrop-filter: blur(14px);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: live recording-region border                                      */
+/* ------------------------------------------------------------------------- */
+
+.region-record-border-layer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.region-record-border-frame {
+  position: absolute;
+  border-radius: 5px;
+  /* No fill, and the stroke is painted OUTWARD with an outset box-shadow so it
+     lands just outside the captured rect — never inside the recorded video. */
+  box-shadow:
+    /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+    0 0 0 1px rgba(255, 255, 255, 0.96),
+    /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+    0 0 0 3px rgba(220, 38, 38, 0.98),
+    /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+    0 0 0 6px rgba(17, 24, 39, 0.78),
+    /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+    0 0 30px 8px rgba(220, 38, 38, 0.28);
+  animation: region-record-border-pulse 1.8s ease-in-out infinite;
+}
+
+/* Gentle pulse that mirrors the live recording dot, signalling "recording
+   now". Honour reduced-motion by holding the frame steady. */
+@keyframes region-record-border-pulse {
+  0%,
+  100% {
+    box-shadow:
+      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+      0 0 0 1px rgba(255, 255, 255, 0.98),
+      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+        0 0 0 3px rgba(220, 38, 38, 1),
+      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+        0 0 0 6px rgba(17, 24, 39, 0.76),
+      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+        0 0 24px 7px rgba(220, 38, 38, 0.22);
+  }
+  50% {
+    box-shadow:
+      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+      0 0 0 1px rgba(255, 255, 255, 1),
+      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+        0 0 0 3px rgba(220, 38, 38, 1),
+      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+        0 0 0 6px rgba(17, 24, 39, 0.88),
+      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
+        0 0 34px 10px rgba(220, 38, 38, 0.36);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .region-record-border-frame {
+    animation: none;
+  }
+}
+
+@keyframes flow-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flow-shimmer {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: recording pill                                                    */
+/* ------------------------------------------------------------------------- */
+
+/* Fills the window, which Rust sizes to the visible capsule exactly —
+   elevation is the native NSWindow shadow (see recording_indicator.rs), so
+   there is no transparent shadow-gutter apron here. The collapsed capsule
+   centers rather than hugging a corner: hover is polled against the window
+   frame, so slack between frame and capsule would light the pill up while
+   the cursor is nowhere near it. */
+.pill-outer {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.pill-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  border-radius: 16px;
+  background: rgba(26, 26, 26, 0.95);
+  color: white;
+  cursor: grab;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.pill-inner:active {
+  cursor: grabbing;
+}
+
+.pill-inner:not(.pill-inner-compact) {
+  animation: pill-transcript-in 180ms ease-out;
+}
+
+@keyframes pill-transcript-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Collapsed (not expanded). Shrinks to logo + waveform; the whole capsule is
+   the click-to-expand target and the whole capsule is what highlights. */
+.pill-inner-compact {
+  width: fit-content;
+  height: fit-content;
+  /* Pinned to the top of its window. The window is pre-grown before the
+     capsule opens, and a centred capsule would jump upward the instant that
+     happens — the growth has to come out of the bottom edge only. */
+  align-self: flex-start;
+  /* Stadium, not a squircle — the collapsed capsule reads as a pill at any
+     height. A fixed radius on the ~44x64 vertical form looks like a rounded
+     rectangle. */
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+/* CSS :hover covers the focused case; .pill-hovered is the Rust-polled
+   fallback for when another app is focused (see clips:pill-hover). */
+.pill-inner-compact:hover,
+.pill-inner-compact.pill-hovered {
+  background: rgba(42, 42, 42, 0.97);
+}
+
+.pill-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    max-width 160ms ease,
+    opacity 120ms ease;
+}
+
+/* Revealed on hover in the compact/detached bar, always visible when expanded.
+   The vertical capsule hides them outright — it expands on click instead. */
+.pill-inner-compact:hover .pill-controls,
+.pill-inner-compact.pill-hovered .pill-controls,
+.pill-inner:not(.pill-inner-compact) .pill-controls {
+  max-width: 160px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pill-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 4px 0 12px;
+}
+
+.pill-inner-compact .pill-header {
+  gap: 6px;
+  height: 36px;
+  padding: 0 4px 0 8px;
+}
+
+.pill-header-detached {
+  height: 40px;
+  padding: 0 8px;
+}
+
+.pill-logo {
+  height: 14px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.pill-inner-compact .pill-logo {
+  height: 12px;
+}
+
+/* Collapsed = vertical capsule: logo on top, waveform below. */
+.pill-inner-compact .pill-header.pill-vertical {
+  flex-direction: column;
+  /* No gap here: the transport segment owns the space above itself, so at
+     rest it contributes nothing and the capsule closes flush under the
+     meter. Spacing lives inside each group instead, all on one 8px step. */
+  gap: 0;
+  height: auto;
+  width: auto;
+  padding: 9px 8px;
+  cursor: pointer;
+}
+
+.pill-vertical .pill-logo {
+  width: 21px;
+  height: auto;
+}
+
+/* The collapsed capsule grows along its long axis to reveal its transport,
+   the same way the recorder pill grows to reveal its extras: the segment
+   animates its own measured size while the window is resized around it. The
+   height here is set in px by the overlay after measuring — `auto` cannot be
+   animated, and a guessed constant drifts from the real control stack. */
+/* Height and opacity are set inline by the overlay, not by a hover rule: this
+   window is never the key window, and the browser can stop advancing its
+   animations — so anything whose END state depends on a transition running is
+   invisible exactly when it matters. The transition is the polish; the inline
+   values are the truth. */
+.pill-vertical .pill-controls {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  /* The horizontal pill pushes its controls to the right with an auto margin;
+     in this column that is a 3px offset off the capsule's centre line. */
+  margin-left: 0;
+  gap: 8px;
+  /* The space above the transport is a margin, animated with the height. As
+     padding it could not collapse below its own 8px, so the capsule kept a
+     dead band under the meter while closed. */
+  margin-top: 0;
+  height: 0;
+  min-height: 0;
+  max-width: none;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    height 220ms var(--ease-drawer),
+    margin-top 220ms var(--ease-drawer),
+    opacity 160ms var(--ease-out-strong);
+}
+
+.pill-vertical .pill-controls[data-open="true"] {
+  pointer-events: auto;
+}
+
+/* The buttons settle in a beat after the capsule starts opening, so the growth
+   reads as the capsule making room rather than a jump cut. Transform only —
+   a stalled transition leaves them 4px off instead of invisible. */
+.pill-vertical .pill-controls > * {
+  transform: translateY(-4px);
+  transition: transform 200ms var(--ease-out-strong);
+  transition-delay: 60ms;
+}
+
+.pill-vertical .pill-controls[data-open="true"] > * {
+  transform: translateY(0);
+}
+
+/* The note-taker shows no elapsed time anywhere, and 38px of capsule has room
+   for the two transport controls and nothing besides. */
+.pill-vertical .pill-timer,
+.pill-vertical .pill-expand-btn,
+.pill-vertical .pill-copy-btn {
+  display: none;
+}
+
+/* Bare glyphs, matching the recorder pill: a red square for stop and a ghost
+   pause, with no filled circle behind either. The base styles here are the
+   compact pill's filled buttons, which is the wrong language for a capsule
+   this small — two solid discs stacked read as a traffic light. */
+/* Sized to the glyph, not to the hit target. A 22px box around a 14px icon
+   puts 4px of dead space on the rhythm, which is why evenly-spaced boxes
+   still looked uneven — the eye measures ink, not boxes. The target is an
+   overlay instead, so it costs nothing in layout. */
+.pill-vertical .pill-pause-btn,
+.pill-vertical .pill-stop-btn {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.pill-vertical .pill-pause-btn::after,
+.pill-vertical .pill-stop-btn::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-pause-btn {
+  background: transparent;
+  /* guard:allow-raw-color — pill chrome is theme-invariant, like the recorder */
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-pause-btn:hover {
+  background: transparent;
+  /* guard:allow-raw-color — pill chrome is theme-invariant, like the recorder */
+  color: #ffffff;
+}
+
+.pill-inner-compact .pill-header.pill-vertical .pill-stop-btn,
+.pill-inner-compact
+  .pill-header.pill-vertical
+  .pill-stop-btn:hover:not(:disabled) {
+  background: transparent;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-vertical .pill-controls,
+  .pill-vertical .pill-controls > * {
+    transition-duration: 1ms;
+    transition-delay: 0ms;
+  }
+}
+
+.pill-vertical .pill-wave-meter {
+  height: 14px;
+}
+
+/* Wrapper around logo + waveform. */
+.pill-media {
+  display: contents;
+}
+
+.pill-vertical .pill-media {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.pill-timer {
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The collapsed capsule is its own dark chrome with white content, and the
+   expanded panel is themed — inheriting is the only value that reads on both. */
+.pill-media-spinner {
+  flex: none;
+  color: currentColor;
+  opacity: 0.7;
+}
+
+/* Layout only; the bars size and color themselves. */
+.pill-wave-meter {
+  height: 14px;
+}
+
+.pill-stop-btn {
+  margin-left: 0;
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #ef4444;
+  color: white;
+  border: none;
+  transition:
+    background 120ms,
+    opacity 120ms;
+}
+
+.pill-stop-btn:hover:not(:disabled) {
+  background: #f87171;
+}
+
+.pill-stop-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pill-expand-btn,
+.pill-close-btn {
+  margin-left: 4px;
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #e5e5e5;
+  border: none;
+  background: transparent;
+  transition: background 120ms;
+}
+
+.pill-expand-btn:hover,
+.pill-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ---- */
+
+.pill-error {
+  margin: 0 10px 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.35;
+  flex-shrink: 0;
+}
+
+.pill-divider {
+  /* 14px matches the header's title and the transcript's own padding. A rule
+     that overhangs the text it separates is the misalignment you see first. */
+  margin: 0 14px;
+  height: 1px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pill-finished-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin: 8px 12px 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.16);
+}
+
+.pill-finished-text {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #86efac;
+}
+
+.pill-finished-open {
+  flex-shrink: 0;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 6px;
+  background: #22c55e;
+  color: #052e16;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.pill-finished-open:hover {
+  background: #4ade80;
+}
+
+.pill-transcript-area {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pill-pane-label {
+  flex-shrink: 0;
+  padding: 8px 12px 2px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 245, 0.4);
+}
+
+.pill-pane-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pill-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(245, 245, 245, 0.5);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.pill-copy-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f5f5f5;
+}
+
+.pill-copy-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pill-ask-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px 10px;
+}
+
+.pill-ask-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f5f5f5;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.pill-ask-input::placeholder {
+  color: rgba(245, 245, 245, 0.35);
+}
+
+.pill-ask-input:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.pill-ask-input:disabled {
+  opacity: 0.5;
+}
+
+.pill-ask-send {
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(245, 245, 245, 0.6);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms,
+    opacity 120ms;
+}
+
+.pill-ask-send:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f5f5f5;
+}
+
+.pill-ask-send:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.pill-ask-send:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.lt-chat {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #f5f5f5;
+}
+
+.lt-empty {
+  color: #71717a;
+}
+
+.lt-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.lt-row-you {
+  align-items: flex-end;
+}
+
+.lt-row-them {
+  align-items: flex-start;
+}
+
+.lt-row-pending {
+  opacity: 0.6;
+}
+
+.lt-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.lt-time {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  opacity: 0.55;
+}
+
+.lt-row-you .lt-label {
+  color: rgba(245, 245, 245, 0.5);
+}
+
+.lt-row-them .lt-label {
+  color: rgba(245, 245, 245, 0.38);
+}
+
+.lt-bubble {
+  max-width: 85%;
+  padding: 6px 10px;
+  border-radius: 16px;
+  word-break: break-word;
+}
+
+.lt-row-you .lt-bubble {
+  background: rgba(255, 255, 255, 0.13);
+  color: #fafafa;
+  border-bottom-right-radius: 4px;
+}
+
+.lt-row-them .lt-bubble {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e5e5e5;
+  border-bottom-left-radius: 4px;
+}
+
+/* ---- Expanded meeting panel: a themed reading surface --------------------
+   The collapsed capsule stays dark capture chrome (it floats over arbitrary
+   content), but the EXPANDED panel is for reading, so it follows the system
+   theme and borrows the record pill's control grammar: a red stop square as
+   the live indicator + save action, bare ghost glyphs for everything else.
+   All rules are scoped to the expanded state and override the dark base. */
+
+.pill-inner:not(.pill-inner-compact) {
+  background: hsl(var(--ui-popover) / 0.98);
+  color: hsl(var(--ui-foreground));
+  border: 0.5px solid hsl(var(--ui-border));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-header {
+  gap: 6px;
+  padding: 0 8px 0 14px;
+}
+
+/* Everything in the header that is not text rides the measured shift, so the
+   glyphs sit on the title's optical centre rather than on its box centre.
+   Zero until measured, so a missing measurement changes nothing. */
+.pill-inner:not(.pill-inner-compact) .pill-controls {
+  transform: translateY(var(--header-ink-shift, 0px));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-wave-meter {
+  transform: translateY(var(--header-meter-shift, 0px));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-media {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+.pill-title {
+  /* Same box height as the control buttons beside it: centring two boxes of
+     equal height puts their ink on one line whatever the font metrics do. */
+  line-height: 30px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-timer {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: hsl(var(--ui-foreground));
+  transition: color 150ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-timer-live {
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-stop-btn {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  color: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-stop-btn:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+}
+
+.pill-stop-square {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-pause-btn,
+.pill-inner:not(.pill-inner-compact) .pill-expand-btn,
+.pill-inner:not(.pill-inner-compact) .pill-close-btn,
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn {
+  height: 30px;
+  width: 30px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-pause-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-expand-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-close-btn:hover,
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn:hover:not(:disabled) {
+  background: hsl(var(--ui-accent));
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-copy-btn:disabled {
+  opacity: 0.4;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-divider {
+  background: hsl(var(--ui-border));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-error {
+  background: hsl(var(--ui-destructive) / 0.1);
+  border-color: hsl(var(--ui-destructive) / 0.3);
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-banner {
+  border-color: hsl(var(--ui-success) / 0.35);
+  background: hsl(var(--ui-success) / 0.1);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-text {
+  color: hsl(var(--ui-success));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-open {
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-finished-open:hover {
+  opacity: 0.9;
+  background: hsl(var(--ui-primary));
+}
+
+/* Transcript: uniform left alignment for reading — the speaker label, not
+   the side, carries who is talking. */
+.pill-inner:not(.pill-inner-compact) .lt-chat {
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-empty {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you,
+.pill-inner:not(.pill-inner-compact) .lt-row-them {
+  align-items: flex-start;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 0 2px 2px;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you .lt-label,
+.pill-inner:not(.pill-inner-compact) .lt-row-them .lt-label {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-bubble {
+  max-width: 100%;
+  padding: 7px 11px;
+  border-radius: 10px;
+}
+
+.pill-inner:not(.pill-inner-compact) .lt-row-you .lt-bubble,
+.pill-inner:not(.pill-inner-compact) .lt-row-them .lt-bubble {
+  background: hsl(var(--ui-muted));
+  color: hsl(var(--ui-foreground));
+  border-bottom-right-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+
+/* Ask composer: Stop leads the line (Wispr's pattern), then the quiet
+   rounded field on the muted fill with ghost actions. */
+.pill-stop-inline-square {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2.5px;
+  /* guard:allow-raw-color — recording indicator red, shared with the record pill */
+  background: #e0473f;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-bar {
+  gap: 6px;
+  padding: 8px 14px 12px;
+}
+
+/* Inline ask conversation: a sheet rises from the composer and holds the
+   running exchange — user questions as chat bubbles, streamed answers, and
+   contextual suggestion chips. The grip resizes it; pulling it low dismisses. */
+.pill-ask-sheet {
+  /* In the column, not over it: an overlay would cover the newest transcript
+     lines, which is the only part of a live session anyone is reading. */
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 0.5px solid hsl(var(--ui-border));
+  border-radius: 14px 14px 0 0;
+  background: hsl(var(--ui-popover));
+  box-shadow: var(--elevation-sheet);
+  /* Travels rather than fades: the panel arrives from the edge it belongs to,
+     on the same curve the framework's drawers use. */
+  animation: pill-ask-sheet-in 320ms var(--ease-drawer);
+}
+
+.pill-ask-sheet[data-state="closing"] {
+  animation: pill-ask-sheet-out 200ms var(--ease-collapse) forwards;
+  pointer-events: none;
+}
+
+/* The panel leads; its contents follow a beat later, so the drawer reads as
+   one object arriving instead of a card and its text appearing together. */
+.pill-ask-sheet > * {
+  animation: pill-ask-sheet-content 260ms var(--ease-out-strong) both;
+  animation-delay: 90ms;
+}
+
+.pill-ask-sheet[data-state="closing"] > * {
+  animation: none;
+}
+
+@keyframes pill-ask-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pill-ask-sheet-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@keyframes pill-ask-sheet-content {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Motion is the affordance here, not decoration — reduced motion keeps the
+   state change, drops the travel. */
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-sheet,
+  .pill-ask-sheet[data-state="closing"],
+  .pill-ask-sheet > * {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-sheet {
+    animation: none;
+  }
+}
+
+.pill-ask-sheet-grip {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  /* 18px of grabbable height around a 4px handle: the affordance is the
+     target, not the glyph. */
+  padding: 8px 0 6px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.pill-ask-sheet-grip:active {
+  cursor: grabbing;
+}
+
+.pill-ask-sheet-handle {
+  display: block;
+  width: 32px;
+  height: 4px;
+  border-radius: 999px;
+  background: hsl(var(--ui-muted-foreground) / 0.35);
+  transition:
+    background 160ms var(--ease-collapse),
+    transform 160ms var(--ease-collapse);
+}
+
+.pill-ask-sheet-grip:active .pill-ask-sheet-handle {
+  transform: scaleX(1.12);
+  background: hsl(var(--ui-muted-foreground) / 0.7);
+}
+
+.pill-ask-sheet-grip:hover .pill-ask-sheet-handle {
+  background: hsl(var(--ui-muted-foreground) / 0.55);
+}
+
+.pill-ask-sheet-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 11px;
+  overflow-y: auto;
+  padding: 6px 16px 12px;
+}
+
+.pill-ask-msg-user {
+  align-self: flex-end;
+  max-width: 88%;
+  /* A full-radius capsule curves in on every line but the middle, so the
+     horizontal padding has to clear the corner, not just the glyph. */
+  padding: 9px 17px;
+  border-radius: 999px;
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.pill-ask-msg-assistant {
+  align-self: stretch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--ui-foreground));
+  white-space: pre-line;
+}
+
+.pill-ask-suggestions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px 16px 10px;
+  mask-image: linear-gradient(
+    to right,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 calc(100% - 22px),
+    transparent 100%
+  );
+}
+
+.pill-ask-suggestions::-webkit-scrollbar {
+  display: none;
+}
+
+/* Waiting for capture to attach: never the live red, never a running clock. */
+.pill-timer-starting {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--ui-muted-foreground));
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.pill-ask-work {
+  margin-bottom: 7px;
+}
+
+.pill-ask-work-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* The trail scrolls rather than wrapping: a run of ten steps must not push the
+   answer down the sheet. Edges fade so a clipped chip reads as "more". */
+.pill-ask-chips {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* No horizontal padding: it reads as extra space between the chip and its
+     label, on top of the row's own gap. Vertical padding has to clear the
+     active chip's scale AND its 2px ring, or `overflow-x` clips the ring —
+     one axis set to auto makes the other axis clip too. */
+  padding: 4px 0;
+}
+
+.pill-ask-chips[data-scrolled="true"] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    /* guard:allow-raw-color — a mask stop is an alpha channel, not a color */
+    #000 14px
+  );
+}
+
+.pill-ask-chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* Overlapped like a stack of avatars rather than spaced out as a row: the
+   ring in the surface color is what cuts each chip out of the one behind it,
+   so the trail reads as one object with a head instead of N buttons. */
+/* A Tabler glyph inks 75% of its box, so a 12px icon put 9px of ink inside a
+   21px ring — 43%, which reads as a glyph lost in a circle rather than one
+   set in it. 15px of icon in a 20px ring is ~56%. */
+.pill-ask-chip-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-right: -5px;
+  border: 1px solid hsl(var(--ui-border));
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px hsl(var(--ui-popover));
+  color: hsl(var(--ui-muted-foreground));
+  background: hsl(var(--ui-popover));
+  opacity: 0.5;
+  transition:
+    opacity 160ms var(--ease-out-strong),
+    transform 160ms var(--ease-out-strong),
+    border-color 160ms var(--ease-out-strong);
+}
+
+.pill-ask-chip-icon:last-child {
+  margin-right: 0;
+}
+
+.pill-ask-chip-icon[data-active="true"] {
+  z-index: 2;
+  transform: scale(1.1);
+  opacity: 1;
+  color: hsl(var(--ui-foreground));
+  border-color: hsl(var(--ui-foreground) / 0.4);
+}
+
+.pill-ask-chip-icon[data-status="error"] {
+  z-index: 1;
+  opacity: 1;
+  color: hsl(var(--ui-destructive));
+  border-color: hsl(var(--ui-destructive) / 0.4);
+}
+
+.pill-ask-chip-icon[data-status="running"][data-active="true"],
+.pill-ask-chip-icon[data-status="blocked"][data-active="true"] {
+  animation: pill-ask-chip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pill-ask-chip-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pill-ask-work-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: hsl(var(--ui-foreground));
+}
+
+.pill-ask-work-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: hsl(var(--ui-muted-foreground));
+  cursor: default;
+}
+
+.pill-ask-work-toggle:hover {
+  color: hsl(var(--ui-foreground));
+  background: hsl(var(--ui-muted) / 0.6);
+}
+
+/* Quoted like the reasoning it is, so it never reads as the answer. */
+.pill-ask-work-now,
+.pill-ask-work-list {
+  margin: 5px 0 0;
+  padding: 0 0 0 9px;
+  border-left: 1.5px solid hsl(var(--ui-border));
+  font-size: 12px;
+  line-height: 17px;
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-ask-work-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  list-style: none;
+}
+
+.pill-ask-work-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pill-ask-work-list li[data-status="error"] {
+  color: hsl(var(--ui-destructive));
+}
+
+.pill-ask-work-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-ask-work-item-detail {
+  flex: none;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-chip-icon[data-status="running"][data-active="true"],
+  .pill-ask-chip-icon[data-status="blocked"][data-active="true"] {
+    animation: none;
+  }
+}
+
+.pill-ask-thread-caret {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  border-radius: 1.5px;
+  background: hsl(var(--ui-muted-foreground));
+  animation: pill-ask-caret 900ms steps(2) infinite;
+}
+
+@keyframes pill-ask-caret {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-ask-activity {
+    display: block;
+    margin: 2px 0;
+    font-size: 12px;
+    font-style: italic;
+    color: hsl(var(--ui-muted-foreground));
+    animation: pill-ask-activity-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes pill-ask-activity-pulse {
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pill-ask-activity {
+      animation: none;
+    }
+  }
+
+  .pill-ask-thread-caret {
+    animation: none;
+  }
+}
+
+/* The field owns the fill, radius, and focus ring; the input is transparent
+   inside it and the send button sits embedded at the trailing edge (shadcn's
+   InputGroup pattern), so composing and sending read as one control. */
+.pill-inner:not(.pill-inner-compact) .pill-ask-field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  height: 34px;
+  padding: 0 4px 0 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: hsl(var(--ui-muted));
+  transition: border-color 120ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-field:focus-within {
+  border-color: hsl(var(--ui-ring) / 0.35);
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input {
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: hsl(var(--ui-foreground));
+  font-size: 13px;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-input::placeholder {
+  color: hsl(var(--ui-muted-foreground));
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send {
+  /* Concentric with the capsule field: 34px/2 outer radius minus the 4px
+     inset = 13px inner radius, i.e. an exact 26px circle. */
+  height: 26px;
+  width: 26px;
+  border-radius: 999px;
+  background: hsl(var(--ui-primary));
+  color: hsl(var(--ui-primary-foreground));
+  transition:
+    opacity 120ms,
+    background 120ms;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:disabled {
+  background: transparent;
+  color: hsl(var(--ui-muted-foreground));
+  opacity: 0.6;
+}
+
+.pill-inner:not(.pill-inner-compact) .pill-ask-send:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.pill-pause-btn {
+  display: inline-flex;
+  height: 28px;
+  width: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e5e5e5;
+  border: none;
+  transition: background 120ms;
+}
+
+.pill-pause-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.pill-spinner {
+  animation: pill-spin 0.8s linear infinite;
+}
+
+@keyframes pill-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * One of these windows opens centered on every connected monitor when a
+ * full-screen native recording is about to start with more than one monitor
+ * attached (see `show_monitor_picker`). The window itself is already sized
+ * and positioned by Rust, so the card just fills it.
+ */
+.monitor-picker-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: transparent;
+}
+
+.monitor-picker-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  color: white;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.monitor-picker-card:hover,
+.monitor-picker-card:focus-visible {
+  background: rgba(32, 35, 43, 0.96);
+  border-color: rgba(255, 255, 255, 0.24);
+  outline: none;
+}
+
+.monitor-picker-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.monitor-picker-subtitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.monitor-picker-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+}

@@ -1,0 +1,49 @@
+---
+title: "デプロイ"
+description: "永続 SQL データベースを使って、Agent-Native アプリまたはワークスペースを Nitro 対応プラットフォームにデプロイします。"
+---
+
+<!-- i18n-docs-ignore -->
+
+# デプロイ
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+Agent-Native アプリは Nitro で動作します。デプロイするものに合うパスを選択してください。
+
+<Cards columns={2}>
+
+### [アプリをデプロイ](/docs/deploy-an-app)
+
+1 つのアプリを構築し、独自のドメインで起動します。
+
+### [ワークスペースをデプロイ](/docs/workspace-deployment)
+
+共有ログインで複数のアプリを 1 つのオリジンの下で実行します。
+
+</Cards>
+
+## デプロイ前に: 永続データベースを選択 {#persistent-database}
+
+デプロイするすべてのアプリには永続 SQL データベースが必要です。最初の本番デプロイ前に、デプロイ環境へ `DATABASE_URL` を設定してください。プロバイダーが別のトークンを必要とする場合は `DATABASE_AUTH_TOKEN` も設定します。
+
+スタンドアロンアプリには安定した `BETTER_AUTH_SECRET` が必要です。署名付きのアプリ間リクエストを使うワークスペースには `A2A_SECRET` が必要です。
+
+## メール配信は任意ですが、推奨されます {#email-provider}
+
+メールプロバイダーはメール/パスワード認証に必須ではありません。プロバイダーがない場合、デプロイしたアプリはメール/パスワードでサインアップとサインインを行い、サインアップ時のメール確認をスキップし、マジックリンク認証を提供しません。
+
+マジックリンク、メール確認、パスワードリセット、招待、共有通知が必要な場合は、デプロイ前に Resend または SendGrid を接続してください。デプロイ環境に `RESEND_API_KEY` または `SENDGRID_API_KEY` を設定し、SendGrid では `EMAIL_FROM` も設定します。認証モードは[認証](/docs/authentication)を参照してください。
+
+## サポートされるターゲット
+
+Agent-Native は [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb)、[Render](/docs/render) をサポートします。
+
+高度な設定、シークレット、本番値については [デプロイ環境変数リファレンス](/docs/deployment-environment-variables) を参照してください。
+
+## 次に読む
+
+- [アプリをデプロイ](/docs/deploy-an-app)
+- [ワークスペースをデプロイ](/docs/workspace-deployment)
+- [データベース](/docs/server-database#production)

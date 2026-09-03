@@ -1,0 +1,516 @@
+---
+title: "캘린더: 개발자 가이드"
+description: "빠른 시작, 전체 액션 목록, 데이터 모델, 라우트, 그리고 캘린더 템플릿을 확장하는 방법을 다룹니다."
+---
+
+# 개발자 가이드
+
+이 페이지는 캘린더 템플릿을 커스터마이즈하거나 확장하려는 모든 사람을 위한 것입니다.
+빠른 시작, 모든 액션, 데이터 모델, 라우트 구성, 그리고 기능을 추가하는 방법을
+다룹니다. 앱이 무엇을 하는지는 [캘린더](/docs/template-calendar) 문서를 참고하세요.
+
+## 빠른 시작
+
+아무것도 설치되지 않은 상태에서 시작해 Google Calendar를 연결하기까지 캘린더를
+실행하는 과정을 안내합니다. macOS의 터미널이든 Windows의 PowerShell/명령
+프롬프트든 명령어는 동일합니다. 순수한 Node.js 도구이기 때문입니다.
+
+<Steps>
+
+### 앱 만들기
+
+```bash
+npx @agent-native/core@latest create my-calendar --standalone --template calendar
+cd my-calendar
+pnpm install
+```
+
+이를 위해서는 먼저 [Node.js](https://nodejs.org) 22 이상과 [pnpm](https://pnpm.io)이
+설치되어 있어야 합니다. 아직 설치하지 않았거나 LLM 연결(Builder.io, Anthropic/OpenAI
+키, 또는 로컬 Ollama)을 설정하지 않았다면 [시작하기](/docs/getting-started) 문서를
+참고하세요.
+
+### 개발 서버 시작하기
+
+```bash
+pnpm dev
+```
+
+앱이 `http://localhost:8082`에서 열립니다. 자동으로 열리지 않으면 브라우저에서 해당
+URL로 직접 접속하세요. 캘린더는 Google이 연결되지 않은 상태에서도 완전히 동작합니다.
+Google 연결이 필요한 액션을 연결하기 전에 시도할 때만 오류가 발생합니다.
+
+### Google Calendar 연결하기
+
+앱에서 **설정**을 열고, **일반** 탭에서 **Google Calendar** 카드를 찾은 다음
+**Google Calendar 연결**을 클릭하세요. 설정 마법사가 열립니다.
+
+1. **Google Cloud 프로젝트 만들기** (사용할 프로젝트가 아직 없다면):
+   [Google Cloud Console](https://console.cloud.google.com/)에서 페이지 상단
+   근처의 프로젝트 드롭다운을 클릭한 다음 **New Project**를 클릭하세요. 원하는
+   이름을 지정하고 **Create**를 클릭한 다음, 준비되었다는 알림을 기다리세요.
+   계속하기 전에 같은 드롭다운에서 해당 프로젝트가 선택되어 있는지 확인하세요.
+2. **API 활성화하기**: 프로젝트를 선택한 상태에서 **APIs & Services → Library**로
+   이동해 "Google Calendar API"를 검색하고, 열어서 **Enable**을 클릭하세요.
+3. **동의 화면 구성하기**: **APIs & Services → OAuth consent screen**에서 동의
+   화면을 설정하세요(개발용으로는 "External"이면 충분합니다).
+4. **자격 증명 만들기**: **APIs & Services → Credentials**에서 "Web application"
+   유형의 OAuth 클라이언트 ID를 만들고, `http://localhost:8082/_agent-native/google/callback`을
+   승인된 리디렉션 URI로 추가하세요(8082는 캘린더의 기본 개발 포트입니다).
+5. **자격 증명 추가하기**: 자격 증명 JSON을 다운로드해 마법사에 업로드하거나,
+   "Paste manually"를 켜고 Client ID와 Client Secret을 직접 입력하세요.
+
+캘린더는 이 값들을 `.env` 파일이 아니라 자체 시크릿 저장소에 저장하므로, 이 단계는
+Windows와 macOS에서 동일합니다. 연결되면 토큰은 자동으로 갱신됩니다.
+
+### Zoom 연결하기(선택 사항)
+
+Google과 달리 Zoom은 설정 화면이 없습니다. 프로젝트 루트에 `.env` 파일을
+만들거나(이미 있다면 기존 파일에 추가) 다음을 입력하세요.
+
+```text
+ZOOM_CLIENT_ID=your-client-id
+ZOOM_CLIENT_SECRET=your-client-secret
+```
+
+[Zoom OAuth 앱](https://marketplace.zoom.us/)(Zoom Marketplace → Develop → Build
+App → OAuth)에서 Client ID와 Secret을 받고, 리디렉션 URI로
+`/_agent-native/zoom/callback`을 설정한 다음, 새 값을 반영하도록 `pnpm dev`를
+다시 시작하세요. Zoom을 연결하지 않아도 예약 링크는 Google Meet를 제공할 수
+있으며, Zoom만 제공하지 못합니다.
+
+</Steps>
+
+<Callout tone="warning">
+
+Windows에서는 일부 편집기가 `.env`라는 이름으로 파일을 저장할 때 숨겨진 `.txt`
+확장자를 붙여서, 캘린더가 절대 읽지 않는 `.env.txt` 파일이 만들어지는 경우가
+있습니다. 파일 탐색기에서 "파일 확장명" 표시를 켜고(보기 탭), 저장된 파일 이름이
+정확히 `.env`이고 뒤에 아무것도 붙지 않았는지 확인하세요.
+
+</Callout>
+
+<Callout tone="info">
+
+**이벤트는 SQL이 아니라 Google Calendar에 있습니다.** 모든 이벤트 액션은 Google
+Calendar API를 직접 호출합니다. 로컬 이벤트 테이블은 존재하지 않습니다. 예약
+링크, 예약, 가용성, 연결 상태만 로컬에 저장됩니다. 이벤트 데이터는 원시 SQL로
+읽거나 쓰지 마세요.
+
+</Callout>
+
+## 액션 목록
+
+모든 작업은 `templates/calendar/actions/` 안의 TypeScript 파일이며,
+`POST /_agent-native/actions/:name`에 자동으로 마운트됩니다.
+
+### 이벤트와 게스트
+
+이벤트 데이터는 Google Calendar에 있으며 절대 SQL에 저장되지 않습니다.
+
+| 액션                     | 동작                                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `list-events`            | 날짜 범위 내 이벤트 목록 조회                                                            |
+| `search-events`          | 검색어로 이벤트 검색                                                                     |
+| `get-event`              | id로 이벤트 하나 조회                                                                    |
+| `create-event`           | 반복 규칙(RRULE), 근무 위치, 상태 유형(`outOfOffice`, `focusTime`)을 포함해 이벤트 생성  |
+| `update-event`           | 반복, 근무 위치, 상태 유형을 포함해 이벤트 수정                                          |
+| `delete-event`           | 이벤트 삭제                                                                              |
+| `manage-event-draft`     | 아무것도 기록되거나 게스트에게 알림이 가기 전에, 사용자가 검토할 미발송 초대를 임시 저장 |
+| `rsvp-event`             | 초대에 대해 수락, 거절, 또는 미정으로 표시                                               |
+| `get-attendee-timezones` | 게스트별 시간대 재정의 값 조회                                                           |
+| `set-attendee-timezone`  | 게스트의 현지 시간이 올바르게 표시되도록 게스트별 시간대 재정의 값 설정                  |
+
+### 가용성과 시간 찾기
+
+| 액션                  | 동작                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| `get-availability`    | 주간 일정, 시간대, 버퍼, 통보 기간, 사전 예약 기간 설정 조회                                             |
+| `update-availability` | 주간 일정, 시간대, 버퍼, 통보 기간, 사전 예약 기간 설정 수정                                             |
+| `check-availability`  | 특정 날짜의 빈 시간대 조회                                                                               |
+| `find-a-time`         | 주최자와 지정된 참석자들 전체를 대상으로 하는 공용 빈 시간 검색으로, Google 프리/비지와 로컬 충돌을 결합 |
+
+### 예약 링크와 예약
+
+| 액션                     | 동작                                         |
+| ------------------------ | -------------------------------------------- |
+| `create-booking-link`    | 예약 링크 생성                               |
+| `update-booking-link`    | 예약 링크 수정                               |
+| `duplicate-booking-link` | 공동 호스트(`hosts`)를 포함해 예약 링크 복제 |
+| `list-booking-links`     | 접근 가능한 예약 링크 목록 조회              |
+| `list-bookings`          | 확정된 예약 목록 조회                        |
+
+### 외부 캘린더
+
+읽기 전용 ICS 피드입니다.
+
+| 액션                        | 동작                           |
+| --------------------------- | ------------------------------ |
+| `add-external-calendar`     | 읽기 전용 ICS/webcal 피드 구독 |
+| `list-external-calendars`   | 구독한 피드 목록 조회          |
+| `remove-external-calendar`  | 구독한 피드 제거               |
+| `update-external-calendars` | 구독한 피드 수정               |
+
+### 사람과 오버레이
+
+| 액션                    | 동작                                            |
+| ----------------------- | ----------------------------------------------- |
+| `search-people`         | Google 연락처와 Workspace 디렉터리 검색         |
+| `get-overlay-people`    | 내 화면에 고정된 다른 사람들의 캘린더 목록 조회 |
+| `update-overlay-people` | 내 화면에 고정된 다른 사람들의 캘린더 목록 수정 |
+
+### Zoom
+
+| 액션              | 동작                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `get-zoom-status` | 현재 사용자의 Zoom 연결 상태 조회. 연결 및 연결 해제는 OAuth가 로그인된 브라우저 세션을 필요로 하므로 액션이 아니라 `/_agent-native/zoom/*` 라우트를 통해 이루어짐 |
+
+### Google Calendar 연결과 동기화
+
+| 액션                      | 동작                                              |
+| ------------------------- | ------------------------------------------------- |
+| `connect-google-calendar` | 로그인된 브라우저 세션을 위한 OAuth 연결 URL 반환 |
+| `sync-google-calendar`    | 강제로 재동기화                                   |
+
+### 설정과 환경설정
+
+| 액션                                 | 동작                                                                                           |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `get-settings`                       | 사용자 수준 설정 조회                                                                          |
+| `update-settings`                    | 사용자 수준 설정 수정                                                                          |
+| `update-calendar-visual-preferences` | 로컬에만 있는 표시 환경설정(이벤트 색상, 주말 숨기기) 수정. Google Calendar에는 전혀 영향 없음 |
+
+### 내비게이션과 UI 상태
+
+| 액션          | 동작                                |
+| ------------- | ----------------------------------- |
+| `navigate`    | UI를 특정 보기, 날짜, 이벤트로 이동 |
+| `view-screen` | 에이전트를 위해 현재 화면 상태 조회 |
+
+### 프로바이더 API 에스컬레이션
+
+위 액션들이 너무 제한적일 때 사용하는, 원시 Google Calendar(및 연결된 CRM)
+API입니다.
+
+| 액션                    | 동작                                                               |
+| ----------------------- | ------------------------------------------------------------------ |
+| `provider-api-catalog`  | 직접 호출할 수 있는 원시 프로바이더 API 목록 조회                  |
+| `provider-api-docs`     | 원시 프로바이더 API 엔드포인트의 문서 조회                         |
+| `provider-api-request`  | 원시 Google Calendar(또는 연결된 CRM) API 직접 호출                |
+| `list-staged-datasets`  | 원시 결과를 반환하는 대신 조회를 위해 저장된 대규모 스캔 목록 조회 |
+| `query-staged-dataset`  | 저장된 데이터셋 조회                                               |
+| `delete-staged-dataset` | 저장된 데이터셋 삭제                                               |
+
+## 데이터 모델
+
+`templates/calendar/server/db/schema.ts`에 정의되어 있습니다. 이벤트가 아닌
+데이터만 로컬에 저장되며, 이벤트 자체는 Google Calendar에 있습니다.
+
+<DataModel
+  id="doc-block-calendar6"
+  title="캘린더 데이터 모델"
+  summary={
+    "이벤트가 아닌 데이터만 로컬에 저장됩니다. 이벤트는 Google Calendar에 있습니다. 예약 링크는 ownableColumns를 사용하므로 공유 시스템이 적용됩니다. 예약용 사용자 이름은 별도의 예약 테이블로 관리되는데, 사용자 이름은 그 사용자가 소유한 모든 링크에서 공유되기 때문입니다."
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly 스타일 링크 정의(ownable)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "slug",
+          type: "string",
+          note: "고유값; /book/{username}/{slug}에 있는 공개 페이지",
+        },
+        { name: "title", type: "string" },
+        { name: "description", type: "string", nullable: true },
+        { name: "duration", type: "int", note: "기본 기간(분 단위)" },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "대체 기간 목록",
+        },
+        {
+          name: "hosts",
+          type: "json",
+          nullable: true,
+          note: "소유자 외의 필수 공동 호스트",
+        },
+        { name: "customFields", type: "json", nullable: true },
+        {
+          name: "conferencing",
+          type: "json",
+          nullable: true,
+          note: "none | google_meet | zoom | custom",
+        },
+        { name: "color", type: "string", nullable: true },
+        { name: "isActive", type: "bool", note: "삭제하지 않고 일시중지" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "공개 예약 페이지에서 확정된 약속",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "slug", type: "string", fk: "booking_links.slug" },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "start", type: "datetime" },
+        { name: "end", type: "datetime" },
+        { name: "eventTitle", type: "string", nullable: true },
+        { name: "notes", type: "string", nullable: true },
+        {
+          name: "fieldResponses",
+          type: "json",
+          nullable: true,
+          note: "사용자 정의 필드 응답",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+          note: "Zoom, Google Meet, 또는 사용자 지정",
+        },
+        { name: "googleEventId", type: "string", nullable: true },
+        {
+          name: "calendarAccountId",
+          type: "string",
+          nullable: true,
+          note: "이벤트를 소유한 연결된 계정",
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "/booking/manage/{token}을 구동함",
+        },
+        { name: "status", type: "enum", note: "confirmed | cancelled" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "링크의 슬러그가 변경된 후에도 기존 공개 URL이 계속 동작하도록 유지",
+      fields: [
+        { name: "oldSlug", type: "string", pk: true },
+        {
+          name: "newSlug",
+          type: "string",
+          note: "링크의 현재 슬러그",
+        },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_usernames",
+      name: "booking_usernames",
+      note: "/book/{username}/{slug}의 {username} 부분을 예약함, 소유자당 하나",
+      fields: [
+        { name: "username", type: "string", pk: true },
+        {
+          name: "ownerEmail",
+          type: "string",
+          note: "고유값 — 사용자당 하나의 예약용 사용자 이름",
+        },
+        { name: "createdAt", type: "datetime" },
+        { name: "updatedAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_username_changes",
+      name: "booking_username_changes",
+      note: "30일당 3회 변경 제한을 강제하는 감사 기록",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "oldUsername", type: "string", nullable: true },
+        { name: "newUsername", type: "string" },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "예약 링크에 대한 공유 부여",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "linkId", type: "id", fk: "booking_links.id" },
+        { name: "principal", type: "string", note: "사용자 또는 조직" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "예약 보유",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "공유 부여 보유",
+    },
+  ]}
+/>
+
+가용성 규칙은 `calendar-availability` 키 아래 사용자별 설정에 있습니다. 오버레이
+대상 사람들은 `calendar-overlay-people`에, 참석자 시간대 재정의 값은
+`attendee-timezones`에, 구독한 ICS 피드는 `external-calendars`에 있습니다.
+Google과 Zoom OAuth 토큰은 프레임워크의 `oauth_tokens` 테이블에 있습니다. 임시
+UI 상태(현재 보기, 날짜, 선택한 이벤트)는 `application_state`의 `navigation`
+키 아래에 있습니다.
+
+## 액션 하나를 자세히 살펴보기
+
+`create-booking-link`은 어떤 액션에서든 재사용할 만한 패턴을 보여줍니다.
+데이터베이스에 닿기 전에 입력을 검증하기, 두 테이블에 걸친 규칙을 강제하기,
+로그인한 사용자를 안전하게 확인하기, 그리고 모든 리더에서 각각 처리하는 대신 한
+번만 유연한 입력 형태를 정규화하기입니다.
+
+<AnnotatedCode
+  id="doc-block-calendar8"
+  title="예약 링크 생성하기"
+  filename="templates/calendar/actions/create-booking-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core";\nimport {\n  getRequestUserEmail,\n  getRequestOrgId,\n} from "@agent-native/core/server/request-context";\nimport { eq } from "drizzle-orm";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";\nimport {\n  rowToBookingLink,\n  serializeBookingHosts,\n} from "../server/lib/booking-link-utils.js";\n\nconst hostsSchema = z\n  .union([\n    z.array(\n      z.union([\n        z.string(),\n        z.object({\n          email: z.string(),\n          displayName: z.string().optional(),\n        }),\n      ]),\n    ),\n    z.string(),\n  ])\n  .optional();\n\nexport default defineAction({\n  description:\n    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",\n  schema: z.object({\n    title: z.string().min(1).describe("Booking link title"),\n    slug: z\n      .string()\n      .min(1)\n      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)\n      .describe("URL slug, lowercase words separated by hyphens"),\n    duration: z.coerce\n      .number()\n      .int()\n      .min(5)\n      .max(24 * 60)\n      .describe("Default duration in minutes"),\n    description: z.string().optional().describe("Description"),\n    durations: z\n      .array(\n        z.coerce\n          .number()\n          .int()\n          .min(5)\n          .max(24 * 60),\n      )\n      .optional()\n      .describe("Optional duration choices, e.g. [30,45,60]"),\n    hosts: hostsSchema.describe(\n      "Required co-hosts besides the owner. Accepts emails, comma-separated emails, or {email, displayName} objects.",\n    ),\n    customFields: z.array(z.any()).optional().describe("Custom form fields"),\n    conferencing: z.any().optional().describe("Conferencing configuration"),\n    color: z.string().optional().describe("Display color"),\n    isActive: z.boolean().optional().describe("Whether the link is active"),\n  }),\n  run: async (args) => {\n    const body = args as Record<string, any>;\n    const durationInput = normalizeBookingDurationInput({\n      duration: body.duration,\n      durations: body.durations,\n    });\n    if ("error" in durationInput) {\n      throw new Error(durationInput.error);\n    }\n    const slug = String(body.slug).trim().toLowerCase();\n    const [existingLink, existingRedirect] = await Promise.all([\n      getDb()\n        .select({ id: schema.bookingLinks.id })\n        .from(schema.bookingLinks)\n        .where(eq(schema.bookingLinks.slug, slug)),\n      getDb()\n        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })\n        .from(schema.bookingSlugRedirects)\n        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),\n    ]);\n\n    if (existingLink.length > 0 || existingRedirect.length > 0) {\n      throw new Error("A booking link with this slug already exists");\n    }\n\n    const now = new Date().toISOString();\n    const id = nanoid();\n    const ownerEmail = (() => {\n      const e = getRequestUserEmail();\n      if (!e) throw new Error("no authenticated user");\n      return e;\n    })();\n    await getDb()\n      .insert(schema.bookingLinks)\n      .values({\n        id,\n        slug,\n        title: String(body.title).trim(),\n        description: body.description ? String(body.description).trim() : null,\n        duration: durationInput.duration,\n        durations: durationInput.durations\n          ? JSON.stringify(durationInput.durations)\n          : null,\n        hosts: serializeBookingHosts(body.hosts, ownerEmail),\n        customFields: body.customFields\n          ? JSON.stringify(body.customFields)\n          : null,\n        conferencing: body.conferencing\n          ? JSON.stringify(body.conferencing)\n          : null,\n        color: body.color ? String(body.color).trim() : null,\n        isActive: body.isActive ?? true,\n        ownerEmail,\n        orgId: getRequestOrgId(),\n        createdAt: now,\n        updatedAt: now,\n      });\n\n    const created = await getDb()\n      .select()\n      .from(schema.bookingLinks)\n      .where(eq(schema.bookingLinks.id, id));\n    return rowToBookingLink(created[0]);\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "37-41",
+      label: "슬러그 형식을 미리 검증",
+      note: "정규식이 데이터베이스에 닿기 전에 소문자, 하이픈으로 구분된 URL 슬러그 형식을 강제하므로, 형식이 잘못된 슬러그는 아래의 고유성 검사에 절대 도달하지 않습니다.",
+    },
+    {
+      lines: "59-61",
+      label: "호스트는 선택 사항",
+      note: "`hosts`를 생략하면 단독 링크가 만들어집니다. 비어 있지 않은 목록은 필수 공동 호스트가 되며, `find-a-time`이 시간대를 제안하기 전에 이들도 함께 시간이 비어 있어야 합니다.",
+    },
+    {
+      lines: "76-90",
+      label: "슬러그는 두 테이블 모두에서 비어 있어야 함",
+      note: "새 슬러그는 `booking_links`와 `booking_slug_redirects` 양쪽 모두에서 사용되지 않은 상태여야 합니다. 그렇지 않으면 새 링크가, 이름이 바뀐 이전 링크가 여전히 방문자를 전달하고 있는 URL을 조용히 가로챌 수 있습니다.",
+    },
+    {
+      lines: "94-98",
+      label: "로그인한 사용자는 한 번만 확인되고, 타입이 좁혀짐",
+      note: "`getRequestUserEmail()`은 `string | undefined`를 반환합니다. 인증되지 않은 호출에는 기술적으로 로그인한 사용자가 없기 때문입니다. 이를 즉시 실행 함수로 감싸면 그런 경우가 발생했을 때 그 자리에서 바로 예외를 던질 수 있으므로, 이후 모든 줄이 다시 확인해야 할 무언가가 아니라 `ownerEmail`이 함수의 나머지 부분에서 순수한 `string`이 됩니다.",
+    },
+    {
+      lines: "110",
+      label: "공동 호스트 입력은 한 번만 정규화됨",
+      note: "`serializeBookingHosts`는 이메일, 쉼표로 구분된 문자열, 또는 `{email, displayName}` 객체를 받아들이며 항상 동일한 JSON 형태로 저장하므로, 모든 리더는 하나의 형식만 처리하면 됩니다.",
+    },
+  ]}
+/>
+
+## 라우트 참조
+
+<FileTree
+  id="doc-block-calendar7"
+  title="캘린더 템플릿 구조"
+  entries={[
+    {
+      path: "actions/",
+      note: "에이전트가 호출할 수 있는 모든 액션 — 이벤트, 가용성, 예약, 사람, Zoom, 공유",
+    },
+    {
+      path: "app/routes/_app._index.tsx",
+      note: "메인 캘린더 보기(일/주/월)",
+    },
+    { path: "app/routes/_app.agent.tsx", note: "전체 화면 에이전트 채팅 탭" },
+    {
+      path: "app/routes/_app.availability.tsx",
+      note: "가용성 편집기",
+    },
+    {
+      path: "app/routes/_app.booking-links._index.tsx",
+      note: "예약 링크 목록. _app.booking-links.$id.tsx는 개별 링크를 수정",
+    },
+    { path: "app/routes/_app.bookings.tsx", note: "확정된 예약 목록" },
+    {
+      path: "app/routes/_app.extensions.tsx",
+      note: "확장 위젯 라우트",
+    },
+    {
+      path: "app/routes/_app.settings.tsx",
+      note: "Google/Zoom 연결, 가용성 기본값, 공유",
+    },
+    {
+      path: "app/routes/book.$username.$slug.tsx",
+      note: "공개 예약 페이지(표준 경로: /book/{username}/{slug})",
+    },
+    {
+      path: "app/routes/booking.manage.$token.tsx",
+      note: "방문자의 일정 변경/취소 페이지",
+    },
+    {
+      path: "app/routes/event.tsx",
+      note: "에이전트가 채팅에 삽입하는 독립적인 인라인 이벤트 미리보기 페이지",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle 테이블 — booking_links, bookings, booking_usernames, shares",
+    },
+    { path: "server/lib/zoom.ts", note: "Zoom OAuth와 회의 생성" },
+    {
+      path: "server/lib/google-calendar.ts",
+      note: "Google Calendar API 클라이언트",
+    },
+    {
+      path: "shared/api.ts",
+      note: "서버와 클라이언트가 함께 사용하는 공유 TypeScript 타입",
+    },
+  ]}
+/>
+
+URL 스킴이 바뀌기 전에 공유된 링크를 위해 레거시 라우트 두 개가 계속 마운트되어
+있습니다. `book.$slug.tsx`(사용자 이름 세그먼트 없음)와
+`meet.$username.$slug.tsx`이며, 둘 다 `/book/:username/:slug`로 정규화됩니다.
+`_app.team.tsx`는 `/settings/organization`으로 리디렉션됩니다. 팀 관리는 별도
+페이지가 아니라 설정에 있습니다.
+
+## 커스터마이즈하기
+
+앱의 모든 부분은 편집 가능한 소스입니다. 여기서부터 시작하세요.
+
+- `templates/calendar/actions/` — 새 기능을 에이전트와 프런트엔드 모두에
+  노출하려면 `defineAction`으로 새 파일을 추가하세요.
+- `templates/calendar/app/routes/` — UI. 위에 나열되어 있습니다.
+- `templates/calendar/server/db/schema.ts` — Drizzle로 컬럼이나 테이블을
+  추가하세요. 템플릿이 SQLite, Postgres, Turso, D1, Neon에서 모두 동작하도록
+  코드를 방언에 구애받지 않게 유지하세요.
+- `templates/calendar/server/lib/` — 프로바이더 통합: `google-calendar.ts`,
+  `zoom.ts`, `people-search.ts`, `ical-fetcher.ts`, `find-time.ts`,
+  `provider-api.ts`.
+- `templates/calendar/AGENTS.md` — 에이전트 지침입니다. 에이전트에게 새로운
+  기능이나 규칙을 가르칠 때 이 파일을 업데이트하세요.
+- `templates/calendar/.agents/skills/` — 에이전트가 따르는 세부 패턴입니다.
+  관련 skills: `event-management`, `availability-booking`, `real-time-sync`,
+  `storing-data`, `delegate-to-agent`, `frontend-design`.
+- `templates/calendar/shared/api.ts` — 서버와 클라이언트 양쪽에서 사용하는
+  공유 TypeScript 타입(`CalendarEvent`, `BookingLink`, `ExternalCalendar`,
+  `ConferencingConfig` 등)입니다.
+
+기능을 추가한다면 네 가지 영역을 모두 업데이트해야 한다는 것을 기억하세요: UI,
+액션, skill 또는 AGENTS.md 항목, 그리고 에이전트가 봐야 하는 애플리케이션
+상태입니다. 이것이 에이전트와 UI를 동등하게 유지하는 방법입니다.
+
+## 다음 단계
+
+- [**캘린더**](/docs/template-calendar) — 개요와 시작 단계
+- [**기능**](/docs/template-calendar-features) — 이 액션들과 데이터 모델이 뒷받침하는 사용자 대상 동작
+- [**Agent와 대화**](/docs/template-calendar-agent) — 에이전트가 이 액션들과 원시 Google Calendar API 중에서 선택하는 방법
+- [**다중 앱 작업 공간 속 캘린더**](/docs/template-calendar-integrations) — 이 액션들이 다른 앱과 Dispatch에 어떻게 노출되는지
+- [**액션**](/docs/actions-overview) — 이 템플릿이 기반으로 하는 액션 시스템
+- [**공유**](/docs/sharing) — `booking_link_shares`가 사용하는 공유 부여 모델

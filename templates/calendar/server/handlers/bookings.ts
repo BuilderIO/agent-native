@@ -1,0 +1,2033 @@
+import { emit } from "@agent-native/core/event-bus";
+import { getOrgContext, orgMembers } from "@agent-native/core/org";
+import {
+  getSession,
+  recordChange,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
+import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
+import {
+  createError,
+  defineEventHandler,
+  getQuery,
+  getRequestURL,
+  getRouterParam,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
+import type {
+  Booking,
+  CalendarEvent,
+  AvailabilityConfig,
+  ConferencingConfig,
+  CustomField,
+  TimeSlot,
+} from "../../shared/api.js";
+import { normalizeAvailabilitySlots } from "../../shared/availability-schedule.js";
+import { getDb, schema } from "../db/index.js";
+import {
+  parseBookingLinkDurations,
+  resolveAvailabilityDuration,
+  type BookingDurationSource,
+} from "../lib/booking-durations.js";
+import {
+  sendBookingCancellationEmails,
+  sendBookingConfirmationEmails,
+} from "../lib/booking-emails.js";
+import {
+  buildBookingEventAttendees,
+  buildBookingEventTitle,
+} from "../lib/booking-event-details.js";
+import {
+  getEligibleHostAvailability,
+  type EligibleHostAvailability,
+} from "../lib/booking-host-availability.js";
+import {
+  getBookingLinkCoHostEmails,
+  getBookingLinkRequiredHostEmails,
+  normalizeBookingHosts,
+} from "../lib/booking-link-utils.js";
+import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
+import { eventBlocksAvailability } from "../lib/calendar-availability.js";
+import * as googleCalendar from "../lib/google-calendar.js";
+import { createZoomMeeting } from "../lib/zoom.js";
+
+async function requireRequestContext<T>(
+  event: H3Event,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    fn,
+  );
+}
+
+async function getBookingLinkSlugsForOwners(
+  ownerEmails: string[],
+  db: ConflictDb = getDb(),
+): Promise<string[]> {
+  if (ownerEmails.length === 0) return [];
+  const rows = await db
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(inArray(schema.bookingLinks.ownerEmail, ownerEmails));
+  return Array.from(new Set(rows.map((row) => row.slug)));
+}
+
+async function getBookingLinkOwnerEmail(
+  slug: string,
+): Promise<string | undefined> {
+  if (!slug) return undefined;
+  const row = await getDb()
+    .select({ ownerEmail: schema.bookingLinks.ownerEmail })
+    .from(schema.bookingLinks)
+    .where(eq(schema.bookingLinks.slug, slug))
+    .then((rows) => rows[0]);
+  return row?.ownerEmail;
+}
+
+function stripCrlf(value: unknown): string {
+  return (
+    typeof value === "string"
+      ? value
+      : value == null
+        ? ""
+        : JSON.stringify(value)
+  )
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+const MAX_ADDITIONAL_BOOKING_GUESTS = 5;
+
+export async function resolveBookingCalendarAccount({
+  booking,
+  hostEmail,
+}: {
+  booking: Pick<
+    typeof schema.bookings.$inferSelect,
+    "slug" | "ownerEmail" | "calendarAccountId"
+  >;
+  hostEmail?: string;
+}) {
+  const ownerEmail =
+    hostEmail ||
+    booking.ownerEmail ||
+    (await getBookingLinkOwnerEmail(booking.slug));
+  if (!ownerEmail) return;
+
+  if (booking.calendarAccountId) {
+    return {
+      ownerEmail,
+      accountEmail: booking.calendarAccountId,
+    };
+  }
+
+  return googleCalendar.getDefaultAccountSelection(ownerEmail);
+}
+
+export async function deleteGoogleEventForBooking({
+  booking,
+  hostEmail,
+}: {
+  booking: Pick<
+    typeof schema.bookings.$inferSelect,
+    "id" | "slug" | "googleEventId" | "ownerEmail" | "calendarAccountId"
+  >;
+  hostEmail?: string;
+}) {
+  if (!booking.googleEventId) return;
+
+  try {
+    const account = await resolveBookingCalendarAccount({
+      booking,
+      hostEmail,
+    });
+    if (!account) return;
+    await googleCalendar.deleteEvent(booking.googleEventId, account, {
+      sendUpdates: "all",
+    });
+  } catch (error) {
+    console.warn(
+      `[bookings] Failed to delete Google Calendar event for booking ${booking.id}:`,
+      error,
+    );
+  }
+}
+
+function recordBookingsChanged(owner?: string) {
+  try {
+    recordChange({
+      source: "bookings",
+      type: "change",
+      key: "bookings",
+      ...(owner ? { owner } : {}),
+    });
+  } catch {
+    // Poll refresh is best-effort; the booking write itself has already landed.
+  }
+}
+
+type AvailabilityContext = {
+  effectiveConfig: AvailabilityConfig | null;
+  ownerEmail?: string;
+  hostEmails: string[];
+  /** Overlay-listed hosts with a saved working-hours schedule/time zone. */
+  eligibleHosts: EligibleHostAvailability[];
+  slug: string;
+  bookingLink?: BookingLinkRow;
+  durationSource?: BookingDurationSource;
+  conflictSlugs: string[];
+};
+
+type ConflictItem = { start: string; end: string };
+type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
+type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
+type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
+const BOOKING_SLOT_STEP_MINUTES = 30;
+
+type SameOrgBookingViewer = { email: string; orgId: string };
+
+function resolveSameOrgBookingViewer(
+  session: { email?: string; orgId?: string } | null,
+  bookingLink?: BookingLinkRow,
+): SameOrgBookingViewer | undefined {
+  const viewerEmail = session?.email?.trim().toLowerCase();
+  if (!viewerEmail || !session?.orgId || !bookingLink) return undefined;
+  if (viewerEmail === bookingLink.ownerEmail.trim().toLowerCase()) {
+    return undefined;
+  }
+  return bookingLink.orgId === session.orgId
+    ? { email: viewerEmail, orgId: session.orgId }
+    : undefined;
+}
+
+async function resolveBookingViewer(
+  event: H3Event,
+  bookingLink?: BookingLinkRow,
+): Promise<SameOrgBookingViewer | undefined> {
+  const session = await getSession(event);
+  if (!session?.email || !bookingLink) return undefined;
+  if (
+    session.email.trim().toLowerCase() ===
+    bookingLink.ownerEmail.trim().toLowerCase()
+  ) {
+    return undefined;
+  }
+  const orgContext = await getOrgContext(event);
+  return resolveSameOrgBookingViewer(
+    { ...session, orgId: orgContext.orgId ?? undefined },
+    bookingLink,
+  );
+}
+
+const bookingAvailabilityDraftSchema = z
+  .object({
+    slug: z.string().trim().min(1).max(200),
+    durations: z
+      .array(
+        z
+          .number()
+          .int()
+          .min(1)
+          .max(24 * 60),
+      )
+      .min(1)
+      .max(20),
+    hosts: z
+      .array(
+        z.object({
+          email: z.string().email().max(320),
+          displayName: z.string().max(200).optional(),
+        }),
+      )
+      .max(20),
+  })
+  .strict();
+
+type BookingAvailabilityDraft = z.infer<typeof bookingAvailabilityDraftSchema>;
+
+export function parseBookingAvailabilityDraft(
+  raw: unknown,
+): { draft: BookingAvailabilityDraft } | { error: string } {
+  if (typeof raw !== "string") {
+    return { error: "draft must be a JSON object" };
+  }
+  if (raw.length > 16_000) {
+    return { error: "draft is too large" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { error: "draft must be valid JSON" };
+  }
+
+  const result = bookingAvailabilityDraftSchema.safeParse(parsed);
+  return result.success
+    ? { draft: result.data }
+    : { error: "draft has an invalid booking-link configuration" };
+}
+
+export function resolveBookingLinkAvailabilityOverrides({
+  bookingLink,
+  draft,
+}: {
+  bookingLink: BookingLinkRow;
+  draft?: BookingAvailabilityDraft;
+}): {
+  hostEmails: string[];
+  durationSource: BookingDurationSource;
+} {
+  if (!draft) {
+    return {
+      hostEmails: getBookingLinkRequiredHostEmails(bookingLink),
+      durationSource: bookingLink,
+    };
+  }
+
+  const ownerEmail = bookingLink.ownerEmail;
+  const draftHosts = normalizeBookingHosts(draft.hosts, ownerEmail);
+  return {
+    hostEmails: [
+      ...(ownerEmail ? [ownerEmail] : []),
+      ...draftHosts.map((host) => host.email),
+    ],
+    durationSource: {
+      duration: draft.durations[0],
+      durations: JSON.stringify(draft.durations),
+    },
+  };
+}
+
+type LocalDateTimeParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+function getLocalDateTimeParts(
+  date: Date,
+  timezone: string,
+): LocalDateTimeParts {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    formatter
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  return {
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    hour: parts.hour === 24 ? 0 : parts.hour,
+    minute: parts.minute,
+    second: parts.second,
+  };
+}
+
+function getTimezoneOffsetMs(date: Date, timezone: string): number {
+  const parts = getLocalDateTimeParts(date, timezone);
+  const utcForLocalParts = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return utcForLocalParts - date.getTime();
+}
+
+// Thrown by zonedTimeToUtc for a local date that a time zone skipped
+// entirely. Callers that generate availability for a specific date should
+// catch only this - it's an expected "no such date" outcome, not a bug -
+// and treat it as no availability rather than letting it surface as a
+// generic 500 or, worse, silently masking a real error the same way.
+class SkippedLocalDateError extends Error {}
+
+function zonedTimeToUtc(
+  localDate: string,
+  localTime: string,
+  timezone: string,
+): Date {
+  const [year, month, day] = localDate.split("-").map(Number);
+  const [hour, minute] = localTime.split(":").map(Number);
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let result = new Date(
+    utcGuess - getTimezoneOffsetMs(new Date(utcGuess), timezone),
+  );
+  result = new Date(utcGuess - getTimezoneOffsetMs(result, timezone));
+
+  // A spring-forward DST transition skips a span of local wall-clock time —
+  // usually an hour, but zones such as Australia/Lord_Howe advance by only
+  // 30 minutes. If the requested time falls in that gap, the two-pass guess
+  // above can converge to either side of the transition, and `result`
+  // silently lands on some other real instant instead of the requested time
+  // not existing. Detect that by round-tripping back to local time, and if
+  // it doesn't match, resolve deterministically using the offset from a full
+  // day before the guess (definitely pre-transition): reapplying that fixed
+  // offset to the requested wall-clock numbers is equivalent to shifting the
+  // request forward by the transition's actual size and resolving it
+  // normally on the post-transition side, whatever that size is.
+  let roundTrip = getLocalDateTimeParts(result, timezone);
+  if (roundTrip.hour !== hour || roundTrip.minute !== minute) {
+    const offsetBefore = getTimezoneOffsetMs(
+      new Date(utcGuess - 24 * 60 * 60 * 1000),
+      timezone,
+    );
+    result = new Date(utcGuess - offsetBefore);
+    roundTrip = getLocalDateTimeParts(result, timezone);
+  }
+
+  // A handful of IANA zones (Pacific/Apia's 2011 international date line
+  // move, Pacific/Kiritimati's 1994 move) skip an entire calendar date
+  // rather than a span within one, so the corrected instant above can land
+  // on a different day while still round-tripping to the same hour/minute —
+  // e.g. requesting Pacific/Apia's nonexistent 2011-12-30 silently resolves
+  // to 2011-12-31. Reject that outright instead of generating availability
+  // for a date the caller never asked for.
+  if (
+    roundTrip.year !== year ||
+    roundTrip.month !== month ||
+    roundTrip.day !== day
+  ) {
+    throw new SkippedLocalDateError(
+      `${localDate} does not exist in time zone ${timezone} (skipped calendar date)`,
+    );
+  }
+  return result;
+}
+
+function formatLocalDateInTimezone(date: Date, timezone: string): string {
+  const parts = getLocalDateTimeParts(date, timezone);
+  return [
+    String(parts.year).padStart(4, "0"),
+    String(parts.month).padStart(2, "0"),
+    String(parts.day).padStart(2, "0"),
+  ].join("-");
+}
+
+function getDayOfWeekInTimezone(date: Date, timezone: string): number {
+  const parts = getLocalDateTimeParts(date, timezone);
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+}
+
+function createDefaultAvailability(timezone: string): AvailabilityConfig {
+  return {
+    timezone,
+    weeklySchedule: {
+      monday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      tuesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      wednesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      thursday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      friday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      saturday: { enabled: false, slots: [] },
+      sunday: { enabled: false, slots: [] },
+    },
+    bufferMinutes: 15,
+    minNoticeHours: 1,
+    maxAdvanceDays: 60,
+    slotDurationMinutes: 30,
+    bookingPageSlug: "book",
+  };
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_AVAILABILITY_RANGE_DAYS = 93;
+
+function formatDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateOnly(value: unknown): Date | null {
+  if (typeof value !== "string" || !DATE_ONLY_RE.test(value)) return null;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return formatDateOnly(date) === value ? date : null;
+}
+
+function addLocalDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addDateString(date: string, days: number): string {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+function parseRequestDate(value: unknown): Date | null {
+  if (typeof value !== "string" || value.trim().length === 0) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function requestedBookingRange(
+  startValue: unknown,
+  endValue: unknown,
+): { start: Date; end: Date; duration: number } | null {
+  const start = parseRequestDate(startValue);
+  const end = parseRequestDate(endValue);
+  if (!start || !end || end <= start) return null;
+
+  const duration = (end.getTime() - start.getTime()) / (60 * 1000);
+  if (!Number.isInteger(duration) || duration <= 0 || duration > 24 * 60) {
+    return null;
+  }
+
+  return { start, end, duration };
+}
+
+function countDaysInclusive(start: Date, end: Date): number {
+  let count = 0;
+  for (
+    let cursor = new Date(start);
+    cursor <= end;
+    cursor = addLocalDays(cursor, 1)
+  ) {
+    count += 1;
+    if (count > MAX_AVAILABILITY_RANGE_DAYS) return count;
+  }
+  return count;
+}
+
+function dateStartIso(date: string, timezone: string): string {
+  return zonedTimeToUtc(date, "00:00", timezone).toISOString();
+}
+
+function dateEndIso(date: string, timezone: string): string {
+  return zonedTimeToUtc(
+    addDateString(date, 1),
+    "00:00",
+    timezone,
+  ).toISOString();
+}
+
+const BOUNDARY_SKIP_SEARCH_DAYS = 3;
+
+// The requested date itself may not exist locally (a whole-date DST skip);
+// in that case there is no valid lower bound at that date, so walk back to
+// the nearest earlier date that does exist. That date's start is always an
+// earlier (and therefore still safe) lower bound for a conflict window.
+function safeRangeStartIso(date: string, timezone: string): string {
+  let cursor = date;
+  for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
+    try {
+      return dateStartIso(cursor, timezone);
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      cursor = addDateString(cursor, -1);
+    }
+  }
+  throw new SkippedLocalDateError(
+    `No valid local date found near ${date} in time zone ${timezone}`,
+  );
+}
+
+// dateEndIso's boundary is exclusive (the start of the *next* date), which
+// can itself be a date the time zone skips even though `date` is perfectly
+// valid. Walk forward to the nearest later date that exists - it's still a
+// safe (only slightly wider) upper bound for a conflict window.
+function safeRangeEndIso(date: string, timezone: string): string {
+  let cursor = date;
+  for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
+    try {
+      return dateEndIso(cursor, timezone);
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      cursor = addDateString(cursor, 1);
+    }
+  }
+  throw new SkippedLocalDateError(
+    `No valid local date found near ${date} in time zone ${timezone}`,
+  );
+}
+
+function formatAvailabilityUnavailableReason(email?: string): string {
+  return email
+    ? `Calendar availability unavailable for ${email}`
+    : "Calendar availability unavailable";
+}
+
+function unavailableAvailabilityResponse(event: H3Event) {
+  setResponseStatus(event, 503);
+  return {
+    error:
+      "The host's calendar availability could not be checked. Please try again later.",
+    code: "calendar_availability_unavailable",
+  };
+}
+
+async function resolveAvailabilityContext({
+  slug,
+  draft,
+  db = getDb(),
+}: {
+  slug: string;
+  draft?: BookingAvailabilityDraft;
+  db?: ConflictDb;
+}): Promise<AvailabilityContext> {
+  const [configRaw, bookingLink] = await Promise.all([
+    getSetting("calendar-availability"),
+    slug
+      ? db
+          .select()
+          .from(schema.bookingLinks)
+          .where(
+            draft
+              ? and(
+                  eq(schema.bookingLinks.slug, slug),
+                  accessFilter(
+                    schema.bookingLinks,
+                    schema.bookingLinkShares,
+                    undefined,
+                    "editor",
+                  ),
+                )
+              : eq(schema.bookingLinks.slug, slug),
+          )
+          .then((rows) => rows[0])
+      : Promise.resolve(undefined),
+  ]);
+  if (draft && !bookingLink) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: "Booking link not found",
+    });
+  }
+  const config = configRaw as unknown as AvailabilityConfig | null;
+  const ownerEmail = bookingLink?.ownerEmail;
+  const overrides = bookingLink
+    ? resolveBookingLinkAvailabilityOverrides({ bookingLink, draft })
+    : undefined;
+  const hostEmails = overrides?.hostEmails ?? (ownerEmail ? [ownerEmail] : []);
+  const [ownerConfigRaw, ownerSettingsRaw, conflictSlugs] = await Promise.all([
+    ownerEmail
+      ? getUserSetting(ownerEmail, "calendar-availability")
+      : Promise.resolve(null),
+    ownerEmail
+      ? getUserSetting(ownerEmail, "calendar-settings")
+      : Promise.resolve(null),
+    ownerEmail
+      ? getBookingLinkSlugsForOwners(hostEmails, db)
+      : slug
+        ? Promise.resolve([slug])
+        : Promise.resolve([]),
+  ]);
+  const ownerConfig = ownerConfigRaw as unknown as AvailabilityConfig | null;
+  const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
+  const eligibleHosts = await getEligibleHostAvailability(
+    ownerEmail,
+    hostEmails,
+  );
+
+  return {
+    effectiveConfig:
+      ownerConfig ||
+      (ownerEmail
+        ? createDefaultAvailability(
+            ownerSettings?.timezone || "America/New_York",
+          )
+        : config),
+    ownerEmail,
+    hostEmails,
+    eligibleHosts,
+    slug,
+    bookingLink,
+    durationSource: overrides?.durationSource,
+    conflictSlugs,
+  };
+}
+
+export async function getConflictItems({
+  db = getDb(),
+  ownerEmail,
+  hostEmails,
+  conflictSlugs,
+  viewerEmail,
+  viewerOrgId,
+  rangeStartIso,
+  rangeEndIso,
+  timezone,
+}: {
+  db?: ConflictDb;
+  ownerEmail?: string;
+  hostEmails: string[];
+  conflictSlugs: string[];
+  viewerEmail?: string;
+  viewerOrgId?: string;
+  rangeStartIso: string;
+  rangeEndIso: string;
+  timezone: string;
+}): Promise<ConflictResult> {
+  const conflictItems: ConflictItem[] = [];
+  const requiredHosts = Array.from(
+    new Set(
+      hostEmails
+        .map((email) => email.trim().toLowerCase())
+        .filter((email) => email.length > 0),
+    ),
+  );
+  const freeBusyResolvedHosts = new Set<string>();
+
+  let ownerConnected = false;
+  try {
+    ownerConnected = ownerEmail
+      ? await googleCalendar.isConnected(ownerEmail)
+      : false;
+  } catch {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
+
+  if (requiredHosts.length > 0 && !ownerConnected) {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
+
+  if (ownerConnected) {
+    try {
+      const [freeBusy, googleEventsResult] = await Promise.all([
+        requiredHosts.length > 0
+          ? googleCalendar.getFreeBusy(
+              rangeStartIso,
+              rangeEndIso,
+              requiredHosts,
+              ownerEmail,
+              timezone,
+            )
+          : Promise.resolve(null),
+        googleCalendar.listEvents(rangeStartIso, rangeEndIso, ownerEmail),
+      ]);
+
+      if (freeBusy) {
+        if (freeBusy.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              freeBusy.errors[0]?.email || ownerEmail,
+            ),
+          };
+        }
+        for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
+          const normalizedEmail = email.toLowerCase();
+          if (calendar.errors && calendar.errors.length > 0) {
+            return {
+              items: [],
+              unavailableReason:
+                formatAvailabilityUnavailableReason(normalizedEmail),
+            };
+          }
+          freeBusyResolvedHosts.add(normalizedEmail);
+          conflictItems.push(
+            ...calendar.busy.map((busy) => ({
+              start: busy.start,
+              end: busy.end,
+            })),
+          );
+        }
+      }
+
+      const { events: googleEvents, errors: googleEventErrors } =
+        googleEventsResult;
+      if (googleEventErrors.length > 0) {
+        return {
+          items: [],
+          unavailableReason: formatAvailabilityUnavailableReason(
+            googleEventErrors[0]?.email || ownerEmail,
+          ),
+        };
+      }
+      conflictItems.push(
+        ...googleEvents.filter(eventBlocksAvailability).map((event) => ({
+          start: event.start,
+          end: event.end,
+        })),
+      );
+    } catch {
+      return {
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+      };
+    }
+  }
+
+  const unresolvedHosts = requiredHosts.filter(
+    (email) => !freeBusyResolvedHosts.has(email),
+  );
+  if (unresolvedHosts.length > 0) {
+    return {
+      items: conflictItems,
+      unavailableReason: `Availability unavailable for ${unresolvedHosts.join(", ")}`,
+    };
+  }
+
+  if (viewerEmail && !requiredHosts.includes(viewerEmail)) {
+    try {
+      const viewerAccounts =
+        await googleCalendar.getOwnedAccountEmails(viewerEmail);
+      if (viewerAccounts.length > 0) {
+        const viewerEvents = await googleCalendar.listEvents(
+          rangeStartIso,
+          rangeEndIso,
+          viewerEmail,
+          { accountEmails: viewerAccounts },
+        );
+        if (viewerEvents.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              viewerEvents.errors[0]?.email || viewerEmail,
+            ),
+          };
+        }
+        conflictItems.push(
+          ...viewerEvents.events
+            .filter(eventBlocksAvailability)
+            .map((event) => ({
+              start: event.start,
+              end: event.end,
+            })),
+        );
+      }
+    } catch {
+      return {
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
+      };
+    }
+  }
+
+  const viewerBookingScope =
+    viewerEmail && viewerOrgId
+      ? and(
+          eq(schema.bookings.email, viewerEmail),
+          eq(schema.bookings.orgId, viewerOrgId),
+        )
+      : undefined;
+  const bookingScope =
+    conflictSlugs.length > 0 && viewerBookingScope
+      ? or(inArray(schema.bookings.slug, conflictSlugs), viewerBookingScope)
+      : conflictSlugs.length > 0
+        ? inArray(schema.bookings.slug, conflictSlugs)
+        : viewerBookingScope
+          ? viewerBookingScope
+          : undefined;
+  const bookings = await db
+    .select()
+    .from(schema.bookings)
+    .where(
+      and(
+        ne(schema.bookings.status, "cancelled"),
+        lte(schema.bookings.start, rangeEndIso),
+        gte(schema.bookings.end, rangeStartIso),
+        bookingScope,
+      ),
+    );
+
+  conflictItems.push(
+    ...bookings.map((booking) => ({
+      start: booking.start,
+      end: booking.end,
+    })),
+  );
+
+  return { items: conflictItems };
+}
+
+type ScheduleWindow = { start: Date; end: Date };
+
+const DAY_NAMES = [
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+] as const;
+
+function getScheduleWindowsForLocalDate(
+  date: string,
+  timezone: string,
+  weeklySchedule: AvailabilityConfig["weeklySchedule"],
+): ScheduleWindow[] {
+  const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
+  const dayName = DAY_NAMES[getDayOfWeekInTimezone(targetNoon, timezone)];
+  const daySchedule = weeklySchedule[dayName as keyof typeof weeklySchedule];
+  if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
+    return [];
+  }
+
+  const windows: ScheduleWindow[] = [];
+  for (const slot of normalizeAvailabilitySlots(daySchedule.slots)) {
+    const start = zonedTimeToUtc(date, slot.start, timezone);
+    const end = zonedTimeToUtc(date, slot.end, timezone);
+    if (end > start) windows.push({ start, end });
+  }
+  return windows;
+}
+
+/**
+ * Hosts can be in a different timezone, so their local weekday can shift
+ * relative to the owner's target date. Scan the day before/of/after in the
+ * host's own timezone and keep only windows that actually overlap the
+ * owner's absolute UTC range.
+ */
+function getScheduleWindowsOverlappingRange(
+  rangeStart: Date,
+  rangeEnd: Date,
+  timezone: string,
+  weeklySchedule: AvailabilityConfig["weeklySchedule"],
+): ScheduleWindow[] {
+  const startDate = formatLocalDateInTimezone(
+    new Date(rangeStart.getTime() - 24 * 60 * 60 * 1000),
+    timezone,
+  );
+  const endDate = formatLocalDateInTimezone(
+    new Date(rangeEnd.getTime() + 24 * 60 * 60 * 1000),
+    timezone,
+  );
+
+  const windows: ScheduleWindow[] = [];
+  for (
+    let cursor = startDate;
+    cursor <= endDate;
+    cursor = addDateString(cursor, 1)
+  ) {
+    let dayWindows: ScheduleWindow[];
+    try {
+      dayWindows = getScheduleWindowsForLocalDate(
+        cursor,
+        timezone,
+        weeklySchedule,
+      );
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      // This padding day doesn't exist in the host's own time zone (e.g.
+      // a whole-date DST skip) - it contributes no schedule window, so
+      // just move on instead of discarding the whole surrounding range.
+      continue;
+    }
+    windows.push(...dayWindows);
+  }
+  return windows.filter(
+    (window) => window.end > rangeStart && window.start < rangeEnd,
+  );
+}
+
+function intersectScheduleWindows(
+  a: ScheduleWindow[],
+  b: ScheduleWindow[],
+): ScheduleWindow[] {
+  const result: ScheduleWindow[] = [];
+  for (const windowA of a) {
+    for (const windowB of b) {
+      const start =
+        windowA.start > windowB.start ? windowA.start : windowB.start;
+      const end = windowA.end < windowB.end ? windowA.end : windowB.end;
+      if (end > start) result.push({ start, end });
+    }
+  }
+  return result;
+}
+
+function roundUpToStepInTimezone(
+  date: Date,
+  timezone: string,
+  stepMinutes: number,
+): Date {
+  const parts = getLocalDateTimeParts(date, timezone);
+  const currentMinutes = parts.hour * 60 + parts.minute;
+  const roundedMinutes = Math.ceil(currentMinutes / stepMinutes) * stepMinutes;
+  const diffMs =
+    (roundedMinutes - currentMinutes) * 60 * 1000 - parts.second * 1000;
+  return new Date(date.getTime() + diffMs);
+}
+
+export function generateAvailableSlotsForDate({
+  date,
+  duration,
+  config,
+  conflictItems,
+  hostSchedules = [],
+}: {
+  date: string;
+  duration: number;
+  config: AvailabilityConfig;
+  conflictItems: ConflictItem[];
+  /** Eligible hosts' saved schedules to hard-filter against, if any. */
+  hostSchedules?: EligibleHostAvailability[];
+}): TimeSlot[] {
+  const timezone = config.timezone || "UTC";
+  let windows = getScheduleWindowsForLocalDate(
+    date,
+    timezone,
+    config.weeklySchedule,
+  );
+  if (windows.length === 0) return [];
+
+  for (const host of hostSchedules) {
+    if (!host.weeklySchedule) continue;
+    const rangeStart = windows.reduce(
+      (min, w) => (w.start < min ? w.start : min),
+      windows[0].start,
+    );
+    const rangeEnd = windows.reduce(
+      (max, w) => (w.end > max ? w.end : max),
+      windows[0].end,
+    );
+    const hostWindows = getScheduleWindowsOverlappingRange(
+      rangeStart,
+      rangeEnd,
+      host.timezone || timezone,
+      host.weeklySchedule,
+    );
+    windows = intersectScheduleWindows(windows, hostWindows);
+    if (windows.length === 0) return [];
+  }
+
+  const availableSlots: TimeSlot[] = [];
+  const slotDuration = duration || config.slotDurationMinutes;
+  const bufferMinutes = Number.isFinite(config.bufferMinutes)
+    ? config.bufferMinutes
+    : 0;
+  const minNoticeHours = Number.isFinite(config.minNoticeHours)
+    ? config.minNoticeHours
+    : 0;
+  const maxAdvanceDays = Number.isFinite(config.maxAdvanceDays)
+    ? config.maxAdvanceDays
+    : 60;
+  const bufferMs = Math.max(0, bufferMinutes) * 60 * 1000;
+  const earliestStart =
+    Date.now() + Math.max(0, minNoticeHours) * 60 * 60 * 1000;
+  const todayInScheduleTimezone = formatLocalDateInTimezone(
+    new Date(),
+    timezone,
+  );
+  const latestDate = zonedTimeToUtc(
+    addDateString(todayInScheduleTimezone, Math.max(0, maxAdvanceDays) + 1),
+    "00:00",
+    timezone,
+  );
+
+  for (const window of windows) {
+    let current = roundUpToStepInTimezone(
+      window.start,
+      timezone,
+      BOOKING_SLOT_STEP_MINUTES,
+    );
+
+    while (
+      current.getTime() + slotDuration * 60 * 1000 <=
+      window.end.getTime()
+    ) {
+      const candidateStart = new Date(current);
+      const candidateEnd = new Date(
+        current.getTime() + slotDuration * 60 * 1000,
+      );
+
+      const outsideBookingWindow =
+        candidateStart.getTime() < earliestStart ||
+        candidateStart.getTime() > latestDate.getTime();
+      const hasConflict = conflictItems.some((item) => {
+        const itemStart = new Date(item.start).getTime() - bufferMs;
+        const itemEnd = new Date(item.end).getTime() + bufferMs;
+        return (
+          candidateStart.getTime() < itemEnd &&
+          candidateEnd.getTime() > itemStart
+        );
+      });
+
+      if (!outsideBookingWindow && !hasConflict) {
+        availableSlots.push({
+          start: candidateStart.toISOString(),
+          end: candidateEnd.toISOString(),
+        });
+      }
+
+      current = new Date(
+        current.getTime() + BOOKING_SLOT_STEP_MINUTES * 60 * 1000,
+      );
+    }
+  }
+
+  return availableSlots;
+}
+
+async function requestedSlotIsCurrentlyAvailable({
+  db,
+  slug,
+  start,
+  end,
+  duration,
+  viewerEmail,
+  viewerOrgId,
+}: {
+  db?: ConflictDb;
+  slug: string;
+  start: Date;
+  end: Date;
+  duration: number;
+  viewerEmail?: string;
+  viewerOrgId?: string;
+}): Promise<boolean | { unavailableReason: string }> {
+  const context = await resolveAvailabilityContext({ slug, db });
+  if (!context.effectiveConfig) return false;
+
+  const timezone = context.effectiveConfig.timezone || "UTC";
+  const date = formatLocalDateInTimezone(start, timezone);
+  const conflictResult = await getConflictItems({
+    db,
+    ownerEmail: context.ownerEmail,
+    hostEmails: context.hostEmails,
+    conflictSlugs: context.conflictSlugs,
+    viewerEmail,
+    viewerOrgId,
+    // `date` is derived from a real instant, so it can never itself be a
+    // skipped local date - but the exclusive day-after boundary used for
+    // `rangeEndIso` is plain calendar arithmetic and can still land on
+    // one (e.g. immediately before a whole-date DST skip). Widen it the
+    // same way the availability queries above do, instead of throwing.
+    rangeStartIso: dateStartIso(date, timezone),
+    rangeEndIso: safeRangeEndIso(date, timezone),
+    timezone,
+  });
+  if (conflictResult.unavailableReason) {
+    return { unavailableReason: conflictResult.unavailableReason };
+  }
+  const slots = generateAvailableSlotsForDate({
+    date,
+    duration,
+    config: context.effectiveConfig,
+    conflictItems: conflictResult.items,
+    hostSchedules: context.eligibleHosts,
+  });
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  return slots.some(
+    (slot) =>
+      new Date(slot.start).getTime() === startMs &&
+      new Date(slot.end).getTime() === endMs,
+  );
+}
+
+export const listBookings = defineEventHandler(async (_event: H3Event) => {
+  return requireRequestContext(_event, async () => {
+    try {
+      const accessibleLinks = await getDb()
+        .select({ slug: schema.bookingLinks.slug })
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+      const slugs = accessibleLinks.map((link) => link.slug);
+      if (slugs.length === 0) return [];
+
+      const rows = await getDb()
+        .select()
+        .from(schema.bookings)
+        .where(inArray(schema.bookings.slug, slugs))
+        .orderBy(schema.bookings.start);
+      return rows.map(rowToBooking);
+    } catch (error: any) {
+      setResponseStatus(_event, error?.statusCode ?? 500);
+      return { error: error.message };
+    }
+  });
+});
+
+export const createBooking = defineEventHandler(async (event: H3Event) => {
+  try {
+    const body = await readBody(event);
+
+    // Verify captcha token
+    const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
+    if (!captchaResult.success) {
+      setResponseStatus(event, 403);
+      return { error: "Captcha verification failed" };
+    }
+
+    const now = new Date().toISOString();
+    const id = nanoid();
+    const cancelToken = nanoid();
+    const attendeeName = stripCrlf(body.name);
+    const attendeeEmail = stripCrlf(body.email).toLowerCase();
+    if (
+      body.additionalGuestEmails !== undefined &&
+      !Array.isArray(body.additionalGuestEmails)
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "additionalGuestEmails must be an array" };
+    }
+    const normalizedAdditionalGuestEmails: string[] = Array.isArray(
+      body.additionalGuestEmails,
+    )
+      ? (body.additionalGuestEmails as unknown[]).map((email) =>
+          stripCrlf(email).toLowerCase(),
+        )
+      : [];
+    const additionalGuestEmails: string[] = Array.from(
+      new Set(normalizedAdditionalGuestEmails.filter((email) => email.length)),
+    ).filter((email) => email !== attendeeEmail);
+    const notes = String(body.notes ?? "").trim();
+
+    // Validate required fields
+    if (!attendeeName || !attendeeEmail || !body.start || !body.end) {
+      setResponseStatus(event, 400);
+      return { error: "name, email, start, and end are required" };
+    }
+    if (!isValidEmail(attendeeEmail)) {
+      setResponseStatus(event, 400);
+      return { error: "Enter a valid email address" };
+    }
+    if (additionalGuestEmails.length > MAX_ADDITIONAL_BOOKING_GUESTS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `You can add up to ${MAX_ADDITIONAL_BOOKING_GUESTS} guests`,
+      };
+    }
+    if (additionalGuestEmails.some((email) => !isValidEmail(email))) {
+      setResponseStatus(event, 400);
+      return { error: "Enter valid email addresses for additional guests" };
+    }
+    const requestedSlug = stripCrlf(body.slug);
+
+    const bookingLink =
+      requestedSlug &&
+      (
+        await getDb()
+          .select()
+          .from(schema.bookingLinks)
+          .where(eq(schema.bookingLinks.slug, requestedSlug))
+      )[0];
+
+    if (requestedSlug && (!bookingLink || !bookingLink.isActive)) {
+      setResponseStatus(event, 404);
+      return { error: "Booking link not found" };
+    }
+    // After the guard above, bookingLink is either undefined (no requestedSlug)
+    // or the full DB row. Cast away the "" from the short-circuit type.
+    const link = bookingLink || undefined;
+
+    const viewer = await resolveBookingViewer(event, link);
+
+    const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
+    if (!hostEmail) {
+      setResponseStatus(event, 500);
+      return { error: "Booking link has no host email" };
+    }
+    const coHostEmails = link ? getBookingLinkCoHostEmails(link) : [];
+    const requiredHostEmails = link
+      ? getBookingLinkRequiredHostEmails(link)
+      : [hostEmail];
+    const requestedRange = requestedBookingRange(body.start, body.end);
+    if (!requestedRange) {
+      setResponseStatus(event, 400);
+      return { error: "start and end must be valid ISO times" };
+    }
+
+    const allowedDurations = bookingLink
+      ? parseBookingLinkDurations(bookingLink)
+      : [];
+    if (
+      allowedDurations.length > 0 &&
+      !allowedDurations.includes(requestedRange.duration)
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "Requested duration is not available for this link" };
+    }
+
+    const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
+
+    const eventTitle = buildBookingEventTitle({
+      explicitTitle: body.eventTitle,
+      hostEmail,
+      hostEmails: requiredHostEmails,
+      attendeeName,
+    });
+
+    // Validate custom field responses
+    let customFields: CustomField[] = [];
+    if (link?.customFields) {
+      try {
+        customFields = JSON.parse(link.customFields);
+      } catch {}
+    }
+    const rawFieldResponses: Record<string, string | boolean> =
+      body.fieldResponses || {};
+    // Filter to only declared field IDs — don't persist arbitrary caller keys
+    const fieldResponses: Record<string, string | boolean> = Object.fromEntries(
+      customFields
+        .map((f) => [f.id, rawFieldResponses[f.id]] as const)
+        .filter(([, v]) => v !== undefined),
+    );
+    for (const field of customFields) {
+      const value = fieldResponses[field.id];
+      if (field.required) {
+        if (
+          value === undefined ||
+          value === null ||
+          value === "" ||
+          value === false
+        ) {
+          setResponseStatus(event, 400);
+          return { error: `${field.label} is required` };
+        }
+      }
+      if (
+        field.type === "select" &&
+        typeof value === "string" &&
+        field.options &&
+        field.options.length > 0 &&
+        !field.options.includes(value)
+      ) {
+        setResponseStatus(event, 400);
+        return { error: `Invalid value for ${field.label}` };
+      }
+      if (
+        field.type === "checkbox" &&
+        value !== undefined &&
+        typeof value !== "boolean"
+      ) {
+        setResponseStatus(event, 400);
+        return { error: `${field.label} must be true or false` };
+      }
+      if (
+        field.type === "email" &&
+        typeof value === "string" &&
+        value &&
+        !isValidEmail(value.trim())
+      ) {
+        setResponseStatus(event, 400);
+        return { error: `${field.label} must be a valid email address` };
+      }
+      if (field.pattern && typeof value === "string" && value) {
+        // Cap input length to mitigate ReDoS on user-defined patterns
+        const safeValue = value.slice(0, 1000);
+        let re: RegExp;
+        // Limit pattern length and reject obviously dangerous constructs
+        if (field.pattern.length > 200) {
+          setResponseStatus(event, 400);
+          return { error: `Validation pattern too long for ${field.label}` };
+        }
+        try {
+          re = new RegExp(field.pattern);
+        } catch {
+          setResponseStatus(event, 400);
+          return { error: `Invalid validation pattern for ${field.label}` };
+        }
+        if (!re.test(safeValue)) {
+          setResponseStatus(event, 400);
+          return {
+            error:
+              field.patternError ||
+              `${field.label} does not match the expected format`,
+          };
+        }
+      }
+    }
+
+    // Check for conflicts + insert atomically in a transaction
+    const db = getDb();
+    const insertResult = await db.transaction(async (tx) => {
+      if (viewer) {
+        // The viewer row is the stable lock shared by every booking link in
+        // the viewer's org, including links owned by different hosts.
+        await tx
+          .update(orgMembers)
+          .set({ email: sql`${orgMembers.email}` })
+          .where(
+            and(
+              eq(orgMembers.orgId, viewer.orgId),
+              sql`lower(${orgMembers.email}) = ${viewer.email}`,
+            ),
+          );
+      }
+      // Serialize booking creation per required host. The no-op write takes row
+      // locks on each host's booking links without changing user-visible data.
+      for (const email of requiredHostEmails) {
+        await tx
+          .update(schema.bookingLinks)
+          .set({ ownerEmail: email })
+          .where(eq(schema.bookingLinks.ownerEmail, email));
+      }
+
+      const conflictSlugs = link?.ownerEmail
+        ? await getBookingLinkSlugsForOwners(requiredHostEmails, tx)
+        : requestedSlug
+          ? [requestedSlug]
+          : [];
+
+      const slotAvailability = await requestedSlotIsCurrentlyAvailable({
+        db: tx,
+        slug: requestedSlug,
+        start: requestedRange.start,
+        end: requestedRange.end,
+        duration: requestedRange.duration,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
+      });
+      if (typeof slotAvailability !== "boolean") {
+        return slotAvailability;
+      }
+      if (!slotAvailability) {
+        return { conflict: true } as const;
+      }
+
+      const conflicting = await tx
+        .select()
+        .from(schema.bookings)
+        .where(
+          and(
+            ne(schema.bookings.status, "cancelled"),
+            lt(schema.bookings.start, requestedRange.end.toISOString()),
+            gt(schema.bookings.end, requestedRange.start.toISOString()),
+            conflictSlugs.length > 0
+              ? inArray(schema.bookings.slug, conflictSlugs)
+              : undefined,
+          ),
+        );
+
+      if (conflicting.length > 0) {
+        return { conflict: true } as const;
+      }
+
+      await tx.insert(schema.bookings).values({
+        id,
+        name: attendeeName,
+        email: attendeeEmail,
+        additionalGuestEmails:
+          additionalGuestEmails.length > 0
+            ? JSON.stringify(additionalGuestEmails)
+            : null,
+        start: requestedRange.start.toISOString(),
+        end: requestedRange.end.toISOString(),
+        slug: requestedSlug,
+        eventTitle,
+        notes: notes || null,
+        fieldResponses:
+          Object.keys(fieldResponses).length > 0
+            ? JSON.stringify(fieldResponses)
+            : null,
+        cancelToken,
+        status: "confirmed",
+        createdAt: now,
+        ownerEmail: hostEmail,
+        orgId: link?.orgId ?? null,
+      });
+
+      return { conflict: false } as const;
+    });
+
+    if ("unavailableReason" in insertResult) {
+      return unavailableAvailabilityResponse(event);
+    }
+    if (insertResult.conflict) {
+      setResponseStatus(event, 409);
+      return { error: "This time slot is no longer available" };
+    }
+
+    // Resolve conferencing config
+    let conferencing: ConferencingConfig | undefined;
+    if (link?.conferencing) {
+      try {
+        conferencing = JSON.parse(link.conferencing);
+      } catch {}
+    }
+    let meetingLink: string | undefined;
+    let googleEventId: string | undefined;
+    let calendarAccountId: string | undefined;
+
+    // For custom-URL conferencing, use the static URL — only http(s).
+    if (conferencing?.type === "custom" && conferencing.url) {
+      try {
+        const parsed = new URL(conferencing.url);
+        if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+          meetingLink = conferencing.url;
+        }
+      } catch {
+        // Invalid URL — skip
+      }
+    }
+
+    // For Zoom, create a real meeting via the host's connected OAuth
+    // account. The booking link's owner_email is the host.
+    if (conferencing?.type === "zoom") {
+      try {
+        const zoomResult = await createZoomMeeting({
+          hostEmail,
+          title: eventTitle,
+          startTime: requestedRange.start.toISOString(),
+          endTime: requestedRange.end.toISOString(),
+          timezone: bookingTimeZone,
+        });
+        if (zoomResult?.meetingUrl) {
+          meetingLink = zoomResult.meetingUrl;
+        }
+      } catch {
+        // Fall through — booking still succeeds without a Zoom link.
+      }
+    }
+
+    // Build the manage-booking URL for the event description
+    const reqUrl = getRequestURL(event);
+    const origin = reqUrl.origin;
+    const manageUrl = `${origin}/booking/manage/${cancelToken}`;
+
+    // Create a corresponding Google Calendar event on the booking link owner's
+    // connected Google account. Public booking requests do not have an
+    // authenticated request context, so this must be explicitly scoped to the
+    // host rather than relying on ambient user state.
+    if (await googleCalendar.isConnected(hostEmail)) {
+      try {
+        const account =
+          await googleCalendar.getDefaultAccountSelection(hostEmail);
+        const descParts: string[] = [
+          `Booking by ${attendeeName} (${attendeeEmail})`,
+        ];
+        if (link?.title) {
+          descParts.push(`Meeting type: ${link.title}`);
+        }
+        if (coHostEmails.length > 0) {
+          descParts.push(`Required hosts: ${requiredHostEmails.join(", ")}`);
+        }
+        if (notes) descParts.push(`Notes: ${notes}`);
+        if (customFields.length > 0 && Object.keys(fieldResponses).length > 0) {
+          const fieldLines = customFields
+            .filter(
+              (f) =>
+                fieldResponses[f.id] !== undefined &&
+                fieldResponses[f.id] !== "",
+            )
+            .map((f) => `${f.label}: ${fieldResponses[f.id]}`);
+          if (fieldLines.length > 0) descParts.push(fieldLines.join("\n"));
+        }
+        if (meetingLink) descParts.push(`Meeting link: ${meetingLink}`);
+        descParts.push(
+          `──────────\nNeed to make changes?\nCancel or reschedule: ${manageUrl}`,
+        );
+
+        const calEvent: CalendarEvent = {
+          id: nanoid(),
+          title: eventTitle,
+          description: descParts.join("\n\n"),
+          start: requestedRange.start.toISOString(),
+          end: requestedRange.end.toISOString(),
+          location: meetingLink || "",
+          allDay: false,
+          source: "google",
+          accountEmail: account.accountEmail,
+          attendees: buildBookingEventAttendees({
+            organizerEmail: account.accountEmail,
+            attendeeEmail,
+            attendeeName,
+            hostEmails: coHostEmails,
+            additionalGuestEmails,
+          }),
+          createdAt: now,
+          updatedAt: now,
+        };
+        const result = await googleCalendar.createEvent(calEvent, {
+          account,
+          addGoogleMeet: conferencing?.type === "google_meet",
+          sendUpdates: "all",
+        });
+        // Google Meet link is returned by the API when created
+        googleEventId = result.id;
+        calendarAccountId = account.accountEmail;
+        if (result.meetLink) {
+          meetingLink = result.meetLink;
+        }
+      } catch (error) {
+        console.warn(
+          `[bookings] Failed to create Google Calendar event for ${hostEmail}:`,
+          error,
+        );
+        // Continue even if Google Calendar creation fails
+      }
+    }
+
+    // Persist provider details created after the initial booking insert.
+    if (meetingLink || googleEventId) {
+      const providerUpdates: {
+        meetingLink?: string;
+        googleEventId?: string;
+        calendarAccountId?: string;
+      } = {};
+      if (meetingLink) providerUpdates.meetingLink = meetingLink;
+      if (googleEventId) providerUpdates.googleEventId = googleEventId;
+      if (googleEventId && calendarAccountId) {
+        providerUpdates.calendarAccountId = calendarAccountId;
+      }
+      await getDb()
+        .update(schema.bookings)
+        .set(providerUpdates)
+        .where(eq(schema.bookings.id, id));
+    }
+
+    const booking: Booking = {
+      id,
+      name: attendeeName,
+      email: attendeeEmail,
+      additionalGuestEmails:
+        additionalGuestEmails.length > 0 ? additionalGuestEmails : undefined,
+      start: requestedRange.start.toISOString(),
+      end: requestedRange.end.toISOString(),
+      slug: requestedSlug,
+      eventTitle,
+      notes: notes || undefined,
+      fieldResponses:
+        Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
+      meetingLink,
+      googleEventId,
+      cancelToken,
+      status: "confirmed",
+      createdAt: now,
+    };
+
+    await sendBookingConfirmationEmails({
+      booking,
+      hostEmail,
+      manageUrl,
+      timeZone: bookingTimeZone,
+    });
+
+    try {
+      emit(
+        "calendar.booking.created",
+        {
+          bookingId: id,
+          schedulingLinkSlug: requestedSlug,
+          attendeeName,
+          attendeeEmail,
+          startTime: requestedRange.start.toISOString(),
+          endTime: requestedRange.end.toISOString(),
+          eventTitle: booking.eventTitle || "",
+        },
+        { owner: hostEmail },
+      );
+    } catch {
+      // best-effort
+    }
+    recordBookingsChanged(hostEmail);
+
+    setResponseStatus(event, 201);
+    return booking;
+  } catch (error: any) {
+    setResponseStatus(event, 500);
+    return { error: error.message };
+  }
+});
+
+async function getAvailableSlotsForQuery(
+  event: H3Event,
+  query: Record<string, unknown>,
+  draft?: BookingAvailabilityDraft,
+) {
+  const date = typeof query.date === "string" ? query.date : "";
+  const from = parseDateOnly(query.from);
+  const to = parseDateOnly(query.to);
+  const hasRangeQuery = query.from !== undefined || query.to !== undefined;
+  const slug = typeof query.slug === "string" ? query.slug : "";
+
+  if (hasRangeQuery) {
+    if (!from || !to) {
+      setResponseStatus(event, 400);
+      return {
+        error:
+          "from and to query parameters are required together in YYYY-MM-DD format",
+      };
+    }
+    if (from > to) {
+      setResponseStatus(event, 400);
+      return { error: "from must be before to" };
+    }
+    if (countDaysInclusive(from, to) > MAX_AVAILABILITY_RANGE_DAYS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `date range cannot exceed ${MAX_AVAILABILITY_RANGE_DAYS} days`,
+      };
+    }
+  } else if (!parseDateOnly(date)) {
+    setResponseStatus(event, 400);
+    return { error: "date query parameter is required" };
+  }
+
+  const context = await resolveAvailabilityContext({ slug, draft });
+  if (!context.effectiveConfig) {
+    return hasRangeQuery ? { dates: [] } : { slots: [] };
+  }
+  const durationResult = resolveAvailabilityDuration({
+    rawDuration: query.duration,
+    bookingLink: context.durationSource ?? context.bookingLink,
+    availability: context.effectiveConfig,
+  });
+  if ("error" in durationResult) {
+    setResponseStatus(event, 400);
+    return { error: durationResult.error };
+  }
+  const duration = durationResult.duration;
+  const viewer = await resolveBookingViewer(event, context.bookingLink);
+
+  if (hasRangeQuery) {
+    const rangeStart = formatDateOnly(from!);
+    const rangeEnd = formatDateOnly(to!);
+    const timezone = context.effectiveConfig.timezone || "UTC";
+    let conflictResult;
+    try {
+      conflictResult = await getConflictItems({
+        ownerEmail: context.ownerEmail,
+        hostEmails: context.hostEmails,
+        conflictSlugs: context.conflictSlugs,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
+        // The literal rangeStart/rangeEnd dates can themselves be skipped
+        // by the time zone (or, for rangeEnd, the exclusive day-after
+        // boundary can be). Widen to the nearest valid neighboring date
+        // rather than failing the whole range - the per-day loop below
+        // still correctly excludes any individual skipped day.
+        rangeStartIso: safeRangeStartIso(rangeStart, timezone),
+        rangeEndIso: safeRangeEndIso(rangeEnd, timezone),
+        timezone,
+      });
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      // Only reachable if several consecutive local dates near the range
+      // boundary are all skipped - an extreme edge case with no valid
+      // conflict window to compute.
+      return { dates: [] };
+    }
+    if (conflictResult.unavailableReason) {
+      return unavailableAvailabilityResponse(event);
+    }
+    const dates: string[] = [];
+    for (
+      let cursor = new Date(from!);
+      cursor <= to!;
+      cursor = addLocalDays(cursor, 1)
+    ) {
+      const day = formatDateOnly(cursor);
+      let slots: TimeSlot[];
+      try {
+        slots = generateAvailableSlotsForDate({
+          date: day,
+          duration,
+          config: context.effectiveConfig,
+          conflictItems: conflictResult.items,
+          hostSchedules: context.eligibleHosts,
+        });
+      } catch (error) {
+        if (!(error instanceof SkippedLocalDateError)) throw error;
+        // A calendar date that a time zone skipped entirely has no valid
+        // availability by definition - treat it as unavailable rather
+        // than failing the whole range.
+        continue;
+      }
+      if (slots.length > 0) {
+        dates.push(day);
+      }
+    }
+    return { dates };
+  }
+
+  const timezone = context.effectiveConfig.timezone || "UTC";
+  let availableSlots: TimeSlot[];
+  try {
+    const conflictResult = await getConflictItems({
+      ownerEmail: context.ownerEmail,
+      hostEmails: context.hostEmails,
+      conflictSlugs: context.conflictSlugs,
+      viewerEmail: viewer?.email,
+      viewerOrgId: viewer?.orgId,
+      // `date` itself not existing is a genuine "no availability" case,
+      // caught below. The exclusive day-after boundary used for
+      // `rangeEndIso` can be skipped even when `date` is perfectly valid,
+      // so widen that side instead of discarding the requested date.
+      rangeStartIso: dateStartIso(date, timezone),
+      rangeEndIso: safeRangeEndIso(date, timezone),
+      timezone,
+    });
+    if (conflictResult.unavailableReason) {
+      return unavailableAvailabilityResponse(event);
+    }
+    availableSlots = generateAvailableSlotsForDate({
+      date,
+      duration,
+      config: context.effectiveConfig,
+      conflictItems: conflictResult.items,
+      hostSchedules: context.eligibleHosts,
+    });
+  } catch (error) {
+    if (!(error instanceof SkippedLocalDateError)) throw error;
+    return { slots: [] };
+  }
+
+  return { slots: availableSlots };
+}
+
+export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
+  try {
+    const query = getQuery(event);
+    const rawDraft = query.draft;
+    if (rawDraft !== undefined) {
+      const parsedDraft = parseBookingAvailabilityDraft(rawDraft);
+      if ("error" in parsedDraft) {
+        setResponseStatus(event, 400);
+        return { error: parsedDraft.error };
+      }
+      if (typeof query.slug !== "string" || !query.slug) {
+        setResponseStatus(event, 400);
+        return { error: "slug query parameter is required for draft preview" };
+      }
+      return await requireRequestContext(event, () =>
+        getAvailableSlotsForQuery(event, query, parsedDraft.draft),
+      );
+    }
+
+    return await getAvailableSlotsForQuery(event, query);
+  } catch (error: any) {
+    setResponseStatus(
+      event,
+      Number.isInteger(error?.statusCode) ? error.statusCode : 500,
+    );
+    return { error: error?.message || "Failed to fetch available slots" };
+  }
+});
+
+export const deleteBooking = defineEventHandler(async (event: H3Event) => {
+  return requireRequestContext(event, async () => {
+    try {
+      const id = getRouterParam(event, "id") as string;
+      const db = getDb();
+
+      const existing = await db
+        .select()
+        .from(schema.bookings)
+        .where(eq(schema.bookings.id, id))
+        .then((rows) => rows[0]);
+
+      if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Booking not found" };
+      }
+
+      // Verify the caller has access to the booking link that owns this booking.
+      // Bookings have no ownerEmail of their own — scoping is via the slug →
+      // bookingLink ownership/sharing chain.
+      const accessibleLinks = await db
+        .select({ slug: schema.bookingLinks.slug })
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+      const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
+
+      if (!accessibleSlugs.has(existing.slug)) {
+        setResponseStatus(event, 403);
+        return { error: "Access denied" };
+      }
+
+      if (existing.status === "cancelled") {
+        return { success: true, alreadyCancelled: true };
+      }
+
+      const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+      const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
+      const reqUrl = getRequestURL(event);
+      const bookAgainUrl = existing.slug
+        ? `${reqUrl.origin}/book/${existing.slug}`
+        : undefined;
+
+      await sendBookingCancellationEmails({
+        booking: rowToBooking(existing),
+        hostEmail,
+        bookAgainUrl,
+        timeZone: bookingTimeZone,
+      });
+      await deleteGoogleEventForBooking({ booking: existing, hostEmail });
+
+      await db
+        .update(schema.bookings)
+        .set({ status: "cancelled" })
+        .where(eq(schema.bookings.id, id));
+      recordBookingsChanged(hostEmail);
+      return { success: true };
+    } catch (error: any) {
+      setResponseStatus(event, error?.statusCode ?? 500);
+      return { error: error.message };
+    }
+  });
+});
+
+/** Look up a booking by its cancel token (public, no auth) */
+export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
+  try {
+    const token = getRouterParam(event, "token") as string;
+    if (!token) {
+      setResponseStatus(event, 400);
+      return { error: "Token is required" };
+    }
+
+    const row = await getDb()
+      .select()
+      .from(schema.bookings)
+      .where(eq(schema.bookings.cancelToken, token))
+      .then((rows) => rows[0]);
+
+    if (!row) {
+      setResponseStatus(event, 404);
+      return { error: "Booking not found" };
+    }
+
+    // Return limited info — don't expose internal IDs
+    const booking = rowToBooking(row);
+    return {
+      eventTitle: booking.eventTitle,
+      name: booking.name,
+      start: booking.start,
+      end: booking.end,
+      slug: booking.slug,
+      meetingLink: booking.meetingLink,
+      status: booking.status,
+    };
+  } catch (error: any) {
+    setResponseStatus(event, 500);
+    return { error: error.message };
+  }
+});
+
+/** Cancel a booking by its cancel token (public, no auth) */
+export const cancelBookingByToken = defineEventHandler(
+  async (event: H3Event) => {
+    try {
+      const token = getRouterParam(event, "token") as string;
+      if (!token) {
+        setResponseStatus(event, 400);
+        return { error: "Token is required" };
+      }
+
+      const db = getDb();
+      const row = await db
+        .select()
+        .from(schema.bookings)
+        .where(eq(schema.bookings.cancelToken, token))
+        .then((rows) => rows[0]);
+
+      if (!row) {
+        setResponseStatus(event, 404);
+        return { error: "Booking not found" };
+      }
+
+      if (row.status === "cancelled") {
+        return { success: true, alreadyCancelled: true };
+      }
+
+      await db
+        .update(schema.bookings)
+        .set({ status: "cancelled" })
+        .where(eq(schema.bookings.id, row.id));
+
+      const hostEmail = await getBookingLinkOwnerEmail(row.slug);
+      const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
+      const reqUrl = getRequestURL(event);
+      const bookAgainUrl = row.slug
+        ? `${reqUrl.origin}/book/${row.slug}`
+        : undefined;
+      await sendBookingCancellationEmails({
+        booking: rowToBooking(row),
+        hostEmail,
+        bookAgainUrl,
+        timeZone: bookingTimeZone,
+      });
+      await deleteGoogleEventForBooking({ booking: row, hostEmail });
+      recordBookingsChanged(hostEmail);
+
+      return { success: true, slug: row.slug };
+    } catch (error: any) {
+      setResponseStatus(event, 500);
+      return { error: error.message };
+    }
+  },
+);
+
+// Helper to convert DB row to Booking type
+function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
+  let fieldResponses: Record<string, string | boolean> | undefined;
+  if (row.fieldResponses) {
+    try {
+      fieldResponses = JSON.parse(row.fieldResponses);
+    } catch {}
+  }
+  const additionalGuestEmails = parseAdditionalGuestEmails(
+    row.additionalGuestEmails,
+  );
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    additionalGuestEmails,
+    start: row.start,
+    end: row.end,
+    slug: row.slug,
+    eventTitle: row.eventTitle ?? "",
+    notes: row.notes ?? undefined,
+    fieldResponses,
+    meetingLink: row.meetingLink ?? undefined,
+    googleEventId: row.googleEventId ?? undefined,
+    status: row.status,
+    createdAt: row.createdAt,
+  };
+}
+
+function parseAdditionalGuestEmails(
+  value: string | null | undefined,
+): string[] | undefined {
+  if (!value) return undefined;
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  const emails = parsed.filter(
+    (email): email is string => typeof email === "string",
+  );
+  if (emails.length !== parsed.length) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  return emails;
+}

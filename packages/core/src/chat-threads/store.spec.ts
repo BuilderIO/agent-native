@@ -1,0 +1,1181 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const executeMock = vi.hoisted(() => vi.fn());
+const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => ({ execute: executeMock }),
+  getDialect: () => "sqlite",
+  intType: () => "INTEGER",
+  isPostgres: () => false,
+}));
+
+vi.mock("./emitter.js", () => ({
+  emitChatThreadChange: emitChatThreadChangeMock,
+}));
+
+import {
+  adoptThreadScopeIfUnscoped,
+  createThreadShareLink,
+  forkThread,
+  getThreadByShareToken,
+  grantThreadUserShare,
+  listThreads,
+  renameThread,
+  resolveRunThreadScope,
+  revokeThreadShareLink,
+  searchThreads,
+  setThreadArchived,
+  threadScopeMismatch,
+  setThreadPinned,
+  setThreadQueuedMessages,
+  updateThreadData,
+} from "./store.js";
+
+type ChatThreadRow = {
+  id: string;
+  owner_email: string;
+  title: string;
+  preview: string;
+  thread_data: string;
+  message_count: number;
+  created_at: number;
+  updated_at: number;
+  scope_type?: string | null;
+  scope_id?: string | null;
+  scope_label?: string | null;
+  pinned_at?: number | null;
+  archived_at?: number | null;
+  share_token_hash?: string | null;
+  source_platform?: string | null;
+  source_app_id?: string | null;
+  source_url?: string | null;
+  org_id?: string | null;
+  visibility?: "private" | "org" | "public";
+};
+
+const userMessage = {
+  id: "user-1",
+  role: "user",
+  content: [{ type: "text", text: "make this slide better" }],
+};
+
+const assistantMessage = {
+  id: "assistant-1",
+  role: "assistant",
+  content: [{ type: "text", text: "Done." }],
+  status: { type: "complete", reason: "stop" },
+  metadata: { runId: "run-1" },
+};
+
+describe("chat thread store", () => {
+  let row: ChatThreadRow | null;
+  let conflictOnce: (() => void) | null;
+  let conflictEveryThreadDataUpdate: boolean;
+  let transientThreadDataUpdateFailures: number;
+  let shareRows: Array<{
+    id: string;
+    resource_id: string;
+    principal_id: string;
+    role: string;
+    created_by: string;
+  }>;
+
+  beforeEach(() => {
+    row = {
+      id: "thread-1",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "make this slide better",
+      thread_data: JSON.stringify({ messages: [userMessage] }),
+      message_count: 1,
+      created_at: 1,
+      updated_at: 1,
+    };
+    conflictOnce = null;
+    conflictEveryThreadDataUpdate = false;
+    transientThreadDataUpdateFailures = 0;
+    shareRows = [];
+    executeMock.mockReset();
+    emitChatThreadChangeMock.mockReset();
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        // Legacy message_count backfill probe — no legacy rows in these tests.
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/WHERE thread_data LIKE \?/i.test(sql)) {
+        const pattern = String(args[0] ?? "").replace(/%/g, "");
+        return {
+          rows: row && row.thread_data.includes(pattern) ? [row] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/WHERE share_token_hash = \?/i.test(sql)) {
+        return {
+          rows: row && row.share_token_hash === args[0] ? [row] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/UPDATE chat_threads SET share_token_hash/i.test(sql)) {
+        if (row && row.id === args[1]) {
+          row = { ...row, share_token_hash: args[0] as string | null };
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        return {
+          rows: row && args[0] === row.id ? [row] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/UPDATE chat_threads SET thread_data/i.test(sql)) {
+        if (transientThreadDataUpdateFailures > 0) {
+          transientThreadDataUpdateFailures -= 1;
+          throw new Error("temporary database unavailable");
+        }
+        if (conflictOnce) {
+          const applyConflict = conflictOnce;
+          conflictOnce = null;
+          applyConflict();
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (conflictEveryThreadDataUpdate) {
+          if (row) row = { ...row, updated_at: row.updated_at + 1 };
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (!row || row.id !== args[5] || row.updated_at !== args[6]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = {
+          ...row,
+          thread_data: args[0],
+          title: args[1],
+          preview: args[2],
+          message_count: args[3],
+          updated_at: args[4],
+        };
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE chat_threads SET pinned_at/i.test(sql)) {
+        if (!row || row.id !== args[1]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (args[2] && row.owner_email !== args[2]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = { ...row, pinned_at: args[0] };
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE chat_threads SET archived_at/i.test(sql)) {
+        if (!row || row.id !== args[1]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (args[2] && row.owner_email !== args[2]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = { ...row, archived_at: args[0] };
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT id, role FROM chat_thread_shares/i.test(sql)) {
+        return {
+          rows: shareRows.filter(
+            (share) =>
+              share.resource_id === args[0] &&
+              share.principal_id.toLowerCase() === args[1],
+          ),
+          rowsAffected: 0,
+        };
+      }
+      if (/UPDATE chat_thread_shares SET role/i.test(sql)) {
+        shareRows = shareRows.map((share) =>
+          share.id === args[1] ? { ...share, role: args[0] } : share,
+        );
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/INSERT INTO chat_thread_shares/i.test(sql)) {
+        shareRows.push({
+          id: args[0],
+          resource_id: args[1],
+          principal_id: args[2],
+          role: args[3],
+          created_by: args[4],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+  });
+
+  it("grants a non-owner an explicit share so integration deep links resolve", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "  Brent@Example.com ",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toEqual([
+      expect.objectContaining({
+        resource_id: "thread-1",
+        principal_id: "brent@example.com",
+        role: "editor",
+        created_by: "integration@slack",
+      }),
+    ]);
+  });
+
+  it("is idempotent and never downgrades an existing stronger role", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "admin",
+      "integration@slack",
+    );
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toHaveLength(1);
+    expect(shareRows[0].role).toBe("admin");
+  });
+
+  it("upgrades a weaker existing role instead of inserting a duplicate", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "viewer",
+      "integration@slack",
+    );
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toHaveLength(1);
+    expect(shareRows[0].role).toBe("editor");
+  });
+
+  it("retries cross-process thread-data conflicts and preserves server-only messages", async () => {
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [
+            { message: userMessage, parentId: null },
+            { message: assistantMessage, parentId: "user-1" },
+          ],
+        }),
+        message_count: 2,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({ messages: [userMessage] }),
+      "Thread",
+      "make this slide better",
+      1,
+    );
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(row!.message_count).toBe(2);
+    expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("throws after exhausted thread-data conflicts by default", async () => {
+    conflictEveryThreadDataUpdate = true;
+
+    await expect(
+      updateThreadData(
+        "thread-1",
+        JSON.stringify({ messages: [userMessage] }),
+        "Thread",
+        "make this slide better",
+        1,
+        { maxAttempts: 1 },
+      ),
+    ).rejects.toThrow(
+      "Failed to update chat thread thread-1 after concurrent write conflicts.",
+    );
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("retries transient thread-data write failures before surfacing an error", async () => {
+    transientThreadDataUpdateFailures = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({ messages: [userMessage, assistantMessage] }),
+      "Thread",
+      "Done.",
+      2,
+      { maxAttempts: 3 },
+    );
+
+    expect(JSON.parse(row!.thread_data).messages).toHaveLength(2);
+    expect(row!.message_count).toBe(2);
+    expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("can ignore exhausted conflicts for best-effort client saves", async () => {
+    conflictEveryThreadDataUpdate = true;
+
+    await expect(
+      updateThreadData(
+        "thread-1",
+        JSON.stringify({ messages: [userMessage] }),
+        "Thread",
+        "make this slide better",
+        1,
+        { maxAttempts: 1, ignoreConflicts: true },
+      ),
+    ).resolves.toBeUndefined();
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not retain empty assistant placeholders when saving the real answer", async () => {
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { message: userMessage, parentId: null },
+        {
+          message: { id: "placeholder", role: "assistant", content: [] },
+          parentId: "user-1",
+        },
+      ],
+      headId: "placeholder",
+    });
+    row!.message_count = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [
+          { message: userMessage, parentId: null },
+          { message: assistantMessage, parentId: "user-1" },
+        ],
+        headId: "assistant-1",
+      }),
+      "Thread",
+      "Done.",
+      2,
+    );
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(repo.messages[1].parentId).toBe("user-1");
+    expect(repo.headId).toBe("assistant-1");
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("lets queued-message clears win while preserving concurrent assistant messages", async () => {
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [{ id: "queued-1", text: "next" }],
+      messages: [{ message: userMessage, parentId: null }],
+    });
+
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          queuedMessages: [{ id: "queued-1", text: "next" }],
+          messages: [
+            { message: userMessage, parentId: null },
+            { message: assistantMessage, parentId: "user-1" },
+          ],
+        }),
+        message_count: 2,
+        updated_at: 2,
+      };
+    };
+
+    await setThreadQueuedMessages("thread-1", []);
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo.queuedMessages).toEqual([]);
+    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+  });
+
+  it("pins and archives threads as lightweight metadata", async () => {
+    await setThreadPinned("thread-1", true);
+    expect(row!.pinned_at).toEqual(expect.any(Number));
+    expect(row!.updated_at).toBe(1);
+
+    await setThreadPinned("thread-1", false);
+    expect(row!.pinned_at).toBeNull();
+    expect(row!.updated_at).toBe(1);
+
+    await setThreadArchived("thread-1", true);
+    expect(row!.archived_at).toEqual(expect.any(Number));
+    expect(row!.updated_at).toBe(1);
+    expect(emitChatThreadChangeMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("refuses to pin or archive a thread for a different owner", async () => {
+    const pinned = await setThreadPinned("thread-1", true, {
+      ownerEmail: "other@example.com",
+    });
+    const archived = await setThreadArchived("thread-1", true, {
+      ownerEmail: "other@example.com",
+    });
+
+    expect(pinned).toBe(false);
+    expect(archived).toBe(false);
+    expect(row!.pinned_at).toBeUndefined();
+    expect(row!.archived_at).toBeUndefined();
+    expect(row!.updated_at).toBe(1);
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("creates, resolves, and revokes read-only share links", async () => {
+    const link = await createThreadShareLink("thread-1", {
+      ownerEmail: "user@example.com",
+    });
+    expect(link?.enabled).toBe(true);
+    expect(link?.token).toEqual(expect.any(String));
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo._share.tokenHash).toEqual(expect.any(String));
+    expect(repo._share.tokenHash).not.toBe(link!.token);
+
+    const shared = await getThreadByShareToken(link!.token);
+    expect(shared?.id).toBe("thread-1");
+
+    const revoked = await revokeThreadShareLink("thread-1", {
+      ownerEmail: "user@example.com",
+    });
+    expect(revoked?.enabled).toBe(false);
+    expect(await getThreadByShareToken(link!.token)).toBeNull();
+  });
+
+  it("searches thread text with literal LIKE metacharacters", async () => {
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    await searchThreads("user@example.com", "100%_done");
+
+    // Match the search query specifically (its WHERE has the ESCAPE clause),
+    // not the legacy-count backfill probe that also reads from chat_threads.
+    const searchCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return (
+        /SELECT .* FROM chat_threads WHERE/i.test(sql) && /ESCAPE/i.test(sql)
+      );
+    });
+    expect(searchCall).toBeTruthy();
+    const query = searchCall![0] as { sql: string; args: unknown[] };
+    expect(query.sql).toContain("LIKE ? ESCAPE '!'");
+    expect(query.args.slice(2, 5)).toEqual([
+      "%100!%!_done%",
+      "%100!%!_done%",
+      "%100!%!_done%",
+    ]);
+  });
+
+  it("lists threads without loading the thread_data blob and filters on message_count", async () => {
+    const summaryRow = {
+      id: "thread-1",
+      title: "Thread",
+      preview: "make this slide better",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 2,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+      pinned_at: null,
+      archived_at: null,
+    };
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [summaryRow], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const result = await listThreads("user@example.com", { limit: 10 });
+
+    const listCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return (
+        /SELECT .* FROM chat_threads WHERE/i.test(sql) && /ORDER BY/i.test(sql)
+      );
+    });
+    expect(listCall).toBeTruthy();
+    const sql = (listCall![0] as { sql: string }).sql;
+    // The list SELECT must NOT pull the heavy thread_data blob...
+    expect(sql).not.toContain("thread_data");
+    // ...and the "has messages" filter is the maintained column, no LIKE scan.
+    expect(sql).toContain("message_count > 0");
+    expect(sql).not.toMatch(/thread_data LIKE/i);
+    expect(sql).toContain("chat_thread_shares");
+    expect(result.map((t) => t.id)).toEqual(["thread-1"]);
+    expect(result[0].messageCount).toBe(1);
+  });
+
+  it("keeps the local history view app-scoped and excludes connected chats", async () => {
+    const summaryRow = {
+      id: "thread-local",
+      title: "Local thread",
+      preview: "hello there",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 2,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+      source_platform: null,
+      source_app_id: "dispatch",
+      source_url: null,
+      pinned_at: null,
+      archived_at: null,
+    };
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [summaryRow], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const result = await listThreads("user@example.com", {
+      limit: 10,
+      includeExternal: false,
+      sourceAppId: "dispatch",
+    });
+
+    const listCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return /SELECT .* FROM chat_threads WHERE/i.test(sql);
+    });
+    expect(listCall).toBeTruthy();
+    const request = listCall![0] as { sql: string; args: unknown[] };
+    expect(request.sql).toContain("source_platform IS NULL");
+    // Never match against thread_data here. It is the full message-history blob,
+    // so any predicate on it detoasts every scanned row before LIMIT applies —
+    // measured at ~10x on the production sidebar list. Migration 3 backfilled
+    // `source_platform` for the legacy integration rows this used to catch.
+    expect(request.sql).not.toContain("thread_data");
+    expect(request.sql).toContain(
+      "(source_app_id IS NULL OR source_app_id = ?)",
+    );
+    expect(request.args).toContain("dispatch");
+    expect(result[0]?.source).toEqual({
+      appId: "dispatch",
+    });
+  });
+
+  it("excludes archived threads from list/search by default, includes them via includeArchived, and restores them on unarchive", async () => {
+    const activeRow: ChatThreadRow = {
+      id: "thread-active",
+      owner_email: "user@example.com",
+      title: "Active Thread",
+      preview: "hello there",
+      thread_data: "{}",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 2,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+      pinned_at: null,
+      archived_at: null,
+    };
+    const archivedRow: ChatThreadRow = {
+      ...activeRow,
+      id: "thread-archived",
+      title: "Archived Thread",
+      archived_at: 5,
+    };
+    const rowsById = new Map<string, ChatThreadRow>([
+      [activeRow.id, activeRow],
+      [archivedRow.id, archivedRow],
+    ]);
+
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/UPDATE chat_threads SET archived_at/i.test(sql)) {
+        const target = rowsById.get(args[1] as string);
+        if (!target) return { rows: [], rowsAffected: 0 };
+        target.archived_at = args[0] as number | null;
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        const all = Array.from(rowsById.values());
+        const filtered = /archived_at IS NULL/i.test(sql)
+          ? all.filter((r) => r.archived_at == null)
+          : all;
+        return { rows: filtered, rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    // Default: archived thread is hidden from listThreads.
+    const defaultList = await listThreads("user@example.com", { limit: 10 });
+    expect(defaultList.map((t) => t.id)).toEqual(["thread-active"]);
+
+    // includeArchived: true surfaces it again.
+    const listWithArchived = await listThreads("user@example.com", {
+      limit: 10,
+      includeArchived: true,
+    });
+    expect(listWithArchived.map((t) => t.id).sort()).toEqual([
+      "thread-active",
+      "thread-archived",
+    ]);
+
+    // Default: archived thread is hidden from searchThreads.
+    const defaultSearch = await searchThreads("user@example.com", "Thread");
+    expect(defaultSearch.map((t) => t.id)).toEqual(["thread-active"]);
+
+    // includeArchived: true surfaces it in search too.
+    const searchWithArchived = await searchThreads(
+      "user@example.com",
+      "Thread",
+      50,
+      { includeArchived: true },
+    );
+    expect(searchWithArchived.map((t) => t.id).sort()).toEqual([
+      "thread-active",
+      "thread-archived",
+    ]);
+
+    // Unarchiving restores the thread to the default list.
+    const unarchived = await setThreadArchived("thread-archived", false);
+    expect(unarchived).toBe(true);
+    expect(archivedRow.archived_at).toBeNull();
+    const afterUnarchive = await listThreads("user@example.com", {
+      limit: 10,
+    });
+    expect(afterUnarchive.map((t) => t.id).sort()).toEqual([
+      "thread-active",
+      "thread-archived",
+    ]);
+  });
+
+  it("keeps the legacy message_count repair out of table bootstrap", async () => {
+    // ensureTable caches its bootstrap promise at module scope, so reset the
+    // module registry to exercise a fresh bootstrap.
+    vi.resetModules();
+    const updates: Array<{ count: number; id: string }> = [];
+    let repairScans = 0;
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      // The legacy backfill probe: a row that has messages but count = 0.
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        repairScans++;
+        return {
+          rows: [
+            {
+              id: "legacy-1",
+              thread_data: JSON.stringify({
+                messages: [
+                  { message: userMessage, parentId: null },
+                  { message: assistantMessage, parentId: "user-1" },
+                ],
+              }),
+              message_count: 0,
+            },
+          ],
+          rowsAffected: 0,
+        };
+      }
+      if (
+        /UPDATE chat_threads SET message_count = \? WHERE id = \?/i.test(sql)
+      ) {
+        updates.push({ count: args[0], id: args[1] });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const freshStore = await import("./store.js");
+    await freshStore.listThreads("user@example.com");
+
+    expect(repairScans).toBe(0);
+    expect(updates).toEqual([]);
+
+    const result = await freshStore.repairLegacyChatThreadMessageCounts();
+
+    expect(repairScans).toBe(1);
+    expect(updates).toEqual([{ count: 2, id: "legacy-1" }]);
+    expect(result).toEqual({ scanned: 1, updated: 1 });
+  });
+
+  it("renames threads with a durable title override", async () => {
+    await renameThread("thread-1", "  Better   title  ");
+
+    expect(row!.title).toBe("Better title");
+    expect(JSON.parse(row!.thread_data)._titleOverride).toBe("Better title");
+    expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("refuses to rename a thread for a different owner", async () => {
+    const renamed = await renameThread("thread-1", "Other title", {
+      ownerEmail: "other@example.com",
+    });
+
+    expect(renamed).toBe(false);
+    expect(row!.title).toBe("Thread");
+    expect(JSON.parse(row!.thread_data)._titleOverride).toBeUndefined();
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("forks from a client snapshot when the source thread is not persisted yet", async () => {
+    const rows = new Map<string, ChatThreadRow>();
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /ALTER TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql)
+      ) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        const found = rows.get(args[0]);
+        return { rows: found ? [found] : [], rowsAffected: 0 };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        if (args.length === 12) {
+          rows.set(args[0], {
+            id: args[0],
+            owner_email: args[1],
+            title: args[2],
+            preview: "",
+            thread_data: "{}",
+            message_count: 0,
+            created_at: args[3],
+            updated_at: args[4],
+            scope_type: args[5],
+            scope_id: args[6],
+            scope_label: args[7],
+            source_platform: args[8],
+            source_app_id: args[9],
+            source_url: args[10],
+            org_id: args[11],
+            visibility: "private",
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+        rows.set(args[0], {
+          id: args[0],
+          owner_email: args[1],
+          title: args[2],
+          preview: args[3],
+          thread_data: args[4],
+          message_count: args[5],
+          created_at: args[6],
+          updated_at: args[7],
+          scope_type: args[8],
+          scope_id: args[9],
+          scope_label: args[10],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
+          visibility: "private",
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE chat_threads SET thread_data/i.test(sql)) {
+        const current = rows.get(args[5]);
+        if (!current || current.updated_at !== args[6]) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        rows.set(args[5], {
+          ...current,
+          thread_data: args[0],
+          title: args[1],
+          preview: args[2],
+          message_count: args[3],
+          updated_at: args[4],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
+        const current = rows.get(args[4]);
+        if (current) {
+          rows.set(args[4], {
+            ...current,
+            scope_type: args[0],
+            scope_id: args[1],
+            scope_label: args[2],
+            updated_at: args[3],
+          });
+        }
+        return { rows: [], rowsAffected: current ? 1 : 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const sourceRepo = {
+      messages: [
+        { message: userMessage, parentId: null },
+        { message: assistantMessage, parentId: "user-1" },
+      ],
+    };
+
+    const forked = await forkThread("thread-unflushed", "user@example.com", {
+      id: "thread-forked",
+      source: {
+        threadData: JSON.stringify(sourceRepo),
+        title: "Thread",
+        preview: "make this slide better",
+        messageCount: 2,
+        scope: { type: "dashboard", id: "dash-1", label: "Pipeline" },
+      },
+    });
+
+    expect(forked?.id).toBe("thread-forked");
+    expect(rows.get("thread-unflushed")?.message_count).toBe(2);
+    expect(rows.get("thread-unflushed")?.scope_type).toBe("dashboard");
+    expect(
+      JSON.parse(rows.get("thread-forked")!.thread_data).messages,
+    ).toHaveLength(2);
+  });
+
+  it("prefers the fresher in-memory snapshot when the source row already exists with older data", async () => {
+    const staleRepo = {
+      messages: [{ message: userMessage, parentId: null }],
+    };
+    const freshRepo = {
+      messages: [
+        { message: userMessage, parentId: null },
+        { message: assistantMessage, parentId: "user-1" },
+      ],
+    };
+    const rows = new Map<string, ChatThreadRow>([
+      [
+        "thread-stale",
+        {
+          id: "thread-stale",
+          owner_email: "user@example.com",
+          title: "Old title",
+          preview: "old preview",
+          thread_data: JSON.stringify(staleRepo),
+          message_count: 1,
+          created_at: 0,
+          updated_at: 0,
+          scope_type: null,
+          scope_id: null,
+          scope_label: null,
+        },
+      ],
+    ]);
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /ALTER TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql)
+      ) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        const found = rows.get(args[0]);
+        return { rows: found ? [found] : [], rowsAffected: 0 };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        rows.set(args[0], {
+          id: args[0],
+          owner_email: args[1],
+          title: args[2],
+          preview: args[3],
+          thread_data: args[4],
+          message_count: args[5],
+          created_at: args[6],
+          updated_at: args[7],
+          scope_type: args[8],
+          scope_id: args[9],
+          scope_label: args[10],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
+          visibility: "private",
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const forked = await forkThread("thread-stale", "user@example.com", {
+      id: "thread-forked",
+      source: {
+        threadData: JSON.stringify(freshRepo),
+        title: "Old title",
+        preview: "fresher preview",
+        messageCount: 2,
+      },
+    });
+
+    expect(forked?.id).toBe("thread-forked");
+    expect(forked?.messageCount).toBe(2);
+    expect(forked?.preview).toBe("fresher preview");
+    expect(
+      JSON.parse(rows.get("thread-forked")!.thread_data).messages,
+    ).toHaveLength(2);
+  });
+
+  it("ignores stale snapshots when the persisted row is fresher", async () => {
+    const persistedRepo = {
+      messages: [
+        { message: userMessage, parentId: null },
+        { message: assistantMessage, parentId: "user-1" },
+      ],
+    };
+    const rows = new Map<string, ChatThreadRow>([
+      [
+        "thread-fresh",
+        {
+          id: "thread-fresh",
+          owner_email: "user@example.com",
+          title: "Fresh",
+          preview: "fresh preview",
+          thread_data: JSON.stringify(persistedRepo),
+          message_count: 2,
+          created_at: 0,
+          updated_at: 0,
+          scope_type: null,
+          scope_id: null,
+          scope_label: null,
+        },
+      ],
+    ]);
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /ALTER TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql)
+      ) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        const found = rows.get(args[0]);
+        return { rows: found ? [found] : [], rowsAffected: 0 };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        rows.set(args[0], {
+          id: args[0],
+          owner_email: args[1],
+          title: args[2],
+          preview: args[3],
+          thread_data: args[4],
+          message_count: args[5],
+          created_at: args[6],
+          updated_at: args[7],
+          scope_type: args[8],
+          scope_id: args[9],
+          scope_label: args[10],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
+          visibility: "private",
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const staleRepo = {
+      messages: [{ message: userMessage, parentId: null }],
+    };
+    const forked = await forkThread("thread-fresh", "user@example.com", {
+      id: "thread-forked-stale",
+      source: {
+        threadData: JSON.stringify(staleRepo),
+        title: "Fresh",
+        preview: "stale preview",
+        messageCount: 1,
+      },
+    });
+
+    // Fresh persisted data wins.
+    expect(forked?.messageCount).toBe(2);
+    expect(
+      JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
+    ).toHaveLength(2);
+  });
+});
+
+describe("resolveRunThreadScope", () => {
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  it("adopts the run's scope when the thread has none", () => {
+    expect(resolveRunThreadScope(null, designA)).toEqual(designA);
+  });
+
+  it("keeps the thread's own scope when a run arrives from another resource", () => {
+    expect(resolveRunThreadScope(designA, designB)).toEqual(designA);
+  });
+
+  it("never clears a scope when the run carries none", () => {
+    expect(resolveRunThreadScope(designA, null)).toEqual(designA);
+    expect(resolveRunThreadScope(designA, undefined)).toEqual(designA);
+  });
+
+  it("leaves a general chat general when the run is also unscoped", () => {
+    expect(resolveRunThreadScope(null, null)).toBeNull();
+  });
+});
+
+describe("threadScopeMismatch", () => {
+  const appA = { type: "workspace-app", id: "app-a" };
+  const appB = { type: "workspace-app", id: "app-b" };
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  it("allows an app to claim a legacy unscoped thread", () => {
+    expect(threadScopeMismatch(null, appA)).toBe(false);
+  });
+
+  it("rejects unequal scoped writes and unscoped app writes", () => {
+    expect(threadScopeMismatch(appA, appA)).toBe(false);
+    expect(threadScopeMismatch(appA, appB)).toBe(true);
+    expect(threadScopeMismatch(appA, null)).toBe(true);
+    expect(threadScopeMismatch(designA, designB)).toBe(true);
+    expect(threadScopeMismatch(designA, appA)).toBe(true);
+  });
+
+  it("allows ordinary resources to become unscoped", () => {
+    expect(threadScopeMismatch(designA, { ...designA })).toBe(false);
+    expect(threadScopeMismatch(designA, null)).toBe(false);
+  });
+});
+
+describe("adoptThreadScopeIfUnscoped", () => {
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  function mockRow(scopeType: string | null, scopeId: string | null) {
+    const row = {
+      id: "thread-1",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "",
+      thread_data: "{}",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 1,
+      scope_type: scopeType,
+      scope_id: scopeId,
+      scope_label: null,
+      pinned_at: null,
+      archived_at: null,
+      org_id: null,
+      visibility: "private" as const,
+    };
+    executeMock.mockReset();
+    emitChatThreadChangeMock.mockReset();
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
+        // Honour the compare-and-set guard the real statement carries.
+        if (/AND scope_type IS NULL/i.test(sql) && row.scope_type !== null) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row.scope_type = args[0];
+        row.scope_id = args[1];
+        row.scope_label = args[2];
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        return { rows: [row], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+    return row;
+  }
+
+  it("claims an unscoped thread and reports the scope it won", async () => {
+    const row = mockRow(null, null);
+
+    expect(await adoptThreadScopeIfUnscoped("thread-1", designA)).toEqual(
+      designA,
+    );
+    expect(row.scope_id).toBe("design-a");
+  });
+
+  it("reports the winner's scope instead of retagging when another worker won", async () => {
+    const row = mockRow("design", "design-a");
+
+    expect(await adoptThreadScopeIfUnscoped("thread-1", designB)).toEqual({
+      type: "design",
+      id: "design-a",
+    });
+    expect(row.scope_id).toBe("design-a");
+  });
+});

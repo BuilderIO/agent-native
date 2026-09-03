@@ -1,0 +1,113 @@
+---
+title: "Was ist Agent-Native?"
+description: "Was Agent-Native ist, wie seine gemeinsame Aktionsarchitektur funktioniert und wann Sie Apps auf diese Weise bauen sollten."
+---
+
+# Was ist Agent-Native?
+
+Agent-Native ist ein Open-Source-TypeScript-Framework zum Entwickeln autonomer
+Agenten mit intuitiven Benutzeroberflächen. Sie definieren jede Fähigkeit einmal
+als [Aktion](/docs/actions-overview) – eine typisierte Funktion, die der Agent als
+Tool verwendet und die UI aus Code aufruft.
+
+## Warum Agenten mit UIs bauen
+
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>Agent mit nur einem Textfeld</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>Agent</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>Was kann das?</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>Agent mit einer UI</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Launch-Präsentation</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Gliederung</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Folien</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Prüfen</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Produktlaunch Q3</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Agent</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>Agent und UI in einem Arbeitsbereich</span></section></div>"
+    }
+  />
+</WireframeBlock>
+
+Coding-Agenten können den Eindruck erwecken, ein Textfeld reiche aus. Doch das
+Textfeld ist nur ein Teil ihrer Arbeitsumgebung. Die Codebasis liefert Kontext,
+Tools geben ihnen klare Handlungsmöglichkeiten und Dateien, Tests und
+Vorschauen machen die Ergebnisse sichtbar.
+
+Für die meisten Wissensaufgaben gibt es diese Struktur nicht. In einem leeren
+Textfeld müssen Menschen erraten, was der Agent kann, welchen Kontext er hat
+und was sie ihn fragen sollen.
+
+Eine UI liefert, was dem Textfeld fehlt. Sie macht die Fähigkeiten des Agenten
+sichtbar, bringt Kontext und Workflows in die Nutzung und ermöglicht es
+Menschen, die Arbeit während ihrer Entstehung zu sehen und zu gestalten.
+
+Mit Agent-Native bauen Sie Agenten auf diese Weise. Die UI bietet klare
+Einstiegspunkte, ohne den Agenten auf einen festen Workflow zu beschränken. Da
+Agent und UI dieselben Fähigkeiten nutzen, können Menschen Arbeit an den
+Agenten delegieren, sie in der UI prüfen oder ändern und zwischen beiden
+wechseln, ohne Fortschritt zu verlieren.
+
+## So funktioniert Agent-Native
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="Ein Vergleich zwischen einer Person, die eine Anwendung direkt nutzt, und der Arbeit über einen KI-Agenten in derselben Anwendung."
+  align="full"
+  caption="Sehen Sie eine vierminütige Einführung in die Agent-Native-Architektur."
+/>
+
+Agent-Native verbindet Agent und UI über drei gemeinsame Grundlagen:
+
+- **[Gemeinsame Aktionen](/docs/actions-overview).** Jede Fähigkeit wird einmal
+  definiert. Der Agent ruft sie als Tool auf, die UI aus dem Code. Beide Wege
+  verwenden dieselbe Validierung, dieselben Berechtigungen und dieselbe
+  Implementierung.
+- **[Gemeinsame Daten](/docs/server-database).** Aktionen lesen und aktualisieren
+  dieselben Daten. So erscheint die Arbeit des Agenten in der UI, und Arbeit aus
+  der UI steht dem Agenten zur Verfügung.
+- **[Gemeinsamer Anwendungszustand](/docs/context-awareness).** Der
+  Anwendungszustand beschreibt, was in der UI geschieht, etwa die aktuelle
+  Seite, den ausgewählten Datensatz oder die aktive Ansicht. Agent-Native stellt
+  dem Agenten den relevanten Zustand als Kontext bereit, damit er versteht,
+  woran die Person arbeitet.
+
+Der Agent klickt sich nicht durch die UI. Er arbeitet über dieselbe
+Aktionsschicht wie die UI.
+
+Beispielsweise kann eine Person über die UI ein Support-Ticket zuweisen oder
+den Agenten darum bitten. Beide Wege führen dieselbe Aktion aus und aktualisieren
+dasselbe Ticket. Die Person kann das Ergebnis in der UI prüfen oder ändern und
+den Agenten anschließend von dort aus weiterarbeiten lassen.
+
+## Wann sollten Sie Agent-Native verwenden?
+
+Agent-Native eignet sich gut, wenn:
+
+- der Agent echte Arbeit erledigen soll, statt nur Fragen zu beantworten;
+- Menschen eine UI brauchen, um zu sehen, was der Agent tun kann, und um seine
+  Arbeit zu prüfen, zu bearbeiten, freizugeben oder zu teilen;
+- Menschen zwischen Agent und UI wechseln können sollen, ohne Fortschritt oder
+  Kontext zu verlieren.
+
+Wenn Sie nur eine einzelne generierte Antwort benötigen, rufen Sie ein Modell
+direkt auf. Folgt der Ablauf einer festen, vorhersehbaren Reihenfolge, sind
+gewöhnliche Anwendungslogik oder Automatisierung einfacher. Verwenden Sie
+Agent-Native, wenn Agent und UI beide dauerhaft an derselben Arbeit beteiligt
+sein sollen.
+
+## Nächste Schritte
+
+<Cards>
+
+### [Erste Schritte](/docs/getting-started)
+
+Erstellen Sie eine App und rufen Sie dieselbe Aktion über Agent und UI auf.
+
+### [Schlüsselkonzepte](/docs/key-concepts)
+
+Erfahren Sie, wie Aktionen, SQL-Daten, Anwendungskontext, Zugriff und Live-Sync
+zusammenspielen.
+
+### [Agent-Oberflächen](/docs/agent-surfaces)
+
+Sehen Sie, wie dasselbe Modell Apps unterstützt, die von einer UI, einem Chat,
+einer Automatisierung oder einem anderen Agenten geführt werden.
+
+### [Templates](/docs/cloneable-saas)
+
+Starten Sie mit einem vollständigen SaaS-Produkt, statt bei Chat von vorn anzufangen.
+
+</Cards>

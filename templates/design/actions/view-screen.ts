@@ -1,0 +1,529 @@
+/**
+ * See what the user is currently looking at on screen.
+ *
+ * Reads navigation state and design context from application state.
+ *
+ * Usage:
+ *   pnpm action view-screen
+ */
+
+import { defineAction } from "@agent-native/core/action";
+import {
+  listAppState,
+  readAppState,
+  readAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
+import {
+  getReviewStatus,
+  queryReviewComments,
+  redactPublicReviewCommentIdentity,
+  redactPublicReviewStatusIdentity,
+  shouldRedactReviewIdentity,
+  type ReviewComment,
+  type ReviewResourceContext,
+} from "@agent-native/core/review";
+import * as reviewRuntime from "@agent-native/core/review";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { readDesignTemplateSource } from "../server/lib/design-template-data.js";
+import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
+import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
+import { designGenerationSessionKey } from "../shared/generation-session.js";
+import {
+  DESIGN_REPROMPT_PENDING_STATE_PREFIX,
+  DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
+  designRepromptPendingStateKey,
+  designRepromptProposalStateKey,
+  isNodeRewriteProposal,
+  isPendingDesignReprompt,
+} from "../shared/node-rewrite.js";
+
+interface ReviewThreadSummary {
+  openCount: number;
+  agentQueueCount: number;
+}
+
+const getReviewThreadSummary = (
+  reviewRuntime as unknown as {
+    getReviewThreadSummary?: (input: {
+      resourceType: string;
+      resourceId: string;
+      scope: { userEmail?: string | null; orgId?: string | null };
+      bypassScope?: boolean;
+    }) => Promise<ReviewThreadSummary>;
+  }
+).getReviewThreadSummary;
+
+function stringProp(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "string" ? candidate : undefined;
+}
+
+function stringArrayProp(value: unknown, key: string): string[] {
+  if (!value || typeof value !== "object") return [];
+  const candidate = (value as Record<string, unknown>)[key];
+  return Array.isArray(candidate)
+    ? candidate.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function boolProp(value: unknown, key: string): boolean | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "boolean" ? candidate : undefined;
+}
+
+function objectProp(value: unknown, key: string): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const candidate = (value as Record<string, unknown>)[key];
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? (candidate as Record<string, unknown>)
+    : {};
+}
+
+function resolveActiveScreen(
+  files: Array<{
+    id: string;
+    filename: string;
+    fileType: string | null;
+    updatedAt: string | null;
+  }>,
+  navigation: unknown,
+  designSelection: unknown,
+) {
+  const selectionFileId = stringProp(designSelection, "activeFileId");
+  if (selectionFileId) {
+    const active = files.find((file) => file.id === selectionFileId);
+    if (active) return active;
+  }
+
+  const selectionFilename = stringProp(designSelection, "activeFilename");
+  if (selectionFilename) {
+    const active = files.find((file) => file.filename === selectionFilename);
+    if (active) return active;
+  }
+
+  const selectedScreenIds = stringArrayProp(
+    designSelection,
+    "selectedScreenIds",
+  );
+  for (const screenId of selectedScreenIds) {
+    const selected = files.find((file) => file.id === screenId);
+    if (selected) return selected;
+  }
+
+  const navigationTargets = [
+    stringProp(navigation, "fileId"),
+    stringProp(navigation, "screenId"),
+    stringProp(navigation, "filename"),
+    stringProp(navigation, "screen"),
+  ].filter((value): value is string => !!value);
+  for (const target of navigationTargets) {
+    const active = files.find(
+      (file) =>
+        file.id === target ||
+        file.filename === target ||
+        file.filename.replace(/\.[^.]+$/, "") === target,
+    );
+    if (active) return active;
+  }
+
+  const view = stringProp(navigation, "view");
+  const editorView =
+    stringProp(navigation, "editorView") ?? stringProp(navigation, "viewMode");
+  if (view === "present" || (view === "editor" && editorView === "single")) {
+    return (
+      files.find((file) => file.filename === "index.html") ?? files[0] ?? null
+    );
+  }
+
+  return null;
+}
+
+function resolveActiveCodeFile(
+  files: Array<{
+    id: string;
+    filename: string;
+    fileType: string | null;
+    updatedAt: string | null;
+  }>,
+  designSelection: unknown,
+) {
+  const codeWorkspace = objectProp(designSelection, "codeWorkspace");
+  if (Object.keys(codeWorkspace).length === 0) return null;
+  const fileId = stringProp(codeWorkspace, "activeFileId");
+  const path = stringProp(codeWorkspace, "activePath");
+  const file = files.find(
+    (candidate) => candidate.id === fileId || candidate.filename === path,
+  );
+  return {
+    open: boolProp(codeWorkspace, "open") ?? false,
+    backendKind: stringProp(codeWorkspace, "backendKind") ?? "virtual-inline",
+    path: path ?? file?.filename ?? null,
+    fileId: fileId ?? file?.id ?? null,
+    dirty: boolProp(codeWorkspace, "dirty") ?? false,
+    versionHash: stringProp(codeWorkspace, "versionHash") ?? null,
+    file: file ?? null,
+  };
+}
+
+function reviewAnchorNodeId(anchor: unknown): string | null {
+  if (!anchor || typeof anchor !== "object") return null;
+  const nodeId = (anchor as Record<string, unknown>).nodeId;
+  return typeof nodeId === "string" && nodeId.trim() ? nodeId : null;
+}
+
+function buildReviewSummary(
+  comments: ReviewComment[],
+  status: Awaited<ReturnType<typeof getReviewStatus>>,
+  activeScreenId: string | undefined,
+  summary?: ReviewThreadSummary,
+) {
+  const openRoots = new Map<string, ReviewComment>();
+  for (const comment of comments) {
+    if (comment.status !== "open") continue;
+    if (!comment.parentCommentId && !openRoots.has(comment.threadId)) {
+      openRoots.set(comment.threadId, comment);
+    }
+  }
+  const agentQueueThreads = new Set(
+    Array.from(openRoots.values())
+      .filter(
+        (comment) =>
+          comment.resolutionTarget !== "human" && !comment.consumedAt,
+      )
+      .map((comment) => comment.threadId),
+  );
+  const activeScreenThreads = Array.from(openRoots.values())
+    .filter((comment) => comment.targetId === activeScreenId)
+    .map((comment) => ({
+      id: comment.id,
+      threadId: comment.threadId,
+      body: comment.body.slice(0, 180),
+      nodeId: reviewAnchorNodeId(comment.anchor),
+      author: comment.authorName ?? comment.authorEmail ?? comment.createdBy,
+    }));
+
+  return {
+    status: status?.status ?? "draft",
+    openCount: summary?.openCount ?? openRoots.size,
+    agentQueueCount: summary?.agentQueueCount ?? agentQueueThreads.size,
+    activeScreenThreads,
+  };
+}
+
+export default defineAction({
+  description:
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
+  schema: z.object({}),
+  http: false,
+  readOnly: true,
+  run: async (_, ctx) => {
+    const [navigation, designSelection] = await Promise.all([
+      readAppStateForCurrentTab("navigation"),
+      readAppStateForCurrentTab("design-selection"),
+    ]);
+    const designId =
+      navigation &&
+      typeof navigation === "object" &&
+      typeof (navigation as { designId?: unknown }).designId === "string"
+        ? (navigation as { designId: string }).designId
+        : undefined;
+    const showQuestions =
+      (designId
+        ? await readAppState(`show-questions:${designId}`)
+        : undefined) ?? (await readAppState("show-questions"));
+    const generationSession = designId
+      ? await readAppState(designGenerationSessionKey(designId))
+      : undefined;
+
+    const screen: Record<string, unknown> = {};
+    if (navigation) screen.navigation = navigation;
+    if (designSelection) screen.designSelection = designSelection;
+    const templateId = stringProp(navigation, "templateId");
+    if (templateId) {
+      const preset = getDesignTemplatePreset(templateId);
+      if (preset) {
+        screen.template = {
+          id: preset.id,
+          title: preset.title,
+          category: preset.category,
+          width: preset.width,
+          height: preset.height,
+          lockedLayerCount: 2,
+          designSystemId: null,
+          isBuiltIn: true,
+          source: "built-in",
+        };
+      } else {
+        const templateAccess = await resolveAccess(
+          "design-template",
+          templateId,
+        ).catch(() => null);
+        if (templateAccess) {
+          const template = templateAccess.resource;
+          const linkedDesignSystemId =
+            typeof template.designSystemId === "string"
+              ? template.designSystemId
+              : null;
+          const designSystemAccess = linkedDesignSystemId
+            ? await resolveAccess("design-system", linkedDesignSystemId).catch(
+                () => null,
+              )
+            : null;
+          screen.template = {
+            id: templateId,
+            title: template.title ?? null,
+            description: template.description ?? null,
+            category: template.category ?? "other",
+            width: template.width ?? null,
+            height: template.height ?? null,
+            lockedLayerCount: template.lockedLayerCount ?? 0,
+            designSystemId: designSystemAccess ? linkedDesignSystemId : null,
+            visibility: template.visibility ?? "private",
+            isBuiltIn: false,
+            source: "user",
+          };
+        }
+      }
+    }
+    if (designId) {
+      const access = await resolveAccess("design", designId).catch(() => null);
+      if (access) {
+        const db = getDb();
+        const files = await db
+          .select({
+            id: schema.designFiles.id,
+            filename: schema.designFiles.filename,
+            fileType: schema.designFiles.fileType,
+            updatedAt: schema.designFiles.updatedAt,
+          })
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.designId, designId));
+        let data: Record<string, unknown> = {};
+        const rawData = (access.resource as { data?: unknown }).data;
+        if (typeof rawData === "string") {
+          try {
+            const parsed = JSON.parse(rawData);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              !Array.isArray(parsed)
+            ) {
+              data = parsed as Record<string, unknown>;
+            }
+          } catch {
+            data = {};
+          }
+        }
+        const activeScreen = resolveActiveScreen(
+          files,
+          navigation,
+          designSelection,
+        );
+        screen.design = {
+          id: designId,
+          title: (access.resource as { title?: unknown }).title ?? null,
+          // The design's own linked system, not the template's. Picking one on
+          // an empty design writes it here and nowhere else, so leaving it out
+          // meant the first read after the choice could not see it.
+          designSystemId:
+            typeof (access.resource as { designSystemId?: unknown })
+              .designSystemId === "string"
+              ? (access.resource as { designSystemId: string }).designSystemId
+              : null,
+          screens: files,
+          activeScreen,
+          activeCodeFile: resolveActiveCodeFile(files, designSelection),
+          canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
+        };
+        try {
+          const templateSource = readDesignTemplateSource(data);
+          if (templateSource) {
+            (screen.design as Record<string, unknown>).createdFromTemplate = {
+              templateId: templateSource.templateId,
+              title: templateSource.title,
+              category: templateSource.category,
+              instantiatedAt: templateSource.instantiatedAt,
+              designSystemId: templateSource.appliedDesignSystemId,
+              lockedDimensions: templateSource.files.map((file) => ({
+                designFileId: file.designFileId,
+                filename: file.filename,
+                width: file.width,
+                height: file.height,
+              })),
+              lockedFonts: templateSource.fonts,
+              note:
+                "The screens below are edited copies of this template, so their current content no longer shows what the template specified. " +
+                "The dimensions and fonts above come from the template and stay authoritative for every request, including this one: keep each screen at exactly those dimensions and keep those font families. " +
+                "Do not resize the artboard, change canvasFrames width or height, switch the primary viewport, or substitute a typeface to fit new content. " +
+                `Refine with edit-design; do not call generate-design. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,
+            };
+          }
+        } catch (error) {
+          (screen.design as Record<string, unknown>).createdFromTemplate = {
+            unreadable:
+              error instanceof Error ? error.message : "unknown parse failure",
+            note: "This design claims a template that could not be read. Ask the user which template it came from instead of editing dimensions or typography.",
+          };
+        }
+        const proposalPrefix = `${DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX}${designId}:`;
+        const pendingPrefix = `${DESIGN_REPROMPT_PENDING_STATE_PREFIX}${designId}:`;
+        const [proposalEntries, pendingEntries] = await Promise.all([
+          listAppState(proposalPrefix),
+          listAppState(pendingPrefix),
+        ]);
+        const filesById = new Map(files.map((file) => [file.id, file]));
+        const pendingByFileId = new Map(
+          pendingEntries.flatMap(({ key, value }) => {
+            if (
+              !isPendingDesignReprompt(value) ||
+              value.designId !== designId ||
+              !filesById.has(value.fileId) ||
+              key !== designRepromptPendingStateKey(designId, value.fileId)
+            ) {
+              return [];
+            }
+            return [[value.fileId, value] as const];
+          }),
+        );
+        const proposalsByReprompt = new Map(
+          proposalEntries.flatMap(({ key, value }) => {
+            if (
+              !isNodeRewriteProposal(value) ||
+              value.designId !== designId ||
+              !filesById.has(value.fileId) ||
+              key !==
+                designRepromptProposalStateKey(
+                  designId,
+                  value.fileId,
+                  value.repromptId,
+                )
+            ) {
+              return [];
+            }
+            return [[`${value.fileId}:${value.repromptId}`, value] as const];
+          }),
+        );
+        const proposalsByFileId = new Map(
+          [...pendingByFileId.entries()].flatMap(([fileId, pending]) => {
+            const current = proposalsByReprompt.get(
+              `${fileId}:${pending.repromptId}`,
+            );
+            const prior = pending.priorRepromptId
+              ? proposalsByReprompt.get(`${fileId}:${pending.priorRepromptId}`)
+              : undefined;
+            const proposal =
+              current ??
+              (prior?.proposalId === pending.priorProposalId
+                ? prior
+                : undefined);
+            return proposal ? [[fileId, proposal] as const] : [];
+          }),
+        );
+        const pendingCandidateReviews = [...proposalsByFileId.values()].map(
+          (proposal) => {
+            const file = filesById.get(proposal.fileId)!;
+            return {
+              proposalId: proposal.proposalId,
+              fileId: proposal.fileId,
+              filename: proposal.filename || file.filename,
+              candidateCount: proposal.variants.length,
+              chosenIndex: proposal.chosenIndex,
+              target: proposal.target,
+              createdAt: proposal.createdAt,
+            };
+          },
+        );
+        if (pendingCandidateReviews.length > 0) {
+          (screen.design as Record<string, unknown>).pendingCandidateReviews =
+            pendingCandidateReviews;
+        }
+        if (activeScreen?.id) {
+          const pendingReprompt = pendingByFileId.get(activeScreen.id);
+          const proposal = proposalsByFileId.get(activeScreen.id);
+          if (pendingReprompt || proposal) {
+            (screen.design as Record<string, unknown>).reprompt = {
+              pending: pendingReprompt ?? null,
+              proposal: proposal ?? null,
+            };
+          }
+        }
+        const reviewContext = ctx as ReviewResourceContext | undefined;
+        const reviewScope = {
+          userEmail: reviewContext?.userEmail ?? null,
+          orgId: reviewContext?.orgId ?? null,
+        };
+        const [reviewComments, reviewStatus, reviewSummary] = await Promise.all(
+          [
+            queryReviewComments({
+              resourceType: "design",
+              resourceId: designId,
+              scope: reviewScope,
+              bypassScope: true,
+              includeResolved: false,
+              includeDeleted: false,
+              limit: 500,
+            }),
+            getReviewStatus("design", designId, reviewScope, {
+              bypassScope: true,
+            }),
+            getReviewThreadSummary
+              ? getReviewThreadSummary({
+                  resourceType: "design",
+                  resourceId: designId,
+                  scope: reviewScope,
+                  bypassScope: true,
+                })
+              : Promise.resolve(undefined),
+          ],
+        );
+        const redactReviewIdentity = shouldRedactReviewIdentity(reviewContext, {
+          role: access.role,
+          visibility: access.resource.visibility,
+        });
+        (screen.design as Record<string, unknown>).review = buildReviewSummary(
+          redactReviewIdentity
+            ? reviewComments.map(redactPublicReviewCommentIdentity)
+            : reviewComments,
+          redactReviewIdentity
+            ? redactPublicReviewStatusIdentity(reviewStatus)
+            : reviewStatus,
+          activeScreen?.id,
+          reviewSummary,
+        );
+      }
+    }
+    if (showQuestions) {
+      screen.pendingQuestions = showQuestions;
+      screen.note =
+        "Questions are visible to the user as a full-canvas overlay. Wait for their answers (they'll come back as a chat message) before generating.";
+    }
+    if (generationSession) {
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const startedAt =
+        typeof (generationSession as { startedAt?: unknown }).startedAt ===
+        "string"
+          ? new Date(
+              (generationSession as { startedAt: string }).startedAt,
+            ).getTime()
+          : 0;
+      const isStale =
+        startedAt > 0 && Date.now() - startedAt > GENERATION_SESSION_TTL_MS;
+      screen.generationSession = generationSession;
+      if (isStale) {
+        screen.generationSessionNote =
+          "This generation session may be stale or abandoned (started more than 10 minutes ago). Verify saved screens via the design file list rather than assuming generation is still in progress.";
+      }
+    }
+
+    if (Object.keys(screen).length === 0) {
+      return "No application state found. Is the app running?";
+    }
+    return JSON.stringify(screen, null, 2);
+  },
+});

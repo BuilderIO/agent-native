@@ -1,0 +1,264 @@
+---
+title: "Datei-Uploads"
+description: "Konfigurieren Sie dauerhaften Speicher für Datei-Uploads mit Builder.io oder einem benutzerdefinierten Objektspeicher-Anbieter für die Produktion."
+---
+
+# Datei-Uploads
+
+Das Framework bietet eine Datei-Upload-Abstraktion, die Uploads über einen konfigurierbaren Anbieter weiterleitet. Vorlagen rufen `uploadFile()` auf und erhalten eine URL zurück. Das Speicher-Backend lässt sich austauschen, ohne den Anwendungscode zu ändern.
+
+## Wie es funktioniert {#how-it-works}
+
+Upload-Anfragen gehen an `POST /_agent-native/file-upload`, das an den aktiven Anbieter weiterleitet. Welcher Anbieter konfiguriert ist, können Sie unter `GET /_agent-native/file-upload/status` prüfen.
+
+Die Reihenfolge der Anbieterauflösung lautet:
+
+1. **Vom Benutzer registrierte Anbieter**: benutzerdefinierte Anbieter, die über `registerFileUploadProvider()` registriert wurden.
+2. **Builder.io-Anbieter**: integriert, wird automatisch aktiviert, wenn Builder.io verbunden ist.
+3. **Kein Anbieter**: Der Upload wird abgelehnt, und der Chat zeigt einen Hinweis zur Einrichtung des Speichers an. Binärdaten werden niemals in SQL gespeichert.
+
+Unter den vom Benutzer registrierten Anbietern gewinnt der zuerst registrierte Anbieter, der sich selbst als konfiguriert meldet. `registerFileUploadProvider()` ist pro `id` idempotent. Wird eine `id` verwendet, die bereits vergeben ist, ersetzt die neue Registrierung den vorhandenen Anbieter.
+
+Die Benutzeroberfläche entscheidet allein anhand der synchronen Prüfung `isConfigured()`, ob ein Hinweis zur Einrichtung des Speichers angezeigt wird, noch bevor ein Upload versucht wird. Der eigentliche Upload prüft sowohl `isConfigured()` als auch `isConfiguredForRequest()`. Ein Anbieter, der sich nur über `isConfiguredForRequest()` als konfiguriert meldet, bleibt für den Einrichtungshinweis unsichtbar, obwohl Uploads über ihn erfolgreich wären.
+
+<Diagram id="doc-block-hq5uvx" title="Reihenfolge der Anbieterauflösung" summary="uploadFile() wählt der Reihe nach den ersten konfigurierten Anbieter aus. Ohne Anbieter schlägt der Upload sicher fehl, sodass Binärdaten niemals in SQL gespeichert werden.">
+
+```html
+<div class="diagram-upload">
+  <div class="diagram-box" data-rough>
+    uploadFile()<br /><small class="diagram-muted"
+      >POST /_agent-native/file-upload</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-step">
+      <span class="diagram-pill accent">1</span>
+      <div class="diagram-node">
+        Vom Benutzer registriert<br /><small class="diagram-muted"
+          >registerFileUploadProvider() für S3, R2, GCS…</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span>
+      <div class="diagram-node">
+        Builder.io<br /><small class="diagram-muted"
+          >automatisch bei Verbindung, per CDN bereitgestellt</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill warn">3</span>
+      <div class="diagram-node">
+        Kein Anbieter<br /><small class="diagram-muted"
+          >Einrichtungshinweis, keine Speicherung von Binärdaten</small
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-upload .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-upload .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-upload .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-4os0mo" title="Der Upload-Endpunkt" method="POST" path="/_agent-native/file-upload" summary="Laden Sie eine Datei über den aktiven Anbieter hoch und erhalten Sie eine öffentliche URL zurück." request={{
+  "contentType": "multipart/form-data"
+}} responses={[
+  {
+    "status": "201",
+    "description": "`{ url, id?, provider }`: die öffentliche URL und welcher Anbieter sie verarbeitet hat."
+  },
+  {
+    "status": "401",
+    "description": "Keine authentifizierte Sitzung."
+  },
+  {
+    "status": "413",
+    "description": "Die Datei überschreitet die Upload-Obergrenze von 25 MB."
+  },
+  {
+    "status": "415",
+    "description": "Blockierter MIME-Typ, zum Beispiel eine ausführbare Datei oder ein Skript."
+  },
+  {
+    "status": "503",
+    "description": "Es ist kein Datei-Upload-Anbieter konfiguriert."
+  }
+]}>
+
+Leitet an den ersten konfigurierten Anbieter in der Auflösungsreihenfolge weiter. Prüfen Sie den aktiven Anbieter unter `GET /_agent-native/file-upload/status`.
+
+</Endpoint>
+
+## Speicher für dauerhafte Uploads erforderlich {#storage-required}
+
+Wenn kein Anbieter konfiguriert ist, gibt `uploadFile()` `null` zurück, und die Multipart-Route liefert `503`. Chat-Anhänge bleiben nur für die aktuelle Anfrage verfügbar, der Agent erhält einen Hinweis zur Einrichtung des Speichers, und im Transkript wird anstelle der Binärdaten ein Einrichtungsmarker gespeichert. Dieses sichere Fehlschlagverhalten hält SQL klein und macht die fehlende Konfiguration sichtbar.
+
+## Builder.io Hosting {#builder-hosting}
+
+Wenn Ihre App mit Builder.io verbunden ist, werden Datei-Uploads automatisch an das Asset-Hosting von Builder weitergeleitet. Der kostenlose Tarif von Builder.io umfasst diesen verwalteten Speicher. Dateien werden ohne zusätzliche Konfiguration von einem CDN bereitgestellt, und die dauerhafte URL wird im Chatverlauf gespeichert, sodass spätere Nachrichten sie wiederverwenden können. Dies ist die empfohlene Produktionskonfiguration.
+
+## Benutzerdefinierte Anbieter {#custom-providers}
+
+Das Framework enthält bereits einen integrierten Anbieter für S3-kompatiblen
+Speicher (AWS S3, Cloudflare R2, MinIO und ähnliche). Verbinden Sie ihn über
+Umgebungsvariablen oder über die Onboarding-Checkliste in der Seitenleiste.
+Dafür ist kein Code erforderlich. Siehe [Onboarding](/docs/onboarding).
+
+Registrieren Sie einen benutzerdefinierten Anbieter nur für eine andere Art
+von Backend. Dieses Beispiel lädt über eine generische HTTP-API mit
+`fetch()` hoch:
+
+```ts filename="server/plugins/file-upload.ts"
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
+
+export default defineNitroPlugin(() => {
+  registerFileUploadProvider({
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
+    upload: async ({ data, filename, mimeType }) => {
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
+    },
+  });
+});
+```
+
+Verwenden Sie `resolveSecret()` aus `@agent-native/core/server` anstelle
+einer Umgebungsvariable, wenn der Anbieter echte Anmeldedaten benötigt, zum
+Beispiel einen API-Schlüssel. Siehe [Sicherheit — Geheimnisverwaltung](/docs/security#secrets).
+
+## Upload-API {#upload-api}
+
+Die `FileUploadProvider`-Schnittstelle:
+
+```ts
+interface FileUploadProvider {
+  id: string; // Unique id, e.g. "s3"
+  name: string; // Human-readable name
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
+  upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+}
+
+interface FileUploadInput {
+  data: Uint8Array | Buffer; // File contents
+  filename?: string; // Original filename
+  mimeType?: string; // MIME type, e.g. "image/png"
+  ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
+}
+
+interface FileUploadResult {
+  url: string; // Public URL for the uploaded file
+  id?: string; // Provider-specific id
+  provider: string; // Which provider handled it
+}
+```
+
+Verwenden Sie `uploadFile()` aus `@agent-native/core/file-upload` in Actions oder im Servercode:
+
+```ts
+import { uploadFile } from "@agent-native/core/file-upload";
+
+const result = await uploadFile({
+  data: fileBuffer,
+  filename: "photo.jpg",
+  mimeType: "image/jpeg",
+});
+
+if (result) {
+  // Provider handled it. result.url is the public URL.
+} else {
+  // No provider configured. Show the storage setup CTA, or skip.
+}
+```
+
+## Fortsetzbare / Streaming-Uploads {#resumable}
+
+Ein Anbieter kann optional einen `resumable`-Block in `FileUploadProvider` implementieren. Dieser ist für Uploads gedacht, die Daten beim Eintreffen direkt in den Speicher streamen müssen, statt zuerst die gesamte Datei zu puffern. Die Clips-Vorlage nutzt dies, um eine Aufnahme Stück für Stück an den Speicher weiterzuleiten, während sie noch läuft, statt den vollständigen Blob erst nach dem Stoppen des Recorders zusammenzusetzen.
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+Wenn `resumable` vorhanden ist, rufen Aufrufer, die Daten streamen (wie ein Recorder), einmal `startSession` auf, wiederholt `relayChunk`, sobald Bytes eintreffen, und `completeSession`, wenn der Stream endet. Dies ersetzt den einzelnen gepufferten Aufruf von `upload()`. Ein Anbieter ohne `resumable`-Block sieht ausschließlich den gepufferten Pfad. Implementieren Sie dies nur, wenn Ihr Speicher-Backend über eine native Chunk-/Resumable-Upload-API verfügt (S3 Multipart, GCS Resumable Uploads usw.), die es wert ist, offengelegt zu werden.
+
+## Was kommt als nächstes?
+
+- [**Datenbank**](/docs/server-database) — das `getDb()`/Schema-Muster zum dauerhaften Speichern der URL, die `uploadFile()` zurückgibt
+- [**Sicherheit — Geheimnisverwaltung**](/docs/security#secrets) — wie `resolveSecret()` und der Anmeldedaten-Tresor Anbieterschlüssel im Ruhezustand verschlüsseln
+- [**Onboarding**](/docs/onboarding) — den Einrichtungsschritt eines benutzerdefinierten Anbieters in der Checkliste der Seitenleiste registrieren

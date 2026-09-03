@@ -1,0 +1,578 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+import {
+  readAgentsBundleFromFs,
+  parseSkillFrontmatter,
+  generateSkillsPromptBlock,
+  generateDevelopmentSkillsPromptBlock,
+  getRuntimeSkills,
+  getDevelopmentSkills,
+  isRuntimeVisibleScope,
+  normalizeSkillScope,
+  __resetAgentsBundleCache,
+  type AgentsBundle,
+  type Skill,
+  type WorkspaceAgentsSource,
+} from "./agents-bundle.js";
+
+function makeTemplate(withSkill: { name: string; description: string } | null) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), "# Template\nOnly-template");
+  if (withSkill) {
+    const skillDir = path.join(dir, ".agents", "skills", withSkill.name);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      `---\nname: ${withSkill.name}\ndescription: ${withSkill.description}\n---\nTemplate body`,
+    );
+  }
+  return dir;
+}
+
+function makeWorkspaceSource(opts: {
+  agentsMd?: string;
+  skills?: { name: string; description: string }[];
+}): { dir: string; source: WorkspaceAgentsSource } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-ws-"));
+  let agentsMdPath: string | null = null;
+  if (opts.agentsMd) {
+    agentsMdPath = path.join(dir, "AGENTS.md");
+    fs.writeFileSync(agentsMdPath, opts.agentsMd);
+  }
+  let skillsDir: string | null = null;
+  if (opts.skills) {
+    skillsDir = path.join(dir, "skills");
+    for (const s of opts.skills) {
+      const sDir = path.join(skillsDir, s.name);
+      fs.mkdirSync(sDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(sDir, "SKILL.md"),
+        `---\nname: ${s.name}\ndescription: ${s.description}\n---\nWorkspace body`,
+      );
+    }
+  }
+  return {
+    dir,
+    source: { rootDir: dir, agentsMdPath, skillsDir },
+  };
+}
+
+function skill(name: string, scope: Skill["meta"]["scope"]): Skill {
+  return {
+    meta: { name, description: `${name} desc`, scope },
+    content: `---\nname: ${name}\n---\nbody`,
+    dir: `.agents/skills/${name}`,
+    extraFiles: [],
+  };
+}
+
+function bundleWith(skills: Skill[]): AgentsBundle {
+  return {
+    agentsMd: "",
+    runtimeAgentsMd: "",
+    developmentAgentsMd: "",
+    workspaceAgentsMd: "",
+    skills: Object.fromEntries(skills.map((s) => [s.meta.name, s])),
+  };
+}
+
+function repoPath(...segments: string[]): string {
+  const fromPackageRoot = path.resolve(process.cwd(), "..", "..", ...segments);
+  if (fs.existsSync(fromPackageRoot)) return fromPackageRoot;
+  return path.resolve(process.cwd(), ...segments);
+}
+
+describe("parseSkillFrontmatter", () => {
+  it("parses simple inline name + description", () => {
+    const meta = parseSkillFrontmatter(
+      "---\nname: foo\ndescription: hello\n---\nbody",
+    );
+    expect(meta.name).toBe("foo");
+    expect(meta.description).toBe("hello");
+  });
+
+  it("parses an explicit scope value", () => {
+    const meta = parseSkillFrontmatter(
+      "---\nname: foo\ndescription: hello\nscope: dev\n---\nbody",
+    );
+    expect(meta.scope).toBe("dev");
+  });
+
+  it("leaves scope undefined when absent (loader applies the default)", () => {
+    const meta = parseSkillFrontmatter(
+      "---\nname: foo\ndescription: hello\n---\nbody",
+    );
+    expect(meta.scope).toBeUndefined();
+  });
+
+  it("marks an unknown scope value invalid rather than defaulting to both", () => {
+    const meta = parseSkillFrontmatter(
+      "---\nname: foo\ndescription: hello\nscope: production\n---\nbody",
+    );
+    expect(meta.scope).toBe("invalid");
+  });
+});
+
+describe("normalizeSkillScope", () => {
+  it("accepts the three known values (case-insensitive)", () => {
+    expect(normalizeSkillScope("runtime")).toBe("runtime");
+    expect(normalizeSkillScope("DEV")).toBe("dev");
+    expect(normalizeSkillScope(" Both ")).toBe("both");
+  });
+
+  it("falls back to both only when the value is absent", () => {
+    expect(normalizeSkillScope(undefined)).toBe("both");
+    expect(normalizeSkillScope("")).toBe("both");
+    expect(normalizeSkillScope("   ")).toBe("both");
+  });
+
+  it("returns the invalid sentinel and logs the file + value for a typo", () => {
+    const errors: string[] = [];
+    const spy = vi
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => {
+        errors.push(args.join(" "));
+      });
+    try {
+      expect(
+        normalizeSkillScope("app", ".agents/skills/nonsense-scope/SKILL.md"),
+      ).toBe("invalid");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors.join("\n")).toContain(
+      ".agents/skills/nonsense-scope/SKILL.md",
+    );
+    expect(errors.join("\n")).toContain('"app"');
+  });
+
+  it("keeps invalid distinguishable from every valid scope", () => {
+    expect(isRuntimeVisibleScope("both")).toBe(true);
+    expect(isRuntimeVisibleScope("runtime")).toBe(true);
+    expect(isRuntimeVisibleScope(undefined)).toBe(true);
+    expect(isRuntimeVisibleScope("dev")).toBe(false);
+    expect(isRuntimeVisibleScope("invalid")).toBe(false);
+  });
+});
+
+describe("skill scope loading", () => {
+  beforeEach(() => __resetAgentsBundleCache());
+  afterEach(() => __resetAgentsBundleCache());
+
+  it("defaults scope to both when frontmatter omits it", () => {
+    const tpl = makeTemplate({ name: "alpha", description: "A skill" });
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills.alpha!.meta.scope).toBe("both");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("reads an explicit scope from SKILL.md frontmatter", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(tpl, ".agents", "skills", "dev-only");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: dev-only\ndescription: Dev only\nscope: dev\n---\nbody",
+    );
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills["dev-only"]!.meta.scope).toBe("dev");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("never treats a bogus scope as runtime-visible", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(tpl, ".agents", "skills", "typo-scope");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: typo-scope\ndescription: Secret dev guidance\nscope: app\n---\nDEV ONLY BODY",
+    );
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills["typo-scope"]!.meta.scope).toBe("invalid");
+      expect(getRuntimeSkills(bundle).map((s) => s.meta.name)).not.toContain(
+        "typo-scope",
+      );
+      expect(generateSkillsPromptBlock(bundle)).not.toContain("typo-scope");
+      // Still visible to the coding agent — the audience that can fix the typo.
+      expect(getDevelopmentSkills(bundle).map((s) => s.meta.name)).toContain(
+        "typo-scope",
+      );
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("getRuntimeSkills", () => {
+  it("excludes scope: dev and includes runtime/both", () => {
+    const bundle = bundleWith([
+      skill("r", "runtime"),
+      skill("b", "both"),
+      skill("d", "dev"),
+    ]);
+    const names = getRuntimeSkills(bundle)
+      .map((s) => s.meta.name)
+      .sort();
+    expect(names).toEqual(["b", "r"]);
+  });
+});
+
+describe("getDevelopmentSkills", () => {
+  it("excludes scope: runtime and includes dev/both", () => {
+    const bundle = bundleWith([
+      skill("r", "runtime"),
+      skill("b", "both"),
+      skill("d", "dev"),
+    ]);
+    const names = getDevelopmentSkills(bundle)
+      .map((s) => s.meta.name)
+      .sort();
+    expect(names).toEqual(["b", "d"]);
+  });
+});
+
+describe("generateSkillsPromptBlock scope filtering", () => {
+  it("omits scope: dev skills from the prompt block", () => {
+    const bundle = bundleWith([
+      skill("runtime-one", "both"),
+      skill("dev-one", "dev"),
+    ]);
+    const block = generateSkillsPromptBlock(bundle);
+    expect(block).toContain("runtime-one");
+    expect(block).not.toContain("dev-one");
+    expect(block).toContain("[skill-runtime-one]");
+    expect(block).toContain('docs-search --slug "<slug>"');
+    expect(block).toContain("reuse it for subsequent steps");
+    expect(block).not.toContain('bash(command="cat <skill-dir>/SKILL.md")');
+  });
+
+  it("states the docs-search instruction once, not once per skill", () => {
+    const bundle = bundleWith([
+      skill("one", "both"),
+      skill("two", "both"),
+      skill("three", "both"),
+    ]);
+    const block = generateSkillsPromptBlock(bundle);
+    const hints = block.match(/before starting a task it applies to/g) ?? [];
+    expect(hints).toHaveLength(1);
+    expect(block).toContain("Do not repeat an equivalent lookup");
+  });
+
+  it("returns empty string when every skill is dev-scoped", () => {
+    const bundle = bundleWith([skill("dev-one", "dev")]);
+    expect(generateSkillsPromptBlock(bundle)).toBe("");
+  });
+});
+
+describe("generateDevelopmentSkillsPromptBlock scope filtering", () => {
+  it("omits scope: runtime skills from the coding-agent prompt block", () => {
+    const bundle = bundleWith([
+      skill("runtime-one", "runtime"),
+      skill("dev-one", "dev"),
+      skill("shared-one", "both"),
+    ]);
+    const block = generateDevelopmentSkillsPromptBlock(bundle);
+    expect(block).toContain("dev-one");
+    expect(block).toContain("shared-one");
+    expect(block).not.toContain("runtime-one");
+    expect(block).toContain('bash(command="cat <skill-dir>/SKILL.md")');
+    expect(block).not.toContain('docs-search --slug "skill-dev-one"');
+  });
+});
+
+describe("readAgentsBundleFromFs", () => {
+  beforeEach(() => __resetAgentsBundleCache());
+  afterEach(() => __resetAgentsBundleCache());
+
+  it("returns template-only bundle when no workspace source is provided", () => {
+    const tpl = makeTemplate({ name: "alpha", description: "A skill" });
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.agentsMd).toContain("Only-template");
+      expect(bundle.runtimeAgentsMd).toContain("Only-template");
+      expect(bundle.developmentAgentsMd).toContain("Only-template");
+      expect(bundle.workspaceAgentsMd).toBe("");
+      expect(bundle.skills.alpha).toBeDefined();
+      expect(bundle.skills.alpha!.meta.description).toBe("A skill");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("loads separate runtime and development instruction files when configured", () => {
+    const tpl = makeTemplate(null);
+    fs.writeFileSync(
+      path.join(tpl, "DEVELOPING.md"),
+      "# Development\nOnly-development",
+    );
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        instructions: {
+          runtime: "AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      });
+      expect(bundle.runtimeAgentsMd).toContain("Only-template");
+      expect(bundle.developmentAgentsMd).toContain("Only-development");
+      expect(bundle.agentsMd).toBe(bundle.runtimeAgentsMd);
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("does not fall back when an explicitly configured instruction file is missing", () => {
+    const tpl = makeTemplate(null);
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        instructions: {
+          runtime: "runtime-only/AGENTS.md",
+          development: "development-only/AGENTS.md",
+        },
+      });
+      expect(bundle.runtimeAgentsMd).toBe("");
+      expect(bundle.developmentAgentsMd).toBe("");
+      expect(bundle.agentsMd).toBe("");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts legacy .agent/skills as a codebase skills directory", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(tpl, ".agent", "skills", "runtime");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: runtime\ndescription: Runtime skill\n---\nRuntime body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills.runtime).toBeDefined();
+      expect(bundle.skills.runtime!.dir).toBe(".agent/skills/runtime");
+      expect(bundle.skills.runtime!.content).toContain("Runtime body");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps .agents/skills canonical when legacy .agent/skills has the same skill", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const canonical = path.join(tpl, ".agents", "skills", "policy");
+    const legacy = path.join(tpl, ".agent", "skills", "policy");
+    fs.mkdirSync(canonical, { recursive: true });
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(
+      path.join(canonical, "SKILL.md"),
+      "---\nname: policy\ndescription: Canonical\n---\nCanonical body",
+    );
+    fs.writeFileSync(
+      path.join(legacy, "SKILL.md"),
+      "---\nname: policy\ndescription: Legacy\n---\nLegacy body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills.policy!.meta.description).toBe("Canonical");
+      expect(bundle.skills.policy!.dir).toBe(".agents/skills/policy");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("loads namespaced skills from the canonical agent skills directory", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(
+      tpl,
+      ".agents",
+      "skills",
+      "calendar-tools",
+      "meeting-helper",
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: meeting-helper\ndescription: Imported calendar skill\n---\nPlugin body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills["meeting-helper"]?.meta.description).toBe(
+        "Imported calendar skill",
+      );
+      expect(bundle.skills["meeting-helper"]?.dir).toBe(
+        ".agents/skills/calendar-tools/meeting-helper",
+      );
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("adds workspace AGENTS.md when provided", () => {
+    const tpl = makeTemplate(null);
+    const ws = makeWorkspaceSource({ agentsMd: "# Workspace wide" });
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, ws.source);
+      expect(bundle.workspaceAgentsMd).toContain("Workspace wide");
+      expect(bundle.agentsMd).toContain("Only-template");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+      fs.rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("merges workspace-only skills into the bundle", () => {
+    const tpl = makeTemplate(null);
+    const ws = makeWorkspaceSource({
+      skills: [{ name: "policy", description: "Enterprise-wide policy" }],
+    });
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, ws.source);
+      expect(bundle.skills.policy).toBeDefined();
+      expect(bundle.skills.policy!.meta.description).toBe(
+        "Enterprise-wide policy",
+      );
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+      fs.rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads namespaced host-provided skills from an additional root", () => {
+    const tpl = makeTemplate(null);
+    const additional = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agents-bundle-plugin-"),
+    );
+    const skill = path.join(additional, "calendar-tools", "meeting-helper");
+    fs.mkdirSync(skill, { recursive: true });
+    fs.writeFileSync(
+      path.join(skill, "SKILL.md"),
+      "---\nname: meeting-helper\ndescription: Imported calendar skill\n---\nPlugin body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        additionalSkillDirs: [additional],
+      });
+      expect(bundle.skills["meeting-helper"]?.meta.description).toBe(
+        "Imported calendar skill",
+      );
+      expect(bundle.skills["meeting-helper"]?.content).toContain("Plugin body");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+      fs.rmSync(additional, { recursive: true, force: true });
+    }
+  });
+
+  it("template skill overrides workspace skill with the same name", () => {
+    const tpl = makeTemplate({
+      name: "policy",
+      description: "TEMPLATE VERSION",
+    });
+    const ws = makeWorkspaceSource({
+      skills: [{ name: "policy", description: "WORKSPACE VERSION" }],
+    });
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, ws.source);
+      // Template wins on name collision.
+      expect(bundle.skills.policy!.meta.description).toBe("TEMPLATE VERSION");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+      fs.rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes both when they have different names", () => {
+    const tpl = makeTemplate({
+      name: "deck-management",
+      description: "template skill",
+    });
+    const ws = makeWorkspaceSource({
+      skills: [{ name: "policy", description: "workspace skill" }],
+    });
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, ws.source);
+      expect(bundle.skills["deck-management"]).toBeDefined();
+      expect(bundle.skills.policy).toBeDefined();
+      expect(Object.keys(bundle.skills).sort()).toEqual([
+        "deck-management",
+        "policy",
+      ]);
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+      fs.rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads Design template runtime skills with usable trigger descriptions", () => {
+    const bundle = readAgentsBundleFromFs(repoPath("templates", "design"));
+    const runtimeSkills = getRuntimeSkills(bundle);
+    const expected = [
+      "design-generation",
+      "design-systems",
+      "export-handoff",
+      "visual-edit",
+    ];
+
+    for (const name of expected) {
+      const skill = runtimeSkills.find((candidate) => {
+        return candidate.meta.name === name;
+      });
+      expect(skill, `expected runtime skill ${name}`).toBeDefined();
+      expect(skill!.meta.description.trim()).toContain("Use when");
+    }
+
+    const promptBlock = generateSkillsPromptBlock(bundle);
+    expect(promptBlock).toContain("Generate or refine complete interactive");
+    expect(promptBlock).toContain("Export Design work");
+    expect(promptBlock).toContain("[skill-design-generation]");
+    expect(promptBlock).toContain("[skill-visual-edit]");
+  });
+
+  it("exposes workflow packaging skills to the app runtime skill picker", () => {
+    const bundle = readAgentsBundleFromFs(repoPath("templates", "chat"));
+    const runtimeSkills = getRuntimeSkills(bundle);
+
+    for (const name of ["turn-into-app", "turn-into-skill"]) {
+      const skill = runtimeSkills.find(
+        (candidate) => candidate.meta.name === name,
+      );
+      expect(skill, `expected runtime skill ${name}`).toBeDefined();
+      expect(skill!.meta.scope).toBe("both");
+      expect(skill!.meta.description).toContain("Use when");
+    }
+
+    const turnIntoApp = runtimeSkills.find(
+      (candidate) => candidate.meta.name === "turn-into-app",
+    );
+    expect(turnIntoApp!.content).toContain(
+      "A fresh Claude or ChatGPT Project is a valid source",
+    );
+    expect(turnIntoApp!.content).toContain(
+      "MCP connector does not read hidden",
+    );
+    expect(turnIntoApp!.content).toContain("Spreadsheet sources");
+    expect(turnIntoApp!.content).toContain(
+      "A Google Sheets URL is a live provider source",
+    );
+    expect(turnIntoApp!.extraFiles).toContain("references/fresh-project.md");
+
+    const promptBlock = generateSkillsPromptBlock(bundle);
+    expect(promptBlock).toContain("`turn-into-app`");
+    expect(promptBlock).toContain("`turn-into-skill`");
+  });
+});
