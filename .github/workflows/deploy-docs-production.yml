@@ -13,6 +13,7 @@ on:
       - "packages/core/**"
       - "packages/docs/**"
       - "scripts/netlify-prebuilt-target.ts"
+      - "scripts/netlify-migration-url.ts"
       - "scripts/netlify-production-sites.json"
       - ".github/workflows/deploy-docs-production.yml"
       - ".github/workflows/deploy-netlify-prebuilt.yml"

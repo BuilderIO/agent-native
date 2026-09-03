@@ -2076,19 +2076,14 @@ export function AuthPage(props: AuthPageProps) {
     />
   );
   const identityHref = apiPath("/_agent-native/identity/login");
-  const hideLocalDevSignupIntro = view === "signup" && localDevAvailable;
   const authCard = (
     <div className={cardClassName}>
-      {!hideLocalDevSignupIntro ? (
-        <>
-          <h1 id="heading" data-i18n={keys.heading}>
-            {t(keys.heading)}
-          </h1>
-          <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
-            {t(keys.subtitle)}
-          </p>
-        </>
-      ) : null}
+      <h1 id="heading" data-i18n={keys.heading}>
+        {t(keys.heading)}
+      </h1>
+      <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
+        {t(keys.subtitle)}
+      </p>
       <p
         className={`upgrade-note ${upgradeVisible ? "show" : ""}`}
         id="upgrade-note"
@@ -2634,10 +2629,35 @@ export function AuthPage(props: AuthPageProps) {
       background={
         marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
       }
+      topRight={
+        marketingCopy.learnMoreUrl ? (
+          <a
+            className="auth-marketing-learn-more"
+            data-auth-marketing-learn-more="true"
+            href={marketingCopy.learnMoreUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span>
+              {t("newToApp").replace(
+                "{appName}",
+                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
+              )}
+            </span>
+            <span aria-hidden="true"> - </span>
+            <span className="auth-marketing-learn-more-link">
+              {t("learnMore")}
+            </span>
+          </a>
+        ) : null
+      }
       auth={authCard}
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
+        marketingCopy.learnMorePlacement === "bottom-right"
+          ? "has-bottom-right-learn-more"
+          : "",
       ]
         .filter(Boolean)
         .join(" ")}

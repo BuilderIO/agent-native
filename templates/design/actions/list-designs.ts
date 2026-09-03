@@ -23,8 +23,9 @@ function escapeLike(value: string): string {
 export default defineAction({
   description:
     "List design projects accessible to the current user. Pass page and " +
-    "pageSize for pagination; omitted values return the first bounded page. " +
-    "Returns optional HTML previews.",
+    "pageSize for pagination; omitted values use the first bounded page. " +
+    "Set includeAll only for a lightweight UI picker; it returns the first " +
+    "bounded picker page. Returns optional HTML previews.",
   schema: z.object({
     page: z.coerce
       .number()
@@ -39,6 +40,12 @@ export default defineAction({
       .max(DESIGN_LIST_MAX_PAGE_SIZE)
       .optional()
       .describe("Maximum designs returned in this page"),
+    includeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set to true only for a lightweight UI picker; it returns the first bounded picker page and hasMore when more exist.",
+      ),
     createdBy: z
       .enum(["all", "me"])
       .optional()
@@ -65,8 +72,11 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async (args) => {
-    const page = args.page ?? 1;
-    const pageSize = args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE;
+    const includeAll = args.includeAll === true;
+    const page = includeAll ? 1 : (args.page ?? 1);
+    const pageSize = includeAll
+      ? DESIGN_LIST_MAX_PAGE_SIZE
+      : (args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE);
     const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
     if (args.createdBy === "me" && !ownerEmail) {
       return {

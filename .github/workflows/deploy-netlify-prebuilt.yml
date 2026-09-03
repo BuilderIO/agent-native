@@ -114,8 +114,7 @@ permissions:
 
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
-  # manager, and promotion jobs. A called workflow gets a distinct child queue
-  # because the fleet caller already owns the shared per-site lock.
+  # manager, and promotion jobs. Release migrations use a separate queue.
   group: >-
     ${{ inputs.caller == 'release-migration'
         && inputs.target == 'production'
@@ -129,8 +128,8 @@ concurrency:
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
-  # Beta groups include the source revision. A workflow-level shared group has
-  # only one pending slot in GitHub Actions and would silently drop main pushes.
+  # Caller workflows own their workflow-level queues. These per-site child
+  # queues remain non-canceling for accepted uploads.
   cancel-in-progress: false
 
 jobs:
@@ -257,13 +256,11 @@ jobs:
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
           pnpm install --frozen-lockfile
 
-          migration_database_url=""
-          for variable in NETLIFY_DATABASE_URL_UNPOOLED NETLIFY_DATABASE_URL DATABASE_URL; do
-            if value="$(netlify env:get "$variable" --context "$BUILD_CONTEXT" --site "$NETLIFY_SITE_ID" 2>/dev/null)" && [[ "$value" == postgres* ]]; then
-              migration_database_url="$value"
-              break
-            fi
-          done
+          migration_database_url="$(
+            netlify api getEnvVars \
+              --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+          )"
           if [[ -z "$migration_database_url" ]]; then
             echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
             exit 1
@@ -332,6 +329,11 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
+          if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
+            export agentNativePrebuiltBuild=true
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
           if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
             # Starter's runtime database and auth secret are Netlify secrets.
             # The external prebuilt runner receives masked values, so use
@@ -342,6 +344,9 @@ jobs:
             export agentNativePrebuiltAuthSecret
           fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+          fi
+          if [[ "$SOURCE_TEMPLATE" == "crm" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
@@ -511,6 +516,44 @@ jobs:
             process.exitCode = 1;
           });
           NODE
+
+      - name: Run CRM release migrations
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'crm'
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          pnpm install --frozen-lockfile
+
+          migration_database_url="$(
+            netlify api getSiteDatabase \
+              --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+          )"
+          if [[ -z "$migration_database_url" ]]; then
+            echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
+            exit 1
+          fi
+          export DATABASE_URL="$migration_database_url"
+
+          for attempt in 1 2 3; do
+            if pnpm --filter crm migrate:production; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              delay=$((attempt * 30))
+              echo "CRM migration attempt $attempt failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "::error::CRM release migration failed after 3 attempts."
+          exit 1
 
       - name: Unlock the published production deploy
         id: unlock
@@ -1059,19 +1102,6 @@ jobs:
           echo "::error::Google OAuth callback verification failed (exit code ${probe_exit_code:-2})."
           exit "${probe_exit_code:-2}"
 
-      # An unknown URL must still be storable. When it is not, every dead link
-      # and crawler miss re-invokes the render function, and Netlify runs one
-      # request per container — so a single site's regression drains the
-      # concurrency pool the whole account shares. Source review and green
-      # builds both missed this; only the live response shows it.
-      - name: Verify the deployed site still caches a miss
-        if: >-
-          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
-          inputs.smoke && inputs.deploy_mode == 'production'
-        env:
-          HOST: ${{ steps.target.outputs.host }}
-        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
-
       - name: Smoke-test the static docs deploy
         if: >-
           inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
@@ -1125,6 +1155,20 @@ jobs:
             process.exitCode = 1;
           });
           NODE
+
+      # An unknown URL must still be storable. When it is not, every dead link
+      # and crawler miss re-invokes the render function, and Netlify runs one
+      # request per container — so a single site's regression drains the
+      # concurrency pool the whole account shares. Source review and green
+      # builds both missed this; only the live response shows it. Run after
+      # purge so this observes the deployment just published, not its predecessor.
+      - name: Verify the deployed site still caches a miss
+        if: >-
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && inputs.deploy_mode == 'production' && success()
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
 
       - name: Lock the published production deploy
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
