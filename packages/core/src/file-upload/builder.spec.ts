@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { builderFileUploadProvider } from "./builder.js";
 
 const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
+const resolveBuilderCredentialsDetailedMock = vi.hoisted(() => vi.fn());
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const resolveBuilderApiAuthorizationMock = vi.hoisted(() => vi.fn());
 
@@ -12,6 +13,7 @@ vi.mock("../server/builder-api-auth.js", () => ({
 
 vi.mock("../server/credential-provider.js", () => ({
   resolveBuilderCredentials: resolveBuilderCredentialsMock,
+  resolveBuilderCredentialsDetailed: resolveBuilderCredentialsDetailedMock,
   resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
 }));
 
@@ -47,6 +49,10 @@ describe("builderFileUploadProvider", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "bpk-secret",
+      publicKey: "public-key",
+    });
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
       privateKey: "bpk-secret",
       publicKey: "public-key",
     });
@@ -234,6 +240,10 @@ describe("builderFileUploadProvider", () => {
       privateKey: "btk-agent-native",
       publicKey: "space-agent-native",
     });
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-agent-native",
+      publicKey: "space-agent-native",
+    });
     fetchMock
       .mockResolvedValueOnce(
         jsonResponse({
@@ -259,6 +269,39 @@ describe("builderFileUploadProvider", () => {
     expect(
       new URL(fetchMock.mock.calls[2][0].toString()).searchParams.get("apiKey"),
     ).toBe("space-agent-native");
+  });
+
+  it("uses the PAT and space from the same complete credential pair", async () => {
+    resolveBuilderApiAuthorizationMock.mockResolvedValue("Bearer btk-user");
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-org",
+      publicKey: "space-org",
+    });
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/upload",
+          assetId: "asset-1",
+          requiredHeaders: {},
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/video" }),
+      );
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1]),
+      filename: "clip.webm",
+      mimeType: "video/webm",
+    });
+
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer btk-org",
+    );
+    expect(
+      new URL(fetchMock.mock.calls[0][0].toString()).searchParams.get("apiKey"),
+    ).toBe("space-org");
   });
 
   it("passes only stableUrl through signed URL completion when requested", async () => {

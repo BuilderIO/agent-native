@@ -251,15 +251,17 @@ async function assetAuthorization(): Promise<{
   );
   if (!/^Bearer\s+btk-/i.test(authorization)) return { authorization };
 
-  const { resolveBuilderCredentials } =
+  const { resolveBuilderCredentialsDetailed } =
     await import("../server/credential-provider.js");
-  const publicKey = (await resolveBuilderCredentials()).publicKey?.trim();
-  if (!publicKey) {
+  const credentials = await resolveBuilderCredentialsDetailed();
+  const privateKey = credentials.privateKey?.trim();
+  const publicKey = credentials.publicKey?.trim();
+  if (!privateKey || !publicKey) {
     throw new Error(
       "Builder personal access token connection is missing its space id. Reconnect Builder.io to continue.",
     );
   }
-  return { authorization, apiKey: publicKey };
+  return { authorization: `Bearer ${privateKey}`, apiKey: publicKey };
 }
 
 /**
