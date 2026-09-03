@@ -664,12 +664,18 @@ function DocumentEditorBody({
     Record<string, string>
   >({});
   const handleAdditionalBlockContentChange = useCallback(
-    (propertyId: string, content: string) => {
-      setAdditionalBlockContents((current) =>
-        current[propertyId] === content
+    (propertyId: string, content: string | null) => {
+      setAdditionalBlockContents((current) => {
+        if (content === null) {
+          if (!(propertyId in current)) return current;
+          const next = { ...current };
+          delete next[propertyId];
+          return next;
+        }
+        return current[propertyId] === content
           ? current
-          : { ...current, [propertyId]: content },
-      );
+          : { ...current, [propertyId]: content };
+      });
     },
     [],
   );
@@ -1738,6 +1744,7 @@ function DocumentEditorBody({
   // The shared sync transport wakes this reader for the exact app-state key;
   // the first run covers a request that was already pending when the editor
   // mounted.
+  const flushRequestInFlightRef = useRef(new Set<string>());
   useEffect(() => {
     if (!editorCanEdit || isLocalFileDocument) return;
     let active = true;
@@ -1764,6 +1771,11 @@ function DocumentEditorBody({
             if (pending.status === "error" || pending.status === "success") {
               return;
             }
+            const requestIdentity =
+              pending.requestId ??
+              `${pending.id ?? documentId}:${pending.ts ?? 0}`;
+            if (flushRequestInFlightRef.current.has(requestIdentity)) return;
+            flushRequestInFlightRef.current.add(requestIdentity);
             const title = localTitleRef.current;
             const content = localContentRef.current;
             const updates: Record<string, string> = {};
@@ -1835,6 +1847,8 @@ function DocumentEditorBody({
                       : t("editor.liveDocumentSaveBeforeSyncFailed"),
                 }),
               }).catch(() => {});
+            } finally {
+              flushRequestInFlightRef.current.delete(requestIdentity);
             }
           }
         }

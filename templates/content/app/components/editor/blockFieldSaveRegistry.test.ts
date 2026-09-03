@@ -251,6 +251,12 @@ describe("blockFieldSaveRegistry", () => {
     expect(peekBlockFieldSaveController("doc-b:notes")?.lastSaved).toBe("");
   });
 
+  it("uses persisted SQL when the requested field is not mounted", async () => {
+    await expect(
+      flushBlockFieldSaveController("closed-document", "closed-field"),
+    ).resolves.toBeUndefined();
+  });
+
   it("fails when an additional field remains dirty after its save rejects", async () => {
     const key = "doc:notes";
     blockFieldSaveImplRef(key).current = () =>

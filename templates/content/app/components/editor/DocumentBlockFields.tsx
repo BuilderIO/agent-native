@@ -52,7 +52,10 @@ interface DocumentBlockFieldsProps {
    * when there are multiple Blocks fields.
    */
   primaryEditor: ReactNode;
-  onAdditionalContentChange?: (propertyId: string, content: string) => void;
+  onAdditionalContentChange?: (
+    propertyId: string,
+    content: string | null,
+  ) => void;
 }
 
 function isBlocksFieldRevisionConflict(error: unknown): boolean {
@@ -391,7 +394,10 @@ function MultiBlockFields({
   canEdit: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
-  onAdditionalContentChange?: (propertyId: string, content: string) => void;
+  onAdditionalContentChange?: (
+    propertyId: string,
+    content: string | null,
+  ) => void;
   t: ReturnType<typeof useT>;
 }) {
   const reorder = useReorderDocumentProperty(
@@ -932,7 +938,7 @@ function AdditionalBlockEditor({
   databaseDocumentId: string;
   property: DocumentProperty;
   canEdit: boolean;
-  onContentChange?: (propertyId: string, content: string) => void;
+  onContentChange?: (propertyId: string, content: string | null) => void;
 }) {
   const t = useT();
   const setProperty = useSetDocumentProperty(
@@ -957,6 +963,11 @@ function AdditionalBlockEditor({
   useEffect(() => {
     onContentChange?.(propertyId, content);
   }, [content, onContentChange, propertyId]);
+
+  useEffect(
+    () => () => onContentChange?.(propertyId, null),
+    [onContentChange, propertyId],
+  );
 
   return (
     <VisualEditor

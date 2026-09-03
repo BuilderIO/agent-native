@@ -1,8 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import "../server/db/index.js";
 import type { DocumentProperty } from "../shared/api.js";
 import {
   countWords,
@@ -11,8 +11,8 @@ import {
   isEmptyPropertyValue,
   isPrimaryBlocksField,
 } from "../shared/properties.js";
-import "../server/db/index.js";
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
+import { resolveDocumentAccess } from "./_document-access.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 import {
   listPropertiesForAllDocumentDatabases,
@@ -52,7 +52,11 @@ export default defineAction({
 
     const fresh = await resolveReadableDocument(documentId);
     const freshContext = await readableFieldContext(fresh.resource);
-    const freshSelected = selectReadableBlocksField(freshContext, propertyId);
+    const freshSelected = selectReadableBlocksField(
+      freshContext,
+      propertyId,
+      propertyId === undefined ? undefined : { requireValueVisibility: false },
+    );
     if (!freshSelected) {
       return wordCountResult({
         documentId,
@@ -65,7 +69,9 @@ export default defineAction({
 
     return wordCountResult({
       documentId,
-      propertyId: freshSelected.property.definition.id,
+      propertyId: freshSelected.primary
+        ? null
+        : freshSelected.property.definition.id,
       name: freshSelected.property.definition.name,
       primary: freshSelected.primary,
       content: freshSelected.primary
@@ -141,7 +147,7 @@ export function selectReadableBlocksField(
 }
 
 async function resolveReadableDocument(documentId: string) {
-  const access = await resolveAccess("document", documentId);
+  const access = await resolveDocumentAccess(documentId);
   if (
     !access ||
     access.resource.trashedAt ||

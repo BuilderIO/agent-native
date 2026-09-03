@@ -89,9 +89,9 @@ export async function flushBlockFieldSaveController(
   propertyId: string,
 ): Promise<void> {
   const controller = registry.get(`${documentId}:${propertyId}`)?.controller;
-  if (!controller) {
-    throw new Error("The requested Blocks field is not open in this editor.");
-  }
+  // An unmounted field has already completed its teardown flush, so SQL is
+  // authoritative and there is no live value left to persist.
+  if (!controller) return;
 
   await controller.flush();
   if (controller.pending !== controller.lastSaved) {
