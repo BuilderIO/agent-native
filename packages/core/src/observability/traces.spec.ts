@@ -1898,9 +1898,54 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       "llm.input_tokens": 12,
       "llm.output_tokens": 4,
       "llm.cache_read_tokens": 2,
+      "llm.cost_cents_x100": expect.any(Number),
     });
     expect(modelSpan?.status?.code).toBe(SPAN_STATUS_OK);
     expect(modelSpan?.ended).toBe(true);
+  });
+
+  it("ends an interrupted model attempt before a retry starts", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+    let firstSpanEndedBeforeRetry = false;
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        send({ type: "model_stream", status: "start" });
+        firstSpanEndedBeforeRetry =
+          spans.find((span) => span.name === "llm.call")?.ended ?? false;
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 12,
+          outputTokens: 4,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-retry",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    const modelSpans = spans.filter((span) => span.name === "llm.call");
+    expect(firstSpanEndedBeforeRetry).toBe(true);
+    expect(modelSpans[0]?.status?.code).toBe(SPAN_STATUS_ERROR);
+    expect(modelSpans[0]?.ended).toBe(true);
   });
 
   it("keeps a provider error on a model span when its stream closes first", async () => {

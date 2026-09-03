@@ -721,10 +721,36 @@ export async function instrumentAgentLoop(opts: {
   /** The call currently streaming, or the last one that streamed — text and
    *  usage arriving between calls belong to the call that just finished. */
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
+  type CostCalculator = (
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    cacheReadTokens?: number,
+    cacheWriteTokens?: number,
+  ) => number;
+  let calculateCost: CostCalculator | undefined;
+  const calculateUsageCost = (
+    callUsage: AgentLoopUsage | undefined,
+  ): number | undefined => {
+    if (!calculateCost || !callUsage) return undefined;
+    try {
+      return calculateCost(
+        callUsage.inputTokens,
+        callUsage.outputTokens,
+        callUsage.model,
+        callUsage.cacheReadTokens,
+        callUsage.cacheWriteTokens,
+      );
+    } catch {
+      // coercion-ok: cost estimation is enrichment and cannot fail tracing.
+      return undefined;
+    }
+  };
   type OtelModelSpanEndResult = {
     status: "success" | "error";
     errorMessage: string | null;
     attributes: Record<string, string | number | boolean | null | undefined>;
+    endTime?: number;
   };
   const pendingOtelModelSpans = new Map<
     number,
@@ -748,6 +774,7 @@ export async function instrumentAgentLoop(opts: {
       "llm.output_tokens": callUsage?.outputTokens,
       "llm.cache_read_tokens": callUsage?.cacheReadTokens,
       "llm.cache_write_tokens": callUsage?.cacheWriteTokens,
+      "llm.cost_cents_x100": calculateUsageCost(callUsage),
     };
   };
   const startOtelModelSpan = (index: number): void => {
@@ -788,6 +815,20 @@ export async function instrumentAgentLoop(opts: {
     entry.ended = true;
     openOtelModelSpans.delete(entry.span);
     endAgentSpan(entry.span, result);
+  };
+  const finishAwaitingOtelModelSpans = (
+    finalErrorMessage: string | null = null,
+  ): void => {
+    for (const tripIndex of modelSpansAwaitingFinalError) {
+      finishOtelModelSpan(tripIndex, {
+        status: "error",
+        errorMessage:
+          finalErrorMessage ?? "Model stream ended before completion.",
+        attributes: modelSpanAttributes(tripIndex),
+        endTime: modelRoundTrips[tripIndex]?.end,
+      });
+    }
+    modelSpansAwaitingFinalError.clear();
   };
   const modelStreamIntervals: TimeInterval[] = [];
   let modelStreamOpenedAt: number | null = null;
@@ -893,6 +934,10 @@ export async function instrumentAgentLoop(opts: {
         // The emitter brackets these itself, so a repeated start or an
         // unmatched end is a no-op here rather than a fabricated interval.
         if (event.status === "start") {
+          // A reasonless closure is emitted before the agent loop decides
+          // whether to retry. If another attempt starts, the old attempt is
+          // definitely final and must not span the retry backoff.
+          finishAwaitingOtelModelSpans();
           if (modelStreamOpenedAt === null) {
             modelStreamOpenedAt = Date.now();
             const tripIndex = modelRoundTrips.length;
@@ -932,12 +977,6 @@ export async function instrumentAgentLoop(opts: {
             // has classified a provider error. Defer ending the span so that
             // the real error message wins over a generic stream-ended value.
             modelSpansAwaitingFinalError.add(tripIndex);
-          } else {
-            finishOtelModelSpan(tripIndex, {
-              status: "success",
-              errorMessage: null,
-              attributes: modelSpanAttributes(tripIndex),
-            });
           }
           modelStreamOpenedAt = null;
         }
@@ -1222,22 +1261,6 @@ export async function instrumentAgentLoop(opts: {
         if (trip) trip.end = runEnd;
         modelStreamOpenedAt = null;
       }
-      if (interruptedModelRoundTrip !== null) {
-        finishOtelModelSpan(interruptedModelRoundTrip, {
-          status: "error",
-          errorMessage:
-            errorMessage ?? "Model stream interrupted before completion.",
-          attributes: modelSpanAttributes(interruptedModelRoundTrip),
-        });
-      }
-      for (const tripIndex of modelSpansAwaitingFinalError) {
-        finishOtelModelSpan(tripIndex, {
-          status: "error",
-          errorMessage: errorMessage ?? "Model stream ended before completion.",
-          attributes: modelSpanAttributes(tripIndex),
-        });
-      }
-      modelSpansAwaitingFinalError.clear();
       // Undefined means the engine never bracketed its model calls, NOT that
       // the model took no time — the two must stay distinguishable, because
       // only the first may fall back to backing tool time out of the run.
@@ -1308,15 +1331,6 @@ export async function instrumentAgentLoop(opts: {
       let costCentsX100 = 0;
       // Held for the per-generation costs below, which price each round-trip
       // from its own tokens rather than splitting the run total.
-      let calculateCost:
-        | ((
-            inputTokens: number,
-            outputTokens: number,
-            model: string,
-            cacheReadTokens?: number,
-            cacheWriteTokens?: number,
-          ) => number)
-        | undefined;
       try {
         ({ calculateCost } = await import("../usage/store.js"));
         if (usage) {
@@ -1805,6 +1819,26 @@ export async function instrumentAgentLoop(opts: {
       // get one aggregate generation. End any tool/model spans still open and
       // then end the run span. Awaited so spans are emitted before return.
       try {
+        if (interruptedModelRoundTrip !== null) {
+          finishOtelModelSpan(interruptedModelRoundTrip, {
+            status: "error",
+            errorMessage:
+              errorMessage ?? "Model stream interrupted before completion.",
+            attributes: modelSpanAttributes(interruptedModelRoundTrip),
+            endTime: runEnd,
+          });
+        }
+        for (const [tripIndex, trip] of modelRoundTrips.entries()) {
+          if (trip.stopReason && trip.stopReason !== "error") {
+            finishOtelModelSpan(tripIndex, {
+              status: "success",
+              errorMessage: null,
+              attributes: modelSpanAttributes(tripIndex),
+              endTime: trip.end,
+            });
+          }
+        }
+        finishAwaitingOtelModelSpans(errorMessage);
         await Promise.all(
           [...pendingOtelModelSpans.values()].map((entry) => entry.spanPromise),
         );

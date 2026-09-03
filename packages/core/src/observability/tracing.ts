@@ -33,7 +33,7 @@ export interface AgentSpan {
   /** OTel `SpanStatusCode`: 1 = OK, 2 = ERROR. */
   setStatus(status: { code: number; message?: string }): void;
   recordException(exception: { name?: string; message: string }): void;
-  end(): void;
+  end(endTime?: unknown): void;
 }
 
 /** OTel `SpanStatusCode` values, inlined so we don't need the api types here. */
@@ -176,6 +176,7 @@ export function endAgentSpan(
     status?: "success" | "error";
     errorMessage?: string | null;
     attributes?: Record<string, string | number | boolean | null | undefined>;
+    endTime?: number;
   } = {},
 ): void {
   if (!span) return;
@@ -198,7 +199,7 @@ export function endAgentSpan(
     // Never let span finalization break the agent loop.
   } finally {
     try {
-      span.end();
+      span.end(result.endTime);
     } catch {
       // ignore
     }
