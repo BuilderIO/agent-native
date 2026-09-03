@@ -1340,13 +1340,6 @@ export interface CopiedSlideObjects {
 
 const SLIDE_OBJECT_CLIPBOARD_MARKER =
   "data-agent-native-slide-object-clipboard";
-const SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_PREFIX = "\u2063\u2063";
-const SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_ALPHABET = [
-  "\u200b",
-  "\u200c",
-  "\u200d",
-  "\u2060",
-] as const;
 const SLIDE_OBJECT_CLIPBOARD_BLOCK_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -1394,63 +1387,22 @@ export function slideObjectClipboardHtml(
 export function readSlideObjectClipboardId(
   html: string | null | undefined,
   doc: Document,
-  plainText?: string | null,
 ): string | null {
-  if (html) {
-    const template = doc.createElement("template");
-    template.innerHTML = html;
-    const marker = template.content.querySelector(
-      `[${SLIDE_OBJECT_CLIPBOARD_MARKER}]`,
-    );
-    const encodedId = marker?.getAttribute(SLIDE_OBJECT_CLIPBOARD_MARKER);
-    if (encodedId) {
-      try {
-        const clipboardId = decodeURIComponent(encodedId);
-        if (clipboardId) return clipboardId;
-      } catch (error) {
-        if (!(error instanceof URIError)) throw error;
-      }
-    }
-  }
-  const markerStart = plainText?.lastIndexOf(
-    SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_PREFIX,
+  if (!html) return null;
+  const template = doc.createElement("template");
+  template.innerHTML = html;
+  const marker = template.content.querySelector(
+    `[${SLIDE_OBJECT_CLIPBOARD_MARKER}]`,
   );
-  if (markerStart === undefined || markerStart < 0 || !plainText) {
-    return null;
+  const encodedId = marker?.getAttribute(SLIDE_OBJECT_CLIPBOARD_MARKER);
+  if (!encodedId) return null;
+  try {
+    const clipboardId = decodeURIComponent(encodedId);
+    return clipboardId || null;
+  } catch (error) {
+    if (error instanceof URIError) return null;
+    throw error;
   }
-  const encodedId = plainText.slice(
-    markerStart + SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_PREFIX.length,
-  );
-  if (!encodedId || encodedId.length % 4 !== 0) return null;
-  let clipboardId = "";
-  for (let index = 0; index < encodedId.length; index += 4) {
-    let code = 0;
-    for (const character of encodedId.slice(index, index + 4)) {
-      const value = SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_ALPHABET.indexOf(
-        character as (typeof SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_ALPHABET)[number],
-      );
-      if (value < 0) return null;
-      code = (code << 2) | value;
-    }
-    clipboardId += String.fromCharCode(code);
-  }
-  return clipboardId || null;
-}
-
-function slideObjectClipboardTextMarker(clipboardId: string): string {
-  return (
-    SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_PREFIX +
-    Array.from(clipboardId, (character) => {
-      const code = character.charCodeAt(0);
-      return Array.from(
-        { length: 4 },
-        (_, index) =>
-          SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_ALPHABET[
-            (code >> (6 - index * 2)) & 3
-          ],
-      ).join("");
-    }).join("")
-  );
 }
 
 function slideObjectClipboardText(
@@ -1552,9 +1504,9 @@ export async function writeSlideObjectClipboard(
 
   if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
   if (clipboard?.writeText) {
-    await clipboard.writeText(
-      text + slideObjectClipboardTextMarker(clipboardId),
-    );
+    // text/plain has no provenance channel. Keep it clean so external pastes
+    // do not receive implementation markers; native text stays authoritative.
+    await clipboard.writeText(text);
     return "text-only";
   }
   if (richWriteError) throw richWriteError;

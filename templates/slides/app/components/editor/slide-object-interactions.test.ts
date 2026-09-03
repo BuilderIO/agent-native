@@ -134,11 +134,7 @@ describe("slide object interactions", () => {
         null,
       ),
     ).resolves.toBe("text-only");
-    const writtenText = writeText.mock.calls[0]![0]!;
-    expect(writtenText).toContain("Layer");
-    expect(readSlideObjectClipboardId(null, document, writtenText)).toBe(
-      "copy-1",
-    );
+    expect(writeText).toHaveBeenCalledWith("Layer");
   });
 
   it("keeps the marker when the legacy copy event writes clipboard HTML", async () => {
