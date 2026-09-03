@@ -2,6 +2,7 @@ import {
   type Dispatch,
   type SetStateAction,
   useCallback,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -56,10 +57,18 @@ export function usePersistentSidebarCollapsed({
   storageKey,
   defaultCollapsed = false,
 }: UsePersistentSidebarCollapsedOptions): PersistentSidebarCollapsedState {
-  const [state, setState] = useState<StoredSidebarState>(() =>
-    readStoredSidebarState(storageKey, defaultCollapsed),
-  );
+  const [state, setState] = useState<StoredSidebarState>({
+    collapsed: defaultCollapsed,
+    persistenceStatus:
+      typeof window === "undefined" ? "unavailable" : "available",
+  });
   const collapsedRef = useRef(state.collapsed);
+
+  useEffect(() => {
+    const storedState = readStoredSidebarState(storageKey, defaultCollapsed);
+    collapsedRef.current = storedState.collapsed;
+    setState(storedState);
+  }, [defaultCollapsed, storageKey]);
 
   const setCollapsed = useCallback<Dispatch<SetStateAction<boolean>>>(
     (next) => {

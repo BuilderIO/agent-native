@@ -90,10 +90,10 @@ then collapse, with the same order stacked in collapsed sidebars.
 Use `usePersistentSidebarCollapsed` for a collapsible desktop navigation
 sidebar that should remember a person's choice after refresh. Each app supplies
 its own stable storage key and first-use default. The hook restores valid
-browser state synchronously, keeps explicit changes responsive when storage is
-unavailable, and exposes `persistenceStatus` so unavailable or malformed
-storage is distinguishable from a saved preference. Keep temporary mobile
-drawer state separate.
+browser state immediately after hydration, keeps explicit changes responsive
+when storage is unavailable, and exposes `persistenceStatus` so unavailable or
+malformed storage is distinguishable from a saved preference. Keep temporary
+mobile drawer state separate.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.

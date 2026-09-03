@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -88,7 +88,7 @@ describe("usePersistentSidebarCollapsed", () => {
   it.each([
     ["true", true],
     ["false", false],
-  ])("restores %s synchronously", (stored, collapsed) => {
+  ])("restores %s after mounting", (stored, collapsed) => {
     window.localStorage.setItem(STORAGE_KEY, stored);
     render(!collapsed);
 
@@ -165,5 +165,35 @@ describe("usePersistentSidebarCollapsed", () => {
     );
 
     vi.unstubAllGlobals();
+  });
+
+  it("hydrates the server default before restoring a saved preference", async () => {
+    function HydrationProbe() {
+      const result = usePersistentSidebarCollapsed({
+        storageKey: STORAGE_KEY,
+        defaultCollapsed: false,
+      });
+      state = result;
+      return <div>{result.collapsed ? "collapsed" : "expanded"}</div>;
+    }
+
+    const browserWindow = window;
+    vi.stubGlobal("window", undefined);
+    const serverMarkup = renderToString(<HydrationProbe />);
+    vi.stubGlobal("window", browserWindow);
+    window.localStorage.setItem(STORAGE_KEY, "true");
+    act(() => root.unmount());
+    container.innerHTML = serverMarkup;
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await act(async () => {
+      root = hydrateRoot(container, <HydrationProbe />);
+    });
+
+    expect(state.collapsed).toBe(true);
+    expect(container.textContent).toBe("collapsed");
+    expect(consoleError).not.toHaveBeenCalled();
   });
 });
