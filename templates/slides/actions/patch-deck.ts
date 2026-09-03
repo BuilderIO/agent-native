@@ -160,7 +160,10 @@ const PatchSlideOp = z.object({
 const DeleteSlideOp = z.object({
   op: z.literal("delete-slide"),
   slideId: z.string(),
-  allowEmpty: z.boolean().optional(),
+  allowEmpty: z
+    .boolean()
+    .optional()
+    .describe("Keep the deck empty when deleting its last slide."),
 });
 
 /**
@@ -170,7 +173,9 @@ const DeleteSlideOp = z.object({
  */
 const ReorderSlidesOp = z.object({
   op: z.literal("reorder-slides"),
-  orderedIds: z.array(z.string()),
+  orderedIds: z
+    .array(z.string())
+    .describe("Desired slide ID order; concurrent additions remain appended."),
 });
 
 /** Add a new slide. slideId must be provided by the client. */
@@ -229,8 +234,9 @@ export type Operation = z.infer<typeof OperationSchema>;
 export function assertSourceImportOperationsPreserved(
   metadata: SourceImportMetadata | null,
   operations: Operation[],
+  rewriteSource = false,
 ): void {
-  if (!metadata) return;
+  if (!metadata || rewriteSource) return;
   const structuralOperation = operations.find(
     (operation) =>
       operation.op === "delete-slide" ||
@@ -240,7 +246,7 @@ export function assertSourceImportOperationsPreserved(
   if (!structuralOperation) return;
 
   throw new Error(
-    `Cannot ${structuralOperation.op} on a source-imported deck while source preservation is enabled. Preserve the imported slide structure, or use an explicit source rewrite workflow.`,
+    `Cannot ${structuralOperation.op} on a source-imported deck while source preservation is enabled. Preserve the imported slide structure, or retry patch-deck with rewriteSource=true only when the user explicitly asks to rewrite the imported structure; that conversion clears source-preservation metadata.`,
   );
 }
 
@@ -278,10 +284,17 @@ export function assertSourceImportSlidesCovered(
 }
 
 // The browser uses the full operation union above. Agents additionally use
-// this action for one bounded, deck-wide layout repair: one patch-slide per
-// source slide in a single SQL transaction, followed by compact verification.
+// this action for bounded deck and slide edits, including structural operations
+// that the browser editor batches through this same action.
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
+  rewriteSource: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "For a source-preserving deck, set true only when the user explicitly asks to rewrite its structure; this clears source-preservation metadata.",
+    ),
   requireAllSourceSlides: z
     .boolean()
     .optional()
@@ -293,6 +306,8 @@ const AgentPatchDeckInputSchema = z.object({
     .array(
       z.union([
         PatchSlideOp,
+        DeleteSlideOp,
+        ReorderSlidesOp,
         z.object({
           op: z.literal("patch-deck-fields"),
           fields: z.object({
@@ -305,7 +320,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide. Use patch-deck-fields only for a deck title change.",
+      "Use patch-slide for content or slide fields, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields only for a deck title change. For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide.",
     ),
 });
 
@@ -623,9 +638,19 @@ export default defineAction({
     "Then call get-deck with compact=true to verify the persisted slide IDs, " +
     "count, and animation metadata before reporting success. Content writes " +
     "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
-    "get-layout-overflows later when you need the browser's fit result.",
+    "get-layout-overflows later when you need the browser's fit result. " +
+    "Agents can delete or reorder slides through operations in this action. " +
+    "For a source-preserving deck, set rewriteSource=true only for an explicit " +
+    "request to rewrite its structure; that clears source-preservation metadata.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
+    rewriteSource: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "For a source-preserving deck, set true only when the user explicitly asks to rewrite its structure; this clears source-preservation metadata.",
+      ),
     requireAllSourceSlides: z
       .boolean()
       .optional()
@@ -653,7 +678,13 @@ export default defineAction({
   }),
   agentInputSchema: AgentPatchDeckInputSchema,
   run: async (
-    { deckId, operations, requireAllSourceSlides, creativeContext },
+    {
+      deckId,
+      operations,
+      requireAllSourceSlides,
+      rewriteSource,
+      creativeContext,
+    },
     ctx,
   ) => {
     await assertAccess("deck", deckId, "editor");
@@ -693,17 +724,24 @@ export default defineAction({
       }
 
       const sourceImport = sourceImportForDeck(deck.sourceImport);
+      const sourceRewriteRequested =
+        isAgentCaller && rewriteSource && sourceImport !== null;
       if (isAgentCaller) {
-        assertSourceImportOperationsPreserved(sourceImport, operations);
+        assertSourceImportOperationsPreserved(
+          sourceImport,
+          operations,
+          rewriteSource,
+        );
         assertSourceImportSlidesCovered(
           sourceImport,
           operations,
-          requireAllSourceSlides,
+          rewriteSource ? false : requireAllSourceSlides,
         );
       }
       for (const op of operations) {
         if (
           !isAgentCaller ||
+          rewriteSource ||
           op.op !== "patch-slide" ||
           (op.fields.content === undefined && op.fields.notes === undefined)
         ) {
@@ -770,9 +808,10 @@ export default defineAction({
           layoutFitSlideIds.add(slide.id);
         }
       }
+      if (sourceRewriteRequested) delete deck.sourceImport;
       if (isAgentCaller) {
         clearOmittedAnimationsForAgentContentPatches(deck, operations, {
-          sourceImport,
+          sourceImport: sourceRewriteRequested ? null : sourceImport,
         });
       }
       assertPatchedSlideAnimationsResolve(deck, operations, {
@@ -992,6 +1031,7 @@ export default defineAction({
         deckId,
         updatedAt: now,
         updatedSlideIds,
+        ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),
         ...(layoutFitSlideIdList.length
           ? {
               layoutFit: {
