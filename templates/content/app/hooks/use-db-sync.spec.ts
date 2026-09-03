@@ -6,23 +6,31 @@ import {
 } from "./content-action-refresh";
 
 describe("contentActionRefreshPrefixes", () => {
-  it.each(["add-comment", "delete-comment", "update-comment"])(
-    "refreshes comments after external %s",
-    (key) => {
-      expect(
-        contentActionRefreshPrefixes(
-          { source: "action", key, requestSource: "agent" },
-          "browser-tab",
-        ),
-      ).toEqual([["action", "list-comments"]]);
-    },
-  );
+  it.each([
+    "add-comment",
+    "delete-comment",
+    "sync-notion-comments",
+    "update-comment",
+  ])("refreshes comments after external %s", (key) => {
+    expect(
+      contentActionRefreshPrefixes(
+        { source: "action", key, requestSource: "agent" },
+        "browser-tab",
+      ),
+    ).toEqual([["action", "list-comments"]]);
+  });
 
   it.each([
+    "create-and-link-notion-page",
+    "delete-document",
     "delete-document-property",
     "edit-document",
+    "migrate-content-database-rows",
+    "mutate-content-database-block",
     "pull-notion-page",
     "push-notion-page",
+    "resolve-notion-sync-conflict",
+    "restore-document",
     "restore-document-version",
     "set-document-property",
     "set-image-alt-text",
@@ -69,8 +77,8 @@ describe("contentActionRefreshPrefixes", () => {
     const calls: unknown[] = [];
     refreshContentActionQueries(
       {
-        refetchQueries: (filters) => {
-          calls.push(filters);
+        refetchQueries: (filters, options) => {
+          calls.push({ filters, options });
         },
       },
       { source: "action", key: "update-comment", requestSource: "agent" },
@@ -78,7 +86,13 @@ describe("contentActionRefreshPrefixes", () => {
     );
 
     expect(calls).toEqual([
-      { queryKey: ["action", "list-comments"], type: "active" },
+      {
+        filters: {
+          queryKey: ["action", "list-comments"],
+          type: "active",
+        },
+        options: { cancelRefetch: false },
+      },
     ]);
   });
 });
