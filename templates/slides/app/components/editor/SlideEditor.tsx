@@ -4021,10 +4021,16 @@ export default function SlideEditor({
   // latest in-app layer copy observable alongside external clipboard copies.
   // It intentionally does not survive a deck switch.
   useEffect(() => {
+    const clearOverlappingClipboardIds = () => {
+      overlappingNativeClipboardIdsRef.current.clear();
+    };
     copiedObjectClipboardSessionRef.current += 1;
     copiedObjectClipboardRef.current = null;
     overlappingNativeClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
+    window.addEventListener("blur", clearOverlappingClipboardIds);
+    return () =>
+      window.removeEventListener("blur", clearOverlappingClipboardIds);
   }, [deckId]);
 
   // One window listener for object copy/paste/duplicate. Native text editing

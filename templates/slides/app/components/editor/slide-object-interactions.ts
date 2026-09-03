@@ -1502,14 +1502,14 @@ export async function writeSlideObjectClipboard(
     }
   }
 
-  if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
+  if (richWriteError) throw richWriteError;
   if (clipboard?.writeText) {
-    // text/plain has no provenance channel. Keep it clean so external pastes
-    // do not receive implementation markers; native text stays authoritative.
+    // This path starts during the copy gesture when no rich API is available.
+    // A rejected rich write is thrown above so a later fallback cannot lose
+    // transient activation or overwrite a newer copy.
     await clipboard.writeText(text);
     return "text-only";
   }
-  if (richWriteError) throw richWriteError;
   throw new Error("Clipboard writing is not supported");
 }
 

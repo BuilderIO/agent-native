@@ -97,6 +97,27 @@ describe("slide object interactions", () => {
     );
   });
 
+  it("does not start a fallback write after rich clipboard rejection", async () => {
+    const write = vi.fn(async () => {
+      throw new Error("clipboard denied");
+    });
+    const writeText = vi.fn(async (_text: string) => undefined);
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    vi.stubGlobal("navigator", { clipboard: { write, writeText } });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+
+    await expect(
+      writeSlideObjectClipboard(
+        "copy-1",
+        { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+        null,
+      ),
+    ).rejects.toThrow("clipboard denied");
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it("preserves line breaks in plain-text clipboard content", async () => {
     const write = vi.fn(async (_items: ClipboardItem[]) => undefined);
     class FakeClipboardItem {

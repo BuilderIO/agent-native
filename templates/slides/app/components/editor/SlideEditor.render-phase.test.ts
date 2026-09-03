@@ -198,6 +198,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain("readSlideObjectClipboardId");
     expect(source).toContain("overlappingNativeClipboardIdsRef");
     expect(source).toContain("copySessionId");
+    expect(source).toContain('window.addEventListener("blur"');
     expect(source).not.toContain("objectPasteFallbackRef");
     const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
     const pasteEnd = source.indexOf(
