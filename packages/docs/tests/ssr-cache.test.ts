@@ -43,6 +43,7 @@ describe("Docs SSR cache key wrapper", () => {
 
   it("keeps mutable community app routes in the durable cache", () => {
     const communityHeaders = new Headers({
+      ...resolveSsrCacheHeaders({}),
       "content-type": "text/html; charset=utf-8",
     });
     applyCommunityAppSsrCacheHeaders(communityHeaders, "/es-es/apps/");

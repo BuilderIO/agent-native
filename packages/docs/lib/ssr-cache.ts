@@ -1,5 +1,6 @@
 import {
   DEFAULT_SSR_CACHE_HEADERS,
+  resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
 } from "@agent-native/core/server/ssr-handler";
 
@@ -45,12 +46,15 @@ export function applyCommunityAppSsrCacheHeaders(
   if (!isCacheableSsrResponse(headers, status, pathname)) return;
   if (!isMutableCommunityAppPath(pathname)) return;
 
-  if (
-    Object.entries(DEFAULT_SSR_CACHE_HEADERS).some(
-      ([name, value]) => headers.has(name) && headers.get(name) !== value,
-    )
-  ) {
-    return;
+  const deploymentHeaders = resolveSsrCacheHeaders();
+  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+    if (
+      deploymentHeaders[name as keyof typeof DEFAULT_SSR_CACHE_HEADERS] !==
+      value
+    ) {
+      return;
+    }
+    if (headers.has(name) && headers.get(name) !== value) return;
   }
 
   for (const [name, value] of Object.entries(COMMUNITY_APP_SSR_CACHE_HEADERS)) {
