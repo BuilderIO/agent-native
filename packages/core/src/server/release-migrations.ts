@@ -39,6 +39,7 @@ import {
   WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
 } from "../workspace-connections/migrations.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
+import { recordDatabaseIdentity } from "./database-identity.js";
 import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
 import { runFrameworkSchemaEnsures } from "./release-schema.js";
 
@@ -102,6 +103,12 @@ export async function runFrameworkReleaseMigrations(
   // one. Most framework tables are defined by their store's `ensureTable()`,
   // which production serverless can never run — see `./release-schema.ts`.
   await runFrameworkSchemaEnsures();
+  // Immediately after: the `settings` table this writes to now exists, and
+  // this must fail the release the same way a schema-ensure failure does —
+  // a deploy that silently never recorded which app owns this database is
+  // the exact incident this exists to catch, not something to shrug off and
+  // keep migrating on.
+  await recordDatabaseIdentity();
   await runBetterAuthMigrations(nitroApp);
   await runMigrations(AGENT_TOOL_APPROVAL_MIGRATIONS, {
     table: AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,

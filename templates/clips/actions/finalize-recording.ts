@@ -36,6 +36,7 @@ import {
   parseMediaVerificationMarker,
 } from "../server/lib/media-verification-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
 import {
   listRecordingChunkKeys,
   validateRecordingChunkKeys,
@@ -543,6 +544,26 @@ async function leaveRecordingProcessingForMediaVerification(params: {
 async function queueReadyRecordingThumbnail(
   recordingId: string,
 ): Promise<void> {
+  // Best-effort: gives a never-attempted row a 'pending' marker the thumbnail
+  // sweeper can find later if this dispatch never lands (cold start, DNS,
+  // throttling — see post-finalize-dispatch.ts). Never overwrites a terminal
+  // status from a prior attempt.
+  try {
+    await getDb()
+      .update(schema.recordings)
+      .set({ thumbnailStatus: "pending" })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          isNull(schema.recordings.thumbnailStatus),
+        ),
+      );
+  } catch (err: unknown) {
+    console.warn("[finalize] failed to mark thumbnail pending", {
+      id: recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   await dispatchPostFinalizeJob({
     recordingId,
     kind: "thumbnail",
@@ -640,6 +661,16 @@ async function markRecordingReady(params: {
     });
     if (postUpdate?.status === "ready") {
       await queueReadyRecordingThumbnail(id);
+      await reconcileMeetingOnRecordingReady({
+        recordingId: id,
+        ownerEmail,
+        endedAtIso: now,
+      }).catch((err: unknown) => {
+        console.error("[finalize] meeting reconcile failed", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
     return {
       id,
@@ -656,6 +687,16 @@ async function markRecordingReady(params: {
   }
 
   await queueReadyRecordingThumbnail(id);
+  await reconcileMeetingOnRecordingReady({
+    recordingId: id,
+    ownerEmail,
+    endedAtIso: now,
+  }).catch((err: unknown) => {
+    console.error("[finalize] meeting reconcile failed", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
