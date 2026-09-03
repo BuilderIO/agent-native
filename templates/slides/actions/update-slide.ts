@@ -17,6 +17,7 @@ import { getDb, schema } from "../server/db/index.js"; // ensure registerShareab
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import {
@@ -750,7 +751,12 @@ export default defineAction({
     // Extend the SSE payload with the changed slideId + agent actor so the
     // client can attribute the edit. Backwards-compatible: consumers reading
     // only { type, deckId } are unaffected.
-    notifyClients(deckId, { slideId, actor: "agent" });
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    notifyClients(deckId, {
+      slideId,
+      actor: "agent",
+      ...(agentChangeId ? { agentChangeId } : {}),
+    });
 
     console.log(
       `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,

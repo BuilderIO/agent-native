@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
     | undefined,
   updatedFields: undefined as Record<string, unknown> | undefined,
 }));
+const mockNotifyClients = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => "org-1",
@@ -42,11 +43,20 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("../server/handlers/decks.js", () => ({
-  notifyClients: vi.fn(),
+  notifyClients: mockNotifyClients,
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(),
+  deckVersionContentSignature: (raw: unknown) => {
+    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const clone = { ...(data as Record<string, unknown>) };
+      delete clone.updatedAt;
+      return JSON.stringify(clone);
+    }
+    return JSON.stringify(data);
+  },
 }));
 
 vi.mock("./patch-deck", () => ({
@@ -82,9 +92,10 @@ const existingResource = () => ({
   designSystemId: "brand-1",
   updatedAt: "2026-05-12T00:00:00.000Z",
   data: JSON.stringify({
+    id: "deck-1",
     title: "Existing",
     designSystemId: "brand-1",
-    slides: [{ id: "slide-1", content: "old" }],
+    slides: [{ id: "slide-1", content: "old", layoutFitRevision: "fit-1" }],
   }),
 });
 
@@ -92,6 +103,7 @@ describe("save-deck design-system relation persistence", () => {
   beforeEach(() => {
     state.access = { role: "owner", resource: existingResource() };
     state.updatedFields = undefined;
+    mockNotifyClients.mockClear();
   });
 
   it("persists an explicit null when an imported deck clears its design system", async () => {
@@ -123,5 +135,30 @@ describe("save-deck design-system relation persistence", () => {
     );
 
     expect(state.updatedFields?.designSystemId).toBe("brand-1");
+  });
+
+  it("skips a full replacement when only updatedAt differs", async () => {
+    const result = await saveDeckAction.run(
+      {
+        deckId: "deck-1",
+        deck: {
+          id: "deck-1",
+          title: "Existing",
+          designSystemId: "brand-1",
+          updatedAt: "2026-05-12T00:01:00.000Z",
+          slides: [
+            { id: "slide-1", content: "old", layoutFitRevision: "fit-1" },
+          ],
+        },
+      },
+      {},
+    );
+
+    expect(result).toMatchObject({
+      id: "deck-1",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+    });
+    expect(state.updatedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 });
