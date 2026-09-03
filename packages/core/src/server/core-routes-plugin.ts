@@ -134,6 +134,7 @@ import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
 } from "./better-auth-instance.js";
+import { resolveBuilderRequestAuthorization } from "./builder-api-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_MODE_PARAM,
@@ -185,8 +186,6 @@ import {
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
   getBuilderOAuthStoredScope,
-  hasBuilderOAuthSession,
-  resolveBuilderOAuthRequestAccess,
   saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
   type BuilderOAuthPendingFlow,
@@ -203,6 +202,7 @@ import {
 import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  CredentialStoreUnavailableError,
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveSecret,
@@ -809,6 +809,11 @@ export function resolveFrameworkSseRoutes(sseRoute?: string): string[] {
 export const BUILDER_STATUS_ROUTE_SUFFIXES = [
   "/builder/status",
   "/connection-status/builder",
+] as const;
+
+export const BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_CMS_PRIVATE_KEY",
 ] as const;
 
 export function mountBuilderStatusRouteAliases<T>(
@@ -2579,16 +2584,43 @@ export function createCoreRoutesPlugin(
             }
 
             if (userEmail) {
-              let oauthAccess: Awaited<
-                ReturnType<typeof resolveBuilderOAuthRequestAccess>
-              > = null;
-              let hasOAuthCustody = false;
               try {
-                hasOAuthCustody = await hasBuilderOAuthSession(
-                  userEmail,
-                  orgId,
-                );
-              } catch {
+                const requestAuthorization =
+                  await resolveBuilderRequestAuthorization({
+                    requiredScope: BUILDER_OAUTH_SCOPE,
+                    legacyCredentialKeys: BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS,
+                  });
+                if (requestAuthorization?.source === "oauth") {
+                  const keyStatus = await resolveOAuthCustodyBuilderKeyStatus();
+                  return withConnectToken({
+                    ...requestStatus,
+                    configured: true,
+                    credentialSource: "user" as const,
+                    canDisconnect:
+                      requestAuthorization.oauthScope === "user" ||
+                      (requestAuthorization.oauthScope === "org" &&
+                        (orgRole === "owner" || orgRole === "admin")),
+                    privateKeyConfigured: keyStatus.privateKeyConfigured,
+                    publicKeyConfigured: keyStatus.publicKeyConfigured,
+                    keyLookupFailed: keyStatus.keyLookupFailed,
+                    orgName: keyStatus.orgName,
+                    spaces: [],
+                  });
+                }
+                if (
+                  requestAuthorization?.legacyCredentialKey ===
+                  "BUILDER_CMS_PRIVATE_KEY"
+                ) {
+                  return withConnectToken({
+                    ...requestStatus,
+                    configured: true,
+                    credentialSource: "user" as const,
+                    privateKeyConfigured: true,
+                    publicKeyConfigured: false,
+                    spaces: [],
+                  });
+                }
+              } catch (error) {
                 return withConnectToken({
                   ...requestStatus,
                   configured: false,
@@ -2598,49 +2630,11 @@ export function createCoreRoutesPlugin(
                   publicKeyConfigured: false,
                   connectError: {
                     message:
-                      "Builder connection status could not be read. Retry in a moment.",
-                    at: Date.now(),
-                  },
-                });
-              }
-              if (hasOAuthCustody) {
-                try {
-                  oauthAccess = await resolveBuilderOAuthRequestAccess({
-                    ownerEmail: userEmail,
-                    requiredScope: BUILDER_OAUTH_SCOPE,
-                    orgId,
-                  });
-                } catch {
-                  oauthAccess = null;
-                }
-              }
-              if (oauthAccess) {
-                const keyStatus = await resolveOAuthCustodyBuilderKeyStatus();
-                return withConnectToken({
-                  ...requestStatus,
-                  configured: true,
-                  credentialSource: "user" as const,
-                  canDisconnect:
-                    oauthAccess.scope === "user" ||
-                    (oauthAccess.scope === "org" &&
-                      (orgRole === "owner" || orgRole === "admin")),
-                  privateKeyConfigured: keyStatus.privateKeyConfigured,
-                  publicKeyConfigured: keyStatus.publicKeyConfigured,
-                  keyLookupFailed: keyStatus.keyLookupFailed,
-                  orgName: keyStatus.orgName,
-                  spaces: [],
-                });
-              }
-              if (hasOAuthCustody) {
-                return withConnectToken({
-                  ...requestStatus,
-                  configured: false,
-                  credentialSource: "user" as const,
-                  canDisconnect: false,
-                  privateKeyConfigured: false,
-                  publicKeyConfigured: false,
-                  connectError: {
-                    message: "Builder access expired. Reconnect Builder.io.",
+                      error instanceof CredentialStoreUnavailableError
+                        ? "Builder connection status could not be read. Retry in a moment."
+                        : error instanceof Error
+                          ? error.message
+                          : "Builder access expired. Reconnect Builder.io.",
                     at: Date.now(),
                   },
                 });

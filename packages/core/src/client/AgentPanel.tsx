@@ -68,6 +68,7 @@ import {
 } from "./components/ui/dropdown-menu.js";
 import { normalizeTooltipText } from "./components/ui/tooltip.js";
 import { ErrorReportActions } from "./ErrorReportActions.js";
+import { ExternalAgentNudge } from "./external-agent-host.js";
 import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import { ShareButton } from "./sharing/ShareButton.js";
@@ -4208,7 +4209,7 @@ export function AgentSidebar({
         inert={sidebarAnimationEnabled && !panelOpen ? true : undefined}
         aria-hidden={sidebarAnimationEnabled && !panelOpen ? true : undefined}
       >
-        <div className="agent-sidebar-panel-inner flex min-h-0 flex-1 flex-col">
+        <div className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col">
           <AgentPanel
             emptyStateText={emptyStateText}
             suggestions={suggestions}
@@ -4261,6 +4262,7 @@ export function AgentSidebar({
             thinkingDisplay={thinkingDisplay}
             chatOnly={chatOnly}
           />
+          <ExternalAgentNudge variant="sidebar" />
         </div>
       </div>
       {showResizeHandle && isLeft && (

@@ -31,28 +31,12 @@ jobs:
           script: |
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-            async function waitForPredecessor(sourceSha) {
-              if (context.eventName !== 'push') return;
-              const predecessorSha = context.payload.before;
-              if (!/^[0-9a-f]{40}$/i.test(predecessorSha ?? '')) return;
-
-              try {
-                await github.rest.repos.getContent({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  path: '.github/workflows/deploy-beta-sites-prebuilt.yml',
-                  ref: predecessorSha,
-                });
-              } catch (error) {
-                if (error.status === 404) {
-                  core.info(
-                    `Beta publisher was not present at predecessor ${predecessorSha}; continuing.`,
-                  );
-                  return;
-                }
-                throw error;
+            async function waitForPredecessor() {
+              if (!['push', 'workflow_dispatch'].includes(context.eventName)) {
+                return;
               }
 
+              const discoveryDeadline = Date.now() + 60_000;
               const completionDeadline = Date.now() + 110 * 60_000;
               let predecessorRunId;
               while (Date.now() < completionDeadline) {
@@ -61,14 +45,15 @@ jobs:
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     workflow_id: 'deploy-beta-sites-prebuilt.yml',
-                    head_sha: predecessorSha,
-                    per_page: 10,
+                    per_page: 100,
                   });
-                  const predecessor = runs.data.workflow_runs.find(
-                    (run) =>
-                      run.head_sha.toLowerCase() === predecessorSha.toLowerCase() &&
-                      run.event === 'push',
-                  );
+                  const predecessor = runs.data.workflow_runs
+                    .filter(
+                      (run) =>
+                        run.id < context.runId &&
+                        ['push', 'workflow_dispatch'].includes(run.event),
+                    )
+                    .sort((left, right) => right.id - left.id)[0];
                   if (predecessor) predecessorRunId = predecessor.id;
                 }
 
@@ -87,14 +72,17 @@ jobs:
                   core.info(
                     `Waiting for predecessor beta run ${predecessorRunId} (${predecessor.data.status}).`,
                   );
+                } else if (Date.now() >= discoveryDeadline) {
+                  core.info('No earlier beta workflow run was found; continuing.');
+                  return;
                 } else {
-                  core.info(`Waiting for beta run for predecessor ${predecessorSha}.`);
+                  core.info('Waiting for the earlier beta workflow run to appear.');
                 }
                 await sleep(30_000);
               }
 
               core.setFailed(
-                `Predecessor beta run for ${predecessorSha} did not finish within 110 minutes.`,
+                `Predecessor beta run ${predecessorRunId ?? 'discovery'} did not finish within 110 minutes.`,
               );
             }
 
@@ -106,7 +94,7 @@ jobs:
                     ref: 'heads/main',
                   })).data.object.sha
                 : context.sha;
-            await waitForPredecessor(sourceSha);
+            await waitForPredecessor();
             core.setOutput('source_sha', sourceSha);
             core.info(`beta source is pinned to ${sourceSha}`);
 
@@ -147,7 +135,11 @@ jobs:
     needs: [resolve-source, discover-sites]
     strategy:
       fail-fast: false
-      max-parallel: 8
+      # Each beta build can run release migrations against the shared production
+      # database. Keep those migrations from opening a connection burst.
+      # ponytail: one global beta build at a time; split migration into a single
+      # preflight job if fleet duration becomes a problem.
+      max-parallel: 1
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
