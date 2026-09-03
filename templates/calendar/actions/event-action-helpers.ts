@@ -15,6 +15,16 @@ export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
 
+/**
+ * Read a `cliBoolean` field the way the schema will. A `needsApproval`
+ * predicate is handed the raw tool input, before the schema runs, so
+ * `dryRun: "false"` still arrives as the truthy string `"false"`. Testing it
+ * with `!value` there would wave a real delete through as a dry run.
+ */
+export function rawCliBoolean(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
 export const eventTypeInput = z
   .enum(["default", "outOfOffice", "focusTime", "workingLocation"])
   .optional();

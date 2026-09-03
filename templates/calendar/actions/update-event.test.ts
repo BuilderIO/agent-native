@@ -666,3 +666,26 @@ describe("update-event working locations", () => {
     );
   });
 });
+
+describe("update-event approval gate", () => {
+  it("gates a guest notification and a cross-calendar move, not a field edit", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    expect(await gate({ id: "google-a", title: "Renamed" } as never)).toBe(
+      false,
+    );
+    expect(await gate({ id: "google-a", sendUpdates: "all" } as never)).toBe(
+      true,
+    );
+    expect(
+      await gate({ id: "google-a", notificationMessage: "Moved" } as never),
+    ).toBe(true);
+    expect(
+      await gate({
+        id: "google-a",
+        targetAccountEmail: "other@example.com",
+      } as never),
+    ).toBe(true);
+  });
+});

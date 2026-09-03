@@ -195,6 +195,16 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
+  // Ordinary field edits are reversible in place and stay unblocked. Two paths
+  // are not: notifying guests mails people outside the app, and a move deletes
+  // the event from the source calendar after recreating it elsewhere, defaulting
+  // to notifying every attendee. A move cannot be previewed, and the predicate
+  // must stay pure, so it gates on targetAccountEmail rather than reading the
+  // event to find out whether that move would email anyone.
+  needsApproval: ({ sendUpdates, notificationMessage, targetAccountEmail }) =>
+    targetAccountEmail !== undefined ||
+    sendUpdates === "all" ||
+    !!notificationMessage?.trim(),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (args.addGoogleMeet && args.addZoom) {
