@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  appStateDelete,
+  appStateCompareAndSet,
   appStateGet,
-  appStatePut,
 } from "@agent-native/core/application-state";
 import {
   AGENT_CLIENT_ID,
@@ -123,11 +122,22 @@ export async function flushOpenDocumentEditorToSql(args: {
     status: "pending",
   };
   const writes = await Promise.allSettled(
-    targetSessions.map((session) =>
-      appStatePut(session, flushKey, flushValue, {
-        requestSource: "agent",
-      }),
-    ),
+    targetSessions.map(async (session) => {
+      const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (
+          await appStateCompareAndSet(session, flushKey, null, flushValue, {
+            requestSource: "agent",
+          })
+        ) {
+          return;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, FLUSH_POLL_INTERVAL_MS),
+        );
+      }
+      throw new Error("Timed out waiting to request an open-editor flush.");
+    }),
   );
   const writtenSessions = targetSessions.filter(
     (_session, index) => writes[index]?.status === "fulfilled",
@@ -172,11 +182,19 @@ export async function flushOpenDocumentEditorToSql(args: {
 
   // Best-effort cleanup after success, explicit failure, or timeout.
   await Promise.all(
-    writtenSessions.map((session) =>
-      appStateDelete(session, flushKey, { requestSource: "agent" }).catch(
-        () => {},
-      ),
-    ),
+    writtenSessions.map(async (session) => {
+      try {
+        const current = await appStateGet(session, flushKey);
+        if (current?.requestId === requestId) {
+          await appStateCompareAndSet(session, flushKey, current, null, {
+            requestSource: "agent",
+          });
+        }
+      } catch {
+        // Cleanup is best effort; a later request times out rather than
+        // deleting a mailbox value it does not own.
+      }
+    }),
   );
 
   if (flushError) {

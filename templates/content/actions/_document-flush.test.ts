@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  appStateCompareAndSet: vi.fn(),
   appStateDelete: vi.fn(),
   appStateGet: vi.fn(),
   appStatePut: vi.fn(),
@@ -10,6 +11,20 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  appStateCompareAndSet: async (
+    session: string,
+    key: string,
+    expected: unknown,
+    next: unknown,
+    options: unknown,
+  ) => {
+    if (expected === null && next !== null) {
+      await mocks.appStatePut(session, key, next, options);
+    } else if (next === null) {
+      await mocks.appStateDelete(session, key, options);
+    }
+    return mocks.appStateCompareAndSet(session, key, expected, next, options);
+  },
   appStateDelete: mocks.appStateDelete,
   appStateGet: mocks.appStateGet,
   appStatePut: mocks.appStatePut,
@@ -45,6 +60,7 @@ describe("flushOpenDocumentEditorToSql", () => {
     ]);
     mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
     mocks.appStatePut.mockResolvedValue(undefined);
+    mocks.appStateCompareAndSet.mockResolvedValue(true);
     mocks.appStateDelete.mockResolvedValue(undefined);
   });
 
@@ -95,6 +111,32 @@ describe("flushOpenDocumentEditorToSql", () => {
       expect.objectContaining({ propertyId: "notes" }),
       { requestSource: "agent" },
     );
+  });
+
+  it("waits for an occupied document flush mailbox before writing", async () => {
+    mocks.appStateCompareAndSet
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    mocks.appStateGet
+      .mockResolvedValueOnce({
+        id: "doc-1",
+        requestId: "another-request",
+        status: "pending",
+      })
+      .mockImplementation(async () => ({
+        id: "doc-1",
+        requestId: mocks.appStatePut.mock.calls.at(-1)?.[2]?.requestId,
+        status: "success",
+      }));
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(flush).resolves.toBeUndefined();
+    expect(mocks.appStateCompareAndSet).toHaveBeenCalledTimes(3);
   });
 
   it("fails an exact-field read when multiple editors are open", async () => {
