@@ -139,21 +139,6 @@ const PLATFORMS: PlatformInfo[] = [
     ],
     category: "Agent clients",
   },
-  {
-    id: "claude-code",
-    label: "Claude Code",
-    icon: IconTerminal2,
-    description:
-      "Let Claude Code call this agent via A2A for data and actions.",
-    envVars: [],
-    isClient: true,
-    setupSteps: [
-      "Your agent exposes an A2A endpoint at /.well-known/agent-card.json",
-      "In Claude Code, reference your agent's URL when asking for data",
-      "Claude Code will discover and call your agent's skills automatically",
-    ],
-    category: "Agent clients",
-  },
 ];
 
 function useAgentEngineConfigured() {

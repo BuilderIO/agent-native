@@ -203,6 +203,9 @@ describe("IntegrationsPanel MCP connection errors", () => {
 
     expect(container.textContent).toContain("settings.mcpClientSetup");
     expect(container.textContent).not.toContain(
+      "Let Claude Code call this agent via A2A",
+    );
+    expect(container.textContent).not.toContain(
       `No agent integrations match “${query.toLowerCase()}”`,
     );
 
