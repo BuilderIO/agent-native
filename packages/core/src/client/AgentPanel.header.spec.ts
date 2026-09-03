@@ -15,6 +15,7 @@ import {
   getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
+  focusAgentChat,
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelFullViewAction,
   resolveAgentPanelChatSurface,
@@ -433,6 +434,76 @@ describe("AgentPanel shortcut hints", () => {
     expect(shouldHandleAgentPanelChatShortcut(editor)).toBe(false);
     expect(shouldHandleAgentPanelChatShortcut(nested)).toBe(false);
     expect(shouldHandleAgentPanelChatShortcut(document.body)).toBe(true);
+  });
+});
+
+describe("AgentSidebar composer focus", () => {
+  it("opens the sidebar and focuses its composer", () => {
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const events: string[] = [];
+    const panel = document.createElement("div");
+    const composer = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.dataset.agentSidebarState = "open";
+    composer.className = "ProseMirror";
+    panel.appendChild(composer);
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+    const recordEvent = (event: Event) => events.push(event.type);
+    window.addEventListener("agent-panel:set-mode", recordEvent);
+    window.addEventListener("agent-panel:open", recordEvent);
+
+    try {
+      focusAgentChat();
+
+      expect(events).toEqual(["agent-panel:set-mode", "agent-panel:open"]);
+      expect(frames).toHaveLength(1);
+
+      frames[0]!(0);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.removeEventListener("agent-panel:set-mode", recordEvent);
+      window.removeEventListener("agent-panel:open", recordEvent);
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+    }
+  });
+
+  it("waits for a lazy-loaded composer", () => {
+    vi.useFakeTimers();
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.dataset.agentSidebarState = "open";
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      focusAgentChat();
+      frames[0]!(0);
+
+      const composer = document.createElement("div");
+      composer.className = "ProseMirror";
+      panel.appendChild(composer);
+      vi.advanceTimersByTime(50);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+      vi.useRealTimers();
+    }
   });
 });
 
