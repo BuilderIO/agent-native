@@ -810,7 +810,7 @@ interface SlideEditorProps {
     updates: Partial<Omit<Slide, "id">>,
     slideIdOverride?: string,
     options?: UpdateSlideOptions,
-  ) => void;
+  ) => string | undefined;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -2312,11 +2312,12 @@ export default function SlideEditor({
     richTextSelectionRef.current = null;
     window.getSelection()?.removeAllRanges();
     const initial = inlineEditInitialContentRef.current;
+    let normalizedContentHash: string | undefined;
     if (html !== null) {
       const current = { slideId: slide.id, content: html };
       if (shouldPersistInlineEditContent(initial, current)) {
         const latestDraft = inlineEditDraftRef.current;
-        onUpdateSlideRef.current(
+        normalizedContentHash = onUpdateSlideRef.current(
           { content: html },
           slide.id,
           shouldPersistInlineEditContent(latestDraft, current)
@@ -2341,7 +2342,10 @@ export default function SlideEditor({
     } else {
       syncSelectionToAppState(null);
     }
-    return html === null ? undefined : hashSlideContent(html);
+    return (
+      normalizedContentHash ??
+      (html === null ? undefined : hashSlideContent(html))
+    );
   }, [
     readCurrentSlideContentHtml,
     disposeRichTextEditor,
