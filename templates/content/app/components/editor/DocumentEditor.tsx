@@ -851,8 +851,9 @@ function DocumentEditorBody({
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
     if (!suggestionId || !suggestionsQuery.data) return;
-    if (utilityPanel !== "comments") {
+    if (utilityPanel !== "comments" || !commentsBrowseOpen) {
       setUtilityPanel("comments");
+      setCommentsBrowseOpen(true);
       return;
     }
     const target = globalThis.document.querySelector<HTMLElement>(
@@ -860,7 +861,12 @@ function DocumentEditorBody({
     );
     target?.scrollIntoView({ block: "nearest" });
     target?.focus();
-  }, [location.search, suggestionsQuery.data, utilityPanel]);
+  }, [
+    commentsBrowseOpen,
+    location.search,
+    suggestionsQuery.data,
+    utilityPanel,
+  ]);
   const flushRequestKey = `flush-request-${documentId}`;
   const [flushRequestWake, setFlushRequestWake] = useState(0);
   const handleFlushRequestEvent = useCallback(
@@ -2029,6 +2035,7 @@ function DocumentEditorBody({
         setIsSuggesting(false);
         suggestionBaseRef.current = null;
         setUtilityPanel("comments");
+        setCommentsBrowseOpen(true);
       } catch (error) {
         toast.error(t("editor.suggestionCreateFailed"), {
           description:

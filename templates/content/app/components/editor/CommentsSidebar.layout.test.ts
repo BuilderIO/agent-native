@@ -259,6 +259,10 @@ describe("comments sidebar layout", () => {
     expect(source).toContain('t("comments.authorFilter")');
     expect(source).toContain("event.preventDefault()");
     expect(source).toContain(
+      '"pending",\n                    "accepted",\n                    "rejected"',
+    );
+    expect(source).toContain("renderSuggestionCards(historySuggestions)");
+    expect(source).toContain(
       'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
     );
   });

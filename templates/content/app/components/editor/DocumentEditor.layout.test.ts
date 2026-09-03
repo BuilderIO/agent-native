@@ -740,6 +740,19 @@ describe("document editor layout", () => {
     expect(source).not.toContain("baseRevision: document.updatedAt");
   });
 
+  it("opens the comments surface for suggestion deep links and new proposals", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(
+      source.match(
+        /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
+      ),
+    ).toHaveLength(2);
+  });
+
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),

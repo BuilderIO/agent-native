@@ -414,7 +414,7 @@ export function CommentsSidebar({
   const [pendingText, setPendingText] = useState("");
   const [pendingMentions, setPendingMentions] = useState<MentionEntry[]>([]);
   const [historyStatus, setHistoryStatus] = useState<
-    "all" | "open" | "resolved"
+    "all" | "open" | "resolved" | "pending" | "accepted" | "rejected"
   >("all");
   const [historyAuthor, setHistoryAuthor] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -441,6 +441,14 @@ export function CommentsSidebar({
   }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
   const historyAuthors = useMemo(() => {
     const authors = new Map<string, string>();
+    for (const suggestion of suggestions) {
+      if (suggestion.authorEmail) {
+        authors.set(
+          suggestion.authorEmail,
+          suggestion.authorEmail.split("@")[0],
+        );
+      }
+    }
     for (const thread of threads) {
       for (const comment of thread.comments) {
         authors.set(
@@ -452,9 +460,29 @@ export function CommentsSidebar({
     return [...authors.entries()].sort((left, right) =>
       left[1].localeCompare(right[1]),
     );
-  }, [threads]);
+  }, [suggestions, threads]);
+  const historySuggestions = useMemo(() => {
+    return suggestions.filter((suggestion) => {
+      if (historyStatus === "open" && suggestion.status !== "pending") {
+        return false;
+      }
+      if (historyStatus === "resolved" && suggestion.status === "pending") {
+        return false;
+      }
+      if (
+        ["pending", "accepted", "rejected"].includes(historyStatus) &&
+        suggestion.status !== historyStatus
+      ) {
+        return false;
+      }
+      return !historyAuthor || suggestion.authorEmail === historyAuthor;
+    });
+  }, [historyAuthor, historyStatus, suggestions]);
   const historyThreads = useMemo(() => {
     return threads.filter((thread) => {
+      if (["pending", "accepted", "rejected"].includes(historyStatus)) {
+        return false;
+      }
       if (historyStatus === "open" && thread.resolved) return false;
       if (historyStatus === "resolved" && !thread.resolved) return false;
       if (
@@ -719,10 +747,12 @@ export function CommentsSidebar({
     });
   };
 
-  const renderSuggestionCards = () =>
-    suggestions.length > 0 ? (
+  const renderSuggestionCards = (
+    displayedSuggestions: ResourceSuggestion[] = suggestions,
+  ) =>
+    displayedSuggestions.length > 0 ? (
       <div className="mx-2 mt-3 space-y-2" data-suggestion-threads>
-        {suggestions.map((suggestion) => {
+        {displayedSuggestions.map((suggestion) => {
           const operation = suggestion.operations[0];
           const before = operation?.before as
             | { changedText?: string }
@@ -813,7 +843,16 @@ export function CommentsSidebar({
                 {t("comments.statusFilter")}
               </DropdownMenuLabel>
               <DropdownMenuGroup>
-                {(["all", "open", "resolved"] as const).map((status) => (
+                {(
+                  [
+                    "all",
+                    "open",
+                    "resolved",
+                    "pending",
+                    "accepted",
+                    "rejected",
+                  ] as const
+                ).map((status) => (
                   <DropdownMenuCheckboxItem
                     key={status}
                     checked={historyStatus === status}
@@ -826,7 +865,13 @@ export function CommentsSidebar({
                       ? t("comments.allStatuses")
                       : status === "open"
                         ? t("comments.open")
-                        : t("comments.resolvedStatus")}
+                        : status === "resolved"
+                          ? t("comments.resolvedStatus")
+                          : status === "pending"
+                            ? t("comments.pending")
+                            : status === "accepted"
+                              ? t("comments.accepted")
+                              : t("comments.rejected")}
                   </DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuGroup>
@@ -860,7 +905,7 @@ export function CommentsSidebar({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        {renderSuggestionCards()}
+        {renderSuggestionCards(historySuggestions)}
         <div className="grid gap-2 p-3">
           {isLoading ? (
             [0, 1, 2].map((item) => (
@@ -870,7 +915,7 @@ export function CommentsSidebar({
                 aria-hidden="true"
               />
             ))
-          ) : historyThreads.length === 0 ? (
+          ) : historyThreads.length === 0 && historySuggestions.length === 0 ? (
             <div className="px-2 py-10 text-center text-sm text-muted-foreground">
               {t("comments.noFilteredComments")}
             </div>
