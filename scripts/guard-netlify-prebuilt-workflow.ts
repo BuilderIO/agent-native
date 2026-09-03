@@ -43,6 +43,7 @@ export function validateReusableWorkflowConcurrency(
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
+    !group.includes("agent-native-beta-migration") ||
     !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||

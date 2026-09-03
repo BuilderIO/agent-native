@@ -231,6 +231,10 @@ describe("production Netlify site concurrency guard", () => {
       /format\('netlify-prebuilt-beta-\{0\}', inputs\.site\)/,
     );
     assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /format\('agent-native-beta-migration-\{0\}', inputs\.site\)/,
+    );
+    assert.match(
       reusableSource,
       /Verify beta source is current before publish/,
     );
