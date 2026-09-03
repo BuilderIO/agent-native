@@ -16,6 +16,7 @@ import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/react";
 import {
   useState,
   useCallback,
@@ -2307,6 +2308,13 @@ export default function SlideEditor({
     onInlineEditEnd,
   ]);
 
+  const handleRichTextEditorReady = useCallback((editor: Editor) => {
+    const session = richTextEditorSessionRef.current;
+    if (!session || session.apiRef.current?.getEditor() !== editor) return;
+    richTextEditorRef.current = session.apiRef.current;
+    setRichTextEditorRevision((revision) => revision + 1);
+  }, []);
+
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
     (el: HTMLElement) => {
@@ -2385,11 +2393,7 @@ export default function SlideEditor({
             activeRichTextHtmlRef.current = html;
             captureInlineEditDraft(slide.id);
           }}
-          onEditorReady={(editor) => {
-            if (richTextEditorSessionRef.current !== session) return;
-            richTextEditorRef.current = apiRef.current;
-            setRichTextEditorRevision((revision) => revision + 1);
-          }}
+          onEditorReady={handleRichTextEditorReady}
         />,
       );
       if (selector) {
@@ -2405,6 +2409,7 @@ export default function SlideEditor({
       disposeRichTextEditor,
       exitInlineEdit,
       getSlideContent,
+      handleRichTextEditorReady,
       onInlineEditStart,
       slide.content,
       slide.id,
