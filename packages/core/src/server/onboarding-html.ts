@@ -1314,6 +1314,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     max-width: 100%;
     max-height: calc(100vh - 3rem);
     aspect-ratio: 914 / 818;
+    border-radius: 0.75rem;
     overflow: hidden;
   }
   .auth-marketing-screenshot {
@@ -1451,12 +1452,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
-      background: Canvas;
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
       color: CanvasText;
       color-scheme: light;
     }
     .auth-marketing-home {
-      background: Canvas;
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
       color: CanvasText;
     }
     .auth-marketing-home .auth-marketing-learn-more,
@@ -2279,6 +2280,21 @@ ${embeddedAuthCss}
   @media (min-width: 901px) and (max-width: 1500px) {
     .auth-marketing-home.has-product-screenshot .form-panel .card {
       left: -140px;
+    }
+  }
+  @media (min-width: 1501px) {
+    .auth-marketing-home.has-product-screenshot .split {
+      display: grid;
+      grid-template-columns: minmax(0, 927px) minmax(0, 1fr);
+      gap: 0;
+    }
+    .auth-marketing-home.has-product-screenshot .marketing-panel {
+      flex: none;
+      width: 927px;
+    }
+    .auth-marketing-home.has-product-screenshot .form-panel {
+      flex: none;
+      width: 100%;
     }
   }
   .auth-marketing-home .form-panel { min-width: 0; }

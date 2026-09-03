@@ -48,6 +48,7 @@ describe("AuthPage", () => {
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
+    expect(html).toContain('id="heading"');
     expect(html).not.toContain('id="local-note"');
     expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
     expect(onboardingHtml).toContain("width: 100%");
@@ -59,12 +60,19 @@ describe("AuthPage", () => {
     expect(onboardingHtml).toContain("flex: 1 1 0;");
     expect(onboardingHtml).toContain("flex: 0 0 28rem;");
     expect(onboardingHtml).toContain("margin-inline: 0;");
+    expect(onboardingHtml).toContain("border-radius: 0.75rem;");
     expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");
+    expect(onboardingHtml).toContain(
+      "background: color-mix(in srgb, CanvasText 4%, Canvas);",
+    );
     expect(onboardingHtml).toContain("color-scheme: light;");
     expect(onboardingHtml).toContain(
       "@media (min-width: 901px) and (max-width: 1500px)",
     );
     expect(onboardingHtml).toContain("left: -140px");
+    expect(onboardingHtml).toContain(
+      "grid-template-columns: minmax(0, 927px) minmax(0, 1fr);",
+    );
   });
 
   it("places Calendar's learn-more link in the bottom-right corner", () => {
