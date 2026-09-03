@@ -172,7 +172,6 @@ import {
   restoreSlideObjectStyle,
   setSlideObjectDimension,
   SLIDE_OBJECT_PASTE_OFFSET,
-  slideObjectClipboardText,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
   unionSlideObjectGeometries,
@@ -1353,7 +1352,6 @@ export default function SlideEditor({
   const copiedObjectClipboardRef = useRef<{
     copied: CopiedSlideObjects;
     clipboardId: string;
-    clipboardText: string;
     nativeClipboardMode:
       | "pending"
       | "rich"
@@ -3939,7 +3937,6 @@ export default function SlideEditor({
       const clipboard = {
         copied,
         clipboardId: createSlideObjectId(),
-        clipboardText: slideObjectClipboardText(copied, document),
         nativeClipboardMode: writeToSystemClipboard
           ? ("pending" as const)
           : ("not-written" as const),
@@ -4113,7 +4110,7 @@ export default function SlideEditor({
         e.clipboardData?.getData("text/html"),
         document,
       );
-      if (nativeClipboardId === clipboard.clipboardId) {
+      const pasteLocalClipboard = () => {
         e.preventDefault();
         const selection = getClipboardSelection();
         pasteSlideObjects(
@@ -4121,24 +4118,19 @@ export default function SlideEditor({
           selection?.[0] ?? null,
           clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
         );
+      };
+      if (nativeClipboardId === clipboard.clipboardId) {
+        pasteLocalClipboard();
         return;
       }
-      const nativeClipboardText = e.clipboardData?.getData("text/plain") ?? "";
-      // text/plain-only browsers cannot carry an identity marker. Matching
-      // copied text is their explicit fallback; different text still proves
-      // another clipboard source is newer.
+      // Pending or failed native writes have no trustworthy provenance, so
+      // keep Cmd/Ctrl+V usable through the local copy. A text-only success has
+      // no identity marker, so native text stays authoritative instead.
       if (
-        clipboard.nativeClipboardMode === "text-only" &&
-        clipboard.clipboardText.length > 0 &&
-        nativeClipboardText === clipboard.clipboardText
+        clipboard.nativeClipboardMode === "pending" ||
+        clipboard.nativeClipboardMode === "failed"
       ) {
-        e.preventDefault();
-        const selection = getClipboardSelection();
-        pasteSlideObjects(
-          clipboard.copied,
-          selection?.[0] ?? null,
-          clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
-        );
+        pasteLocalClipboard();
         return;
       }
       const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
@@ -4147,13 +4139,7 @@ export default function SlideEditor({
           Boolean(e.clipboardData?.getData(type)?.length),
       );
       if (hasNativeText) return;
-      e.preventDefault();
-      const selection = getClipboardSelection();
-      pasteSlideObjects(
-        clipboard.copied,
-        selection?.[0] ?? null,
-        clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
-      );
+      pasteLocalClipboard();
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);

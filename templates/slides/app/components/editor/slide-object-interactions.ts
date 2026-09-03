@@ -1369,7 +1369,7 @@ export function readSlideObjectClipboardId(
   }
 }
 
-export function slideObjectClipboardText(
+function slideObjectClipboardText(
   copied: CopiedSlideObjects,
   doc: Document,
 ): string {
