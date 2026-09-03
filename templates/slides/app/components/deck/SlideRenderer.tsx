@@ -402,7 +402,9 @@ function useSlideAutofit(
     // thumbnails are left unmeasured until they scroll into view. Without an
     // IntersectionObserver there is nothing to defer against, so measure
     // eagerly as before.
-    const canDefer = typeof IntersectionObserver !== "undefined";
+    const canDefer =
+      typeof IntersectionObserver !== "undefined" &&
+      !root.closest("[data-pdf-export-stage]");
     // Resolved synchronously rather than waiting for the observer's first
     // callback: a slide that is already on screen must be measured on this
     // pass, and nothing may depend on a callback that a given environment
