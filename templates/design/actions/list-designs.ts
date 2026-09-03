@@ -24,7 +24,8 @@ export default defineAction({
   description:
     "List design projects accessible to the current user. Pass page and " +
     "pageSize for pagination; omitted values use the first bounded page. " +
-    "Returns optional HTML previews.",
+    "Set includeAll only for a lightweight UI picker; it returns the first " +
+    "bounded picker page. Returns optional HTML previews.",
   schema: z.object({
     page: z.coerce
       .number()
@@ -43,7 +44,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Set to true only for a lightweight UI picker that must receive every matching design; otherwise use pagination.",
+        "Set to true only for a lightweight UI picker; it returns the first bounded picker page and hasMore when more exist.",
       ),
     createdBy: z
       .enum(["all", "me"])
@@ -72,8 +73,10 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const includeAll = args.includeAll === true;
-    const page = args.page ?? 1;
-    const pageSize = args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE;
+    const page = includeAll ? 1 : (args.page ?? 1);
+    const pageSize = includeAll
+      ? DESIGN_LIST_MAX_PAGE_SIZE
+      : (args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE);
     const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
     if (args.createdBy === "me" && !ownerEmail) {
       return {
@@ -98,7 +101,7 @@ export default defineAction({
         ? sql`lower(${schema.designs.title}) LIKE ${`%${escapeLike(search)}%`} ESCAPE '\\'`
         : undefined,
     );
-    const offset = includeAll ? 0 : (page - 1) * pageSize;
+    const offset = (page - 1) * pageSize;
 
     // Project only the columns the list path uses. The `data` TEXT column holds
     // the full design JSON (tweaks, selections, etc.) which can be large and is
@@ -118,9 +121,7 @@ export default defineAction({
       .from(schema.designs)
       .where(where)
       .orderBy(desc(schema.designs.updatedAt), desc(schema.designs.id));
-    const rowsPromise = includeAll
-      ? designsQuery
-      : designsQuery.limit(pageSize).offset(offset);
+    const rowsPromise = designsQuery.limit(pageSize).offset(offset);
     const [countRows, rows] = await Promise.all([
       db
         .select({ count: sql<number>`count(*)` })
@@ -209,20 +210,14 @@ export default defineAction({
       return base;
     });
 
-    const hasMore = !includeAll && offset + rows.length < totalCount;
-    const totalPages = includeAll
-      ? totalCount > 0
-        ? 1
-        : 0
-      : Math.ceil(totalCount / pageSize);
+    const hasMore = offset + rows.length < totalCount;
+    const totalPages = Math.ceil(totalCount / pageSize);
     return {
       count: totalCount,
       totalCount,
       hasMore,
       page,
-      pageSize: includeAll
-        ? totalCount || DESIGN_LIST_DEFAULT_PAGE_SIZE
-        : pageSize,
+      pageSize,
       totalPages,
       designs: items,
     };
