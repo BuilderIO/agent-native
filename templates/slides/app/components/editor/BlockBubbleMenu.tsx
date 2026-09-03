@@ -100,7 +100,7 @@ export function buildReviseSelectionContext({
     `How to revise it: ${instruction}`,
     ...(target.length > 0 ? [``, ...target] : []),
     ``,
-    `Read that slide first with \`view-screen\`, then make one bounded \`update-slide --fullContent\` edit that replaces only the quoted text. Leave the surrounding HTML, inline styles, and layout untouched, and keep the replacement close to the original length so the slide still fits its canvas.`,
+    `Use the provided deck and slide ids. If either id is missing, call \`view-screen\` once; otherwise do not re-read the deck. Then call \`update-slide\` once with one \`edits\` literal replacement using the quoted text as \`find\` and \`expectedMatches: 1\`. Do not use \`fullContent\` or rewrite the surrounding HTML, inline styles, or layout, and keep the replacement close to the original length so the slide still fits its canvas.`,
   ]
     .filter((line) => line !== null)
     .join("\n");

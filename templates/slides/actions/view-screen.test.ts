@@ -113,6 +113,9 @@ describe("view-screen", () => {
     expect(orderByFn).not.toHaveBeenCalled();
     expect(result).toContain("deckId: deck-1");
     expect(result).toContain("slideCount: 1");
+    expect(result).toContain(
+      `currentSlideContentHash: ${hashSlideContent("<h1>Opening</h1>")}`,
+    );
     expect(result).toContain("<h1>Opening</h1>");
   });
 
@@ -146,6 +149,8 @@ describe("view-screen", () => {
           objectId: "object-1",
           kind: "element",
           tagName: "div",
+          text: "Text",
+          textTruncated: false,
         },
       ],
     };
@@ -157,6 +162,9 @@ describe("view-screen", () => {
     expect(result).toContain('selector=[data-slide-object-id="object-1"]');
     expect(result).toContain("objectId: object-1");
     expect(result).toContain('runtimeSelector: [data-builder-id="b-7"]');
+    expect(result).toContain(
+      "textStatus: short selection; use verbatim as edits.find with expectedMatches: 1",
+    );
   });
 
   it("does not surface a selection from a different slide", async () => {
@@ -180,6 +188,35 @@ describe("view-screen", () => {
     const result = await action.run({});
 
     expect(result).not.toContain("### Current visual selection");
+  });
+
+  it("marks long selection text as a preview before editing", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>Long text</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      slideId: "slide-a",
+      items: [
+        { text: "x".repeat(100), textTruncated: false },
+        { text: "y".repeat(80), textTruncated: true },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "textStatus: preview may be truncated; use get-deck with slideId=slide-a before editing",
+    );
+    expect(result).toContain(
+      "textStatus: short selection; use verbatim as edits.find with expectedMatches: 1",
+    );
   });
 
   it("filters the list to decks created by the current user without reading deck bodies", async () => {

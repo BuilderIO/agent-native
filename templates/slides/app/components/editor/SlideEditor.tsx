@@ -730,6 +730,7 @@ interface SlideSelectionItem {
   runtimeSelector?: string;
   objectId?: string;
   text?: string;
+  textTruncated?: boolean;
   kind?: string;
   tagName?: string;
   imageSrc?: string;
@@ -745,6 +746,8 @@ function selectionItemForElement(
   imageStyle?: Pick<SlideStyleSnapshot, "objectFit" | "objectPosition">,
 ): SlideSelectionItem {
   const identity = getSlideSelectionIdentity(element, runtimeSelector);
+  const fullText = (element.textContent || "").trim();
+  const textLimit = snapshot ? 80 : 200;
   return {
     ...identity,
     kind: snapshot?.isImage
@@ -753,8 +756,8 @@ function selectionItemForElement(
         ? "image"
         : "element",
     tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
-    text:
-      snapshot?.textPreview ?? (element.textContent || "").trim().slice(0, 200),
+    text: snapshot?.textPreview ?? fullText.slice(0, 200),
+    textTruncated: fullText.length > textLimit,
     imageSrc:
       element instanceof HTMLImageElement
         ? (element.getAttribute("src") ?? undefined)

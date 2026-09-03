@@ -63,6 +63,9 @@ To edit a slide's content:
 
 1. **Inspect the current context**: call `view-screen` to get the active deck,
    slide ID, HTML, and any `slides-selection` style/edit target.
+   For a focused replacement or translation of currently selected text, if the
+   result includes a matching short text item and `currentSlideId`, skip
+   `get-deck` and go directly to the bounded `update-slide` edit below.
    For a targeted persisted read, pass that stable `slideId` to `get-deck` so
    only the target slide is returned; use `compact=false` when you need its
    full HTML.
@@ -73,16 +76,19 @@ To edit a slide's content:
    approved native template or component when it already fits; generate
    net-new structure only when the relevant corpus is empty.
 4. **Update the slide** with `update-slide` using `deckId`, `slideId`, and
-   ordered `edits`. For code-style work, first read with `get-deck` using the
-   target `slideId`, `compact=false`, and `format=true`, then send the returned
-   `contentHash` as `baseContentHash`. Use exact replace, insert before/after,
-   replace between markers, or regex replace. Set `expectedMatches` whenever a
-   marker could be ambiguous. All edits are applied in memory under the deck
-   lock; if one required edit fails, nothing is written. Set `format=true` on
-   `update-slide` to persist readable Prettier line breaks. Use `fullContent`
-   only for an intentional full rewrite - do not regenerate a slide to make a
-   small change. Do not write deck rows directly or add raw full-deck writes;
-   use `patch-deck` for browser/editor changes.
+   ordered `edits`. For a focused selected-text replacement, send one literal
+   replace with the selected text as `find` and `expectedMatches: 1`; do not
+   fetch the full deck, use `fullContent`, or wait for layout-fit. If the text
+   is truncated, ambiguous, contains markup that prevents a literal match, or
+   the edit is structural, read only this slide with `get-deck` first and use
+   its `contentHash` as `baseContentHash` when appropriate. For code-style
+   work, request `compact=false` and `format=true`. Use exact replace, insert
+   before/after, replace between markers, or regex replace. All edits are
+   applied in memory under the deck lock; if one required edit fails, nothing is
+   written. Set `format=true` on `update-slide` to persist readable Prettier
+   line breaks. Use `fullContent` only for an intentional full rewrite - do not
+   regenerate a slide to make a small change. Do not write deck rows directly
+   or add raw full-deck writes; use `patch-deck` for browser/editor changes.
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 
