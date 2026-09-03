@@ -1951,8 +1951,10 @@ function DocumentEditorBody({
   const handleBaseAwareReconcile = useCallback(
     (result: { status: "merged" | "conflict" | "failed"; content: string }) => {
       if (result.status === "merged") {
-        setDocumentReconcileConflict(null);
-        void handleContentSaveNow(result.content);
+        void handleContentSaveNow(result.content).then((persisted) => {
+          if (persisted) setDocumentReconcileConflict(null);
+          else setDocumentReconcileConflict({ localDraft: result.content });
+        });
         return;
       }
       setDocumentReconcileConflict({ localDraft: result.content });
@@ -2620,8 +2622,10 @@ function DocumentEditorBody({
                 size="sm"
                 onClick={() => {
                   const localDraft = documentReconcileConflict.localDraft;
-                  setDocumentReconcileConflict(null);
-                  void handleContentSaveNow(localDraft);
+                  void handleContentSaveNow(localDraft).then((persisted) => {
+                    if (persisted) setDocumentReconcileConflict(null);
+                    else setDocumentReconcileConflict({ localDraft });
+                  });
                 }}
               >
                 {t("editor.keepLocalDraft")}

@@ -164,6 +164,9 @@ describe("Content action-owned agent catalogs", () => {
     expect(createDocument.tool.description).toContain("edit-document");
     expect(editDocument.tool.description).toContain("Prefer this over");
     expect(editDocument.tool.description).toContain("match exactly");
+    expect(updateDocument.tool.description).toContain(
+      "Agents must use get-document followed by edit-document",
+    );
 
     const createProperties = createDocument.tool.parameters?.properties;
     const editProperties = editDocument.tool.parameters?.properties;

@@ -128,6 +128,81 @@ const externalEditDocumentSchema = editDocumentSchema.extend({
     .describe("Caller-generated stable key for one logical document edit."),
 });
 
+async function resolveEditCreativeContext(args: {
+  documentId: string;
+  contextPackId?: string;
+  contextModeOverride?: "off";
+  reuseLabels: CreativeContextReuseLabel[];
+}) {
+  const previousGeneration =
+    args.contextModeOverride === "off"
+      ? null
+      : await getGenerationCreativeContext({
+          appId: "content",
+          artifactType: "document",
+          artifactId: args.documentId,
+        });
+  if (
+    !previousGeneration &&
+    !args.contextPackId &&
+    !args.contextModeOverride &&
+    !args.reuseLabels.length
+  ) {
+    return undefined;
+  }
+  if (
+    args.contextPackId !== undefined &&
+    previousGeneration?.contextPackId &&
+    args.contextPackId !== previousGeneration.contextPackId
+  ) {
+    throw new Error(
+      "The document edit must preserve the document's creative-context pack",
+    );
+  }
+  const requestedLabels: CreativeContextReuseLabel[] = args.reuseLabels.length
+    ? args.reuseLabels
+    : [
+        {
+          kind: "document",
+          label: "Net-new document edit",
+          dataRole: "untrusted-reference",
+          elementId: args.documentId,
+          influence: "generated",
+        },
+      ];
+  const validated = await validateGenerationCreativeContext({
+    contextPackId: args.contextPackId ?? previousGeneration?.contextPackId,
+    contextPackSource:
+      args.contextPackId === undefined ? "inherited" : "explicit",
+    contextModeOverride: args.contextModeOverride,
+    reuseLabels: requestedLabels,
+    reuseLabelsSource: args.reuseLabels.length ? "explicit" : "inherited",
+  });
+  const elementProvenance = validated.reuseLabels.map((label) => ({
+    elementId: args.documentId,
+    influence: label.influence ?? ("reference-conditioned" as const),
+    ...(label.itemId ? { itemId: label.itemId } : {}),
+    ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+    label: label.label,
+  }));
+  const contextMode =
+    validated.contextMode === "off"
+      ? "off"
+      : (previousGeneration?.contextMode ?? validated.contextMode);
+  return {
+    contextMode,
+    contextPackId: validated.contextPackId,
+    reuseLabels: validated.reuseLabels,
+    elementProvenance:
+      contextMode === "off"
+        ? elementProvenance
+        : replaceCreativeContextElementProvenance(
+            previousGeneration?.elementProvenance ?? [],
+            elementProvenance,
+          ),
+  };
+}
+
 export default defineAction({
   description:
     "Surgically edit an existing document's Markdown with exact search-and-replace operations. Prefer this over update-document when preserving the rest of the document; every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
@@ -188,11 +263,18 @@ export default defineAction({
           },
         );
       }
+      const creativeContext = await resolveEditCreativeContext({
+        documentId: id,
+        contextPackId: args.contextPackId,
+        contextModeOverride: args.contextModeOverride,
+        reuseLabels: args.reuseLabels,
+      });
       const result = await mutateDocumentBody({
         documentId: id,
         baseRevision: args.baseRevision,
         idempotencyKey: args.idempotencyKey,
         edits,
+        creativeContext,
         ctx,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
@@ -255,91 +337,12 @@ export default defineAction({
         }
       | undefined;
 
-    const previousGeneration =
-      args.contextModeOverride === "off"
-        ? null
-        : await getGenerationCreativeContext({
-            appId: "content",
-            artifactType: "document",
-            artifactId: id,
-          });
-    let creativeContext:
-      | {
-          contextMode: "off" | "auto" | "pinned";
-          contextPackId: string | null;
-          reuseLabels: CreativeContextReuseLabel[];
-          elementProvenance: Array<{
-            elementId: string;
-            influence:
-              | "reused"
-              | "adapted"
-              | "reference-conditioned"
-              | "generated";
-            itemId?: string;
-            itemVersionId?: string;
-            label?: string;
-          }>;
-        }
-      | undefined;
-    if (
-      previousGeneration ||
-      args.contextPackId ||
-      args.contextModeOverride ||
-      args.reuseLabels.length
-    ) {
-      if (
-        args.contextPackId !== undefined &&
-        previousGeneration?.contextPackId &&
-        args.contextPackId !== previousGeneration.contextPackId
-      ) {
-        throw new Error(
-          "The document edit must preserve the document's creative-context pack",
-        );
-      }
-      const requestedLabels: CreativeContextReuseLabel[] = args.reuseLabels
-        .length
-        ? args.reuseLabels
-        : [
-            {
-              kind: "document",
-              label: "Net-new document edit",
-              dataRole: "untrusted-reference",
-              elementId: id,
-              influence: "generated",
-            },
-          ];
-      const validated = await validateGenerationCreativeContext({
-        contextPackId: args.contextPackId ?? previousGeneration?.contextPackId,
-        contextPackSource:
-          args.contextPackId === undefined ? "inherited" : "explicit",
-        contextModeOverride: args.contextModeOverride,
-        reuseLabels: requestedLabels,
-        reuseLabelsSource: args.reuseLabels.length ? "explicit" : "inherited",
-      });
-      const elementProvenance = validated.reuseLabels.map((label) => ({
-        elementId: id,
-        influence: label.influence ?? ("reference-conditioned" as const),
-        ...(label.itemId ? { itemId: label.itemId } : {}),
-        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
-        label: label.label,
-      }));
-      const contextMode =
-        validated.contextMode === "off"
-          ? "off"
-          : (previousGeneration?.contextMode ?? validated.contextMode);
-      creativeContext = {
-        contextMode,
-        contextPackId: validated.contextPackId,
-        reuseLabels: validated.reuseLabels,
-        elementProvenance:
-          contextMode === "off"
-            ? elementProvenance
-            : replaceCreativeContextElementProvenance(
-                previousGeneration?.elementProvenance ?? [],
-                elementProvenance,
-              ),
-      };
-    }
+    const creativeContext = await resolveEditCreativeContext({
+      documentId: id,
+      contextPackId: args.contextPackId,
+      contextModeOverride: args.contextModeOverride,
+      reuseLabels: args.reuseLabels,
+    });
 
     const isLinkedLocalSource =
       existing.sourceMode === "local-files" &&

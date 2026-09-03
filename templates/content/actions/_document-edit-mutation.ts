@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { recordGenerationCreativeContext } from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -120,11 +122,25 @@ export interface DocumentEditMutationResult {
   };
 }
 
+export interface DocumentEditCreativeContext {
+  contextMode: "off" | "auto" | "pinned";
+  contextPackId: string | null;
+  reuseLabels: CreativeContextReuseLabel[];
+  elementProvenance: Array<{
+    elementId: string;
+    influence: "reused" | "adapted" | "reference-conditioned" | "generated";
+    itemId?: string;
+    itemVersionId?: string;
+    label?: string;
+  }>;
+}
+
 export async function mutateDocumentBody(args: {
   documentId: string;
   baseRevision: string;
   idempotencyKey: string;
   edits: DocumentTextEdit[];
+  creativeContext?: DocumentEditCreativeContext;
   ctx: ActionRunContext;
   db?: Db;
 }): Promise<DocumentEditMutationResult> {
@@ -148,6 +164,7 @@ export async function mutateDocumentBody(args: {
     documentId: args.documentId,
     baseRevision: args.baseRevision,
     edits: normalizedEdits,
+    creativeContext: args.creativeContext ?? null,
   });
 
   try {
@@ -274,6 +291,17 @@ export async function mutateDocumentBody(args: {
             markdown: resolved.content,
             now,
           });
+        }
+        if (args.creativeContext) {
+          await recordGenerationCreativeContext(
+            {
+              appId: "content",
+              artifactType: "document",
+              artifactId: document.id,
+              ...args.creativeContext,
+            },
+            { db: tx },
+          );
         }
       }
       const ranges = resolved.ranges.map((range, editIndex) => ({

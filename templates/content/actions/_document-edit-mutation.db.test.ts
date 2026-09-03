@@ -232,6 +232,29 @@ describe("revisioned document edit mutation", () => {
     ).toHaveLength(1);
   });
 
+  it("binds creative-context provenance to the idempotency payload", async () => {
+    const input = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, "alpha beta"),
+      idempotencyKey: "context-bound-delivery",
+      edits: [{ find: "alpha", replace: "omega" }],
+      ctx,
+    };
+    await mutateDocumentBody(input);
+
+    await expect(
+      mutateDocumentBody({
+        ...input,
+        creativeContext: {
+          contextMode: "off",
+          contextPackId: null,
+          reuseLabels: [],
+          elementProvenance: [],
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+  });
+
   it("uses stable base matching for a batch without replacement cascade", async () => {
     const result = await mutateDocumentBody({
       documentId: DOCUMENT_ID,

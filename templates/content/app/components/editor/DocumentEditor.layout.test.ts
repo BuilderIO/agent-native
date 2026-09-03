@@ -164,7 +164,15 @@ describe("document editor layout", () => {
       handler.indexOf("debouncedSave("),
     );
     expect(source).toContain('{t("editor.keepLocalDraft")}');
-    expect(source).toContain("void handleContentSaveNow(localDraft)");
+    expect(source).toContain(
+      "void handleContentSaveNow(localDraft).then((persisted)",
+    );
+    expect(source).toContain(
+      "if (persisted) setDocumentReconcileConflict(null)",
+    );
+    expect(source).toContain(
+      "else setDocumentReconcileConflict({ localDraft })",
+    );
   });
 
   it("waits for the first authoritative document fetch, then stays mounted", () => {
