@@ -964,6 +964,26 @@ const esES = {
       s060: "Elige qué quieres capturar y, después, empieza a grabar en Clips.",
       s061: "Ver más aplicaciones",
       s062: "Ver todas las plantillas",
+      faq: {
+        question1: "¿Clips es gratis?",
+        answer1: "Sí. Clips es gratuito y de código abierto.",
+        question2: "¿Puede la IA leer una grabación de pantalla?",
+        answer2:
+          "Sí. Cada clip incluye una transcripción, un resumen y fotogramas con marcas de tiempo que un agente puede leer directamente.",
+        question3: "¿En qué se diferencia Clips de Loom?",
+        answer3:
+          "Clips es de código abierto, tú eres dueño de los datos y todos los enlaces compartidos pueden ser leídos por agentes de IA, no solo por personas.",
+        question4:
+          "¿Puede una grabación de pantalla capturar errores de consola?",
+        answer4:
+          "Sí. Clips captura los errores de la consola del navegador y las solicitudes de red fallidas junto con la grabación. Se adjuntan al mismo enlace compartido que la transcripción y los fotogramas. Un agente puede depurar a partir de un clip, no solo verlo.",
+        question5: "¿Funciona Clips con Claude, ChatGPT o Cursor?",
+        answer5:
+          "¡Sí! No necesitas ningún plugin ni clave de API. Pega un enlace compartido de Clips en cualquier agente y podrá leer directamente la transcripción, el resumen y los fotogramas.",
+        question6: "¿Dónde se guardan mis grabaciones?",
+        answer6:
+          "Dondequiera que lo implementes. Clips autoalojado mantiene tus vídeos, transcripciones y analíticas en tu propia infraestructura.",
+      },
       quickStart: {
         recordingMode: "Modo de grabación",
         modeScreenCamera: "Pantalla + cámara",
@@ -2105,7 +2125,7 @@ const esES = {
     fileUploads: "Subidas de archivos",
     deployment: "Despliegue",
     deploymentOverview: "Resumen",
-    deploymentProviders: "Proveedores",
+    deploymentProviders: "Proveedores de hosting",
     deploymentProduction: "Producción y avanzado",
     deployAnApp: "Desplegar una aplicación",
     workspaceDeployment: "Despliegue del Workspace",

@@ -57,6 +57,9 @@ export type PageOwnedDocumentCachePatch = Pick<
   | "source"
   | "createdAt"
   | "updatedAt"
+  | "revision"
+  | "bodyRevision"
+  | "contentHash"
 >;
 
 export const LIST_DOCUMENTS_QUERY_KEY = [
@@ -272,6 +275,9 @@ export function mergeDocumentIntoDocumentCache(
     source: document.source,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    revision: document.revision,
+    bodyRevision: document.bodyRevision,
+    contentHash: document.contentHash,
   };
   return old && typeof old === "object"
     ? { ...old, ...pageOwnedPatch }
@@ -423,6 +429,9 @@ export function documentUpdateSuccessPatch(
 ): PageOwnedDocumentCachePatch {
   return {
     updatedAt: data.updatedAt,
+    revision: data.revision,
+    bodyRevision: data.bodyRevision,
+    contentHash: data.contentHash,
     ...(variables.title !== undefined ? { title: data.title } : {}),
     ...(variables.content !== undefined ? { content: data.content } : {}),
     ...(variables.description !== undefined

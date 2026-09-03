@@ -17,6 +17,7 @@ import { getDb, schema } from "../server/db/index.js"; // ensure registerShareab
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import {
@@ -33,6 +34,7 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { getDeckUrl } from "./_app-url.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -280,7 +282,7 @@ function assertStyleOnlyEdit(
 export default defineAction({
   title: "Edit one Slides slide",
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Use exactly one input mode: edits, legacy find/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated, especially for style-only requests, reorders, or changes that must stay consistent across lists, tables, or other representations. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; the action rejects text or markup changes and fullContent in that mode. Never use unresolved placeholder markers as stand-ins for preserved content. Use baseContentHash from get-deck to reject stale patches, then re-read the targeted slide to verify every affected representation and the requested scope. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
+    "Edit exactly one Slides slide. For a focused edit or translation of current or selected text, use one literal replace item in edits with the exact text and expectedMatches=1; when view-screen already supplies the target, do not fetch the full deck, use fullContent, or wait for layout-fit. Use targeted get-deck with slideId only if the selection text is missing, truncated, ambiguous, the literal match fails, or the edit changes markup or layout; then use ordered edits and an optional baseContentHash. Use exactly one input mode: edits, legacy find/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; the action rejects text or markup changes and fullContent in that mode. Never use unresolved placeholder markers as stand-ins for preserved content. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -339,7 +341,7 @@ export default defineAction({
       .min(1)
       .optional()
       .describe(
-        "Ordered atomic edits against the current HTML. Each edit must match unless required=false. Use expectedMatches to make ambiguity explicit.",
+        "Ordered atomic edits against the current HTML. For one selected or current text replacement, use one literal replace with the exact text and expectedMatches=1. Each edit must match unless required=false.",
       ),
     styleOnly: z
       .boolean()
@@ -352,7 +354,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Hash returned by get-deck for the exact slide source being patched. The edit is rejected if the source changed since it was read.",
+        "Optional hash returned by view-screen or get-deck for the exact slide source being patched. The edit is rejected if the source changed since it was read.",
       ),
     format: z
       .boolean()
@@ -386,7 +388,7 @@ export default defineAction({
       .default([])
       .describe("Exact context item versions that influenced this slide edit."),
   }),
-  http: false,
+  http: { method: "POST" },
   run: async (args, ctx) => {
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
     const {
@@ -749,7 +751,12 @@ export default defineAction({
     // Extend the SSE payload with the changed slideId + agent actor so the
     // client can attribute the edit. Backwards-compatible: consumers reading
     // only { type, deckId } are unaffected.
-    notifyClients(deckId, { slideId, actor: "agent" });
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    notifyClients(deckId, {
+      slideId,
+      actor: "agent",
+      ...(agentChangeId ? { agentChangeId } : {}),
+    });
 
     console.log(
       `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,
@@ -774,6 +781,7 @@ export default defineAction({
         contentHash: rmw.contentHash,
         layoutFitRevision: rmw.layoutFitRevision,
       },
+      appUrl: getDeckUrl(deckId),
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode
         ? {

@@ -15,6 +15,7 @@ import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/react";
 import {
   useState,
   useCallback,
@@ -25,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
 
 import { SlideCommentPins } from "@/components/comments/SlideCommentPins";
 import {
@@ -33,15 +35,7 @@ import {
 } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
-import {
-  convertMarkdownPrefixToBullet,
-  exitEmptyBulletAtCaret,
-  findEnclosingList,
-  insertBulletAfterCaret,
-  isBulletList,
-  removeEmptyBulletAtCaret,
-  ZERO_WIDTH_SPACE,
-} from "@/components/editor/bullet-editing";
+import { ZERO_WIDTH_SPACE } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -122,7 +116,6 @@ import {
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
   restoreEditableTextRange,
-  selectAllEditableText,
   snapshotEditableTextRange,
   type InlineTextStylePatch,
   type InlineTextStyleSnapshot,
@@ -139,6 +132,7 @@ import { decideSlideEscape } from "./slide-escape-arbiter";
 import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
+  arrangeSlideLayerInParent,
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
@@ -147,6 +141,7 @@ import {
   collectMovableSlideObjects,
   copySlideObjects,
   computeSlideObjectZOrder,
+  createSlideObjectId,
   createSlideObjectPlacementGeometry,
   createSlidesSelectionState,
   ensureSlideObjectId,
@@ -158,11 +153,16 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   findPersistedImageObject,
+  isAutoHeightTextResize,
   isDeletableFlowImage,
   isDeletableSlideElement,
+  isSlideTableStructureElement,
   isValidSlideClipboardRoot,
+  readSlideObjectClipboardId,
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
+  persistSlideObjectZOrderFromDom,
+  readSlideObjectZIndex,
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
   resolveSlideClipboardElement,
@@ -172,6 +172,7 @@ import {
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
   unionSlideObjectGeometries,
+  writeSlideObjectClipboard,
   type CopiedSlideObjects,
   type SlideAlignmentGuide,
   type SlideObjectAlignment,
@@ -192,14 +193,22 @@ import {
 import {
   findSmartBlock,
   isInlineTextElement,
+  isRichTextBlock,
   isSlideTextEditingTarget,
-  isTextLeaf,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
+  isSlideTextContainerTag,
+  restoreSlideTextContainerContent,
+  selectionOffsetsWithin,
+  SlideRichTextEditor,
+  type SlideRichTextEditorHandle,
+} from "./SlideRichTextEditor";
+import {
   SlidesLayersPanel,
+  type SlidesLayerKind,
   type SlidesLayerNode,
   type SlidesLayerPlacement,
 } from "./SlidesLayersPanel";
@@ -231,6 +240,21 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
 }
 
 let builderIdCounter = 0;
+
+type RichTextEditorSession = {
+  slideId: string;
+  element: HTMLElement;
+  slideContentSnapshot: HTMLElement;
+  sourceContent: string;
+  path: number[];
+  host: HTMLDivElement;
+  root: Root;
+  apiRef: { current: SlideRichTextEditorHandle | null };
+  originalContentEditable: string | null;
+  originalEditingBlock: string | null;
+  latestHtml: string;
+};
+
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
 const SLIDE_SHAPE_DEFAULT_SIZES = {
   rectangle: { width: 192, height: 144 },
@@ -290,15 +314,21 @@ function ensureBuilderId(element: HTMLElement): string {
 
 /** Stamp selectable elements inside a container with transient builder ids. */
 function stampBuilderIds(container: HTMLElement) {
-  const elements = container.querySelectorAll("*");
-  elements.forEach((el) => {
-    const element = el as HTMLElement;
+  const visit = (element: HTMLElement) => {
     if (!shouldStampBuilderId(element)) {
       element.removeAttribute("data-builder-id");
       return;
     }
     ensureBuilderId(element);
-  });
+    if (isRichTextBlock(element)) return;
+    for (const child of Array.from(element.children)) {
+      visit(child as HTMLElement);
+    }
+  };
+
+  for (const child of Array.from(container.children)) {
+    visit(child as HTMLElement);
+  }
 }
 
 function layerLabel(element: HTMLElement, index: number): string {
@@ -308,6 +338,65 @@ function layerLabel(element: HTMLElement, index: number): string {
     .replace(/\s+/g, " ")
     .trim();
   return text.slice(0, 48) || `${element.tagName.toLowerCase()} ${index + 1}`;
+}
+
+function layerKindForElement(
+  element: HTMLElement,
+  hasChildren: boolean,
+): SlidesLayerKind {
+  if (isRichTextBlock(element)) return "text";
+  if (
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-img-placeholder") ||
+    element.querySelector("img")
+  ) {
+    return "image";
+  }
+  if (element.tagName === "SVG" || element.querySelector("svg")) {
+    return "vector";
+  }
+  if (element.tagName === "PRE" || element.tagName === "CODE") return "code";
+  return hasChildren ? "container" : "shape";
+}
+
+function isZIndexedSlideLayer(element: HTMLElement): boolean {
+  if (isPersistedFreeformObject(element)) return true;
+  const zIndex = element.style.zIndex;
+  if (!zIndex || zIndex === "auto") return false;
+  const position = window.getComputedStyle(element).position;
+  if (position !== "static") return true;
+  const parentDisplay = element.parentElement
+    ? window.getComputedStyle(element.parentElement).display
+    : "";
+  return parentDisplay === "flex" || parentDisplay === "grid";
+}
+
+function sortSlideLayerElements(elements: HTMLElement[]): HTMLElement[] {
+  return elements
+    .map((element, index) => ({ element, index }))
+    .sort((left, right) => {
+      const leftZIndexed = isZIndexedSlideLayer(left.element);
+      const rightZIndexed = isZIndexedSlideLayer(right.element);
+      const leftBucket = leftZIndexed
+        ? readSlideObjectZIndex(left.element) < 0
+          ? -1
+          : 1
+        : 0;
+      const rightBucket = rightZIndexed
+        ? readSlideObjectZIndex(right.element) < 0
+          ? -1
+          : 1
+        : 0;
+      if (leftBucket !== rightBucket) return leftBucket - rightBucket;
+      if (leftZIndexed && rightZIndexed) {
+        return (
+          readSlideObjectZIndex(left.element) -
+            readSlideObjectZIndex(right.element) || left.index - right.index
+        );
+      }
+      return left.index - right.index;
+    })
+    .map(({ element }) => element);
 }
 
 function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
@@ -335,17 +424,23 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
     if (element.tagName === "IMG" && findPersistedImageObject(element, root)) {
       return null;
     }
-    const children = Array.from(element.children)
-      .map((child, childIndex) => visit(child as HTMLElement, childIndex))
-      .filter((child): child is SlidesLayerNode => child !== null);
+    // Rich text is one layer: its blocks are structure, not rows of their own.
+    const children = isRichTextBlock(element)
+      ? []
+      : sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
+          .map((child, childIndex) => visit(child as HTMLElement, childIndex))
+          .filter((child): child is SlidesLayerNode => child !== null);
     return {
       id: ensureBuilderId(element),
       label: layerLabel(element, index),
+      kind: layerKindForElement(element, children.length > 0),
       ...(children.length > 0 ? { children } : {}),
     };
   };
 
-  return Array.from(positioningLayer.children)
+  return sortSlideLayerElements(
+    Array.from(positioningLayer.children) as HTMLElement[],
+  )
     .map((element, index) => visit(element as HTMLElement, index))
     .filter((node): node is SlidesLayerNode => node !== null);
 }
@@ -364,42 +459,6 @@ function getBuilderSelector(el: HTMLElement): string | null {
   const id = el.getAttribute("data-builder-id");
   if (id) return `[data-builder-id="${id}"]`;
   return null;
-}
-
-/** Block tags that can hold rich multi-paragraph content */
-const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
-
-/** Insert a soft line break inside one text leaf through native edit history. */
-function insertLineBreak(editable: HTMLElement) {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount !== 1) return false;
-  const range = selection.getRangeAt(0);
-
-  const textLeafFor = (node: Node) => {
-    if (!editable.contains(node)) return null;
-    let element = node instanceof HTMLElement ? node : node.parentElement;
-    while (element && element !== editable) {
-      if (isTextLeaf(element)) return element;
-      element = element.parentElement;
-    }
-    const canUseEditableFallback =
-      isTextLeaf(editable) ||
-      (editable.tagName !== "IMG" &&
-        !editable.classList.contains("fmd-img-placeholder") &&
-        (editable.classList.contains("fmd-text-box") ||
-          Array.from(editable.children).every((child) =>
-            isInlineTextElement(child),
-          )));
-    return canUseEditableFallback ? editable : null;
-  };
-
-  const startLeaf = textLeafFor(range.startContainer);
-  const endLeaf = textLeafFor(range.endContainer);
-  if (!startLeaf || startLeaf !== endLeaf) {
-    return false;
-  }
-
-  return document.execCommand("insertLineBreak");
 }
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
@@ -671,6 +730,8 @@ interface SlideSelectionItem {
   runtimeSelector?: string;
   objectId?: string;
   text?: string;
+  selectedText?: string;
+  textTruncated?: boolean;
   kind?: string;
   tagName?: string;
   imageSrc?: string;
@@ -684,8 +745,11 @@ function selectionItemForElement(
   runtimeSelector: string,
   snapshot?: SlideStyleSnapshot,
   imageStyle?: Pick<SlideStyleSnapshot, "objectFit" | "objectPosition">,
+  selectedText?: string,
 ): SlideSelectionItem {
   const identity = getSlideSelectionIdentity(element, runtimeSelector);
+  const fullText = (element.textContent || "").trim();
+  const textLimit = snapshot ? 80 : 200;
   return {
     ...identity,
     kind: snapshot?.isImage
@@ -694,8 +758,9 @@ function selectionItemForElement(
         ? "image"
         : "element",
     tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
-    text:
-      snapshot?.textPreview ?? (element.textContent || "").trim().slice(0, 200),
+    text: snapshot?.textPreview ?? fullText.slice(0, 200),
+    selectedText: selectedText?.trim() ? selectedText : undefined,
+    textTruncated: fullText.length > textLimit,
     imageSrc:
       element instanceof HTMLImageElement
         ? (element.getAttribute("src") ?? undefined)
@@ -745,7 +810,7 @@ interface SlideEditorProps {
     updates: Partial<Omit<Slide, "id">>,
     slideIdOverride?: string,
     options?: UpdateSlideOptions,
-  ) => void;
+  ) => string | undefined;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -756,6 +821,8 @@ interface SlideEditorProps {
   contextToolbarSlot?: HTMLElement | null;
   /** Wide editor-shell host for the toolbar's top-row placement. */
   wideContextToolbarSlot?: HTMLElement | null;
+  /** Parent-shell host so Layers sits beside the canvas like Transitions. */
+  layersPanelSlot?: HTMLElement | null;
   /** Selection-independent actions for the head of the contextual toolbar. */
   contextToolbarLeading?: ReactNode;
   onGenerateImage: () => void;
@@ -848,6 +915,8 @@ interface SlideEditorProps {
    *  (see the slide-switch effect), so callers must not substitute their own
    *  "current slide" state for this argument. */
   onInlineEditEnd?: (slideId: string) => void;
+  /** Wait for an inline-edit write to reach the server before an agent uses it. */
+  onFlushInlineEdit?: () => Promise<void>;
   /** Called by the editor shell before a navigation that must persist the
    *  current contentEditable draft. Returns true when a draft was active. */
   flushInlineEditRef?: { current: (() => boolean) | null };
@@ -1247,6 +1316,7 @@ export default function SlideEditor({
   readOnly = false,
   contextToolbarSlot,
   wideContextToolbarSlot,
+  layersPanelSlot,
   contextToolbarLeading,
   onGenerateImage,
   onOpenAssetLibrary,
@@ -1278,6 +1348,7 @@ export default function SlideEditor({
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
+  onFlushInlineEdit,
   flushInlineEditRef,
   presentUsers = [],
   recentEdits = [],
@@ -1340,11 +1411,17 @@ export default function SlideEditor({
   const [layerNodes, setLayerNodes] = useState<SlidesLayerNode[]>([]);
   const copiedObjectClipboardRef = useRef<{
     copied: CopiedSlideObjects;
+    clipboardId: string;
+    nativeClipboardMode: "pending" | "rich" | "text-only" | "failed";
+    copySequence: number;
+    copySessionId: number;
     deckId?: string;
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
-  const objectPasteFallbackRef = useRef<number | null>(null);
+  const copiedObjectCopySequenceRef = useRef(0);
+  const copiedObjectClipboardSessionRef = useRef(0);
+  const overlappingNativeClipboardIdsRef = useRef(new Map<string, string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
@@ -1731,58 +1808,90 @@ export default function SlideEditor({
     null,
   );
   const previousSlideIdRef = useRef(slide.id);
+  const richTextEditorRef = useRef<SlideRichTextEditorHandle | null>(null);
+  const richTextEditorSessionRef = useRef<RichTextEditorSession | null>(null);
+  const activeRichTextHtmlRef = useRef<string | null>(null);
+  const activeRichTextPathRef = useRef<number[] | null>(null);
+  const [richTextEditorRevision, setRichTextEditorRevision] = useState(0);
+
+  const serializeSlideContentHtml = useCallback(
+    (
+      slideContent: HTMLElement,
+      sourceContent: string,
+      activePath: number[] | null = null,
+      activeHtml: string | null = null,
+    ) => {
+      // SlideRenderer swaps each `<div class="mermaid">` for a
+      // `data-mermaid-index` placeholder and renders the diagram as SVG via
+      // MermaidRenderer — the live DOM never contains the original mermaid
+      // syntax. Serializing it as-is here would permanently bake the rendered
+      // SVG into slide.content and turn a diagram edited or moved alongside
+      // (e.g. another text block on the same slide) into inert markup that can
+      // never be resized, edited, or re-rendered again. Restore the original
+      // `<div class="mermaid">` markup from the untouched source before saving.
+      const clone = slideContent.cloneNode(true) as HTMLElement;
+      if (activeHtml !== null && activePath) {
+        const activeClone = resolveElementPath(clone, activePath);
+        if (activeClone) {
+          restoreSlideTextContainerContent(activeClone, activeHtml);
+        }
+      }
+      const placeholders = clone.querySelectorAll("[data-mermaid-index]");
+      // Look up source blocks by index before touching the DOM. If slide.content
+      // changed since this placeholder last rendered (e.g. a concurrent update),
+      // its index may no longer have a matching block — leave that placeholder's
+      // node untouched rather than swapping in a marker with nothing to restore
+      // it, which would otherwise persist as inert marker text.
+      const { blocks } = extractMermaidBlocks(sourceContent);
+      // Swap each rendered node for a plain-text marker now, and splice the
+      // real `<div class="mermaid">` markup back in as a raw string AFTER
+      // stripBuilderIds() below. stripBuilderIds round-trips through
+      // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
+      // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
+      // mermaid blocks before its own sanitization pass. Doing the real
+      // substitution as a plain string replace, after all DOM round-trips,
+      // avoids that entirely.
+      const nonce = Math.random().toString(36).slice(2);
+      const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
+      const restorable = new Map<number, string>();
+      placeholders.forEach((placeholder) => {
+        const idx = Number(placeholder.getAttribute("data-mermaid-index"));
+        const definition = blocks[idx];
+        if (definition === undefined) return;
+        restorable.set(idx, definition);
+        placeholder.replaceWith(
+          clone.ownerDocument.createTextNode(markerFor(idx)),
+        );
+      });
+      let html = stripBuilderIds(clone.innerHTML);
+      restorable.forEach((definition, idx) => {
+        html = html.replace(
+          markerFor(idx),
+          `<div class="mermaid">${definition}</div>`,
+        );
+      });
+      return html;
+    },
+    [],
+  );
 
   const readCurrentSlideContentHtml = useCallback(() => {
     const slideContent = containerRef.current?.querySelector(
       ".slide-content",
     ) as HTMLElement | null;
     if (!slideContent) return null;
-    // SlideRenderer swaps each `<div class="mermaid">` for a
-    // `data-mermaid-index` placeholder and renders the diagram as SVG via
-    // MermaidRenderer — the live DOM never contains the original mermaid
-    // syntax. Serializing it as-is here would permanently bake the rendered
-    // SVG into slide.content and turn a diagram edited or moved alongside
-    // (e.g. another text block on the same slide) into inert markup that can
-    // never be resized, edited, or re-rendered again. Restore the original
-    // `<div class="mermaid">` markup from slide.content — the untouched
-    // source of truth — before saving.
-    const clone = slideContent.cloneNode(true) as HTMLElement;
-    const placeholders = clone.querySelectorAll("[data-mermaid-index]");
-    // Look up source blocks by index before touching the DOM. If slide.content
-    // changed since this placeholder last rendered (e.g. a concurrent update),
-    // its index may no longer have a matching block — leave that placeholder's
-    // node untouched rather than swapping in a marker with nothing to restore
-    // it, which would otherwise persist as inert marker text.
-    const { blocks } = extractMermaidBlocks(slide.content);
-    // Swap each rendered node for a plain-text marker now, and splice the
-    // real `<div class="mermaid">` markup back in as a raw string AFTER
-    // stripBuilderIds() below. stripBuilderIds round-trips through
-    // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
-    // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
-    // mermaid blocks before its own sanitization pass. Doing the real
-    // substitution as a plain string replace, after all DOM round-trips,
-    // avoids that entirely.
-    const nonce = Math.random().toString(36).slice(2);
-    const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
-    const restorable = new Map<number, string>();
-    placeholders.forEach((placeholder) => {
-      const idx = Number(placeholder.getAttribute("data-mermaid-index"));
-      const definition = blocks[idx];
-      if (definition === undefined) return;
-      restorable.set(idx, definition);
-      placeholder.replaceWith(
-        clone.ownerDocument.createTextNode(markerFor(idx)),
-      );
-    });
-    let html = stripBuilderIds(clone.innerHTML);
-    restorable.forEach((definition, idx) => {
-      html = html.replace(
-        markerFor(idx),
-        `<div class="mermaid">${definition}</div>`,
-      );
-    });
-    return html;
-  }, [slide.content]);
+    return serializeSlideContentHtml(
+      slideContent,
+      slide.content,
+      activeRichTextPathRef.current,
+      activeRichTextHtmlRef.current,
+    );
+  }, [serializeSlideContentHtml, slide.content]);
+
+  const readCurrentSlideContentHtmlRef = useRef(readCurrentSlideContentHtml);
+  useEffect(() => {
+    readCurrentSlideContentHtmlRef.current = readCurrentSlideContentHtml;
+  }, [readCurrentSlideContentHtml]);
 
   const captureInlineEditDraft = useCallback(
     (slideId = slide.id) => {
@@ -1806,6 +1915,67 @@ export default function SlideEditor({
       }
     },
     [readCurrentSlideContentHtml, slide.id],
+  );
+
+  const disposeRichTextEditor = useCallback(
+    (restoreLiveDom = true) => {
+      const session = richTextEditorSessionRef.current;
+      if (!session) return null;
+
+      const latest =
+        session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
+      session.latestHtml = latest;
+      activeRichTextHtmlRef.current = latest;
+      const draftContent =
+        session.slideId === previousSlideIdRef.current
+          ? readCurrentSlideContentHtmlRef.current()
+          : serializeSlideContentHtml(
+              session.slideContentSnapshot,
+              session.sourceContent,
+              session.path,
+              latest,
+            );
+      if (draftContent !== null) {
+        inlineEditDraftRef.current = {
+          slideId: session.slideId,
+          content: draftContent,
+        };
+      }
+      session.root.unmount();
+
+      let restoredElement = session.element;
+      if (restoreLiveDom && session.element.isConnected) {
+        restoredElement = restoreSlideTextContainerContent(
+          session.element,
+          latest,
+        );
+        session.element = restoredElement;
+        if (session.originalContentEditable === null) {
+          restoredElement.removeAttribute("contenteditable");
+        } else {
+          restoredElement.setAttribute(
+            "contenteditable",
+            session.originalContentEditable,
+          );
+        }
+        if (session.originalEditingBlock === null) {
+          restoredElement.removeAttribute("data-editing-block");
+        } else {
+          restoredElement.setAttribute(
+            "data-editing-block",
+            session.originalEditingBlock,
+          );
+        }
+      }
+
+      richTextEditorSessionRef.current = null;
+      richTextEditorRef.current = null;
+      activeRichTextHtmlRef.current = null;
+      activeRichTextPathRef.current = null;
+      setRichTextEditorRevision((revision) => revision + 1);
+      return { html: latest, element: restoredElement };
+    },
+    [serializeSlideContentHtml],
   );
 
   const flushInlineEditDraft = useCallback(() => {
@@ -2120,28 +2290,34 @@ export default function SlideEditor({
   );
 
   /** Exit edit mode, saving changed content without changing its layout. */
-  const exitInlineEdit = useCallback(() => {
+  const exitInlineEdit = useCallback((): string | undefined => {
     const el = editingElRef.current;
     if (!el) return;
-    editingElRef.current = null;
-    richTextSelectionRef.current = null;
-    el.contentEditable = "false";
-    el.removeAttribute("data-editing-block");
-    window.getSelection()?.removeAllRanges();
 
     // Selection and freeform promotion are separate operations. Merely ending
     // text editing must not turn a flow-layout block into an absolutely
     // positioned object, because that changes its available wrapping width.
-    const selected = el;
-    const selector = getBuilderSelector(selected);
+    const selector = getBuilderSelector(el);
 
-    const html = selected ? readCurrentSlideContentHtml() : null;
+    const session = richTextEditorSessionRef.current;
+    if (session) {
+      const latest = session.apiRef.current?.getHTML() ?? session.latestHtml;
+      session.latestHtml = latest;
+      activeRichTextHtmlRef.current = latest;
+    }
+    const html = readCurrentSlideContentHtml();
+    const disposed = disposeRichTextEditor();
+    const selected = disposed?.element ?? el;
+    editingElRef.current = null;
+    richTextSelectionRef.current = null;
+    window.getSelection()?.removeAllRanges();
     const initial = inlineEditInitialContentRef.current;
+    let normalizedContentHash: string | undefined;
     if (html !== null) {
       const current = { slideId: slide.id, content: html };
       if (shouldPersistInlineEditContent(initial, current)) {
         const latestDraft = inlineEditDraftRef.current;
-        onUpdateSlideRef.current(
+        normalizedContentHash = onUpdateSlideRef.current(
           { content: html },
           slide.id,
           shouldPersistInlineEditContent(latestDraft, current)
@@ -2166,8 +2342,13 @@ export default function SlideEditor({
     } else {
       syncSelectionToAppState(null);
     }
+    return (
+      normalizedContentHash ??
+      (html === null ? undefined : hashSlideContent(html))
+    );
   }, [
     readCurrentSlideContentHtml,
+    disposeRichTextEditor,
     resolveSelectedElement,
     selectElementForStyling,
     slide.id,
@@ -2175,16 +2356,82 @@ export default function SlideEditor({
     onInlineEditEnd,
   ]);
 
+  const commitInlineEditForAgent = useCallback(async () => {
+    const contentHash = exitInlineEdit();
+    await onFlushInlineEdit?.();
+    return contentHash;
+  }, [exitInlineEdit, onFlushInlineEdit]);
+
+  const handleRichTextEditorReady = useCallback((editor: Editor) => {
+    const session = richTextEditorSessionRef.current;
+    if (!session || session.apiRef.current?.getEditor() !== editor) return;
+    richTextEditorRef.current = session.apiRef.current;
+    setRichTextEditorRevision((revision) => revision + 1);
+  }, []);
+
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
     (el: HTMLElement) => {
+      const activeSession = richTextEditorSessionRef.current;
+      if (activeSession?.element === el) return;
+      if (activeSession) disposeRichTextEditor();
       const selector = getBuilderSelector(el);
-      el.contentEditable = "true";
+      const slideContent = getSlideContent();
+      if (!slideContent) return;
+      const nativeSelection = window.getSelection();
+      const nativeRange =
+        nativeSelection?.rangeCount === 1
+          ? nativeSelection.getRangeAt(0)
+          : null;
+      const initialSelectedText =
+        nativeRange &&
+        !nativeRange.collapsed &&
+        el.contains(nativeRange.startContainer) &&
+        el.contains(nativeRange.endContainer)
+          ? nativeRange.toString()
+          : undefined;
+      const initialSelection =
+        nativeRange &&
+        el.contains(nativeRange.startContainer) &&
+        el.contains(nativeRange.endContainer)
+          ? selectionOffsetsWithin(el, nativeRange)
+          : null;
+      const initialHtml = isSlideTextContainerTag(el.tagName)
+        ? el.outerHTML
+        : el.innerHTML;
+      const path = elementPathFromRoot(slideContent, el);
+      if (path.length === 0) return;
+      const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
+
+      const host = document.createElement("div");
+      host.className = "slide-rich-editor-host";
+      const apiRef: { current: SlideRichTextEditorHandle | null } = {
+        current: null,
+      };
+      const session: RichTextEditorSession = {
+        slideId: slide.id,
+        element: el,
+        slideContentSnapshot,
+        sourceContent: slide.content,
+        path,
+        host,
+        root: createRoot(host),
+        apiRef,
+        originalContentEditable: el.getAttribute("contenteditable"),
+        originalEditingBlock: el.getAttribute("data-editing-block"),
+        latestHtml: initialHtml,
+      };
+      richTextEditorSessionRef.current = session;
+      activeRichTextHtmlRef.current = initialHtml;
+      activeRichTextPathRef.current = path;
+      el.contentEditable = "false";
       el.setAttribute("data-editing-block", "true");
       // Keep the inspector selection mounted while text is being edited. The
       // inspector is a stable dock, so clearing it here would make the canvas
       // resize and auto-fit again on the second click.
       setSelectedElementMeasurement(null);
+      editingElRef.current = el;
+      setEditingEl(el);
       captureInlineEditDraft(slide.id);
       // Mark the slide active immediately so SSE/poll refreshes do not replace
       // the live DOM under an active contentEditable edit, even before the
@@ -2195,17 +2442,45 @@ export default function SlideEditor({
       // user's gesture; re-selecting from JS clobbers it. focus() on an
       // element that already contains the selection preserves it in modern
       // browsers, so it's safe to keep for keyboard delivery.
-      el.focus({ preventScroll: true });
-      editingElRef.current = el;
-      setEditingEl(el);
+      el.replaceChildren(host);
+      session.root.render(
+        <SlideRichTextEditor
+          ref={apiRef}
+          value={initialHtml}
+          initialSelection={initialSelection}
+          onChange={(html) => {
+            if (richTextEditorSessionRef.current !== session) return;
+            session.latestHtml = html;
+            activeRichTextHtmlRef.current = html;
+            captureInlineEditDraft(slide.id);
+          }}
+          onEditorReady={handleRichTextEditorReady}
+        />,
+      );
       if (selector) {
-        const item = selectionItemForElement(el, selector);
+        const item = selectionItemForElement(
+          el,
+          selector,
+          undefined,
+          undefined,
+          initialSelectedText,
+        );
         syncSelectionToAppState(
           buildSelectionState("editing", [{ ...item, kind: "text" }]),
         );
       }
     },
-    [buildSelectionState, captureInlineEditDraft, onInlineEditStart, slide.id],
+    [
+      buildSelectionState,
+      captureInlineEditDraft,
+      disposeRichTextEditor,
+      exitInlineEdit,
+      getSlideContent,
+      handleRichTextEditorReady,
+      onInlineEditStart,
+      slide.content,
+      slide.id,
+    ],
   );
 
   // Exit edit mode when switching slides — save pending content first so
@@ -2214,6 +2489,7 @@ export default function SlideEditor({
     const previousSlideId = previousSlideIdRef.current;
     if (previousSlideId === slide.id) return;
 
+    if (richTextEditorSessionRef.current) disposeRichTextEditor();
     const draft = inlineEditDraftRef.current;
     const editing = editingElRef.current;
     if (editing) {
@@ -2238,13 +2514,14 @@ export default function SlideEditor({
     inlineEditInitialContentRef.current = null;
 
     previousSlideIdRef.current = slide.id;
-  }, [onInlineEditEnd, slide.id]);
+  }, [disposeRichTextEditor, onInlineEditEnd, slide.id]);
 
   // Editor unmount (navigating away, closing the deck) skips the slide-switch
   // effect above entirely, so an active edit's "mid-edit" marker would
   // otherwise never clear and permanently block live sync for that slide.
   useEffect(() => {
     return () => {
+      if (richTextEditorSessionRef.current) disposeRichTextEditor();
       const draft = inlineEditDraftRef.current;
       const initial = inlineEditInitialContentRef.current;
       if (shouldPersistInlineEditContent(initial, draft) && draft) {
@@ -2260,22 +2537,7 @@ export default function SlideEditor({
       inlineEditDraftRef.current = null;
       inlineEditInitialContentRef.current = null;
     };
-  }, []);
-
-  useEffect(() => {
-    if (!editingEl) return;
-    const editingSlideId = slide.id;
-    const handleInput = () => {
-      // Markdown-style "- "/"* " at the start of a plain text block converts
-      // it into a styled bullet row, so it's recognized as a list and Enter
-      // can extend it — contentEditable has no native concept of these
-      // styled (non-<ul>) bullet lists.
-      convertMarkdownPrefixToBullet(editingEl);
-      captureInlineEditDraft(editingSlideId);
-    };
-    editingEl.addEventListener("input", handleInput);
-    return () => editingEl.removeEventListener("input", handleInput);
-  }, [captureInlineEditDraft, editingEl, slide.id]);
+  }, [disposeRichTextEditor]);
 
   // Keep canvas gesture handlers from stealing the browser's native text
   // selection stream once an inline edit has started.
@@ -2311,12 +2573,22 @@ export default function SlideEditor({
       );
       const selector = selectedElementSelector ?? getBuilderSelector(editingEl);
       if (!selector) return;
-      setSelectedStyleSnapshot(
-        buildStyleSnapshot(
-          editingEl,
-          selector,
-          getInlineTextStyleSnapshot(editingEl, selection),
-        ),
+      const snapshot = buildStyleSnapshot(
+        editingEl,
+        selector,
+        getInlineTextStyleSnapshot(editingEl, selection),
+      );
+      setSelectedStyleSnapshot(snapshot);
+      syncSelectionToAppState(
+        buildSelectionState("editing", [
+          selectionItemForElement(
+            editingEl,
+            selector,
+            snapshot,
+            undefined,
+            richTextSelectionRef.current?.toString(),
+          ),
+        ]),
       );
     };
 
@@ -2325,131 +2597,6 @@ export default function SlideEditor({
     return () =>
       document.removeEventListener("selectionchange", updateInspectorTextStyle);
   }, [editingEl, selectedElementSelector]);
-
-  // Global keyboard handling while inline-editing
-  useEffect(() => {
-    if (!editingEl) return;
-    // Determine "multi-line capable" once at entry time. contentEditable's
-    // default Enter behavior inserts block-level children (e.g. <div><br></div>)
-    // after a couple of presses, which would otherwise flip isTextLeaf to false
-    // mid-edit and incorrectly commit the user out of the block. The user's
-    // intent (rich-block edit vs single-line commit) doesn't change while
-    // they're editing the same node, so latch it.
-    const isMultiLineLeaf =
-      (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
-      isBulletList(editingEl);
-    const onKey = (e: KeyboardEvent) => {
-      const isSelectAll =
-        (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "a";
-      if (isSelectAll) {
-        const editing = editingElRef.current;
-        if (!editing || !editing.isConnected) return;
-        e.preventDefault();
-        e.stopPropagation();
-        selectAllEditableText(editing);
-        return;
-      }
-
-      // Ignore keys from outside the slide (e.g. the style dock's font-size
-      // input). Guard against the LIVE slide content, not `editingEl`, which a
-      // re-render may have detached — a stale ref would wrongly bail here and
-      // let native Enter run.
-      const slideContent = getSlideContent();
-      if (
-        e.target instanceof Node &&
-        slideContent &&
-        !slideContent.contains(e.target)
-      ) {
-        return;
-      }
-
-      const sel = window.getSelection();
-      const anchor = sel?.anchorNode ?? null;
-      const anchorEl = anchor
-        ? anchor.nodeType === Node.TEXT_NODE
-          ? anchor.parentElement
-          : (anchor as HTMLElement)
-        : null;
-      const liveList =
-        anchorEl && slideContent && slideContent.contains(anchorEl)
-          ? findEnclosingList(anchorEl, slideContent)
-          : null;
-
-      if (
-        e.key === "Backspace" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        liveList
-      ) {
-        const result = removeEmptyBulletAtCaret(liveList);
-        if (result) {
-          e.preventDefault();
-          if (result.editingElement) {
-            liveList.contentEditable = "false";
-            liveList.removeAttribute("data-editing-block");
-            enterInlineEdit(result.editingElement);
-          } else {
-            captureInlineEditDraft(slide.id);
-          }
-          return;
-        }
-      }
-
-      if (e.key === "Enter") {
-        // Smart Enter:
-        //  - Shift+Enter always inserts a <br>.
-        //  - Enter on an empty bullet exits the list into a root-level line.
-        //  - Inside a styled bullet list, Enter clones the current row so a
-        //    new bullet (marker + empty text) appears — contentEditable's
-        //    native split can't recreate the marker glyph.
-        //  - Rich block leaves keep contentEditable's native multi-line edit.
-        //  - Other text blocks get a <br> so repeated presses stay within the
-        //    existing layout instead of creating new block children.
-        if (e.shiftKey) return;
-
-        // Re-derive the list from the LIVE caret so a re-render that swapped
-        // the edited node can't drop us into native Enter.
-        if (liveList) {
-          const rootLine = exitEmptyBulletAtCaret(liveList);
-          if (rootLine) {
-            e.preventDefault();
-            liveList.contentEditable = "false";
-            liveList.removeAttribute("data-editing-block");
-            enterInlineEdit(rootLine);
-            return;
-          }
-        }
-        if (liveList && insertBulletAfterCaret(liveList)) {
-          e.preventDefault();
-          captureInlineEditDraft(slide.id);
-          return;
-        }
-
-        if (!isMultiLineLeaf) {
-          const editing = editingElRef.current;
-          const inserted = editing ? insertLineBreak(editing) : false;
-          if (!inserted) {
-            // Keep an unsupported cross-leaf selection in edit mode rather
-            // than letting native Enter split the smart group into blocks.
-            e.preventDefault();
-            return;
-          }
-          e.preventDefault();
-          captureInlineEditDraft(slide.id);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [
-    exitInlineEdit,
-    enterInlineEdit,
-    editingEl,
-    captureInlineEditDraft,
-    slide.id,
-    getSlideContent,
-  ]);
 
   // Click-outside: exit inline edit mode
   useEffect(() => {
@@ -2524,6 +2671,10 @@ export default function SlideEditor({
         selectedElementSelector,
         inlineTextStyle,
       );
+      const selectedText =
+        editingElRef.current === element
+          ? richTextSelectionRef.current?.toString()
+          : undefined;
       setSelectedElementMeasurement({
         key: selectionOverlayMeasurementKey,
         rect: element.getBoundingClientRect(),
@@ -2531,7 +2682,13 @@ export default function SlideEditor({
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
         buildSelectionState(getSlideSelectionMode(snapshot), [
-          selectionItemForElement(element, selectedElementSelector, snapshot),
+          selectionItemForElement(
+            element,
+            selectedElementSelector,
+            snapshot,
+            undefined,
+            selectedText,
+          ),
         ]),
       );
     };
@@ -2609,6 +2766,23 @@ export default function SlideEditor({
     syncSelectionToAppState(null);
   }, [slide.id]);
 
+  // Content reconciliation can replace the DOM node behind an open overlay.
+  useEffect(() => {
+    if (!imageOverlay) return;
+    const target = selectedImg;
+    const targetIsLive = Boolean(
+      target &&
+      target.isConnected &&
+      containerRef.current?.contains(target) &&
+      (target.tagName !== "IMG" ||
+        target.getAttribute("src") === imageOverlay.src),
+    );
+    if (targetIsLive) return;
+    setSelectedImg(null);
+    setImageOverlay(null);
+    syncSelectionToAppState(null);
+  }, [imageOverlay, selectedImg, slide.content]);
+
   // Stamp all elements with data-builder-id after render
   useEffect(() => {
     const container = containerRef.current;
@@ -2665,9 +2839,9 @@ export default function SlideEditor({
       if (ids.size > 0) {
         clearSelectedElement();
         setSelectedStyleSnapshot(mergeSlideStyleSnapshots(styleSnapshots));
+        setSelectedImg(null);
+        setImageOverlay(null);
       }
-      setSelectedImg(null);
-      setImageOverlay(null);
       // Anchor the chip to the slide canvas (clickable wrapper)
       const canvas = containerRef.current?.querySelector(
         ".slide-image-clickable",
@@ -2776,7 +2950,9 @@ export default function SlideEditor({
         `[data-builder-id="${targetId}"]`,
       );
       if (!source || !target || source.contains(target)) return;
-      if (placement === "inside" && !canDropSlideLayerInside(target)) return;
+      if (placement === "inside" && !canDropSlideLayerInside(target, source)) {
+        return;
+      }
       if (
         placement !== "inside" &&
         !canDropSlideLayerAdjacent(source, target)
@@ -2871,6 +3047,17 @@ export default function SlideEditor({
         }
       }
 
+      if (sourceWasFreeform) {
+        const positioningLayer = resolveSlidePositioningLayer(source);
+        if (positioningLayer) {
+          const containingBlock = resolveSlideObjectContainingBlock(
+            source,
+            positioningLayer,
+          );
+          persistSlideObjectZOrderFromDom(source, containingBlock);
+        }
+      }
+
       const html = readCurrentSlideContentHtml();
       if (html === null) return;
       if (selectedSingleElement?.isConnected && selectedSingleSelector) {
@@ -2946,6 +3133,12 @@ export default function SlideEditor({
       if (e.key !== "Escape") return;
       const target = e.target instanceof Element ? e.target : null;
       const editing = editingElRef.current;
+      if (
+        richTextEditorSessionRef.current &&
+        document.querySelector(".an-rich-md-slash-menu")
+      ) {
+        return;
+      }
       const overlayOwnsEscape = Boolean(
         document.querySelector(
           '[role="dialog"]:not([data-state="closed"]), [role="menu"]:not([data-state="closed"]), [role="listbox"]:not([data-state="closed"]), [data-radix-popper-content-wrapper]:not([data-state="closed"])',
@@ -3765,11 +3958,20 @@ export default function SlideEditor({
       range: Range | null = null,
     ): Range | null => {
       const inlinePatch = inlineInspectorStylePatch(patch);
+      const hasInlinePatch = Object.keys(inlinePatch).length > 0;
       let styledRange: Range | null = null;
-      if (
+      const richEditor =
+        editingElRef.current === element ? richTextEditorRef.current : null;
+      let handledByRichEditor = false;
+      if (richEditor && hasInlinePatch) {
+        if (range) styledRange = richEditor.applyTextStyle(inlinePatch, range);
+        else richEditor.applyTextStyleToContent(inlinePatch);
+        handledByRichEditor = true;
+        activeRichTextHtmlRef.current = richEditor.getHTML();
+      } else if (
         range &&
         restoreEditableTextRange(element, range) &&
-        Object.keys(inlinePatch).length > 0
+        hasInlinePatch
       ) {
         const result = applyInlineTextStyle(element, inlinePatch);
         if (result.scope === "selection" && result.range) {
@@ -3777,7 +3979,7 @@ export default function SlideEditor({
         }
       }
 
-      if (!styledRange && Object.keys(inlinePatch).length > 0) {
+      if (!styledRange && hasInlinePatch && !handledByRichEditor) {
         applyDescendantTextStyle(element, inlinePatch);
       }
 
@@ -3879,19 +4081,63 @@ export default function SlideEditor({
     slide.id,
   ]);
 
+  const storeCopiedObjects = useCallback(
+    (selection: HTMLElement[]) => {
+      const copied = copySlideObjects(selection);
+      const clipboard = {
+        copied,
+        clipboardId: createSlideObjectId(),
+        nativeClipboardMode: "pending" as const,
+        copySequence: copiedObjectCopySequenceRef.current++,
+        copySessionId: copiedObjectClipboardSessionRef.current,
+        deckId,
+        slideId: slide.id,
+        sourceRect: selection[0]?.getBoundingClientRect(),
+      };
+      copiedObjectClipboardRef.current = clipboard;
+      overlappingNativeClipboardIdsRef.current.clear();
+      setHasCopiedObject(true);
+      const clipboardWrite = writeSlideObjectClipboard(
+        clipboard.clipboardId,
+        copied,
+      );
+      void clipboardWrite.then(
+        (mode) => {
+          const currentClipboard = copiedObjectClipboardRef.current;
+          if (
+            mode === "rich" &&
+            currentClipboard &&
+            currentClipboard.copySequence > clipboard.copySequence &&
+            currentClipboard.copySessionId === clipboard.copySessionId
+          ) {
+            overlappingNativeClipboardIdsRef.current.set(
+              clipboard.clipboardId,
+              currentClipboard.clipboardId,
+            );
+          }
+          if (currentClipboard?.clipboardId === clipboard.clipboardId) {
+            currentClipboard.nativeClipboardMode = mode;
+          }
+        },
+        () => {
+          if (
+            copiedObjectClipboardRef.current?.clipboardId ===
+            clipboard.clipboardId
+          ) {
+            copiedObjectClipboardRef.current.nativeClipboardMode = "failed";
+          }
+        },
+      );
+      return clipboard;
+    },
+    [deckId, slide.id],
+  );
+
   const copySelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
     if (!selection) return false;
-    const copied = copySlideObjects(selection);
-    copiedObjectClipboardRef.current = {
-      copied,
-      deckId,
-      slideId: slide.id,
-      sourceRect: selection[0]?.getBoundingClientRect(),
-    };
-    setHasCopiedObject(true);
-    return true;
-  }, [deckId, getClipboardSelection, slide.id]);
+    return Boolean(storeCopiedObjects(selection));
+  }, [getClipboardSelection, storeCopiedObjects]);
 
   const pasteSelectedObjects = useCallback(() => {
     const clipboard = copiedObjectClipboardRef.current;
@@ -3908,39 +4154,39 @@ export default function SlideEditor({
   }, [deckId, getClipboardSelection, pasteSlideObjects, slide.id]);
 
   const duplicateSelectedObjects = useCallback(() => {
-    if (!copySelectedObjects()) return false;
-    return pasteSelectedObjects();
-  }, [copySelectedObjects, pasteSelectedObjects]);
+    const selection = getClipboardSelection();
+    if (!selection) return false;
+    pasteSlideObjects(copySlideObjects(selection), selection[0]);
+    return true;
+  }, [getClipboardSelection, pasteSlideObjects]);
 
   const cutSelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
     if (!selection) return false;
-    const copied = copySlideObjects(selection);
-    copiedObjectClipboardRef.current = {
-      copied,
-      deckId,
-      slideId: slide.id,
-      sourceRect: selection[0]?.getBoundingClientRect(),
-    };
-    setHasCopiedObject(true);
+    storeCopiedObjects(selection);
     return deleteSelectedElements(selection);
-  }, [deckId, deleteSelectedElements, getClipboardSelection, slide.id]);
+  }, [deleteSelectedElements, getClipboardSelection, storeCopiedObjects]);
 
-  // Object clipboard contents are editor-local. It intentionally does not
-  // survive a deck switch, unlike the browser's native text clipboard.
+  // The object payload stays editor-local, while its native marker makes the
+  // latest in-app layer copy observable alongside external clipboard copies.
+  // It intentionally does not survive a deck switch.
   useEffect(() => {
+    const clearOverlappingClipboardIds = () => {
+      overlappingNativeClipboardIdsRef.current.clear();
+    };
+    copiedObjectClipboardSessionRef.current += 1;
     copiedObjectClipboardRef.current = null;
+    overlappingNativeClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
-    if (objectPasteFallbackRef.current !== null) {
-      window.clearTimeout(objectPasteFallbackRef.current);
-      objectPasteFallbackRef.current = null;
-    }
+    window.addEventListener("blur", clearOverlappingClipboardIds);
+    return () =>
+      window.removeEventListener("blur", clearOverlappingClipboardIds);
   }, [deckId]);
 
-  // One window listener for object copy/paste/duplicate. Native text
-  // copy/paste must always win: bail the instant a text edit is active or
-  // focus is on any form control, BEFORE touching the clipboard or selection,
-  // so ordinary Cmd/Ctrl+C/V/D typing is never hijacked.
+  // One window listener for object copy/paste/duplicate. Native text editing
+  // must always win: bail the instant a text edit is active or focus is on any
+  // form control, BEFORE touching the clipboard or selection, so ordinary
+  // Cmd/Ctrl+C/V/D typing is never hijacked.
   useEffect(() => {
     if (readOnly) return;
     const onKey = (e: KeyboardEvent) => {
@@ -3958,50 +4204,15 @@ export default function SlideEditor({
       if (editingEl || isTextSurface) return;
 
       if (key === "v") {
-        const clipboard = copiedObjectClipboardRef.current;
-        if (!clipboard || clipboard.deckId !== deckId) {
-          return;
-        }
-        if (objectPasteFallbackRef.current !== null) {
-          window.clearTimeout(objectPasteFallbackRef.current);
-        }
-        objectPasteFallbackRef.current = window.setTimeout(() => {
-          objectPasteFallbackRef.current = null;
-          const currentClipboard = copiedObjectClipboardRef.current;
-          if (!currentClipboard || currentClipboard.deckId !== deckId) {
-            return;
-          }
-          const currentSelection = getClipboardSelection();
-          pasteSlideObjects(
-            currentClipboard.copied,
-            currentSelection?.[0] ?? null,
-            currentClipboard.slideId === slide.id
-              ? currentClipboard.sourceRect
-              : undefined,
-          );
-        }, 50);
         return;
       }
 
       const selection = getClipboardSelection();
       if (!selection) return;
 
-      const copySelection = () => {
-        if (!selection) return null;
-        const copied = copySlideObjects(selection);
-        copiedObjectClipboardRef.current = {
-          copied,
-          deckId,
-          slideId: slide.id,
-          sourceRect: selection[0]?.getBoundingClientRect(),
-        };
-        setHasCopiedObject(true);
-        return copiedObjectClipboardRef.current;
-      };
-
       if (key === "c") {
         e.preventDefault();
-        copySelection();
+        storeCopiedObjects(selection);
         return;
       }
 
@@ -4013,10 +4224,8 @@ export default function SlideEditor({
 
       // Duplicate re-copies the live selection so it duplicates what's
       // currently selected regardless of what's on the clipboard.
-      if (!selection) return;
       e.preventDefault();
-      const clipboard = copySelection();
-      if (clipboard) pasteSlideObjects(clipboard.copied, selection[0]);
+      pasteSlideObjects(copySlideObjects(selection), selection[0]);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -4028,17 +4237,14 @@ export default function SlideEditor({
     pasteSlideObjects,
     readOnly,
     slide.id,
+    storeCopiedObjects,
   ]);
 
-  // Object paste waits for the native paste event so system clipboard content
-  // always wins over an older in-editor object copy.
+  // The native paste event is authoritative: a matching layer marker means
+  // the in-app copy is latest; otherwise current native content wins.
   useEffect(() => {
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
-      if (objectPasteFallbackRef.current !== null) {
-        window.clearTimeout(objectPasteFallbackRef.current);
-        objectPasteFallbackRef.current = null;
-      }
       if (e.defaultPrevented) return;
       const active = document.activeElement;
       if (
@@ -4056,21 +4262,53 @@ export default function SlideEditor({
       ) {
         return;
       }
+      const clipboard = copiedObjectClipboardRef.current;
+      if (!clipboard || clipboard.deckId !== deckId) return;
+      const nativeClipboardId = readSlideObjectClipboardId(
+        e.clipboardData?.getData("text/html"),
+        document,
+      );
+      const pasteLocalClipboard = () => {
+        e.preventDefault();
+        const selection = getClipboardSelection();
+        pasteSlideObjects(
+          clipboard.copied,
+          selection?.[0] ?? null,
+          clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
+        );
+      };
+      if (nativeClipboardId === clipboard.clipboardId) {
+        pasteLocalClipboard();
+        return;
+      }
+      // An older rich write can settle after a newer copy. Remember only that
+      // overlap, so clipboard-history markers are not remapped by default.
+      if (
+        nativeClipboardId &&
+        overlappingNativeClipboardIdsRef.current.get(nativeClipboardId) ===
+          clipboard.clipboardId
+      ) {
+        pasteLocalClipboard();
+        return;
+      }
       const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
         (type) =>
           type.startsWith("text/") &&
           Boolean(e.clipboardData?.getData(type)?.length),
       );
       if (hasNativeText) return;
-      const clipboard = copiedObjectClipboardRef.current;
-      if (!clipboard || clipboard.deckId !== deckId) return;
-      e.preventDefault();
-      const selection = getClipboardSelection();
-      pasteSlideObjects(
-        clipboard.copied,
-        selection?.[0] ?? null,
-        clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
-      );
+      // Markerless text-only writes cannot prove ownership. Readable native
+      // text stays authoritative above; only empty events use the local copy.
+      // Pending or failed native writes have no trustworthy provenance, so
+      // keep Cmd/Ctrl+V usable through the local copy when the event is empty.
+      if (
+        clipboard.nativeClipboardMode === "pending" ||
+        clipboard.nativeClipboardMode === "failed"
+      ) {
+        pasteLocalClipboard();
+        return;
+      }
+      pasteLocalClipboard();
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
@@ -4153,24 +4391,11 @@ export default function SlideEditor({
         box.style.whiteSpace = "pre-wrap";
         box.style.overflowWrap = "anywhere";
       }
-      box.textContent = text;
+      box.textContent = text === ZERO_WIDTH_SPACE ? "" : text;
       positioningLayer.appendChild(box);
 
       if (!startEditing) return box;
       enterInlineEdit(box);
-
-      // el.focus() alone doesn't reliably place the caret inside a freshly
-      // created contentEditable node across browsers — set it explicitly on
-      // the placeholder text so typing lands immediately.
-      const textNode = box.firstChild;
-      if (textNode) {
-        const range = document.createRange();
-        range.setStart(textNode, textNode.textContent?.length ?? 0);
-        range.collapse(true);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-      }
       return box;
     },
     [enterInlineEdit],
@@ -4346,15 +4571,28 @@ export default function SlideEditor({
     (
       element: HTMLElement,
       geometry: SlideObjectGeometry,
-      { overrideImageSizing = false }: { overrideImageSizing?: boolean } = {},
+      {
+        overrideImageSizing = false,
+        autoHeight = false,
+      }: { overrideImageSizing?: boolean; autoHeight?: boolean } = {},
     ) => {
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
       if (overrideImageSizing) {
         setSlideObjectDimension(element, "width", `${geometry.width}px`);
-        setSlideObjectDimension(element, "height", `${geometry.height}px`);
       } else {
         element.style.width = `${geometry.width}px`;
+      }
+      if (autoHeight) {
+        // No inline height at all means the box sizes to its content, same
+        // as a freshly placed text box — leave it unset instead of "auto" so
+        // a later manual resize sees a clean absent-vs-explicit height.
+        element.style.removeProperty("height");
+        return;
+      }
+      if (overrideImageSizing) {
+        setSlideObjectDimension(element, "height", `${geometry.height}px`);
+      } else {
         element.style.height = `${geometry.height}px`;
       }
     },
@@ -4906,6 +5144,11 @@ export default function SlideEditor({
           ensureSlideObjectId(element);
           applyObjectGeometry(element, gesture.rect, {
             overrideImageSizing: true,
+            autoHeight: isAutoHeightTextResize(
+              element,
+              gesture.handle,
+              Boolean(gesture.pointer.shiftKey),
+            ),
           });
           const currentSelector = getBuilderSelector(element);
           if (currentSelector) {
@@ -6305,17 +6548,21 @@ export default function SlideEditor({
         return;
       }
 
+      // Plain clicks only select; keep the action menu for intentional
+      // double-clicks and discard any menu left by a previous image.
+      setSelectedImg(null);
+      setImageOverlay(null);
+
       // --- Plain click on an element → drop multi-selection back to single,
       // then run the existing single-select / style-editing flow.
       if (multiSelection.size > 0) clearMultiSelection();
-
-      showImageOverlay(target);
 
       // For editable text, a single click edits the whole smart block (a text
       // leaf, or an entire bullet list) — not the individual line — so typing,
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
       // style dock targets the same block being edited.
       if (!readOnly && slideContent) {
+        stampBuilderIds(slideContent);
         const block = findSmartBlock(target, slideContent, {
           includeTextBoxes: false,
         });
@@ -6350,7 +6597,6 @@ export default function SlideEditor({
       }
     },
     [
-      showImageOverlay,
       editingEl,
       getSlideContent,
       findSelectableId,
@@ -6380,14 +6626,48 @@ export default function SlideEditor({
     [clearCanvasSelection],
   );
 
+  const clearContextMenuState = useCallback(() => {
+    contextMenuTargetRef.current = null;
+    contextMenuTableCellRef.current = null;
+    setContextMenuTableInfo(null);
+  }, []);
+
+  const selectContextMenuTarget = useCallback(
+    (selectable: HTMLElement) => {
+      const builderId = selectable.getAttribute("data-builder-id");
+      const isMultiSelectionTarget = Boolean(
+        builderId && multiSelection.has(builderId),
+      );
+      contextMenuTargetRef.current = isMultiSelectionTarget ? null : selectable;
+      if (!isMultiSelectionTarget) {
+        if (multiSelection.size > 0) clearMultiSelection();
+        const selector = getBuilderSelector(selectable);
+        if (selector) {
+          selectElementForStyling(selectable, selector);
+          enterSelectionMode("agentNative.enterStyleEditing", { selector });
+        }
+      }
+    },
+    [clearMultiSelection, multiSelection, selectElementForStyling],
+  );
+
+  const handleLayerContextMenu = useCallback(
+    (id: string) => {
+      const slideContent = getSlideContent();
+      const selectable = slideContent?.querySelector<HTMLElement>(
+        `[data-builder-id="${id}"]`,
+      );
+      if (selectable) selectContextMenuTarget(selectable);
+    },
+    [getSlideContent, selectContextMenuTarget],
+  );
+
   const handleSlideContextMenu = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
       const slideContent = getSlideContent();
       if (!slideContent) {
-        contextMenuTargetRef.current = null;
-        contextMenuTableCellRef.current = null;
-        setContextMenuTableInfo(null);
+        clearContextMenuState();
         return;
       }
 
@@ -6412,29 +6692,16 @@ export default function SlideEditor({
         return;
       }
 
-      const builderId = selectable.getAttribute("data-builder-id");
-      const isMultiSelectionTarget = Boolean(
-        builderId && multiSelection.has(builderId),
-      );
-      contextMenuTargetRef.current = isMultiSelectionTarget ? null : selectable;
-      if (!isMultiSelectionTarget) {
-        if (multiSelection.size > 0) clearMultiSelection();
-        const selector = getBuilderSelector(selectable);
-        if (selector) {
-          selectElementForStyling(selectable, selector);
-          enterSelectionMode("agentNative.enterStyleEditing", { selector });
-        }
-      }
+      selectContextMenuTarget(selectable);
     },
     [
+      clearContextMenuState,
       clearCanvasSelection,
-      clearMultiSelection,
       findSelectableElement,
       findTableCell,
       getSlideContent,
-      multiSelection,
       readOnly,
-      selectElementForStyling,
+      selectContextMenuTarget,
     ],
   );
 
@@ -6488,54 +6755,12 @@ export default function SlideEditor({
         (editing ? getBuilderSelector(editing) : null);
       if (!element || !selector) return;
 
-      const inlinePatch = inlineInspectorStylePatch(patch);
-      const inlineKeys = INLINE_INSPECTOR_STYLE_KEYS.filter(
-        (key) => patch[key] !== undefined,
-      );
-      let styledRange = false;
       const savedRange =
         richTextSelectionRef.current ??
         (editing ? snapshotEditableTextRange(editing) : null);
-      if (
-        editing &&
-        inlineKeys.length > 0 &&
-        restoreEditableTextRange(editing, savedRange)
-      ) {
-        const result = applyInlineTextStyle(editing, inlinePatch);
-        if (result.scope === "selection" && result.range) {
-          richTextSelectionRef.current = result.range.cloneRange();
-          styledRange = true;
-        }
-      }
-
-      if (!styledRange && inlineKeys.length > 0) {
-        applyDescendantTextStyle(element, inlinePatch);
-      }
-
-      for (const [property, value] of Object.entries(patch)) {
-        if (value === undefined) continue;
-        if (
-          styledRange &&
-          INLINE_INSPECTOR_STYLE_KEYS.includes(
-            property as (typeof INLINE_INSPECTOR_STYLE_KEYS)[number],
-          )
-        ) {
-          continue;
-        }
-        if (property === "width" || property === "height") {
-          setSlideObjectDimension(element, property, value);
-        } else {
-          element.style.setProperty(stylePropertyName(property), value);
-        }
-      }
-
-      if (
-        patch.borderWidth &&
-        patch.borderWidth !== "0" &&
-        patch.borderWidth !== "0px" &&
-        window.getComputedStyle(element).borderStyle === "none"
-      ) {
-        element.style.borderStyle = "solid";
+      const nextRange = applyStylePatchToElement(element, patch, savedRange);
+      if (editing && nextRange) {
+        richTextSelectionRef.current = nextRange.cloneRange();
       }
 
       if (editing) {
@@ -6591,31 +6816,32 @@ export default function SlideEditor({
           ? contextMenuTarget
           : null) ?? resolveSelectedElement();
       if (!element) return;
-      const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
-      const positioningLayer = fmdSlide
-        ? (Array.from(fmdSlide.children).find(
-            (child): child is HTMLElement =>
-              child instanceof HTMLElement &&
-              child.hasAttribute("data-fmd-autofit-content"),
-          ) ?? fmdSlide)
-        : null;
-      if (!positioningLayer) return;
-
-      const containingBlock = resolveSlideObjectContainingBlock(
-        element,
-        positioningLayer,
-      );
-      const change = computeSlideObjectZOrder(element, containingBlock, target);
+      if (isSlideTableStructureElement(element)) return;
       const selector = getBuilderSelector(element);
       if (!selector) return;
-      selectElementForStyling(element, selector);
-      if (!change) return;
 
-      element.style.zIndex = String(change.value);
-      for (const shift of change.shiftPeers) {
-        shift.element.style.zIndex = String(shift.value);
+      if (isPersistedFreeformObject(element)) {
+        const positioningLayer = resolveSlidePositioningLayer(element);
+        if (!positioningLayer) return;
+        const containingBlock = resolveSlideObjectContainingBlock(
+          element,
+          positioningLayer,
+        );
+        const change = computeSlideObjectZOrder(
+          element,
+          containingBlock,
+          target,
+        );
+        if (!change) return;
+        element.style.zIndex = String(change.value);
+        for (const shift of change.shiftPeers) {
+          shift.element.style.zIndex = String(shift.value);
+        }
+      } else if (!arrangeSlideLayerInParent(element, target)) {
+        return;
       }
 
+      selectElementForStyling(element, selector);
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
     },
@@ -6663,7 +6889,42 @@ export default function SlideEditor({
         return;
       }
 
-      const target = editingElRef.current ?? resolveSelectedElement();
+      const activeEditing = editingElRef.current;
+      const richEditor = activeEditing ? richTextEditorRef.current : null;
+      if (activeEditing) {
+        if (!richEditor) return;
+        const editor = richEditor.getEditor();
+        if (!editor || editor.isDestroyed) return;
+        const chain = editor.chain().focus();
+        if (kind === "bullet" && editor.isActive("orderedList")) {
+          chain.toggleOrderedList().toggleBulletList().run();
+        } else if (kind === "ordered" && editor.isActive("bulletList")) {
+          chain.toggleBulletList().toggleOrderedList().run();
+        } else if (kind === "bullet") {
+          chain.toggleBulletList().run();
+        } else {
+          chain.toggleOrderedList().run();
+        }
+        activeRichTextHtmlRef.current = richEditor.getHTML();
+        captureInlineEditDraft(slide.id);
+        const selector =
+          selectedElementSelector ?? getBuilderSelector(activeEditing);
+        if (selector) {
+          setSelectedStyleSnapshot(
+            buildStyleSnapshot(
+              activeEditing,
+              selector,
+              getInlineTextStyleSnapshotForRange(
+                activeEditing,
+                richTextSelectionRef.current,
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      const target = resolveSelectedElement();
       if (!target) return;
       // Editing one item still means "this list". Converting the LI itself
       // would build a second list inside it instead of toggling the one it
@@ -6672,28 +6933,8 @@ export default function SlideEditor({
         target.tagName === "LI" ? target.closest("ul, ol") : null;
       const element = (parentList as HTMLElement | null) ?? target;
 
-      const editing = editingElRef.current;
       const converted = toggleSlideList(element, kind);
       if (!converted) return;
-
-      // Conversions retag and replace nodes, so an active edit can be left
-      // pointing at a node that is no longer in the page. Move it onto the
-      // element that replaced it rather than silently writing into nothing.
-      if (editing && !editing.isConnected) {
-        converted.contentEditable = "true";
-        converted.setAttribute("data-editing-block", "true");
-        editingElRef.current = converted;
-        setEditingEl(converted);
-        converted.focus({ preventScroll: true });
-      }
-
-      // Committing while an edit is open re-renders the slide from `content`
-      // and replaces the contentEditable node; stash a draft instead and let
-      // exitInlineEdit flush it.
-      if (editing) {
-        captureInlineEditDraft(slide.id);
-        return;
-      }
 
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
@@ -6708,6 +6949,7 @@ export default function SlideEditor({
       preserveMultiSelectionForUpdate,
       readCurrentSlideContentHtml,
       resolveSelectedElement,
+      selectedElementSelector,
       selectElementForStyling,
       slide.id,
       styleSnapshotForElement,
@@ -6741,6 +6983,8 @@ export default function SlideEditor({
 
       // For images / placeholders, show overlay
       if (target.tagName === "IMG" || target.closest(".fmd-img-placeholder")) {
+        e.preventDefault();
+        e.stopPropagation();
         showImageOverlay(target);
         return;
       }
@@ -6755,6 +6999,7 @@ export default function SlideEditor({
         ".slide-content",
       ) as HTMLElement | null;
       if (!slideContent) return;
+      stampBuilderIds(slideContent);
       const block = findSmartBlock(target, slideContent);
       if (!block) return;
 
@@ -6808,6 +7053,74 @@ export default function SlideEditor({
         canZoomOut,
         canZoomIn,
       };
+
+  const slideElementContextMenuContent = (
+    <>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={cutSelectedObjects}
+      >
+        {t("editorSidebar.cut")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+x")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={copySelectedObjects}
+      >
+        {t("styleInspector.copy")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+c")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasCopiedObject}
+        onSelect={pasteSelectedObjects}
+      >
+        {t("styleInspector.paste")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+v")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={duplicateSelectedObjects}
+      >
+        {t("editorSidebar.duplicate")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+d")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={() => deleteSelectedElements()}
+      >
+        {t("editorSidebar.delete")}
+        <ContextMenuShortcut>⌫</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        disabled={getStyleTargets().length === 0}
+        onSelect={copySelectedElementStyle}
+      >
+        {t("styleInspector.copyStyle")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+alt+c")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasCopiedElementStyle || getStyleTargets().length === 0}
+        onSelect={pasteCopiedElementStyle}
+      >
+        {t("styleInspector.pasteStyle")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+alt+v")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        disabled={!selectedElementSelector}
+        onSelect={() => handleArrangeSelected("front")}
+      >
+        {t("styleInspector.bringToFront")}
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!selectedElementSelector}
+        onSelect={() => handleArrangeSelected("back")}
+      >
+        {t("styleInspector.sendToBack")}
+      </ContextMenuItem>
+    </>
+  );
 
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
@@ -6884,6 +7197,25 @@ export default function SlideEditor({
         className="slide-context-toolbar--top-row"
       />
     </div>
+  ) : null;
+
+  const layersPanel = layersOpen ? (
+    <SlidesLayersPanel
+      layers={layerNodes}
+      selectedIds={selectedLayerIds}
+      contextMenuContent={readOnly ? undefined : slideElementContextMenuContent}
+      onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}
+      onContextMenuClose={clearContextMenuState}
+      onSelectLayer={selectLayerFromPanel}
+      onMoveLayer={moveLayerFromPanel}
+      onClose={onCloseLayers ?? (() => {})}
+      labels={{
+        title: t("editorToolbar.layers"),
+        close: t("editorToolbar.closeLayers"),
+        expand: t("editorToolbar.expandLayer"),
+        collapse: t("editorToolbar.collapseLayer"),
+      }}
+    />
   ) : null;
 
   return (
@@ -7042,11 +7374,7 @@ export default function SlideEditor({
                         </div>
                       </ContextMenuTrigger>
                       <ContextMenuContent
-                        onCloseAutoFocus={() => {
-                          contextMenuTargetRef.current = null;
-                          contextMenuTableCellRef.current = null;
-                          setContextMenuTableInfo(null);
-                        }}
+                        onCloseAutoFocus={clearContextMenuState}
                       >
                         {contextMenuTableInfo && (
                           <>
@@ -7104,86 +7432,7 @@ export default function SlideEditor({
                             <ContextMenuSeparator />
                           </>
                         )}
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={cutSelectedObjects}
-                        >
-                          {t("editorSidebar.cut")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+x")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={copySelectedObjects}
-                        >
-                          {t("styleInspector.copy")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+c")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasCopiedObject}
-                          onSelect={pasteSelectedObjects}
-                        >
-                          {t("styleInspector.paste")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+v")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={duplicateSelectedObjects}
-                        >
-                          {t("editorSidebar.duplicate")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+d")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={() => deleteSelectedElements()}
-                        >
-                          {t("editorSidebar.delete")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            ⌫
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem
-                          disabled={getStyleTargets().length === 0}
-                          onSelect={copySelectedElementStyle}
-                        >
-                          {t("styleInspector.copyStyle")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+alt+c")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={
-                            !hasCopiedElementStyle ||
-                            getStyleTargets().length === 0
-                          }
-                          onSelect={pasteCopiedElementStyle}
-                        >
-                          {t("styleInspector.pasteStyle")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+alt+v")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem
-                          disabled={!selectedElementSelector}
-                          onSelect={() => handleArrangeSelected("front")}
-                        >
-                          {t("styleInspector.bringToFront")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!selectedElementSelector}
-                          onSelect={() => handleArrangeSelected("back")}
-                        >
-                          {t("styleInspector.sendToBack")}
-                        </ContextMenuItem>
+                        {slideElementContextMenuContent}
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
@@ -7192,21 +7441,11 @@ export default function SlideEditor({
             </div>
           )}
         </div>
-        {layersOpen && (
-          <SlidesLayersPanel
-            layers={layerNodes}
-            selectedIds={selectedLayerIds}
-            onSelectLayer={selectLayerFromPanel}
-            onMoveLayer={moveLayerFromPanel}
-            onClose={onCloseLayers ?? (() => {})}
-            labels={{
-              title: t("editorToolbar.layers"),
-              close: t("editorToolbar.closeLayers"),
-              expand: t("editorToolbar.expandLayer"),
-              collapse: t("editorToolbar.collapseLayer"),
-            }}
-          />
-        )}
+        {layersPanel
+          ? layersPanelSlot
+            ? createPortal(layersPanel, layersPanelSlot)
+            : layersPanel
+          : null}
       </div>
 
       <SpeakerNotesPanel
@@ -7273,10 +7512,13 @@ export default function SlideEditor({
       />
 
       <BlockBubbleMenu
+        key={richTextEditorRevision}
         editingEl={editingEl}
+        richTextEditor={richTextEditorRef.current}
         slideId={slide.id}
         deckId={deckId}
-        onCommitInlineEdit={exitInlineEdit}
+        slideContentHash={hashSlideContent(slide.content)}
+        onCommitInlineEdit={commitInlineEditForAgent}
       />
 
       {pendingUpdateCount > 0 && (

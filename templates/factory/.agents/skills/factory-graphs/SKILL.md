@@ -17,7 +17,8 @@ binding is explicitly added, the blueprint must not be described as the runtime
 router.
 
 Runtime work — settings, inbox, rules, automations, and activity — is scoped by
-`factoryId`. Reusable agents stay workspace-wide; graph nodes may reference any
+`factoryId`. List and Audit discover jobs by path (`jobs/factories/<factoryId>/`,
+plus default-factory `jobs/factory-*.md`), not by YAML `domain` or `triggerType`. Reusable agents stay workspace-wide; graph nodes may reference any
 workspace agent as blueprint only. Pass `factoryId` on triage, config, automation,
 and audit actions for the factory the user is viewing. New factories start with
 no jobs; create one with `create-factory-automation`. `delete-factory` removes that factory's jobs, automation run history, and poll cursors. Author filters store Slack

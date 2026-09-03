@@ -164,12 +164,22 @@ describe("Content action-owned agent catalogs", () => {
     expect(createDocument.tool.description).toContain("edit-document");
     expect(editDocument.tool.description).toContain("Prefer this over");
     expect(editDocument.tool.description).toContain("match exactly");
+    expect(updateDocument.tool.description).toContain(
+      "Agents must use get-document followed by edit-document",
+    );
 
     const createProperties = createDocument.tool.parameters?.properties;
     const editProperties = editDocument.tool.parameters?.properties;
     expect(createProperties?.content?.description).toContain("Markdown");
     expect(createProperties?.parentId?.description).toContain("root page");
     expect(editProperties?.find?.description).toContain("Exact");
-    expect(editProperties?.edits?.description).toContain("ordered batch");
+    expect(editProperties?.edits?.description).toContain(
+      "snapshot-stable batch",
+    );
+    expect(editDocument.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["id", "baseRevision", "idempotencyKey"]),
+    );
+    expect(editProperties?.baseRevision?.description).toContain("get-document");
+    expect(editProperties?.idempotencyKey?.description).toContain("stable key");
   });
 });

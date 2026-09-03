@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getUserSetting: vi.fn(),
   notifyActivity: vi.fn(),
   select: vi.fn(),
   sendClipsTransactionalEmail: vi.fn(),
@@ -34,6 +35,10 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   filterRecipientsByResourceAccess: (...args: unknown[]) =>
     mocks.filterRecipients(...args),
+}));
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: (...args: unknown[]) => mocks.getUserSetting(...args),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -115,6 +120,7 @@ describe("clips activity notifications", () => {
       sent: [],
       failed: [],
     });
+    mocks.getUserSetting.mockResolvedValue(null);
     stubDb({ recording: RECORDING });
     // Access filtering has its own tests; these assert who is offered.
     mocks.filterRecipients.mockImplementation(

@@ -965,6 +965,25 @@ const deDE = {
       s060: "Wählen Sie aus, was Sie aufnehmen möchten, und starten Sie dann die Aufnahme in Clips.",
       s061: "Weitere Apps ansehen",
       s062: "Alle Vorlagen anzeigen",
+      faq: {
+        question1: "Ist Clips kostenlos?",
+        answer1: "Ja. Clips ist kostenlos und Open Source.",
+        question2: "Kann eine KI eine Bildschirmaufnahme lesen?",
+        answer2:
+          "Ja. Jeder Clip enthält ein Transkript, eine Zusammenfassung und zeitgestempelte Bilder, die ein Agent direkt lesen kann.",
+        question3: "Wie unterscheidet sich Clips von Loom?",
+        answer3:
+          "Clips ist Open Source, du besitzt deine Daten und jeder geteilte Link ist für KI-Agenten lesbar, nicht nur für Menschen.",
+        question4: "Kann eine Bildschirmaufnahme Konsolenfehler erfassen?",
+        answer4:
+          "Ja. Clips erfasst Browser-Konsolenfehler und fehlgeschlagene Netzwerkanfragen zusammen mit der Aufnahme. Sie werden an denselben geteilten Link wie Transkript und Bilder angehängt. Ein Agent kann anhand eines Clips debuggen, statt ihn nur anzusehen.",
+        question5: "Funktioniert Clips mit Claude, ChatGPT oder Cursor?",
+        answer5:
+          "Ja! Kein Plugin und kein API-Schlüssel erforderlich. Füge einen geteilten Clips-Link in einen beliebigen Agenten ein, damit er Transkript, Zusammenfassung und Bilder direkt lesen kann.",
+        question6: "Wo werden meine Aufnahmen gespeichert?",
+        answer6:
+          "Dort, wo du sie bereitstellst. Selbst gehostetes Clips speichert deine Videos, Transkripte und Analysen in deiner eigenen Infrastruktur.",
+      },
       quickStart: {
         recordingMode: "Aufnahmemodus",
         modeScreenCamera: "Bildschirm + Kamera",
@@ -2107,7 +2126,7 @@ const deDE = {
     fileUploads: "Datei-Uploads",
     deployment: "Deployment",
     deploymentOverview: "Überblick",
-    deploymentProviders: "Anbieter",
+    deploymentProviders: "Hosting-Anbieter",
     deploymentProduction: "Produktion & erweitert",
     deployAnApp: "Eine App bereitstellen",
     workspaceDeployment: "Workspace-Deployment",

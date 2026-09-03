@@ -721,6 +721,7 @@ const messages = {
     transcriptCleanupDescription:
       "기본 대본을 즉시 표시하고, 사용 가능해지면 백그라운드에서 정리합니다.",
     notifications: "알림",
+    monthlyRecap: "월간 요약",
     sharing: "공유",
     defaultVisibility: "새 녹화의 기본 공개 범위",
     defaultVisibilityDescription:
@@ -729,8 +730,7 @@ const messages = {
     visibilityOrg: "조직 - 워크스페이스의 모든 사람",
     visibilityPublic: "공개 - 링크가 있는 모든 사람",
     emailNotifications: "이메일 알림",
-    emailNotificationsDescription:
-      "누군가 내 녹화에 댓글을 달거나 반응하면 이메일을 받습니다.",
+    emailNotificationsDescription: "받을 Clips 선택적 이메일 알림을 정합니다.",
     saved: "설정이 저장됨",
     saveFailed: "저장 실패",
     builderConnectedToast: "Builder.io 연결됨",

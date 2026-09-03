@@ -732,6 +732,7 @@ const messages = {
     transcriptCleanupDescription:
       "まずネイティブの文字起こしを表示し、利用可能になったらバックグラウンドで整形します。",
     notifications: "通知",
+    monthlyRecap: "月次まとめ",
     sharing: "共有",
     defaultVisibility: "新しい録画のデフォルトの公開範囲",
     defaultVisibilityDescription:
@@ -741,7 +742,7 @@ const messages = {
     visibilityPublic: "公開 - リンクを知っている全員",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
-      "誰かがあなたの録画にコメントまたはリアクションしたときにメールを受け取ります。",
+      "受け取る Clips の任意メール通知を選択します。",
     saved: "設定を保存しました",
     saveFailed: "保存に失敗しました",
     builderConnectedToast: "Builder.io に接続しました",

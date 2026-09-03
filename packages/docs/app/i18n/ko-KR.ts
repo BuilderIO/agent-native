@@ -942,6 +942,25 @@ const koKR = {
       s060: "캡처할 항목을 선택한 다음 Clips에서 녹화를 시작하세요.",
       s061: "더 많은 앱 보기",
       s062: "모든 템플릿 보기",
+      faq: {
+        question1: "Clips는 무료인가요?",
+        answer1: "네. Clips는 무료 오픈 소스입니다.",
+        question2: "AI가 화면 녹화를 읽을 수 있나요?",
+        answer2:
+          "네. 모든 클립에는 에이전트가 직접 읽을 수 있는 트랜스크립트, 요약, 타임스탬프 프레임이 포함됩니다.",
+        question3: "Clips는 Loom과 어떻게 다른가요?",
+        answer3:
+          "Clips는 오픈 소스이고 데이터를 직접 소유하며, 모든 공유 링크를 사람뿐 아니라 AI 에이전트도 읽을 수 있습니다.",
+        question4: "화면 녹화에서 콘솔 오류를 캡처할 수 있나요?",
+        answer4:
+          "네. Clips는 녹화와 함께 브라우저 콘솔 오류와 실패한 네트워크 요청을 캡처합니다. 트랜스크립트와 프레임이 있는 동일한 공유 링크에 함께 첨부되므로 에이전트가 클립을 보기만 하는 것이 아니라 클립을 바탕으로 디버깅할 수 있습니다.",
+        question5: "Clips는 Claude, ChatGPT, Cursor에서 작동하나요?",
+        answer5:
+          "네! 플러그인이나 API 키가 필요하지 않습니다. Clips 공유 링크를 어떤 에이전트에든 붙여 넣으면 트랜스크립트, 요약, 프레임을 직접 읽을 수 있습니다.",
+        question6: "녹화본은 어디에 저장되나요?",
+        answer6:
+          "배포한 곳에 저장됩니다. 직접 호스팅하는 Clips는 동영상, 트랜스크립트, 분석 데이터를 자체 인프라에 보관합니다.",
+      },
       quickStart: {
         recordingMode: "녹화 모드",
         modeScreenCamera: "화면 + 카메라",
@@ -2085,7 +2104,7 @@ const koKR = {
     fileUploads: "파일 업로드",
     deployment: "배포",
     deploymentOverview: "개요",
-    deploymentProviders: "프로바이더",
+    deploymentProviders: "호스팅 제공업체",
     deploymentProduction: "프로덕션 및 고급",
     deployAnApp: "앱 배포",
     workspaceDeployment: "워크스페이스 배포",

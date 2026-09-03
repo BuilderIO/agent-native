@@ -1118,7 +1118,6 @@ export interface OnboardingHtmlOptions {
     screenshotWidth?: number;
     screenshotHeight?: number;
     learnMoreUrl?: string;
-    learnMorePlacement?: "top-right" | "bottom-right";
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -1623,7 +1622,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
               : undefined,
             screenshotWidth: marketing.screenshotWidth,
             screenshotHeight: marketing.screenshotHeight,
-            learnMorePlacement: marketing.learnMorePlacement,
             learnMoreUrl:
               marketing.learnMoreUrl ??
               (marketingSlug
@@ -2264,16 +2262,11 @@ ${embeddedAuthCss}
     align-items: center;
     position: absolute;
     padding: 0;
-    top: max(1rem, env(safe-area-inset-top));
-    inset-inline-end: calc(max(1rem, env(safe-area-inset-right)) + 2.5rem);
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    inset-inline-end: max(1rem, env(safe-area-inset-right));
     z-index: 2;
   }
   .auth-marketing-learn-more { font-size: 0.8rem; }
-  .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
-    top: auto;
-    bottom: max(1rem, env(safe-area-inset-bottom));
-    inset-inline-end: max(1rem, env(safe-area-inset-right));
-  }
   .auth-marketing-home .auth-marketing-layout {
     min-height: 100vh;
     display: flex;
@@ -2298,7 +2291,7 @@ ${embeddedAuthCss}
     margin-inline: 0;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    filter: blur(0.3px);
+    filter: blur(3px);
     opacity: 0.8;
   }
   .auth-marketing-home.has-product-screenshot .form-panel .card {
@@ -2338,12 +2331,6 @@ ${embeddedAuthCss}
       justify-content: flex-start;
     }
     .auth-marketing-home .auth-marketing-top-right {
-      top: max(1rem, env(safe-area-inset-top));
-      bottom: auto;
-      inset-inline-start: max(1rem, env(safe-area-inset-left));
-      inset-inline-end: auto;
-    }
-    .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
       top: auto;
       bottom: max(1rem, env(safe-area-inset-bottom));
       inset-inline-start: 50%;

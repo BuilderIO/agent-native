@@ -144,9 +144,17 @@ export function resolveClipsSocialImageUrl(options: {
     recording.isLoomEmbedBacked === true ||
     isLoomEmbedBackedRecording(recording)
   ) {
+    console.warn("clips.thumbnail.publish_fallback", {
+      recordingId: recording.id,
+      fallback: "default-image",
+    });
     return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
   }
 
+  console.warn("clips.thumbnail.publish_fallback", {
+    recordingId: recording.id,
+    fallback: "live-frame",
+  });
   return buildAgentApiUrls(recording.id, {
     origin,
     basePath,

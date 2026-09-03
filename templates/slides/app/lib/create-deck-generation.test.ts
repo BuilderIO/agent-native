@@ -65,6 +65,9 @@ describe("getUploadedImageAgentOptions", () => {
 describe("startDeckGeneration", () => {
   it("extracts an explicit target slide count for continuation", () => {
     expect(requestedSlideCount("Create a dark 6-slide presentation")).toBe(6);
+    expect(requestedSlideCount("Create exactly 8 slides about launches")).toBe(
+      8,
+    );
     expect(requestedSlideCount("Create a deck about launches")).toBeUndefined();
   });
 

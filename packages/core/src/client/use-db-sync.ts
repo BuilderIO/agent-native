@@ -1426,7 +1426,8 @@ export function subscribeSyncEvents(
  *   value. Use a per-tab ID so the UI ignores its own writes while still
  *   picking up changes from other tabs, agents, and scripts.
  * @param options.actionInvalidatePredicate - Optional filter for the broad
- *   compatibility invalidate triggered by `action` events. Use this to keep
+ *   compatibility invalidate triggered by sync events. The current event batch
+ *   is provided so apps can preserve action-level targeting. Use this to keep
  *   expensive active queries on explicit-refresh semantics while still letting
  *   normal source-versioned queries react through `useChangeVersion`.
  * @param options.suppressActionInvalidationFor - Action names whose sync events
@@ -1446,7 +1447,10 @@ export function useDbSync(
     fallbackInterval?: number;
     pauseWhenHidden?: boolean;
     ignoreSource?: string;
-    actionInvalidatePredicate?: (query: Query) => boolean;
+    actionInvalidatePredicate?: (
+      query: Query,
+      events: readonly SyncEvent[],
+    ) => boolean;
     suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
@@ -1673,7 +1677,10 @@ export function useDbSync(
           // makes one agent write fan out across unrelated provider reads,
           // dashboards, and background status checks. Older apps that still
           // need broad compatibility can opt in with a predicate.
-          const predicate = actionInvalidatePredicateRef.current;
+          const appPredicate = actionInvalidatePredicateRef.current;
+          const predicate = appPredicate
+            ? (query: Query) => appPredicate(query, invalidating)
+            : undefined;
           invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },
           );
@@ -1725,7 +1732,10 @@ export function useDbSync(
               // ["action"] query regardless of what the app opted out of — and
               // an app cannot work around it, because both the prefix and this
               // call are framework-owned.
-              const predicate = actionInvalidatePredicateRef.current;
+              const appPredicate = actionInvalidatePredicateRef.current;
+              const predicate = appPredicate
+                ? (query: Query) => appPredicate(query, invalidating)
+                : undefined;
               invalidateWithoutCancel(
                 predicate ? { predicate } : { queryKey: ["action"] },
               );

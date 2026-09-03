@@ -1,5 +1,5 @@
 export const DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS =
-  "This Agent-Native app exposes focused action tools. When the host supports page-local WebMCP, prefer the page's named tools over browser click/type automation for supported actions. For state-dependent work, call the app's current-screen or context read first; use the smallest matching mutation, then read back to verify the result.";
+  "This Agent-Native app exposes focused action tools. When the host supports page-local WebMCP, prefer the page's named tools over browser click/type automation for supported actions. For state-dependent work, call the app's current-screen or context read only when the target is not already in context; if current selection or item metadata identifies the target, call the smallest matching mutation directly, then read back the changed item to verify the result.";
 
 export function agentNativeMcpInstructions(custom?: string): string {
   const extra = custom?.trim();

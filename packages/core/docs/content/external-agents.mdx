@@ -1,7 +1,7 @@
 ---
-title: "External Agents: Claude, ChatGPT, Codex, Cursor, Cowork"
-description: "Connect Claude, ChatGPT, Codex, Cursor, Claude Cowork, or any MCP-compatible host to a hosted agent-native app — then round-trip artifacts back into the running UI with MCP Apps and deep links."
-search: "Claude ChatGPT Claude Code Codex Cursor Claude Cowork MCP Apps agent-native connect local agent tools external agents"
+title: "External Agents: Claude, ChatGPT, Codex, Cursor, Cowork, Grok"
+description: "Connect Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok, or any MCP-compatible host to a hosted agent-native app — then round-trip artifacts back into the running UI with MCP Apps and deep links."
+search: "Claude Anthropic ChatGPT OpenAI Claude Code Codex Cursor Claude Cowork Grok xAI MCP Apps agent-native connect local agent tools external agents"
 ---
 
 # External Agents
@@ -102,9 +102,11 @@ Every Agent-Native app exposes one canonical MCP URL:
 https://<your-app>.agent-native.com/mcp
 ```
 
-In the app, open **Settings**, search for **MCP**, and copy the **MCP server
-URL**. Paste that URL into the AI host you want to use. The URL is the deployed
-app base URL plus `/mcp`; you do not need to find a developer setting.
+In the app, open **Settings → Integrations** and search for the host name you
+already know: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
+Codex, Grok, or xAI. The one external-host result opens **Settings → MCP** with
+the closest guide selected. Copy the **MCP server URL** and paste it into the AI
+host. The URL is the deployed app base URL plus `/mcp`.
 
 For workspace or cross-app work, use Dispatch:
 
@@ -126,7 +128,8 @@ https://<your-app>.agent-native.com/mcp
 
 Every hosted app also has a helper page at
 `https://&lt;app&gt;/mcp/connect` with the copyable URL and
-host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, and Other.
+host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, Grok, and
+Other.
 
 <a id="access-tab"></a>
 

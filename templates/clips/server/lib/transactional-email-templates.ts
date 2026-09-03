@@ -1,10 +1,12 @@
 import {
   emailStrong,
+  emailLink,
   getAppProductionUrl,
   renderEmail,
   sendEmail,
 } from "@agent-native/core/server";
 
+import { createClipsNotificationOptOutToken } from "./notification-preferences.js";
 import { recapMonthLabel } from "./recap-metrics.js";
 import type { RecapCopy } from "./transactional-email-store.js";
 
@@ -213,6 +215,33 @@ function recordUrl(options: ClipsTransactionalEmailRenderOptions): string {
   return appUrlForPath("/record", options);
 }
 
+function notificationSettingsUrl(
+  options: ClipsTransactionalEmailRenderOptions,
+): string {
+  return appUrlForPath("/settings/notifications", options);
+}
+
+function clipViewOptOutUrl(
+  email: string,
+  options: ClipsTransactionalEmailRenderOptions,
+): string {
+  const url = new URL(appUrlForPath("/email-preferences/clip-views", options));
+  url.searchParams.set(
+    "token",
+    createClipsNotificationOptOutToken(email, "views"),
+  );
+  return url.toString();
+}
+
+function clipViewNotificationLinks(
+  email: string,
+  options: ClipsTransactionalEmailRenderOptions,
+): string[] {
+  return [
+    `Want fewer emails? ${emailLink("Turn off Clip view emails", clipViewOptOutUrl(email, options))} or ${emailLink("edit notification settings", notificationSettingsUrl(options))}.`,
+  ];
+}
+
 function resolveBrandLogoUrl(
   value: string | null | undefined,
   options: ClipsTransactionalEmailRenderOptions,
@@ -411,6 +440,7 @@ export function renderClipsTransactionalEmail(
           label: "See Clip activity",
           url: clipUrl(input.recordingId, options),
         },
+        closingParagraphs: clipViewNotificationLinks(input.to, options),
         footer:
           "You received this one-time note because this Clip got its first registered view.",
       });
@@ -465,6 +495,7 @@ export function renderClipsTransactionalEmail(
           label: "Import a video",
           url: recordUrl(options),
         },
+        closingParagraphs: clipViewNotificationLinks(input.to, options),
         footer:
           "You received this one-time note because an AI agent read one of your Clips for the first time.",
       });
@@ -642,6 +673,9 @@ export async function sendClipsTransactionalEmail(
       input.kind === "unviewed-reminder"
         ? (validReplyTo(input.senderEmail) ?? FRIENDLY_REPLY_TO)
         : FRIENDLY_REPLY_TO,
+    ...(input.kind === "first-view" || input.kind === "first-agent-view"
+      ? { disableClickTracking: true }
+      : {}),
     timeoutMs: EMAIL_SEND_TIMEOUT_MS,
     templateId: CLIPS_EMAIL_ID_BY_KIND[input.kind],
   });

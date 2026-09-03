@@ -25,6 +25,11 @@ import type {
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -127,6 +132,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const builderMoreServicesTitleId = React.useId();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -603,8 +609,8 @@ export function FirstRunOnboarding({
                   <span aria-hidden="true" className="text-muted-foreground">
                     ·
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <button
                         type="button"
                         className="text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -612,16 +618,25 @@ export function FirstRunOnboarding({
                       >
                         +{BUILDER_MORE_SERVICES.length} more
                       </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-sm text-xs">
-                      <p className="font-medium">
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="start"
+                      sideOffset={6}
+                      aria-labelledby={builderMoreServicesTitleId}
+                      className="w-[min(24rem,calc(100vw-2rem))] text-xs"
+                    >
+                      <p
+                        id={builderMoreServicesTitleId}
+                        className="font-medium"
+                      >
                         Also included with Builder.io free credits
                       </p>
                       <p className="mt-1 leading-5">
                         {BUILDER_MORE_SERVICES.join(" · ")}
                       </p>
-                    </TooltipContent>
-                  </Tooltip>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
               <BuilderConnectPopover

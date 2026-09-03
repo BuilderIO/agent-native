@@ -15,6 +15,7 @@ export const documents = table("documents", {
   parentId: text("parent_id"),
   title: text("title").notNull().default("Untitled"),
   content: text("content").notNull().default(""),
+  bodyRevision: integer("body_revision").notNull().default(0),
   // Stable semantic guidance for this page. Ancestry is computed at read time;
   // never copy a parent's description here.
   description: text("description").notNull().default(""),
@@ -533,6 +534,38 @@ export const contentDatabaseRowMutationReceipts = table(
       receipt.databaseId,
     ),
     index("content_database_row_mutation_receipts_document_idx").on(
+      receipt.documentId,
+    ),
+  ],
+);
+
+export const documentEditReceipts = table(
+  "document_edit_receipts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    documentId: text("document_id").notNull(),
+    callerScope: text("caller_scope").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    baseRevision: integer("base_revision").notNull(),
+    resultRevision: integer("result_revision").notNull(),
+    beforeHash: text("before_hash").notNull(),
+    afterHash: text("after_hash").notNull(),
+    rangesJson: text("ranges_json").notNull().default("[]"),
+    actorJson: text("actor_json").notNull().default("{}"),
+    resultJson: text("result_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex("document_edit_receipts_document_scope_key_unique").on(
+      receipt.documentId,
+      receipt.callerScope,
+      receipt.idempotencyKey,
+    ),
+    index("document_edit_receipts_owner_document_idx").on(
+      receipt.ownerEmail,
       receipt.documentId,
     ),
   ],
