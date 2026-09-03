@@ -477,18 +477,24 @@ function SortableSlideThumb({
             onSelect={() => onCutSlide?.(actionSlideIds)}
           >
             {t("editorSidebar.cut")}
-            <ContextMenuShortcut>{shortcutLabel("cmd+x")}</ContextMenuShortcut>
+            <ContextMenuShortcut className="tracking-normal">
+              {shortcutLabel("cmd+x")}
+            </ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => onCopySlide?.(actionSlideIds)}>
             {t("editorSidebar.copy")}
-            <ContextMenuShortcut>{shortcutLabel("cmd+c")}</ContextMenuShortcut>
+            <ContextMenuShortcut className="tracking-normal">
+              {shortcutLabel("cmd+c")}
+            </ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem
             disabled={!hasSlideClipboard}
             onSelect={() => onPasteSlide?.(slide.id)}
           >
             {t("editorSidebar.paste")}
-            <ContextMenuShortcut>{shortcutLabel("cmd+v")}</ContextMenuShortcut>
+            <ContextMenuShortcut className="tracking-normal">
+              {shortcutLabel("cmd+v")}
+            </ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => onNewSlideAfter?.(slide.id)}>
