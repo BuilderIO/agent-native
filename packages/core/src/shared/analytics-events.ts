@@ -200,8 +200,8 @@ export function legacyLifecycleEvent(
 
   if (name === "generate deck") {
     return {
-      name: AGENT_NATIVE_LIFECYCLE_EVENTS.coreActionCompleted,
-      properties: { ...base, action_name: "generate_deck" },
+      name: AGENT_NATIVE_LIFECYCLE_EVENTS.ctaClicked,
+      properties: { ...base, cta_name: "generate_deck" },
     };
   }
 

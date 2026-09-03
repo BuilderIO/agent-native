@@ -111,6 +111,22 @@ describe("tracking registry", () => {
     });
   });
 
+  it("classifies the pre-navigation deck event as a CTA", () => {
+    const events = captureEvents();
+
+    track("generate deck", { app: "agent-native-docs" });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.name).toBe("generate deck");
+    expect(events[1]).toMatchObject({
+      name: "cta_clicked",
+      properties: {
+        app_name: "docs",
+        cta_name: "generate_deck",
+      },
+    });
+  });
+
   it("suppresses reserved QA identities before track or identify reaches providers", () => {
     const events = captureEvents();
     const identified: string[] = [];
