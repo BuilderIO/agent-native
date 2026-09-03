@@ -5,11 +5,10 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath, gotoEditor } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { appPath, frameToolButton, gotoEditor, pickFrameMode } from "./helpers";
 
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const RESPONSIVE_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
 @keyframes qa-pulse { from { opacity:.5 } to { opacity:1 } }
@@ -356,8 +355,20 @@ test("multiple generated variation groups reserve breakpoint rows without overla
   }
 });
 
-// A frame drawn on empty board canvas never becomes a screen, same as
-// canvas-tools' "frame drawn left of the first screen creates a new screen".
+// Redo does not restore the screen undo removed: after Cmd+Shift+Z the
+// overview still shows 2 shells instead of 3. The frame-draw half of this
+// test now passes; this is the remaining defect, same family as
+// canvas-tools' "overview undo skips deleted screen content history".
+//
+// Lead: only redoFileCreation (commands/redo.ts) can recreate a screen, and
+// it pops fileCreationRedoStackRef — which only undoFileCreation fills.
+// undoFileCreation resolves the created file by FILENAME
+// (files.find(f => f.filename === entry.filename)) and bails when that misses,
+// so a duplicate — whose filename differs from the recorded entry — can be
+// removed by another undo path that never fills the redo stack, leaving redo
+// with nothing to pop. The skipFileCreationRedoPrune comment right there
+// documents an earlier bug in the same stack, so filename-keyed history is
+// the fragile part worth fixing rather than the symptom.
 test.fixme("add duplicate undo and redo keep the created screen selected and visible", async ({
   page,
   request,
@@ -542,7 +553,7 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
     };
     beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
-    await page.getByRole("button", { name: "Frame", exact: true }).click();
+    await pickFrameMode(page, "Screen");
     const empty = await findEmptyCanvasPoint();
     await page.mouse.move(empty.x, empty.y);
     await page.mouse.down();
@@ -554,7 +565,7 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
 
     beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
-    await page.getByRole("button", { name: "Frame", exact: true }).click();
+    await frameToolButton(page).click();
     await page
       .getByRole("button", { name: /iPhone 17/ })
       .first()

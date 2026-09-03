@@ -70,6 +70,8 @@ const guards = [
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",
+  "guard:e2e-quarantine",
+  "guard:e2e-harness",
 ] as const;
 
 type GuardName = (typeof guards)[number];

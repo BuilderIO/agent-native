@@ -8,6 +8,7 @@ import {
   type Locator,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
 
 /**
@@ -40,10 +41,7 @@ function e2eBaseUrl(page: Page): string {
   if (currentUrl && currentUrl !== "about:blank") {
     return new URL(currentUrl).origin;
   }
-  return (
-    process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`
-  );
+  return e2eBaseURL();
 }
 
 async function postAction(
@@ -169,12 +167,104 @@ async function selectableNodeByText(
  * coordinates lands outside the window and selects nothing at all.
  */
 async function scrolledIntoView(locator: Locator): Promise<Locator> {
-  await locator.scrollIntoViewIfNeeded().catch(() => {});
+  await locator.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => {});
   return locator;
 }
 
-/** Open the editor for a design and wait for the toolbar + iframe to be ready. */
+/**
+ * Expand every collapsed row in the layers tree.
+ *
+ * The terminal condition is "nothing collapsed left", not a trip count.
+ * Clicking a locator that matches nothing waits out the full `actionTimeout`
+ * and, once caught, is indistinguishable from a successful expand — six
+ * hand-rolled copies of this loop were each burning 15s per surplus trip.
+ */
+export async function expandAllLayers(page: Page): Promise<void> {
+  await page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("treeitem")
+    .first()
+    .waitFor({ timeout: 30_000 });
+  for (let depth = 0; depth < 8; depth += 1) {
+    const expand = page.getByRole("button", { name: "Expand layer" }).first();
+    if ((await expand.count()) === 0) return;
+    await expand.click({ timeout: 5_000 });
+    await page.waitForTimeout(250);
+  }
+}
+
+/**
+ * The frame/screen tool button. Its label follows the active mode, so a
+ * `name: "Frame"` lookup silently stops matching after a switch to Screen.
+ */
+export function frameToolButton(page: Page): Locator {
+  return page
+    .locator(
+      '[data-design-bottom-toolbar] button[aria-label="Frame"],' +
+        ' [data-design-bottom-toolbar] button[aria-label="Screen"]',
+    )
+    .first();
+}
+
+/**
+ * Frame is the primary tool; Screen lives in its dropdown and only that mode
+ * turns an empty-canvas draw into a screen file. The trigger's label follows
+ * the active mode, so match either.
+ */
+export async function pickFrameMode(
+  page: Page,
+  mode: "Frame" | "Screen",
+): Promise<void> {
+  await page
+    .locator(
+      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
+        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
+    )
+    .first()
+    .click();
+  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
+}
+
+/**
+ * Drop the persisted canvas camera before opening the editor.
+ *
+ * `design-selection` carries overview mode, zoom and selection, and it lives
+ * in SQL — so it outlives the spec that set it. Each test gets a fresh browser
+ * tab, so the per-tab `design-selection:<tabId>` rows are irrelevant; it is
+ * the global fallback row that hands one spec's zoom to the next and makes
+ * coordinate-sensitive canvas tests pass alone but flake inside a shard.
+ */
+export async function resetPersistedCanvasState(page: Page): Promise<void> {
+  for (const key of ["design-selection", "navigation"]) {
+    const response = await page.request.delete(
+      appPath(`/_agent-native/application-state/${key}`),
+      // State-changing requests need the same-origin marker or the server
+      // answers 403 CSRF.
+      { headers: { "X-Agent-Native-CSRF": "1" } },
+    );
+    // 404 means "already absent", which is the state we want. Anything else is
+    // a harness failure worth surfacing rather than swallowing.
+    if (!response.ok() && response.status() !== 404) {
+      throw new Error(
+        `could not clear ${key}: ${response.status()} ${await response.text()}`,
+      );
+    }
+  }
+}
+
+/**
+ * Open the editor for a design and wait for the toolbar + iframe to be ready.
+ *
+ * Camera state is NOT reset. `design-selection` in `application_state` holds
+ * overview mode, zoom and the selected element, and it persists in SQL across
+ * spec files — so a spec that leaves the canvas panned or zoomed hands that
+ * camera to whatever runs next. That is why several coordinate-sensitive tests
+ * pass alone and flake inside a shard. Until the harness clears those keys,
+ * navigate with explicit `?view=overview&zoom=N` when a test depends on where
+ * the canvas actually is.
+ */
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
+  await resetPersistedCanvasState(page);
   await page.goto(appPath(`/design/${designId}`), {
     waitUntil: "domcontentloaded",
   });
@@ -375,6 +465,23 @@ export async function selectByText(
   return payload;
 }
 
+/**
+ * The preview iframe for `screenId`, or the last one when unscoped or when no
+ * scoped iframe is mounted. Callers must derive BOTH the frame rect and the
+ * frame they dispatch into from this single locator: reading the rect from one
+ * iframe and dispatching into another computes coordinates in the wrong space,
+ * which selects a different node or times out.
+ */
+async function previewIframeForScreen(page: Page, screenId?: string) {
+  if (screenId) {
+    const scoped = page.locator(
+      `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id="${screenId}"]`,
+    );
+    if ((await scoped.count()) > 0) return scoped.first();
+  }
+  return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).last();
+}
+
 async function dispatchShieldClickByText(
   page: Page,
   text: string,
@@ -384,12 +491,11 @@ async function dispatchShieldClickByText(
   await target.waitFor({ state: "visible", timeout: 8_000 });
   const rect = await target.boundingBox();
   if (!rect) throw new Error(`unable to dispatch selection for "${text}"`);
-  const frameRect = await page
-    .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
-    .last()
-    .boundingBox();
+  const iframe = await previewIframeForScreen(page, screenId);
+  const frameRect = await iframe.boundingBox();
   if (!frameRect) throw new Error("unable to locate design iframe");
-  await designFrame(page)
+  await iframe
+    .contentFrame()
     .locator('[data-agent-native-edit-overlay="shield"]')
     .first()
     .dispatchEvent("click", {

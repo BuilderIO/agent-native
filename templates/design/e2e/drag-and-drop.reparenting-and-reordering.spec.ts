@@ -32,7 +32,7 @@ test.describe("reparenting and reordering", () => {
     );
     await page.waitForTimeout(500);
     await page.mouse.up();
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     const nested = await page
       .locator("iframe[data-design-preview-iframe]")
@@ -64,7 +64,7 @@ test.describe("reparenting and reordering", () => {
       first.x + first.width / 2,
       first.y + first.height / 2,
     );
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     await page.mouse.move(
       first.x + first.width / 2,
       first.y + first.height / 2,
@@ -86,7 +86,7 @@ test.describe("reparenting and reordering", () => {
     );
     await page.waitForTimeout(800);
     await page.mouse.up();
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     const html = await indexHtml(page, id);
     expect(
@@ -101,7 +101,7 @@ test.describe("reparenting and reordering", () => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await layerRow(page, "Box A").dragTo(layerRow(page, "Container"));
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     const nested = await page
       .locator("iframe[data-design-preview-iframe]")

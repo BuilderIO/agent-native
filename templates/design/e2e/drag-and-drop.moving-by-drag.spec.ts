@@ -24,7 +24,12 @@ test.describe("moving by drag", () => {
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
     const before = await geom(page, id, "box-a");
-    await dragBy(page, (await node(page, "box-a").boundingBox())!, 120, 60);
+    await dragBy(page, (await node(page, "box-a").boundingBox())!, 120, 60, {
+      settle: false,
+    });
+    await expect
+      .poll(async () => (await geom(page, id, "box-a")).left - before.left)
+      .toBeGreaterThan(60);
     const after = await geom(page, id, "box-a");
     const dx = after.left - before.left;
     const dy = after.top - before.top;
@@ -43,8 +48,18 @@ test.describe("moving by drag", () => {
     const before = await geom(page, id, "box-a");
     await dragBy(page, (await node(page, "box-a").boundingBox())!, 120, 30, {
       modifier: "Shift",
+      settle: false,
     });
+    await expect
+      .poll(async () => (await geom(page, id, "box-a")).left - before.left)
+      .toBeGreaterThan(60);
     const after = await geom(page, id, "box-a");
+    // Assert the free axis moved too: locking is only meaningful if the drag
+    // happened, and `top` alone is satisfied by a drag that does nothing.
+    expect(
+      after.left - before.left,
+      `Shift+drag should still move along the free axis (${before.left} → ${after.left})`,
+    ).toBeGreaterThan(60);
     expect(
       after.top,
       `Shift+drag moved mostly horizontally but top changed ${before.top} → ${after.top}`,

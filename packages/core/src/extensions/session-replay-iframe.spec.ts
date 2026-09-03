@@ -91,6 +91,26 @@ describe("cooperative iframe session replay", () => {
     );
   });
 
+  it("does not inject into a </head> that lives inside a script string", () => {
+    // The editor preview inlines a bridge bundle whose own source contains
+    // `parseFromString("<!doctype html><html><head><script>...</head>...")`.
+    // Splicing there both unterminates that string literal and closes the
+    // bridge's <script> early, so the whole bundle stops parsing.
+    const bridge =
+      "<script>\nvar d = new DOMParser().parseFromString(" +
+      '"<!doctype html><html><head><script></scr" + "ipt></head><body></body></html>", "text/html");\n</script>';
+    const content = `<!doctype html><html><head>${bridge}</head><body><p>preview</p></body></html>`;
+
+    const html = injectSessionReplayIframeBootstrap(content);
+
+    expect(html).toContain(SESSION_REPLAY_IFRAME_PROBE);
+    // The bridge script must survive intact, ahead of the injected bootstrap.
+    expect(html.indexOf(bridge)).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf(SESSION_REPLAY_IFRAME_PROBE)).toBeGreaterThan(
+      html.indexOf(bridge),
+    );
+  });
+
   it("marks every first-party extension iframe host", () => {
     const hostFiles = [
       "AgentNativeExtensionFrame.tsx",

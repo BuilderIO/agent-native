@@ -5,11 +5,10 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
 <body style="margin:0;position:relative;min-height:1400px">
@@ -77,8 +76,14 @@ async function paintedShapes(page: Page) {
 }
 
 // One alt-drag paints TWO clones (count goes 1 -> 3), so the gesture
-// duplicates twice. Lives in the same drag/reparent path as the bridge
-// structure-change work.
+// duplicates twice. Mechanism located: startMove clones the element into the
+// live DOM (cloneNode + insertBefore) to drag an optimistic copy, and the host
+// Measured: a duplicate never reaches the canvas. paintedShapes is 1 where 2
+// is expected (the pre-drag count of 1 passes, so the counter is right). Same
+// number, same shape as editor-keyboard-layers' keyboard-duplicate step, so
+// one bug with two gestures: the clone is created in state, then the host's
+// follow-up source push removes what it cannot match by selector. Lives in the
+// overview canvas / host source-sync reconciliation.
 test.fixme("alt-dragging an element keeps every copy on the canvas, not just in state", async ({
   page,
   request,

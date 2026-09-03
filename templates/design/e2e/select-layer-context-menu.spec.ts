@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import {
   designFrame,
   enterDirectMode,
@@ -35,7 +36,7 @@ async function postAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const response = await request.post(
     `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
     { data: input },
@@ -53,7 +54,7 @@ async function getAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const params = new URLSearchParams(
     Object.entries(input).map(([key, value]) => [key, String(value)]),
   );

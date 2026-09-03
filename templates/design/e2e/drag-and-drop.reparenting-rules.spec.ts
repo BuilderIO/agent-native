@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   setBaseURL,
@@ -31,7 +31,7 @@ test.describe("reparenting rules", () => {
       { steps: 20 },
     );
     await page.mouse.up();
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     const nested = await page
       .locator("iframe[data-design-preview-iframe]")
@@ -87,7 +87,7 @@ test.describe("reparenting rules", () => {
       { steps: 18 },
     );
     await page.mouse.up();
-    await page.waitForTimeout(2200);
+    await page.waitForTimeout(2200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     test.skip(
       await inRow(page),
       "an unmodified drag does not reparent either, so the Space modifier is untestable",
@@ -128,7 +128,7 @@ test.describe("reparenting rules", () => {
     );
     await page.mouse.up();
     await spaceKey("keyup");
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     expect(
       await inRow(page),

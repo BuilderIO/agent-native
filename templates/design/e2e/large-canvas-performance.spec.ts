@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
 const SCREEN_COUNT = 120;
@@ -202,15 +203,18 @@ async function screenSelectionLatency(page: Page, screenId: string) {
   }, screenId);
 }
 
-// Budget blown: 18 against a ceiling of 12. Same editor-startup cost that
-// makes every e2e test pay ~40s to boot.
+// Not startup cost — that attribution was wrong, and the test now completes in
+// ~16s. One budget fails: a pan/zoom gesture mounts+unmounts 18 preview
+// iframes against a ceiling of 12 (`gesturePerf.iframeAdded + iframeRemoved`).
+// Every other budget passes, including editorUsableMs, both live-iframe caps,
+// long tasks, event-loop delay and selection p95, so this is gesture-time
+// iframe churn in the canvas virtualization, not boot and not culling.
 test.fixme("120-screen canvas stays usable, bounded, and responsive", async ({
   page,
 }, workerInfo) => {
   test.setTimeout(240_000);
   const baseURL =
-    (workerInfo.project.use.baseURL as string | undefined) ??
-    "http://127.0.0.1:9333";
+    (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
   const { designId, screenIds } = await createLargeDesign(page, baseURL);
 
   try {

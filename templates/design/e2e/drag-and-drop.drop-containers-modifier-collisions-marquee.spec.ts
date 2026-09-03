@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   setBaseURL,
@@ -57,7 +57,7 @@ test.describe("drop containers", () => {
     );
     await page.waitForTimeout(600);
     await page.mouse.up();
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     return preview
       .locator("body")
       .evaluate(
@@ -75,18 +75,47 @@ test.describe("drop containers", () => {
     ).toBe("target");
   });
 
-  // Contradicts the implementation and its sibling: canvas-tools' "dragging a
-  // screen primitive into a board rectangle nests and persists" passes, and
-  // editor-chrome.bridge.ts:9559 calls a rectangle a container drop target.
-  // Needs a contract decision, not a code change.
-  test.fixme("a rectangle never adopts an element dragged onto it", async ({
+  // A canvas rectangle IS a drop target, but a free-placement one: the bridge
+  // calls it an "absolute-primitive-container" and returns dropMode
+  // "absolute-container" so onUp skips the auto-layout conversion. The Figma
+  // parity worth asserting is therefore "adopts without becoming a layout
+  // parent", not "never adopts".
+  test("a rectangle adopts as a free-placement container, not a layout parent", async ({
     page,
   }) => {
     expect(
       await dragMoverOntoTarget(page, "rectangle"),
-      "a rectangle is a vector shape, not a container — matching Figma and the " +
-        "same contract the draw path enforces",
-    ).not.toBe("target");
+      "editor-chrome.bridge.ts treats a canvas rectangle as an " +
+        "absolute-primitive-container, so the drop re-parents into it",
+    ).toBe("target");
+
+    const placement = await page
+      .locator("iframe[data-design-preview-iframe]")
+      .first()
+      .contentFrame()
+      .locator("body")
+      .evaluate(() => {
+        const read = (id: string) => {
+          const el = document.querySelector<HTMLElement>(
+            `[data-agent-native-node-id="${id}"]`,
+          );
+          return el ? window.getComputedStyle(el) : null;
+        };
+        return {
+          moverPosition: read("mover")?.position ?? null,
+          targetDisplay: read("target")?.display ?? null,
+        };
+      });
+
+    expect(
+      placement.moverPosition,
+      "a rectangle is a vector shape, so adopting must keep the dropped " +
+        "element absolutely placed rather than converting to flow",
+    ).toBe("absolute");
+    expect(
+      placement.targetDisplay,
+      "the rectangle must not become an auto-layout parent",
+    ).not.toBe("flex");
   });
 });
 
@@ -97,7 +126,7 @@ test.describe("modifier collisions", () => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     const read = async () =>
       Number(
         /box-a"[\s\S]{0,200}?top:\s*(-?\d+(?:\.\d+)?)px/.exec(
@@ -121,7 +150,7 @@ test.describe("modifier collisions", () => {
     await page.waitForTimeout(300);
     await page.mouse.up();
     if (withModifier) await page.keyboard.up(mod);
-    await page.waitForTimeout(2200);
+    await page.waitForTimeout(2200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     return before - (await read());
   };
 
@@ -165,7 +194,7 @@ test.describe("marquee", () => {
     await page.mouse.move(to.x, to.y, { steps: 20 });
     await page.waitForTimeout(400);
     await page.mouse.up();
-    await page.waitForTimeout(1800);
+    await page.waitForTimeout(1800); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),

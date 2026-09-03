@@ -72,7 +72,7 @@ test.describe("selection chrome", () => {
       onScreen.x + onScreen.width / 2,
       onScreen.y + onScreen.height / 2,
     );
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     // The hover indicator is painted inside the iframe, not the host document.
     const highlight = await page

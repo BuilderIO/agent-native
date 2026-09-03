@@ -89,6 +89,10 @@ describe("EnvironmentBadge render", () => {
     expect(badge?.className).toContain("left-3");
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
+    // A fixed, decorative overlay pinned to bottom-left sits on top of whatever
+    // app chrome is there. This pill has no handler, so it must not hit-test:
+    // it was swallowing clicks on the design workspace rail's bottom item.
+    expect(badge?.className).toContain("pointer-events-none");
   });
 
   it("defers the dev pill to a post-mount effect so the first client commit matches SSR's null output", async () => {

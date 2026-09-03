@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { appPath, designFrame, enterDirectMode, gotoEditor } from "./helpers";
 
 const SOURCE_HTML = `<!doctype html>
@@ -474,6 +475,10 @@ test.describe("editor keyboard layer clipboard", () => {
   });
 
   // The keyboard clipboard round-trip does not settle back to its start state.
+  // Fails at the duplicate step: 1 layer where 2 are expected. Same measured
+  // shape as overview-alt-drag-element-copy — a clone that state records and
+  // the canvas never keeps. Fix them together, in host source-sync
+  // reconciliation, not here.
   test.fixme("duplicates, deletes, cuts, undoes, and redoes selected layers from the keyboard", async ({
     page,
     request,
@@ -627,11 +632,10 @@ async function postAction(
 }
 
 function actionBaseUrl(baseURL: string | undefined): string {
-  return (
-    baseURL ??
-    process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`
-  ).replace(/\/$/, "");
+  return (baseURL ?? process.env.E2E_BASE_URL ?? e2eBaseURL()).replace(
+    /\/$/,
+    "",
+  );
 }
 
 async function getDesign(

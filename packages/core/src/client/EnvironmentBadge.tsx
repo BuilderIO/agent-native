@@ -269,7 +269,9 @@ function LocalEnvironmentBadge() {
       aria-label="Local development environment"
       className={cn(
         environmentBadgePlacementClasses,
-        "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
+        // No handler, but fixed and on top of whatever app chrome occupies the
+        // bottom-left — without this it hit-tests and eats those clicks.
+        "pointer-events-none inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
       )}
       role="status"
     >

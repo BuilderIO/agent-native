@@ -57,8 +57,21 @@ test.describe("element interaction states", () => {
 
   // Switching to an unauthored state shows the PREVIOUS state's value (hover's
   // 91% where Default's 97% should be inherited), so the leak this test was
-  // written to catch is real: activeInteractionStateStyles resolves the wrong
-  // state's declarations in EditPanel.tsx:2019.
+  // written to catch is real. Narrowed by elimination: the pure model is
+  // sound — with hover authored at 0.91, readResolvedStateStyles returns {}
+  // for focus/active/disabled — so the stale value comes from the React
+  // layer, not shared/interaction-states.ts. Mechanism found:
+  // VisualScrubInput (packages/toolkit/src/design-tweaks/scrub-input.tsx)
+  // keeps pendingCommitRef = { value, baseline } so a slow host round-trip
+  // cannot stomp a just-typed value, and its resync effect returns early
+  // whenever the incoming `value` still equals that baseline. Authoring hover
+  // 91 leaves baseline 97, so selecting an unauthored state delivers 97 —
+  // equal to the baseline — and the effect reads it as "the host has not
+  // echoed yet" and holds 91. It cannot tell a lagging host from a context
+  // change. The fix is a context key that clears pendingCommitRef when the
+  // selected element or interaction state changes (EditPanel already keys
+  // ExportSettingsPanel on selectedElementKey); that is an API change to a
+  // shared package, so it needs a decision plus a changeset.
   test.fixme("authors all six inspector states, preserves selection, and round-trips undo, redo, and reload", async ({
     page,
   }) => {

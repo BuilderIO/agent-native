@@ -1,4 +1,12 @@
-import { type Locator, type Page, type TestInfo } from "@playwright/test";
+import {
+  expect,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from "@playwright/test";
+
+import { e2eBaseURL } from "./base-url";
+import { expandAllLayers } from "./helpers";
 
 /**
  * Direct-manipulation contract: what you grab is what moves, and a drag tells
@@ -49,7 +57,7 @@ export function setBaseURL(testInfo: TestInfo): void {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
 }
 
 export async function postAction(
@@ -162,15 +170,9 @@ export async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  for (let i = 0; i < 4; i += 1) {
-    await page
-      .getByRole("button", { name: "Expand layer" })
-      .first()
-      .click()
-      .catch(() => {});
-    await page.waitForTimeout(250);
-  }
+  // No blind settle: expandAllLayers waits for the first layer row, which the
+  // editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
 
@@ -230,7 +232,12 @@ export async function activeOverlays(page: Page): Promise<string[]> {
 
 export async function selectViaTree(page: Page, name: string): Promise<void> {
   await layerRow(page, name).click();
-  await page.waitForTimeout(1600);
+  // A drag only moves what the bridge has already painted as selected;
+  // grabbing an unselected element starts a marquee instead. The row's own
+  // state flips before the overlay exists, so wait on the overlay.
+  await expect
+    .poll(() => chromeBounds(page), { timeout: 15_000 })
+    .not.toBeNull();
 }
 
 export async function dragBy(
@@ -238,7 +245,7 @@ export async function dragBy(
   from: Box,
   dxPage: number,
   dyPage: number,
-  options?: { modifier?: string; cancel?: boolean },
+  options?: { modifier?: string; cancel?: boolean; settle?: boolean },
 ): Promise<void> {
   const s = await scale(page);
   const cx = from.x + from.width / 2;
@@ -251,5 +258,11 @@ export async function dragBy(
   if (options?.cancel) await page.keyboard.press("Escape");
   await page.mouse.up();
   if (options?.modifier) await page.keyboard.up(options.modifier);
-  await page.waitForTimeout(2000);
+  // The commit is not observable from here, so callers that assert a specific
+  // outcome should pass `settle: false` and poll for it instead. Callers
+  // asserting that NOTHING changed must keep this: a poll would pass on its
+  // first tick, before any write could have landed.
+  if (options?.settle !== false) {
+    await page.waitForTimeout(2000); // e2e-harness-ignore negative assertions need a real settle
+  }
 }

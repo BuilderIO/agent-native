@@ -6545,9 +6545,14 @@ it(
         "absolute-container",
         "flow-insert",
       ]);
-      expect(
-        structureMessages.every((message) => message.placement === "inside"),
-      ).toBe(true);
+      // Assert the list, not `every(...)`: a boolean says "false" without
+      // naming which drop reported the wrong placement.
+      expect(structureMessages.map((message) => message.placement)).toEqual([
+        "inside",
+        "inside",
+        "inside",
+        "inside",
+      ]);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

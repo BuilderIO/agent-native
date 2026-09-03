@@ -6,6 +6,7 @@ import {
   type Response,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
 import { designFrame, gotoEditor, selectByText } from "./helpers";
 
@@ -35,8 +36,7 @@ async function postAction(
 
 test.beforeAll(async ({ request }, workerInfo) => {
   baseURLForActions =
-    (workerInfo.project.use.baseURL as string | undefined) ??
-    "http://127.0.0.1:9333";
+    (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
 
   const created = await postAction(request, "create-design", {
     title: "E2E Code-Native Design Studio",
@@ -237,8 +237,7 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
     .toContain("focus-visible:ring-2");
 });
 
-// The Motion dock never opens, so the track edit has nowhere to land.
-test.fixme("Motion dock autosaves track edits to CSS and reopens them", async ({
+test("Motion dock autosaves track edits to CSS and reopens them", async ({
   page,
 }) => {
   await selectByText(page, "Alpha Button", { screenId: fileId });
@@ -407,7 +406,14 @@ test.fixme("Motion dock autosaves track edits to CSS and reopens them", async ({
     .toBe(1);
 });
 
-// The shader fill preview never becomes reachable.
+// Not label drift, not missing WebGL, and not a crash: the transient preview
+// exists only in the single-screen DesignCanvas. `shaderFillPreview` has zero
+// occurrences in MultiScreenCanvas.tsx and shaderFillPreviewBridgeScript is
+// injected only by DesignCanvas, so in the overview the editor actually runs
+// there is no code path to reach the element and background-image stays "none".
+// `gradientEditTarget` appears 11x in BOTH canvases, so porting is the
+// established pattern and this one was simply left behind — a feature port
+// into the canvas, not a test fix.
 test.fixme("shader fill preview opens when the paint surface is reachable", async ({
   page,
 }) => {

@@ -29,8 +29,14 @@ function inspectorSection(page: Page, title: RegExp | string): Locator {
   return page.locator("section").filter({ has: heading }).first();
 }
 
+/**
+ * The page/body background lives in the "Screen" section. "Canvas" is the
+ * editor board behind the screens and is solid-only by design — ColorInput
+ * there rejects any value that is not a plain color, so a gradient or image
+ * committed against it is dropped on purpose, not lost.
+ */
 function pagePropertiesSection(page: Page): Locator {
-  return inspectorSection(page, /^Canvas$/);
+  return inspectorSection(page, /^Screen$/);
 }
 
 function bodyElement(page: Page): Locator {
@@ -156,7 +162,12 @@ async function resolvedColorChannels(
   }, value);
 }
 
-// The gradient stop input never becomes reachable.
+// Unreachable standalone, not broken: the page-background section renders only
+// at `scope === "document"`, which resolveBackgroundPanelScope grants for
+// viewMode "single" + mode "edit" — and standalone, "single" is the Interact
+// view, so only a host-embedded editor gets there. Belongs with the
+// host-embedded shell specs, not here. The infinite render loop this used to
+// hit was a real bug and is fixed (DesignColorPicker.gradient-loop.test.tsx).
 test.fixme("page background supports gradient edits", async ({ page }) => {
   await page.keyboard.press("Escape");
   const pageSection = pagePropertiesSection(page);
@@ -175,7 +186,7 @@ test.fixme("page background supports gradient edits", async ({ page }) => {
     .toContain("25%");
 });
 
-// The tiled URL never reaches background-image (stays "initial").
+// Same document-scope gate as the gradient test above.
 test.fixme("page background exposes image controls and accepts a tiled image URL", async ({
   page,
 }) => {
@@ -288,10 +299,7 @@ test("style layer row actions stay visible and toggle visibility state", async (
     .toContain("rgba(0, 0, 0, 0)");
 });
 
-// The typography details popover never renders its Preview.
-test.fixme("typography edits update size and spacing inputs", async ({
-  page,
-}) => {
+test("typography edits update size and spacing inputs", async ({ page }) => {
   await selectByText(page, "E2E Hero Heading");
   const typographySection = inspectorSection(page, /^Typography$/i);
   await expect(typographySection).toBeVisible();
@@ -305,13 +313,23 @@ test.fixme("typography edits update size and spacing inputs", async ({
   await typographySection
     .getByRole("button", { name: "Typography details" })
     .click();
-  await expect(page.getByText("Preview", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Auto width" })).toBeVisible();
+  // Scoped to the popover: the canvas chrome also renders a "Preview" label,
+  // so a page-wide exact-text lookup is a strict-mode violation, not a miss.
+  const typographyDetails = page
+    .getByRole("dialog")
+    .filter({ has: page.getByRole("tablist") })
+    .first();
+  await expect(
+    typographyDetails.getByText("Preview", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    typographyDetails.getByRole("button", { name: "Auto width" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
 
   await setScrubInput(typographySection, "Size", "52");
   await setScrubInput(typographySection, "Line height", "1.25");
-  await setScrubInput(typographySection, "Tracking", "2");
+  await setScrubInput(typographySection, "Letter spacing", "2");
 
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "font-size"))

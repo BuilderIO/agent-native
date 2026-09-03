@@ -35,7 +35,7 @@ test.describe("drag feedback", () => {
       /snap-guide|measurement|transform-badge/.test(k),
     ).length;
     await page.mouse.up();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     expect(
       guides,
       `Figma: "when using snap to settings ... a red guide appears on the canvas as a visual ` +
@@ -65,7 +65,7 @@ test.describe("drag feedback", () => {
       /insertion-guide|drop/.test(k),
     ).length;
     await page.mouse.up();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     expect(
       highlights,
       `UNVERIFIED for a plain frame: Figma documents a blue indicator only for auto layout ` +
@@ -119,7 +119,7 @@ test.describe("drag feedback", () => {
     const move = await read();
     await toolbar(page).locator('button[aria-label="Move options"]').click();
     await page.getByRole("menuitem", { name: /Hand/i }).first().click();
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     const hand = await read();
     expect(hand, `Move and Hand both show cursor "${move}"`).not.toBe(move);
   });

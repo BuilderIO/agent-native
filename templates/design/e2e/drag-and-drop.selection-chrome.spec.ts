@@ -61,14 +61,14 @@ test.describe("selection chrome", () => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await page.locator("[data-frame-label]").first().click();
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
     const target = (await node(page, "box-a").boundingBox())!;
     await page.mouse.click(
       target.x + target.width / 2,
       target.y + target.height / 2,
     );
-    await page.waitForTimeout(1600);
+    await page.waitForTimeout(1600); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     const selected = await layersTree(page)
       .getByRole("treeitem")
       .filter({ has: page.locator('[aria-selected="true"]') })

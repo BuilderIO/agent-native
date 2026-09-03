@@ -7,6 +7,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import {
   dragCanvasByText,
@@ -14,6 +15,7 @@ import {
   enterDirectMode,
   gotoEditor,
   installBridge,
+  pickFrameMode,
   selectByText,
 } from "./helpers";
 
@@ -105,8 +107,7 @@ async function getAction(
 
 test.beforeEach(async ({ page }, workerInfo) => {
   baseURLForActions =
-    (workerInfo.project.use.baseURL as string | undefined) ??
-    "http://127.0.0.1:9333";
+    (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
   const created = await postAction(page.request, "create-design", {
     title: "E2E Canvas Tools",
     projectType: "prototype",
@@ -136,19 +137,6 @@ test.afterEach(async ({ page }) => {
 
 function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
-}
-
-/** Frame is the primary tool and Screen lives in its dropdown; the trigger's
- *  label follows the active mode, so match either. */
-async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
-  await page
-    .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
-    )
-    .first()
-    .click();
-  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
 }
 
 function selectedLayerRow(page: Page): Locator {
@@ -2101,20 +2089,23 @@ test("dragging within an auto-layout row reorders at the visual insertion point 
 
   const betaMarker = 'data-agent-native-layer-name="Beta Button"';
   const alphaMarker = 'data-agent-native-layer-name="Alpha Button"';
-  await expect
-    .poll(async () => {
-      const content = await fileContent(page, "index.html");
-      return content.indexOf(betaMarker) < content.indexOf(alphaMarker);
-    })
-    .toBe(true);
+  // indexOf's -1 is a sentinel, not a position: comparing the raw values means
+  // a reorder that DELETED one button reads as a successful reorder.
+  const betaBeforeAlpha = async () => {
+    const content = await fileContent(page, "index.html");
+    const beta = content.indexOf(betaMarker);
+    const alpha = content.indexOf(alphaMarker);
+    if (beta < 0 || alpha < 0) {
+      throw new Error(
+        `both buttons must survive the reorder (beta ${beta}, alpha ${alpha})`,
+      );
+    }
+    return beta < alpha;
+  };
+  await expect.poll(betaBeforeAlpha).toBe(true);
 
   await gotoEditor(page, designId);
-  await expect
-    .poll(async () => {
-      const content = await fileContent(page, "index.html");
-      return content.indexOf(betaMarker) < content.indexOf(alphaMarker);
-    })
-    .toBe(true);
+  await expect.poll(betaBeforeAlpha).toBe(true);
 });
 
 test("Shift+A enables auto layout on one overview screen with flash-free undo, redo, and persistence", async ({
@@ -2708,9 +2699,13 @@ test("frame drawn left of the first screen creates a new screen", async ({
 });
 
 // The rectangle does not survive the draw on the board surface.
-test.fixme("rectangle drawn left of the first screen persists on the board", async ({
+test("rectangle drawn left of the first screen persists on the board", async ({
   page,
 }) => {
+  // Pin the theme: the board surface colour below is a theme token, so an
+  // unpinned default silently decides whether this assertion can pass.
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.addInitScript(() => localStorage.setItem("theme", "light"));
   await postAction(page.request, "create-file", {
     designId,
     filename: "about.html",
@@ -2744,7 +2739,7 @@ test.fixme("rectangle drawn left of the first screen persists on the board", asy
     .toBe(boardRectanglesBefore + 1);
   await expect(page.locator("[data-board-surface-layer]")).toHaveCSS(
     "background-color",
-    "rgb(26, 26, 26)",
+    "rgb(235, 235, 235)",
   );
   const boardFrame = page.frameLocator(
     "[data-board-surface-layer] iframe[data-design-preview-iframe]",
@@ -2924,6 +2919,9 @@ test("primary undo removes active pen segments without undoing committed vectors
   expect(vectorsAfterClearingPath[0]?.d).toBe(committedVector.d);
 });
 
+// The single-screen creation overlay it drives only exists in DesignCanvas,
+// and single-screen editing is the forbidden state in the two-view model.
+// Board and in-frame pen authoring keep their own specs.
 test.fixme("focused-screen pen authors Bezier paths and undoes active segments", async ({
   page,
 }) => {
@@ -3287,7 +3285,12 @@ test("single-screen undo does not consume overview history", async ({
     .toBe(aboutRectanglesBefore);
 });
 
-// Undo over deleted screen content restores one item too many.
+// Measured: not "restores one item too many". After drawing a rectangle in
+// Home, drawing one in About, deleting the About screen, then ONE undo,
+// index.html still has 1 rectangle where homeRectanglesBefore (0) is expected.
+// The undo step is consumed by the deleted screen's own content history
+// instead of skipping past it, so the Home edit is never reached. Undo/redo
+// semantics — do not rewrite without review.
 test.fixme("overview undo skips deleted screen content history", async ({
   page,
 }) => {
@@ -3397,6 +3400,12 @@ test.fixme("overview undo skips deleted screen content history", async ({
   ).toBe(false);
 });
 
+// Negative-only: both assertions are "undo did NOT resurrect this", so with no
+// undo delivered at all they hold trivially (verified — it passes with
+// pressPrimaryShortcut's synthetic dispatch removed). Sound only because
+// `overview undo and redo stay global across screen content and canvas
+// geometry` covers the positive side and DOES fail under that mutation. Do not
+// delete that test without replacing this one's positive anchor.
 test("overview undo does not restore ghost geometry for deleted screens", async ({
   page,
 }) => {
