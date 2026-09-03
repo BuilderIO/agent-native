@@ -20,10 +20,16 @@ export interface HostSchedulingStatusResult {
 /** Matches the get-host-scheduling-status action's schema cap. */
 export const MAX_HOST_SCHEDULING_STATUS_EMAILS = 50;
 
-export function useHostSchedulingStatus(hostEmails: string[]) {
+export function useHostSchedulingStatus(
+  hostEmails: string[],
+  bookingLinkId?: string,
+) {
   return useActionQuery<HostSchedulingStatusResult[]>(
     "get-host-scheduling-status",
-    { hostEmails: hostEmails.slice(0, MAX_HOST_SCHEDULING_STATUS_EMAILS) },
+    {
+      hostEmails: hostEmails.slice(0, MAX_HOST_SCHEDULING_STATUS_EMAILS),
+      bookingLinkId,
+    },
     { enabled: hostEmails.length > 0 },
   );
 }
@@ -46,6 +52,6 @@ export function useRequestOverlayReciprocation() {
   // invalidation here.
   return useActionMutation<
     RequestOverlayReciprocationResult,
-    { peerEmail: string }
+    { peerEmail: string; bookingLinkId?: string }
   >("request-overlay-reciprocation");
 }

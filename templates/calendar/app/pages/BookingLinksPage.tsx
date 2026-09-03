@@ -561,9 +561,11 @@ function BookingConferencingSelect({
 function BookingHostsEditor({
   hosts,
   onChange,
+  bookingLinkId,
 }: {
   hosts: BookingHost[];
   onChange: (hosts: BookingHost[]) => void;
+  bookingLinkId?: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -580,8 +582,10 @@ function BookingHostsEditor({
     () => hostEmailsKey.split(",").filter(Boolean),
     [hostEmailsKey],
   );
-  const { data: schedulingStatuses } =
-    useHostSchedulingStatus(hostEmailsForStatus);
+  const { data: schedulingStatuses } = useHostSchedulingStatus(
+    hostEmailsForStatus,
+    bookingLinkId,
+  );
   const schedulingStatusByEmail = new Map(
     (schedulingStatuses ?? []).map((entry) => [
       entry.email.toLowerCase(),
@@ -593,7 +597,7 @@ function BookingHostsEditor({
   function sendOverlayRequest(host: BookingHost) {
     const name = host.displayName || host.email;
     requestReciprocation.mutate(
-      { peerEmail: host.email },
+      { peerEmail: host.email, bookingLinkId },
       {
         onSuccess: (result) => {
           if (result.sent) {
@@ -1821,6 +1825,7 @@ export default function BookingLinksPage({
                     onChange={(hosts) =>
                       setDraft((prev) => ({ ...prev, hosts }))
                     }
+                    bookingLinkId={selectedLink.id}
                   />
                 </div>
 
