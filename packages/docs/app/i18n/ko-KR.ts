@@ -2074,6 +2074,7 @@ const koKR = {
     actionsAgentTools: "프로덕션 에이전트 액세스",
     publicAgentWeb: "공개 Agent Web",
     database: "데이터베이스",
+    databaseProviders: "데이터베이스 프로바이더",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

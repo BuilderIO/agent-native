@@ -2087,6 +2087,7 @@ const jaJP = {
     actionsAgentTools: "本番環境でのエージェントアクセス",
     publicAgentWeb: "公開 Agent Web",
     database: "データベース",
+    databaseProviders: "データベースプロバイダー",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

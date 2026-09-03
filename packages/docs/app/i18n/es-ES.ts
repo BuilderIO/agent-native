@@ -2094,6 +2094,7 @@ const esES = {
     actionsAgentTools: "Acceso del Agente en Producción",
     publicAgentWeb: "Agent Web público",
     database: "Base de datos",
+    databaseProviders: "Proveedores de bases de datos",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

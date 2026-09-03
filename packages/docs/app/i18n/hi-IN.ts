@@ -2069,6 +2069,7 @@ const hiIN = {
     actionsAgentTools: "Production में Agent Access",
     publicAgentWeb: "Public agent web",
     database: "डेटाबेस",
+    databaseProviders: "डेटाबेस प्रदाता",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",
