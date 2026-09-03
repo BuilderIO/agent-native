@@ -3955,7 +3955,6 @@ export default function SlideEditor({
         (mode) => {
           const currentClipboard = copiedObjectClipboardRef.current;
           if (
-            mode === "rich" &&
             currentClipboard &&
             currentClipboard.copySequence > clipboard.copySequence &&
             currentClipboard.copySessionId === clipboard.copySessionId
@@ -4111,6 +4110,7 @@ export default function SlideEditor({
       const nativeClipboardId = readSlideObjectClipboardId(
         e.clipboardData?.getData("text/html"),
         document,
+        e.clipboardData?.getData("text/plain"),
       );
       const pasteLocalClipboard = () => {
         e.preventDefault();
@@ -4125,7 +4125,7 @@ export default function SlideEditor({
         pasteLocalClipboard();
         return;
       }
-      // An older rich write can settle after a newer copy. Remember only that
+      // An older marker-bearing write can settle after a newer copy. Remember only that
       // overlap, so clipboard-history markers are not remapped by default.
       if (
         nativeClipboardId &&

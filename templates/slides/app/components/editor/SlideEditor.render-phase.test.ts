@@ -211,6 +211,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain(
       "overlappingNativeClipboardIdsRef.current.get(nativeClipboardId)",
     );
+    expect(pasteBody).toContain('e.clipboardData?.getData("text/plain")');
     expect(pasteBody.indexOf("const hasNativeText")).toBeLessThan(
       pasteBody.indexOf('clipboard.nativeClipboardMode === "pending"'),
     );
