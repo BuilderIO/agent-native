@@ -1103,6 +1103,17 @@ export function DocumentSidebar({
     [queueSidebarStateWrite],
   );
 
+  const revealParentForCreation = useCallback(
+    (parentId?: string | null) => {
+      if (!parentId || expandedDocumentIdsRef.current.includes(parentId)) {
+        return () => {};
+      }
+      handleDocumentExpandedChange(parentId, true);
+      return () => handleDocumentExpandedChange(parentId, false);
+    },
+    [handleDocumentExpandedChange],
+  );
+
   const handleSelectContentSpace = useCallback(
     async (
       space: (typeof contentSpaces)[number],
@@ -1180,6 +1191,13 @@ export function DocumentSidebar({
   >("remove-local-file-source");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const closeSearch = useCallback(() => {
+    setIsSearching(false);
+    setSearchQuery("");
+  }, []);
+  useEffect(() => {
+    closeSearch();
+  }, [closeSearch, location.key]);
   // Track user-expanded nodes only; active ancestors are derived below so they
   // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
@@ -1287,6 +1305,7 @@ export function DocumentSidebar({
       optimisticId?: string,
       rootFilesDatabaseId?: string,
     ) => {
+      const restoreParentExpansion = revealParentForCreation(parentId);
       if (
         !shouldCreateDocumentOptimistically({
           localFileMode,
@@ -1309,6 +1328,7 @@ export function DocumentSidebar({
           navigateToDocument(created.id);
           onNavigate?.();
         } catch (err) {
+          restoreParentExpansion();
           toast.error(t("sidebar.failedCreatePage"), {
             description:
               err instanceof Error ? err.message : t("empty.genericError"),
@@ -1393,6 +1413,7 @@ export function DocumentSidebar({
           });
         }
       } catch (err) {
+        restoreParentExpansion();
         rollbackOptimisticCreatedDocument(
           queryClient,
           id,
@@ -1428,28 +1449,99 @@ export function DocumentSidebar({
       navigateToDocument,
       onNavigate,
       queryClient,
+      revealParentForCreation,
       selectedSpace?.id,
+      t,
     ],
   );
 
   const handleCreateDatabase = useCallback(
     async (parentId?: string | null, rootSpaceId = selectedSpace?.id) => {
+      const restoreParentExpansion = revealParentForCreation(parentId);
+      const id = nanoid();
+      const now = new Date().toISOString();
+      const title = t("editor.untitledDatabase");
+      const tempDoc = markDocumentCreationPending({
+        id,
+        parentId: parentId ?? null,
+        title,
+        content: "",
+        icon: null,
+        position: 9999,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+        accessRole: "owner",
+        canEdit: true,
+        canManage: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
+      const previousPath = `${location.pathname}${location.search}${location.hash}`;
+
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+        const docs: Document[] =
+          old?.documents ?? (Array.isArray(old) ? old : documents);
+        return withDocumentsCacheShape(old, [...docs, tempDoc]);
+      });
+      queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      navigateToDocument(id);
+      onNavigate?.();
+
       try {
         const result = await createDatabase.mutateAsync({
+          newDocumentId: id,
           parentId: parentId ?? null,
           spaceId: parentId ? undefined : rootSpaceId,
-          title: t("editor.untitledDatabase"),
+          title,
         });
-        navigateToDocument(result.database.documentId);
-        onNavigate?.();
+        const nextId = result.database.documentId;
+        if (nextId !== id) {
+          queryClient.removeQueries(documentQueryFilter(id));
+          navigateToDocument(nextId);
+        }
+        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        void queryClient.invalidateQueries({
+          queryKey: LIST_DOCUMENTS_QUERY_KEY,
+        });
       } catch (err) {
+        restoreParentExpansion();
+        rollbackOptimisticCreatedDocument(
+          queryClient,
+          id,
+          previousDocuments !== undefined,
+        );
+        queryClient.removeQueries(documentQueryFilter(id));
+        void queryClient.invalidateQueries({
+          queryKey: LIST_DOCUMENTS_QUERY_KEY,
+        });
+        void navigate(previousPath, {
+          replace: true,
+          flushSync: true,
+        });
         toast.error(t("sidebar.failedCreateDatabase"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
-    [createDatabase, navigateToDocument, onNavigate, selectedSpace?.id, t],
+    [
+      createDatabase,
+      documents,
+      location.hash,
+      location.pathname,
+      location.search,
+      navigate,
+      navigateToDocument,
+      onNavigate,
+      queryClient,
+      revealParentForCreation,
+      selectedSpace?.id,
+      t,
+    ],
   );
 
   const handleCreatePageInSpace = useCallback(
@@ -1795,7 +1887,13 @@ export function DocumentSidebar({
           type="button"
           aria-label={t("sidebar.search")}
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={() => setIsSearching((value) => !value)}
+          onClick={() => {
+            if (isSearching) {
+              closeSearch();
+            } else {
+              setIsSearching(true);
+            }
+          }}
         >
           <IconSearch size={16} />
         </button>
@@ -2273,8 +2371,7 @@ export function DocumentSidebar({
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
-                setIsSearching(false);
-                setSearchQuery("");
+                closeSearch();
               }
             }}
             className="w-full px-2 py-1.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring"
@@ -2307,8 +2404,7 @@ export function DocumentSidebar({
                       )}
                       onClick={() => {
                         navigateToDocument(doc.id);
-                        setIsSearching(false);
-                        setSearchQuery("");
+                        closeSearch();
                         onNavigate?.();
                       }}
                     >

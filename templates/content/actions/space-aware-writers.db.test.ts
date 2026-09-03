@@ -156,9 +156,13 @@ describe("space-aware document writers", () => {
       { userEmail: MEMBER, orgId },
       () =>
         createContentDatabase.run({
+          newDocumentId: "member-database-document",
           title: "Member database",
           spaceId,
         }),
+    );
+    expect(createdDatabase.database.documentId).toBe(
+      "member-database-document",
     );
     const [database] = await getDb()
       .select()

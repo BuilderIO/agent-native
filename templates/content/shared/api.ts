@@ -973,6 +973,7 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
 
 export interface CreateDatabaseRequest {
   documentId?: string;
+  newDocumentId?: string;
   spaceId?: string;
   parentId?: string | null;
   title?: string;

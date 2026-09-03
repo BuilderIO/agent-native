@@ -166,6 +166,38 @@ describe("document sidebar layout", () => {
     );
   });
 
+  it("settles search dismissal by clearing the hidden query", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const closeSearch = useCallback");
+    expect(sidebar).toContain('setSearchQuery("")');
+    expect(sidebar).toContain("if (isSearching)");
+    expect(sidebar).toContain("closeSearch();");
+  });
+
+  it("reveals child destinations and restores prior expansion on failure", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const revealParentForCreation = useCallback");
+    expect(sidebar).toContain("handleDocumentExpandedChange(parentId, true)");
+    expect(sidebar).toContain(
+      "return () => handleDocumentExpandedChange(parentId, false)",
+    );
+    expect(sidebar.match(/restoreParentExpansion\(\)/g)).toHaveLength(3);
+  });
+
+  it("opens a new database immediately while persistence settles", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("const handleCreateDatabase = useCallback");
+    expect(sidebar).toContain("newDocumentId: id");
+    expect(sidebar).toContain("navigateToDocument(id)");
+    expect(sidebar).toContain(
+      "rollbackOptimisticCreatedDocument(\n          queryClient,\n          id",
+    );
+    expect(sidebar).toContain("navigate(previousPath, {");
+  });
+
   it("scopes sidebar creation to the selected Content space", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
