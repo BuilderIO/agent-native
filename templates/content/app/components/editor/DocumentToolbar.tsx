@@ -36,6 +36,7 @@ import {
   IconMessageCircle,
   IconRefresh,
   IconPin,
+  IconPencil,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -487,6 +488,9 @@ interface DocumentToolbarProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  canSuggest?: boolean;
+  suggesting?: boolean;
+  onSuggestingChange?: (suggesting: boolean) => void;
 }
 
 export function DocumentToolbar({
@@ -516,6 +520,9 @@ export function DocumentToolbar({
   canRedo = false,
   onUndo,
   onRedo,
+  canSuggest = false,
+  suggesting = false,
+  onSuggestingChange,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -987,6 +994,19 @@ export function DocumentToolbar({
             </>
           )}
 
+          {suggesting ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => onSuggestingChange?.(false)}
+            >
+              <IconPencil className="size-4" />
+              {t("editor.toolbar.suggesting")}
+            </Button>
+          ) : null}
+
           <DropdownMenu modal={false}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1007,6 +1027,21 @@ export function DocumentToolbar({
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
+              {canSuggest ? (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => onSuggestingChange?.(!suggesting)}
+                  >
+                    <IconPencil className="me-2 h-4 w-4" />
+                    {t(
+                      suggesting
+                        ? "editor.toolbar.stopSuggesting"
+                        : "editor.toolbar.suggestEdits",
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               <DropdownMenuGroup>
                 <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
                   <IconArrowBackUp className="me-2 h-4 w-4" />

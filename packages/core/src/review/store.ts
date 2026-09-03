@@ -119,6 +119,21 @@ export async function ensureReviewTables(): Promise<void> {
       visibility TEXT NOT NULL DEFAULT 'private',
       metadata_json TEXT
     )`;
+      const createReactionsSql = `CREATE TABLE IF NOT EXISTS agent_review_comment_reactions (
+      comment_id TEXT NOT NULL,
+      actor_email TEXT NOT NULL,
+      reaction TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (comment_id, actor_email, reaction)
+    )`;
+      const createPreferencesSql = `CREATE TABLE IF NOT EXISTS agent_review_thread_preferences (
+      thread_id TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      muted INTEGER NOT NULL DEFAULT 0,
+      unread INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (thread_id, user_email)
+    )`;
       const indexes = [
         `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_resource
            ON agent_review_comments (resource_type, resource_id, created_at)`,
@@ -144,6 +159,14 @@ export async function ensureReviewTables(): Promise<void> {
       if (isPostgres()) {
         await ensureTableExists("agent_review_comments", createCommentsSql);
         await ensureTableExists("agent_review_statuses", createStatusesSql);
+        await ensureTableExists(
+          "agent_review_comment_reactions",
+          createReactionsSql,
+        );
+        await ensureTableExists(
+          "agent_review_thread_preferences",
+          createPreferencesSql,
+        );
         await ensureIndexExists(
           "idx_agent_review_comments_resource",
           indexes[0],
@@ -159,6 +182,8 @@ export async function ensureReviewTables(): Promise<void> {
       } else {
         await client.execute(createCommentsSql);
         await client.execute(createStatusesSql);
+        await client.execute(createReactionsSql);
+        await client.execute(createPreferencesSql);
         for (const indexSql of indexes) {
           await client.execute(indexSql);
         }
@@ -167,6 +192,65 @@ export async function ensureReviewTables(): Promise<void> {
   }
 
   await reviewTablesInitPromise;
+}
+
+export async function setReviewCommentReaction(input: {
+  commentId: string;
+  actorEmail: string;
+  reaction: string;
+  active: boolean;
+}) {
+  await ensureReviewTables();
+  const client = getDbExec();
+  if (input.active) {
+    await client.execute({
+      sql: "INSERT INTO agent_review_comment_reactions (comment_id,actor_email,reaction,created_at) VALUES (?,?,?,?) ON CONFLICT (comment_id,actor_email,reaction) DO NOTHING",
+      args: [
+        input.commentId,
+        input.actorEmail,
+        input.reaction,
+        new Date().toISOString(),
+      ],
+    });
+  } else {
+    await client.execute({
+      sql: "DELETE FROM agent_review_comment_reactions WHERE comment_id = ? AND actor_email = ? AND reaction = ?",
+      args: [input.commentId, input.actorEmail, input.reaction],
+    });
+  }
+  return { ...input };
+}
+
+export async function setReviewThreadPreference(input: {
+  threadId: string;
+  userEmail: string;
+  muted?: boolean;
+  unread?: boolean;
+}) {
+  await ensureReviewTables();
+  const client = getDbExec();
+  const existing = (
+    await client.execute({
+      sql: "SELECT muted,unread FROM agent_review_thread_preferences WHERE thread_id = ? AND user_email = ?",
+      args: [input.threadId, input.userEmail],
+    })
+  ).rows[0];
+  const muted = input.muted ?? Boolean(existing?.muted);
+  const unread = input.unread ?? Boolean(existing?.unread);
+  await client.execute({
+    sql: "INSERT INTO agent_review_thread_preferences (thread_id,user_email,muted,unread,updated_at) VALUES (?,?,?,?,?) ON CONFLICT (thread_id,user_email) DO UPDATE SET muted = ?, unread = ?, updated_at = ?",
+    args: [
+      input.threadId,
+      input.userEmail,
+      muted ? 1 : 0,
+      unread ? 1 : 0,
+      new Date().toISOString(),
+      muted ? 1 : 0,
+      unread ? 1 : 0,
+      new Date().toISOString(),
+    ],
+  });
+  return { threadId: input.threadId, muted, unread };
 }
 
 export async function insertReviewComment(
@@ -223,7 +307,7 @@ export async function insertReviewReply(
   }
 }
 
-async function insertReviewCommentWithClient(
+export async function insertReviewCommentWithClient(
   input: InsertReviewCommentInput,
   client: DbExec,
 ): Promise<ReviewComment> {
@@ -523,7 +607,7 @@ export async function resolveReviewThread(
   return client.transaction ? client.transaction(resolve) : resolve(client);
 }
 
-async function resolveReviewThreadWithClient(
+export async function resolveReviewThreadWithClient(
   client: DbExec,
   threadId: string,
   resolvedBy?: string | null,

@@ -87,6 +87,10 @@ const messages = {
     genericError: "出了點問題",
   },
   editor: {
+    suggestionCreateFailed: "無法建立建議",
+    suggestionsCount: "{{count}} 則建議",
+    acceptSuggestion: "接受",
+    rejectSuggestion: "拒絕",
     bold: "加粗",
     italic: "斜體",
     strikethrough: "刪除線",
@@ -502,6 +506,9 @@ const messages = {
       videoDescription: "上傳或嵌入影片",
     },
     toolbar: {
+      suggestEdits: "建議修改",
+      suggesting: "建議中",
+      stopSuggesting: "停止建議",
       undo: "復原",
       redo: "重做",
       info: "資訊",

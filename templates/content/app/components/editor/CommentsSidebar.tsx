@@ -5,6 +5,11 @@ import {
   InlineMarkdown,
   type InlineMarkdownProtectedSpan,
 } from "@agent-native/core/client/markdown";
+import { ReviewThreadPanel } from "@agent-native/core/client/review";
+import type {
+  ResourceSuggestion,
+  SuggestionDecision,
+} from "@agent-native/core/review";
 import {
   IconCheck,
   IconMessageCircle,
@@ -354,6 +359,13 @@ interface CommentsSidebarProps {
   canResolve?: boolean;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
+  suggestions?: ResourceSuggestion[];
+  canDecideSuggestions?: boolean;
+  decidingSuggestion?: boolean;
+  onDecideSuggestion?: (
+    suggestion: ResourceSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
 }
 
 export function CommentsSidebar({
@@ -373,6 +385,10 @@ export function CommentsSidebar({
   canResolve = false,
   alignToAnchors = true,
   forceVisible = false,
+  suggestions = [],
+  canDecideSuggestions = false,
+  decidingSuggestion = false,
+  onDecideSuggestion,
 }: CommentsSidebarProps) {
   const t = useT();
   const { data: members = [] } = useMentionMembers();
@@ -610,7 +626,10 @@ export function CommentsSidebar({
   }, [onSelectedThreadChange, selectedThreadId, openThreads]);
 
   const hasContent =
-    openThreads.length > 0 || !!pendingComment || resolvedThreads.length > 0;
+    suggestions.length > 0 ||
+    openThreads.length > 0 ||
+    !!pendingComment ||
+    resolvedThreads.length > 0;
   if (!hasContent && !isLoading && !forceVisible) return null;
 
   const items = layoutCommentThreads(
@@ -653,6 +672,83 @@ export function CommentsSidebar({
       {!hasContent && !isLoading ? (
         <div className="px-4 py-8 text-sm text-muted-foreground">
           {t("comments.empty")}
+        </div>
+      ) : null}
+      {suggestions.length > 0 ? (
+        <div className="mx-2 mt-3 space-y-2" data-suggestion-threads>
+          {suggestions.map((suggestion) => {
+            const operation = suggestion.operations[0];
+            const before = operation?.before as
+              | { changedText?: string }
+              | undefined;
+            const after = operation?.after as
+              | { changedText?: string }
+              | undefined;
+            return (
+              <article
+                key={suggestion.id}
+                className="rounded-lg bg-popover p-3 shadow-sm ring-1 ring-border/50"
+                data-suggestion-id={suggestion.id}
+                tabIndex={-1}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {operation?.kind.split("_").join(" ")} ·{" "}
+                    {suggestion.authorEmail ?? suggestion.actorKind}
+                  </span>
+                  <span>{suggestion.status}</span>
+                </div>
+                <p className="break-words text-sm">
+                  {before?.changedText ? (
+                    <del className="text-muted-foreground">
+                      {before.changedText}
+                    </del>
+                  ) : null}
+                  {before?.changedText && after?.changedText ? " → " : null}
+                  {after?.changedText ? <ins>{after.changedText}</ins> : null}
+                </p>
+                {canDecideSuggestions && suggestion.status === "pending" ? (
+                  <div className="mt-3 flex justify-end gap-1">
+                    <button
+                      type="button"
+                      className="rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent"
+                      disabled={decidingSuggestion}
+                      onClick={() =>
+                        onDecideSuggestion?.(suggestion, "rejected")
+                      }
+                    >
+                      {t("editor.rejectSuggestion")}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
+                      disabled={decidingSuggestion}
+                      onClick={() =>
+                        onDecideSuggestion?.(suggestion, "accepted")
+                      }
+                    >
+                      {t("editor.acceptSuggestion")}
+                    </button>
+                  </div>
+                ) : null}
+                <ReviewThreadPanel
+                  resourceType="document"
+                  resourceId={documentId}
+                  targetId={suggestion.id}
+                  showHeader={false}
+                  showComposer={false}
+                  variant="plain"
+                  className="mt-2"
+                  canReply={canComment}
+                  canResolve={false}
+                  placeholder={t("comments.add")}
+                  emptyState={t("comments.empty")}
+                  replyPlaceholder={t("comments.reply")}
+                  resolveLabel={t("comments.resolve")}
+                />
+              </article>
+            );
+          })}
         </div>
       ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}

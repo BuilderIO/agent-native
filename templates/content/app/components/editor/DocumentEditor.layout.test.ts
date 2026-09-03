@@ -452,7 +452,7 @@ describe("document editor layout", () => {
       'collabInitialization.status === "ready"',
     );
     expect(documentEditorSource).toContain(
-      "ydoc={collabEditorEnabled ? ydoc : null}",
+      "suggestionEditorIsolation.bindCanonicalYDoc",
     );
     expect(documentEditorSource).toContain(
       "awareness={collabEditorEnabled ? awareness : null}",
@@ -620,7 +620,7 @@ describe("document editor layout", () => {
     expect(source).toContain("!collabInitializationFailed");
     expect(source).toContain("data-collab-initialization-error");
     expect(source).toContain("onRetry={() => globalThis.location.reload()}");
-    expect(source).toContain("ydoc={collabEditorEnabled ? ydoc : null}");
+    expect(source).toContain("suggestionEditorIsolation.bindCanonicalYDoc");
   });
 
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {

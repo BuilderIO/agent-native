@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { getDbExec } from "../db/client.js";
 import {
   listCollabDocIds,
   loadYDocRecord,
+  loadYDocRecordWithClient,
   saveYDocState,
   trySaveYDocState,
+  trySaveYDocStateWithClient,
 } from "./storage.js";
 
 const rows = vi.hoisted(
@@ -20,7 +23,7 @@ function toBase64(arr: Uint8Array): string {
 }
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({
+  getDbExec: vi.fn(() => ({
     execute: async (query: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : (query.args ?? []);
@@ -70,7 +73,7 @@ vi.mock("../db/client.js", () => ({
 
       throw new Error(`Unexpected SQL: ${sql}`);
     },
-  }),
+  })),
   isPostgres: () => false,
 }));
 
@@ -112,5 +115,43 @@ describe("collab storage optimistic saves", () => {
     await saveYDocState("doc-2", new Uint8Array([2]), "two");
 
     expect(await listCollabDocIds()).toEqual(new Set(["doc-1", "doc-2"]));
+  });
+
+  it("uses an injected client for reads and stale CAS writes", async () => {
+    vi.mocked(getDbExec).mockClear();
+    const injectedClient = {
+      execute: vi.fn(
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const sql = typeof query === "string" ? query : query.sql;
+          const args = typeof query === "string" ? [] : (query.args ?? []);
+          if (/^\s*SELECT yjs_state, version FROM _collab_docs/i.test(sql)) {
+            return {
+              rows: [{ yjs_state: toBase64(new Uint8Array([1])), version: 2 }],
+              rowsAffected: 0,
+            };
+          }
+          if (/^\s*UPDATE _collab_docs\b/i.test(sql)) {
+            return { rows: [], rowsAffected: 0 };
+          }
+          throw new Error(`Unexpected SQL: ${sql}`);
+        },
+      ),
+    };
+
+    expect(await loadYDocRecordWithClient(injectedClient, "doc-1")).toEqual({
+      state: new Uint8Array([1]),
+      version: 2,
+    });
+    expect(
+      await trySaveYDocStateWithClient(
+        injectedClient,
+        "doc-1",
+        new Uint8Array([2]),
+        "two",
+        1,
+      ),
+    ).toBe(false);
+    expect(injectedClient.execute).toHaveBeenCalledTimes(2);
+    expect(getDbExec).not.toHaveBeenCalled();
   });
 });

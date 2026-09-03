@@ -304,6 +304,7 @@ export function serializeDatabaseMembership(
     databaseId: row.database.id,
     databaseDocumentId: row.database.documentId,
     databaseTitle: row.database.title || "Untitled database",
+    systemRole: row.database.systemRole,
     position: row.item.position,
     sourceId: row.sourceId ?? null,
     bodyHydration: serializeBodyHydration(row.item, {

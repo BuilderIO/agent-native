@@ -2867,6 +2867,9 @@ const editorToolbarMessages = {
   localAndNotionChanged:
     "Local and Notion changed since the last sync. Choose which version wins.",
   morePageActions: "More page actions",
+  suggestEdits: "Suggest edits",
+  suggesting: "Suggesting",
+  stopSuggesting: "Stop suggesting",
   noPagesFound: "No pages found",
   notifications: "Notifications",
   notionSync: "Notion sync",
@@ -3197,6 +3200,10 @@ const enUS = {
       "Connecting live editor. Showing a read-only snapshot.",
     liveDocumentSaveBeforeSyncFailed:
       "The live document could not be saved before syncing.",
+    suggestionCreateFailed: "Could not create suggestion",
+    suggestionsCount: "{{count}} suggestions",
+    acceptSuggestion: "Accept",
+    rejectSuggestion: "Reject",
     documentTitle: "Document title",
     builderBodySyncing: "This page's content is still syncing from Builder",
     builderBodySyncingDescription:
@@ -3535,6 +3542,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       goToDocuments: "前往文档",
     },
     editor: {
+      suggestionCreateFailed: "无法创建建议",
+      suggestionsCount: "{{count}} 条建议",
+      acceptSuggestion: "接受",
+      rejectSuggestion: "拒绝",
       couldNotReadLocalSourceFile: "无法读取本地源文件",
       couldNotSaveLocalFile: "无法保存本地文件",
       localFileChangedWithUnsavedEdits:
@@ -3546,6 +3557,9 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       localFileSavedHistoryNotUpdated: "本地文件已保存，但历史记录未更新",
       title: "标题",
       toolbar: {
+        suggestEdits: "建议修改",
+        suggesting: "建议中",
+        stopSuggesting: "停止建议",
         undo: "撤销",
         redo: "重做",
         conflict: "冲突",
@@ -3770,6 +3784,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       goToDocuments: "Ir a documentos",
     },
     editor: {
+      suggestionCreateFailed: "No se pudo crear la sugerencia",
+      suggestionsCount: "{{count}} sugerencias",
+      acceptSuggestion: "Aceptar",
+      rejectSuggestion: "Rechazar",
       couldNotReadLocalSourceFile: "No se pudo leer el archivo local de origen",
       couldNotSaveLocalFile: "No se pudo guardar el archivo local",
       localFileChangedWithUnsavedEdits:
@@ -3843,6 +3861,9 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
           "Transcribe este video y agrega la transcripción debajo.",
       },
       toolbar: {
+        suggestEdits: "Sugerir cambios",
+        suggesting: "Sugiriendo",
+        stopSuggesting: "Dejar de sugerir",
         undo: "Deshacer",
         redo: "Rehacer",
         conflict: "Conflicto",
@@ -3984,12 +4005,22 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "fr-FR": {
     editor: {
+      suggestionCreateFailed: "Impossible de créer la suggestion",
+      suggestionsCount: "{{count}} suggestions",
+      acceptSuggestion: "Accepter",
+      rejectSuggestion: "Refuser",
       localFileChangedWithUnsavedEdits:
         "Le fichier sur le disque a changé alors que cette page contenait des modifications non enregistrées.",
       copyUnsavedText: "Copier mon texte non enregistré",
       unsavedTextCopied: "Texte non enregistré copié",
       useDiskVersion: "Utiliser la version du disque",
-      toolbar: { undo: "Annuler", redo: "Rétablir" },
+      toolbar: {
+        undo: "Annuler",
+        redo: "Rétablir",
+        suggestEdits: "Suggérer des modifications",
+        suggesting: "Suggestion",
+        stopSuggesting: "Arrêter de suggérer",
+      },
     },
     sidebar: {
       addChild: "Ajouter un enfant",
@@ -4028,12 +4059,22 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "de-DE": {
     editor: {
+      suggestionCreateFailed: "Vorschlag konnte nicht erstellt werden",
+      suggestionsCount: "{{count}} Vorschläge",
+      acceptSuggestion: "Annehmen",
+      rejectSuggestion: "Ablehnen",
       localFileChangedWithUnsavedEdits:
         "Die Datei auf dem Datenträger wurde geändert, während diese Seite ungespeicherte Änderungen enthielt.",
       copyUnsavedText: "Meinen ungespeicherten Text kopieren",
       unsavedTextCopied: "Ungespeicherter Text kopiert",
       useDiskVersion: "Version vom Datenträger verwenden",
-      toolbar: { undo: "Rückgängig", redo: "Wiederholen" },
+      toolbar: {
+        undo: "Rückgängig",
+        redo: "Wiederholen",
+        suggestEdits: "Änderungen vorschlagen",
+        suggesting: "Vorschlagen",
+        stopSuggesting: "Vorschlagen beenden",
+      },
     },
     sidebar: {
       addChild: "Unterelement hinzufügen",
@@ -4071,12 +4112,22 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ja-JP": {
     editor: {
+      suggestionCreateFailed: "提案を作成できませんでした",
+      suggestionsCount: "{{count}} 件の提案",
+      acceptSuggestion: "承認",
+      rejectSuggestion: "却下",
       localFileChangedWithUnsavedEdits:
         "このページに未保存の編集がある間に、ディスク上のファイルが変更されました。",
       copyUnsavedText: "未保存のテキストをコピー",
       unsavedTextCopied: "未保存のテキストをコピーしました",
       useDiskVersion: "ディスク上の版を使用",
-      toolbar: { undo: "元に戻す", redo: "やり直す" },
+      toolbar: {
+        undo: "元に戻す",
+        redo: "やり直す",
+        suggestEdits: "編集を提案",
+        suggesting: "提案中",
+        stopSuggesting: "提案を終了",
+      },
     },
     sidebar: {
       addChild: "子項目を追加",
@@ -4112,12 +4163,22 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ko-KR": {
     editor: {
+      suggestionCreateFailed: "제안을 만들 수 없습니다",
+      suggestionsCount: "제안 {{count}}개",
+      acceptSuggestion: "수락",
+      rejectSuggestion: "거절",
       localFileChangedWithUnsavedEdits:
         "이 페이지에 저장하지 않은 편집 내용이 있는 동안 디스크의 파일이 변경되었습니다.",
       copyUnsavedText: "저장하지 않은 텍스트 복사",
       unsavedTextCopied: "저장하지 않은 텍스트를 복사했습니다",
       useDiskVersion: "디스크 버전 사용",
-      toolbar: { undo: "실행 취소", redo: "다시 실행" },
+      toolbar: {
+        undo: "실행 취소",
+        redo: "다시 실행",
+        suggestEdits: "수정 제안",
+        suggesting: "제안 중",
+        stopSuggesting: "제안 중지",
+      },
     },
     sidebar: {
       addChild: "하위 항목 추가",
@@ -4152,12 +4213,22 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "pt-BR": {
     editor: {
+      suggestionCreateFailed: "Não foi possível criar a sugestão",
+      suggestionsCount: "{{count}} sugestões",
+      acceptSuggestion: "Aceitar",
+      rejectSuggestion: "Rejeitar",
       localFileChangedWithUnsavedEdits:
         "O arquivo no disco foi alterado enquanto esta página tinha edições não salvas.",
       copyUnsavedText: "Copiar meu texto não salvo",
       unsavedTextCopied: "Texto não salvo copiado",
       useDiskVersion: "Usar versão do disco",
-      toolbar: { undo: "Desfazer", redo: "Refazer" },
+      toolbar: {
+        undo: "Desfazer",
+        redo: "Refazer",
+        suggestEdits: "Sugerir alterações",
+        suggesting: "Sugerindo",
+        stopSuggesting: "Parar de sugerir",
+      },
     },
     sidebar: {
       addChild: "Adicionar filho",
@@ -4194,12 +4265,22 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "hi-IN": {
     editor: {
+      suggestionCreateFailed: "सुझाव नहीं बनाया जा सका",
+      suggestionsCount: "{{count}} सुझाव",
+      acceptSuggestion: "स्वीकार करें",
+      rejectSuggestion: "अस्वीकार करें",
       localFileChangedWithUnsavedEdits:
         "इस पेज में सहेजे नहीं गए बदलाव होने के दौरान डिस्क की फ़ाइल बदल गई।",
       copyUnsavedText: "मेरा सहेजा नहीं गया टेक्स्ट कॉपी करें",
       unsavedTextCopied: "सहेजा नहीं गया टेक्स्ट कॉपी किया गया",
       useDiskVersion: "डिस्क वाला संस्करण उपयोग करें",
-      toolbar: { undo: "पूर्ववत करें", redo: "फिर से करें" },
+      toolbar: {
+        undo: "पूर्ववत करें",
+        redo: "फिर से करें",
+        suggestEdits: "बदलाव सुझाएं",
+        suggesting: "सुझाव दे रहे हैं",
+        stopSuggesting: "सुझाव देना बंद करें",
+      },
     },
     sidebar: {
       addChild: "चाइल्ड जोड़ें",
@@ -4234,12 +4315,22 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
   },
   "ar-SA": {
     editor: {
+      suggestionCreateFailed: "تعذر إنشاء الاقتراح",
+      suggestionsCount: "{{count}} اقتراحات",
+      acceptSuggestion: "قبول",
+      rejectSuggestion: "رفض",
       localFileChangedWithUnsavedEdits:
         "تغيّر الملف على القرص أثناء وجود تعديلات غير محفوظة في هذه الصفحة.",
       copyUnsavedText: "نسخ النص غير المحفوظ",
       unsavedTextCopied: "تم نسخ النص غير المحفوظ",
       useDiskVersion: "استخدام نسخة القرص",
-      toolbar: { undo: "تراجع", redo: "إعادة" },
+      toolbar: {
+        undo: "تراجع",
+        redo: "إعادة",
+        suggestEdits: "اقتراح تعديلات",
+        suggesting: "جارٍ الاقتراح",
+        stopSuggesting: "إيقاف الاقتراح",
+      },
     },
     sidebar: {
       addChild: "إضافة عنصر فرعي",

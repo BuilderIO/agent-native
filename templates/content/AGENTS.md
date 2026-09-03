@@ -11,7 +11,7 @@ Read the relevant skill before deeper work:
 - `content` — Markdown/MDX authoring, local folder sources, databases, intake
   forms, and Slack/A2A artifact replies.
 - `document-editing` — document and comment actions, screen context and IDs,
-  common tasks, the data model, and the databases reference.
+  suggestions, common tasks, the data model, and the databases reference.
 - `notion-integration` — connected Notion workflows and the raw Notion provider
   API path.
 - `creative-context` — cross-app source reuse, pinned packs, provenance, and
@@ -83,7 +83,6 @@ Read the relevant skill before deeper work:
 | `list-content-database-blocks` | List stable blocks and revisions in one exact database row/property |
 | `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
 | `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
-
 Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as
 `remove-local-file-source`) is registered too — use `tool-search` instead of

@@ -8,6 +8,7 @@ import {
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   setClientAppState,
   useAvatarUrl,
@@ -15,6 +16,11 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  useCreateResourceSuggestion,
+  useDecideResourceSuggestion,
+  useResourceSuggestions,
+} from "@agent-native/core/client/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import {
@@ -34,7 +40,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -92,6 +98,7 @@ import {
 import { isDatabaseChoicePending } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
+import { CONTENT_SUGGESTED_EDITS_FLAG } from "../../../shared/feature-flags";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
@@ -115,6 +122,8 @@ import {
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
+import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
+import { markdownSuggestionOperation } from "./suggestions/markdown-operation";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
@@ -624,6 +633,7 @@ function DocumentEditorBody({
     [documentId, canEdit],
   );
   const navigate = useNavigate();
+  const location = useLocation();
   const documentsQuery = useDocuments();
   const documents: Document[] = documentsQuery.data ?? [];
   const contentSpacesQuery = useContentSpaces();
@@ -643,6 +653,28 @@ function DocumentEditorBody({
         document.accessRole === "admin" ||
         document.accessRole === "editor" ||
         document.accessRole === "commenter"));
+  const suggestedEditsEnabled = useFeatureFlag(
+    CONTENT_SUGGESTED_EDITS_FLAG.key,
+  );
+  const createSuggestion = useCreateResourceSuggestion();
+  const decideSuggestion = useDecideResourceSuggestion();
+  const suggestionsQuery = useResourceSuggestions(
+    { resourceType: "document", resourceId: documentId },
+    { enabled: suggestedEditsEnabled && !isLocalFileDocument },
+  );
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [suggestionDraft, setSuggestionDraft] = useState(document.content);
+  const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
+  const canSuggest =
+    suggestedEditsEnabled &&
+    canComment &&
+    !isLocalFileDocument &&
+    !(
+      document.databaseMembership &&
+      document.databaseMembership.systemRole == null
+    ) &&
+    !document.database &&
+    !document.source?.mode;
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -750,6 +782,20 @@ function DocumentEditorBody({
     navigate,
     t,
   ]);
+
+  useEffect(() => {
+    const suggestionId = new URLSearchParams(location.search).get("suggestion");
+    if (!suggestionId || !suggestionsQuery.data) return;
+    if (utilityPanel !== "comments") {
+      setUtilityPanel("comments");
+      return;
+    }
+    const target = globalThis.document.querySelector<HTMLElement>(
+      `[data-suggestion-id="${CSS.escape(suggestionId)}"]`,
+    );
+    target?.scrollIntoView({ block: "nearest" });
+    target?.focus();
+  }, [location.search, suggestionsQuery.data, utilityPanel]);
   const flushRequestKey = `flush-request-${documentId}`;
   const [flushRequestWake, setFlushRequestWake] = useState(0);
   const handleFlushRequestEvent = useCallback(
@@ -958,6 +1004,12 @@ function DocumentEditorBody({
     collabSynced &&
     collabInitialization.status === "ready" &&
     !collabInitializationFailed;
+  const suggestionEditorIsolation = suggestedEditorIsolation({
+    suggesting: isSuggesting,
+    canSuggest,
+    canEdit: editorCanEdit,
+    collaborationReady: collabEditorEnabled,
+  });
   canEditRef.current = editorCanEdit;
 
   // Viewers intentionally join awareness so they receive live cursors, but
@@ -1853,6 +1905,86 @@ function DocumentEditorBody({
     [debouncedSave, editorCanEdit],
   );
 
+  const handleSuggestionModeChange = useCallback(
+    async (next: boolean) => {
+      if (next) {
+        if (!canSuggest) return;
+        setSuggestionDraft(document.content);
+        setIsSuggesting(true);
+        return;
+      }
+      if (!isSuggesting) return;
+      if (suggestionDraft === document.content) {
+        setIsSuggesting(false);
+        return;
+      }
+      try {
+        const operation = markdownSuggestionOperation(
+          document.content,
+          suggestionDraft,
+        );
+        if (!operation) {
+          setIsSuggesting(false);
+          return;
+        }
+        await createSuggestion.mutateAsync({
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: "content.document-markdown",
+          baseRevision: document.updatedAt,
+          summary: t("editor.toolbar.suggestEdits"),
+          idempotencyKey: globalThis.crypto.randomUUID(),
+          operations: [operation],
+        });
+        setIsSuggesting(false);
+        setUtilityPanel("comments");
+      } catch (error) {
+        toast.error(t("editor.suggestionCreateFailed"), {
+          description:
+            error instanceof Error ? error.message : t("empty.genericError"),
+        });
+      }
+    },
+    [
+      canSuggest,
+      createSuggestion,
+      document.content,
+      document.updatedAt,
+      documentId,
+      isSuggesting,
+      suggestionDraft,
+      t,
+    ],
+  );
+
+  useEffect(() => {
+    if (!canSuggest && isSuggesting) setIsSuggesting(false);
+  }, [canSuggest, isSuggesting]);
+
+  useEffect(() => {
+    void setClientAppState(
+      "content-suggestion-mode",
+      {
+        documentId,
+        suggesting: isSuggesting,
+        draftChanged: isSuggesting && suggestionDraft !== document.content,
+        pendingCount:
+          suggestionsQuery.data?.suggestions.filter(
+            (suggestion) => suggestion.status === "pending",
+          ).length ?? 0,
+      },
+      { requestSource: "content-editor" },
+    ).catch(() => {
+      // Suggesting remains usable when best-effort agent context sync fails.
+    });
+  }, [
+    document.content,
+    documentId,
+    isSuggesting,
+    suggestionDraft,
+    suggestionsQuery.data?.suggestions,
+  ]);
+
   const handleContentSaveNow = useCallback(
     async (newContent: string) => {
       if (!editorCanEdit) return false;
@@ -1904,7 +2036,6 @@ function DocumentEditorBody({
   } | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
-  const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
@@ -2100,6 +2231,17 @@ function DocumentEditorBody({
       canResolve={canEdit}
       alignToAnchors={hasUtilityRailSpace}
       forceVisible
+      suggestions={suggestionsQuery.data?.suggestions ?? []}
+      canDecideSuggestions={canEdit}
+      decidingSuggestion={decideSuggestion.isPending}
+      onDecideSuggestion={(suggestion, decision) =>
+        decideSuggestion.mutate({
+          id: suggestion.id,
+          decision,
+          idempotencyKey: globalThis.crypto.randomUUID(),
+          observedBase: suggestion.baseRevision,
+        })
+      }
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -2229,6 +2371,11 @@ function DocumentEditorBody({
             canRedo={editorHistoryState.canRedo}
             onUndo={() => editorHistoryControllerRef.current?.undo()}
             onRedo={() => editorHistoryControllerRef.current?.redo()}
+            canSuggest={canSuggest}
+            suggesting={isSuggesting}
+            onSuggestingChange={(next) => {
+              void handleSuggestionModeChange(next);
+            }}
           />
 
           {!isLocalFileDocument ? (
@@ -2374,9 +2521,10 @@ function DocumentEditorBody({
                     rows={1}
                     wrap="soft"
                     value={localTitle}
-                    onChange={(e) =>
-                      handleTitleChange(normalizeTitleText(e.target.value))
-                    }
+                    onChange={(e) => {
+                      if (!isSuggesting)
+                        handleTitleChange(normalizeTitleText(e.target.value));
+                    }}
                     onPaste={handleTitlePaste}
                     onFocus={() => {
                       titleFocusedRef.current = true;
@@ -2385,7 +2533,7 @@ function DocumentEditorBody({
                       titleFocusedRef.current = false;
                     }}
                     onKeyDown={(e) => {
-                      if (!editorCanEdit) return;
+                      if (!editorCanEdit || isSuggesting) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
                         const pm = window.document.querySelector(
@@ -2396,7 +2544,7 @@ function DocumentEditorBody({
                     }}
                     aria-label={t("editor.documentTitle")}
                     placeholder={t("editor.title")}
-                    readOnly={!editorCanEdit}
+                    readOnly={!editorCanEdit || isSuggesting}
                     style={{ fieldSizing: "content" } as any}
                     className={cn(
                       "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
@@ -2511,7 +2659,7 @@ function DocumentEditorBody({
                             </div>
                           ) : null}
                           <VisualEditor
-                            key={visualEditorInstanceKey({
+                            key={`${visualEditorInstanceKey({
                               documentId,
                               documentUpdatedAt: document.updatedAt,
                               isLocalFileDocument,
@@ -2519,27 +2667,41 @@ function DocumentEditorBody({
                               collabEditorEnabled,
                               hasYDoc: Boolean(ydoc),
                               localFileSyncRevision,
-                            })}
+                            })}:${isSuggesting ? "suggesting" : "canonical"}`}
                             documentId={documentId}
                             content={
                               isLocalFileDocument
                                 ? localContent
-                                : document.content
+                                : isSuggesting
+                                  ? suggestionDraft
+                                  : document.content
                             }
                             contentUpdatedAt={
                               isLocalFileDocument
                                 ? (localContentUpdatedAt ?? document.updatedAt)
                                 : document.updatedAt
                             }
-                            onChange={handleContentChange}
-                            onSaveContent={handleContentSaveNow}
-                            ydoc={collabEditorEnabled ? ydoc : null}
+                            onChange={
+                              isSuggesting
+                                ? setSuggestionDraft
+                                : handleContentChange
+                            }
+                            onSaveContent={
+                              suggestionEditorIsolation.persistCanonical
+                                ? handleContentSaveNow
+                                : undefined
+                            }
+                            ydoc={
+                              suggestionEditorIsolation.bindCanonicalYDoc
+                                ? ydoc
+                                : null
+                            }
                             collabSynced={
                               collabEditorEnabled ? collabSynced : true
                             }
                             awareness={collabEditorEnabled ? awareness : null}
                             user={currentUser}
-                            editable={editorCanEdit}
+                            editable={suggestionEditorIsolation.editable}
                             localFileMode={isLocalFileDocument}
                             localFilePath={
                               isLocalFileDocument ? document.source?.path : null

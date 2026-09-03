@@ -14,6 +14,7 @@ import { and, eq, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { commitCanonicalDocumentBodyMutation } from "../server/lib/canonical-document-body-mutation.js";
 import {
   documentVersionChatContextFromAction,
   serializeDocumentVersionChatContext,
@@ -535,43 +536,7 @@ export default defineAction({
               id,
             )
           : [];
-        if (useContentCas) {
-          const applied = await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(
-              and(
-                eq(schema.documents.id, id),
-                eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
-              ),
-            )
-            .returning({ id: schema.documents.id });
-          if (!applied || applied.length === 0) {
-            contentCasConflict = true;
-            return;
-          }
-        } else if (documentFieldsChanged) {
-          await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(eq(schema.documents.id, id));
-        }
-
-        if (contentChanged && content !== undefined) {
-          for (const field of primaryBlocksFields) {
-            await persistBlocksFieldIdentity({
-              db: tx as unknown as ReturnType<typeof getDb>,
-              ownerEmail: field.ownerEmail,
-              documentId: id,
-              propertyId: field.propertyId,
-              previousMarkdown: existing.content,
-              markdown: content,
-              now: updates.updatedAt as string,
-            });
-          }
-        }
-
-        if (titleChanged || contentChanged) {
+        const snapshotPreviousVersion = async () => {
           const [latestVersion] = await tx
             .select({ createdAt: schema.documentVersions.createdAt })
             .from(schema.documentVersions)
@@ -603,6 +568,61 @@ export default defineAction({
               createdAt: new Date().toISOString(),
             });
           }
+        };
+
+        if (contentChanged && content !== undefined) {
+          const applied = await commitCanonicalDocumentBodyMutation({
+            write: async () => {
+              if (useContentCas) {
+                const rows = await tx
+                  .update(schema.documents)
+                  .set(updates)
+                  .where(
+                    and(
+                      eq(schema.documents.id, id),
+                      eq(
+                        schema.documents.updatedAt,
+                        args.baseUpdatedAt as string,
+                      ),
+                    ),
+                  )
+                  .returning({ id: schema.documents.id });
+                return rows.length > 0;
+              }
+              await tx
+                .update(schema.documents)
+                .set(updates)
+                .where(eq(schema.documents.id, id));
+              return true;
+            },
+            afterWrite: async () => {
+              for (const field of primaryBlocksFields) {
+                await persistBlocksFieldIdentity({
+                  db: tx as unknown as ReturnType<typeof getDb>,
+                  ownerEmail: field.ownerEmail,
+                  documentId: id,
+                  propertyId: field.propertyId,
+                  previousMarkdown: existing.content,
+                  markdown: content,
+                  now: updates.updatedAt as string,
+                });
+              }
+              await snapshotPreviousVersion();
+            },
+          });
+          if (!applied) {
+            contentCasConflict = true;
+            return;
+          }
+        } else if (documentFieldsChanged) {
+          await tx
+            .update(schema.documents)
+            .set(updates)
+            .where(eq(schema.documents.id, id));
+        }
+
+        if (titleChanged && !contentChanged) {
+          await snapshotPreviousVersion();
         }
 
         if (favoriteChanged) {
