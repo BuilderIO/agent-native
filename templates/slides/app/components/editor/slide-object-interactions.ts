@@ -1376,6 +1376,12 @@ const SLIDE_OBJECT_CLIPBOARD_BLOCK_TAGS = new Set([
   "TR",
   "UL",
 ]);
+const SLIDE_OBJECT_CLIPBOARD_IGNORED_TAGS = new Set([
+  "NOSCRIPT",
+  "SCRIPT",
+  "STYLE",
+  "TEMPLATE",
+]);
 
 export function slideObjectClipboardHtml(
   clipboardId: string,
@@ -1429,6 +1435,7 @@ function slideObjectClipboardTextContent(node: Node): string {
     );
   }
   const element = node as Element;
+  if (SLIDE_OBJECT_CLIPBOARD_IGNORED_TAGS.has(element.tagName)) return "";
   if (element.tagName === "BR") return "\n";
   const text = Array.from(
     element.childNodes,

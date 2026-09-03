@@ -131,7 +131,7 @@ describe("slide object interactions", () => {
       {
         html: [
           '<div data-slide-object-id="layer-1">First<br>Second</div>',
-          "<p>Third</p><p>Fourth</p>",
+          "<p>Third</p><p>Fourth</p><style>.hidden{display:none}</style><script>bad()</script><template>Hidden</template>",
         ],
       },
       null,
