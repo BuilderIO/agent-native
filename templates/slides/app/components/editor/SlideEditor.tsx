@@ -730,6 +730,7 @@ interface SlideSelectionItem {
   runtimeSelector?: string;
   objectId?: string;
   text?: string;
+  selectedText?: string;
   textTruncated?: boolean;
   kind?: string;
   tagName?: string;
@@ -744,6 +745,7 @@ function selectionItemForElement(
   runtimeSelector: string,
   snapshot?: SlideStyleSnapshot,
   imageStyle?: Pick<SlideStyleSnapshot, "objectFit" | "objectPosition">,
+  selectedText?: string,
 ): SlideSelectionItem {
   const identity = getSlideSelectionIdentity(element, runtimeSelector);
   const fullText = (element.textContent || "").trim();
@@ -757,6 +759,7 @@ function selectionItemForElement(
         : "element",
     tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
     text: snapshot?.textPreview ?? fullText.slice(0, 200),
+    selectedText: selectedText || undefined,
     textTruncated: fullText.length > textLimit,
     imageSrc:
       element instanceof HTMLImageElement
@@ -2284,7 +2287,7 @@ export default function SlideEditor({
   );
 
   /** Exit edit mode, saving changed content without changing its layout. */
-  const exitInlineEdit = useCallback(() => {
+  const exitInlineEdit = useCallback((): string | undefined => {
     const el = editingElRef.current;
     if (!el) return;
 
@@ -2335,6 +2338,7 @@ export default function SlideEditor({
     } else {
       syncSelectionToAppState(null);
     }
+    return html === null ? undefined : hashSlideContent(html);
   }, [
     readCurrentSlideContentHtml,
     disposeRichTextEditor,
@@ -2366,6 +2370,13 @@ export default function SlideEditor({
         nativeSelection?.rangeCount === 1
           ? nativeSelection.getRangeAt(0)
           : null;
+      const initialSelectedText =
+        nativeRange &&
+        !nativeRange.collapsed &&
+        el.contains(nativeRange.startContainer) &&
+        el.contains(nativeRange.endContainer)
+          ? nativeRange.toString().trim()
+          : undefined;
       const initialSelection =
         nativeRange &&
         el.contains(nativeRange.startContainer) &&
@@ -2434,7 +2445,13 @@ export default function SlideEditor({
         />,
       );
       if (selector) {
-        const item = selectionItemForElement(el, selector);
+        const item = selectionItemForElement(
+          el,
+          selector,
+          undefined,
+          undefined,
+          initialSelectedText,
+        );
         syncSelectionToAppState(
           buildSelectionState("editing", [{ ...item, kind: "text" }]),
         );
@@ -2543,12 +2560,22 @@ export default function SlideEditor({
       );
       const selector = selectedElementSelector ?? getBuilderSelector(editingEl);
       if (!selector) return;
-      setSelectedStyleSnapshot(
-        buildStyleSnapshot(
-          editingEl,
-          selector,
-          getInlineTextStyleSnapshot(editingEl, selection),
-        ),
+      const snapshot = buildStyleSnapshot(
+        editingEl,
+        selector,
+        getInlineTextStyleSnapshot(editingEl, selection),
+      );
+      setSelectedStyleSnapshot(snapshot);
+      syncSelectionToAppState(
+        buildSelectionState("editing", [
+          selectionItemForElement(
+            editingEl,
+            selector,
+            snapshot,
+            undefined,
+            richTextSelectionRef.current?.toString().trim(),
+          ),
+        ]),
       );
     };
 
@@ -2631,6 +2658,10 @@ export default function SlideEditor({
         selectedElementSelector,
         inlineTextStyle,
       );
+      const selectedText =
+        editingElRef.current === element
+          ? richTextSelectionRef.current?.toString().trim()
+          : undefined;
       setSelectedElementMeasurement({
         key: selectionOverlayMeasurementKey,
         rect: element.getBoundingClientRect(),
@@ -2638,7 +2669,13 @@ export default function SlideEditor({
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
         buildSelectionState(getSlideSelectionMode(snapshot), [
-          selectionItemForElement(element, selectedElementSelector, snapshot),
+          selectionItemForElement(
+            element,
+            selectedElementSelector,
+            snapshot,
+            undefined,
+            selectedText,
+          ),
         ]),
       );
     };

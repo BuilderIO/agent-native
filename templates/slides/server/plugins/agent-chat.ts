@@ -134,7 +134,7 @@ export default createAgentChatPlugin({
   mcp: {
     connectorCatalog: INITIAL_TOOL_NAMES,
     instructions:
-      "For deck edits, call view-screen only when the active target IDs or selection are unknown. If it returns a matching selected text item, make the focused change immediately with update-slide using one literal edits replacement and expectedMatches=1, optionally passing currentSlideContentHash as baseContentHash. Do not call get-deck without slideId, enumerate slides, or inspect the full deck for that path. Use targeted get-deck with slideId only for missing, truncated, ambiguous, or structural edits. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove an entire deck. Read back the same slide after writing when it still exists; a delegated ask_app or call-agent response is unverified until that readback confirms the persisted state.",
+      "For deck edits, call view-screen only when the active target IDs or selection are unknown. If it returns an exact selectedText browser range, make the focused change immediately with update-slide using one literal edits replacement and expectedMatches=1, optionally passing currentSlideContentHash as baseContentHash. An element text preview is context, not an exact replacement range. Do not call get-deck without slideId, enumerate slides, or inspect the full deck for that path. Use targeted get-deck with slideId only for missing, preview-only, truncated, ambiguous, or structural edits. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove an entire deck. Read back the same slide after writing when it still exists; a delegated ask_app or call-agent response is unverified until that readback confirms the persisted state.",
   },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
@@ -176,12 +176,14 @@ When a request includes a public URL as source material, fetch it with web-reque
 When the user asks to improve, beautify, restyle, or make an uploaded/existing deck on-brand, treat it as an in-place source-preserving edit unless the user explicitly asks to rewrite the story or change slide count. First call view-screen when the active deck is unclear, then get-deck with compact=true for deck orientation. If you need slide markup, call get-deck with compact=false explicitly and only when the edit requires the full HTML. If get-deck.sourceImport exists, preserve its slide count, order, IDs, factual copy, notes, images, charts, tables, diagrams, freeform objects, and source aspect ratio. The ordered source manifest is sourceImport.slideIds. For a deck-wide restyle, use one patch-deck call with requireAllSourceSlides=true and one patch-slide operation with fields.content for every source slide ID; the action rejects partial coverage. Do not split a full-deck restyle into arbitrary batches or use one-by-one update-slide calls - reserve update-slide for targeted one-slide edits. After the patch succeeds, verify with get-deck using compact=true so the verification does not retransmit every slide's HTML. Completion requires sourceCoverage.complete=true with expectedSlideIds and actualSlideIds matching in order. Do not claim a partial or initial pass. Do not use add-slide, delete, reorder, or replace source imagery with generic cards for this workflow. If sourceImport.fidelity is partial or imagesSkipped is nonzero, stop and report the exact fidelity warning instead of claiming a reliable improvement.
 For a focused text edit or translation of the current selection, treat the
 selection as the target. If view-screen or the request context provides
-deckId, currentSlideId, and short selected text, call update-slide immediately
-with one literal edits replace using that exact text and expectedMatches=1;
+deckId, currentSlideId, and exact selectedText from a browser range, call
+update-slide immediately with one literal edits replace using that exact text
+and expectedMatches=1;
 pass currentSlideContentHash as baseContentHash when available. Do not call
 get-deck without slideId, enumerate the deck, or request full HTML for this
-path. If no selection is available, the text is a preview or truncated, the
-literal match fails, or the request changes markup or layout, call get-deck
+path. If no exact selectedText range is available, the value is an element
+preview or truncated, the literal match fails, or the request changes markup
+or layout, call get-deck
 with slideId only. First classify the remaining request scope. For a
 styling-only request, set styleOnly=true, change only the requested CSS
 declarations on the identified elements, and preserve text, element order,

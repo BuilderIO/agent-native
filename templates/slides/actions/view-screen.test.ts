@@ -150,6 +150,7 @@ describe("view-screen", () => {
           kind: "element",
           tagName: "div",
           text: "Text",
+          selectedText: "Text",
           textTruncated: false,
         },
       ],
@@ -162,8 +163,12 @@ describe("view-screen", () => {
     expect(result).toContain('selector=[data-slide-object-id="object-1"]');
     expect(result).toContain("objectId: object-1");
     expect(result).toContain('runtimeSelector: [data-builder-id="b-7"]');
+    expect(result).toContain("selectedText: Text");
     expect(result).toContain(
-      "textStatus: short selection; use verbatim as edits.find with expectedMatches: 1",
+      "selectedTextStatus: exact browser range; use verbatim as edits.find with expectedMatches: 1",
+    );
+    expect(result).toContain(
+      "textStatus: element preview; use selectedText for a literal replacement",
     );
   });
 
@@ -212,10 +217,10 @@ describe("view-screen", () => {
     const result = await action.run({});
 
     expect(result).toContain(
-      "textStatus: preview may be truncated; use get-deck with slideId=slide-a before editing",
+      "textStatus: element preview may be truncated; use get-deck with slideId=slide-a before editing",
     );
     expect(result).toContain(
-      "textStatus: short selection; use verbatim as edits.find with expectedMatches: 1",
+      "textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=slide-a before editing",
     );
   });
 

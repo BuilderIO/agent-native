@@ -57,7 +57,7 @@ Read the relevant skill before deeper work:
   reveals.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
-- For focused selected-text edits, use the current `view-screen` selection and
+- For focused selected-text edits, use the current `view-screen` exact range and
   one `update-slide` literal replacement with `expectedMatches: 1`; do not load
   the full deck. Use targeted `get-deck` only for ambiguous or structural text.
   Read back. `patch-deck` owns delete/reorder; source-preserving decks block

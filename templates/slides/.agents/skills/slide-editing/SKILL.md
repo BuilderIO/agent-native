@@ -64,7 +64,7 @@ To edit a slide's content:
 1. **Inspect the current context**: call `view-screen` to get the active deck,
    slide ID, HTML, and any `slides-selection` style/edit target.
    For a focused replacement or translation of currently selected text, if the
-   result includes a matching short text item and `currentSlideId`, skip
+   result includes a matching exact `selectedText` range and `currentSlideId`, skip
    `get-deck` and go directly to the bounded `update-slide` edit below.
    For a targeted persisted read, pass that stable `slideId` to `get-deck` so
    only the target slide is returned; use `compact=false` when you need its

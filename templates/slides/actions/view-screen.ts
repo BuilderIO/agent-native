@@ -89,7 +89,7 @@ function getCurrentSlideFitMeasurement(
 export default defineAction({
   title: "Inspect current Slides screen",
   description:
-    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short selected-text edit, use this result directly with one update-slide literal replacement and expectedMatches=1; do not load the full deck for that path.",
+    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1; do not load the full deck for that path.",
   schema: z.object({}),
   http: false,
   run: async (_args) => {
@@ -236,6 +236,7 @@ export default defineAction({
           runtimeSelector?: string;
           objectId?: string;
           text?: string;
+          selectedText?: string;
           textTruncated?: boolean;
           kind?: string;
           tagName?: string;
@@ -260,15 +261,27 @@ export default defineAction({
             if (item.runtimeSelector) {
               lines.push(`runtimeSelector: ${item.runtimeSelector}`);
             }
+            if (item.selectedText) {
+              lines.push(`selectedText: ${item.selectedText}`);
+              lines.push(
+                "selectedTextStatus: exact browser range; use verbatim as edits.find with expectedMatches: 1",
+              );
+            }
             if (item.text) {
               lines.push(`text: ${item.text}`);
-              lines.push(
-                item.textTruncated === true
-                  ? `textStatus: preview may be truncated; use get-deck with slideId=${currentSlide.id} before editing`
-                  : item.textTruncated === false
-                    ? "textStatus: short selection; use verbatim as edits.find with expectedMatches: 1"
-                    : `textStatus: truncation status unknown; use get-deck with slideId=${currentSlide.id} before editing`,
-              );
+              if (!item.selectedText) {
+                lines.push(
+                  item.textTruncated === true
+                    ? `textStatus: element preview may be truncated; use get-deck with slideId=${currentSlide.id} before editing`
+                    : item.textTruncated === false
+                      ? `textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=${currentSlide.id} before editing`
+                      : `textStatus: element preview status unknown; use get-deck with slideId=${currentSlide.id} before editing`,
+                );
+              } else {
+                lines.push(
+                  "textStatus: element preview; use selectedText for a literal replacement",
+                );
+              }
             }
             if (item.imageSrc) lines.push(`imageSrc: ${item.imageSrc}`);
             if (item.style) {
