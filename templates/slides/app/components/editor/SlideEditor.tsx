@@ -192,6 +192,8 @@ import {
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
+  contentForSlideTextContainer,
+  isSlideTextContainerTag,
   selectionOffsetsWithin,
   SlideRichTextEditor,
   type SlideRichTextEditorHandle,
@@ -231,6 +233,7 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
 let builderIdCounter = 0;
 
 type RichTextEditorSession = {
+  slideId: string;
   element: HTMLElement;
   host: HTMLDivElement;
   root: Root;
@@ -1787,7 +1790,12 @@ export default function SlideEditor({
         clone,
         activeRichTextPathRef.current,
       );
-      if (activeClone) activeClone.innerHTML = activeRichTextHtmlRef.current;
+      if (activeClone) {
+        activeClone.innerHTML = contentForSlideTextContainer(
+          activeClone.tagName,
+          activeRichTextHtmlRef.current,
+        );
+      }
     }
     const placeholders = clone.querySelectorAll("[data-mermaid-index]");
     // Look up source blocks by index before touching the DOM. If slide.content
@@ -1826,6 +1834,11 @@ export default function SlideEditor({
     return html;
   }, [slide.content]);
 
+  const readCurrentSlideContentHtmlRef = useRef(readCurrentSlideContentHtml);
+  useEffect(() => {
+    readCurrentSlideContentHtmlRef.current = readCurrentSlideContentHtml;
+  }, [readCurrentSlideContentHtml]);
+
   const captureInlineEditDraft = useCallback(
     (slideId = slide.id) => {
       const html = readCurrentSlideContentHtml();
@@ -1858,11 +1871,21 @@ export default function SlideEditor({
       session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
     session.latestHtml = latest;
     activeRichTextHtmlRef.current = latest;
+    const draftContent = readCurrentSlideContentHtmlRef.current();
+    if (draftContent !== null) {
+      inlineEditDraftRef.current = {
+        slideId: session.slideId,
+        content: draftContent,
+      };
+    }
     session.root.unmount();
 
     if (restoreLiveDom && session.element.isConnected) {
       session.element.replaceChildren();
-      session.element.innerHTML = latest;
+      session.element.innerHTML = contentForSlideTextContainer(
+        session.element.tagName,
+        latest,
+      );
       if (session.originalContentEditable === null) {
         session.element.removeAttribute("contenteditable");
       } else {
@@ -2282,7 +2305,9 @@ export default function SlideEditor({
         el.contains(nativeRange.endContainer)
           ? selectionOffsetsWithin(el, nativeRange)
           : null;
-      const initialHtml = el.innerHTML;
+      const initialHtml = isSlideTextContainerTag(el.tagName)
+        ? el.outerHTML
+        : el.innerHTML;
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
 
@@ -2292,6 +2317,7 @@ export default function SlideEditor({
         current: null,
       };
       const session: RichTextEditorSession = {
+        slideId: slide.id,
         element: el,
         host,
         root: createRoot(host),

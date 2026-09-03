@@ -33,6 +33,39 @@ export interface SlideRichTextEditorHandle {
   ) => Range | null;
 }
 
+const SLIDE_TEXT_CONTAINER_TAGS = new Set([
+  "BLOCKQUOTE",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "LI",
+  "OL",
+  "P",
+  "UL",
+]);
+
+export function isSlideTextContainerTag(tagName: string): boolean {
+  return SLIDE_TEXT_CONTAINER_TAGS.has(tagName.toUpperCase());
+}
+
+/** Keep a semantic canvas element as the outer container around editor output. */
+export function contentForSlideTextContainer(
+  tagName: string,
+  html: string,
+): string {
+  if (
+    !html ||
+    !isSlideTextContainerTag(tagName) ||
+    typeof DOMParser === "undefined"
+  ) {
+    return html;
+  }
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const first = doc.body.firstElementChild;
+  return doc.body.children.length === 1 && first ? first.innerHTML : html;
+}
+
 const CSS_STYLE_NAMES: Record<keyof InlineTextStylePatch, string> = {
   color: "color",
   fontFamily: "font-family",
@@ -80,6 +113,29 @@ const SlideBlockStyle = Extension.create({
             parseHTML: (element: HTMLElement) => element.getAttribute("style"),
             renderHTML: (attributes: { style?: string | null }) =>
               attributes.style ? { style: attributes.style } : {},
+          },
+        },
+      },
+      {
+        types: ["paragraph"],
+        attributes: {
+          "data-pptx-paragraph": {
+            default: null,
+            parseHTML: (element: HTMLElement) =>
+              element.getAttribute("data-pptx-paragraph"),
+            renderHTML: (attributes: {
+              "data-pptx-paragraph"?: string | null;
+            }) =>
+              attributes["data-pptx-paragraph"] === null ||
+              attributes["data-pptx-paragraph"] === undefined
+                ? {}
+                : { "data-pptx-paragraph": attributes["data-pptx-paragraph"] },
+          },
+          dir: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("dir"),
+            renderHTML: (attributes: { dir?: string | null }) =>
+              attributes.dir ? { dir: attributes.dir } : {},
           },
         },
       },
@@ -138,10 +194,27 @@ export function selectionOffsetsWithin(
   range: Range,
 ): SlideTextSelectionOffsets {
   const offsetFor = (node: Node, offset: number) => {
-    const prefix = root.ownerDocument.createRange();
-    prefix.selectNodeContents(root);
-    prefix.setEnd(node, offset);
-    return prefix.toString().length;
+    const point = root.ownerDocument.createRange();
+    point.setStart(node, offset);
+    point.collapse(true);
+    const walker = root.ownerDocument.createTreeWalker(
+      root,
+      NodeFilter.SHOW_TEXT,
+    );
+    let total = 0;
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      const textNode = text as Text;
+      if (isRemovedLegacyBulletText(root, textNode)) continue;
+      if (textNode === node) return total + Math.min(offset, textNode.length);
+      const textRange = root.ownerDocument.createRange();
+      textRange.selectNodeContents(textNode);
+      if (point.compareBoundaryPoints(Range.START_TO_END, textRange) >= 0) {
+        total += textNode.length;
+        continue;
+      }
+      break;
+    }
+    return total;
   };
   return {
     from: offsetFor(range.startContainer, range.startOffset),
@@ -156,6 +229,20 @@ function isLegacyBulletRow(element: Element): boolean {
     !!element.firstElementChild &&
     isBulletMarker(element.firstElementChild)
   );
+}
+
+function isRemovedLegacyBulletText(root: HTMLElement, node: Text): boolean {
+  let element = node.parentElement;
+  while (element && element !== root) {
+    if (
+      isLegacyBulletRow(element) &&
+      element.firstElementChild?.contains(node)
+    ) {
+      return true;
+    }
+    element = element.parentElement;
+  }
+  return false;
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {
@@ -208,6 +295,7 @@ function stripEditorOnlyTrailingParagraphs(html: string): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   while (
     doc.body.lastElementChild?.tagName === "P" &&
+    doc.body.lastElementChild.attributes.length === 0 &&
     !doc.body.lastElementChild.textContent?.trim()
   ) {
     doc.body.lastElementChild.remove();
