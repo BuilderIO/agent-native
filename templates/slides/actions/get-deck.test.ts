@@ -104,6 +104,7 @@ describe("get-deck", () => {
     });
     expect(result.createdByMe).toBe(true);
     expect(result.slides[0]).not.toHaveProperty("index");
+    expect(result.sourceEditability).toEqual({ structuralEdits: "allowed" });
   });
 
   it("repairs duplicate persisted slide IDs before returning the deck", async () => {
@@ -235,6 +236,14 @@ describe("get-deck", () => {
       actualSlideIds: ["source-1", "extra", "source-3"],
       missingSlideIds: ["source-2"],
       unexpectedSlideIds: ["extra"],
+    });
+    expect(result.sourceEditability).toMatchObject({
+      structuralEdits: "blocked",
+      reason: "source-preserving import",
+      conversion: {
+        action: "patch-deck",
+        parameter: "rewriteSource",
+      },
     });
   });
 
