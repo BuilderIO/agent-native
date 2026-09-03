@@ -736,6 +736,7 @@ export async function instrumentAgentLoop(opts: {
     }
   >();
   const openOtelModelSpans = new Set<AgentSpan>();
+  const modelSpansAwaitingFinalError = new Set<number>();
   const modelSpanAttributes = (index: number) => {
     const trip = modelRoundTrips[index];
     const callUsage = trip?.usage;
@@ -756,10 +757,14 @@ export async function instrumentAgentLoop(opts: {
       endResult: undefined as OtelModelSpanEndResult | undefined,
       ended: false,
     };
-    entry.spanPromise = startAgentSpan("llm.call", {
-      "llm.model": loopOpts.model,
-      "llm.call_index": index,
-    });
+    entry.spanPromise = startAgentSpan(
+      "llm.call",
+      {
+        "llm.model": loopOpts.model,
+        "llm.call_index": index,
+      },
+      otelRunSpan,
+    );
     pendingOtelModelSpans.set(index, entry);
     void entry.spanPromise.then((span) => {
       if (!span || entry.ended) return;
@@ -922,14 +927,18 @@ export async function instrumentAgentLoop(opts: {
             trip.end = end;
             if (event.reason) trip.stopReason = event.reason;
           }
-          finishOtelModelSpan(tripIndex, {
-            status: event.reason === "error" ? "error" : "success",
-            errorMessage:
-              event.reason === "error"
-                ? (errorMessage ?? "Model call ended with an error.")
-                : null,
-            attributes: modelSpanAttributes(tripIndex),
-          });
+          if (event.reason === undefined || event.reason === "error") {
+            // The engine emits this from a `finally`, before the outer catch
+            // has classified a provider error. Defer ending the span so that
+            // the real error message wins over a generic stream-ended value.
+            modelSpansAwaitingFinalError.add(tripIndex);
+          } else {
+            finishOtelModelSpan(tripIndex, {
+              status: "success",
+              errorMessage: null,
+              attributes: modelSpanAttributes(tripIndex),
+            });
+          }
           modelStreamOpenedAt = null;
         }
       }
@@ -973,9 +982,13 @@ export async function instrumentAgentLoop(opts: {
         };
         pendingTools.set(counter, entry);
         if (event.id) toolCallIdToCounter.set(event.id, counter);
-        void startAgentSpan("tool.call", {
-          "tool.name": event.tool,
-        }).then((span) => {
+        void startAgentSpan(
+          "tool.call",
+          {
+            "tool.name": event.tool,
+          },
+          otelRunSpan,
+        ).then((span) => {
           if (!span) return;
           // If `tool_done` already ran for this call, end the span now with the
           // status it recorded; otherwise stash it for the done handler.
@@ -1217,6 +1230,14 @@ export async function instrumentAgentLoop(opts: {
           attributes: modelSpanAttributes(interruptedModelRoundTrip),
         });
       }
+      for (const tripIndex of modelSpansAwaitingFinalError) {
+        finishOtelModelSpan(tripIndex, {
+          status: "error",
+          errorMessage: errorMessage ?? "Model stream ended before completion.",
+          attributes: modelSpanAttributes(tripIndex),
+        });
+      }
+      modelSpansAwaitingFinalError.clear();
       // Undefined means the engine never bracketed its model calls, NOT that
       // the model took no time — the two must stay distinguishable, because
       // only the first may fall back to backing tool time out of the run.
@@ -1360,8 +1381,8 @@ export async function instrumentAgentLoop(opts: {
         llmCallCount =
           usage?.llmCalls ??
           // Compatibility for custom loop implementations that predate the
-          // attempt counter: a measured run still counts as one call.
-          1;
+          // attempt counter: observed brackets still count every attempt.
+          (modelRoundTrips.length > 0 ? modelRoundTrips.length : 1);
         const runUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
@@ -1789,7 +1810,7 @@ export async function instrumentAgentLoop(opts: {
         );
         if (usage && modelRoundTrips.length === 0) {
           const aggregateLlmSpan = await withAgentSpanContext(otelRunSpan, () =>
-            startAgentSpan("llm.call", {}),
+            startAgentSpan("llm.call", {}, otelRunSpan),
           );
           endAgentSpan(aggregateLlmSpan, {
             status: runStatus,

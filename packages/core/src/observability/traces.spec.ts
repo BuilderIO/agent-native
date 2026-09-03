@@ -166,16 +166,16 @@ interface RecordedSpan {
 function createRecordingTracer() {
   const spans: RecordedSpan[] = [];
   const spanRecords = new Map<AgentSpan, RecordedSpan>();
-  let activeSpan: AgentSpan | null = null;
   const tracer = {
     startSpan(
       name: string,
       options?: { attributes?: Record<string, string | number | boolean> },
+      context?: unknown,
     ): AgentSpan {
       const recorded: RecordedSpan = {
         name,
         attributes: { ...(options?.attributes ?? {}) },
-        parent: activeSpan ? spanRecords.get(activeSpan) : undefined,
+        parent: context ? spanRecords.get(context as AgentSpan) : undefined,
         ended: false,
       };
       const span: AgentSpan = {
@@ -201,27 +201,11 @@ function createRecordingTracer() {
   const runtime = {
     tracer,
     context: {
-      active: () => activeSpan,
-      with<T>(context: unknown, callback: () => T): T {
-        const previous = activeSpan;
-        activeSpan = context as AgentSpan;
-        let result: T;
-        try {
-          result = callback();
-        } catch (error) {
-          activeSpan = previous;
-          throw error;
-        }
-        if (
-          typeof (result as unknown as { then?: unknown } | null | undefined)
-            ?.then === "function"
-        ) {
-          return (result as unknown as Promise<unknown>).finally(() => {
-            activeSpan = previous;
-          }) as T;
-        }
-        activeSpan = previous;
-        return result;
+      // The default OTel context manager is a no-op. Parentage must therefore
+      // also be passed explicitly to `startSpan`, not only installed here.
+      active: () => null,
+      with<T>(_context: unknown, callback: () => T): T {
+        return callback();
       },
     },
     trace: {
@@ -1917,6 +1901,75 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
     expect(modelSpan?.status?.code).toBe(SPAN_STATUS_OK);
     expect(modelSpan?.ended).toBe(true);
+  });
+
+  it("keeps a provider error on a model span when its stream closes first", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        // The production engine emits this from `finally`, before the outer
+        // wrapper sees the provider error.
+        send({ type: "model_stream", status: "end" });
+        throw new Error("provider stream reset");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-model-error",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    const runSpan = spans.find((span) => span.name === "agent.run");
+    const modelSpan = spans.find((span) => span.name === "llm.call");
+    expect(modelSpan?.parent).toBe(runSpan);
+    expect(modelSpan?.status).toEqual({
+      code: SPAN_STATUS_ERROR,
+      message: "provider stream reset",
+    });
+    expect(modelSpan?.ended).toBe(true);
+  });
+
+  it("counts bracketed model attempts when a later call throws", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        send({ type: "model_stream", status: "start" });
+        throw new Error("second provider failure");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-partial-failure",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    const runSpan = spans.find((span) => span.name === "agent.run");
+    expect(runSpan?.attributes["agent.llm_calls"]).toBe(2);
   });
 
   it("distinguishes explicit tool failures from legacy inferred errors", async () => {

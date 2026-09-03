@@ -44,6 +44,7 @@ interface AgentTracer {
   startSpan(
     name: string,
     options?: { attributes?: Record<string, string | number | boolean> },
+    context?: unknown,
   ): AgentSpan;
 }
 
@@ -110,13 +111,29 @@ function pruneAttributes(
 export async function startAgentSpan(
   name: string,
   attributes: Record<string, string | number | boolean | null | undefined> = {},
+  parentSpan: AgentSpan | null = null,
 ): Promise<AgentSpan | null> {
   const runtime = await resolveRuntime();
   if (!runtime) return null;
   try {
-    return runtime.tracer.startSpan(name, {
-      attributes: pruneAttributes(attributes),
-    });
+    let parentContext: unknown;
+    if (parentSpan && runtime.context && runtime.trace) {
+      try {
+        parentContext = runtime.trace.setSpan(
+          runtime.context.active(),
+          parentSpan,
+        );
+      } catch {
+        // coercion-ok: explicit OTel parent setup must never break the agent loop.
+      }
+    }
+    return runtime.tracer.startSpan(
+      name,
+      {
+        attributes: pruneAttributes(attributes),
+      },
+      parentContext,
+    );
   } catch {
     return null;
   }
