@@ -555,13 +555,14 @@ export async function buildCollectionExportProjection(
     const requiredRollups = requiredProperties.filter(
       (property) => property.definition.type === "rollup",
     );
+    const requiredRelations = requiredProperties.filter(
+      (property) => property.definition.type === "relation",
+    );
     const linkedIds = new Set<string>();
-    for (const rollup of requiredRollups) {
-      const relationId = rollup.definition.options.rollup?.relationPropertyId;
-      if (!relationId) continue;
+    for (const relation of requiredRelations) {
       for (const documentId of documentIds) {
         const relationValue = storedValues.get(
-          propertyKey(documentId, relationId),
+          propertyKey(documentId, relation.definition.id),
         );
         const ids = Array.isArray(relationValue)
           ? relationValue.filter(
@@ -598,6 +599,26 @@ export async function buildCollectionExportProjection(
             ),
           );
         for (const row of rows) linkedDocuments.set(row.id, row);
+      }
+    }
+    for (const relation of requiredRelations) {
+      for (const documentId of documentIds) {
+        const key = propertyKey(documentId, relation.definition.id);
+        const relationValue = storedValues.get(key);
+        if (Array.isArray(relationValue)) {
+          storedValues.set(
+            key,
+            relationValue.filter(
+              (id): id is string =>
+                typeof id === "string" && linkedDocuments.has(id),
+            ),
+          );
+        } else if (typeof relationValue === "string") {
+          storedValues.set(
+            key,
+            linkedDocuments.has(relationValue) ? relationValue : null,
+          );
+        }
       }
     }
     const rollupTargetIds = [

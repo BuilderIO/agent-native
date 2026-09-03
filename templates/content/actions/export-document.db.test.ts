@@ -875,6 +875,67 @@ describe("export-document database collections", () => {
     expect(result.content).toBe("Title,ID\r\nVisible row,2\r\n");
   });
 
+  it("removes inaccessible relation targets before direct and formula exports", async () => {
+    const databaseId = "relation-visibility-database";
+    const databaseDocumentId = "relation-visibility-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "Relation Visibility",
+    });
+    await createDocument({ id: "relation-source", title: "Source" });
+    await createDocument({ id: "visible-relation", title: "Visible target" });
+    await createDocument({
+      id: "hidden-relation",
+      title: "Hidden target",
+      ownerEmail: "someone-else@example.com",
+    });
+    await addDatabaseItem({
+      id: "relation-source-item",
+      databaseId,
+      documentId: "relation-source",
+      position: 0,
+    });
+    await addProperty({
+      id: "related-documents",
+      databaseId,
+      name: "Related",
+      type: "relation",
+      position: 0,
+    });
+    await addProperty({
+      id: "related-formula",
+      databaseId,
+      name: "Related formula",
+      type: "formula",
+      position: 1,
+      optionsJson: JSON.stringify({ formula: "{Related}" }),
+    });
+    await setPropertyValue({
+      id: "related-documents-value",
+      documentId: "relation-source",
+      propertyId: "related-documents",
+      value: ["visible-relation", "hidden-relation"],
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: databaseDocumentId,
+        format: "csv",
+        collection: {
+          scope: { kind: "all_members" },
+          propertyIds: ["related-documents", "related-formula"],
+          includePrimaryBody: false,
+          blockPropertyIds: [],
+        },
+      }),
+    );
+    expect(result.content).toBe(
+      "Title,Related,Related formula\r\nSource,visible-relation,visible-relation\r\n",
+    );
+    expect(result.content).not.toContain("hidden-relation");
+  });
+
   it("exports selected scalar CSV columns without waiting for unselected Blocks", async () => {
     const databaseId = "csv-scalar-database";
     const databaseDocumentId = "csv-scalar-database-document";
