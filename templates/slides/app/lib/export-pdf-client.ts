@@ -23,8 +23,10 @@ import { importExportModule } from "./dynamic-import";
 import { sanitizeSlideUrl } from "./sanitize-slide-html";
 
 /** Same-origin URL that re-serves a remote image, bypassing its missing CORS. */
-export function imageProxyUrl(src: string): string {
-  return `${appBasePath()}/api/image-proxy?url=${encodeURIComponent(src)}`;
+export function imageProxyUrl(src: string, shareToken?: string): string {
+  const params = new URLSearchParams({ url: src });
+  if (shareToken) params.set("shareToken", shareToken);
+  return `${appBasePath()}/api/image-proxy?${params.toString()}`;
 }
 
 function throwIfExportAborted(signal?: AbortSignal): void {
@@ -44,6 +46,21 @@ async function decodeImage(
   throwIfExportAborted(signal);
 }
 
+async function decodeImageBestEffort(
+  image: HTMLImageElement,
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    await decodeImage(image, signal);
+  } catch (error) {
+    throwIfExportAborted(signal);
+    console.warn(
+      `[export-pdf] image could not be decoded for export: ${image.currentSrc || image.src}`,
+      error,
+    );
+  }
+}
+
 /**
  * Cross-origin <img> elements without an explicit `crossOrigin="anonymous"`
  * attribute taint the canvas when rasterized via <foreignObject>, producing
@@ -55,6 +72,7 @@ async function decodeImage(
 export async function preloadImagesWithCors(
   root: HTMLElement,
   signal?: AbortSignal,
+  shareToken?: string,
 ): Promise<() => void> {
   const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
   // The slide DOM is the live editor canvas. Anything rewritten here would
@@ -69,7 +87,7 @@ export async function preloadImagesWithCors(
         const src = img.currentSrc || img.src;
         if (!src) return;
         if (src.startsWith("data:") || src.startsWith("blob:")) {
-          await decodeImage(img, signal);
+          await decodeImageBestEffort(img, signal);
           return;
         }
         let isCrossOrigin = false;
@@ -81,7 +99,7 @@ export async function preloadImagesWithCors(
           isCrossOrigin = false;
         }
         if (!isCrossOrigin) {
-          await decodeImage(img, signal);
+          await decodeImageBestEffort(img, signal);
           return;
         }
 
@@ -124,7 +142,7 @@ export async function preloadImagesWithCors(
         // canvas stays clean instead of rasterizing a blank rect.
         if (!restores.includes(restore)) restores.push(restore);
         img.crossOrigin = "anonymous";
-        img.src = imageProxyUrl(src);
+        img.src = imageProxyUrl(src, shareToken);
         try {
           await decodeImage(img, signal);
         } catch (err) {
@@ -201,7 +219,13 @@ function exportStageHasPendingRenderers(stage: HTMLElement): boolean {
 
   const pendingMermaid = Array.from(
     stage.querySelectorAll<HTMLElement>("[data-mermaid-index]"),
-  ).some((node) => !node.querySelector("svg") && !node.textContent?.trim());
+  ).some((node) => {
+    const state = node.dataset.mermaidState;
+    if (state === "empty" || state === "error" || state === "ready") {
+      return false;
+    }
+    return !node.querySelector("svg") && !node.textContent?.trim();
+  });
   if (pendingMermaid) return true;
 
   return stage.querySelector('[data-excalidraw-renderer="pending"]') !== null;
@@ -490,8 +514,9 @@ export async function exportDeckAsPdf(
   deckTitle: string,
   slides: PdfExportSlide[],
   aspectRatio?: AspectRatio,
-  signal?: AbortSignal,
+  options: { signal?: AbortSignal; shareToken?: string } = {},
 ): Promise<void> {
+  const { signal, shareToken } = options;
   // modern-screenshot uses <foreignObject> SVG rendering, which delegates
   // text layout back to the browser. html2canvas / html2canvas-pro
   // re-implement text layout in JS and get per-character positioning wrong
@@ -544,7 +569,11 @@ export async function exportDeckAsPdf(
     // Force CORS-enabled re-fetch on every cross-origin <img> before
     // capture — otherwise the canvas tainting check inside modern-screenshot
     // produces a blank rect for the image.
-    const restoreImages = await preloadImagesWithCors(source, signal);
+    const restoreImages = await preloadImagesWithCors(
+      source,
+      signal,
+      shareToken,
+    );
     if (exportStage) {
       await waitForExportFrame(signal);
       await waitForExportFrame(signal);

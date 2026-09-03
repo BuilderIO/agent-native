@@ -38,6 +38,7 @@ interface PresentationViewProps {
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   pdfExportTitle?: string;
+  pdfExportToken?: string;
 }
 
 function PdfExportStage({
@@ -217,6 +218,7 @@ export default function PresentationView({
   aspectRatio,
   designSystem,
   pdfExportTitle,
+  pdfExportToken,
 }: PresentationViewProps) {
   const t = useT();
   const safeSlides = useMemo(
@@ -647,12 +649,10 @@ export default function PresentationView({
 
     const exportPdf = async () => {
       try {
-        await exportDeckAsPdf(
-          pdfExportTitle,
-          safeSlides,
-          aspectRatio,
-          abortController.signal,
-        );
+        await exportDeckAsPdf(pdfExportTitle, safeSlides, aspectRatio, {
+          signal: abortController.signal,
+          shareToken: pdfExportToken,
+        });
       } catch (error) {
         if (cancelled || abortController.signal.aborted) return;
         console.error("[slides] shared PDF export failed:", error);
@@ -667,7 +667,14 @@ export default function PresentationView({
       cancelled = true;
       abortController.abort();
     };
-  }, [aspectRatio, pdfExportTitle, pdfExporting, safeSlides, t]);
+  }, [
+    aspectRatio,
+    pdfExportTitle,
+    pdfExportToken,
+    pdfExporting,
+    safeSlides,
+    t,
+  ]);
 
   const displaySlide = useMemo(() => {
     if (!currentSlide || !animSteps || animSteps.length === 0)

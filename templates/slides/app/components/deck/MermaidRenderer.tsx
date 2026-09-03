@@ -101,6 +101,7 @@ export function MermaidRenderer({
     return (
       <div
         data-mermaid-index={index}
+        data-mermaid-state="error"
         className={`flex items-center justify-center p-4 text-xs text-red-400/70 ${className || ""}`}
       >
         <pre className="whitespace-pre-wrap">{error}</pre>
@@ -114,13 +115,20 @@ export function MermaidRenderer({
     // element on the same slide made while the diagram is still loading
     // would see zero `[data-mermaid-index]` nodes when serializing the
     // slide, and silently drop the diagram from the saved content.
-    return <div data-mermaid-index={index} className={className} />;
+    return (
+      <div
+        data-mermaid-index={index}
+        data-mermaid-state={definition.trim() ? "pending" : "empty"}
+        className={className}
+      />
+    );
   }
 
   return (
     <div
       ref={containerRef}
       data-mermaid-index={index}
+      data-mermaid-state="ready"
       className={`flex items-center justify-center [&_svg]:max-w-full [&_svg]:max-h-full ${className || ""}`}
       dangerouslySetInnerHTML={{ __html: svg }}
     />

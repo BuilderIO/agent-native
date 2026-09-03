@@ -1,6 +1,8 @@
 import { getSession } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
+import { getDb, schema } from "../../db";
 import {
   fetchRemoteImage,
   type RemoteImageFailure,
@@ -14,8 +16,9 @@ import {
  * No client-side flag can override that, so images on hosts without CORS have
  * to come back through us to be same-origin.
  *
- * This is an authenticated, image-only, size-capped fetcher — not a general
- * proxy. See `fetch-remote-image.ts` for the address pinning that keeps it
+ * This is an image-only, size-capped fetcher — not a general proxy. Editor
+ * requests use the session; public shared presentations use their live share
+ * token. See `fetch-remote-image.ts` for the address pinning that keeps it
  * from being turned into an SSRF primitive.
  */
 const FAILURE_STATUS: Record<RemoteImageFailure, number> = {
@@ -37,10 +40,28 @@ const FAILURE_MESSAGE: Record<RemoteImageFailure, string> = {
 };
 
 export default defineEventHandler(async (event) => {
-  const session = await getSession(event);
-  if (!session?.email) {
-    setResponseStatus(event, 401);
-    return { error: "Unauthorized" };
+  const shareToken = getQuery(event).shareToken;
+  let publicShare = false;
+  if (typeof shareToken === "string" && shareToken) {
+    const [shared] = await getDb()
+      .select({ createdAt: schema.deckShareLinks.createdAt })
+      .from(schema.deckShareLinks)
+      .where(eq(schema.deckShareLinks.token, shareToken))
+      .limit(1);
+    publicShare =
+      Boolean(shared) &&
+      Date.now() - new Date(shared.createdAt).getTime() <=
+        30 * 24 * 60 * 60 * 1000;
+    if (!publicShare) {
+      setResponseStatus(event, 404);
+      return { error: "Shared presentation not found or has expired" };
+    }
+  } else {
+    const session = await getSession(event);
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
+    }
   }
 
   const raw = getQuery(event).url;
@@ -57,7 +78,10 @@ export default defineEventHandler(async (event) => {
 
   event.node?.res?.setHeader("Content-Type", result.contentType);
   event.node?.res?.setHeader("Content-Length", String(result.body.byteLength));
-  event.node?.res?.setHeader("Cache-Control", "private, max-age=3600");
+  event.node?.res?.setHeader(
+    "Cache-Control",
+    publicShare ? "public, max-age=3600" : "private, max-age=3600",
+  );
   // The canvas reads these pixels back, so the response must be explicitly
   // usable cross-origin even though it is served from our own host.
   event.node?.res?.setHeader("Access-Control-Allow-Origin", "*");

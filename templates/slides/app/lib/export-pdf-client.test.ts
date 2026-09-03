@@ -32,7 +32,11 @@ vi.mock("jspdf", () => ({
 
 vi.mock("modern-screenshot", () => ({ domToJpeg: mocks.domToJpeg }));
 
-import { exportDeckAsPdf, findSlideExportSource } from "./export-pdf-client.js";
+import {
+  exportDeckAsPdf,
+  findSlideExportSource,
+  imageProxyUrl,
+} from "./export-pdf-client.js";
 
 /**
  * A slide renders twice — sidebar thumbnail and editor canvas — with the same
@@ -266,6 +270,43 @@ describe("exportDeckAsPdf", () => {
     );
   });
 
+  it("does not wait on terminal renderer placeholders", async () => {
+    const stage = document.createElement("div");
+    stage.setAttribute("data-pdf-export-stage", "true");
+    const canvas = renderSlide("s1");
+    const mermaid = document.createElement("div");
+    mermaid.setAttribute("data-mermaid-index", "0");
+    mermaid.setAttribute("data-mermaid-state", "empty");
+    canvas.appendChild(mermaid);
+    stage.appendChild(canvas);
+    document.body.appendChild(stage);
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.addImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("authorizes public-share image proxy URLs with the share token", () => {
+    expect(
+      imageProxyUrl("https://cdn.example.com/hero.png", "share-token"),
+    ).toContain("shareToken=share-token");
+  });
+
+  it("keeps exporting when a same-origin image cannot decode", async () => {
+    const canvas = renderSlide("s1");
+    const image = document.createElement("img");
+    image.src = "/missing.png";
+    image.decode = vi.fn().mockRejectedValue(new Error("404"));
+    canvas.appendChild(image);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.addImage).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("leaves speaker notes out of the PDF", async () => {
     // A PDF is the artifact people forward. Notes are private commentary the
     // page never shows, and every other share surface blanks them.
@@ -379,7 +420,7 @@ describe("exportDeckAsPdf", () => {
         "Q3 review",
         [{ id: "s1", content: "<div></div>" }],
         undefined,
-        controller.signal,
+        { signal: controller.signal },
       ),
     ).rejects.toThrow();
     expect(mocks.addImage).not.toHaveBeenCalled();
