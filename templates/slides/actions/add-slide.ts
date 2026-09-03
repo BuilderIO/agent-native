@@ -1,4 +1,5 @@
 import {
+  AgentActionStopError,
   ActionContractError,
   defineAction,
   embedApp,
@@ -240,10 +241,16 @@ export default defineAction({
         }
         if (
           targetSlideCount === null ||
-          targetSlideCountOverride <= targetSlideCount
+          targetSlideCountOverride <= targetSlideCount ||
+          slides.length < targetSlideCount ||
+          targetSlideCountOverride <= slides.length
         ) {
           throw new ActionContractError(
-            `targetSlideCountOverride must extend the persisted target above ${targetSlideCount ?? "the current deck"}.`,
+            targetSlideCount === null
+              ? "targetSlideCountOverride requires a persisted target slide count."
+              : slides.length < targetSlideCount
+                ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides.`
+                : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current deck size of ${slides.length}.`,
             {
               errorCode: "target_slide_count_override_invalid",
               details: {
@@ -262,7 +269,7 @@ export default defineAction({
         slides.length >= targetSlideCount &&
         targetSlideCountOverride === undefined
       ) {
-        throw new ActionContractError(
+        throw new AgentActionStopError(
           `Cannot add a slide: this deck already has ${slides.length} slides and its requested target is ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
           {
             errorCode: "target_slide_count_reached",

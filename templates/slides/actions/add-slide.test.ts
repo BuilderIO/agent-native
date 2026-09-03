@@ -191,6 +191,7 @@ describe("add-slide", () => {
           { caller },
         ),
       ).rejects.toMatchObject({
+        name: "AgentActionStopError",
         errorCode: "target_slide_count_reached",
         details: {
           deckId: "deck-1",
@@ -201,6 +202,50 @@ describe("add-slide", () => {
       expect(updateFn).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    {
+      name: "before the persisted target",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      targetSlideCount: 2,
+      targetSlideCountOverride: 3,
+    },
+    {
+      name: "below the current deck size",
+      slides: [
+        { id: "slide-1", content: "<div>One</div>" },
+        { id: "slide-2", content: "<div>Two</div>" },
+        { id: "slide-3", content: "<div>Three</div>" },
+      ],
+      targetSlideCount: 2,
+      targetSlideCountOverride: 2,
+    },
+  ])("rejects target overrides $name", async (input) => {
+    deckData.slides = input.slides;
+    deckData.generationContext = {
+      targetSlideCount: input.targetSlideCount,
+    };
+
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-new",
+          content: "<div>New</div>",
+          targetSlideCountOverride: input.targetSlideCountOverride,
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "target_slide_count_override_invalid",
+      details: {
+        currentSlideCount: input.slides.length,
+        targetSlideCount: input.targetSlideCount,
+        targetSlideCountOverride: input.targetSlideCountOverride,
+      },
+    });
+    expect(updateFn).not.toHaveBeenCalled();
+  });
 
   it("forces a WebMCP version snapshot with its run context", async () => {
     deckData.generationContext = { targetSlideCount: 3 };
