@@ -93,6 +93,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain("function arrangeFlowSlideLayerInParent");
     expect(source).toContain("reorderSlideLayerInParent(element, target)");
     expect(source).toContain("persistSlideObjectZOrderFromDom(source");
+    expect(source).toContain("function isZIndexedSlideLayer");
   });
 
   it("keeps portaled context-menu presses from clearing canvas selection", () => {

@@ -406,24 +406,36 @@ function layerKindForElement(
   return hasChildren ? "container" : "shape";
 }
 
+function isZIndexedSlideLayer(element: HTMLElement): boolean {
+  if (isPersistedFreeformObject(element)) return true;
+  const zIndex = element.style.zIndex;
+  if (!zIndex || zIndex === "auto") return false;
+  const position = window.getComputedStyle(element).position;
+  if (position !== "static") return true;
+  const parentDisplay = element.parentElement
+    ? window.getComputedStyle(element.parentElement).display
+    : "";
+  return parentDisplay === "flex" || parentDisplay === "grid";
+}
+
 function sortSlideLayerElements(elements: HTMLElement[]): HTMLElement[] {
   return elements
     .map((element, index) => ({ element, index }))
     .sort((left, right) => {
-      const leftFreeform = isPersistedFreeformObject(left.element);
-      const rightFreeform = isPersistedFreeformObject(right.element);
-      const leftBucket = leftFreeform
+      const leftZIndexed = isZIndexedSlideLayer(left.element);
+      const rightZIndexed = isZIndexedSlideLayer(right.element);
+      const leftBucket = leftZIndexed
         ? readSlideObjectZIndex(left.element) < 0
           ? -1
           : 1
         : 0;
-      const rightBucket = rightFreeform
+      const rightBucket = rightZIndexed
         ? readSlideObjectZIndex(right.element) < 0
           ? -1
           : 1
         : 0;
       if (leftBucket !== rightBucket) return leftBucket - rightBucket;
-      if (leftFreeform && rightFreeform) {
+      if (leftZIndexed && rightZIndexed) {
         return (
           readSlideObjectZIndex(left.element) -
             readSlideObjectZIndex(right.element) || left.index - right.index
