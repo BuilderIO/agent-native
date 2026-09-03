@@ -77,6 +77,7 @@ import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-run
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
 import { appendContentSizeReporter } from "./design-canvas/content-size-report";
@@ -4486,6 +4487,7 @@ export function DesignCanvas({
 
   const handleScrollSurfaceMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       const isMiddleButton = e.button === 1;
       const isLeftPanGesture =
         e.button === 0 && (handToolActive || spacePanActive);
@@ -4527,6 +4529,7 @@ export function DesignCanvas({
   // scroll surface means the user clicked outside the framed preview.
   const handleScrollSurfaceBackgroundClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       if (e.button !== 0) return;
       if (handToolActive || spacePanActive) return;
       const target = e.target as HTMLElement | null;

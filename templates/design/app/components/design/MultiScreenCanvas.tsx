@@ -87,6 +87,7 @@ import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
 import { parseBreakpointWidthInput } from "./BreakpointBar";
+import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import {
   canvasPrimitiveReactStyle,
   DEFAULT_LINE_STROKE,
@@ -11951,13 +11952,6 @@ function isInteractiveScreenContentTarget(target: EventTarget | null) {
         ".design-canvas-iframe-wrapper,[data-design-preview-iframe]",
       ),
     )
-  );
-}
-
-function isCanvasOverlayInteractionTarget(target: EventTarget | null) {
-  return (
-    target instanceof Element &&
-    Boolean(target.closest("[data-review-popover],[data-review-click-plane]"))
   );
 }
 
