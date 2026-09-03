@@ -1065,4 +1065,89 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).toContain("Desarrollo");
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
+
+  // Regression: `statusResolved` flips only on a *successful* status response,
+  // so a failed one used to leave a fully styled CTA that swallowed every click
+  // for the rest of the session with nothing rendered and nothing logged. The
+  // contract is that a failed read is visible, not that it silently picks the
+  // existing-account path (which would bypass the free-credits consent).
+  it("surfaces a failed Builder status read next to the connect CTA", () => {
+    const start = vi.fn();
+    const retry = vi.fn();
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
+      retry,
+      start,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-status-error"]',
+      )?.textContent,
+    ).toContain("Couldn't reach Builder");
+
+    const cta = document.body.querySelector(
+      '[data-testid="first-run-connect-builder"]',
+    );
+    expect(cta?.getAttribute("aria-disabled")).toBe("true");
+
+    act(() => {
+      cta?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("shows no status error while the first Builder status read is in flight", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: false,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: null,
+      retry: vi.fn(),
+      start: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-status-error"]',
+      ),
+    ).toBeNull();
+  });
 });
