@@ -108,7 +108,7 @@ export default defineAction({
     "Build decks slide-by-slide — " +
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
-    "For an agent-generated deck with a persisted target slide count, stop once that count is reached. " +
+    "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
     "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
@@ -147,6 +147,14 @@ export default defineAction({
       .optional()
       .describe(
         "Optional 0-based index to insert at. If not provided, appends to the end of the deck.",
+      ),
+    targetSlideCountOverride: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "New total slide target. Set only when the user explicitly asks for more slides after the persisted target.",
       ),
     contextPackId: z
       .string()
@@ -190,6 +198,7 @@ export default defineAction({
       contextPackId,
       contextModeOverride,
       reuseLabels,
+      targetSlideCountOverride,
     },
     ctx,
   ) =>
@@ -222,10 +231,36 @@ export default defineAction({
         generationContext.targetSlideCount > 0
           ? generationContext.targetSlideCount
           : null;
+      if (targetSlideCountOverride !== undefined) {
+        if (!isAgentPatchCaller(ctx?.caller)) {
+          throw new ActionContractError(
+            "targetSlideCountOverride is only available to agent calls after an explicit user request for more slides.",
+            { errorCode: "target_slide_count_override_agent_only" },
+          );
+        }
+        if (
+          targetSlideCount === null ||
+          targetSlideCountOverride <= targetSlideCount
+        ) {
+          throw new ActionContractError(
+            `targetSlideCountOverride must extend the persisted target above ${targetSlideCount ?? "the current deck"}.`,
+            {
+              errorCode: "target_slide_count_override_invalid",
+              details: {
+                deckId,
+                currentSlideCount: slides.length,
+                targetSlideCount,
+                targetSlideCountOverride,
+              },
+            },
+          );
+        }
+      }
       if (
         isAgentPatchCaller(ctx?.caller) &&
         targetSlideCount !== null &&
-        slides.length >= targetSlideCount
+        slides.length >= targetSlideCount &&
+        targetSlideCountOverride === undefined
       ) {
         throw new ActionContractError(
           `Cannot add a slide: this deck already has ${slides.length} slides and its requested target is ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
@@ -238,6 +273,13 @@ export default defineAction({
             },
           },
         );
+      }
+
+      if (targetSlideCountOverride !== undefined) {
+        deck.generationContext = {
+          ...(generationContext ?? {}),
+          targetSlideCount: targetSlideCountOverride,
+        };
       }
 
       const newSlideId =

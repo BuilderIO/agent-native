@@ -232,6 +232,24 @@ describe("add-slide", () => {
     );
   });
 
+  it("allows an agent to extend the target after an explicit follow-up", async () => {
+    deckData.generationContext = { targetSlideCount: 2 };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-follow-up",
+        content: "<div>Follow-up</div>",
+        targetSlideCountOverride: 3,
+      },
+      { caller: "tool" },
+    );
+
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.generationContext.targetSlideCount).toBe(3);
+    expect(updated.slides).toHaveLength(3);
+  });
+
   it("repairs an opaque generated title from the first slide", async () => {
     deckData = {
       title: "H3sVsnns-TEVUOpz9w",
