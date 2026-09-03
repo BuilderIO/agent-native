@@ -6,6 +6,7 @@ import {
   getMethod,
   getQuery,
   getHeader,
+  readBody as readH3Body,
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
@@ -20,7 +21,6 @@ import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
-import { readBody } from "../server/h3-helpers.js";
 import {
   agentNativeMcpInstructions,
   agentNativeToolTitle,
@@ -733,7 +733,7 @@ function mountActionRoutesInternal(
                   params = await webReq.json();
                 } else {
                   // Fallback: H3's readBody (Node.js dev)
-                  params = (await readBody(event)) ?? {};
+                  params = (await readH3Body(event)) as Record<string, any>;
                 }
                 if (
                   !params ||
