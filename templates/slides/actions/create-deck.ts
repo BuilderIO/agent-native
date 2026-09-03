@@ -34,6 +34,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { writeAppStateForCurrentTab } from "./_tab-state.js";
 
 const ReuseLabelSchema = z
   .object({
@@ -304,7 +305,10 @@ export default defineAction({
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
       notifyClients(deckId);
-      await writeAppState("navigate", deckNavigationCommand(deckId));
+      await writeAppStateForCurrentTab(
+        "navigate",
+        deckNavigationCommand(deckId),
+      );
       await writeAppState("refresh-signal", {
         ts: writeNow,
         source: "create-deck",
@@ -361,7 +365,7 @@ export default defineAction({
     });
 
     notifyClients(id);
-    await writeAppState("navigate", deckNavigationCommand(id));
+    await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     await recordGenerationCreativeContext({
       appId: "slides",
