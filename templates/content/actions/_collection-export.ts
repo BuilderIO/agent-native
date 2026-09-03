@@ -99,6 +99,7 @@ async function loadCandidates(
   databaseId: string,
   includeContent: boolean,
   clauses: ReturnType<typeof accessClauses>,
+  limitBeforeViewNarrowing: boolean,
 ): Promise<Candidate[]> {
   const documentColumns = {
     id: schema.documents.id,
@@ -113,7 +114,7 @@ async function loadCandidates(
     updatedAt: schema.documents.updatedAt,
     ...(includeContent ? { content: schema.documents.content } : {}),
   };
-  return getDb()
+  const query = getDb()
     .select({
       item: {
         id: schema.contentDatabaseItems.id,
@@ -141,7 +142,12 @@ async function loadCandidates(
       asc(schema.contentDatabaseItems.createdAt),
       asc(schema.contentDatabaseItems.id),
     )
-    .limit(CONTENT_DATABASE_MAX_READ_LIMIT + 1) as Promise<Candidate[]>;
+    .$dynamic();
+  return (
+    limitBeforeViewNarrowing
+      ? query.limit(CONTENT_DATABASE_MAX_READ_LIMIT + 1)
+      : query
+  ) as Promise<Candidate[]>;
 }
 
 function assertUnique(ids: readonly string[], label: string) {
@@ -517,13 +523,8 @@ export async function buildCollectionExportProjection(
     database.id,
     includePrimaryContent,
     clauses,
+    request.scope.kind === "all_members",
   );
-  if (candidates.length > CONTENT_DATABASE_MAX_READ_LIMIT) {
-    fail(
-      `Collection export supports up to ${CONTENT_DATABASE_MAX_READ_LIMIT} authorized records. Narrow the current View and try again.`,
-      { errorCode: "collection_export_limit_exceeded", statusCode: 413 },
-    );
-  }
   const documentIds = candidates.map(({ document }) => document.id);
   const storedPropertyIds = requiredProperties
     .filter(
@@ -783,6 +784,12 @@ export async function buildCollectionExportProjection(
       queryItems,
       requiredProperties,
       query,
+    );
+  }
+  if (queryItems.length > CONTENT_DATABASE_MAX_READ_LIMIT) {
+    fail(
+      `Collection export supports up to ${CONTENT_DATABASE_MAX_READ_LIMIT} authorized records. Narrow the current View and try again.`,
+      { errorCode: "collection_export_limit_exceeded", statusCode: 413 },
     );
   }
   if (

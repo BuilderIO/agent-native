@@ -1081,6 +1081,36 @@ describe("export-document database collections", () => {
     ).rejects.toMatchObject({
       errorCode: "collection_export_limit_exceeded",
     });
+
+    const narrowed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: databaseDocumentId,
+        format: "csv",
+        collection: {
+          scope: {
+            kind: "current_view",
+            viewId: "primary",
+            query: {
+              search: "",
+              filters: [
+                {
+                  key: "name",
+                  label: "Name",
+                  operator: "equals",
+                  value: "candidate-limit-row-5000",
+                },
+              ],
+              sorts: [],
+              filterMode: "and",
+            },
+          },
+          propertyIds: [],
+          includePrimaryBody: false,
+          blockPropertyIds: [],
+        },
+      }),
+    );
+    expect(narrowed.content).toBe("Title\r\ncandidate-limit-row-5000\r\n");
   }, 60_000);
 
   it("keeps ordinary page exports unchanged", async () => {
