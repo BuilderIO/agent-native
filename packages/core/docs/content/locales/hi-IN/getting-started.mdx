@@ -1,0 +1,195 @@
+---
+title: "शुरुआत करें"
+description: "chat UI वाला agent बनाएं और agent व UI से एक ही action को call करें।"
+---
+
+# शुरुआत करें
+
+Agent-Native सहज UI वाले स्वायत्त एजेंट बनाने के लिए एक open-source TypeScript
+framework है। आप हर capability को एक बार [action](/docs/actions-overview)—एक typed
+function के रूप में define करते हैं, जिसे agent tool के रूप में use करता है और UI
+code से call करता है।
+
+इस guide में, आप chat UI वाला agent बनाएंगे और उसके शामिल `hello` action को agent
+और UI से call करेंगे।
+
+<GettingStartedPaths />
+
+## आवश्यकताएं
+
+- [Node.js](https://nodejs.org) 22 या बाद का संस्करण
+- [pnpm](https://pnpm.io)
+- Agent के लिए LLM connection: Builder.io, Anthropic या OpenAI API key, या local Ollama model
+
+## Agent बनाएं
+
+नई directory में Chat template से शुरू करें:
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+Template आपके agent को browser UI, authentication, durable conversations, live
+sync, application context और `actions/` directory देता है। इसमें एक छोटा
+`hello` action भी है, जिसे आप इस guide में उपयोग करेंगे।
+
+## Development server शुरू करें
+
+Development server शुरू करें:
+
+```bash
+pnpm dev
+```
+
+Browser UI `http://localhost:8080` पर खुलेगा। अगर वह अपने आप न खुले, तो browser में उस URL पर जाएं।
+
+<Callout tone="info">
+
+Welcome screen पर **Continue as local dev** चुनें। Local development के लिए email
+या password डालने की जरूरत नहीं है।
+
+</Callout>
+
+फिर LLM connect करें। Free credits के लिए **Connect Builder.io** चुनें, या
+**Custom keys** चुनें, provider चुनें और मांगी गई connection details डालें।
+
+## Agent से action चलाएं
+
+Action एक typed function है, जिसे आपका React UI code से call कर सकता है और agents
+tool के रूप में उपयोग कर सकते हैं। Chat template में सरल `hello` action शामिल है,
+ताकि आप अपना action लिखने से पहले इस pattern को आजमा सकें।
+
+Agent panel में पूछें:
+
+> Call the hello action for Alex.
+
+Agent को `hello` उसके description और input schema से मिलता है, वह `Alex` को
+`name` input के रूप में pass करता है और जवाब देता है:
+
+```text
+Hello, Alex!
+```
+
+## Action देखें
+
+`actions/hello.ts` खोलें:
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+अभी इन चार भागों पर ध्यान दें:
+
+- `description` agent को बताता है कि action कब उपयोग करना है।
+- `schema` input validate करता है और agent को typed tool definition देता है।
+- `http` इस read-only action को `GET` के जरिए expose करता है, जिससे `useActionQuery` इसे React से call कर सकता है।
+- `run` में agent और UI द्वारा साझा application logic है।
+
+पूरा API जानने के लिए [Defining Actions](/docs/actions-defining) पढ़ें।
+
+## React से action call करें
+
+`app/routes/hello.tsx` पर route जोड़ें:
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+नया route खोजने के लिए development server restart करें, फिर
+`http://localhost:8080/hello` खोलें।
+
+</Callout>
+
+नाम लिखते ही `useActionQuery`, `hello` को call करता है और result render करता है।
+यह action के input और result types infer करता है, इसलिए page को custom API route या
+greeting के दूसरे implementation की जरूरत नहीं होती।
+
+## Action बदलें
+
+`actions/hello.ts` में return value बदलें:
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+`/hello` refresh करें, फिर agent से `hello` फिर से call करने को कहें। दोनों updated
+greeting लौटाते हैं क्योंकि वे एक ही action को call करते हैं।
+
+## Actions को दूसरे तरीकों से call करें
+
+आपने एक ही action को agent और UI से call किया। वही action इनसे भी call किया जा सकता है:
+
+| कहाँ से call करें                       | उपयोग                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| [HTTP API](/docs/http-api)              | Script, backend या integration से action call करें।                       |
+| [CLI](/docs/actions-other-surfaces#cli) | Terminal से action चलाएं या test करें।                                    |
+| [MCP](/docs/actions-other-surfaces#mcp) | External AI client को actions को tools के रूप में खोजने और call करने दें। |
+| [A2A](/docs/actions-other-surfaces#a2a) | किसी दूसरे agent को आपके agent को काम सौंपने दें।                         |
+
+हर caller उसी action definition का उपयोग करता है। हर एक के लिए अलग implementation
+की जरूरत नहीं है। यह shared action model Agent-Native का केंद्र है: नई capabilities
+जोड़ते समय UI, agents और integrations में behavior, validation और permissions aligned रहते हैं।
+
+## आपने क्या बनाया
+
+आपने chat UI वाला agent बनाया, उसी `hello` action को agent और React UI से call
+किया, फिर greeting को एक बार बदलकर दोनों को update होते देखा। आगे से लिखा हर
+action इसी pattern का पालन करता है।
+
+## अगले कदम
+
+<Cards>
+
+### [Agent-Native क्या है?](/docs/what-is-agent-native)
+
+समझें कि UI और agent actions, data और context को क्यों share करते हैं।
+
+### [मुख्य अवधारणाएं](/docs/key-concepts)
+
+जानें कि actions, SQL data, application context, access और live sync साथ में कैसे काम करते हैं।
+
+### [Actions](/docs/actions-overview)
+
+Reads, writes और approvals के लिए actions define करें, फिर उन्हें UI, agents और external clients से call करें।
+
+</Cards>

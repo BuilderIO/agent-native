@@ -1,0 +1,133 @@
+---
+title: "양식"
+description: "Typeform과 Google Forms를 하나로 대체하는, 직접 소유하는 에이전트 기반 양식 작성기입니다. 채팅에서 원하는 양식을 설명하고 보호된 링크를 게시하면, 응답이 자동으로 라우팅, 내보내기, 요약됩니다."
+---
+
+# 양식
+
+양식은 코드를 작성하지 않고도 정보를 수집해야 하는 모든 사람을 위한 양식 작성 도구입니다. 가입, 피드백, 등록, 설문조사에 사용하세요. 원하는 양식을 에이전트에게 설명하고, 더 직접적으로 제어하고 싶을 때는 시각적으로 세부 조정한 다음, 누구나 작성할 수 있는 링크를 게시하세요.
+
+<Cards columns={1}>
+
+### [지금 사용해 보기 →](https://forms.agent-native.com)
+
+양식을 직접 확인하고 실제 양식을 게시해 보세요.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="양식 애플리케이션을 간단히 둘러보는 영상입니다."
+  caption="양식 애플리케이션 간단 둘러보기."
+  autoplay={true}
+  loop={true}
+/>
+
+새 세션을 열면 항상 원하는 것을 설명하는 채팅인 **Ask Forms**가 나타납니다. 에이전트가 여러분을 대신해 양식을 만들어 줍니다. 이후 필드, 유효성 검사, 게시 설정을 직접 손으로 조정하고 싶을 때는 언제든 시각적 편집기로 넘어갈 수 있습니다. 두 가지 편집 방식 모두 같은 양식을 업데이트하므로 서로 어긋날 일이 없습니다.
+
+<Diagram id="doc-block-forms2" title="구축, 게시, 수집" summary={"에이전트와 시각적 편집기는 같은 양식을 편집합니다. 누구나 로그인 없이 공개 작성 페이지를 열 수 있으며, 새로운 제출물은 자동으로 지정한 대상으로 전송됩니다."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Ask Forms 채팅<br /><small class="diagram-muted"
+        >"NPS 질문 추가해줘"</small
+      >
+    </div>
+    <div class="diagram-node">
+      시각적 편집기<br /><small class="diagram-muted">레이블, 검증, 순서</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · patch-form-fields</span
+    ><small class="diagram-muted">필드 JSON, 설정 JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">Drizzle 기반 SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      공개 작성 페이지<br /><small class="diagram-muted">미인증</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / 웹훅 / Sheets</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 대체하는 것
+
+<Comparison>
+
+### 이전에는
+
+- 응답을 수집하기 위한 Typeform, Google Forms, 또는 직접 만든 양식
+- 새 제출물을 손으로 Slack이나 스프레드시트에 옮겨 적기
+- 돌아온 응답을 요약하기 위한 별도의 도구
+- 응답을 Sheets나 웹훅으로 보내기 위한 Zapier 자동화 설정
+
+### 이후에는
+
+- 에이전트와 시각적 편집기가 함께 업데이트하는 하나의 양식
+- 새 응답이 도착하는 즉시 Slack, Discord, Sheets, 또는 웹훅으로 전송됨
+- 별도의 도구 없이 요약을 요청하면 차트나 표, 또는 둘 다를 받아볼 수 있음
+- 조건부 필드, 스팸 방지, 익명 모드가 모두 같은 빌더에 내장되어 있음
+
+</Comparison>
+
+## 다중 앱 작업 공간에서의 양식
+
+[Dispatch](/docs/template-dispatch) 안에서 다른 앱들과 함께 양식을 운영한다면, 양식은 더 이상 직접 열어보는 페이지에 그치지 않습니다. 양식의 에이전트는 다른 앱에 속한 질문을 그대로 전달할 수 있고, 다른 앱들은 프레임워크 자체의 피드백 버튼이 하는 것과 같은 방식으로 여러분의 양식에 직접 응답을 보낼 수 있습니다. 이 원리가 어떻게 동작하는지는 [다중 앱 작업 공간 속 양식](/docs/template-forms-integrations) 문서를 참고하세요.
+
+## 그것으로 무엇을 할 수 있나요
+
+- **대화로 양식을 만드세요.** "연락처 양식 만들어줘", "NPS 점수 질문 추가해줘", "이메일 필드를 필수로 설정해줘" 같은 프롬프트를 시도해 보세요. [사용 가능한 필드 유형](/docs/template-forms-features#field-types)을 참고하세요.
+- **시각적으로 세부 조정하세요.** 더 직접적으로 제어하고 싶을 때는 양식 빌더에서 바로 레이블, 자리표시자, 필수 여부, 옵션, 필드 순서를 편집하세요.
+- **공개 양식을 게시하고 보호하세요.** 공개 링크를 공유하고, 필요할 때 스팸 방지나 완전 익명 응답을 켜세요. [기능](/docs/template-forms-features) 문서를 참고하세요.
+- **응답을 검토하고 인사이트를 요청하세요.** "이번 주 제출물을 요약해줘"나 "일별 제출 현황을 차트로 보여줘" 같은 프롬프트를 시도해 보세요. [기능](/docs/template-forms-features#response-insights) 문서를 참고하세요.
+- **제출물을 자동으로 라우팅하세요.** Slack, Discord, Google Sheets, 또는 일반 웹훅 URL을 붙여넣으면 새 응답이 도착하는 즉시 그곳으로 전송됩니다.
+
+## 다음 단계
+
+- [**기능**](/docs/template-forms-features) — 필드 유형, 조건부 로직, 게시, 보호 기능, 응답, 인사이트, 라우팅과 각각의 설정 단계
+- [**Agent와 대화**](/docs/template-forms-agent) — 작업별 프롬프트와 에이전트가 화면을 보는 방식
+- [**다중 앱 작업 공간 속 양식**](/docs/template-forms-integrations) — 위임과 다른 앱이 사용하는 공개 제출 엔드포인트
+- [**개발자 가이드**](/docs/template-forms-developers) — 개발자를 위한 SQL 스키마, 액션 레퍼런스, 라우트
+- [**템플릿**](/docs/cloneable-saas) — Cloneable SaaS 모델
+- [**시작하기**](/docs/getting-started) — 프레임워크의 기본 원리: 액션, 애플리케이션 상태, 실시간 동기화
+- [**액션**](/docs/actions-overview) — 빌더를 구동하는 액션 시스템
+- [**메시징**](/docs/messaging) — Slack과 그 밖의 제출 대상
+- [**공유**](/docs/sharing) — 양식 공유가 기반으로 삼는 공유 부여 모델

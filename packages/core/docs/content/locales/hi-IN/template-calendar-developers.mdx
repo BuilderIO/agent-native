@@ -1,0 +1,529 @@
+---
+title: "कैलेंडर: डेवलपर गाइड"
+description: "क्विक स्टार्ट, actions की पूरी इन्वेंटरी, डेटा मॉडल, रूट्स, और कैलेंडर टेम्पलेट को एक्सटेंड करने का तरीका।"
+---
+
+# डेवलपर गाइड
+
+यह पेज उन सभी के लिए है जो कैलेंडर टेम्पलेट को कस्टमाइज़ या एक्सटेंड कर रहे
+हैं: क्विक स्टार्ट, हर action, डेटा मॉडल, रूट सरफेस, और इसमें कुछ जोड़ने का
+तरीका। ऐप क्या करता है यह जानने के लिए [कैलेंडर](/docs/template-calendar)
+देखें।
+
+## क्विक स्टार्ट
+
+यह कुछ भी इंस्टॉल न होने से लेकर एक कनेक्टेड Google Calendar तक, कैलेंडर
+चलाने का पूरा तरीका बताता है। कमांड वही रहते हैं चाहे आप macOS पर Terminal
+में हों या Windows पर PowerShell/Command Prompt में, ये सादे Node.js टूलिंग
+हैं।
+
+<Steps>
+
+### ऐप बनाएं
+
+```bash
+npx @agent-native/core@latest create my-calendar --standalone --template calendar
+cd my-calendar
+pnpm install
+```
+
+इसके लिए पहले [Node.js](https://nodejs.org) 22 या उसके बाद का वर्शन और
+[pnpm](https://pnpm.io) इंस्टॉल होना चाहिए। अगर आपने अभी तक इनमें से कोई
+इंस्टॉल नहीं किया है, या आपके पास कोई LLM कनेक्शन (Builder.io, कोई
+Anthropic/OpenAI key, या लोकल Ollama) सेट अप नहीं है, तो [शुरुआत
+करें](/docs/getting-started) देखें।
+
+### डेव सर्वर शुरू करें
+
+```bash
+pnpm dev
+```
+
+ऐप `http://localhost:8082` पर खुलता है। अगर यह अपने आप न खुले, तो अपने
+ब्राउज़र में वह URL खोलें। Google डिस्कनेक्ट होने पर भी कैलेंडर पूरी तरह
+काम करता है। आपको एरर सिर्फ़ तब मिलेगा जब आप कनेक्ट करने से पहले कोई ऐसा
+action ट्राई करें जिसे इसकी ज़रूरत हो।
+
+### Google Calendar कनेक्ट करें
+
+ऐप में, **Settings** खोलें, और **General** टैब में **Google Calendar** कार्ड
+ढूंढें, फिर **Google Calendar कनेक्ट करें** पर क्लिक करें। इससे एक सेटअप विज़ार्ड
+खुलता है:
+
+1. **एक Google Cloud प्रोजेक्ट बनाएं**, अगर आपके पास इस्तेमाल करने के लिए
+   पहले से कोई नहीं है: [Google Cloud Console](https://console.cloud.google.com/)
+   में, पेज के ऊपर की तरफ़ प्रोजेक्ट ड्रॉपडाउन पर क्लिक करें, फिर **New
+   Project**। इसे कोई भी नाम दें, **Create** पर क्लिक करें, और तैयार होने के
+   नोटिफिकेशन का इंतज़ार करें। आगे बढ़ने से पहले पक्का कर लें कि यह उसी
+   ड्रॉपडाउन में सिलेक्टेड है।
+2. **API इनेबल करें**: अपना प्रोजेक्ट सिलेक्ट करके, **APIs & Services →
+   Library** पर जाएं, "Google Calendar API" सर्च करें, इसे खोलें, और
+   **Enable** पर क्लिक करें।
+3. **कंसेंट स्क्रीन कॉन्फ़िगर करें**: **APIs & Services → OAuth consent
+   screen** के तहत, एक सेट अप करें ("External" डेवलपमेंट के लिए ठीक है)।
+4. **क्रेडेंशियल बनाएं**: **APIs & Services → Credentials** के तहत, "Web
+   application" टाइप का एक OAuth client ID बनाएं, और
+   `http://localhost:8082/_agent-native/google/callback` को authorized
+   redirect URI के तौर पर जोड़ें (8082 कैलेंडर का डिफ़ॉल्ट डेव पोर्ट है)।
+5. **क्रेडेंशियल जोड़ें**: credentials JSON डाउनलोड करें और विज़ार्ड में
+   अपलोड करें, या "Paste manually" टॉगल करें और Client ID और Client Secret
+   सीधे डालें।
+
+कैलेंडर इन्हें अपने secret store में सेव करता है, किसी `.env` फ़ाइल में
+नहीं, इसलिए यह स्टेप Windows और macOS पर एक जैसा ही है। कनेक्ट होने के बाद
+टोकन अपने आप रिफ्रेश होते हैं।
+
+### Zoom कनेक्ट करें (वैकल्पिक)
+
+Google के उलट, Zoom का कोई Settings फ़ॉर्म नहीं है। प्रोजेक्ट रूट में एक
+`.env` फ़ाइल बनाएं (या मौजूदा में जोड़ें) इसके साथ:
+
+```text
+ZOOM_CLIENT_ID=your-client-id
+ZOOM_CLIENT_SECRET=your-client-secret
+```
+
+[Zoom OAuth app](https://marketplace.zoom.us/) से एक Client ID और Secret लें
+(Zoom Marketplace → Develop → Build App → OAuth), redirect URI के तौर पर
+`/_agent-native/zoom/callback` के साथ, फिर नई वैल्यू पिक करने के लिए
+`pnpm dev` को रीस्टार्ट करें। Zoom कनेक्ट न होने पर भी, बुकिंग लिंक Google
+Meet ऑफर कर सकते हैं, सिर्फ़ Zoom नहीं।
+
+</Steps>
+
+<Callout tone="warning">
+
+Windows पर, कुछ एडिटर `.env` नाम की फ़ाइल सेव करते समय एक छुपा हुआ `.txt`
+एक्सटेंशन जोड़ देते हैं, जिससे एक `.env.txt` बन जाती है जिसे कैलेंडर कभी
+नहीं पढ़ता। File Explorer में, "File name extensions" (View टैब) ऑन करें और
+पुष्टि करें कि सेव की गई फ़ाइल का नाम ठीक `.env` है, आगे कुछ भी नहीं।
+
+</Callout>
+
+<Callout tone="info">
+
+**इवेंट Google Calendar में रहते हैं, SQL में नहीं।** हर इवेंट action सीधे
+Google Calendar API को कॉल करता है, कोई लोकल events टेबल नहीं है। सिर्फ़
+बुकिंग लिंक, बुकिंग्स, उपलब्धता, और कनेक्शन स्टेट लोकली स्टोर होते हैं। इवेंट
+डेटा को कभी raw SQL से न पढ़ें और न लिखें।
+
+</Callout>
+
+## Actions की इन्वेंटरी
+
+हर ऑपरेशन `templates/calendar/actions/` में एक TypeScript फ़ाइल है, जो अपने
+आप `POST /_agent-native/actions/:name` पर माउंट हो जाती है।
+
+### इवेंट्स और गेस्ट
+
+इवेंट डेटा Google Calendar में रहता है, कभी SQL में नहीं।
+
+| Action                   | यह क्या करता है                                                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `list-events`            | किसी डेट रेंज में इवेंट लिस्ट करें                                                                                   |
+| `search-events`          | किसी क्वेरी से इवेंट सर्च करें                                                                                       |
+| `get-event`              | id से एक इवेंट पढ़ें                                                                                                 |
+| `create-event`           | एक इवेंट बनाएं, जिसमें recurrence (RRULE), working locations, और status types (`outOfOffice`, `focusTime`) शामिल हैं |
+| `update-event`           | एक इवेंट अपडेट करें, जिसमें recurrence, working locations, और status types शामिल हैं                                 |
+| `delete-event`           | एक इवेंट डिलीट करें                                                                                                  |
+| `manage-event-draft`     | कुछ भी लिखे या गेस्ट को नोटिफ़ाई किए जाने से पहले, यूज़र रिव्यू के लिए एक भेजा न गया इनवाइट स्टेज करें               |
+| `rsvp-event`             | किसी इनविटेशन पर Accept, decline, या tentative मार्क करें                                                            |
+| `get-attendee-timezones` | पर-गेस्ट टाइमज़ोन ओवरराइड पढ़ें                                                                                      |
+| `set-attendee-timezone`  | एक पर-गेस्ट टाइमज़ोन ओवरराइड सेट करें ताकि उनका लोकल टाइम सही दिखता रहे                                              |
+
+### उपलब्धता और समय ढूंढना
+
+| Action                | यह क्या करता है                                                                                                  |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `get-availability`    | साप्ताहिक शेड्यूल, टाइमज़ोन, बफर, नोटिस, और advance-window सेटिंग पढ़ें                                          |
+| `update-availability` | साप्ताहिक शेड्यूल, टाइमज़ोन, बफर, नोटिस, और advance-window सेटिंग अपडेट करें                                     |
+| `check-availability`  | किसी एक डेट के लिए खाली स्लॉट ढूंढें                                                                             |
+| `find-a-time`         | किसी organizer और नामित attendees में शेयर्ड फ्री-स्लॉट सर्च, Google free/busy को लोकल कॉन्फ्लिक्ट के साथ मिलाकर |
+
+### बुकिंग लिंक और बुकिंग्स
+
+| Action                   | यह क्या करता है                                          |
+| ------------------------ | -------------------------------------------------------- |
+| `create-booking-link`    | एक बुकिंग लिंक बनाएं                                     |
+| `update-booking-link`    | एक बुकिंग लिंक अपडेट करें                                |
+| `duplicate-booking-link` | एक बुकिंग लिंक डुप्लिकेट करें, को-होस्ट (`hosts`) के साथ |
+| `list-booking-links`     | एक्सेस किए जा सकने वाले बुकिंग लिंक लिस्ट करें           |
+| `list-bookings`          | कन्फर्म्ड अपॉइंटमेंट लिस्ट करें                          |
+
+### एक्सटर्नल कैलेंडर
+
+रीड-ओनली ICS फ़ीड।
+
+| Action                      | यह क्या करता है                             |
+| --------------------------- | ------------------------------------------- |
+| `add-external-calendar`     | एक रीड-ओनली ICS/webcal फ़ीड सब्सक्राइब करें |
+| `list-external-calendars`   | सब्सक्राइब्ड फ़ीड लिस्ट करें                |
+| `remove-external-calendar`  | एक सब्सक्राइब्ड फ़ीड हटाएं                  |
+| `update-external-calendars` | सब्सक्राइब्ड फ़ीड अपडेट करें                |
+
+### लोग और ओवरले
+
+| Action                  | यह क्या करता है                                                    |
+| ----------------------- | ------------------------------------------------------------------ |
+| `search-people`         | Google Contacts और Workspace डायरेक्टरी सर्च करें                  |
+| `get-overlay-people`    | वे दूसरे लोग पढ़ें जिनके कैलेंडर आपके व्यू में पिन किए गए हैं      |
+| `update-overlay-people` | वे दूसरे लोग अपडेट करें जिनके कैलेंडर आपके व्यू में पिन किए गए हैं |
+
+### Zoom
+
+| Action            | यह क्या करता है                                                                                                                                                                                    |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-zoom-status` | वर्तमान यूज़र का Zoom कनेक्शन स्टेटस पढ़ें। Connect और disconnect `/_agent-native/zoom/*` रूट्स के ज़रिए होते हैं, किसी action से नहीं, क्योंकि OAuth को signed-in ब्राउज़र सेशन की ज़रूरत होती है |
+
+### Google Calendar कनेक्शन और सिंक
+
+| Action                    | यह क्या करता है                                              |
+| ------------------------- | ------------------------------------------------------------ |
+| `connect-google-calendar` | signed-in ब्राउज़र सेशन के लिए OAuth connect URL रिटर्न करें |
+| `sync-google-calendar`    | एक resync फोर्स करें                                         |
+
+### Settings और प्रेफरेंस
+
+| Action                               | यह क्या करता है                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `get-settings`                       | यूज़र-लेवल सेटिंग पढ़ें                                                                                      |
+| `update-settings`                    | यूज़र-लेवल सेटिंग अपडेट करें                                                                                 |
+| `update-calendar-visual-preferences` | लोकल-ओनली डिस्प्ले प्रेफरेंस अपडेट करें (event colors, hidden weekends)। कभी Google Calendar को टच नहीं करता |
+
+### नेविगेशन और UI स्टेट
+
+| Action        | यह क्या करता है                            |
+| ------------- | ------------------------------------------ |
+| `navigate`    | UI को किसी व्यू, डेट, या इवेंट पर मूव करें |
+| `view-screen` | एजेंट के लिए वर्तमान व्यू पढ़ें            |
+
+### Provider API एस्केलेशन
+
+असली Google Calendar (और कनेक्टेड CRM) API, उन मामलों के लिए जब ऊपर दिए
+actions बहुत संकरे हों।
+
+| Action                  | यह क्या करता है                                                             |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `provider-api-catalog`  | सीधे कॉल करने के लिए उपलब्ध असली provider APIs लिस्ट करें                   |
+| `provider-api-docs`     | किसी असली provider API endpoint के लिए डॉक्यूमेंटेशन पढ़ें                  |
+| `provider-api-request`  | असली Google Calendar (या कनेक्टेड CRM) API को सीधे कॉल करें                 |
+| `list-staged-datasets`  | असली नतीजे लौटाने के बजाय, क्वेरी के लिए स्टेज किए गए बड़े स्कैन लिस्ट करें |
+| `query-staged-dataset`  | किसी स्टेज्ड डेटासेट को क्वेरी करें                                         |
+| `delete-staged-dataset` | किसी स्टेज्ड डेटासेट को डिलीट करें                                          |
+
+## डेटा मॉडल
+
+`templates/calendar/server/db/schema.ts` में डिफ़ाइन किया गया है। सिर्फ़
+non-event डेटा लोकली स्टोर होता है, इवेंट खुद Google Calendar में रहते हैं।
+
+<DataModel
+  id="doc-block-calendar6"
+  title="कैलेंडर डेटा मॉडल"
+  summary={
+    "सिर्फ़ non-event डेटा लोकली स्टोर होता है, इवेंट Google Calendar में रहते हैं। बुकिंग लिंक ownableColumns इस्तेमाल करते हैं ताकि sharing सिस्टम लागू हो, बुकिंग यूज़रनेम एक अलग reservation टेबल है क्योंकि एक यूज़रनेम किसी यूज़र के मालिकाना हक वाले हर लिंक में शेयर होता है।"
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly-शैली लिंक डेफिनिशन (ownable)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "slug",
+          type: "string",
+          note: "unique, पब्लिक पेज /book/{username}/{slug} पर",
+        },
+        { name: "title", type: "string" },
+        { name: "description", type: "string", nullable: true },
+        { name: "duration", type: "int", note: "मुख्य duration मिनट में" },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "वैकल्पिक durations",
+        },
+        {
+          name: "hosts",
+          type: "json",
+          nullable: true,
+          note: "owner के अलावा ज़रूरी co-hosts",
+        },
+        { name: "customFields", type: "json", nullable: true },
+        {
+          name: "conferencing",
+          type: "json",
+          nullable: true,
+          note: "none | google_meet | zoom | custom",
+        },
+        { name: "color", type: "string", nullable: true },
+        { name: "isActive", type: "bool", note: "डिलीट किए बिना pause करें" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "पब्लिक बुकिंग पेजों से कन्फर्म्ड अपॉइंटमेंट",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "slug", type: "string", fk: "booking_links.slug" },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "start", type: "datetime" },
+        { name: "end", type: "datetime" },
+        { name: "eventTitle", type: "string", nullable: true },
+        { name: "notes", type: "string", nullable: true },
+        {
+          name: "fieldResponses",
+          type: "json",
+          nullable: true,
+          note: "कस्टम फ़ील्ड रिस्पॉन्स",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+          note: "Zoom, Google Meet, या custom",
+        },
+        { name: "googleEventId", type: "string", nullable: true },
+        {
+          name: "calendarAccountId",
+          type: "string",
+          nullable: true,
+          note: "वह कनेक्टेड account जिसका यह इवेंट है",
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "/booking/manage/{token} को पावर देता है",
+        },
+        { name: "status", type: "enum", note: "confirmed | cancelled" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "किसी लिंक का slug रीनेम होने के बाद भी पुराने पब्लिक URLs को काम करते रहने देता है",
+      fields: [
+        { name: "oldSlug", type: "string", pk: true },
+        {
+          name: "newSlug",
+          type: "string",
+          note: "लिंक का मौजूदा slug",
+        },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_usernames",
+      name: "booking_usernames",
+      note: "/book/{username}/{slug} के {username} सेगमेंट को रिज़र्व करता है, हर owner के लिए एक",
+      fields: [
+        { name: "username", type: "string", pk: true },
+        {
+          name: "ownerEmail",
+          type: "string",
+          note: "unique, हर यूज़र के लिए एक बुकिंग यूज़रनेम",
+        },
+        { name: "createdAt", type: "datetime" },
+        { name: "updatedAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_username_changes",
+      name: "booking_username_changes",
+      note: "3-changes-per-30-days रेट लिमिट लागू करने वाला ऑडिट ट्रेल",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "oldUsername", type: "string", nullable: true },
+        { name: "newUsername", type: "string" },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "बुकिंग लिंक के लिए Share grants",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "linkId", type: "id", fk: "booking_links.id" },
+        { name: "principal", type: "string", note: "user या org" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "bookings रखता है",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "share grants रखता है",
+    },
+  ]}
+/>
+
+उपलब्धता के नियम per-user सेटिंग में `calendar-availability` key के तहत रहते
+हैं, ओवरले लोग `calendar-overlay-people` के तहत, अटेंडी टाइमज़ोन ओवरराइड
+`attendee-timezones` के तहत, और सब्सक्राइब्ड ICS फ़ीड `external-calendars`
+के तहत। Google और Zoom OAuth टोकन फ़्रेमवर्क की `oauth_tokens` टेबल में रहते
+हैं। एफ़ीमेरल UI स्टेट (वर्तमान व्यू, डेट, सिलेक्टेड इवेंट) `application_state`
+में `navigation` key के तहत रहता है।
+
+## एक action को स्टेप-बाय-स्टेप समझना
+
+`create-booking-link` कुछ ऐसे पैटर्न दिखाता है जो किसी भी action में दोबारा
+इस्तेमाल करने लायक हैं: डेटाबेस को टच करने से पहले इनपुट को वैलिडेट करना, दो
+टेबल के बीच एक rule लागू करना, signed-in यूज़र को सुरक्षित तरीके से resolve
+करना, और हर reader में बार-बार करने के बजाय एक बार में किसी फ्लेक्सिबल इनपुट
+शेप को नॉर्मलाइज़ करना।
+
+<AnnotatedCode
+  id="doc-block-calendar8"
+  title="एक बुकिंग लिंक बनाना"
+  filename="templates/calendar/actions/create-booking-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core";\nimport {\n  getRequestUserEmail,\n  getRequestOrgId,\n} from "@agent-native/core/server/request-context";\nimport { eq } from "drizzle-orm";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";\nimport {\n  rowToBookingLink,\n  serializeBookingHosts,\n} from "../server/lib/booking-link-utils.js";\n\nconst hostsSchema = z\n  .union([\n    z.array(\n      z.union([\n        z.string(),\n        z.object({\n          email: z.string(),\n          displayName: z.string().optional(),\n        }),\n      ]),\n    ),\n    z.string(),\n  ])\n  .optional();\n\nexport default defineAction({\n  description:\n    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",\n  schema: z.object({\n    title: z.string().min(1).describe("Booking link title"),\n    slug: z\n      .string()\n      .min(1)\n      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)\n      .describe("URL slug, lowercase words separated by hyphens"),\n    duration: z.coerce\n      .number()\n      .int()\n      .min(5)\n      .max(24 * 60)\n      .describe("Default duration in minutes"),\n    description: z.string().optional().describe("Description"),\n    durations: z\n      .array(\n        z.coerce\n          .number()\n          .int()\n          .min(5)\n          .max(24 * 60),\n      )\n      .optional()\n      .describe("Optional duration choices, e.g. [30,45,60]"),\n    hosts: hostsSchema.describe(\n      "Required co-hosts besides the owner. Accepts emails, comma-separated emails, or {email, displayName} objects.",\n    ),\n    customFields: z.array(z.any()).optional().describe("Custom form fields"),\n    conferencing: z.any().optional().describe("Conferencing configuration"),\n    color: z.string().optional().describe("Display color"),\n    isActive: z.boolean().optional().describe("Whether the link is active"),\n  }),\n  run: async (args) => {\n    const body = args as Record<string, any>;\n    const durationInput = normalizeBookingDurationInput({\n      duration: body.duration,\n      durations: body.durations,\n    });\n    if ("error" in durationInput) {\n      throw new Error(durationInput.error);\n    }\n    const slug = String(body.slug).trim().toLowerCase();\n    const [existingLink, existingRedirect] = await Promise.all([\n      getDb()\n        .select({ id: schema.bookingLinks.id })\n        .from(schema.bookingLinks)\n        .where(eq(schema.bookingLinks.slug, slug)),\n      getDb()\n        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })\n        .from(schema.bookingSlugRedirects)\n        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),\n    ]);\n\n    if (existingLink.length > 0 || existingRedirect.length > 0) {\n      throw new Error("A booking link with this slug already exists");\n    }\n\n    const now = new Date().toISOString();\n    const id = nanoid();\n    const ownerEmail = (() => {\n      const e = getRequestUserEmail();\n      if (!e) throw new Error("no authenticated user");\n      return e;\n    })();\n    await getDb()\n      .insert(schema.bookingLinks)\n      .values({\n        id,\n        slug,\n        title: String(body.title).trim(),\n        description: body.description ? String(body.description).trim() : null,\n        duration: durationInput.duration,\n        durations: durationInput.durations\n          ? JSON.stringify(durationInput.durations)\n          : null,\n        hosts: serializeBookingHosts(body.hosts, ownerEmail),\n        customFields: body.customFields\n          ? JSON.stringify(body.customFields)\n          : null,\n        conferencing: body.conferencing\n          ? JSON.stringify(body.conferencing)\n          : null,\n        color: body.color ? String(body.color).trim() : null,\n        isActive: body.isActive ?? true,\n        ownerEmail,\n        orgId: getRequestOrgId(),\n        createdAt: now,\n        updatedAt: now,\n      });\n\n    const created = await getDb()\n      .select()\n      .from(schema.bookingLinks)\n      .where(eq(schema.bookingLinks.id, id));\n    return rowToBookingLink(created[0]);\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "37-41",
+      label: "Slug फ़ॉर्मेट को शुरुआत में ही वैलिडेट किया जाता है",
+      note: "यह regex डेटाबेस को टच होने से पहले ही lowercase, hyphen-separated URL slugs लागू करता है, ताकि कोई गलत बना हुआ slug नीचे दिए गए uniqueness चेक तक कभी न पहुंचे।",
+    },
+    {
+      lines: "59-61",
+      label: "Hosts वैकल्पिक हैं",
+      note: "`hosts` को छोड़ देने से एक सोलो लिंक बनता है। कोई भी नॉन-एम्प्टी लिस्ट ज़रूरी co-hosts बन जाती है, जिनका फ्री होना भी ज़रूरी है इससे पहले कि `find-a-time` कोई स्लॉट ऑफर करे।",
+    },
+    {
+      lines: "76-90",
+      label: "एक slug दो टेबल में फ्री होना चाहिए",
+      note: "एक नया slug `booking_links` और `booking_slug_redirects` दोनों में इस्तेमाल न हुआ होना चाहिए, नहीं तो एक नया लिंक चुपचाप वह URL क्लेम कर सकता है जिससे कोई पुराना, रीनेम हुआ लिंक अभी भी विज़िटर को फ़ॉरवर्ड कर रहा है।",
+    },
+    {
+      lines: "94-98",
+      label:
+        "signed-in यूज़र को एक बार resolve किया जाता है, और नैरो किया जाता है",
+      note: "`getRequestUserEmail()` `string | undefined` रिटर्न करता है, क्योंकि किसी unauthenticated कॉल के लिए टेक्निकली कोई signed-in यूज़र नहीं होता। इसे एक immediately-invoked फ़ंक्शन में रैप करने से action को वहीं throw करने की सहूलियत मिलती है अगर ऐसा कभी हो, ताकि बाकी फ़ंक्शन के लिए `ownerEmail` एक सादा `string` रहे, न कि कोई ऐसी चीज़ जिसे बाद की हर लाइन को दोबारा चेक करना पड़े।",
+    },
+    {
+      lines: "110",
+      label: "Co-host इनपुट को एक बार नॉर्मलाइज़ किया जाता है",
+      note: "`serializeBookingHosts` emails, comma-separated strings, या `{email, displayName}` ऑब्जेक्ट स्वीकार करता है और हमेशा एक जैसा JSON शेप स्टोर करता है, ताकि हर reader को सिर्फ़ एक ही फ़ॉर्मेट हैंडल करना पड़े।",
+    },
+  ]}
+/>
+
+## रूट्स रेफ़रेंस
+
+<FileTree
+  id="doc-block-calendar7"
+  title="कैलेंडर टेम्पलेट लेआउट"
+  entries={[
+    {
+      path: "actions/",
+      note: "हर agent-callable action, events, availability, booking, people, Zoom, sharing",
+    },
+    {
+      path: "app/routes/_app._index.tsx",
+      note: "मुख्य कैलेंडर व्यू (day/week/month)",
+    },
+    { path: "app/routes/_app.agent.tsx", note: "फ़ुल-पेज agent chat टैब" },
+    {
+      path: "app/routes/_app.availability.tsx",
+      note: "उपलब्धता एडिटर",
+    },
+    {
+      path: "app/routes/_app.booking-links._index.tsx",
+      note: "बुकिंग लिंक लिस्ट, _app.booking-links.$id.tsx एक को एडिट करता है",
+    },
+    {
+      path: "app/routes/_app.bookings.tsx",
+      note: "कन्फर्म्ड बुकिंग्स की लिस्ट",
+    },
+    {
+      path: "app/routes/_app.extensions.tsx",
+      note: "Extension विजेट रूट्स",
+    },
+    {
+      path: "app/routes/_app.settings.tsx",
+      note: "Google/Zoom कनेक्ट, उपलब्धता डिफ़ॉल्ट, sharing",
+    },
+    {
+      path: "app/routes/book.$username.$slug.tsx",
+      note: "पब्लिक बुकिंग पेज (canonical: /book/{username}/{slug})",
+    },
+    {
+      path: "app/routes/booking.manage.$token.tsx",
+      note: "विज़िटर का reschedule/cancel पेज",
+    },
+    {
+      path: "app/routes/event.tsx",
+      note: "स्टैंडअलोन इनलाइन event-preview पेज, जिसे एजेंट चैट में एम्बेड करता है",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle tables, booking_links, bookings, booking_usernames, shares",
+    },
+    { path: "server/lib/zoom.ts", note: "Zoom OAuth + मीटिंग बनाना" },
+    {
+      path: "server/lib/google-calendar.ts",
+      note: "Google Calendar API क्लाइंट",
+    },
+    {
+      path: "shared/api.ts",
+      note: "server और client दोनों के इस्तेमाल होने वाले शेयर्ड TypeScript types",
+    },
+  ]}
+/>
+
+URL स्कीम बदलने से पहले शेयर किए गए लिंक के लिए दो लेगेसी रूट माउंटेड रहते
+हैं: `book.$slug.tsx` (कोई username सेगमेंट नहीं) और
+`meet.$username.$slug.tsx`, दोनों `/book/:username/:slug` पर canonicalize
+होते हैं। `_app.team.tsx` `/settings/organization` पर रीडायरेक्ट करता है,
+team management एक अलग पेज पर नहीं बल्कि Settings में रहता है।
+
+## इसे कस्टमाइज़ करना
+
+ऐप का हर हिस्सा एडिटेबल सोर्स है। यहां से शुरू करें:
+
+- `templates/calendar/actions/` — एजेंट और फ्रंटएंड दोनों को नई क्षमता
+  एक्सपोज़ करने के लिए `defineAction` के साथ एक नई फ़ाइल जोड़ें।
+- `templates/calendar/app/routes/` — UI, जो ऊपर लिस्ट किया गया है।
+- `templates/calendar/server/db/schema.ts` — Drizzle के साथ columns या
+  tables जोड़ें। कोड को dialect-agnostic रखें ताकि टेम्पलेट SQLite, Postgres,
+  Turso, D1, और Neon पर चले।
+- `templates/calendar/server/lib/` — provider integrations: `google-calendar.ts`, `zoom.ts`, `people-search.ts`, `ical-fetcher.ts`, `find-time.ts`, `provider-api.ts`।
+- `templates/calendar/AGENTS.md` — एजेंट के निर्देश। जब भी आप एजेंट को नई
+  क्षमताएं या conventions सिखाएं, इसे अपडेट करें।
+- `templates/calendar/.agents/skills/` — वे डिटेल्ड पैटर्न जिन्हें एजेंट
+  फॉलो करता है। संबंधित skills: `event-management`, `availability-booking`,
+  `real-time-sync`, `storing-data`, `delegate-to-agent`, `frontend-design`।
+- `templates/calendar/shared/api.ts` — शेयर्ड TypeScript types
+  (`CalendarEvent`, `BookingLink`, `ExternalCalendar`, `ConferencingConfig`,
+  आदि) जो server और client दोनों इस्तेमाल करते हैं।
+
+अगर आप कोई feature जोड़ते हैं, तो सभी चार क्षेत्रों को अपडेट करना याद रखें:
+UI, action, skill या AGENTS.md एंट्री, और कोई भी application state जो एजेंट
+को देखना ज़रूरी है। यही वो चीज़ है जो एजेंट और UI को parity में रखती है।
+
+## आगे क्या
+
+- [**कैलेंडर**](/docs/template-calendar) — ओवरव्यू और शुरुआत करने के स्टेप्स
+- [**सुविधाएं**](/docs/template-calendar-features) — यूज़र-फेसिंग व्यवहार जिसे यह actions और यह डेटा मॉडल पावर देते हैं
+- [**एजेंट से बात करें**](/docs/template-calendar-agent) — एजेंट इन actions और असली Google Calendar API के बीच कैसे चुनता है
+- [**मल्टी-ऐप वर्कस्पेस में कैलेंडर का क्रॉस-ऐप उपयोग**](/docs/template-calendar-integrations) — ये actions दूसरे ऐप्स और डिस्पैच को कैसे एक्सपोज़ होते हैं
+- [**Actions**](/docs/actions-overview) — action सिस्टम जिस पर यह टेम्पलेट बना है
+- [**साझाकरण**](/docs/sharing) — शेयर-ग्रांट मॉडल जो `booking_link_shares` इस्तेमाल करता है

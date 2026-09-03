@@ -1,0 +1,106 @@
+---
+title: "Analytics: Dashboards, Analyses, and the Data Dictionary"
+description: "How SQL and Explorer dashboards, ad-hoc analyses, and the data dictionary work in Analytics, plus scheduling email reports and alert rules."
+---
+
+# Dashboards, Analyses, and the Data Dictionary
+
+This page covers the surfaces you'll use most in [Analytics](/docs/template-analytics): building dashboards, running one-off investigations, and keeping the agent's vocabulary of metrics accurate. It's written for anyone using the app, not just developers.
+
+## SQL dashboards vs. Explorer dashboards
+
+Analytics has two kinds of dashboard, and they're built differently:
+
+| Kind                   | How it's built                                                                                                                                                 | Best for                                                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **SQL dashboard**      | You (or the agent) write the panel queries in plain English, and the agent turns them into SQL. Supports filters, saved views, sections, and every chart type. | Recurring metrics you check often, and anything cross-source (BigQuery + HubSpot + first-party in one dashboard). |
+| **Explorer dashboard** | You click through your BigQuery tables and columns — pick a metric, a group-by, a filter, and a chart type — with no SQL required.                             | Quick, self-serve exploration of a warehouse table you already know, without waiting on a query.                  |
+
+Both are dashboards in the same list, shareable the same way. Ask the agent to build one, or open either editor directly from the sidebar.
+
+<Diagram id="doc-block-analytics1" title="A dashboard question, start to finish" summary={"The agent checks the data dictionary before writing SQL, then every BigQuery panel is dry-run validated against the warehouse before the dashboard saves."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    "Build a dashboard for<br />weekly signups by plan"
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Data dictionary</span
+    ><small class="diagram-muted">real table + column names</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Agent writes panel SQL</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">Dry-run validate</div>
+    <small class="diagram-muted">rejects bad columns before saving</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Dashboard saved<br /><small class="diagram-muted"
+      >shareable, schedulable</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Ad-hoc analyses
+
+Not every question deserves a permanent dashboard panel. For a one-off investigation — "why did churn spike in March," "which accounts are at risk this quarter" — ask the agent to dig in across whatever sources are relevant. Ask it to save the analysis and it keeps the original question, the sources it used, its findings in full, and step-by-step instructions for re-running it later with fresh data. Come back weeks later and say "re-run the churn analysis with this month's data" instead of re-explaining the whole investigation.
+
+## The data dictionary
+
+The data dictionary is the app's shared vocabulary of metrics, tables, columns, and SQL recipes. The agent consults it before writing any dashboard SQL, so it uses your warehouse's real column names and knows about caveats like "excludes internal emails" or "this table dedupes at the account level." Without a dictionary entry, the agent has to guess or ask — with one, it gets the query right the first time, every time.
+
+Seed it by asking the agent directly: "import our dbt definitions" or "pull the metric definitions from our Notion handbook," and it does the work. You can also document a metric yourself after the fact: "document this metric in the data dictionary" on any panel or chart the agent just built.
+
+## Sharing dashboards and analyses
+
+Dashboards and analyses are private by default. Share one with a teammate or your whole organization as a **viewer**, **editor**, or **admin** — the same sharing model used across every Agent-Native app. See [Sharing & Privacy](/docs/sharing) for the full model.
+
+Deleting a dashboard archives it by default (recoverable) rather than deleting it outright — look for "permanently delete" if you really mean it.
+
+## Dashboard email reports and alert rules
+
+Two ways to have Analytics come to you instead of you going to it:
+
+- **Scheduled email reports.** Subscribe a dashboard to a daily email snapshot — charts render as images, tables and metrics render as real email content. Reports go to up to **five recipients** (use a mailing-list address for a bigger audience); pick a time of day and timezone. If a panel fails to load, the report says so rather than silently sending an incomplete dashboard.
+- **Alert rules.** Define a condition over first-party events — an event count or a distinct-count threshold within a time window — and Analytics notifies you (inbox, email, Slack, or a webhook) when it fires, then waits out a cooldown period before alerting again for the same condition.
+
+Ask the agent for either directly: "email me this dashboard every morning at 9am" or "alert the team in Slack if signup errors exceed 50 in 10 minutes."
+
+## What's next
+
+- [**Monitoring, Errors, and Session Replay**](/docs/template-analytics-monitoring-and-sessions) — the other place Analytics watches your product for you
+- [**Connecting and Extending Data Sources**](/docs/template-analytics-connectors) — what's available to build dashboards and analyses from
+- [**Extending Analytics**](/docs/template-analytics-developers) — the data model and action reference behind this page
+- [**Analytics overview**](/docs/template-analytics) — back to the app summary

@@ -1,0 +1,362 @@
+---
+title: "External Agents: Claude, ChatGPT, Codex, Cursor, Cowork, Grok"
+description: "Connect Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok, or any MCP-compatible host to a hosted agent-native app — then round-trip artifacts back into the running UI with MCP Apps and deep links."
+search: "Claude Anthropic ChatGPT OpenAI Claude Code Codex Cursor Claude Cowork Grok xAI MCP Apps agent-native connect local agent tools external agents"
+---
+
+# External Agents
+
+**This page: connect an external agent or MCP host to your app.** Use it when Claude, ChatGPT, Codex, Cursor, Claude Cowork, or another MCP-compatible host should drive a hosted agent-native app and round-trip the result back into the running UI.
+
+| If you want to…                                                             | Read                                                                             |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Connect an external agent/host to your app                                  | **This page** — External Agents                                                  |
+| Look up catalog tiers, tool exposure, or the `link`/open-route internals    | [External Agents — Catalog & Developer Reference](/docs/external-agents-catalog) |
+| Give your agent more tools (consume other MCP servers)                      | [MCP Clients](/docs/mcp-clients)                                                 |
+| Build inline UIs that render in Claude/ChatGPT                              | [MCP Apps](/docs/mcp-apps)                                                       |
+| Build generated inline UI inside Agent-Native chat                          | [Generative UI](/docs/generative-ui)                                             |
+| Lower-level MCP server reference (auth, tools, custom mount)                | [MCP Server](/docs/mcp-protocol)                                                 |
+| Make public routes crawlable/citable by any agent, no MCP connection needed | [Public Agent Web](/docs/agent-web-surfaces)                                     |
+
+An agent-native app is reachable by any MCP-compatible host — Claude, Claude Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Claude Cowork, VS Code GitHub Copilot, Goose, Postman, MCPJam, and future clients that implement the standard. External agents are great at producing artifacts (a draft, an event, a dashboard) but they often live in a terminal or another app. Without a bridge, the user gets a wall of JSON and has to go find the thing.
+
+The external-agent bridge closes the loop. First you connect your own agent to a **hosted** app — either by pasting the app's remote MCP URL into a chat host like Claude or ChatGPT, or by running the developer CLI flow for local coding agents. Then the agent does the work over MCP and hands the user either an inline **MCP App** UI in compatible hosts or a single **"Open in &lt;app&gt; →"** link that opens the real app focused on exactly what was produced. It reuses the existing `navigate` / `application_state` contract the UI already drains every 2s (see [Context Awareness](/docs/context-awareness)) — there is no second navigation mechanism.
+
+<Diagram id="doc-block-1jkif6u" title="The external-agent round-trip" summary={"An external host calls a tool over MCP; the app returns an artifact plus an Open link. Clicking it resolves the browser session and focuses the artifact in the running UI — the link carries no privileged state."}>
+
+```html
+<div class="xa-trip">
+  <div class="diagram-box" data-rough>
+    External host<br /><small class="diagram-muted"
+      >Claude &middot; ChatGPT &middot; Codex &middot; Cursor</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">MCP tool call</span
+    ><small class="diagram-muted">e.g. <code>manage-draft</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    App produces artifact<br /><small class="diagram-muted"
+      >+ <code>Open in &lt;app&gt; &rarr;</code> deep link / MCP App</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>User clicks link</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill ok"><code>/_agent-native/open</code></span
+    ><small class="diagram-muted"
+      >resolves the <strong>browser</strong> session</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Writes <code>navigate</code> app-state<br /><small class="diagram-muted"
+      >UI focuses the artifact</small
+    >
+  </div>
+</div>
+```
+
+```css
+.xa-trip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.xa-trip .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.xa-trip .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.xa-trip code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+The identity rule is the safety hinge: the link is just `view` + record ids + filters, and the record-focusing `navigate` write is scoped to whoever is logged into the **browser** — never the external agent's MCP token. That is why the link is safe to paste into a terminal or chat transcript.
+
+## Which agent path do you need? {#which-agent-path}
+
+- **External MCP host:** use this page when Claude, ChatGPT, Codex, Cursor, OpenCode, GitHub Copilot / VS Code, or another MCP-compatible host should call your hosted agent-native app.
+- **Your own runtime behind Agent-Native chat:** see [Agent Surfaces](/docs/agent-surfaces#byo-agent) and [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes) when an agent built with another framework should power `<AssistantChat runtime={...}>`.
+- **Your app consuming MCP tools:** see [MCP Clients](/docs/mcp-clients) when an agent-native app needs to call tools exposed by another MCP server.
+- **Another app or agent via A2A:** use [Agent Mentions](/docs/agent-mentions) and [A2A](/docs/a2a-protocol) when agent-native apps should discover and delegate to each other.
+- **Local custom sub-agents:** use [Agent Resources](/docs/agent-resources) when you want custom agent profiles inside the app's own agent resources.
+
+## Easy setup {#easy-setup}
+
+Every Agent-Native app exposes one canonical MCP URL:
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+In the app, open **Settings → Integrations** and search for the host name you
+already know: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
+Codex, Grok, or xAI. The one external-host result opens **Settings → MCP** with
+the closest guide selected. Copy the **MCP server URL** and paste it into the AI
+host. The URL is the deployed app base URL plus `/mcp`.
+
+For workspace or cross-app work, use Dispatch:
+
+```text
+https://dispatch.agent-native.com/mcp
+```
+
+Dispatch is the single gateway for Mail, Calendar, Analytics, Brain, and your
+workspace apps. In Dispatch's **Agents** page, choose whether the gateway can
+reach all apps or only selected apps. The connected host then gets
+`list_apps`, `ask_app`, and `open_app`, filtered to that granted set.
+
+For one intentionally isolated app, use that app directly:
+
+```text
+https://mail.agent-native.com/mcp
+https://<your-app>.agent-native.com/mcp
+```
+
+Every hosted app also has a helper page at
+`https://&lt;app&gt;/mcp/connect` with the copyable URL and
+host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, Grok, and
+Other.
+
+<a id="access-tab"></a>
+
+### The in-app MCP setting {#mcp-settings}
+
+Standard app Settings includes an **MCP** tab beside **Integrations**. It shows
+the app's canonical MCP URL, an A2A agent card when available, and the same
+client setup instructions used by the full connect page. Use **Settings → MCP**
+as the in-app starting point, or open `/mcp/connect` directly for the full flow
+and static-token fallback.
+
+### Claude and ChatGPT OAuth {#oauth}
+
+Claude / Claude Desktop: add a custom connector, paste the MCP URL, click
+**Connect**, sign in with your Agent-Native account, approve the MCP scopes,
+and enable the connector in a chat. Claude Code uses the same URL: add it as a
+remote HTTP MCP server, run `/mcp`, then choose **Authenticate**.
+
+ChatGPT: custom MCP apps require a supported ChatGPT web workspace. If you have
+access, open **Settings → Apps → Advanced settings**, enable developer mode when
+required, choose **Create app**, paste the same MCP URL, choose OAuth, scan the
+tools, sign in with Agent-Native, approve the requested scopes, and enable the
+app in a chat. Business, Enterprise, and Edu workspaces support full MCP,
+including write actions; Pro supports read and fetch in developer mode. If
+**Apps** or **Create app** is missing, your plan or workspace policy does not
+allow this setup.
+
+OAuth grants are per host and per user. The host stores the tokens and
+mediates tool/resource calls, so inline MCP App previews never receive raw
+OAuth tokens. ChatGPT can keep a reviewed or published connector's tool
+snapshot until you refresh/review it again, so rescan the connector after MCP
+tool or MCP App metadata changes. If you still have old per-app connectors
+enabled alongside Dispatch, refresh or reconnect each stale connector; updating
+Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
+snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` scopes are the same ones
+covered in [Standard remote MCP OAuth](#standard-oauth) below.
+
+Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
+MCP URL through their own MCP-server UIs when their build supports remote OAuth
+MCP servers.
+
+### Quick test prompt {#quick-test}
+
+After connecting, try one of these:
+
+```text
+Use Agent-Native Analytics to generate a weekly conversion-rate bar chart and show it inline.
+```
+
+```text
+Use Agent-Native Mail to draft a short follow-up email to me, but do not send it.
+```
+
+In hosts that support MCP Apps, Analytics can render real dashboard and analysis routes inline, and Mail can render the real compose UI inline for draft review. In hosts that do not render MCP Apps, the same tool call still returns a deep link such as **Open draft in Mail →** or **Open dashboard in Analytics →**.
+
+## Advanced setup: local agents {#connect}
+
+Use this flow for local agent clients on your machine — Claude Code, Claude Code CLI, Codex, Claude Cowork, Cursor, OpenCode, and GitHub Copilot / VS Code. Cursor and other OAuth-native clients can also use the paste-URL flow above when their UI supports remote MCP OAuth.
+
+Run the connect command through npm:
+
+```bash
+npx @agent-native/core@latest connect https://dispatch.agent-native.com
+```
+
+The command asks which local agent clients should receive MCP config. All clients are preselected the first time; after you choose, the selection is saved to `~/.agent-native/connect.json` so the next run can reuse it with Enter, or you can edit the checked items.
+
+For Claude Code, Claude Code CLI, Cursor, OpenCode, and GitHub Copilot / VS Code, `connect` writes a standard remote HTTP MCP entry with no static headers. Restart the client and authenticate from its MCP UI when prompted. For Codex and Claude Cowork, `connect` uses the compatibility device-code flow: it opens your browser at the app, you click **Authorize** once, and the command writes a scoped bearer-token entry. If you choose a mix of clients, it does both.
+
+Keep the `connect` command running until the browser approval completes. If the
+waiting process is stopped early, the approval can succeed in the browser but
+the local client config will not receive the token.
+
+If you previously connected Claude Code through the old bearer-token flow, just run the same `npx @agent-native/core@latest connect ... --client claude-code` command again. The CLI replaces the legacy `Authorization` headers with the URL-only OAuth entry and tells you to re-authenticate from `/mcp`.
+
+| Local client                  | Config written by `connect`                             | Auth flow                                       |
+| ----------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
+| Claude Code / Claude Code CLI | `.mcp.json` or `~/.claude.json`, depending on `--scope` | Standard remote MCP OAuth in Claude's `/mcp` UI |
+| Cursor                        | `.cursor/mcp.json` or `~/.cursor/mcp.json`              | Standard remote MCP OAuth in Cursor's MCP UI    |
+| OpenCode                      | `opencode.json` or `~/.config/opencode/opencode.json`   | Standard remote MCP OAuth in OpenCode's MCP UI  |
+| GitHub Copilot / VS Code      | `.vscode/mcp.json` or VS Code user MCP config           | Standard remote MCP OAuth in VS Code's MCP UI   |
+| Codex                         | `$CODEX_HOME/config.toml` or `~/.codex/config.toml`     | Browser-authorized bearer fallback              |
+| Claude Cowork                 | `~/.cowork/mcp.json` using the Claude Code MCP shape    | Browser-authorized bearer fallback              |
+
+Restart the agent client after connecting so it picks up the new MCP server; OAuth-native clients may then prompt you to authenticate from their MCP UI.
+
+When troubleshooting local MCP config, redact `Authorization`, `http_headers`,
+and token values before sharing logs. Do not use raw curl as a substitute for a
+host MCP session; after connecting, use the host-exposed tools or restart the
+client if the new server is not visible yet.
+
+Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
+
+First-party app skills install the instructions and the hosted MCP connector together with the Agent-Native CLI:
+
+```bash
+npx @agent-native/core@latest skills add assets              # alias: image-generation
+```
+
+The Vercel/open Skills CLI path is also available when you only want portable
+instructions:
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill assets
+```
+
+The raw `skills` CLI installs `SKILL.md` files only; local MCP hosts still
+need a connector such as `npx @agent-native/core@latest connect https://assets.agent-native.com`.
+
+| Skill          | Alias                | For                                             |
+| -------------- | -------------------- | ----------------------------------------------- |
+| `assets`       | `image-generation`   | image/video generation                          |
+| `content`      | `docs`               | editing docs, blogs, resources, and MDX content |
+| `rewind`       | `screen-memory`      | local Clips screen memory, transcripts, frames  |
+| `design`       | `design-exploration` | UI design exploration and prototypes            |
+| `visual-plans` | `agent-native-plans` | visual plans, recaps, and repo-native docs      |
+| `context-xray` | `xray`               | local Codex/Claude Code context usage           |
+
+The default client selection is all supported local clients; add `--client codex`, `--client claude-code`, or another specific target to narrow setup. Inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) render the picker / variant grid in chat; CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back.
+
+When you truly need an isolated app instead of Dispatch's workspace gateway,
+run the same command with that app's host:
+
+```bash
+npx @agent-native/core@latest connect https://mail.agent-native.com
+```
+
+`connect --all` still exists for legacy per-app client setups, but new
+workspace setups should prefer the single Dispatch connector.
+
+The connection is **per-user, scoped, and revocable**. In the OAuth path, the host stores the tokens after `/mcp` authentication; in the fallback path, the browser session you authorized with is the identity the agent acts as. Nothing exposes the deployment's shared secret.
+
+### Re-authenticating after a 401 {#reconnect}
+
+Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
+
+```bash
+npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+```
+
+`reconnect` finds any MCP config entry whose URL ends in `/mcp` for the given host and selected client (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/mcp` suffix is inferred. Auth and tool loading are per client, so restart/reload that client afterward; Codex needs a new session before newly loaded tools appear.
+
+In Claude Code, the equivalent UI path is: run `/mcp` and choose **Authenticate** (or **Reconnect**) for the relevant connector.
+
+Never reinstall the skill from scratch just to fix a 401 — `reconnect` is the right tool.
+
+### Connect page fallback {#connect-page-fallback}
+
+For MCP hosts that cannot add a remote OAuth URL directly, open the app in your browser and use its **Connect** affordance (served at `https://&lt;app&gt;/mcp/connect`). While logged in, click **Connect / Authorize**. The page hands you either a one-click deep link that configures a detected agent, or a ready-to-paste `.mcp.json` block:
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "mail": {
+      "type": "http",
+      "url": "https://mail.agent-native.com/mcp",
+      "headers": { "Authorization": "Bearer <minted-token>" },
+    },
+  },
+}
+```
+
+Restart the agent client after connecting so it picks up the new MCP server.
+
+Use this manual bearer block for MCP hosts that cannot complete the standard remote MCP OAuth flow, or for one-off debugging when you explicitly want to paste a token.
+
+### Standard remote MCP OAuth {#standard-oauth}
+
+Hosted agent-native apps also support the standard remote MCP OAuth flow. For clients that implement MCP OAuth, add the remote HTTP server URL with no static headers:
+
+```bash
+claude mcp add --transport http agent-native \
+  https://dispatch.agent-native.com/mcp
+```
+
+This is the same URL-only entry that `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code` writes for you. Then run `/mcp` in Claude Code and choose **Authenticate**. The client discovers auth from the MCP server's `401 WWW-Authenticate` challenge, fetches `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, dynamically registers a public OAuth client, opens the app's authorization page, and stores the resulting token securely. ChatGPT developer-mode connectors use the same server URL:
+
+```text
+https://dispatch.agent-native.com/mcp
+```
+
+The OAuth flow is authorization-code + PKCE with refresh-token rotation. Access tokens are audience-bound to the exact MCP resource URL and carry the signed user/org identity, so tool calls, `resources/read`, and MCP App iframe-initiated `tools/call` all run through the same `runWithRequestContext` tenant scoping as the existing connect-minted JWT path. The iframe never receives raw OAuth tokens; the host mediates calls through the authenticated MCP connection.
+
+Current scopes are:
+
+| Scope            | Allows                                                                    |
+| ---------------- | ------------------------------------------------------------------------- |
+| `mcp:read`       | read-only MCP actions and ordinary tool/resource discovery                |
+| `mcp:write`      | mutating actions and the `ask-agent` meta-tool                            |
+| `mcp:apps`       | MCP Apps resource listing/reading and inline UI rendering where supported |
+| `offline_access` | refresh-token access so compatible hosts can stay connected               |
+
+When the client requests no explicit scope, the app grants all four so the connector behaves like the browser-authorized Connect flow and can refresh access without another sign-in. Keep the bearer-token Connect page and `npx @agent-native/core@latest connect --token <token>` fallback around for local dev, fallback hosts, and clients where you need a ready-to-paste config block.
+
+## What you can do once connected {#what-you-can-do}
+
+Once your agent is connected, it sees the [compact catalog](/docs/external-agents-catalog#catalog-tiers) by
+default: template-declared app actions plus the builtin cross-app verbs
+(`list_apps`, `open_app`, `ask_app`, and the app-only embed helper). Use
+`ask_app` to route a natural-language task through an app agent (the same
+cross-app entry point [A2A](/docs/a2a-protocol) uses). Ask the agent to do real
+work and it hands back a link straight into the running app:
+
+```
+> draft an email to John about the Q3 report
+
+Claude Code calls: manage-draft(to: "john@example.com", subject: "Q3 Report", body: "…")
+→ Open draft in Mail → https://mail.agent-native.com/_agent-native/open?app=mail&view=inbox&compose=…
+```
+
+Click that link and Mail opens with the draft restored — focused exactly where you, the logged-in user, are. The agent never had to know your session; it just produced the artifact.
+
+### First-class MCP App bridge {#mcp-app-bridge}
+
+`embedApp()` starts from the action's `link` target, creates a short-lived embed session, and launches that signed app route. Claude web uses a single-frame transplant path; ChatGPT gets a controlled route iframe with `window.openai` host APIs. All paths render the normal React route. Directly hydrated routes call `ui/update-model-context`, `ui/message`, `ui/open-link`, and `ui/request-display-mode` through the host bridge; the ChatGPT path relays the same requests over `agentNative.mcpHost.*` postMessage. `embedApp({ height })` defaults to `560px` and clamps to `320-900px`.
+
+See [MCP Apps](/docs/mcp-apps) for the full bridge details — transplant vs controlled-frame, embed modes, the `ui/*` and postMessage tables, `embedStartUrl`, CSP rules, extension `srcDoc` embedding, height clamping, and the complete host bridge client API.
+
+See the full tool catalog, MCP Apps compatibility matrix, generic cross-app verbs, and per-app tour in [External Agents — Catalog & Developer Reference](/docs/external-agents-catalog#tool-exposure).
+
+## What's next {#whats-next}
+
+- [External Agents — Catalog & Developer Reference](/docs/external-agents-catalog) — catalog tiers, the `link` builder, the `/_agent-native/open` route, identity-resolution rules, and embed security
+- [MCP Apps](/docs/mcp-apps) — authoring MCP App UIs, the embed bridge, and host bridge API.
+- [MCP Server](/docs/mcp-protocol) — the auto-mounted MCP server and `ask-agent` meta-tool.
+- [MCP Clients](/docs/mcp-clients) — the symmetric direction: your app consuming local/remote MCP servers.
+- [A2A Protocol](/docs/a2a-protocol) — the `ask-agent` meta-tool and JSON-RPC peer calls.
+- [Actions](/docs/actions-overview) — defining actions, `publicAgent`, GET / `readOnly`.
+- [Context Awareness](/docs/context-awareness) — the `navigate` / `application_state` contract the open route bridges to.

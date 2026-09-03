@@ -1,0 +1,595 @@
+use tauri::{
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Listener, Manager,
+};
+
+use crate::clips::{force_show_popover, toggle_popover};
+use crate::dlog;
+use crate::state::{TrayAnchor, TrayMeetings};
+use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, MeetingItem};
+use crate::util::{is_meeting_active, is_recording_active};
+use crate::TRAY_PNG;
+
+/// A rounded stop square rendered at the same pixel size as the normal tray
+/// icon, used as the menu-bar icon while a recording is live (CleanShot's
+/// pattern: the status item becomes stop + elapsed time, and clicking it
+/// stops the recording). Template-style: black with alpha, so macOS tints it
+/// for menu-bar appearance.
+fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let side = ((w.min(h) as f32) * 0.62).round() as i32;
+    let x0 = (w as i32 - side) / 2;
+    let y0 = (h as i32 - side) / 2;
+    let radius = (side as f32 * 0.28).max(1.0);
+    let inside_rounded = |x: i32, y: i32| -> bool {
+        if x < x0 || y < y0 || x >= x0 + side || y >= y0 + side {
+            return false;
+        }
+        let rx = radius as i32;
+        let corners = [
+            (x0 + rx, y0 + rx),
+            (x0 + side - 1 - rx, y0 + rx),
+            (x0 + rx, y0 + side - 1 - rx),
+            (x0 + side - 1 - rx, y0 + side - 1 - rx),
+        ];
+        for (cx, cy) in corners {
+            let in_corner_box =
+                (x < x0 + rx || x > x0 + side - 1 - rx) && (y < y0 + rx || y > y0 + side - 1 - rx);
+            if in_corner_box {
+                let dx = (x - cx) as f32;
+                let dy = (y - cy) as f32;
+                let near = (x - cx).abs() <= rx && (y - cy).abs() <= rx;
+                if near {
+                    return dx * dx + dy * dy <= radius * radius;
+                }
+            }
+        }
+        true
+    };
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            if inside_rounded(x, y) {
+                let idx = ((y as u32 * w + x as u32) * 4) as usize;
+                rgba[idx + 3] = 255;
+            }
+        }
+    }
+    tauri::image::Image::new_owned(rgba, w, h)
+}
+
+/// Whether the status item is in recording mode (stop square + timer).
+/// Written ONLY by `tray_recording_status` — the pill is the single owner of
+/// this state — plus the window-destroyed backstop in lib.rs.
+static TRAY_RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Millis timestamp of the last recording-mode write. The pill refreshes the
+/// title every 500ms while live, so 2.5s of silence means the writer is gone
+/// and the dead-man loop below clears the status item — a stale menu-bar
+/// timer is structurally impossible, not just handled per code path.
+static TRAY_LAST_WRITE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Icon image last applied to the status item: unset, app logo, or stop
+/// square. Tracked separately from `TRAY_RECORDING` because it records what
+/// the status item actually accepted, not what was requested.
+const TRAY_ICON_MODE_UNSET: i8 = -1;
+static TRAY_ICON_MODE: std::sync::atomic::AtomicI8 =
+    std::sync::atomic::AtomicI8::new(TRAY_ICON_MODE_UNSET);
+
+fn tray_icon_mode(stored: i8) -> Option<bool> {
+    if stored == TRAY_ICON_MODE_UNSET {
+        None
+    } else {
+        Some(stored != 0)
+    }
+}
+
+/// Whether the status item's icon image has to be re-uploaded.
+///
+/// `set_icon` replaces the NSStatusItem's image, and the pill refreshes the
+/// title four times a second to tick the timer. Re-uploading the same image at
+/// that cadence makes the menu-bar icon visibly flash, so the image is written
+/// only on the first write and on an actual mode flip. The title still goes
+/// out every call — it is the part that genuinely changes.
+fn tray_icon_needs_write(previous: Option<bool>, next: bool) -> bool {
+    previous != Some(next)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+pub fn tray_recording_active() -> bool {
+    TRAY_RECORDING.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) {
+    TRAY_RECORDING.store(active, std::sync::atomic::Ordering::SeqCst);
+    TRAY_LAST_WRITE_MS.store(now_ms(), std::sync::atomic::Ordering::SeqCst);
+    let Some(tray) = app.tray_by_id("main") else {
+        return;
+    };
+    let applied_icon_mode =
+        tray_icon_mode(TRAY_ICON_MODE.load(std::sync::atomic::Ordering::SeqCst));
+    if tray_icon_needs_write(applied_icon_mode, active) {
+        if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
+            let icon = if active {
+                stop_square_icon(base.width(), base.height())
+            } else {
+                base
+            };
+            // Recorded only once the status item accepts the image: a failed
+            // write must stay pending so the next call retries it, not look
+            // like the mode is already on screen.
+            match tray.set_icon(Some(icon)) {
+                Ok(()) => {
+                    let _ = tray.set_icon_as_template(true);
+                    TRAY_ICON_MODE.store(i8::from(active), std::sync::atomic::Ordering::SeqCst);
+                }
+                Err(err) => eprintln!("[clips-tray] status item icon update failed: {err}"),
+            }
+        }
+    }
+    // ALWAYS Some(...): tray-icon's macOS set_title is a silent no-op for
+    // None (its Some-only branch never clears the NSStatusItem text), so a
+    // reset must pass an empty string or the stale timer sticks forever.
+    #[cfg(target_os = "macos")]
+    let _ = tray.set_title(Some(if active {
+        title.unwrap_or_default()
+    } else {
+        String::new()
+    }));
+    #[cfg(not(target_os = "macos"))]
+    let _ = title;
+    // The stop-square icon swap above is easy to miss at tray-icon size, and
+    // Windows has no menu-bar title text to reinforce it — the tooltip is the
+    // one place left to spell out that this icon is now the stop button. Gated
+    // on the same mode flip as the icon so the 4x/sec timer tick from the pill
+    // doesn't touch the tooltip on every call.
+    if tray_icon_needs_write(applied_icon_mode, active) {
+        let _ = tray.set_tooltip(Some(if active {
+            "Clips — Recording (click to stop)"
+        } else {
+            "Clips"
+        }));
+    }
+}
+
+/// Single writer for the status item's recording mode: the pill invokes this
+/// with `active` mirroring its own visibility (capture live, not the
+/// completion card) and a preformatted timer title. Everything the menu bar
+/// shows about recording flows through here — no inference from recorder
+/// events on the Rust side.
+#[tauri::command]
+pub async fn tray_recording_status(
+    app: tauri::AppHandle,
+    active: bool,
+    title: Option<String>,
+) -> Result<(), String> {
+    apply_tray_mode(&app, active, title);
+    Ok(())
+}
+
+/// Backstop for the one failure the pill cannot report: its window dying
+/// while the tray still shows recording mode.
+pub fn reset_tray_recording(app: &tauri::AppHandle) {
+    if tray_recording_active() {
+        apply_tray_mode(app, false, None);
+    }
+}
+
+fn physical_tray_rect(rect: tauri::Rect) -> (i32, i32, i32, i32) {
+    let (x, y) = match rect.position {
+        tauri::Position::Physical(position) => (position.x, position.y),
+        tauri::Position::Logical(position) => (position.x as i32, position.y as i32),
+    };
+    let (width, height) = match rect.size {
+        tauri::Size::Physical(size) => (size.width as i32, size.height as i32),
+        tauri::Size::Logical(size) => (size.width as i32, size.height as i32),
+    };
+    (x, y, width, height)
+}
+
+/// A status item that has not been laid out yet reports a frame at the screen
+/// origin, which macOS coordinate flipping turns into a bottom-left rect. Only
+/// a rect sitting in a monitor's menu-bar row can anchor the popover.
+fn tray_rect_is_laid_out(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
+    let (x, y, width, height) = physical_tray_rect(rect);
+    if width <= 0 || height <= 0 {
+        return false;
+    }
+
+    let center_x = x + width / 2;
+    let center_y = y + height / 2;
+    let Some(window) = app.get_webview_window("popover") else {
+        return false;
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return false;
+    };
+
+    monitors.into_iter().any(|monitor| {
+        let position = monitor.position();
+        let size = monitor.size();
+        if center_x < position.x || center_x >= position.x + size.width as i32 {
+            return false;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let menu_bar_band = (64.0 * monitor.scale_factor()).round() as i32;
+            center_y >= position.y && center_y < position.y + menu_bar_band
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            center_y >= position.y && center_y < position.y + size.height as i32
+        }
+    })
+}
+
+fn store_tray_anchor(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
+    if !tray_rect_is_laid_out(app, rect) {
+        dlog!("[clips-tray] ignoring tray rect that is not laid out yet");
+        return false;
+    }
+    let Some(anchor) = app.try_state::<TrayAnchor>() else {
+        return false;
+    };
+    let Ok(mut guard) = anchor.0.lock() else {
+        return false;
+    };
+    *guard = Some(rect);
+    true
+}
+
+pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
+    let Some(rect) = app
+        .tray_by_id("main")
+        .and_then(|tray| tray.rect().ok().flatten())
+    else {
+        return false;
+    };
+    store_tray_anchor(app, rect)
+}
+
+/// Build the full tray menu with the given upcoming-meetings list. Used both
+/// at startup (with `Vec::new()`) and at refresh time when the meetings
+/// watcher pushes a new snapshot — `TrayIcon::set_menu(Some(...))` swaps the
+/// menu atomically.
+fn build_menu_with_meetings(
+    app: &tauri::AppHandle,
+    meetings: Vec<MeetingItem>,
+) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+    let meetings_submenu = build_meetings_section(app, meetings)?;
+    let show_item = MenuItem::with_id(app, "show", "Show popover", true, None::<&str>)?;
+    let recording_active = is_recording_active(app);
+    let meeting_active = is_meeting_active(app);
+    let stop_item = MenuItem::with_id(
+        app,
+        "stop",
+        if meeting_active {
+            "Stop meeting notes"
+        } else if recording_active {
+            "Stop recording"
+        } else {
+            "No active recording"
+        },
+        recording_active || meeting_active,
+        None::<&str>,
+    )?;
+    let has_last_dictation = app
+        .try_state::<crate::state::LastTranscript>()
+        .and_then(|s| {
+            s.0.lock()
+                .ok()
+                .map(|g| g.as_deref().is_some_and(|t| !t.trim().is_empty()))
+        })
+        .unwrap_or(false);
+    let paste_last_dictation_item = MenuItem::with_id(
+        app,
+        "paste-last-dictation",
+        "Paste Last Dictation",
+        has_last_dictation,
+        Some("Cmd+Ctrl+V"),
+    )?;
+    let guides = crate::config::feature_config(app).region_guides;
+    let region_guides_item = CheckMenuItem::with_id(
+        app,
+        "toggle-region-guides",
+        "Show region guides on screen",
+        true,
+        guides.always_visible,
+        None::<&str>,
+    )?;
+    let devtools_item =
+        MenuItem::with_id(app, "devtools", "Toggle DevTools", true, Some("Cmd+Alt+I"))?;
+    let version_item = MenuItem::with_id(
+        app,
+        "version",
+        format!("Clips v{}", env!("CARGO_PKG_VERSION")),
+        false,
+        None::<&str>,
+    )?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit Clips", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let separator2 = PredefinedMenuItem::separator(app)?;
+    let separator3 = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &meetings_submenu,
+            &separator,
+            &show_item,
+            &stop_item,
+            &paste_last_dictation_item,
+            &region_guides_item,
+            &devtools_item,
+            &separator2,
+            &version_item,
+            &separator3,
+            &quit_item,
+        ],
+    )?;
+    Ok(menu)
+}
+
+/// Rebuild the tray menu from the cached meetings snapshot. Tauri 2 menu APIs
+/// are main-thread-only on macOS, so this hops back via `run_on_main_thread`
+/// before swapping the menu (`set_menu` is atomic — the documented Tauri 2
+/// way to update a tray; there's no partial-update API for items).
+pub fn rebuild_tray_menu(app: &tauri::AppHandle) {
+    let app = app.clone();
+    let _ = app.clone().run_on_main_thread(move || {
+        let meetings = app
+            .try_state::<TrayMeetings>()
+            .and_then(|s| s.0.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        let new_menu = match build_menu_with_meetings(&app, meetings) {
+            Ok(m) => m,
+            Err(err) => {
+                eprintln!("[clips-tray] rebuild menu failed: {err}");
+                return;
+            }
+        };
+        if let Some(tray) = app.tray_by_id("main") {
+            if let Err(err) = tray.set_menu(Some(new_menu)) {
+                eprintln!("[clips-tray] set_menu failed: {err}");
+            } else {
+                dlog!("[clips-tray] tray menu rebuilt");
+            }
+        }
+    });
+}
+
+pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // Initial build with an empty meetings list — the watcher will push real
+    // data via the `meetings:updated` event below and we'll rebuild then.
+    let menu = build_menu_with_meetings(app.handle(), Vec::new())?;
+
+    // Load the tray icon from embedded bytes so the binary is self-contained.
+    let tray_icon = tauri::image::Image::from_bytes(TRAY_PNG)?;
+
+    eprintln!(
+        "[clips-tray] building tray icon from {} bytes",
+        TRAY_PNG.len()
+    );
+    let tray = TrayIconBuilder::with_id("main")
+        .tooltip("Clips")
+        .menu(&menu)
+        .icon(tray_icon)
+        .icon_as_template(true)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| {
+            let id_ref = event.id.as_ref();
+            // Meeting click → open popover + emit `meetings:open`.
+            if handle_meeting_menu_click(app, id_ref) {
+                return;
+            }
+            match id_ref {
+                "show" => force_show_popover(app),
+                "stop" => {
+                    if is_meeting_active(app) {
+                        let _ = app.emit("clips:pill-stop", serde_json::json!({}));
+                    } else {
+                        let _ = app.emit("clips:recorder-stop", ());
+                    }
+                }
+                "paste-last-dictation" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(err) = crate::clips::paste_last_dictation(app).await {
+                            eprintln!("[clips-tray] paste_last_dictation (tray) failed: {err}");
+                        }
+                    });
+                }
+                "toggle-region-guides" => {
+                    let mut new_config = crate::config::feature_config(app);
+                    let next_visible = !new_config.region_guides.always_visible;
+                    new_config.region_guides.always_visible = next_visible;
+                    // Mirrors the Settings "open the editor" choice: turning
+                    // it on with no preset drawn opens the region-guide editor
+                    // so the user can draw one — we still persist
+                    // always_visible = true so it activates once a preset is
+                    // saved.
+                    if next_visible && new_config.region_guides.rects.is_empty() {
+                        let a = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = crate::clips::show_region_guide_editor(a).await;
+                        });
+                    }
+                    // set_feature_config is async (saves + emits
+                    // app:feature-config-changed to keep the Settings switch in
+                    // sync + calls reconcile_region_guides). Spawn it from this
+                    // sync handler.
+                    let a = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(err) = crate::config::set_feature_config(a, new_config).await {
+                            eprintln!("[clips-tray] toggle-region-guides save failed: {err}");
+                        }
+                    });
+                    // Rebuild the tray menu immediately so the checkmark
+                    // reflects the new state without waiting on the async save.
+                    rebuild_tray_menu(app);
+                }
+                "devtools" => {
+                    if let Some(w) = app.get_webview_window("popover") {
+                        if w.is_devtools_open() {
+                            w.close_devtools();
+                        } else {
+                            w.open_devtools();
+                        }
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            // Remember the icon's rect so the popover can anchor below it.
+            let rect = match &event {
+                TrayIconEvent::Click { rect, .. }
+                | TrayIconEvent::DoubleClick { rect, .. }
+                | TrayIconEvent::Enter { rect, .. }
+                | TrayIconEvent::Move { rect, .. }
+                | TrayIconEvent::Leave { rect, .. } => Some(*rect),
+                _ => None,
+            };
+            if let Some(rect) = rect {
+                store_tray_anchor(tray.app_handle(), rect);
+            }
+
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                let active = is_recording_active(app);
+                let meeting_active = is_meeting_active(app);
+                dlog!(
+                    "[clips-tray] tray click — is_recording_active={} is_meeting_active={}",
+                    active,
+                    meeting_active
+                );
+                if tray_recording_active() && !meeting_active {
+                    // The status item IS the stop button while recording — it
+                    // shows a stop square and the elapsed time, so the click
+                    // is an explicit Stop, not an implicit one. Route through
+                    // the pill so its finishing hold and completion card run;
+                    // if the pill window is somehow gone, stop directly.
+                    if app.get_webview_window("toolbar").is_some() {
+                        let _ = app.emit("clips:tray-stop-request", ());
+                    } else {
+                        let _ = app.emit("clips:recorder-stop", ());
+                    }
+                } else if active && !meeting_active {
+                    // Recording session exists but capture isn't live (setup,
+                    // countdown, finishing) — restore the parked popover.
+                    force_show_popover(app);
+                } else {
+                    toggle_popover(app);
+                }
+            }
+        })
+        .build(app)?;
+    eprintln!("[clips-tray] tray built — should be visible in menu bar");
+    // Persist the tray so it isn't dropped at the end of setup.
+    app.manage(tray);
+
+    // Listen for meetings:updated and rebuild the menu live. Uses
+    // `tray_by_id("main")` to fetch the persisted handle from the
+    // resource table. `set_menu` is atomic — replacing the entire menu
+    // is the documented Tauri 2 way to update a tray (there's no
+    // partial-update API for items).
+    // Dead-man switch for recording mode: see TRAY_LAST_WRITE_MS.
+    let deadman_handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            if tray_recording_active()
+                && now_ms()
+                    .saturating_sub(TRAY_LAST_WRITE_MS.load(std::sync::atomic::Ordering::SeqCst))
+                    > 2_500
+            {
+                apply_tray_mode(&deadman_handle, false, None);
+            }
+        }
+    });
+
+    let app_handle = app.handle().clone();
+    app.handle().listen("meetings:updated", move |event| {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            #[serde(default)]
+            meetings: Vec<MeetingItem>,
+        }
+        let parsed: Payload = match serde_json::from_str(event.payload()) {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] meetings:updated parse failed: {err}");
+                return;
+            }
+        };
+        // Cache the latest snapshot so on-demand rebuilds (e.g. toggling the
+        // region-guides check item) keep the meetings submenu.
+        if let Some(state) = app_handle.try_state::<TrayMeetings>() {
+            if let Ok(mut g) = state.0.lock() {
+                *g = parsed.meetings;
+            }
+        }
+        rebuild_tray_menu(&app_handle);
+    });
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{tray_icon_mode, tray_icon_needs_write, TRAY_ICON_MODE_UNSET};
+
+    #[test]
+    fn writes_the_icon_on_the_first_call() {
+        assert!(tray_icon_needs_write(None, false));
+        assert!(tray_icon_needs_write(None, true));
+    }
+
+    #[test]
+    fn skips_the_icon_when_the_mode_is_unchanged() {
+        // The pill re-invokes the status update four times a second to tick
+        // the timer; re-uploading the same image at that rate is the flash.
+        assert!(!tray_icon_needs_write(Some(true), true));
+        assert!(!tray_icon_needs_write(Some(false), false));
+    }
+
+    #[test]
+    fn writes_the_icon_on_a_mode_flip_in_either_direction() {
+        assert!(tray_icon_needs_write(Some(false), true));
+        assert!(tray_icon_needs_write(Some(true), false));
+    }
+
+    #[test]
+    fn ten_seconds_of_ticking_writes_the_icon_once() {
+        // The reported flash: the pill invokes the status update every 250ms
+        // to tick the timer, and every one of those used to re-upload the
+        // image. Ten seconds of recording is one icon write, not forty-one.
+        let mut applied: Option<bool> = None;
+        let mut writes = 0;
+        for _ in 0..41 {
+            if tray_icon_needs_write(applied, true) {
+                writes += 1;
+                applied = Some(true);
+            }
+        }
+        assert_eq!(writes, 1);
+    }
+
+    #[test]
+    fn reads_an_unset_mode_as_never_written() {
+        assert_eq!(tray_icon_mode(TRAY_ICON_MODE_UNSET), None);
+        assert_eq!(tray_icon_mode(0), Some(false));
+        assert_eq!(tray_icon_mode(1), Some(true));
+    }
+}

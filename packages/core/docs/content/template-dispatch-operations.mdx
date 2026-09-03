@@ -1,0 +1,172 @@
+---
+title: "Operating the workspace: automations, Dreams, and the operator console"
+description: "Scheduled automations, the Dreams memory review loop, the /operations console's Monitoring and Database tabs, and where to look for thread history, change history, and usage."
+---
+
+# Operating the workspace: automations, Dreams, and the operator console
+
+Once Dispatch is coordinating a workspace, this is where you keep it healthy day to day: scheduled automations, the Dreams review loop that watches how agents are actually doing, and the operator console for monitoring, database admin, thread debugging, audit history, and usage. It's for whoever runs the workspace.
+
+## Automations hub {#jobs}
+
+Cross-app scheduled automations live here: "every weekday at 7, pull
+yesterday's key metrics from analytics and draft a morning summary email." The
+**Automations** page shows enabled state, last run, next run, and last error,
+sourced from the underlying `jobs/*.md` resources, and lets you enable or
+disable scheduled work without editing files by hand. A failed row links
+straight to **Troubleshoot in Thread Debug**.
+
+Describe new scheduled work in the composer and the agent creates it. Personal
+automations use the trigger-aware `manage-automations` workflow. Existing
+organization-scoped schedules remain legacy recurring jobs managed through
+`manage-jobs`; event-triggered and trigger-aware automations do not support
+organization scope today.
+
+## Dreams {#dreams}
+
+Dreams are Dispatch's review loop for agent memory. A dream pass looks over existing agent runs, thread debug data, feedback, evals, and repeated tool failures, then writes a report with proposed changes. The proposals can target personal memory, shared `LEARNINGS.md`, workspace instructions, workspace skills, workspace knowledge, workspace agents, or recurring jobs, but shared and workspace-level changes stay reviewable rather than being applied silently.
+
+Dream proposals are checked against the personal memory index, existing `memory/*.md` files, and shared `LEARNINGS.md` before they are saved. Duplicate lessons are skipped in the report, while likely stale personal memories are updated in place instead of producing parallel notes. Within a report, Dreams also deduplicate repeated evidence by thread, signal type, and normalized quote, strip injected context from user-correction detection, and summarize raw eval/tool rows into human-readable bullets before they appear in proposal text. When a pass finds signals but intentionally creates no proposals, the report includes guardrail notes explaining which evidence was suppressed.
+
+When Dispatch approval policy is enabled, applying a shared or team-wide dream proposal creates a pending approval request instead of writing immediately — see [Messaging, routing, and approvals](/docs/template-dispatch-messaging-routing#approvals). Creating, updating, or deleting an All-app workspace resource also queues an approval request. Personal memory proposals and selected-only resource edits can still be applied directly after review.
+
+Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?", "what should we remember?", or "which repeated lesson deserves a skill?" Inbound Slack, email, Telegram, WhatsApp, and web-derived evidence is treated as untrusted input, so proposals from those sources require review and provenance before they affect shared memory. Workspace-instruction proposals require durable evidence spanning at least two threads or two source apps; eval-only noise, account setup issues, quota limits, and single-app UI wording corrections stay out of global instructions.
+
+<Diagram id="doc-block-dispatch5" title={"Dreams input pipeline"} summary={"Evidence from untrusted sources is truncated and redacted before it's compiled into a report, and the scan itself runs under Zod-validated, clamped limits."}>
+
+```html
+<div class="dsp-dreams-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">Threads</div>
+    <div class="diagram-node">Feedback &amp; evals</div>
+    <div class="diagram-node">Tool failures</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Truncate &amp; redact<br /><small class="diagram-muted"
+      >bounded snippet length · secrets redacted</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Strip injected context<br /><small class="diagram-muted"
+      >drop text after a fake &lt;context&gt; marker</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Dream report</span
+    ><small class="diagram-muted">proposals + source health</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">Review sheet</div>
+    <div class="diagram-node">
+      Apply<br /><small class="diagram-muted">or queue for approval</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.dsp-dreams-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dsp-dreams-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dsp-dreams-flow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dsp-dreams-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.dsp-dreams-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+### Dream input validation boundaries
+
+Because evidence is collected from external, untrusted sources (such as chat transcripts, webhooks, and third-party integrations), the Dream pipeline limits what a single message can do to a report:
+
+- **Bounded evidence length:** evidence snippets are truncated before they're written into a proposal — roughly 120–260 characters for most quoted evidence, up to 1,200 characters for full message/row text — so one oversized message can't dominate a report.
+- **Secret redaction:** secret-looking substrings — `sk-...` keys, `Bearer ...` tokens, long base64 blobs — are redacted out of evidence text before it's compiled.
+- **Injected-context stripping:** a user message containing a fake `<context>` marker has everything after that marker dropped before the pipeline checks it for correction or frustration signals, so a message can't smuggle instructions into what looks like a genuine user correction.
+- **Clamped scan parameters:** candidate limit, per-source/per-thread timeouts, and concurrency are Zod-validated and clamped at the action boundary (for example `limit` 1–50, `sourceTimeoutMs` up to 60s, `threadConcurrency` up to 10), so a malformed or oversized request can't force an unbounded scan.
+
+In the Dispatch UI, open **Dreams** to run a manual pass, review candidate threads, inspect the report, and open each proposal's review sheet before applying or rejecting it. Use **Settings** to edit the recurring cron schedule, source scope, timeout/concurrency limits, candidate limit, and minimum candidate threshold; use **Ensure schedule** after saving when you want the `jobs/dispatch-dream.md` recurring job materialized from those settings. The review sheet shows approval behavior, the current target content, proposed content, and source evidence. Agents use the same workflow through actions:
+
+- `list-dream-candidates` finds recent threads with grounded signals such as explicit user corrections, failed runs, tool errors, feedback, eval failures, and successful checkpointed workflows. Pass `sourceId: "all"` or `sourceIds` to scan multiple thread-debug sources; `sourceTimeoutMs`, `sourceConcurrency`, `sourceStartStaggerMs`, `threadConcurrency`, and `threadTimeoutMs` keep production scans partial and bounded, and the response includes per-source health.
+- `create-dream-report` creates the report and pending proposals. Multi-source reports include a Source Health section so partial scans are visible during review. Repeated corrections and recurring failures can become workspace-resource proposals such as `workspace-instruction`; repeated successful checkpointed workflows can become `workspace-skill` proposals.
+- `get-dream-settings` and `set-dream-settings` read and update the recurring dream schedule, source scope, timeout/concurrency controls, limit, and minimum candidate threshold.
+- `get-dream`, `preview-dream-proposal`, `apply-dream-proposal`, and `reject-dream-proposal` handle review.
+- `ensure-dream-job` creates the safe recurring dream job once manual reports are useful.
+
+The Dispatch template's local action runner also exposes packaged Dispatch actions, so in development you can run the same workflow from `apps/dispatch`:
+
+```bash
+pnpm action get-dream-settings
+pnpm action set-dream-settings --enabled true --schedule "0 9 * * 1" --allSources true --limit 8
+pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limit 8
+```
+
+## The Operations console {#operations}
+
+`/operations` is the focused operator console. It has two tabs, and both reuse existing framework surfaces rather than building new ones:
+
+<Table
+  id="doc-block-dispatch6"
+  title="Operations tabs"
+  columns={["Tab", "Reuses", "What it shows"]}
+  rows={[
+    [
+      "Monitoring",
+      "Shared observability dashboard",
+      "Traces, conversations, evaluations, experiments, and feedback",
+    ],
+    [
+      "Database",
+      "Code-mode database admin (DbAdminPage)",
+      "Browse and edit the workspace's SQL tables directly",
+    ],
+  ]}
+/>
+
+Use `navigate --view operations|monitoring|observability|database` or `view-screen` to align the agent with whichever tab is open.
+
+## Thread Debug, Audit, and Metrics {#advanced}
+
+Use these for concrete thread, change-history, and usage investigations instead of building a new tracker.
+
+- **Thread Debug** (`/thread-debug`) searches across the current or a configured thread-debug source by title, preview, message text, tool name, or owner email — or you can paste a thread id directly. A selected thread opens with **Transcript**, **Runs**, **Internals** (debug runs, trace summaries and spans, feedback and evals), and **Raw** tabs. Agents use `list-agent-thread-sources`, `search-agent-threads`, and `get-agent-thread-debug`.
+- **Audit** (`/audit`) is a flat, chronological change history — summary, actor, action, and timestamp — for routes, settings, and approvals. Agents read it with `list-dispatch-audit`.
+- **Metrics** (`/metrics`) is the workspace-level LLM usage dashboard: total spend (or Builder.io credit spend), calls, active users, workspace apps, and chat threads, broken down by app, model, and work type, plus a daily activity chart, a per-app access table with last-activity, a per-user table, and a recent-calls table. Pick a 7/30/90-day window. Agents read it with `list-dispatch-usage-metrics`.
+
+## Tools catalog and Identities {#identities}
+
+`/tools` is the shared Extensions catalog — the sandboxed mini-app widgets available in the workspace — reused inside Dispatch rather than rebuilt.
+
+`/identities` links an external sender to a workspace user. Generate a Slack or Telegram link token, have the person send `/link TOKEN` from that platform, and the two identities are connected from then on. Agents manage this with `create-link-token` and `list-linked-identities`.
+
+## What's next
+
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane overview
+- [**Secrets, integrations, and workspace connections**](/docs/template-dispatch-vault-integrations) — the vault and provider integrations
+- [**Messaging, routing, and approvals**](/docs/template-dispatch-messaging-routing) — channels and the approval queue
+- [**Automations**](/docs/automations) — scheduled and event-triggered tasks
+- [**Recurring Jobs**](/docs/recurring-jobs) — legacy scheduled-job compatibility and organization scope
+- [**Observability**](/docs/observability) — the dashboard the Monitoring tab reuses

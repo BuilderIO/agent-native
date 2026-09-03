@@ -1,0 +1,163 @@
+---
+title: "Internationalisation"
+description: "Localisez les applications Agent-Native avec des catalogues de paramètres régionaux partagés, un sélecteur de langue et un repli sur la langue du navigateur."
+---
+
+# Internationalisation
+
+Les applications Agent-Native peuvent localiser l'interface du framework et des modèles
+grâce à l'exécution partagée `@agent-native/core/client/i18n`. Le framework stocke le
+choix de langue de l'utilisateur dans les paramètres SQL, l'expose sous forme d'actions,
+et revient à l'anglais lorsqu'une application n'a pas encore traduit une chaîne.
+
+## Exécution
+
+Utilisez le fournisseur via `AppProviders` :
+
+```tsx
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` définit les valeurs initiales `lang`, `dir` et
+`window.__AGENT_NATIVE_LOCALE__` avant l'hydratation de React. Les routes publiques
+SSR peuvent appeler `resolveLocaleFromRequest()` depuis `@agent-native/core/server` et
+transmettre les paramètres régionaux et le catalogue résolus à ce script afin d'éviter
+les incompatibilités d'hydratation.
+
+## Catalogues
+
+Chaque modèle localisé conserve ses catalogues sous `app/i18n/` :
+
+```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import enUS from "./en-US";
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
+  messages: enUS,
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
+  },
+});
+```
+
+`messages` regroupe directement `en-US` afin qu'il soit toujours disponible avant le
+chargement d'un quelconque paramètre régional. `localeLoaders` importe dynamiquement
+tous les autres catalogues afin que les utilisateurs ne téléchargent que le paramètre
+régional actif. Les codes de paramètres régionaux pris en charge sont `en-US`, `zh-CN`,
+`zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` et `ar-SA`.
+
+Cette liste est fixée par le framework. Ce n'est pas seulement ce que cet exemple
+regroupe par hasard. `LocaleCode` est une union TypeScript composée exactement de ces
+codes, et `set-localization-preference` rejette toute autre valeur au moment de
+l'exécution. Chaque paramètre régional a également besoin de métadonnées gérées par le
+framework, comme le sens d'écriture pour les langues s'écrivant de droite à gauche.
+Ajouter un nouveau paramètre régional implique d'étendre le framework lui-même, et non
+d'ajouter un fichier de catalogue à votre application.
+
+`createAgentNativeI18nCatalog` accepte également un paramètre facultatif
+`sourceLocale`, dont la valeur par défaut est `en-US`, ainsi qu'un tableau facultatif
+`supportedLocales`. Définissez `supportedLocales` lorsqu'une application ne fournit des
+traductions que pour une partie des paramètres régionaux du framework plutôt que pour
+les dix. Par défaut, il inclut tous les paramètres régionaux pris en charge par le
+framework. `LanguagePicker` n'affiche que les paramètres régionaux présents dans cet
+ensemble, et tout paramètre régional détecté ou demandé en dehors de celui-ci revient à
+`sourceLocale`.
+
+## UI
+
+Utilisez `useT()` pour traduire les chaînes d'interface :
+
+```tsx
+import { useT } from "@agent-native/core/client/i18n";
+
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
+}
+```
+
+Utilisez `useFormatters()` pour les dates, les nombres, les durées relatives et les
+listes. Ne placez pas de formatage de date ou de nombre sensible aux paramètres
+régionaux à l'intérieur des chaînes de traduction.
+
+Placez `<LanguagePicker />` partout où l'application permet à un utilisateur de changer
+de langue. Consultez [Toolkit : Réglages](/docs/toolkit-settings) pour le modèle
+standard de page de réglages, y compris la place qu'y occupe `openAgentSettings()`.
+
+## Actions et persistance
+
+Chaque application hérite de :
+
+- `get-localization-preference` — lit le `{ locale, timezone }` de l'utilisateur actuel
+- `set-localization-preference` — définit `locale` et/ou `timezone`, chacun optionnel
+
+`locale` vaut `"system"` ou un paramètre régional BCP-47 pris en charge. `timezone`
+vaut `"system"` ou un fuseau IANA tel que `America/New_York`. Il existe afin que les
+tâches planifiées et les automatisations s'exécutent dans le fuseau de l'utilisateur
+plutôt que dans celui de l'hôte. Ne définir qu'un seul champ laisse l'autre inchangé,
+car `set-localization-preference` fusionne avec la valeur déjà stockée au lieu de
+l'écraser.
+
+La valeur durable réside dans les paramètres SQL propres à l'utilisateur, sous
+`localization`. `localStorage` n'est utilisé que pour la pré-hydratation et le repli
+anonyme. Le paramètre régional actif est reflété dans l'état de l'application en tant
+que contexte ambiant, afin que les agents puissent connaître la langue d'interface
+actuelle.
+
+## Garde
+
+Exécutez :
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+Pour les catalogues d'applications et de modèles, le garde vérifie :
+
+- Les noms de fichiers de paramètres régionaux, la parité des clés, la parité des
+  espaces réservés et les clés obsolètes
+- Les clés en double et les marqueurs de développement oubliés
+- La contamination par un mauvais système d'écriture, par exemple du texte chinois
+  dans un catalogue arabe
+- Les catégories plurielles CLDR via `Intl.PluralRules`
+- Les appels à `t()` dans le code source de l'application dont la clé est absente du
+  catalogue anglais
+
+Le garde vérifie la structure, pas la qualité de la traduction. Les chaînes très
+visibles ont toujours besoin d'une relecture humaine.
+
+Ne traduisez pas les identifiants stables tels que les noms d'actions, les routes, les
+valeurs d'énumération, les clés d'état de l'application, les valeurs de base de
+données, les champs de protocole, les noms de variables d'environnement ou les noms de
+fournisseurs.
+
+## Prochaines étapes
+
+- [**Vue d'ensemble**](/docs/client-overview#app-shell) — le wrapper `AppProviders` et
+  les autres hooks navigateur sur lesquels s'appuie l'i18n
+- [**Toolkit : Réglages**](/docs/toolkit-settings) — placer `<LanguagePicker>` sur la
+  page de réglages standard
+- [**Démarrage**](/docs/getting-started) — créez votre première application à partir
+  d'un modèle livrant déjà des catalogues localisés

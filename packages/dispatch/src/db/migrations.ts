@@ -1,0 +1,251 @@
+import type { MigrationEntry } from "@agent-native/core/db";
+
+export const dispatchMigrations: MigrationEntry[] = [
+  {
+    version: 1,
+    sql: `
+      CREATE TABLE IF NOT EXISTS dispatch_destinations (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        thread_ref TEXT,
+        notes TEXT,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS dispatch_identity_links (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        platform TEXT NOT NULL,
+        external_user_id TEXT NOT NULL,
+        external_user_name TEXT,
+        linked_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS dispatch_link_tokens (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        platform TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        claimed_at INTEGER,
+        claimed_by_external_user_id TEXT,
+        claimed_by_external_user_name TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS dispatch_approval_requests (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        change_type TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        before_value TEXT,
+        after_value TEXT,
+        requested_by TEXT NOT NULL,
+        reviewed_by TEXT,
+        reviewed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS dispatch_audit_events (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT,
+        summary TEXT NOT NULL,
+        metadata TEXT,
+        created_at INTEGER NOT NULL
+      );
+    `,
+  },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS vault_secrets (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        name TEXT NOT NULL,
+        credential_key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        provider TEXT,
+        description TEXT,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vault_grants (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        secret_id TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        granted_by TEXT NOT NULL,
+        status TEXT NOT NULL,
+        synced_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vault_requests (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        credential_key TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        reason TEXT,
+        requested_by TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reviewed_by TEXT,
+        reviewed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vault_audit_log (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        secret_id TEXT,
+        app_id TEXT,
+        action TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        metadata TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_resources (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_resource_grants (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        resource_id TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        synced_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+  },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE IF NOT EXISTS dispatch_dreams (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        source_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        query TEXT,
+        report TEXT,
+        summary TEXT,
+        candidate_count INTEGER NOT NULL,
+        inspected_thread_count INTEGER NOT NULL,
+        created_by TEXT NOT NULL,
+        error TEXT,
+        started_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS dispatch_dream_proposals (
+        id TEXT PRIMARY KEY,
+        dream_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        target_type TEXT NOT NULL,
+        target_path TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        rationale TEXT NOT NULL,
+        content TEXT NOT NULL,
+        evidence TEXT NOT NULL,
+        confidence INTEGER NOT NULL,
+        risk TEXT NOT NULL,
+        status TEXT NOT NULL,
+        applied_by TEXT,
+        applied_at INTEGER,
+        rejected_by TEXT,
+        rejected_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS dispatch_dreams_owner_updated_idx
+        ON dispatch_dreams (owner_email, org_id, updated_at);
+
+      CREATE INDEX IF NOT EXISTS dispatch_dream_proposals_dream_status_idx
+        ON dispatch_dream_proposals (dream_id, status);
+    `,
+  },
+  {
+    version: 4,
+    sql: `
+      ALTER TABLE dispatch_dreams ADD COLUMN IF NOT EXISTS source_health TEXT;
+    `,
+  },
+  {
+    version: 5,
+    name: "identity-sso-authorization-code-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS identity_sso_authorization_code (
+        code_hash TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        authority TEXT NOT NULL,
+        code_challenge TEXT NOT NULL,
+        email TEXT NOT NULL,
+        name TEXT,
+        org_domain TEXT,
+        jti TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        consumed_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS identity_sso_authorization_code_expires_idx
+        ON identity_sso_authorization_code (expires_at);
+    `,
+  },
+];

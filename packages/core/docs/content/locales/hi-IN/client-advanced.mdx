@@ -1,0 +1,200 @@
+---
+title: "उन्नत"
+description: "app/ के लोअर-लेवल प्रिमिटिव और एस्केप हैच: सीधी application-state एक्सेस, बैकग्राउंड चैट सेंड, कस्टम सुझाव चिप्स, और MCP App होस्ट ब्रिज।"
+---
+
+# उन्नत
+
+अवलोकन, डेटा और सिंक, एजेंट चैट, और रूटिंग सामान्य स्थिति को कवर करते हैं: वे हुक और हेल्पर जिनकी अधिकांश पेजों को आवश्यकता होती है। यह पेज उनके नीचे के लोअर-लेवल प्रिमिटिव और संकीर्ण एस्केप हैच को कवर करता है। अधिकांश ऐप्स इन्हें कभी सीधे नहीं छूते। जब आप डिफ़ॉल्ट हुक द्वारा समर्थित से अधिक कस्टम कुछ बना रहे हों, जैसे कोई कस्टम सिलेक्शन सिंक या कोई एम्बेडेड MCP App, तो इनमें से किसी एक तक पहुंचें। किसी कस्टम key के साथ कच्चे `useQuery` को सिंक करने के लिए, इसके बजाय [सिंक इंटरनल्स](/docs/client-sync-internals) देखें।
+
+## एप्लिकेशन स्थिति {#application-state}
+
+`application_state` एक SQL-समर्थित key/value स्टोर है जिसे एजेंट यह जानने के लिए पढ़ता है कि UI वर्तमान में क्या देख रहा है, जिसमें नेविगेशन, सिलेक्शन, और अन्य फ़ोकस्ड-ऑब्जेक्ट कॉन्टेक्स्ट शामिल है (देखें [Context Awareness](/docs/context-awareness))। `useAgentRouteState` और `useSemanticNavigationState` (Context Awareness में भी कवर किया गया) सामान्य नेविगेशन केस के लिए इन्हें पहले से रैप करते हैं। जब आप कुछ ऐसा सिंक कर रहे हों जिसे वे कवर नहीं करते, जैसे कोई कस्टम सिलेक्शन, या किसी घटक के रेंडर के बाहर से लिख रहे हों, तो सीधे नीचे दिए प्रिमिटिव तक पहुंचें।
+
+### readClientAppState {#read-client-app-state}
+
+किसी key के लिए वर्तमान वैल्यू पढ़ें। यह उस key के लिए आख़िरी बार लिखी गई चीज़ पर, या यदि key कभी नहीं लिखा गया है तो `null` पर रिज़ॉल्व होता है।
+
+```ts
+import { readClientAppState } from "@agent-native/core/client/hooks";
+
+const selection = await readClientAppState("selection");
+// selection is exactly what was last written to that key, e.g.:
+// { kind: "tickets.rows", ids: ["tik_182", "tik_209"] }
+//
+// or, if nothing has written "selection" yet:
+// null
+```
+
+### writeClientAppState {#write-client-app-state}
+
+किसी key के लिए एक वैल्यू लिखें। नीचे दिए `setClientAppState` के विपरीत, यह हमेशा लिखता है, भले ही आप `null` पास करें। `undefined` पास करना throw करता है, क्योंकि `undefined` वैध JSON नहीं है। किसी key को साफ़ करने के लिए `setClientAppState(key, undefined)` या `deleteClientAppState()` का उपयोग करें।
+
+```ts
+import { writeClientAppState } from "@agent-native/core/client/hooks";
+
+await writeClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+```
+
+### setClientAppState {#set-client-app-state}
+
+वह सुविधाजनक रैपर जिसका उपयोग अधिकांश UI कोड को करना चाहिए: वैल्यू लिखता है, या जब आप `null`/`undefined` पास करते हैं तो key को हटा देता है। जब तक किसी कॉल साइट को वास्तव में "हमेशा लिखो, कभी न मिटाओ" की आवश्यकता न हो, `writeClientAppState` के बजाय इसका उपयोग करें।
+
+```ts
+import { setClientAppState } from "@agent-native/core/client/hooks";
+
+await setClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+await setClientAppState("selection", null); // clears the key, same as deleteClientAppState
+```
+
+### deleteClientAppState {#delete-client-app-state}
+
+किसी key को पूरी तरह से हटाएं।
+
+```ts
+import { deleteClientAppState } from "@agent-native/core/client/hooks";
+
+await deleteClientAppState("pending-selection-context");
+```
+
+### readClientAppStateMany {#read-client-app-state-many}
+
+एक ही रिक्वेस्ट में कई keys पढ़ें। `{ values, missing }` लौटाता है। `values` में हर उस key के लिए एक एंट्री होती है जिसके लिए सर्वर के पास एक पंक्ति है, जिसमें वह key भी शामिल है जो स्पष्ट रूप से `null` के रूप में लिखा गया था। `missing` उन keys को सूचीबद्ध करता है जो कभी बिल्कुल नहीं लिखे गए। इसी तरह "कभी नहीं लिखा गया" "null के रूप में लिखा गया" से अलग रहता है।
+
+```ts
+import { readClientAppStateMany } from "@agent-native/core/client/hooks";
+
+const { values, missing } = await readClientAppStateMany([
+  "selection",
+  "pending-selection-context",
+]);
+```
+
+100 से अधिक keys वाली रिक्वेस्ट स्वचालित रूप से चंक की जाती हैं। `readClientAppState()` खुद इसी पर बनाया गया है: एक ही टिक में जारी किए गए कॉल पीछे से एक ही रिक्वेस्ट में समेकित किए जाते हैं, इसलिए एक ही रेंडर पास में इसे कई बार कॉल करने की लागत हर कॉल पर एक राउंड ट्रिप नहीं, बल्कि एक राउंड ट्रिप होती है।
+
+### विकल्प {#application-state-options}
+
+`signal` ऊपर दिए सभी पांच फ़ंक्शन द्वारा स्वीकार किया जाता है, किसी इन-फ़्लाइट कॉल को कैंसल करने के लिए। `requestSource` और `keepalive` केवल तीन राइट फ़ंक्शन पर लागू होते हैं, क्योंकि किसी रीड के लिए उनका कोई मतलब नहीं है।
+
+| विकल्प          | प्रकार         | किस पर लागू होता है                                                | विवरण                                                                                                          |
+| --------------- | -------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `requestSource` | `string?`      | `writeClientAppState`, `setClientAppState`, `deleteClientAppState` | राइट को एक id के साथ टैग करता है ताकि कोई मैचिंग `useDbSync({ ignoreSource })` इसे रीफ़ेच करने से स्किप कर सके |
+| `keepalive`     | `boolean?`     | `writeClientAppState`, `setClientAppState`, `deleteClientAppState` | रिक्वेस्ट को पेज अनलोड से बचने देता है। सिलेक्शन साफ़ करने जैसे क्लीनअप राइट्स के लिए उपयोग करें               |
+| `signal`        | `AbortSignal?` | सभी पांच फ़ंक्शन                                                   | रिक्वेस्ट को कैंसल करता है                                                                                     |
+
+### फ़ेलियर बिहेवियर {#failure-behavior}
+
+सभी पांच फ़ंक्शन किसी फेल रिक्वेस्ट, नॉन-2xx रिस्पॉन्स, या पार्स न हो सकने वाले बॉडी पर throw करते हैं। थ्रोन `Error` में एक `.status` प्रॉपर्टी होती है जब सर्वर ने रिस्पॉन्स दिया हो, इसलिए ज़रूरत पड़ने पर कॉलर HTTP स्टेटस पर ब्रांच कर सकता है। किसी कॉल को `try`/`catch` में रैप करें, या इसे किसी एरर बाउंड्री तक प्रोपेगेट होने दें, किसी अन्य नेटवर्क कॉल की तरह ही।
+
+### TAB_ID क्या है {#tab-id}
+
+`requestSource` आमतौर पर `TAB_ID` पर सेट किया जाता है, हर टेम्पलेट द्वारा `app/lib/tab-id.ts` से एक्सपोर्ट किया गया एक सादा कॉन्स्टेंट: एक छोटी रैंडम स्ट्रिंग जो किसी टैब के जीवनकाल के लिए एक जैसी रहती है और टैब्स के बीच अलग होती है। किसी राइट पर `requestSource: TAB_ID` को रीड साइड पर `useDbSync({ ignoreSource: TAB_ID })` के साथ जोड़ना ही यह है कि कोई टैब अपनी खुद की राइट को रीफ़ेच करने से कैसे बचता है जबकि सभी के प्रति फिर भी रिएक्ट करता है। पूरे वॉकथ्रू के लिए [Context Awareness](/docs/context-awareness#jitter-prevention) देखें।
+
+## sendToAgentChat: बैकग्राउंड सेंड {#background-send}
+
+`background: true` का उपयोग तब करें जब किसी UI एक्शन को साइडबार खोले या फोकस
+किए बिना वास्तविक एजेंट कार्य शुरू करना चाहिए। यह अभी भी एक सामान्य चैट थ्रेड/रन
+बनाता है, एजेंट के टूल/actions/कॉन्टेक्स्ट का उपयोग करता है, और काम को रन ट्रे के
+माध्यम से देखने योग्य रखता है। यह कोई कच्चा वन-शॉट मॉडल कॉल नहीं है।
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` को `newTab` के साथ जोड़े जाने का इरादा है ताकि छिपा हुआ काम उपयोगकर्ता
+की सक्रिय बातचीत को ओवरराइट न करे। यदि UI को फॉलो-अप स्टेटस को को-रिलेट करने या
+बाद में रन में डीप-लिंक करने की आवश्यकता है तो लौटाए गए `tabId` का उपयोग करें।
+
+[एजेंट चैट](/docs/client-agent-chat#agentchatmessage) में कवर किए गए के अलावा, कुछ और `AgentChatMessage` विकल्प मौजूद हैं, मुख्य रूप से एम्बेडेड या डाउनस्ट्रीम-इंटीग्रेशन केस के लिए:
+
+| विकल्प                | प्रकार      | विवरण                                                                   |
+| --------------------- | ----------- | ----------------------------------------------------------------------- |
+| `background`          | `boolean?`  | `newTab` के साथ, टैब को फोकस किए बिना चलाएं और `RunsTray` में रन दिखाएं |
+| `projectSlug`         | `string?`   | संरचित कॉन्टेक्स्ट के लिए वैकल्पिक प्रोजेक्ट स्लग                       |
+| `preset`              | `string?`   | डाउनस्ट्रीम उपभोक्ताओं के लिए वैकल्पिक प्रीसेट नाम                      |
+| `referenceImagePaths` | `string[]?` | वैकल्पिक संदर्भ इमेज पथ                                                 |
+
+## MCP App होस्ट ब्रिज {#mcp-app-host-bridge}
+
+MCP Apps के रूप में एम्बेड किए गए रूट्स को URL-फ़र्स्ट होना चाहिए: पथ/क्वेरी पैरामीटर से
+वर्तमान आर्टिफ़ैक्ट लोड करें, वास्तविक React रूट या किसी केंद्रित साझा घटक को रेंडर करें,
+और होस्ट ब्रिज का उपयोग केवल होस्ट-ओनड बिहेवियर के लिए करें। `@agent-native/core/client`
+वे हेल्पर एक्सपोर्ट करता है जिन्हें एम्बेडेड रूट्स कॉल करते हैं:
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client/agent-chat";
+```
+
+`getMcpAppHostContext()` नवीनतम पुश किए गए होस्ट कॉन्टेक्स्ट स्नैपशॉट को पढ़ता है।
+`useMcpAppHostContext()` React घटकों को बदलावों के लिए सब्सक्राइब करता है। रिक्वेस्ट
+हेल्पर्स (`openMcpAppHostLink`, `requestMcpAppDisplayMode`,
+`updateMcpAppModelContext`) किसी एम्बेडेड MCP App फ्रेम के बाहर `false`, या
+किसी फ्रेम के भीतर `Promise<boolean>` लौटाते हैं।
+
+`sendToAgentChat()` (देखें [एजेंट चैट](/docs/client-agent-chat#sendtoagentchat)) ऑटो-सबमिटेड प्रॉम्प्ट्स के लिए एम्बेडेड रूट्स से इसी ब्रिज का उपयोग करता है। `embedApp()` से बनाए गए किसी MCP App एम्बेड के भीतर, ऑटो-सबमिटेड मैसेज (`submit` छोड़ा गया या `true`) ब्रिज को फ़ॉरवर्ड किए जाते हैं, जो कंटेनिंग होस्ट को छिपा हुआ कॉन्टेक्स्ट जोड़ने और दिखने वाला उपयोगकर्ता टर्न भेजने के लिए कहता है। `context` उपयोगकर्ता-सामना वाली चैट के रूप में पोस्ट किए बिना मॉडल-दृश्यमान रहता है। `submit: false` लोकल प्रीफिल/रिव्यू बिहेवियर को बनाए रखता है क्योंकि MCP Apps एक स्टैंडर्ड ड्राफ्ट-प्रीफिल API परिभाषित नहीं करते। आंतरिक रूप से यह सबमिटेड-चैट पथ है जो कभी-कभी `agentNative.submitChat` के रूप में सामने आता है। ऐप कोड को उस इवेंट को सीधे पोस्ट करने के बजाय फिर भी `sendToAgentChat()` को कॉल करना चाहिए।
+
+ब्रिज खुद, `ui/*` JSON-RPC मैसेज, `agentNative.mcpHost.*`
+रैपर रिले, ट्रांसप्लांट बनाम कंट्रोल्ड-फ़्रेम रेंडरिंग, होस्ट कॉन्टेक्स्ट, और
+डिस्प्ले-मोड रिक्वेस्ट का स्वामित्व
+[External Agents](/docs/external-agents#mcp-app-bridge) के पास है। पूरे प्रोटोकॉल के लिए [MCP Apps](/docs/mcp-apps) देखें।
+
+## कस्टम सुझाव चिप्स {#custom-suggestions}
+
+`<AgentSidebar>` का `dynamicSuggestions` (देखें [एजेंट चैट](/docs/client-agent-chat#dynamic-suggestions)) पहले से ही स्टैटिक `suggestions` को फ्रेमवर्क के अपने कॉन्टेक्स्ट-अवेयर हेयुरिस्टिक के साथ मर्ज करता है। जब कोई ऐप फ्रेमवर्क के डिफ़ॉल्ट हेयुरिस्टिक के बजाय उसी `application_state` कॉन्टेक्स्ट से कंप्यूट किए गए नियतात्मक, डोमेन-विशिष्ट चिप्स चाहता है तो इसके बजाय `dynamicSuggestions` के भीतर एक `getSuggestions` फ़ंक्शन पास करें।
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
+>
+  <App />
+</AgentSidebar>
+```
+
+`getSuggestions` उसी `navigation`/`selection`/`pendingSelection` स्नैपशॉट को प्राप्त करता है जिसे बिल्ट-इन हेयुरिस्टिक पढ़ता है, जो `unknown` के रूप में टाइप किया गया है क्योंकि इसका आकार ऐप-निर्धारित है, इसलिए फ़ील्ड पढ़ने से पहले इसे नैरो करें। कोई कस्टम इम्प्लीमेंटेशन उसी स्टेट के प्रति रिएक्ट कर सकता है जिसके प्रति डिफ़ॉल्ट करता है, बस सामान्य नियमों के बजाय ऐप-विशिष्ट नियमों के साथ।
+
+## आगे क्या
+
+- [**अवलोकन**](/docs/client-overview) - `app/` और `public/` डायरेक्टरी लेआउट जिसमें ये प्रिमिटिव रहते हैं
+- [**डेटा और सिंक**](/docs/client-data) - डिफ़ॉल्ट action हुक और `useDbSync` जिनका उपयोग अधिकांश पेजों को इसके बजाय करना चाहिए
+- [**सिंक इंटरनल्स**](/docs/client-sync-internals) - `useChangeVersion`/`useChangeVersions` और वे दो लेटेंसी पथ जो कोई रीफ़ेच ले सकता है
+- [**एजेंट चैट**](/docs/client-agent-chat) - डिफ़ॉल्ट `sendToAgentChat`/`askUserQuestion` हेल्पर जिनका उपयोग अधिकांश UI को इसके बजाय करना चाहिए, और स्टेज्ड एजेंट चैट कॉन्टेक्स्ट-स्टेट APIs
+- [**एंट्री पॉइंट्स**](/docs/client-entry-points) - `app/entry.client.tsx`/`app/entry.server.tsx` और SSR स्ट्रीमिंग कस्टमाइज़ेशन
+- [**Context Awareness**](/docs/context-awareness) - `application_state` पर बना `navigation`/`selection` सिमेंटिक्स, और `TAB_ID`/जिटर-प्रिवेंशन वॉकथ्रू
+- [**Generative UI**](/docs/generative-ui) - `askUserQuestion` से आगे रिचर इन-चैट कंट्रोल्स
+- [**External Agents**](/docs/external-agents#mcp-app-bridge) - पूरा MCP App होस्ट ब्रिज इंटरनल्स

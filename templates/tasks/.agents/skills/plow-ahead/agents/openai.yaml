@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plow Ahead"
+  short_description: "Proceed autonomously through ordinary ambiguity."
+  default_prompt: "Use $plow-ahead to keep working through ordinary ambiguity, make reasonable assumptions, validate, and recap decisions clearly."

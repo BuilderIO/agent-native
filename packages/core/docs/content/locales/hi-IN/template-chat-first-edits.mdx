@@ -1,0 +1,184 @@
+---
+title: "चैट: आपकी पहली सुविधा"
+description: "वह एक फ़ाइल जो Chat की स्टार्टर स्क्रीन रेंडर करती है, उसके असली props क्या करते हैं, और शुरू से अंत तक एक सुविधा जोड़ने का पूरा वॉकथ्रू।"
+---
+
+# आपकी पहली सुविधा
+
+यह पेज उन डेवलपर्स के लिए है जो [चैट टेम्पलेट](/docs/template-chat) को
+एक्सटेंड कर रहे हैं। यह उस एक फ़ाइल को कवर करता है जो स्टार्टर चैट स्क्रीन
+रेंडर करती है, फिर हर उस चीज़ से गुज़रता है जिसे एजेंट सामान्यतः तब छूता है
+जब आप एक असली सुविधा मांगते हैं।
+
+## निरीक्षण करने के लिए पहला कोड {#first-code}
+
+- `actions/hello.ts` वह स्टार्टर व्यवहार है जिसे एजेंट कॉल कर सकता है। इसे
+  बदलें या इसके साथ actions जोड़ें।
+- `app/routes/_index.tsx` पूर्ण-पृष्ठ चैट सतह रेंडर करता है। सुझाव, खाली
+  स्थिति, composer, या आसपास के लेआउट को यहां एडजस्ट करें।
+- `AGENTS.md` बिल्ट-इन एजेंट को बताता है कि इस ऐप के भीतर कैसे काम करना
+  है।
+
+<FileTree
+  id="doc-block-chat3"
+  title="चैट टेम्पलेट लेआउट"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "एक ही उदाहरण action; इसे बदलें या इसके साथ actions जोड़ें",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "मानक context action जिसे एजेंट सबसे पहले कॉल करता है",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "मानक navigation action",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "पूर्ण-पृष्ठ चैट सतह रेंडर करता है; सुझाव, खाली स्थिति, composer एडिट करें",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "_index.tsx को फिर से एक्सपोर्ट करता है, ताकि /chat/:threadId URL में थ्रेड id के साथ वही सतह रेंडर करे",
+    },
+    {
+      path: "AGENTS.md",
+      note: "चैट-फर्स्ट मार्गदर्शन जिसे बिल्ट-इन एजेंट पढ़ता है",
+    },
+  ]}
+/>
+
+असली स्टार्टर फ़ाइल एक सादे `<AgentChatSurface />` से कहीं ज़्यादा है — यह
+thread-URL sync, मल्टी-टैब रन के लिए एक tab identity, और एक hero composer
+लेआउट वायर करती है, और इसका कॉपी literal strings के बजाय i18n keys से आता
+है:
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/routes/_index.tsx (छोटा किया गया)"
+  filename="app/routes/_index.tsx"
+  language="tsx"
+  code={
+    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "19-21",
+      label: "थ्रेड URL सिंक",
+      note: "`/chat/:threadId` (`chat.$threadId.tsx`) इस समान कंपोनेंट को फिर से एक्सपोर्ट करता है। जब रूट में एक thread id होता है, `threadUrlSync` URL और एक्टिव थ्रेड को लॉक-स्टेप में रखता है: थ्रेड बदलने पर यह `/chat/<id>` पुश करता है, और वह URL खोलने पर थ्रेड रीस्टोर हो जाता है।",
+    },
+    {
+      lines: "38",
+      label: "टैब पहचान",
+      note: "`TAB_ID` (`app/lib/tab-id.ts`, हर ब्राउज़र टैब के लिए एक बार जेनरेट होने वाला एक रैंडम id) शेयर्ड चैट रनटाइम को एक ही ऐप के कई खुले टैब को अलग बताने देता है, ताकि एक टैब में शुरू हुआ रन दूसरे टैब के रन से गलती से न जुड़ जाए।",
+    },
+    {
+      lines: "39-44",
+      label: "सुझाव i18n keys हैं",
+      note: 'सुझावों का कॉपी `t("chat.suggestionCapabilities")` जैसी जगहों से आता है (देखें `app/i18n/en-US.ts`), literal अंग्रेज़ी strings से नहीं, और `dynamicSuggestions={false}` इन तीन के पक्ष में रनटाइम के अपने सुझाव जनरेशन को बंद कर देता है।',
+    },
+    {
+      lines: "46-47",
+      label: "Hero composer लेआउट",
+      note: '`composerLayoutVariant="hero"` प्लस `centerComposerWhenEmpty` composer को उसके ऊपर एक title/description के साथ सेंटर करता है, अन्य `mode="page"` चैट रूट्स के इस्तेमाल किए जाने वाले सादे bottom-docked composer के बजाय।',
+    },
+    {
+      lines: "49-54",
+      label: "composerSlot",
+      note: 'सिर्फ़ तब तक composer के ऊपर रेंडर होने वाला arbitrary JSX जब वह सेंटर्ड हो — यहीं "मैं कैसे मदद कर सकता हूं?" वाला heading रहता है। रनटाइम को छुए बिना खाली-स्थिति वाली पिच बदलने के लिए इसे एडिट करें।',
+    },
+    {
+      lines: "23-31",
+      label: "होम हैंडऑफ़",
+      note: 'जब इस पेज पर एक रन शुरू होता है, `markAgentChatHomeHandoff("chat")` यह रिकॉर्ड करता है कि होम सतह एक्टिव रन की मालिक है, ताकि दूर नेविगेट करके वापस आने पर यह उससे फिर से जुड़ जाए, न कि खो जाए।',
+    },
+  ]}
+/>
+
+## पहला एडिट {#first-edits}
+
+अधिकतर पहली सुविधाएं एक जैसी शेप फॉलो करती हैं: एक table, एक या दो actions,
+एक route, एक nav entry, और एक `AGENTS.md` अपडेट। एजेंट से पूछें:
+
+> `notes` के लिए एक डेटा मॉडल जोड़ें। एक note में एक id, title, body, और
+> owner होता है। `/notes` पर एक notes पेज रेंडर करें, create/list actions
+> जोड़ें, और चैट को notes बनाने में सक्षम रखें।
+
+चैट में शुरू से कोई `server/db/schema.ts` शामिल नहीं है (देखें
+[क्या शामिल है](/docs/template-chat#what-ships)), इसलिए पहला बदलाव एक नई
+फ़ाइल है, वही `table`/`text`/`ownableColumns` शेप फॉलो करते हुए जो हर दूसरा
+टेम्पलेट इस्तेमाल करता है:
+
+<Diff
+  id="doc-block-chat5"
+  title="एक नई notes table"
+  filename="server/db/schema.ts"
+  language="ts"
+  before={""}
+  after={
+    'import {\n  table,\n  text,\n  ownableColumns,\n} from "@agent-native/core/db/schema";\n\nexport const notes = table("notes", {\n  id: text("id").primaryKey(),\n  title: text("title").notNull(),\n  body: text("body").notNull(),\n  createdAt: text("created_at").notNull(),\n  updatedAt: text("updated_at").notNull(),\n  ...ownableColumns(),\n});'
+  }
+  annotations={[
+    {
+      lines: "1-5",
+      label: "शेयर्ड schema हेल्पर्स",
+      note: "`table`/`text`/`ownableColumns` `@agent-native/core/db/schema` से आते हैं — वही dialect-agnostic हेल्पर्स जो हर टेम्पलेट इस्तेमाल करता है, ताकि यह फ़ाइल SQLite/Postgres के बीच portable बनी रहे।",
+    },
+    {
+      lines: "13",
+      label: "ownableColumns",
+      note: "`...ownableColumns()` वे owner/org कॉलम जोड़ता है जिनकी फ़्रेमवर्क के `accessFilter`/`resolveAccess` हेल्पर्स को ज़रूरत होती है, ताकि notes बिना किसी अतिरिक्त प्लंबिंग के मानक per-user/per-org sharing मॉडल में फ़िट हो जाएं।",
+    },
+  ]}
+/>
+
+बाकी सुविधा वहां से फॉलो होती है:
+
+- `actions/create-note.ts` — `actions/hello.ts` जैसा शेप्ड, एक Zod schema
+  (`title`, `body`) वाला एक `defineAction`।
+- `actions/list-notes.ts` — एक read-only action (`readOnly: true`,
+  `actions/view-screen.ts` जैसा) जो `accessFilter` के ज़रिए नई table को
+  क्वेरी करता है।
+- `app/routes/notes.tsx` — एक नया route; ऐप file-system routing
+  (`app/routes.ts` में `flatRoutes()`) इस्तेमाल करता है, इसलिए फ़ाइल जोड़ना
+  ही `/notes` को माउंट करने के लिए काफ़ी है।
+- `app/components/layout/Sidebar.tsx` में `navItems` array में `/notes` की
+  ओर इशारा करने वाली एक नई entry।
+- एक `AGENTS.md` addition जो एजेंट को बताता है कि notes मौजूद हैं और कौन से
+  actions उन्हें मैनेज करते हैं।
+
+एक नया action बनने के साथ ही चैट द्वारा कॉल किया जा सकता है — हर
+`defineAction` डिफ़ॉल्ट रूप से एक tool है, जब तक कि वह `agentTool: false`
+सेट न करे। हालांकि, यह ज़रूरी नहीं कि मॉडल की सबसे पहली रिक्वेस्ट में ही
+शामिल हो: `server/plugins/agent-chat.ts`
+`INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]` सेट करता है,
+जो सिर्फ़ यह कंट्रोल करता है कि पहले turn पर कौन से tool schema भेजे जाते
+हैं। बाकी सब, जिसमें एक नया `create-note` भी शामिल है, `tool-search` के
+ज़रिए पहुंच योग्य रहता है और मांग पर लोड होता है — उस लिस्ट में कोई नाम
+सिर्फ़ तब जोड़ें जब आप उसे पहले मैसेज से ही मॉडल के डिफ़ॉल्ट टूलसेट में
+चाहते हों।
+
+## अपना खुद का एजेंट बैकएंड इस्तेमाल करें {#own-agent-backend}
+
+टेम्पलेट डिफ़ॉल्ट रूप से बिल्ट-इन app-agent लूप इस्तेमाल करता है। एक कस्टम
+बैकएंड कनेक्ट करने के लिए, UI को फिर से लिखने के बजाय एजेंट चैट प्लगइन के
+पीछे चैट रनटाइम को स्वैप करें। Chat route को शेयर्ड चैट सतह के चारों ओर एक
+पतला रेंडरर ही रहना चाहिए; बैकएंड का चुनाव server plugin/runtime adapter
+में होता है।
+
+इसका इस्तेमाल तब करें जब आपका मॉडल orchestration पहले से ही कहीं और मौजूद
+है, लेकिन आप फिर भी ऑथ, थ्रेड्स, actions, UI स्थिति, और डिप्लॉय करने योग्य
+पेजों वाला एक ऐप चाहते हैं।
+
+## आगे क्या
+
+- [**चैट**](/docs/template-chat) — डिफ़ॉल्ट रूप से क्या शामिल है और इसे कब
+  चुनें
+- [**चैट: डेवलपर गाइड**](/docs/template-chat-developers) — क्विक स्टार्ट,
+  actions, मुख्य तालिकाएं, ऑथ, और एडमिन पेज
+- [**Actions**](/docs/actions-overview) — action सिस्टम जिसे चैट और UI
+  दोनों कॉल करते हैं
+- [**Native चैट UI**](/docs/native-chat-ui) — चैट सतह प्रिमिटिव्स और
+  रनटाइम विकल्प

@@ -1,0 +1,66 @@
+---
+id: F7
+title: First-run experience
+status: partial
+order: 7
+---
+
+# F7 — First-run experience
+
+## What it is
+
+A new install ships ready to use — with more pre-configuration added over time. **Completion** (complete / incomplete) is built into every task from day one — not a custom field.
+
+<!-- status: done -->
+
+## First run (shipped)
+
+- **Main task page** — empty task list; **completed tasks filtered out** by default (user can show all).
+- **No sample tasks** — a clean slate.
+- **No** projects, custom fields, or saved views yet.
+
+<!-- status: partial -->
+
+## First run (extended)
+
+A fuller install adds custom fields, starter views, and the inbox.
+
+<!-- status: todo -->
+
+### Custom fields (pre-created)
+
+| Field        | Type          | Starter configuration                    |
+| ------------ | ------------- | ---------------------------------------- |
+| **Notes**    | Rich text     | Empty by default — long-form description |
+| **Due date** | Date          | Empty by default                         |
+| **Priority** | Single-select | **Low**, **Medium**, **High**            |
+
+No other fields should be created automatically. Users may add more fields at any time (e.g. a single-select for workflow stage). Users can rename, extend, or delete any starter custom field.
+
+<!-- status: todo -->
+
+### Starter views (global)
+
+| View            | Filter                         | Sort                 | Group   |
+| --------------- | ------------------------------ | -------------------- | ------- |
+| **All tasks**   | None (complete and incomplete) | None (manual order)  | None    |
+| **Open**        | Incomplete tasks               | None                 | None    |
+| **By priority** | Incomplete tasks               | Priority (ascending) | None    |
+| **By project**  | None                           | None                 | Project |
+
+**All tasks** is the required baseline view (renamable, not deletable). **Open** is the **default landing view** — incomplete tasks only, for everyday work.
+
+### Starter projects
+
+None — the user creates projects as needed. Tasks can exist without a project.
+
+### Inbox
+
+The inbox starts **empty**. Chat and inbox capture can land here first ([F4](./f4-inbox.mdx)).
+
+### What the user sees (full product)
+
+1. **Inbox** — empty, ready for capture.
+2. **Main task page** — on **Open** view (incomplete tasks only).
+3. **Custom fields** — Notes, Due date, Priority already defined; completion checkbox on every task.
+4. No sample tasks — a clean slate except for configuration.

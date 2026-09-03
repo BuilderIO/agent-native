@@ -1,0 +1,1470 @@
+import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
+import {
+  IconArrowLeft,
+  IconCheck,
+  IconClock,
+  IconCopy,
+  IconDeviceDesktop,
+  IconDotsVertical,
+  IconEdit,
+  IconExternalLink,
+  IconLoader2,
+  IconNotes,
+  IconPlus,
+  IconPlayerStop,
+  IconRefresh,
+  IconTrash,
+  IconUsers,
+} from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
+
+import { ClipsAvatar } from "@/components/clips-avatar";
+import { PageHeader } from "@/components/library/page-header";
+import {
+  AttendeeStack,
+  attendeeInitials,
+  type AttendeeStackParticipant,
+} from "@/components/meetings/attendee-stack";
+import { BulletLink } from "@/components/meetings/bullet-link";
+import { CanvasEditor } from "@/components/meetings/canvas-editor";
+import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
+import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
+import {
+  TranscriptBubbles,
+  type TranscriptSegment,
+} from "@/components/meetings/transcript-bubbles";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import enMessages from "@/i18n/en-US";
+import { cn } from "@/lib/utils";
+
+export function meta() {
+  return [{ title: enMessages.meetingDetailRoute.pageTitle }];
+}
+
+interface ActionItem {
+  id?: string;
+  text: string;
+  assigneeEmail?: string | null;
+  dueDate?: string | null;
+  completedAt?: string | null;
+}
+
+type Participant = AttendeeStackParticipant;
+
+interface Bullet {
+  text: string;
+}
+
+interface Meeting {
+  id: string;
+  title: string;
+  ownerEmail?: string | null;
+  scheduledStart: string;
+  scheduledEnd?: string | null;
+  updatedAt?: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
+  platform?: string;
+  joinUrl?: string | null;
+  recordingId?: string | null;
+  recordingDurationMs?: number | null;
+  transcriptStatus?:
+    | "pending"
+    | "ready"
+    | "failed"
+    | "in_progress"
+    | (string & {});
+  visibility?: "private" | "org" | "public" | null;
+  shareTranscript?: boolean | null;
+  summaryMd?: string | null;
+  userNotesMd?: string | null;
+  bulletsJson?: Bullet[] | null;
+  actionItemsJson?: ActionItem[] | null;
+  segmentsJson?: TranscriptSegment[] | null;
+  participants?: Participant[];
+}
+
+function formatDateTime(iso?: string | null): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function TitleEditor({
+  value,
+  onChange,
+  compact = false,
+  readOnly = false,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  compact?: boolean;
+  readOnly?: boolean;
+}) {
+  const t = useT();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const textCls = compact
+    ? "text-base font-semibold tracking-tight truncate"
+    : "text-2xl font-semibold tracking-tight";
+  const editIconCls = compact ? "h-3.5 w-3.5" : "h-4 w-4";
+
+  if (readOnly) {
+    return (
+      <h1 className={cn(textCls, "min-w-0")}>
+        {value || t("meetingDetail.untitledMeeting")}
+      </h1>
+    );
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="group flex min-w-0 items-center gap-2 text-left cursor-pointer"
+      >
+        <h1 className={textCls}>
+          {value || t("meetingDetail.untitledMeeting")}
+        </h1>
+        <IconEdit
+          className={cn(
+            editIconCls,
+            "shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100",
+          )}
+        />
+      </button>
+    );
+  }
+
+  const commit = () => {
+    setEditing(false);
+    if (draft.trim() && draft !== value) {
+      onChange(draft.trim());
+    } else {
+      setDraft(value);
+    }
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          setDraft(value);
+          setEditing(false);
+        }
+      }}
+      className={cn(
+        textCls,
+        "bg-transparent outline-none border-b border-primary/40 focus:border-primary min-w-0 w-full",
+      )}
+    />
+  );
+}
+
+function ActionItemsByPerson({
+  items,
+  onToggle,
+  onChange,
+  onRemove,
+  onAdd,
+  emptyLabel,
+  readOnly = false,
+}: {
+  items: ActionItem[];
+  onToggle: (index: number, completed: boolean) => void;
+  onChange: (index: number, text: string) => void;
+  onRemove: (index: number) => void;
+  onAdd: (text: string) => void;
+  emptyLabel: string;
+  readOnly?: boolean;
+}) {
+  const t = useT();
+  const [adding, setAdding] = useState(false);
+
+  // Preserve original index for toggle callback while grouping.
+  const grouped = useMemo(() => {
+    const map = new Map<string, Array<{ item: ActionItem; index: number }>>();
+    items.forEach((it, index) => {
+      const key = it.assigneeEmail || "";
+      const arr = map.get(key) ?? [];
+      arr.push({ item: it, index });
+      map.set(key, arr);
+    });
+    const entries = Array.from(map.entries());
+    entries.sort(([a], [b]) => {
+      if (!a) return 1;
+      if (!b) return -1;
+      return a.localeCompare(b);
+    });
+    return entries;
+  }, [items]);
+
+  return (
+    <div className="space-y-3">
+      {grouped.map(([who, list]) => (
+        <div key={who} className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <ClipsAvatar
+              email={who || null}
+              alt={who || t("meetingDetail.unassigned")}
+              fallback={attendeeInitials(who || t("meetingDetail.unassigned"))}
+              className="h-5 w-5"
+              fallbackClassName="text-[9px]"
+            />
+            <span className="text-xs font-medium">
+              {who || t("meetingDetail.unassigned")}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {list.filter((x) => x.item.completedAt).length}/{list.length}
+            </span>
+          </div>
+          <ul className="space-y-1 pl-7">
+            {list.map(({ item: it, index }) => {
+              const done = !!it.completedAt;
+              return (
+                <li
+                  key={
+                    it.id ?? `${it.assigneeEmail ?? "?"}:${it.text}:${index}`
+                  }
+                  className="flex items-start gap-2 text-sm leading-relaxed"
+                >
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={done}
+                    disabled={readOnly}
+                    onClick={() => {
+                      if (!readOnly) onToggle(index, !done);
+                    }}
+                    className={cn(
+                      "mt-0.5 h-3.5 w-3.5 shrink-0 rounded border flex items-center justify-center transition-colors",
+                      readOnly ? "cursor-default" : "cursor-pointer",
+                      done
+                        ? "bg-foreground border-foreground"
+                        : readOnly
+                          ? "border-border"
+                          : "border-border hover:border-foreground/60",
+                    )}
+                  >
+                    {done && (
+                      <IconCheck className="h-2.5 w-2.5 text-background" />
+                    )}
+                  </button>
+                  {readOnly ? (
+                    <span
+                      className={cn(
+                        "flex-1",
+                        done && "line-through text-muted-foreground",
+                      )}
+                    >
+                      {it.text}
+                    </span>
+                  ) : (
+                    <ActionItemTextEditor
+                      value={it.text}
+                      done={done}
+                      placeholder={t("meetingDetail.actionItemPlaceholder")}
+                      onCommit={(text) => onChange(index, text)}
+                      onCancel={() => {}}
+                    />
+                  )}
+                  {!readOnly && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={t("meetingDetail.removeActionItem")}
+                      onClick={() => onRemove(index)}
+                    >
+                      <IconTrash className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+
+      {grouped.length === 0 && (
+        <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
+          {emptyLabel}
+        </p>
+      )}
+
+      {adding && (
+        <div className="flex items-start gap-2 pl-7 text-xs leading-relaxed">
+          <span className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border border-border" />
+          <ActionItemTextEditor
+            value=""
+            isNew
+            autoFocus
+            placeholder={t("meetingDetail.actionItemPlaceholder")}
+            onCommit={(text) => {
+              onAdd(text);
+              setAdding(false);
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        </div>
+      )}
+
+      {!readOnly && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-7 h-7 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+          disabled={adding}
+          onClick={() => setAdding(true)}
+        >
+          <IconPlus className="mr-1.5 h-3.5 w-3.5" />
+          {t("meetingDetail.addActionItem")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ActionItemTextEditor({
+  value,
+  done = false,
+  isNew = false,
+  autoFocus = false,
+  placeholder,
+  onCommit,
+  onCancel,
+}: {
+  value: string;
+  done?: boolean;
+  isNew?: boolean;
+  autoFocus?: boolean;
+  placeholder: string;
+  onCommit: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const committedRef = useRef(false);
+
+  useEffect(() => {
+    setDraft(value);
+    committedRef.current = false;
+  }, [value]);
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
+
+  const commit = () => {
+    if (committedRef.current) return;
+    const next = draft.trim();
+    if (!next) {
+      setDraft(value);
+      onCancel();
+      return;
+    }
+    if (isNew || next !== value) {
+      committedRef.current = true;
+      onCommit(next);
+    }
+  };
+
+  return (
+    <Input
+      ref={inputRef}
+      value={draft}
+      placeholder={placeholder}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(value);
+          onCancel();
+        }
+      }}
+      className={cn(
+        "h-auto min-h-0 flex-1 border-0 bg-transparent px-0 py-0 text-xs shadow-none focus-visible:ring-0",
+        done && "line-through text-muted-foreground",
+      )}
+    />
+  );
+}
+
+export default function MeetingDetailRoute() {
+  const t = useT();
+  const { meetingId } = useParams<{ meetingId: string }>();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  type GetMeetingResp = {
+    meeting?: Omit<Meeting, "participants" | "segmentsJson"> | null;
+    participants?: Participant[];
+    actionItems?: ActionItem[];
+    transcript?: {
+      fullText?: string | null;
+      segmentsJson?: TranscriptSegment[] | null;
+    } | null;
+    recording?: { id: string; durationMs?: number | null } | null;
+    role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
+    reason?: "unavailable";
+  };
+
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch: refetchMeeting,
+  } = useActionQuery<GetMeetingResp>(
+    "get-meeting",
+    { id: meetingId },
+    {
+      retry: false,
+      enabled: !!meetingId,
+      refetchInterval: (query) => {
+        const resp = query.state.data as GetMeetingResp | undefined;
+        const m = resp?.meeting;
+        const isLive =
+          m?.actualStart && !m?.actualEnd
+            ? true
+            : m?.transcriptStatus === "in_progress";
+        return isLive ? 2_000 : false;
+      },
+    },
+  );
+
+  const updateMeeting = useActionMutation<any, any>("update-meeting");
+  const deleteMeeting = useActionMutation<any, any>("delete-meeting");
+  const finalize = useActionMutation<any, any>("finalize-meeting");
+  const stopMeetingRecording = useActionMutation<any, any>(
+    "stop-meeting-recording",
+  );
+
+  const [notesJustArrived, setNotesJustArrived] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [endMeetingOpen, setEndMeetingOpen] = useState(false);
+  const [transcriptCopied, setTranscriptCopied] = useState(false);
+  const previousHasNotesRef = useRef(false);
+  const autoFinalizedRef = useRef(false);
+  const actionItemsDraftRef = useRef<{
+    meetingId: string;
+    items: ActionItem[];
+  } | null>(null);
+  const actionItemsAuthoritativeRef = useRef<{
+    meetingId: string;
+    items: ActionItem[];
+  } | null>(null);
+  const actionItemsSaveRevisionRef = useRef(0);
+  const pendingActionItemsSavesRef = useRef(0);
+  const meetingContentSaveQueueRef = useRef<Promise<unknown>>(
+    Promise.resolve(),
+  );
+  const meetingTitleSaveRevisionRef = useRef(0);
+  const meetingTitleDraftRef = useRef<{
+    meetingId: string;
+    value: string;
+  } | null>(null);
+  const richNotePendingRef = useRef<{
+    meetingId: string;
+    patch: { summaryMd?: string; userNotesMd?: string };
+    label: string;
+  } | null>(null);
+  const richNoteSaveActiveRef = useRef(false);
+  const meetingUpdatedAtRef = useRef<string | null>(null);
+
+  // Imperative scroll-to handle wired by TranscriptBubbles
+  const transcriptScrollToRef = useRef<((index: number) => void) | null>(null);
+
+  const meeting: Meeting | undefined = useMemo(() => {
+    if (!data?.meeting) return undefined;
+    const safeArray = <T,>(v: unknown): T[] => {
+      if (Array.isArray(v)) return v as T[];
+      if (typeof v === "string") {
+        try {
+          const parsed = JSON.parse(v);
+          return Array.isArray(parsed) ? (parsed as T[]) : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    };
+    const segmentsRaw = data.transcript?.segmentsJson;
+    return {
+      ...data.meeting,
+      participants: data.participants ?? [],
+      bulletsJson: safeArray<Bullet>(data.meeting.bulletsJson),
+      segmentsJson: segmentsRaw
+        ? safeArray<TranscriptSegment>(segmentsRaw)
+        : null,
+      actionItemsJson:
+        data.actionItems ?? safeArray<ActionItem>(data.meeting.actionItemsJson),
+      recordingDurationMs: data.recording?.durationMs ?? null,
+    } as Meeting;
+  }, [data]);
+  const isLive = !!(
+    meeting &&
+    ((meeting.actualStart && !meeting.actualEnd) ||
+      meeting.transcriptStatus === "in_progress")
+  );
+
+  // Viewer-role shares are read-only: gate every edit affordance. Server
+  // actions also enforce an `editor` minimum, so this is purely UX.
+  const canEdit =
+    data?.role === "owner" || data?.role === "admin" || data?.role === "editor";
+
+  const hasNotes =
+    !!meeting?.summaryMd ||
+    !!meeting?.userNotesMd ||
+    (meeting?.bulletsJson?.length ?? 0) > 0 ||
+    (meeting?.actionItemsJson?.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (!meeting) {
+      actionItemsDraftRef.current = null;
+      actionItemsAuthoritativeRef.current = null;
+      return;
+    }
+    if (
+      actionItemsDraftRef.current?.meetingId !== meeting.id ||
+      pendingActionItemsSavesRef.current === 0
+    ) {
+      const serverItems = meeting.actionItemsJson ?? [];
+      actionItemsAuthoritativeRef.current = {
+        meetingId: meeting.id,
+        items: serverItems,
+      };
+      actionItemsDraftRef.current = {
+        meetingId: meeting.id,
+        items: serverItems,
+      };
+    }
+  }, [meeting?.id, meeting?.actionItemsJson]);
+
+  useEffect(() => {
+    meetingUpdatedAtRef.current = meeting?.updatedAt ?? null;
+  }, [meeting?.id, meeting?.updatedAt]);
+
+  // Recording is a native Clips desktop-app gesture (Granola-style), not an
+  // in-browser capture. For an un-recorded, not-yet-past meeting we surface a
+  // handoff to the desktop app. While the desktop records, this web view polls
+  // and shows the live transcript it saves — no browser mic capture here.
+  const meetingTimeMs = Date.parse(
+    meeting?.scheduledEnd ?? meeting?.scheduledStart ?? "",
+  );
+  const isLongPast =
+    !Number.isNaN(meetingTimeMs) && meetingTimeMs < Date.now() - 60 * 60 * 1000;
+  const showDesktopRecordHint =
+    !!meeting &&
+    !meeting.recordingId &&
+    !hasNotes &&
+    !isLive &&
+    !meeting.actualEnd &&
+    !isLongPast;
+
+  useEffect(() => {
+    if (hasNotes && !previousHasNotesRef.current) {
+      setNotesJustArrived(true);
+      const t = setTimeout(() => setNotesJustArrived(false), 700);
+      return () => clearTimeout(t);
+    }
+    previousHasNotesRef.current = hasNotes;
+  }, [hasNotes]);
+
+  // Live "time remaining" countdown (Granola parity) — ticks every 30s so it
+  // never needs to be exact to the second; hidden once scheduledEnd passes.
+  const [nowForCountdown, setNowForCountdown] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isLive || !meeting?.scheduledEnd) return;
+    const interval = window.setInterval(
+      () => setNowForCountdown(Date.now()),
+      30_000,
+    );
+    return () => window.clearInterval(interval);
+  }, [isLive, meeting?.scheduledEnd]);
+  const minutesRemaining = useMemo(() => {
+    if (!isLive || !meeting?.scheduledEnd) return null;
+    const endMs = Date.parse(meeting.scheduledEnd);
+    if (Number.isNaN(endMs)) return null;
+    const diffMs = endMs - nowForCountdown;
+    if (diffMs <= 0) return null;
+    return Math.max(1, Math.round(diffMs / 60_000));
+  }, [isLive, meeting?.scheduledEnd, nowForCountdown]);
+
+  const patchCachedMeeting = (
+    patch: Partial<Meeting> & { actionItemsJson?: ActionItem[] },
+  ) => {
+    qc.setQueryData<GetMeetingResp | undefined>(
+      ["action", "get-meeting", { id: meetingId }],
+      (prev) => {
+        if (!prev?.meeting) return prev;
+        const { actionItemsJson, ...rest } = patch;
+        return {
+          ...prev,
+          meeting: { ...prev.meeting, ...rest },
+          actionItems:
+            actionItemsJson !== undefined ? actionItemsJson : prev.actionItems,
+        };
+      },
+    );
+  };
+
+  const recordMeetingSaveResult = (result: unknown) => {
+    const updatedAt = (
+      result as { meeting?: { updatedAt?: unknown } } | null | undefined
+    )?.meeting?.updatedAt;
+    if (typeof updatedAt !== "string") return;
+    meetingUpdatedAtRef.current = updatedAt;
+    patchCachedMeeting({ updatedAt });
+  };
+
+  const refetchMeetingAfterSaveFailure = async () => {
+    try {
+      const refreshed = await refetchMeeting();
+      const updatedAt = refreshed.data?.meeting?.updatedAt;
+      if (typeof updatedAt === "string") {
+        meetingUpdatedAtRef.current = updatedAt;
+      }
+      return refreshed.data;
+    } catch (error) {
+      console.error("[clips] meeting refetch after save failed", error);
+      return undefined;
+    }
+  };
+
+  const handleTitleChange = (next: string) => {
+    if (!meeting) return;
+    const revision = ++meetingTitleSaveRevisionRef.current;
+    meetingTitleDraftRef.current = { meetingId: meeting.id, value: next };
+    patchCachedMeeting({ title: next });
+    const save = meetingContentSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const expectedUpdatedAt = meetingUpdatedAtRef.current;
+        const result = await updateMeeting.mutateAsync({
+          id: meeting.id,
+          title: next,
+          ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+        });
+        recordMeetingSaveResult(result);
+        return result;
+      });
+    meetingContentSaveQueueRef.current = save.catch((error) => {
+      return (async () => {
+        console.error("[clips] meeting title save failed", error);
+        const hasNewerDraft = meetingTitleSaveRevisionRef.current !== revision;
+        await refetchMeetingAfterSaveFailure();
+        if (
+          hasNewerDraft &&
+          meetingTitleDraftRef.current?.meetingId === meeting.id
+        ) {
+          patchCachedMeeting({ title: meetingTitleDraftRef.current.value });
+        }
+        toast.error(t("transcriptPanel.saveFailed", { status: "title" }));
+      })();
+    });
+  };
+
+  const enqueueRichNoteSave = (
+    meetingId: string,
+    patch: { summaryMd?: string; userNotesMd?: string },
+    label: string,
+  ) => {
+    const pending = richNotePendingRef.current;
+    richNotePendingRef.current = {
+      meetingId,
+      patch: {
+        ...(pending?.meetingId === meetingId ? pending.patch : {}),
+        ...patch,
+      },
+      label,
+    };
+    if (richNoteSaveActiveRef.current) return;
+
+    richNoteSaveActiveRef.current = true;
+    const drain = meetingContentSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        while (richNotePendingRef.current) {
+          const current = richNotePendingRef.current;
+          richNotePendingRef.current = null;
+          try {
+            const expectedUpdatedAt = meetingUpdatedAtRef.current;
+            const result = await updateMeeting.mutateAsync({
+              id: current.meetingId,
+              ...current.patch,
+              ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+            });
+            recordMeetingSaveResult(result);
+          } catch (error) {
+            console.error("[clips] rich note save failed", error);
+            await refetchMeetingAfterSaveFailure();
+            // A newer blur may have arrived while the failed request was in
+            // flight. Refetch to refresh the CAS token, then put that latest
+            // draft back into the optimistic cache before retrying it.
+            const nextPending = richNotePendingRef.current as {
+              meetingId: string;
+              patch: { summaryMd?: string; userNotesMd?: string };
+              label: string;
+            } | null;
+            if (nextPending) {
+              patchCachedMeeting(nextPending.patch);
+              continue;
+            }
+            toast.error(
+              t("transcriptPanel.saveFailed", { status: current.label }),
+            );
+          }
+        }
+      })
+      .finally(() => {
+        richNoteSaveActiveRef.current = false;
+      });
+    meetingContentSaveQueueRef.current = drain.catch((error) => {
+      console.error("[clips] rich note save drain failed", error);
+    });
+  };
+
+  const handleSummaryChange = (next: string) => {
+    if (!meeting) return;
+    patchCachedMeeting({ summaryMd: next });
+    enqueueRichNoteSave(
+      meeting.id,
+      { summaryMd: next },
+      t("meetingDetail.summary"),
+    );
+  };
+
+  const handleUserNotesChange = (next: string) => {
+    if (!meeting) return;
+    patchCachedMeeting({ userNotesMd: next });
+    enqueueRichNoteSave(
+      meeting.id,
+      { userNotesMd: next },
+      t("meetingDetail.myNotes"),
+    );
+  };
+
+  const persistActionItems = (next: ActionItem[]) => {
+    if (!meeting) return;
+    const meetingId = meeting.id;
+    const revision = ++actionItemsSaveRevisionRef.current;
+    actionItemsDraftRef.current = { meetingId, items: next };
+    patchCachedMeeting({ actionItemsJson: next });
+    pendingActionItemsSavesRef.current += 1;
+    const save = meetingContentSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const expectedUpdatedAt = meetingUpdatedAtRef.current;
+        const result = await updateMeeting.mutateAsync({
+          id: meetingId,
+          actionItems: next,
+          ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+        });
+        recordMeetingSaveResult(result);
+        actionItemsAuthoritativeRef.current = { meetingId, items: next };
+        return result;
+      });
+    meetingContentSaveQueueRef.current = save
+      .catch(async (error) => {
+        console.error("[clips] action-item save failed", error);
+        toast.error(
+          t("transcriptPanel.saveFailed", {
+            status: t("meetingDetail.actionItems"),
+          }),
+        );
+        const hasNewerDraft = actionItemsSaveRevisionRef.current !== revision;
+        const refreshed = await refetchMeetingAfterSaveFailure();
+        if (hasNewerDraft) {
+          const latestDraft = actionItemsDraftRef.current;
+          if (latestDraft?.meetingId === meetingId) {
+            patchCachedMeeting({ actionItemsJson: latestDraft.items });
+          }
+          return;
+        }
+
+        const rollbackItems = Array.isArray(refreshed?.actionItems)
+          ? refreshed.actionItems
+          : actionItemsAuthoritativeRef.current?.meetingId === meetingId
+            ? actionItemsAuthoritativeRef.current.items
+            : [];
+        actionItemsAuthoritativeRef.current = {
+          meetingId,
+          items: rollbackItems,
+        };
+        actionItemsDraftRef.current = { meetingId, items: rollbackItems };
+        patchCachedMeeting({ actionItemsJson: rollbackItems });
+      })
+      .finally(() => {
+        pendingActionItemsSavesRef.current -= 1;
+      });
+  };
+
+  const currentActionItems = () => {
+    const draft = actionItemsDraftRef.current;
+    if (meeting && draft && draft.meetingId === meeting.id) {
+      return draft.items;
+    }
+    return meeting?.actionItemsJson ?? [];
+  };
+
+  const handleToggleActionItem = (index: number, completed: boolean) => {
+    if (!meeting) return;
+    const items = currentActionItems();
+    const next = items.map((it, i) =>
+      i === index
+        ? { ...it, completedAt: completed ? new Date().toISOString() : null }
+        : it,
+    );
+    persistActionItems(next);
+  };
+
+  const handleActionItemChange = (index: number, text: string) => {
+    if (!meeting) return;
+    const items = currentActionItems();
+    persistActionItems(
+      items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, text } : item,
+      ),
+    );
+  };
+
+  const handleActionItemRemove = (index: number) => {
+    if (!meeting) return;
+    const items = currentActionItems();
+    persistActionItems(items.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const handleActionItemAdd = (text: string) => {
+    if (!meeting) return;
+    persistActionItems([
+      ...currentActionItems(),
+      {
+        text,
+        assigneeEmail: null,
+        dueDate: null,
+        completedAt: null,
+      },
+    ]);
+  };
+
+  const handleJumpToSegment = (segmentIndex: number) => {
+    transcriptScrollToRef.current?.(segmentIndex);
+  };
+
+  const handleFinalize = () => {
+    if (!meeting) return;
+    // User-authored notes (userNotesMd) are separate and untouched by
+    // regeneration; only the AI summary/bullets are overwritten. Reassure
+    // the user their own notes are kept.
+    if (hasNotes) {
+      toast.info(t("meetingDetail.regeneratingNotes"));
+    }
+    autoFinalizedRef.current = true;
+    // force:true — manual regenerate must overwrite even if the server
+    // considers the current notes fresh (contract with finalize-meeting's
+    // concurrent `force` param). Auto-finalize stays without force.
+    finalize.mutate({ meetingId: meeting.id, force: true });
+  };
+
+  const handleDeleteMeeting = () => {
+    if (!meeting) return;
+    deleteMeeting.mutate(
+      { id: meeting.id },
+      {
+        onSuccess: () => {
+          toast.success(t("meetingDetail.meetingRemoved"));
+          void qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
+          void navigate("/meetings", { replace: true });
+        },
+        onError: (err: unknown) => {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : t("meetingDetail.couldNotRemoveMeeting"),
+          );
+        },
+      },
+    );
+  };
+
+  const handleEndMeeting = () => {
+    if (!meeting) return;
+    // The meeting share link is valid independently of the stop call, so copy
+    // it while the user's click still counts as activation instead of waiting
+    // on the mutation. The public meeting page resolves `visibility = public`
+    // rows only — anything else would hand the user a link that 404s for the
+    // people they send it to.
+    if (meeting.visibility === "public" && typeof window !== "undefined") {
+      const shareUrl = `${window.location.origin}${appPath(
+        `/share/meeting/${meeting.id}`,
+      )}`;
+      void writeClipboardText(shareUrl).then((copied) => {
+        if (copied) {
+          toast.success(t("recordRoute.linkCopied"));
+          return;
+        }
+        toast(t("meetingDetail.share"), {
+          action: {
+            label: t("recordRoute.copyLinkAction"),
+            onClick: () => {
+              void writeClipboardText(shareUrl);
+            },
+          },
+        });
+      });
+    }
+    // Optimistic: flip the live badge off immediately rather than waiting
+    // for the next 2s poll — stop-meeting-recording stamps actualEnd and
+    // flips transcriptStatus server-side.
+    patchCachedMeeting({
+      actualEnd: new Date().toISOString(),
+      transcriptStatus:
+        meeting.transcriptStatus === "in_progress"
+          ? "ready"
+          : meeting.transcriptStatus,
+    });
+    stopMeetingRecording.mutate(
+      { meetingId: meeting.id },
+      {
+        onError: (err: unknown) => {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : t("meetingDetail.couldNotEndMeeting"),
+          );
+        },
+      },
+    );
+  };
+
+  // Auto-generate notes once the transcript is ready and no notes yet.
+  // Depend on primitives only — the `meeting` object identity changes on every
+  // 2s poll, which would otherwise re-run this effect needlessly.
+  const meetingIdForFinalize = meeting?.id;
+  const transcriptStatusForFinalize = meeting?.transcriptStatus;
+  useEffect(() => {
+    if (!canEdit) return; // viewers can't finalize — would 403
+    if (!meetingIdForFinalize) return;
+    if (autoFinalizedRef.current) return;
+    if (hasNotes) return;
+    if (finalize.isPending) return;
+    if (transcriptStatusForFinalize !== "ready") return;
+    autoFinalizedRef.current = true;
+    finalize.mutate({ meetingId: meetingIdForFinalize });
+  }, [
+    canEdit,
+    meetingIdForFinalize,
+    transcriptStatusForFinalize,
+    hasNotes,
+    finalize,
+  ]);
+
+  // Failed, still pending, and loaded-but-absent are three outcomes: the query
+  // never retries, so collapsing any of them into the skeleton pins it forever.
+  // A failed live-poll on top of an already-loaded meeting is none of them —
+  // keep showing the meeting.
+  if (isError && !meeting) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto w-full">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {t("meetingDetail.couldNotLoadMeeting")}
+        </div>
+        <Button
+          variant="outline"
+          className="mt-3"
+          onClick={() => refetchMeeting()}
+        >
+          {t("meetingDetail.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="p-6 max-w-6xl mx-auto w-full">
+        <Skeleton className="h-6 w-32 mb-4" />
+        <Skeleton className="h-9 w-96 mb-2" />
+        <Skeleton className="h-4 w-64 mb-6" />
+        <div className="clips-meeting-detail-skeleton-grid grid grid-cols-1 gap-6">
+          <Skeleton className="h-[480px] w-full" />
+          <Skeleton className="h-[480px] w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!meeting) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto w-full">
+        <div className="rounded-md border px-4 py-3 text-sm text-muted-foreground">
+          {/* Neutral on purpose: `get-meeting` returns one reason for missing
+              and inaccessible so callers cannot probe which ids exist, and
+              saying "not found" here would leak back the distinction the
+              action withholds. */}
+          {t("meetingDetail.meetingUnavailable")}
+        </div>
+        <Button asChild variant="outline" className="mt-3">
+          <NavLink to="/meetings">{t("meetingDetail.allMeetings")}</NavLink>
+        </Button>
+      </div>
+    );
+  }
+
+  const bullets = meeting.bulletsJson ?? [];
+  const actionItems = meeting.actionItemsJson ?? [];
+  const segments = meeting.segmentsJson ?? [];
+  const hasSummary =
+    !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
+
+  const handleCopyTranscript = async () => {
+    if (!segments.length) return;
+    const text = segments
+      .map((s) => {
+        const label =
+          s.speaker?.trim() ||
+          (s.source === "mic"
+            ? t("transcriptBubbles.me")
+            : s.source === "system"
+              ? t("transcriptBubbles.them")
+              : t("transcriptBubbles.unknownSpeaker"));
+        return `${label}: ${s.text}`;
+      })
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setTranscriptCopied(true);
+      toast.success(t("meetingDetail.transcriptCopied"));
+      setTimeout(() => setTranscriptCopied(false), 1500);
+    } catch {
+      toast.error(t("meetingDetail.couldNotCopyTranscript"));
+    }
+  };
+
+  return (
+    <div className="p-6 max-w-6xl mx-auto w-full flex flex-col min-h-0 flex-1 lg:h-full lg:overflow-hidden">
+      <PageHeader>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <NavLink
+              to="/meetings"
+              aria-label={t("meetingDetail.allMeetings")}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              <IconArrowLeft className="h-4 w-4" />
+            </NavLink>
+          </TooltipTrigger>
+          <TooltipContent>{t("meetingDetail.allMeetings")}</TooltipContent>
+        </Tooltip>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <TitleEditor
+            value={meeting.title || ""}
+            onChange={handleTitleChange}
+            compact
+            readOnly={!canEdit}
+          />
+          {isLive && (
+            <Badge
+              variant="secondary"
+              className="bg-red-500/10 text-red-600 border-red-500/20 gap-1.5 px-2 shrink-0"
+            >
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+              </span>
+              Live
+            </Badge>
+          )}
+          {minutesRemaining != null && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              {t("meetingDetail.timeRemaining", { count: minutesRemaining })}
+            </span>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {!canEdit ? null : finalize.isPending ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("meetingDetail.generatingNotesInline")}
+            </span>
+          ) : null}
+          <ShareMeetingPopover
+            meetingId={meeting.id}
+            shareTranscript={meeting.shareTranscript === true}
+            transcriptReady={
+              meeting.transcriptStatus === "ready" &&
+              (segments.length > 0 ||
+                Boolean(data?.transcript?.fullText?.trim()))
+            }
+          >
+            <ShareTrigger
+              label={t("meetingDetail.share")}
+              className="shrink-0"
+            />
+          </ShareMeetingPopover>
+          {canEdit && (
+            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 cursor-pointer"
+                    aria-label={t("meetingDetail.meetingOptions")}
+                  >
+                    <IconDotsVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  {isLive && (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        // Defer opening the second AlertDialog until after
+                        // the dropdown's own close animation/unmount so Radix
+                        // doesn't fight over focus/pointer state between the
+                        // two overlays.
+                        setTimeout(() => setEndMeetingOpen(true), 0);
+                      }}
+                    >
+                      <IconPlayerStop className="mr-2 h-4 w-4" />
+                      {t("meetingDetail.endMeeting")}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setDeleteOpen(true);
+                    }}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <IconTrash className="mr-2 h-4 w-4" />
+                    {t("meetingDetail.removeMeeting")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t("meetingDetail.removeThisMeeting")}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("meetingDetail.removeDescription")}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deleteMeeting.isPending}>
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(event) => {
+                      event.preventDefault();
+                      handleDeleteMeeting();
+                    }}
+                    disabled={deleteMeeting.isPending}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {deleteMeeting.isPending
+                      ? t("meetingDetail.removing")
+                      : t("meetingDetail.remove")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          {canEdit && isLive && (
+            <AlertDialog open={endMeetingOpen} onOpenChange={setEndMeetingOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t("meetingDetail.endThisMeeting")}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("meetingDetail.endMeetingDescription")}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={stopMeetingRecording.isPending}>
+                    {t("meetingDetail.cancel")}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setEndMeetingOpen(false);
+                      handleEndMeeting();
+                    }}
+                    disabled={stopMeetingRecording.isPending}
+                  >
+                    {t("meetingDetail.endMeeting")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
+      </PageHeader>
+
+      {showDesktopRecordHint && (
+        <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">
+          <IconDeviceDesktop className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 text-sm">
+            {t("meetingDetail.desktopHint")}
+          </span>
+        </div>
+      )}
+
+      {finalize.isError && (
+        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {(finalize.error as Error)?.message ||
+            t("meetingDetail.generateNotesFailed")}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mb-6 shrink-0">
+        <span className="inline-flex items-center gap-1">
+          <IconClock className="h-3.5 w-3.5" />
+          {formatDateTime(meeting.scheduledStart)}
+        </span>
+        {(meeting.participants?.length ?? 0) > 0 && (
+          <span className="inline-flex items-center gap-1.5">
+            <IconUsers className="h-3.5 w-3.5" />
+            <AttendeeStack
+              participants={meeting.participants ?? []}
+              max={5}
+              size="xs"
+            />
+            <span>
+              {meeting.participants!.length} attendee
+              {meeting.participants!.length === 1 ? "" : "s"}
+            </span>
+          </span>
+        )}
+        {meeting.joinUrl && !meeting.actualEnd && (
+          <a
+            href={meeting.joinUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 hover:text-foreground hover:bg-accent/40 cursor-pointer"
+          >
+            <IconExternalLink className="h-3.5 w-3.5" />
+            {t("meetingDetail.joinCall")}
+          </a>
+        )}
+      </div>
+
+      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0 overflow-y-auto">
+        {/* Summary canvas with generated bullets and action items. */}
+        <div
+          className={cn(
+            "clips-meeting-notes-panel rounded-lg border border-border bg-background min-h-[480px] overflow-hidden flex flex-col",
+            notesJustArrived && "animate-in fade-in duration-500",
+          )}
+        >
+          <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+            <div className="text-xs font-medium">
+              {t("meetingDetail.summary")}
+            </div>
+            <div className="flex items-center gap-2">
+              {finalize.isPending && (
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                  {t("meetingDetail.working")}
+                </span>
+              )}
+              {canEdit && hasSummary && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 cursor-pointer"
+                      aria-label={t("meetingDetail.regenerateNotes")}
+                      disabled={finalize.isPending}
+                      onClick={handleFinalize}
+                    >
+                      <IconRefresh className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("meetingDetail.regenerateNotes")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="max-w-2xl px-6 pt-5">
+              <div className="mb-2 text-xs font-medium">
+                {t("meetingDetail.myNotes")}
+              </div>
+              <CanvasEditor
+                view="user"
+                userNotesMd={meeting.userNotesMd ?? ""}
+                onUserNotesChange={handleUserNotesChange}
+                readOnly={!canEdit}
+                className="max-w-none px-0 py-0"
+              />
+            </div>
+
+            <div className="max-w-2xl px-6 pt-5">
+              <div className="mb-2 text-xs font-medium">
+                {t("meetingDetail.aiNotes")}
+              </div>
+            </div>
+            <CanvasEditor
+              view="ai"
+              summaryMd={meeting.summaryMd ?? ""}
+              bullets={bullets.map((b) => b.text)}
+              onSummaryChange={handleSummaryChange}
+              readOnly={!canEdit}
+              className="max-w-2xl px-6 pt-0 pb-0"
+              renderBullet={(b) => (
+                <BulletLink
+                  bullet={b}
+                  segments={segments}
+                  onJumpTo={handleJumpToSegment}
+                >
+                  <div className="flex gap-2 text-sm leading-relaxed text-foreground">
+                    <span>•</span>
+                    <span className="flex-1">{b}</span>
+                  </div>
+                </BulletLink>
+              )}
+            />
+
+            <div className="max-w-2xl px-6 pb-6">
+              <div className="mb-3 text-xs font-medium">
+                {t("meetingDetail.actionItems")}
+              </div>
+              <ActionItemsByPerson
+                items={actionItems}
+                onToggle={handleToggleActionItem}
+                onChange={handleActionItemChange}
+                onRemove={handleActionItemRemove}
+                onAdd={handleActionItemAdd}
+                emptyLabel={t("meetingDetail.noActionItems")}
+                readOnly={!canEdit}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Transcript pane — plain agent-chat-style text layout */}
+        <div className="rounded-lg border border-border bg-background min-h-[480px] lg:min-h-0 overflow-hidden flex flex-col">
+          <TranscriptBubbles
+            segments={segments}
+            isLive={isLive}
+            participants={meeting.participants ?? []}
+            ownerEmail={meeting.ownerEmail}
+            registerScrollTo={(fn) => {
+              transcriptScrollToRef.current = fn;
+            }}
+            title={
+              <>
+                <IconNotes className="h-3.5 w-3.5" />
+                {t("meetingDetail.transcript")}
+              </>
+            }
+            headerActions={
+              segments.length > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 cursor-pointer"
+                      aria-label={t("meetingDetail.copyTranscript")}
+                      onClick={handleCopyTranscript}
+                    >
+                      {transcriptCopied ? (
+                        <IconCheck className="h-3.5 w-3.5 text-green-600" />
+                      ) : (
+                        <IconCopy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("meetingDetail.copyFullTranscript")}
+                  </TooltipContent>
+                </Tooltip>
+              )
+            }
+          />
+        </div>
+      </div>
+
+      <QuickAskSidebar
+        meetingId={meeting.id}
+        meetingTitle={meeting.title}
+        segments={segments}
+      />
+    </div>
+  );
+}

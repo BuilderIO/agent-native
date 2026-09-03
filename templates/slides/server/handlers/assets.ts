@@ -1,0 +1,277 @@
+import path from "path";
+
+import { uploadFile } from "@agent-native/core/file-upload";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, desc, eq } from "drizzle-orm";
+import {
+  defineEventHandler,
+  getRouterParam,
+  setResponseStatus,
+  readMultipartFormData,
+} from "h3";
+import { nanoid } from "nanoid";
+
+import { getDb, schema } from "../db/index.js";
+import {
+  resolveSlidesRequestAuth,
+  type SlidesRequestAuthContext,
+} from "./request-auth-context.js";
+
+type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
+
+export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+export interface UploadedAsset {
+  url: string;
+  filename: string;
+  type: string;
+  size: number;
+  provider?: string;
+}
+
+export interface ListedUploadedAsset {
+  id: string;
+  url: string;
+  filename: string;
+  size: number;
+  createdAt: string;
+}
+
+async function requireSession(
+  event: Parameters<typeof resolveSlidesRequestAuth>[0],
+): Promise<{ session: AuthedSlidesSession | null; error: string | null }> {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { session: null, error: auth.error };
+  }
+  if (!auth.context.email) {
+    setResponseStatus(event, 401);
+    return { session: null, error: "Unauthorized" };
+  }
+  return { session: auth.context as AuthedSlidesSession, error: null };
+}
+
+function isRasterAssetExtension(ext: string): boolean {
+  return new Set([
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".avif",
+    ".ico",
+  ]).has(ext);
+}
+
+function ascii(data: Uint8Array, start: number, end: number): string {
+  return Buffer.from(data.subarray(start, end)).toString("ascii");
+}
+
+function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
+  if (ext === ".png") {
+    return (
+      data[0] === 0x89 &&
+      data[1] === 0x50 &&
+      data[2] === 0x4e &&
+      data[3] === 0x47
+    );
+  }
+  if (ext === ".jpg" || ext === ".jpeg") {
+    return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  }
+  if (ext === ".gif") {
+    const header = ascii(data, 0, 6);
+    return header === "GIF87a" || header === "GIF89a";
+  }
+  if (ext === ".webp") {
+    return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
+  }
+  if (ext === ".ico") {
+    return (
+      data[0] === 0x00 &&
+      data[1] === 0x00 &&
+      data[2] === 0x01 &&
+      data[3] === 0x00
+    );
+  }
+  if (ext === ".avif") {
+    return ascii(data, 4, 12).includes("ftyp");
+  }
+  return false;
+}
+
+export function canSaveAsUploadedAsset(args: {
+  originalName: string;
+  data: Uint8Array;
+}): boolean {
+  return (
+    args.data.length <= MAX_ASSET_FILE_SIZE &&
+    isRasterAssetExtension(path.extname(args.originalName).toLowerCase())
+  );
+}
+
+/**
+ * Upload an image asset through the framework's `uploadFile()` provider chain.
+ *
+ * All uploads go to the configured remote provider — Builder.io by default,
+ * or any provider registered via `registerFileUploadProvider()` (S3, R2, etc.).
+ * There is intentionally NO local-disk fallback: writing into the source tree
+ * (`public/uploads/`) pollutes git, doesn't persist on serverless deploys,
+ * and isn't reachable across nodes. If no provider is configured, the request
+ * fails with a clear 503 instructing the caller to configure one — connect
+ * Builder.io or register a custom provider.
+ */
+export async function uploadImageAsset(args: {
+  email: string;
+  originalName: string;
+  data: Uint8Array;
+  type?: string;
+}): Promise<UploadedAsset> {
+  if (args.data.length > MAX_ASSET_FILE_SIZE) {
+    throw new Error("File too large (max 10 MB)");
+  }
+
+  const ext = path.extname(args.originalName).toLowerCase();
+  // SVG is excluded — it can embed <script> tags and execute when served
+  // as image/svg+xml from the same origin.
+  if (!isRasterAssetExtension(ext)) {
+    throw new Error(
+      "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+    );
+  }
+  if (!hasExpectedImageSignature(ext, args.data)) {
+    throw new Error("Uploaded image bytes do not match file extension");
+  }
+
+  const result = await runWithRequestContext({ userEmail: args.email }, () =>
+    uploadFile({
+      data: args.data,
+      filename: args.originalName,
+      mimeType: args.type,
+      ownerEmail: args.email,
+    }),
+  );
+
+  if (!result) {
+    const err: Error & { statusCode?: number } = new Error(
+      "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+    );
+    err.statusCode = 503;
+    throw err;
+  }
+
+  const asset: UploadedAsset = {
+    url: result.url,
+    filename: args.originalName,
+    type: args.type || "application/octet-stream",
+    size: args.data.length,
+    provider: result.provider,
+  };
+
+  // Record the upload so it shows up in GET /api/assets — only the URL and
+  // metadata are stored, never the file bytes (those live with the provider).
+  const db = getDb();
+  await db.insert(schema.uploadedAssets).values({
+    id: nanoid(),
+    filename: asset.filename,
+    url: asset.url,
+    type: asset.type,
+    size: asset.size,
+    provider: asset.provider ?? null,
+    ownerEmail: args.email,
+    createdAt: new Date().toISOString(),
+  });
+
+  return asset;
+}
+
+/**
+ * POST /api/assets/upload — receive a single image file, route it through the
+ * framework provider chain, return its hosted URL.
+ */
+export const uploadAsset = defineEventHandler(async (event) => {
+  const { session, error: authError } = await requireSession(event);
+  if (!session) {
+    return { error: authError };
+  }
+
+  const parts = await readMultipartFormData(event);
+  const filePart = parts?.find((p) => p.name === "file");
+  if (!filePart || !filePart.data) {
+    setResponseStatus(event, 400);
+    return { error: "No file uploaded" };
+  }
+
+  if (filePart.data.length > MAX_ASSET_FILE_SIZE) {
+    setResponseStatus(event, 413);
+    return { error: "File too large (max 10 MB)" };
+  }
+
+  try {
+    return await uploadImageAsset({
+      email: session.email,
+      originalName: filePart.filename || "upload",
+      data: filePart.data,
+      type: filePart.type,
+    });
+  } catch (error) {
+    const status = (error as { statusCode?: number })?.statusCode ?? 400;
+    setResponseStatus(event, status);
+    return {
+      error: error instanceof Error ? error.message : "Image upload failed",
+    };
+  }
+});
+
+/**
+ * GET /api/assets — list assets this user has uploaded, most recent first.
+ */
+export const listAssets = defineEventHandler(async (event) => {
+  const { session, error } = await requireSession(event);
+  if (!session) {
+    return { error };
+  }
+  const db = getDb();
+  const rows: ListedUploadedAsset[] = await db
+    .select({
+      id: schema.uploadedAssets.id,
+      url: schema.uploadedAssets.url,
+      filename: schema.uploadedAssets.filename,
+      size: schema.uploadedAssets.size,
+      createdAt: schema.uploadedAssets.createdAt,
+    })
+    .from(schema.uploadedAssets)
+    .where(eq(schema.uploadedAssets.ownerEmail, session.email))
+    .orderBy(desc(schema.uploadedAssets.createdAt));
+  return rows;
+});
+
+/**
+ * DELETE /api/assets/:id — removes the upload from this user's asset library
+ * index. Keyed by the row's unique id (not filename) since two uploads can
+ * share the same original filename. The underlying file may still exist with
+ * the storage provider (Builder.io, S3, etc.) — deleting it there requires
+ * that provider's own API — but it no longer appears in this app's library.
+ */
+export const deleteAsset = defineEventHandler(async (event) => {
+  const { session, error } = await requireSession(event);
+  if (!session) {
+    return { error };
+  }
+  const id = getRouterParam(event, "id");
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Asset id is required" };
+  }
+  const db = getDb();
+  await db
+    .delete(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, decodeURIComponent(id)),
+        eq(schema.uploadedAssets.ownerEmail, session.email),
+      ),
+    );
+  return { success: true };
+});

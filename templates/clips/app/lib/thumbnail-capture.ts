@@ -1,0 +1,342 @@
+import { appBasePath } from "@agent-native/core/client/api-path";
+
+const PROBE_WIDTH = 40;
+const MIN_VISIBLE_MEAN_LUMA = 8;
+const MIN_VISIBLE_MAX_LUMA = 28;
+const MIN_VISIBLE_PIXEL_RATIO = 0.005;
+const SEEK_TOLERANCE_SECONDS = 0.25;
+const DEFAULT_SEEK_TIMEOUT_MS = 5_000;
+const DEFAULT_UPLOAD_THUMBNAIL_TIME_MS = 350;
+const VIDEO_METADATA_TIMEOUT_MS = 10_000;
+
+function resolveAppUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return `${appBasePath()}${url}`;
+  }
+  return url;
+}
+
+function canProbeImageUrl(url: string): boolean {
+  if (url.startsWith("data:") || url.startsWith("blob:")) return true;
+  try {
+    const parsed = new URL(url, window.location.href);
+    return parsed.origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+function thumbnailAbortError(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) return signal.reason;
+  const error = new Error("Thumbnail capture aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfThumbnailAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw thumbnailAbortError(signal);
+}
+
+export function canvasHasVisibleContent(canvas: HTMLCanvasElement): boolean {
+  if (!canvas.width || !canvas.height) return false;
+
+  const width = PROBE_WIDTH;
+  const height = Math.max(
+    1,
+    Math.round((canvas.height / canvas.width) * width),
+  );
+  const probe = document.createElement("canvas");
+  probe.width = width;
+  probe.height = height;
+
+  const ctx = probe.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return true;
+
+  try {
+    ctx.drawImage(canvas, 0, 0, width, height);
+    const data = ctx.getImageData(0, 0, width, height).data;
+    let totalLuma = 0;
+    let maxLuma = 0;
+    let visiblePixels = 0;
+    const pixels = data.length / 4;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3] / 255;
+      const luma =
+        (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) *
+        alpha;
+      totalLuma += luma;
+      maxLuma = Math.max(maxLuma, luma);
+      if (luma >= MIN_VISIBLE_MAX_LUMA) visiblePixels++;
+    }
+
+    const meanLuma = totalLuma / Math.max(1, pixels);
+    const visibleRatio = visiblePixels / Math.max(1, pixels);
+    return (
+      meanLuma >= MIN_VISIBLE_MEAN_LUMA ||
+      (maxLuma >= MIN_VISIBLE_MAX_LUMA &&
+        visibleRatio >= MIN_VISIBLE_PIXEL_RATIO)
+    );
+  } catch {
+    return true;
+  }
+}
+
+export async function thumbnailUrlHasVisibleContent(
+  rawUrl: string,
+): Promise<boolean | null> {
+  const src = resolveAppUrl(rawUrl);
+  if (!src || !canProbeImageUrl(src)) return null;
+
+  const image = new Image();
+  image.decoding = "async";
+  image.src = src;
+
+  try {
+    await image.decode();
+  } catch {
+    if (!image.complete || !image.naturalWidth || !image.naturalHeight) {
+      return false;
+    }
+  }
+
+  if (!image.naturalWidth || !image.naturalHeight) return false;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  try {
+    ctx.drawImage(image, 0, 0);
+    return canvasHasVisibleContent(canvas);
+  } catch {
+    return null;
+  }
+}
+
+export async function captureVideoThumbnailBlob(
+  video: HTMLVideoElement | null,
+): Promise<Blob | null> {
+  if (!video || !video.videoWidth || !video.videoHeight) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  if (!canvasHasVisibleContent(canvas)) return null;
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
+  });
+}
+
+function waitForVideoMetadata(
+  video: HTMLVideoElement,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfThumbnailAborted(signal);
+  if (video.readyState >= 1) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      finish(new Error("Thumbnail video metadata timed out"));
+    }, VIDEO_METADATA_TIMEOUT_MS);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("error", handleError);
+      signal?.removeEventListener("abort", handleAbort);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const handleLoadedMetadata = () => finish();
+    const handleError = () =>
+      finish(new Error("Thumbnail video could not load"));
+    const handleAbort = () => finish(thumbnailAbortError(signal));
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    video.addEventListener("error", handleError);
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
+    video.load();
+  });
+}
+
+export async function captureVideoBlobThumbnail(
+  videoBlob: Blob,
+  timeMs = DEFAULT_UPLOAD_THUMBNAIL_TIME_MS,
+  signal?: AbortSignal,
+): Promise<Blob | null> {
+  if (!videoBlob.size) return null;
+  throwIfThumbnailAborted(signal);
+
+  const sourceUrl = URL.createObjectURL(videoBlob);
+  const video = document.createElement("video");
+  video.preload = "metadata";
+  video.muted = true;
+  video.playsInline = true;
+  video.src = sourceUrl;
+
+  try {
+    await waitForVideoMetadata(video, signal);
+
+    const durationMs =
+      Number.isFinite(video.duration) && video.duration > 0
+        ? video.duration * 1000
+        : null;
+    const targetMs = durationMs
+      ? Math.min(Math.max(0, timeMs), Math.max(0, durationMs - 1))
+      : Math.max(0, timeMs);
+    const candidates = [targetMs, 0].filter(
+      (candidate, index, values) => values.indexOf(candidate) === index,
+    );
+
+    for (const candidate of candidates) {
+      throwIfThumbnailAborted(signal);
+      try {
+        await seekVideoToTime(video, candidate, { signal });
+        const thumbnail = await captureVideoThumbnailBlob(video);
+        if (thumbnail) return thumbnail;
+        // coercion-ok: try the next frame candidate; null remains an absent thumbnail.
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // Try the first frame when the short clip has no decodable 350ms frame.
+      }
+    }
+    return null;
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+
+export function seekVideoToTime(
+  video: HTMLVideoElement,
+  timeMs: number,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<void> {
+  throwIfThumbnailAborted(options.signal);
+  const targetSeconds = Math.max(0, timeMs) / 1000;
+  if (!Number.isFinite(targetSeconds)) {
+    return Promise.reject(new Error("Thumbnail time must be finite"));
+  }
+
+  const timeoutMs = options.timeoutMs ?? DEFAULT_SEEK_TIMEOUT_MS;
+  const hasTargetTime = () =>
+    Number.isFinite(video.currentTime) &&
+    Math.abs(video.currentTime - targetSeconds) <= SEEK_TOLERANCE_SECONDS;
+
+  if (video.readyState >= 2 && hasTargetTime()) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = () => {
+      video.removeEventListener("loadedmetadata", requestSeek);
+      video.removeEventListener("seeked", handleSeeked);
+      video.removeEventListener("error", handleError);
+      options.signal?.removeEventListener("abort", handleAbort);
+      if (timeout) clearTimeout(timeout);
+    };
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+
+    const handleSeeked = () => {
+      if (hasTargetTime()) {
+        finish();
+      } else {
+        finish(new Error("Thumbnail seek landed on the wrong frame"));
+      }
+    };
+
+    const handleError = () =>
+      finish(new Error("Thumbnail video could not seek"));
+    const handleAbort = () => finish(thumbnailAbortError(options.signal));
+
+    const requestSeek = () => {
+      if (settled) return;
+      try {
+        video.currentTime = targetSeconds;
+        if (video.readyState >= 2 && hasTargetTime()) finish();
+      } catch {
+        finish(new Error("Thumbnail video could not seek"));
+      }
+    };
+
+    video.addEventListener("loadedmetadata", requestSeek);
+    video.addEventListener("seeked", handleSeeked);
+    video.addEventListener("error", handleError);
+    options.signal?.addEventListener("abort", handleAbort, { once: true });
+    timeout = setTimeout(
+      () => finish(new Error("Thumbnail seek timed out")),
+      timeoutMs,
+    );
+
+    if (options.signal?.aborted) handleAbort();
+    else if (video.readyState >= 1) requestSeek();
+  });
+}
+
+export async function uploadRecordingThumbnail(
+  recordingId: string,
+  blob: Blob,
+  options: { replaceAuto?: boolean; signal?: AbortSignal } = {},
+) {
+  const suffix = options.replaceAuto ? "?replace=auto" : "";
+  const response = await fetch(
+    `${appBasePath()}/api/recordings/${recordingId}/thumbnail${suffix}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "image/jpeg" },
+      body: blob,
+      signal: options.signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Thumbnail upload failed (${response.status})`);
+  }
+
+  return response.json().catch(() => null);
+}
+
+export async function uploadVideoBlobThumbnail(
+  recordingId: string,
+  videoBlob: Blob,
+  options: { signal?: AbortSignal; timeMs?: number } = {},
+) {
+  const thumbnail = await captureVideoBlobThumbnail(
+    videoBlob,
+    options.timeMs,
+    options.signal,
+  );
+  if (!thumbnail) return null;
+  return uploadRecordingThumbnail(recordingId, thumbnail, {
+    signal: options.signal,
+  });
+}

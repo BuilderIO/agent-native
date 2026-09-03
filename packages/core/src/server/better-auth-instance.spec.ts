@@ -1,0 +1,750 @@
+import { convertSetCookieToCookie, getTestInstance } from "better-auth/test";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+const mockAcceptPendingInvitationsForEmail = vi.hoisted(() => vi.fn());
+
+vi.mock("../org/accept-pending.js", () => ({
+  acceptPendingInvitationsForEmail: mockAcceptPendingInvitationsForEmail,
+}));
+
+import {
+  buildDatabaseConfig,
+  configureLocalSqlite,
+  desktopMagicLinkLandingUrl,
+  ensureGoogleAuthIdentityWithAdapter,
+  getAuthSecret,
+  withBetterAuthActionSession,
+  type BetterAuthInternalAdapter,
+} from "./better-auth-instance.js";
+import { deriveServerSecret } from "./derived-secret.js";
+
+describe("configureLocalSqlite", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("waits for competing app writes before giving up", async () => {
+    const pragma = vi.fn();
+
+    await configureLocalSqlite({ pragma });
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+    ]);
+  });
+
+  it("retries a stale-runtime lock while enabling WAL instead of throwing straight out of boot", async () => {
+    vi.useFakeTimers();
+    const locked = Object.assign(new Error("database is locked"), {
+      code: "SQLITE_BUSY",
+    });
+    const pragma = vi
+      .fn()
+      .mockReturnValueOnce(undefined) // busy_timeout = 10000
+      .mockImplementationOnce(() => {
+        throw locked; // journal_mode = WAL, first attempt: still locked by the app connection's migration burst
+      })
+      .mockReturnValueOnce([{ journal_mode: "wal" }]); // journal_mode = WAL, retry succeeds
+
+    const pending = configureLocalSqlite({ pragma, close: vi.fn() });
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+    ]);
+  });
+
+  it("closes the handle and surfaces a lock that outlasts every retry", async () => {
+    vi.useFakeTimers();
+    const locked = Object.assign(new Error("database is locked"), {
+      code: "SQLITE_BUSY",
+    });
+    const pragma = vi.fn((statement: string) => {
+      if (statement === "journal_mode = WAL") throw locked;
+    });
+    const close = vi.fn();
+
+    const pending = expect(
+      configureLocalSqlite({ pragma, close }),
+    ).rejects.toBe(locked);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await pending;
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+    ]);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("retries the WAL negotiation while a dev-server handoff holds the file", async () => {
+    const pragma = vi.fn((statement: string) => {
+      if (statement === "journal_mode = WAL" && pragma.mock.calls.length <= 2) {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      }
+      return undefined;
+    });
+    const close = vi.fn();
+
+    await configureLocalSqlite({ pragma, close });
+
+    expect(close).not.toHaveBeenCalled();
+    expect(
+      pragma.mock.calls.filter(([s]) => s === "journal_mode = WAL"),
+    ).toHaveLength(2);
+  });
+});
+
+describe("desktopMagicLinkLandingUrl", () => {
+  it("moves only desktop verification links behind a non-consuming landing page", () => {
+    const verificationURL = new URL(
+      "https://dispatch.agent-native.com/_agent-native/auth/ba/magic-link/verify",
+    );
+    verificationURL.searchParams.set("token", "magic-token");
+    verificationURL.searchParams.set(
+      "callbackURL",
+      "/_agent-native/auth/magic-link/desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    verificationURL.searchParams.set(
+      "newUserCallbackURL",
+      "/_agent-native/auth/magic-link/new-user?return=%2F",
+    );
+
+    const landingURL = desktopMagicLinkLandingUrl(verificationURL.toString());
+    expect(landingURL).toBeTruthy();
+    const parsedLandingURL = new URL(landingURL!);
+    expect(parsedLandingURL.pathname).toBe(
+      "/_agent-native/auth/magic-link/desktop-landing",
+    );
+    expect(parsedLandingURL.searchParams.get("token")).toBe("magic-token");
+    expect(parsedLandingURL.searchParams.get("callbackURL")).toContain(
+      "desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    expect(parsedLandingURL.searchParams.get("newUserCallbackURL")).toContain(
+      "magic-link/new-user",
+    );
+  });
+
+  it("leaves ordinary web links and cross-origin callbacks unchanged", () => {
+    const ordinaryURL =
+      "https://dispatch.agent-native.com/_agent-native/auth/ba/magic-link/verify?token=magic-token&callbackURL=%2F";
+    expect(desktopMagicLinkLandingUrl(ordinaryURL)).toBeUndefined();
+
+    const externalCallbackURL = new URL(ordinaryURL);
+    externalCallbackURL.searchParams.set(
+      "callbackURL",
+      "https://evil.example/_agent-native/auth/magic-link/desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    expect(
+      desktopMagicLinkLandingUrl(externalCallbackURL.toString()),
+    ).toBeUndefined();
+  });
+});
+
+describe("buildDatabaseConfig", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("uses the Cloudflare D1 binding for Better Auth", async () => {
+    const d1 = { prepare: vi.fn() };
+    vi.stubGlobal("__env__", { DB: d1 });
+
+    const database = await buildDatabaseConfig("d1");
+
+    expect(database).toEqual(expect.any(Function));
+  });
+
+  it("fails clearly when the D1 binding is unavailable", async () => {
+    await expect(buildDatabaseConfig("d1")).rejects.toThrow(
+      "Cloudflare D1 database binding is unavailable",
+    );
+  });
+});
+
+describe("resolveAuthSecret", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+    delete process.env.NODE_ENV;
+  });
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it("returns the env var when set", () => {
+    process.env.BETTER_AUTH_SECRET = "explicit-secret";
+    expect(getAuthSecret()).toBe("explicit-secret");
+  });
+
+  it("throws in production when BETTER_AUTH_SECRET is missing", () => {
+    process.env.NODE_ENV = "production";
+    expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it("derives a production workspace auth secret from A2A_SECRET", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    expect(getAuthSecret()).toBe(
+      deriveServerSecret("workspace-root-secret", "better-auth"),
+    );
+    expect(getAuthSecret()).not.toBe("workspace-root-secret");
+  });
+
+  it("derives a production workspace auth secret for boolean workspace flags", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "true";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    expect(getAuthSecret()).toBe(
+      deriveServerSecret("workspace-root-secret", "better-auth"),
+    );
+  });
+
+  it("includes a sample value and openssl command in the prod error", () => {
+    process.env.NODE_ENV = "production";
+    expect(() => getAuthSecret()).toThrow(/openssl rand -hex 32/);
+  });
+
+  it("does not throw in dev when missing (auto-generates instead)", () => {
+    process.env.NODE_ENV = "development";
+    expect(() => getAuthSecret()).not.toThrow();
+    expect(getAuthSecret()).toBeTruthy();
+  });
+
+  // SECURITY (audit 09 LOW-2): the dev-mode fallback used to chain to
+  // GOOGLE_CLIENT_SECRET, ACCESS_TOKEN, and a hardcoded literal. All
+  // three were dropped — the fallback now mints a random in-memory
+  // secret only when the filesystem is unwritable. These tests verify
+  // that even with those legacy env vars set, the resolved secret is
+  // not either of them or the legacy literal.
+  it("never returns the legacy hardcoded fallback string", () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.ACCESS_TOKEN;
+    const secret = getAuthSecret();
+    expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+  });
+});
+
+describe("ensureGoogleAuthIdentityWithAdapter", () => {
+  beforeEach(() => {
+    mockAcceptPendingInvitationsForEmail.mockReset();
+    mockAcceptPendingInvitationsForEmail.mockResolvedValue({
+      accepted: [],
+      activeOrgId: null,
+    });
+  });
+
+  function adapterFor(user: any = null) {
+    const linkAccount = vi.fn(async () => undefined);
+    const replaceUnverifiedCredentialWithGoogle = vi.fn(async () => undefined);
+    const createOAuthUser = vi.fn(async () => ({
+      user: { id: "google-user" },
+      account: {},
+    }));
+    const updateUser = vi.fn(async () => undefined);
+    const adapter: BetterAuthInternalAdapter = {
+      findUserByEmail: vi.fn(async () => user),
+      linkAccount,
+      createUser: vi.fn(async () => ({ id: "created-user" })),
+      createOAuthUser,
+      deleteSession: vi.fn(async () => undefined),
+      findAccountByProviderId: vi.fn(async () => null),
+      replaceUnverifiedCredentialWithGoogle,
+      updateUser,
+    };
+    return {
+      adapter,
+      linkAccount,
+      createOAuthUser,
+      replaceUnverifiedCredentialWithGoogle,
+      updateUser,
+    };
+  }
+
+  it("creates a verified canonical user and Google account", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "  Owner@Example.com ",
+      accountId: "google-sub-1",
+      name: "Owner",
+    });
+
+    expect(created).toBe(true);
+    expect(createOAuthUser).toHaveBeenCalledWith(
+      { email: "owner@example.com", name: "Owner", emailVerified: true },
+      { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("reconciles pending invitations for a fallback-created Google user", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+    delete adapter.createOAuthUser;
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: " Owner@Example.com ",
+      accountId: "google-sub-1",
+    });
+
+    expect(created).toBe(true);
+    expect(createOAuthUser).not.toHaveBeenCalled();
+    expect(mockAcceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
+  });
+
+  it("rechecks the Google account after a concurrent create race", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, createOAuthUser, linkAccount } = adapterFor();
+    vi.mocked(adapter.findUserByEmail)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(existing);
+    vi.mocked(adapter.findAccountByProviderId)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "google-account",
+        userId: "existing-user",
+        providerId: "google",
+        accountId: "google-sub-race",
+      });
+    createOAuthUser.mockRejectedValueOnce(new Error("email already exists"));
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-race",
+    });
+
+    expect(created).toBe(false);
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("stores the connected Google profile image on a new canonical user", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+      name: "Owner",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+
+    expect(createOAuthUser).toHaveBeenCalledWith(
+      {
+        email: "owner@example.com",
+        name: "Owner",
+        emailVerified: true,
+        image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      },
+      { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("refreshes an email-derived profile with the connected Google identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        name: "owner",
+        image: null,
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, updateUser } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+      name: "Owner Name",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+
+    expect(updateUser).toHaveBeenCalledWith("existing-user", {
+      name: "Owner Name",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+  });
+
+  it("links an already verified canonical user", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, linkAccount, createOAuthUser } = adapterFor(existing);
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+
+    expect(created).toBe(false);
+    expect(linkAccount).toHaveBeenCalledWith({
+      userId: "existing-user",
+      providerId: "google",
+      accountId: "google-sub-1",
+    });
+    expect(createOAuthUser).not.toHaveBeenCalled();
+  });
+
+  it("refuses to bless an unverified password identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+      ],
+    };
+    const { adapter, linkAccount, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(replaceUnverifiedCredentialWithGoogle).toHaveBeenCalledWith({
+      userId: "existing-user",
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("reconciles pending invitations when Google verifies a password identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+      ],
+    };
+    const { adapter } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: " Owner@Example.com ",
+      accountId: "google-sub-1",
+    });
+
+    expect(mockAcceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
+  });
+
+  it("keeps account-claim protection for an unverified user with another account", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+        {
+          id: "github-account",
+          providerId: "github",
+          accountId: "github-sub-1",
+        },
+      ],
+    };
+    const { adapter, linkAccount, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await expect(
+      ensureGoogleAuthIdentityWithAdapter(adapter, {
+        email: "owner@example.com",
+        accountId: "google-sub-1",
+      }),
+    ).rejects.toThrow("unverified email/password identity");
+    expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("withBetterAuthActionSession", () => {
+  const authContext = {
+    authCookies: {
+      sessionToken: { name: "better-auth.session_token" },
+      sessionData: { name: "better-auth.session_data" },
+      dontRememberToken: { name: "better-auth.dont_remember" },
+    },
+    secret: "better-auth-action-session-test-secret",
+  };
+
+  function authFor(getSession: ReturnType<typeof vi.fn>): {
+    api: { getSession: ReturnType<typeof vi.fn> };
+    $context: Promise<unknown>;
+  } {
+    return {
+      api: { getSession },
+      $context: Promise.resolve(authContext),
+    };
+  }
+
+  function adapterFor(deleteSession: ReturnType<typeof vi.fn>) {
+    return { deleteSession } as any;
+  }
+
+  it("reuses an existing Better Auth session and rejects identity mismatches", async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      user: { email: "Alice@Example.com" },
+    });
+    const action = vi.fn(async (headers: Headers) => headers);
+    const createSession = vi.fn();
+    const deleteSession = vi.fn();
+
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers({ cookie: "an_session=legacy-session" }),
+        action,
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).resolves.toEqual(new Headers({ cookie: "an_session=legacy-session" }));
+    expect(createSession).not.toHaveBeenCalled();
+    expect(deleteSession).not.toHaveBeenCalled();
+
+    getSession.mockResolvedValue({ user: { email: "other@example.com" } });
+    await expect(
+      withBetterAuthActionSession("alice@example.com", new Headers(), action, {
+        auth: authFor(getSession) as any,
+      }),
+    ).rejects.toThrow("Authenticated user mismatch");
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("bridges a legacy session through the real Better Auth password endpoint", async () => {
+    const instance = await getTestInstance(
+      {
+        emailAndPassword: {
+          enabled: true,
+          requireEmailVerification: false,
+        },
+        session: { cookieCache: { enabled: true } },
+      },
+      {
+        testUser: {
+          email: "bridge@example.com",
+          name: "Bridge User",
+          password: "old-password",
+        },
+      },
+    );
+    const testAuthContext = await instance.auth.$context;
+    const internalAdapter = testAuthContext.internalAdapter;
+    let bridgeExpiresAt: number | undefined;
+    const deleteSession = vi.fn(async (token: string) => {
+      const storedSession = await internalAdapter.findSession(token);
+      expect(bridgeExpiresAt).toBeDefined();
+      expect(storedSession?.session.expiresAt.getTime()).toBe(bridgeExpiresAt);
+      return internalAdapter.deleteSession(token);
+    });
+    const adapter = { ...internalAdapter, deleteSession } as any;
+    const createSession = async (
+      email: string,
+      _config?: unknown,
+      options?: { expiresAt?: Date },
+    ) => {
+      const existing = await adapter.findUserByEmail(email, {
+        includeAccounts: false,
+      });
+      if (!existing) return null;
+      bridgeExpiresAt = options?.expiresAt?.getTime();
+      const session = options
+        ? await adapter.createSession(existing.user.id, true, options, true)
+        : await adapter.createSession(existing.user.id);
+      return {
+        email: existing.user.email,
+        token: session.token,
+        userId: existing.user.id,
+      };
+    };
+
+    let cachedCookieHeader = "";
+    await instance.client.signUp.email({
+      email: "cached@example.com",
+      name: "Cached User",
+      password: "cached-password",
+      fetchOptions: {
+        onSuccess(context) {
+          cachedCookieHeader =
+            convertSetCookieToCookie(new Headers(context.response.headers)).get(
+              "cookie",
+            ) ?? "";
+        },
+      },
+    });
+    const sessionDataCookieName = testAuthContext.authCookies.sessionData.name;
+    const cachedSessionDataCookies = cachedCookieHeader
+      .split(";")
+      .filter((part) => {
+        const cookieName = part.split("=", 1)[0]?.trim() ?? "";
+        return (
+          cookieName === sessionDataCookieName ||
+          cookieName.startsWith(`${sessionDataCookieName}.`)
+        );
+      })
+      .join("; ");
+    expect(cachedSessionDataCookies).toContain(`${sessionDataCookieName}=`);
+
+    const result = await withBetterAuthActionSession(
+      "bridge@example.com",
+      new Headers({
+        cookie: `${cachedSessionDataCookies}; an_session=legacy-session`,
+      }),
+      (headers) => {
+        expect(headers.get("cookie")).not.toContain(sessionDataCookieName);
+        expect(headers.get("cookie")).toContain(
+          `${testAuthContext.authCookies.dontRememberToken.name}=`,
+        );
+        return instance.auth.api.changePassword({
+          body: {
+            currentPassword: "old-password",
+            newPassword: "new-password",
+          },
+          headers,
+        });
+      },
+      {
+        auth: instance.auth as any,
+        createSession,
+        adapter,
+      },
+    );
+
+    expect(result).toMatchObject({ user: { email: "bridge@example.com" } });
+    expect(deleteSession).toHaveBeenCalledOnce();
+  });
+
+  it("preserves action outcomes when temporary-session cleanup fails", async () => {
+    const getSession = vi.fn().mockResolvedValue(null);
+    const createSession = vi.fn().mockResolvedValue({
+      email: "alice@example.com",
+      token: "temporary-session",
+      userId: "user-1",
+    });
+    const cleanupError = new Error("cleanup failed");
+    const deleteSession = vi.fn().mockRejectedValue(cleanupError);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => ({ status: true }),
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+    expect(log).toHaveBeenCalled();
+
+    const actionError = new Error("invalid password");
+    deleteSession.mockRejectedValueOnce(cleanupError);
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => {
+          throw actionError;
+        },
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).rejects.toBe(actionError);
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("bounds cleanup when deleting a temporary session hangs", async () => {
+    vi.useFakeTimers();
+    const getSession = vi.fn().mockResolvedValue(null);
+    const createSession = vi.fn().mockResolvedValue({
+      email: "alice@example.com",
+      token: "temporary-session",
+      userId: "user-1",
+    });
+    const deleteSession = vi.fn(() => new Promise<void>(() => {}));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const result = withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => ({ status: true }),
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      );
+
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(result).resolves.toEqual({ status: true });
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});

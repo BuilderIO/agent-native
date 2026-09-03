@@ -1,0 +1,146 @@
+---
+title: "國際化"
+description: "使用共用區域設定目錄、語言選取器和瀏覽器語言回退來本機化 Agent-Native 應用程式。"
+---
+
+# 國際化
+
+Agent-Native 應用程式可以透過共用的 `@agent-native/core/client/i18n`
+執行時來本機化框架與範本 UI。框架會將使用者的語言選擇儲存在 SQL
+設定中，將其公開為 actions，並在應用程式尚未翻譯某個字串時回退到英語。
+
+## 執行時
+
+透過 `AppProviders` 使用該提供者。
+
+```tsx
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` 會在 React 水合之前設定初始的 `lang`、`dir`
+和 `window.__AGENT_NATIVE_LOCALE__`。公開的 SSR 路由可以呼叫
+`@agent-native/core/server` 的 `resolveLocaleFromRequest()`，並將解析出的
+區域設定或目錄傳入該指令碼，以避免水合不匹配。
+
+## 目錄
+
+每個本機化的範本都會將目錄存放在 `app/i18n/` 下。
+
+```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import enUS from "./en-US";
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
+  messages: enUS,
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
+  },
+});
+```
+
+`messages` 會直接捆綁 `en-US`，所以在任何區域設定載入之前它一定可用。
+`localeLoaders` 會動態匯入其他每一個目錄，讓使用者只下載目前使用中的
+區域設定。支援的區域設定代碼為 `en-US`、`zh-CN`、`zh-TW`、`es-ES`、
+`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN` 和 `ar-SA`。
+
+這份清單是由框架固定的，並不只是這個範例剛好捆綁了哪些項目。
+`LocaleCode` 是一個恰好由這些代碼組成的 TypeScript 聯合型別，
+而 `set-localization-preference` 在執行時會拒絕任何其他值。每個
+區域設定也需要框架維護的中繼資料，例如右到左語言的文字方向。新增
+一個區域設定代表要擴充框架本身，而不是在應用程式裡加一個目錄檔案。
+
+`createAgentNativeI18nCatalog` 也接受一個選用的 `sourceLocale`（預設為
+`en-US`）以及一個選用的 `supportedLocales` 陣列。當應用程式只為框架
+支援的十種區域設定中的一部分提供翻譯，而不是全部都提供時，就設定
+`supportedLocales`。它預設為框架支援的每一個區域設定。`LanguagePicker`
+只會列出這個集合中的區域設定，任何在此集合之外被偵測到或被要求的
+區域設定都會回退到 `sourceLocale`。
+
+## UI
+
+使用 `useT()` 來翻譯介面字串。
+
+```tsx
+import { useT } from "@agent-native/core/client/i18n";
+
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
+}
+```
+
+使用 `useFormatters()` 來處理日期、數字、相對時間和清單。不要把區域
+設定敏感的日期或數字格式放進翻譯字串裡。
+
+把 `<LanguagePicker />` 放在應用程式讓使用者變更語言的位置。標準
+設定頁面的做法，包括 `openAgentSettings()` 適合放在哪裡，請參閱
+[Toolkit: Settings](/docs/toolkit-settings)。
+
+## Actions 與持久性
+
+每個應用程式都會繼承：
+
+- `get-localization-preference` — 讀取目前使用者的 `{ locale, timezone }`
+- `set-localization-preference` — 設定 `locale` 或 `timezone`，兩者皆為選填
+
+`locale` 是 `"system"` 或某個受支援的 BCP-47 區域設定。`timezone` 是
+`"system"` 或一個 IANA 時區，例如 `America/New_York`。它的存在是為了
+讓排程與自動化工作在使用者的時區執行，而不是在主機的時區執行。只
+設定其中一個欄位時，另一個欄位會維持不變，因為
+`set-localization-preference` 會將新值合併到既有的儲存值上，而不是
+整個覆寫它。
+
+持久值存放在 `localization` 底下、使用者範圍的 SQL 設定中。
+`localStorage` 只用於水合前與匿名情境下的回退。目前使用中的區域
+設定會以環境脈絡的形式鏡射進應用程式狀態，讓代理可以看到目前的
+介面語言。
+
+## 守衛
+
+執行：
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+針對應用程式與範本目錄，這個守衛會檢查：
+
+- 區域設定檔名、金鑰對等、預留位置對等，以及過時的金鑰
+- 重複的金鑰，以及殘留的僅限開發用標記
+- 錯誤的文字系統混入，例如阿拉伯文目錄裡出現中文文字
+- 透過 `Intl.PluralRules` 檢查 CLDR 複數類別
+- 應用程式原始碼中呼叫 `t()` 時，其金鑰在英語目錄裡找不到的情況
+
+這個守衛檢查的是結構，而不是翻譯品質。高能見度的字串仍然需要人工
+審查。
+
+不要翻譯穩定的識別碼，例如 action 名稱、路由、列舉值、應用程式狀態
+金鑰、資料庫值、協議欄位、環境變數名稱或提供者名稱。
+
+## 下一步是什麼
+
+- [**總覽**](/docs/client-overview#app-shell) — i18n 所依賴的 `AppProviders` 包裝器與其他瀏覽器掛鉤
+- [**Toolkit: Settings**](/docs/toolkit-settings) — 把 `<LanguagePicker>` 放到標準設定頁面上
+- [**開始使用**](/docs/getting-started) — 在一個已經內建本機化目錄的範本上建置你的第一個應用程式

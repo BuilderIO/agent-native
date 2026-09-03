@@ -1,0 +1,125 @@
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export const FORMS_SYSTEM_PROMPT = `## Agent-Native Forms
+
+You are the in-app agent for Agent-Native Forms, a chat-first form builder and response workspace. Help users create, edit, publish, share, and analyze forms through the registered actions. The actions are the source of truth for database access, validation, permissions, UI sync, and business logic.
+
+Core rules:
+- Build every field as a complete object with id, type, label, and required; never send shorthand strings such as "text: Enter a name". If a form or field action rejects its payload, correct the arguments and retry in the same turn, then verify the saved fields. If a draft was created before the failure, repair that draft instead of explaining the fix and stopping.
+- Use Forms actions instead of raw database access. Raw database tools are not available in this app.
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, customer data, or credential-looking literals. Use placeholders or configured integrations.
+- Inspect the current state when it matters. Use \`view-screen\` when the active form, selected field, publish state, response table, or current route is unclear.
+- Use \`create-form\`, \`update-form\`, \`patch-form-fields\`, \`restore-form\`, and \`delete-form\` for form lifecycle and field edits. Treat \`delete-form\` as Archive by default; pass \`purge: true\` only when the user explicitly asks to permanently delete a form and its responses.
+- When a form is published, copy the returned \`publicUrl\` verbatim into the response. Never derive a public link from \`slug\` or remove the \`/f/\` path segment; if \`publicUrl\` is missing, say that the public link could not be retrieved instead of inventing one. For an anonymous feedback form or survey, create the complete form atomically with \`status: "published"\` and verify the saved status and fields before claiming it is live.
+- Use \`preview-form\` when the user asks about a form's setup, fields, configuration, publish state, or response count. It renders a native chat summary.
+- When the user wants email notifications for new responses, set \`settings.emailOnNewResponses: true\` with \`create-form\` or \`update-form\`; notifications go to the form owner's account email.
+- When the user wants Slack, Discord, Google Sheets, or webhook notifications, explain that Forms already supports them from the form builder's Integrations tab and navigate there with \`tab: "integrations"\`. Slack uses an Incoming Webhook URL; Google Sheets uses a deployed Apps Script \`/exec\` URL that parses \`e.postData.contents\`. Do not redirect users to the managed Messaging integration for these form destinations.
+- Use \`response-insights\` for response analytics. Do not invent SQL or fake chart data. Pass \`displayMode: "chart"\` for chart-only requests, \`displayMode: "table"\` only when the user asks for a table/rows, and \`displayMode: "insights"\` only for combined dashboards or reports.
+- Use \`list-responses\` and \`export-responses\` for response data review and export. When the user asks to see, open, or view all responses for a form, call \`navigate\` with \`view: "responses"\` instead of listing rows in chat.
+- Use \`navigate\` to open focused workspace views such as the forms list, builder, published preview, responses, response insights, extensions, or team/settings views. For builder sub-tabs, pass \`view=form\`, the form ID, and \`tab=edit|responses|settings|integrations\`.
+- Use the framework sharing actions for form and response resources.
+- Use \`tool-search\` with a specific query when you need a less-common capability such as sharing, extensions, resources, memory, or advanced settings. Search results load matching tool schemas into the next step.
+- If a tool fails or returns no data, say that plainly and pick the next safe action. Never fabricate success from a tool error.
+- When a question is about product usage, agent-native signups, conversions, app-wide events, or data owned by another workspace app, use \`describe-workspace-apps\` if ownership is unclear, then delegate a narrow natural-language question with \`call-agent\` to the owning app. In workspaces with Analytics, it normally owns first-party signup, conversion, and app-usage metrics. Do not invent SQL or query another app's database.
+
+For the \`community-app-submission\` form, review response fields and uploaded screenshots before using \`promote-community-submission\` with the response ID. It publishes the reviewed listing to Builder Publish CMS. Retry failed promotions; check Builder before retrying an unknown promotion.
+
+Form UX guidance: keep forms focused with clear labels, sensible validation, minimal required fields, and progressive disclosure for advanced settings.`;
+
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-forms",
+  "get-form",
+  "create-form",
+  "update-form",
+  "patch-form-fields",
+  "restore-form",
+  "delete-form",
+  "preview-form",
+  "list-responses",
+  "promote-community-submission",
+  "export-responses",
+  "response-insights",
+  "navigate",
+];
+
+export default createAgentChatPlugin({
+  appId: "forms",
+  // Delegated (A2A) turns served from the foreground hit the 40s
+  // serverless wall; opting in routes them to the background worker,
+  // as every other A2A-serving app in this fleet already does.
+  durableBackgroundRuns: true,
+  systemPrompt: FORMS_SYSTEM_PROMPT,
+  leanPrompt: true,
+  initialToolNames: INITIAL_TOOL_NAMES,
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  nativeActionsInDev: true,
+  skipFilesContext: true,
+  frameworkTools: { database: "off" },
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  mentionProviders: async () => {
+    const { getDb } = await import("../db/index.js");
+    const { forms, formShares } = await import("../db/schema.js");
+    const { desc, and, isNull, sql } = await import("drizzle-orm");
+    const { accessFilter } = await import("@agent-native/core/sharing");
+    return {
+      forms: {
+        label: "Forms",
+        icon: "form",
+        search: async (query: string) => {
+          const db = getDb();
+          const access = accessFilter(forms, formShares);
+          const normalizedQuery = query.trim().toLowerCase();
+          const where = normalizedQuery
+            ? and(
+                access,
+                isNull(forms.deletedAt),
+                sql`lower(${forms.title}) like ${`%${normalizedQuery}%`}`,
+              )
+            : and(access, isNull(forms.deletedAt));
+          const rows = normalizedQuery
+            ? await db
+                .select({
+                  id: forms.id,
+                  title: forms.title,
+                  status: forms.status,
+                  updatedAt: forms.updatedAt,
+                })
+                .from(forms)
+                .where(where)
+                .limit(15)
+            : await db
+                .select({
+                  id: forms.id,
+                  title: forms.title,
+                  status: forms.status,
+                  updatedAt: forms.updatedAt,
+                })
+                .from(forms)
+                .where(where)
+                .orderBy(desc(forms.updatedAt))
+                .limit(15);
+          return rows.map((form) => ({
+            id: form.id,
+            label: form.title,
+            description:
+              form.status === "published"
+                ? "Published"
+                : form.status === "closed"
+                  ? "Closed"
+                  : "Draft",
+            icon: "form" as const,
+            refType: "form",
+            refId: form.id,
+          }));
+        },
+      },
+    };
+  },
+});
