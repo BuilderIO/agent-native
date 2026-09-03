@@ -132,6 +132,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const builderMoreServicesTitleId = React.useId();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -622,9 +623,13 @@ export function FirstRunOnboarding({
                       side="top"
                       align="start"
                       sideOffset={6}
+                      aria-labelledby={builderMoreServicesTitleId}
                       className="w-[min(24rem,calc(100vw-2rem))] text-xs"
                     >
-                      <p className="font-medium">
+                      <p
+                        id={builderMoreServicesTitleId}
+                        className="font-medium"
+                      >
                         Also included with Builder.io free credits
                       </p>
                       <p className="mt-1 leading-5">

@@ -363,6 +363,13 @@ describe("FirstRunOnboarding", () => {
       "Also included with Builder.io free credits",
     );
     expect(document.body.textContent).toContain("Voice input");
+    const moreServicesPopover =
+      document.body.querySelector("[aria-labelledby]");
+    const titleId = moreServicesPopover?.getAttribute("aria-labelledby");
+    expect(titleId).toBeTruthy();
+    expect(document.getElementById(titleId ?? "")?.textContent).toContain(
+      "Also included with Builder.io free credits",
+    );
   });
 
   it("uses the existing-account connection flow from the consent popover", () => {
