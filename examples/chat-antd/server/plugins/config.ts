@@ -5,5 +5,6 @@ import { defineAppConfig } from "@agent-native/core/server";
 // framework default resolves the authenticated home to /home, which has no route.
 export default defineAppConfig({
   app: {
+    homePath: "/",
   },
 });
