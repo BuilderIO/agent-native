@@ -45,6 +45,7 @@ describe("duplicate-deck", () => {
           sourceImport: {
             mode: "source-preserving",
             format: "pdf",
+            slideIds: ["source-slide-1"],
             slides: [{ id: "source-slide-1" }],
           },
           slides: [{ id: "source-slide-1", content: "<div />" }],
@@ -53,7 +54,7 @@ describe("duplicate-deck", () => {
     });
   });
 
-  it("makes a source-preserving deck copy editable", async () => {
+  it("makes a source-preserving deck copy editable without losing provenance", async () => {
     await action.run({
       deckId: "deck-source",
       newId: "deck-copy",
@@ -63,7 +64,11 @@ describe("duplicate-deck", () => {
     const insertedData = JSON.parse(
       mocks.insertValues.mock.calls[0]?.[0].data as string,
     );
-    expect(insertedData).not.toHaveProperty("sourceImport");
+    expect(insertedData.sourceImport).toMatchObject({
+      editableSnapshot: true,
+      slideIds: ["slide-copy"],
+      slides: [{ id: "slide-copy" }],
+    });
     expect(insertedData.slides).toEqual([
       { id: "slide-copy", content: "<div />" },
     ]);

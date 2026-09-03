@@ -193,11 +193,13 @@ export function isSourceImportedDeck(deck: Deck | null | undefined): boolean {
     return false;
   }
   const metadata = sourceImport as {
+    editableSnapshot?: unknown;
     mode?: unknown;
     format?: unknown;
     slides?: unknown;
   };
   return (
+    metadata.editableSnapshot !== true &&
     metadata.mode === "source-preserving" &&
     (metadata.format === "pdf" || metadata.format === "pptx") &&
     Array.isArray(metadata.slides)

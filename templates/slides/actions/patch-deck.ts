@@ -258,7 +258,7 @@ export function assertSourceImportOperationsPreserved(
   operations: Operation[],
   rewriteSource = false,
 ): void {
-  if (!metadata || rewriteSource) return;
+  if (!metadata || metadata.editableSnapshot || rewriteSource) return;
   const structuralOperation = operations.find(
     (operation) =>
       operation.op === "delete-slide" ||
@@ -855,6 +855,7 @@ export default defineAction({
           if (!layoutFitSlideIds.has(slide.id)) {
             slide.layoutFitRevision = createLayoutFitRevision();
           }
+          if (isAgentCaller) delete slide.layoutWarningDismissed;
           layoutFitSlideIds.add(slide.id);
         }
       }

@@ -15,6 +15,7 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "@shared/slide-fit";
+import { repairDeckSlideReferences } from "@shared/slide-ids";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -2982,12 +2983,32 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         createdByMe: true,
         shareToken: undefined,
       };
-      delete (optimistic as Deck & { sourceImport?: unknown }).sourceImport;
       delete optimistic.previewSlide;
-      optimistic.slides = getDuplicateSourceSlides(source).map((s) => ({
+      const sourceSlides = getDuplicateSourceSlides(source);
+      const copiedSlides = sourceSlides.map((s) => ({
         ...s,
         id: `slide-${nanoid(8)}`,
       }));
+      Object.assign(
+        optimistic,
+        repairDeckSlideReferences(
+          { ...optimistic, slides: copiedSlides },
+          copiedSlides,
+          sourceSlides.map((slide) => slide.id),
+        ),
+      );
+      const sourceImport = (optimistic as Deck & { sourceImport?: unknown })
+        .sourceImport;
+      if (
+        sourceImport &&
+        typeof sourceImport === "object" &&
+        !Array.isArray(sourceImport)
+      ) {
+        (optimistic as Deck & { sourceImport?: unknown }).sourceImport = {
+          ...sourceImport,
+          editableSnapshot: true,
+        };
+      }
 
       // Track as pending so the poll doesn't wipe the optimistic deck before
       // the duplicate-deck action's INSERT lands.

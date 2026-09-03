@@ -8,6 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { repairDeckSlideReferences } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 
 export default defineAction({
@@ -48,6 +49,9 @@ export default defineAction({
     // original. A caller that already rendered an optimistic copy supplies the
     // ids it used; anything it did not cover still gets a fresh one.
     const slides = deckData.slides || [];
+    const originalSlideIds = slides.map((slide: { id?: unknown }) =>
+      typeof slide.id === "string" ? slide.id : null,
+    );
     for (const [index, slide] of slides.entries()) {
       slide.id = slideIds?.[index] ?? `slide-${nanoid(8)}`;
     }
@@ -58,9 +62,20 @@ export default defineAction({
     }
 
     const newTitle = title || `Copy of ${source.title}`;
-    // A duplicate is an editable snapshot, so source-preserving import
-    // metadata must not make the new deck inherit structural edit limits.
-    delete deckData.sourceImport;
+    Object.assign(
+      deckData,
+      repairDeckSlideReferences(deckData, slides, originalSlideIds),
+    );
+    if (
+      deckData.sourceImport &&
+      typeof deckData.sourceImport === "object" &&
+      !Array.isArray(deckData.sourceImport)
+    ) {
+      deckData.sourceImport = {
+        ...deckData.sourceImport,
+        editableSnapshot: true,
+      };
+    }
     deckData.title = newTitle;
     deckData.createdAt = now;
     deckData.updatedAt = now;

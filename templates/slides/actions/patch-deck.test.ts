@@ -547,6 +547,18 @@ describe("source-imported deck structure", () => {
     ).toThrow("patch-deck with rewriteSource=true");
   });
 
+  it("allows structural operations on an editable snapshot", () => {
+    const editableSnapshot = {
+      ...metadata,
+      editableSnapshot: true,
+    };
+    expect(() =>
+      assertSourceImportOperationsPreserved(editableSnapshot, [
+        { op: "add-slide", slideId: "s2", fields: { content: "New" } },
+      ]),
+    ).not.toThrow();
+  });
+
   it("allows an explicit source rewrite", () => {
     expect(() =>
       assertSourceImportOperationsPreserved(
@@ -1281,6 +1293,48 @@ describe("run() — asynchronous layout fit metadata", () => {
         },
       ],
     });
+  });
+
+  it("clears dismissed overflow warnings for every slide on an agent deck change", async () => {
+    const persistedDeck = {
+      title: "Deck",
+      aspectRatio: "16:9",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>One</div>",
+          layoutWarningDismissed: true,
+        },
+        {
+          id: "slide-2",
+          content: "<div>Two</div>",
+          layoutWarningDismissed: true,
+        },
+      ],
+    };
+    mockDeckRow!.data = JSON.stringify(persistedDeck);
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { aspectRatio: "4:3" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(
+      JSON.parse(lastUpdatedDeckData!).slides.map(
+        (slide: { layoutWarningDismissed?: boolean }) =>
+          slide.layoutWarningDismissed,
+      ),
+    ).toEqual([undefined, undefined]);
   });
 
   it("does not target a mixed structural batch at one slide", async () => {

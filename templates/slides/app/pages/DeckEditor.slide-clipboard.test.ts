@@ -115,6 +115,19 @@ describe("source-imported deck structure", () => {
     ).toBe(true);
   });
 
+  it("does not block an editable source snapshot", () => {
+    expect(
+      isSourceImportedDeck({
+        sourceImport: {
+          mode: "source-preserving",
+          format: "pptx",
+          slides: [],
+          editableSnapshot: true,
+        },
+      } as unknown as Deck),
+    ).toBe(false);
+  });
+
   it("does not block ordinary or malformed deck metadata", () => {
     expect(isSourceImportedDeck(null)).toBe(false);
     expect(isSourceImportedDeck(undefined)).toBe(false);

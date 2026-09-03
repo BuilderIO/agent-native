@@ -147,7 +147,9 @@ function deckDeepLink(deckId: string): string {
 function sourceEditabilityForDeck(
   sourceImport: ReturnType<typeof sourceImportForDeck>,
 ) {
-  if (!sourceImport) return { structuralEdits: "allowed" as const };
+  if (!sourceImport || sourceImport.editableSnapshot) {
+    return { structuralEdits: "allowed" as const };
+  }
   return {
     structuralEdits: "blocked" as const,
     reason: "source-preserving import",
@@ -248,6 +250,9 @@ export default defineAction({
               fidelity: data.sourceImport.fidelity,
               slideCount: data.sourceImport.slideCount,
               slideIds: data.sourceImport.slideIds,
+              ...(data.sourceImport.editableSnapshot === true
+                ? { editableSnapshot: true }
+                : {}),
               ...(typeof data.sourceImport.imagesSkipped === "number"
                 ? { imagesSkipped: data.sourceImport.imagesSkipped }
                 : {}),
