@@ -12,6 +12,11 @@ el consumo, las sesiones del navegador y los límites de seguridad.
 Las páginas autenticadas registran automáticamente las acciones de backend aptas
 desde el registro de acciones existente. Se excluyen las acciones que requieren
 aprobación y se vuelve a validar la lista activa antes de ejecutarlas.
+Las superficies autenticadas con `sessionBypass`, como las rutas de inserción MCP,
+también registran herramientas de acciones de backend. Las páginas públicas y sin
+sesión no las registran.
+
+El núcleo de Agent-Native inicializa `@mcp-b/webmcp-polyfill` cuando el navegador no ofrece una superficie WebMCP nativa utilizable. El polyfill es local a la página y no crea una conexión MCP de red.
 
 ## Descubrimiento HTTP y alternativa con fetch
 

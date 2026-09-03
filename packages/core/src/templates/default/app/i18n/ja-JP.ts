@@ -11,6 +11,12 @@ const messages = {
     themeTitle: "テーマ",
     themeDescription: "ダーク / ライトを切り替え",
   },
+  common: {
+    cancel: "キャンセル",
+    confirmDisconnect: "接続解除を確認",
+    disconnect: "接続を解除",
+    disconnecting: "接続を解除しています…",
+  },
   settings: {
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
@@ -28,6 +34,9 @@ const messages = {
     openTeamSettings: "チーム設定を開く",
     openResourceSettings: "リソース設定を開く",
     backHome: "ホームに戻る",
+    builderConnection: {
+      manage: "Builder.io 接続を管理",
+    },
   },
   dispatch: {
     nav: {

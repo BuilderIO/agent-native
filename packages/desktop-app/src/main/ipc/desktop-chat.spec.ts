@@ -1,4 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -20,8 +22,10 @@ vi.mock("../app-store", () => ({
 import {
   desktopTerminalMcpArgs,
   desktopTerminalInfo,
+  desktopTerminalWorkspacePath,
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
+  resolveDesktopTerminalCwd,
   resolveTargetUrl,
   shouldForwardRequestHeader,
   shouldForwardResponseHeader,
@@ -29,6 +33,38 @@ import {
 } from "./desktop-chat.js";
 
 describe("desktop chat relay target URLs", () => {
+  it("uses selected app folders and a stable app-owned fallback", () => {
+    const selectedPath = mkdtempSync(path.join("/tmp", "selected-app-"));
+    vi.spyOn(process, "cwd").mockReturnValue(selectedPath);
+    vi.stubEnv("AGENT_NATIVE_PROJECT_ROOT", "/");
+    vi.stubEnv("CODE_AGENTS_PROJECT_ROOT", "/");
+    vi.stubEnv("INIT_CWD", "/");
+    vi.stubEnv("PWD", "/");
+
+    try {
+      expect(resolveDesktopTerminalCwd(selectedPath)).toBe(selectedPath);
+      expect(desktopTerminalWorkspacePath()).toBe("/tmp/terminal-workspace");
+      expect(resolveDesktopTerminalCwd()).toBe("/tmp/terminal-workspace");
+    } finally {
+      rmSync(selectedPath, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves an explicit project root before the app-owned fallback", () => {
+    const projectRoot = mkdtempSync(path.join("/tmp", "project-root-"));
+    vi.spyOn(process, "cwd").mockReturnValue("/tmp");
+    vi.stubEnv("AGENT_NATIVE_PROJECT_ROOT", projectRoot);
+    vi.stubEnv("CODE_AGENTS_PROJECT_ROOT", "/");
+    vi.stubEnv("INIT_CWD", "/");
+    vi.stubEnv("PWD", "/");
+
+    try {
+      expect(resolveDesktopTerminalCwd()).toBe(projectRoot);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it("configures the desktop sidebar tool for supported CLI agents", () => {
     const registration = {
       url: "http://127.0.0.1:3456/mcp",

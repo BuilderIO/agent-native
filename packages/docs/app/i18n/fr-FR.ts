@@ -447,15 +447,15 @@ const frFR = {
     },
     actions: {
       title: "Une action alimente chaque surface",
-      bodyLine1: "Les actions sont les briques de base d'une app Agent-Native.",
+      bodyLine1: "Les actions définissent ce que votre agent peut faire.",
       bodyLine2:
-        "Définissez une fonctionnalité une fois, puis utilisez-la depuis votre UI, le chat de l'agent, HTTP API, MCP, A2A ou CLI.",
+        "Définissez chaque capacité une fois, puis utilisez-la depuis l'agent, l'UI, HTTP API, MCP, A2A ou CLI.",
       diagramAlt:
         "Une action alimente l'UI, MCP, le chat de l'agent, A2A, HTTP API et CLI",
     },
     builtIn: {
-      title: "Intégré dans chaque app Agent-Native",
-      body: "Tout ce dont les utilisateurs et les agents IA ont besoin pour travailler ensemble, déjà intégré dans une seule application.",
+      title: "Tout ce dont votre agent a besoin",
+      body: "UI, contexte, données, autorisations et infrastructure, déjà connectés entre eux.",
       pillars: {
         reactUi: {
           title: "UI React",
@@ -463,7 +463,7 @@ const frFR = {
         },
         agentChat: {
           title: "Chat agent intégré",
-          body: "Laissez les utilisateurs déléguer du travail, poser des questions et revoir les résultats sans quitter l'app.",
+          body: "Laissez les utilisateurs déléguer du travail, poser des questions et revoir les résultats dans la même UI.",
         },
         sharedState: {
           title: "État d'application partagé",
@@ -479,11 +479,11 @@ const frFR = {
         },
         automations: {
           title: "Automatisations",
-          body: "Exécutez le travail de l'agent automatiquement selon des horaires ou des événements de l'application.",
+          body: "Exécutez le travail de l'agent automatiquement selon des horaires ou des événements.",
         },
         agentTeams: {
           title: "Équipes d'agents",
-          body: "Déléguez le travail à des agents spécialisés au sein de l'app ou entre apps.",
+          body: "Déléguez le travail à des agents spécialisés dans le même espace de travail ou entre agents connectés.",
         },
         auth: {
           title: "Authentification et organisations",
@@ -497,19 +497,19 @@ const frFR = {
     },
     stack: {
       title: "Fonctionne avec votre stack",
-      body: "Apportez votre LLM, base de données, outils et infrastructure ; Agent-Native est du TypeScript open source, donc votre application reste la vôtre.",
+      body: "Apportez votre LLM, base de données, outils et infrastructure. Agent-Native est du TypeScript open source, donc tout ce que vous construisez reste à vous.",
       exploreApps: "Explorer les apps créées avec Agent-Native",
     },
     showcase: {
       title: "Que pouvez-vous construire avec Agent-Native ?",
-      body: "Des apps agentiques qui comprennent votre travail, passent à l’action et collaborent avec vous. Créez la vôtre ou essayez l’une de ces apps open source.",
+      body: "Créez des agents avec des UI pour les réunions, le design, les présentations, les données et plus encore. Partez de l'une de ces apps open source ou créez la vôtre.",
       browseApps: "Parcourir les apps",
       scrollLeft: "Défiler les apps vers la gauche",
       scrollRight: "Défiler les apps vers la droite",
     },
     bottomCta: {
-      title: "Construisez votre première app Agent-Native",
-      body: "Créez une seule application pour les utilisateurs et les agents IA. Apportez votre propre LLM et déployez où vous voulez.",
+      title: "Créez votre premier agent avec une UI",
+      body: "L’agent et l’UI partagent les mêmes capacités. Apportez votre propre LLM et déployez où vous voulez.",
     },
     footer: {
       tagline: "Le framework des applications agentic.",
@@ -521,7 +521,8 @@ const frFR = {
       download: "Télécharger",
       apps: "Apps",
       privacyPolicy: "Politique de confidentialité",
-      saasTerms: "Conditions SaaS",
+      saasTerms: "Conditions du service hébergé",
+      legalResources: "Ressources juridiques",
     },
   },
   gettingStarted: {
@@ -904,8 +905,11 @@ const frFR = {
       s004: "Dicter",
       s005: "Peut voir + entendre",
       s006: "Tous les modèles",
-      s007: "L'alternative open source à Loom",
-      s008: "Collez un lien Clips dans un agent et celui-ci pourra entendre la transcription, lire des résumés et voir les images horodatées même si son modèle ne peut pas ingérer de vidéo ou d'audio brut.",
+      s007Primary: "Des enregistrements d'écran que votre",
+      s007Secondary: "AI peut voir et entendre.",
+      s008: "Capturez les journaux de débogage du navigateur, obtenez des transcriptions et utilisez la dictée intégrée. 100 % gratuit, open source et personnalisable.",
+      s063: "Obtenez une recommandation personnalisée",
+      s064: "Collez cette invite dans Claude, ChatGPT ou Cursor pour découvrir comment Clips pourrait transformer votre flux de travail.",
       s009: "Essayez-le",
       s010: "Ce que tu peux faire",
       s011: "Enregistrez, transcrivez et déboguez: une application, une bibliothèque, sans la pile d'abonnement.",
@@ -1756,6 +1760,35 @@ const frFR = {
   },
   legal: {
     lastUpdated: "Dernière mise à jour : {{date}}",
+    resources: {
+      eyebrow: "Ressources juridiques",
+      title: "Ressources juridiques pour Agent-Native",
+      intro:
+        "Politiques juridiques autonomes d’Agent-Native pour les applications et services hébergés.",
+      agentNative: {
+        title: "Politiques Agent-Native",
+        body: "Ces pages adaptent le cadre de politiques commun au projet open source et aux exemples hébergés d’Agent-Native.",
+        terms: "Conditions d’utilisation d’Agent-Native",
+        privacy: "Politique de confidentialité d’Agent-Native",
+      },
+      builder: {
+        title: "Politiques supplémentaires du service hébergé",
+        body: "Ces copies locales couvrent l’utilisation acceptable, les fonctions d’IA, les règles de la plateforme, la suspension et le retrait, les droits d’auteur et les demandes des autorités. La version anglaise fait foi.",
+      },
+      links: {
+        terms: "Accord de services SaaS",
+        privacy: "Politique de confidentialité",
+        acceptableUse: "Politique d’utilisation acceptable",
+        aiTerms: "Conditions relatives à l’IA",
+        platformRules: "Règles de la plateforme",
+        takedown: "Politique de suspension, retrait et traitement des données",
+        lawEnforcement: "Politique relative aux demandes des autorités",
+      },
+      notIncluded: {
+        title: "Conditions commerciales non incluses",
+        body: "Agent-Native ne propose aucun forfait payant ni contrat d’entreprise. Les documents commerciaux comme les SLA d’entreprise, les conditions d’assistance, les DPA, les avenants de sécurité, les services professionnels et les frais ne sont pas inclus.",
+      },
+    },
     privacy: {
       eyebrow: "Politique de confidentialité",
       title: "Agent-Native applications hébergées",
@@ -1778,6 +1811,7 @@ const frFR = {
       sections: {
         scope: "Portée",
         information: "Informations que nous collectons",
+        cookies: "Cookies et analytique",
         clipsExtension: "Extension Chrome Agent-Native Clips",
         use: "Comment nous utilisons les informations",
         sharing: "Partage et tiers",
@@ -1793,6 +1827,8 @@ const frFR = {
           "Cette politique est destinée à compléter la politique plus large de Builder.io",
         scope2Suffix:
           "pour le comportement de l’application hébergée Agent-Native.",
+        cookies:
+          "Le site de documentation et les applications hébergées Agent-Native peuvent utiliser des cookies nécessaires à l’authentification et à la sécurité, au stockage de préférences comme la langue ou le thème, ainsi que des technologies analytiques configurées. Le site de documentation peut charger Google Analytics ou Google Tag Manager lorsque le déploiement les configure, et le service hébergé peut utiliser des analyses propriétaires pour mesurer la fiabilité et l’utilisation des fonctionnalités. Nous n’utilisons pas le contenu des applications hébergées pour la publicité de tiers. Vous pouvez contrôler les cookies dans les paramètres du navigateur, mais la désactivation des cookies nécessaires peut empêcher la connexion ou d’autres fonctions.",
         clips1:
           "Le Agent-Native Clips Chrome extension vous aide à démarrer des enregistrements basés sur le navigateur et, lorsqu'il est activé, à joindre les diagnostics du navigateur à un clip. Il peut collecter la source de capture sélectionnée, le support de caméra et de microphone que vous choisissez d'inclure, le titre et l'URL de l'onglet actif, ainsi que l'état d'authentification nécessaire pour connecter l'extension au Clips hébergé.",
         clips2:
@@ -1938,6 +1974,8 @@ const frFR = {
         scope2Middle: "et le Agent-Native",
         scope2Suffix:
           "Si vous utilisez une application Agent-Native hébergée au nom d'une entreprise ou d'une organisation, vous déclarez que vous avez le pouvoir d'accepter ces conditions pour cette organisation.",
+        scope3:
+          "Agent-Native ne propose ni offres payantes ni abonnements d’hébergement payants. Les conditions commerciales de Builder.io, telles que les bons de commande, les frais, l’assistance entreprise, les niveaux de service et les avenants relatifs au traitement des données, ne font pas partie de cette offre sauf accord écrit distinct.",
         hostedService:
           "Builder.io peut fournir des applications, des modèles, des démos, des espaces de travail partagés, des extensions de navigateur et des flux de travail d'agent associés Agent-Native hébergés. Le service hébergé peut être mis à jour, limité, suspendu ou interrompu à mesure que le produit évolue.",
         accounts1:
@@ -2058,6 +2096,12 @@ const frFR = {
     actionsAgentTools: "Accès de l'Agent en Production",
     publicAgentWeb: "Agent Web public",
     database: "Base de données",
+    databaseProviders: "Fournisseurs de bases de données",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseTurso: "libSQL / Turso",
+    databaseD1: "Cloudflare D1",
+    databasePostgres: "Plain Postgres",
     internationalization: "Internationalisation",
     localFileMode: "Mode fichiers locaux",
     fileUploads: "Téléversements",

@@ -67,6 +67,7 @@ import {
   getBuilderBrowserConnectUrlForOwner,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  withBuilderConnectTrackingParams,
   BuilderAccountProvisioningError,
   isBuilderAccountProvisioningEnabled,
   isBuilderBranchingEnabled,
@@ -954,6 +955,30 @@ describe("Builder callback CSRF state", () => {
         "connect_builder_card",
       );
       expect(redirectUrl.searchParams.has("utm_source")).toBe(false);
+    });
+
+    it("adds Agent-Native signup attribution to standard OAuth URLs", () => {
+      const authorizationUrl = withBuilderConnectTrackingParams(
+        "https://mcp.builder.io/oauth/authorize?client_id=test#consent",
+        {
+          agentNativeFlow: "connect_llm",
+          agentNativeConnectSource: "first_run_onboarding",
+          agentNativeApp: "agent-native-clips",
+          agentNativeTemplate: "clips",
+        },
+      );
+      const params = new URL(authorizationUrl).searchParams;
+
+      expect(params.get(BUILDER_SIGNUP_SOURCE_PARAM)).toBe("agent-native");
+      expect(params.get(BUILDER_AGENT_NATIVE_FLOW_PARAM)).toBe("connect_llm");
+      expect(params.get(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM)).toBe(
+        "first_run_onboarding",
+      );
+      expect(params.get(BUILDER_AGENT_NATIVE_APP_PARAM)).toBe(
+        "agent-native-clips",
+      );
+      expect(params.get(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM)).toBe("clips");
+      expect(new URL(authorizationUrl).hash).toBe("#consent");
     });
 
     it("preserves APP_BASE_PATH in the surfaced connect URL", () => {

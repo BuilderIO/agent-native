@@ -3423,10 +3423,13 @@ export default function SlideEditor({
       const tag = active?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (active instanceof HTMLElement && active.isContentEditable) return;
+      if (
+        active instanceof HTMLElement &&
+        active.closest("[data-slide-thumbnail-id]")
+      )
+        return;
       if (deleteSelectedElements()) {
         e.preventDefault();
-        // DeckEditor also listens for Delete at document level. Claim the
-        // event before it can interpret an object selection as a slide delete.
         e.stopPropagation();
       }
     };

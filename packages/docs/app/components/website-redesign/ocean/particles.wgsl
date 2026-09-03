@@ -7,6 +7,7 @@ struct ParticleUniforms {
   oceanColor: vec4f,
   neonColor: vec4f,
   foamColor: vec4f,
+  cursor: vec4f,
 };
 
 struct VertexOut {
@@ -22,6 +23,13 @@ struct VertexOut {
 @group(0) @binding(0) var<uniform> u: ParticleUniforms;
 @group(0) @binding(1) var u_displacement: texture_2d<f32>;
 @group(0) @binding(2) var u_normalFoam: texture_2d<f32>;
+
+fn particleHash(p: vec2u) -> f32 {
+  var n = p.x * 374761393u + p.y * 668265263u;
+  n = (n ^ (n >> 13u)) * 1274126177u;
+  n = n ^ (n >> 16u);
+  return f32(n) / 4294967295.0;
+}
 
 fn quadCorner(vertexIndex: u32) -> vec2f {
   let cornerIndex = array<u32, 6>(0u, 1u, 2u, 2u, 1u, 3u)[vertexIndex % 6u];
@@ -61,7 +69,33 @@ fn quadCorner(vertexIndex: u32) -> vec2f {
   let fade = pow(clamp(f, 0.0, 1.0), u.fade.z);
 
   let projected = u.projection * mv;
-  let ndc = projected.xy / projected.w;
+  var ndc = projected.xy / projected.w;
+
+  let aspect = u.viewport.x / max(u.viewport.y, 1.0);
+  if (u.cursor.z > 0.0) {
+    let cursorDelta = u.cursor.xy - ndc;
+    let fieldDelta = cursorDelta * vec2f(aspect, 1.0);
+    let cursorDistance = length(fieldDelta);
+    let rangeFalloff = 1.0 - smoothstep(0.0, 1.7, cursorDistance);
+    let particleId = vec2u(i, j);
+    let particleSeed = particleHash(particleId);
+    let detached = smoothstep(0.76, 0.998, particleSeed);
+    let phase = particleHash(particleId + vec2u(37u, 71u)) * 6.2831855;
+    let activity = 0.55 + 0.45 * (0.5 + 0.5 * sin(u.cursor.w * 0.45 + phase));
+    let trailProgress = clamp(cursorDistance / 1.7, 0.0, 1.0);
+    let trailWidth = mix(0.025, 0.28, trailProgress);
+    let jitter = vec2f(
+      particleHash(particleId + vec2u(17u, 53u)) - 0.5,
+      particleHash(particleId + vec2u(41u, 29u)) - 0.5,
+    ) * vec2f(trailWidth / aspect, trailWidth);
+    let nearFalloff = 1.0 - smoothstep(0.0, 1.0, cursorDistance);
+    let baselineResponse = mix(0.004, 0.014, nearFalloff) *
+      mix(0.6, 1.0, particleSeed);
+    let particleResponse = baselineResponse +
+      detached * activity * mix(0.11, 0.82, nearFalloff);
+    let attraction = rangeFalloff * particleResponse * u.cursor.z;
+    ndc += (u.cursor.xy + jitter - ndc) * attraction;
+  }
 
   let corner = quadCorner(vertexIndex);
   let pointSizePx = 2.0 * u.world.z * u.viewport.z;

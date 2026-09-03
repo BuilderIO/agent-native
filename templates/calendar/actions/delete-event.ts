@@ -9,7 +9,7 @@ import { isGoogleNotFoundError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
-  normalizeGoogleEventId,
+  normalizeWritableGoogleEventId,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
@@ -57,7 +57,7 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeGoogleEventId(args.id);
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
       args.accountEmail,
       ownerEmail,

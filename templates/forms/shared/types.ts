@@ -254,6 +254,14 @@ export interface FormResponse {
    * unknown or anonymous mode suppresses response metadata.
    */
   clientSurface?: string | null;
+  communityPromotion?: {
+    status: "publishing" | "published" | "failed" | "unknown";
+    builderContentId?: string | null;
+    communitySlug?: string | null;
+    error?: string | null;
+    promotedAt?: string | null;
+    promotedBy?: string | null;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------

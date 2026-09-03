@@ -2491,6 +2491,7 @@ describe("mountWebMcpActionRoutes", () => {
         manifest: {
           name: "Clips",
           description: "Read clips",
+          instructions: "Call view-screen before editing.",
           websiteUrl: "https://clips.example.com",
         },
       },
@@ -2530,6 +2531,7 @@ describe("mountWebMcpActionRoutes", () => {
       protocol: "WebMCP",
       name: "Clips",
       description: "Read clips",
+      instructions: expect.stringContaining("Call view-screen before editing."),
       website_url: "https://clips.example.com",
       endpoints: {
         mcp: "https://clips.example.com/mcp",
@@ -2542,6 +2544,7 @@ describe("mountWebMcpActionRoutes", () => {
       tools: [
         {
           name: "eligible",
+          title: "Eligible",
           description: "Eligible",
           parameters: { type: "object" },
           inputSchema: { type: "object" },
@@ -2558,6 +2561,7 @@ describe("mountWebMcpActionRoutes", () => {
     ).resolves.toEqual([
       {
         name: "eligible",
+        title: "Eligible",
         description: "Eligible",
         inputSchema: { type: "object" },
         readOnly: true,
@@ -2586,5 +2590,185 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).resolves.toEqual({ caller: "webmcp" });
     expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("serves only explicitly public read-only actions to anonymous pages", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const privateRun = vi.fn();
+    const getOwnerFromEvent = vi.fn(async () => {
+      throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: {
+            description: "Search public docs",
+            parameters: { type: "object" },
+          },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "private-docs": {
+          tool: {
+            description: "Read private docs",
+            parameters: { type: "object" },
+          },
+          run: privateRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+        } as any,
+        "vetoed-docs": {
+          tool: {
+            description: "Never expose these docs",
+            parameters: { type: "object" },
+          },
+          run: vi.fn(),
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          agentTool: true,
+          mcpTool: false,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/search-docs",
+    );
+    const guessedPrivateRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/private-docs",
+    );
+    const vetoedRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/vetoed-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: { type: "object" },
+        readOnly: true,
+        title: "Search docs",
+      },
+    ]);
+    expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
+    expect(vetoedRoute).toBeUndefined();
+
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ userEmail: undefined });
+    expect(publicRun).toHaveBeenCalledTimes(1);
+    await expect(
+      guessedPrivateRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(privateRun).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a synthetic anonymous owner as authenticated", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const mutationRun = vi.fn();
+    const getOwnerContextFromEvent = vi.fn(async () => ({
+      owner: "public-owner",
+      anonymous: true,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: { description: "Search public docs", parameters: {} },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "mutate-docs": {
+          tool: { description: "Mutate docs", parameters: {} },
+          run: mutationRun,
+          http: false,
+          readOnly: false,
+        } as any,
+      },
+      { getOwnerContextFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const mutationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/mutate-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: {},
+        readOnly: true,
+        title: "Search docs",
+      },
+    ]);
+    await expect(
+      mutationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mutationRun).not.toHaveBeenCalled();
   });
 });

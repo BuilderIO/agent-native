@@ -10,13 +10,17 @@ import {
 } from "@agent-native/toolkit/composer";
 
 import { readClientAppState } from "../application-state.js";
+import { ExternalAgentNudge } from "../external-agent-host.js";
 import { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
 
 export function PromptComposer(props: PromptComposerProps) {
   return (
-    <CoreComposerRuntimeProvider>
-      <ToolkitPromptComposer {...props} />
-    </CoreComposerRuntimeProvider>
+    <div className="relative">
+      <CoreComposerRuntimeProvider>
+        <ToolkitPromptComposer {...props} />
+      </CoreComposerRuntimeProvider>
+      <ExternalAgentNudge variant="prompt" />
+    </div>
   );
 }
 

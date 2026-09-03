@@ -6,16 +6,14 @@
  * resolve the dependency closure from CI_WORKSPACE_FILTERS, then shard the
  * concrete test packages in that closure. Docs-only PRs bypass this script and
  * use the focused docs job.
- * This script only decides which lane each package runs in, purely to
- * parallelise wall-clock.
+ * This script only decides which lane each package or Core test shard runs in,
+ * purely to parallelise wall-clock.
  *
- * In full mode, @agent-native/core is handled by its own dedicated CI job
- * (isolated so it can run uncapped), so it is excluded here. Every other test
- * package is partitioned across the lanes. Targeted mode includes core in the
- * same package partition because the selected closure is already bounded. In
- * both modes, the script asserts the partition covers all selected test
- * packages exactly once - if a package is dropped, the lane plan fails rather
- * than passing silently.
+ * @agent-native/core is sharded across the normal CI lanes because it is the
+ * largest test package. Every other test package is partitioned across those
+ * same lanes. In both modes, the script asserts the partition covers all
+ * selected test packages exactly once - if a package is dropped, the lane plan
+ * fails rather than passing silently.
  *
  * Balance weight is each package's live fast-test file count, read from the tree
  * at run time — no hardcoded table, nothing to maintain.
@@ -29,7 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = process.cwd();
-const CORE = "@agent-native/core"; // isolated in its own CI job
+const CORE = "@agent-native/core"; // split into Vitest shards across the lanes
 const LANES = Math.max(1, Number(process.env.LANES || 5));
 
 // Must track the package globs in pnpm-workspace.yaml. A package under a glob
@@ -129,11 +127,8 @@ function readTargetedFilters(): string[] | undefined {
   return parsed;
 }
 
-function resolveTestPackages(
-  all: Pkg[],
-  filters: string[] | undefined,
-): { packages: Pkg[]; targeted: boolean } {
-  if (!filters) return { packages: all, targeted: false };
+function resolveTestPackages(all: Pkg[], filters: string[] | undefined): Pkg[] {
+  if (!filters) return all;
 
   const args = [
     "-r",
@@ -175,7 +170,7 @@ function resolveTestPackages(
   );
   const packages = all.filter((pkg) => selectedNames.has(pkg.name));
 
-  return { packages, targeted: true };
+  return packages;
 }
 
 function countTestFiles(dir: string): number {
@@ -209,16 +204,24 @@ interface Lane {
   filters: string;
   packages: string[];
   files: number;
+  coreShard: string;
 }
 
-function partition(pkgs: Pkg[], laneCount: number): Lane[] {
+function splitWeight(total: number, index: number, count: number): number {
+  const remainder = total % count;
+  return Math.floor(total / count) + (index < remainder ? 1 : 0);
+}
+
+function partition(pkgs: Pkg[], laneCount: number, core?: Pkg): Lane[] {
   const weight = new Map<string, number>();
   for (const p of pkgs) weight.set(p.name, Math.max(1, countTestFiles(p.dir)));
 
-  const n = Math.max(1, Math.min(laneCount, pkgs.length));
-  const bins = Array.from({ length: n }, () => ({
+  const n = core ? laneCount : Math.max(1, Math.min(laneCount, pkgs.length));
+  const coreFiles = core ? Math.max(1, countTestFiles(core.dir)) : 0;
+  const bins = Array.from({ length: n }, (_, index) => ({
     packages: [] as string[],
-    files: 0,
+    files: core ? splitWeight(coreFiles, index, n) : 0,
+    coreShard: core ? `${index + 1}/${n}` : "",
   }));
   // Greedy: heaviest first into the currently-lightest bin.
   for (const p of [...pkgs].sort(
@@ -229,17 +232,18 @@ function partition(pkgs: Pkg[], laneCount: number): Lane[] {
     bins[0].files += weight.get(p.name)!;
   }
   return bins
-    .filter((b) => b.packages.length > 0)
+    .filter((b) => b.packages.length > 0 || b.coreShard !== "")
     .sort((a, b) => b.files - a.files)
     .map((b, i) => ({
       lane: `lane-${i + 1}`,
       filters: b.packages.map((p) => `--filter ${p}`).join(" "),
       packages: b.packages,
       files: b.files,
+      coreShard: b.coreShard,
     }));
 }
 
-function assertFullCoverage(lanes: Lane[], expected: Pkg[]): void {
+function assertFullCoverage(lanes: Lane[], expected: Pkg[], core?: Pkg): void {
   const covered = new Set<string>();
   for (const lane of lanes) {
     for (const name of lane.packages) {
@@ -254,6 +258,16 @@ function assertFullCoverage(lanes: Lane[], expected: Pkg[]): void {
     .map((p) => p.name);
   if (missing.length > 0) {
     throw new Error(`Packages missing from all lanes: ${missing.join(", ")}`);
+  }
+
+  if (core) {
+    const shards = lanes.map((lane) => lane.coreShard).filter(Boolean);
+    if (
+      shards.length !== lanes.length ||
+      new Set(shards).size !== lanes.length
+    ) {
+      throw new Error("Core test shards are missing or duplicated");
+    }
   }
 }
 
@@ -270,17 +284,22 @@ function summarize(lanes: Lane[], coreFiles: number): void {
     "",
     targeted && lanes.length === 0
       ? "No affected workspace has a test script; targeted fast tests are skipped."
-      : targeted
-        ? `Every affected test package runs exactly once across ${lanes.length} balanced lanes.`
-        : `Every test package runs. \`${CORE}\` runs on its own uncapped lane (${coreFiles} files); the rest are split across ${lanes.length} balanced lanes.`,
+      : targeted && coreFiles > 0
+        ? `Every affected test package runs exactly once across ${lanes.length} balanced lanes; ${CORE} is Vitest-sharded.`
+        : targeted
+          ? `Every affected test package runs exactly once across ${lanes.length} balanced lanes.`
+          : `Every test package runs. \`${CORE}\` is split across ${lanes.length} Vitest shards (${coreFiles} files); the rest share those balanced lanes.`,
     "",
     "| lane | test files | packages |",
     "| --- | ---: | --- |",
-    ...(process.env.CI_WORKSPACE_FILTERS
-      ? []
-      : [`| core | ${coreFiles} | ${CORE} |`]),
     ...lanes.map(
-      (l) => `| ${l.lane} | ${l.files} | ${l.packages.join(", ")} |`,
+      (l) =>
+        `| ${l.lane} | ${l.files} | ${[
+          l.coreShard ? `${CORE} (${l.coreShard})` : "",
+          ...l.packages,
+        ]
+          .filter(Boolean)
+          .join(", ")} |`,
     ),
   ];
   const md = lines.join("\n");
@@ -291,18 +310,15 @@ function summarize(lanes: Lane[], coreFiles: number): void {
 
 function main(): void {
   const all = discoverTestPackages();
-  const { packages: selected, targeted } = resolveTestPackages(
-    all,
-    readTargetedFilters(),
-  );
-  const core = targeted ? undefined : selected.find((p) => p.name === CORE);
-  const rest = targeted ? selected : selected.filter((p) => p.name !== CORE);
+  const selected = resolveTestPackages(all, readTargetedFilters());
+  const core = selected.find((p) => p.name === CORE);
+  const rest = selected.filter((p) => p.name !== CORE);
 
-  const lanes = partition(rest, LANES);
-  assertFullCoverage(lanes, rest);
+  const lanes = partition(rest, LANES, core);
+  assertFullCoverage(lanes, rest, core);
 
   emit("matrix", JSON.stringify({ include: lanes }));
-  emit("has_tests", String(rest.length > 0));
+  emit("has_tests", String(lanes.length > 0));
   summarize(lanes, core ? countTestFiles(core.dir) : 0);
 }
 

@@ -12,6 +12,10 @@ browser sessions और security limits के लिए [अंग्रेज�
 Authenticated pages मौजूदा action registry से eligible backend actions को अपने-आप
 register करते हैं। Approval माँगने वाले actions शामिल नहीं होते और चलाने से पहले
 live tool list फिर जाँची जाती है।
+Authenticated `sessionBypass` surfaces, जैसे MCP embed routes, backend action tools
+को भी register करते हैं। Public और signed-out pages इन्हें register नहीं करते।
+
+जब ब्राउज़र उपयोग करने योग्य native WebMCP surface उपलब्ध नहीं कराता, Agent-Native core `@mcp-b/webmcp-polyfill` को initialize करता है। यह polyfill केवल वर्तमान page तक सीमित है और network MCP connection नहीं बनाता।
 
 ## HTTP discovery और fetch fallback
 

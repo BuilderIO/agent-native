@@ -586,4 +586,130 @@ describe("resourceEffectiveContext", () => {
       content: "after",
     });
   });
+
+  it("does not overwrite an existing resource during conditional insert", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePutIfAbsent,
+    } = await import("./store.js");
+    const path = `context/conditional-insert-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const first = await resourcePutIfAbsent(SHARED_OWNER, path, "first");
+      expect(first?.content).toBe("first");
+
+      await expect(
+        resourcePutIfAbsent(SHARED_OWNER, path, "second"),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        content: "first",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("does not delete a replacement during conditional legacy cleanup", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-delete-${Date.now()}-${Math.random()}.md`;
+    const legacyMetadata = {
+      source: "workspace-files",
+      scope: "org",
+      scopeId: "org-a",
+    };
+
+    try {
+      const legacy = await resourcePut(
+        SHARED_OWNER,
+        path,
+        "legacy",
+        undefined,
+        {
+          metadata: legacyMetadata,
+        },
+      );
+      await resourcePut(SHARED_OWNER, path, "global default", undefined, {
+        metadata: { source: "global" },
+      });
+
+      await expect(resourceDeleteIfCurrent(legacy)).resolves.toBe(false);
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        content: "global default",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("conditionally deletes a resource without metadata", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-null-metadata-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const resource = await resourcePut(SHARED_OWNER, path, "content");
+
+      await expect(resourceDeleteIfCurrent(resource)).resolves.toBe(true);
+      await expect(resourceGetByPath(SHARED_OWNER, path)).resolves.toBeNull();
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("does not delete a same-timestamp MIME or visibility mutation", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-fields-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const resource = await resourcePut(
+        SHARED_OWNER,
+        path,
+        "content",
+        "text/plain",
+      );
+      sqlite
+        .prepare(
+          "UPDATE resources SET mime_type = ?, visibility = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(
+          "application/json",
+          "agent_scratch",
+          resource.updatedAt,
+          resource.id,
+        );
+
+      await expect(resourceDeleteIfCurrent(resource)).resolves.toBe(false);
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        mimeType: "application/json",
+        visibility: "agent_scratch",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
 });

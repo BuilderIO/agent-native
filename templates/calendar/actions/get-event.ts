@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { calendarGetEvent } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
+import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
+import { parseGoogleCalendarSourceKey } from "../shared/google-calendar-sources.js";
 import { getGoogleEventColorHex } from "../shared/google-event-colors.js";
 
 export default defineAction({
@@ -20,13 +23,24 @@ export default defineAction({
       .optional()
       .default("primary")
       .describe('Calendar id — defaults to "primary"'),
+    calendarSourceKey: z
+      .string()
+      .optional()
+      .describe(
+        "Opaque source key from list-google-calendars for a shared event",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const evt = result as { id?: string; start?: string; error?: string };
+    const evt = result as {
+      id?: string;
+      start?: string;
+      error?: string;
+      calendarSourceKey?: string;
+    };
     if (evt.error || !evt.id) return null;
     const date =
       typeof evt.start === "string" && evt.start
@@ -36,15 +50,38 @@ export default defineAction({
       url: buildDeepLink({
         app: "calendar",
         view: "calendar",
-        params: { eventId: evt.id, date },
+        params: {
+          eventId: evt.id,
+          date,
+          calendarSourceKey: evt.calendarSourceKey,
+        },
       }),
       label: "Open event in Calendar",
       view: "calendar",
     };
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+
+    if (args.calendarSourceKey) {
+      if (!(await isFeatureFlagEnabled(SHARED_GOOGLE_CALENDARS, ctx))) {
+        throw new Error("Shared Google calendars is not enabled");
+      }
+      const source = parseGoogleCalendarSourceKey(args.calendarSourceKey);
+      if (!source) throw new Error("Invalid Google Calendar source key");
+      const namespacedPrefix = `google-${args.calendarSourceKey}-`;
+      const rawId = args.id.startsWith(namespacedPrefix)
+        ? args.id.slice(namespacedPrefix.length)
+        : args.id.startsWith("google-")
+          ? args.id.slice("google-".length)
+          : args.id;
+      return googleCalendar.getEvent(
+        rawId,
+        { ownerEmail: email, accountEmail: source.accountEmail },
+        { calendarSourceKey: args.calendarSourceKey },
+      );
+    }
 
     const rawId = args.id.startsWith("google-")
       ? args.id.slice("google-".length)

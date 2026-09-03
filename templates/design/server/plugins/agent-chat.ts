@@ -45,6 +45,7 @@ const INITIAL_TOOL_NAMES = [
   "list-files",
   "create-file",
   "update-file",
+  "rename-screen",
   "navigate",
   "provider-api-catalog",
   "provider-api-docs",

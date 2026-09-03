@@ -41,6 +41,7 @@ interface DesktopTerminalSurfaceProps {
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
   onNewUiTab?: () => void;
+  onClose?: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   onAgentChange?: (agent: DesktopTerminalAgentId) => void;
@@ -71,6 +72,7 @@ export default function DesktopTerminalSurface({
   submitRequest,
   onPromptSubmitted,
   onNewUiTab,
+  onClose,
   sidebarOpen,
   onToggleSidebar,
   onAgentChange,
@@ -151,22 +153,23 @@ export default function DesktopTerminalSurface({
           {tabs.map((tab) => {
             const active = tab.id === activeTabId;
             return (
-              <div
-                key={tab.id}
-                role="tab"
-                tabIndex={0}
-                aria-selected={active}
-                data-desktop-terminal-tab={tab.id}
-                className={`agent-tab relative flex max-w-[150px] shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer ${active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
-                onClick={() => setActiveTabId(tab.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setActiveTabId(tab.id);
-                  }
-                }}
-              >
-                <span className="truncate pe-1">{tab.label}</span>
+              <div key={tab.id} className="relative flex shrink-0 items-center">
+                <div
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={active}
+                  data-desktop-terminal-tab={tab.id}
+                  className={`agent-tab relative flex max-w-[150px] shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer ${active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                  onClick={() => setActiveTabId(tab.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setActiveTabId(tab.id);
+                    }
+                  }}
+                >
+                  <span className="truncate pe-1">{tab.label}</span>
+                </div>
                 <button
                   type="button"
                   aria-label={`Close ${tab.label}`}
@@ -207,11 +210,9 @@ export default function DesktopTerminalSurface({
               {onAgentChange ? (
                 <>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <span className="desktop-dropdown-item__main">
-                        <IconTerminal2 size={14} strokeWidth={1.8} />
-                        <span>Provider</span>
-                      </span>
+                    <DropdownMenuSubTrigger className="gap-2">
+                      <IconTerminal2 size={14} strokeWidth={1.8} />
+                      <span>Provider</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-52">
                       {DESKTOP_TERMINAL_AGENT_OPTIONS.map((option) => (
@@ -236,11 +237,12 @@ export default function DesktopTerminalSurface({
                   <DropdownMenuSeparator />
                 </>
               ) : null}
-              {onToggleSidebar || onNewUiTab ? (
+              {onToggleSidebar || onNewUiTab || addTab ? (
                 <>
                   <DesktopChatFirstSurfaceMenuItems
                     sidebarOpen={sidebarOpen}
                     onToggleSidebar={onToggleSidebar}
+                    onNewCliTab={addTab}
                     onNewUiTab={onNewUiTab}
                   />
                   <DropdownMenuSeparator />
@@ -261,6 +263,17 @@ export default function DesktopTerminalSurface({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {onClose ? (
+            <button
+              type="button"
+              className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              aria-label="Back to chat"
+              title="Back to chat"
+              onClick={onClose}
+            >
+              <IconX size={14} aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="desktop-terminal-surface__body">

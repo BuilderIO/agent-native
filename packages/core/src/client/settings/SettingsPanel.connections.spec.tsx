@@ -31,6 +31,7 @@ describe("ConnectionsSettingsContent", () => {
     expect(children).toHaveLength(3);
     expect(children[1]?.type).toBe(BuilderConnectCard);
     expect(children[1]?.props.trackingSource).toBe("settings_connections");
+    expect(children[1]?.props.showManage).toBe(true);
     expect(children[2]?.props.surface).toBe("page");
     expect(children[2]?.props.showCapabilityStrip).toBe(false);
     expect(children[2]?.props.builderConnectionOwnedExternally).toBe(true);

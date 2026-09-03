@@ -358,6 +358,12 @@ function SortableSlideThumb({
             {...(readOnly ? {} : attributes)}
             {...(readOnly ? {} : listeners)}
             onKeyDown={(event) => {
+              if (event.key === "Delete" || event.key === "Backspace") {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!readOnly && canDelete) onDeleteSlide?.(actionSlideIds);
+                return;
+              }
               listeners?.onKeyDown?.(event);
               if (event.defaultPrevented) return;
               if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
