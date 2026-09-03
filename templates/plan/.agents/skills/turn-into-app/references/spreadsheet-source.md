@@ -51,11 +51,11 @@ access checks apply on every call rather than at import time only.
 Classify source material into three separate buckets. Include representative
 cell addresses or ranges and the evidence behind each classification.
 
-| Bucket             | Strongest signals, in order                                                                                                                                                               | App treatment                                                          |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Inputs             | A hardcoded value where sibling cells hold formulas; lives on an assumptions/inputs tab; a label such as `assumption` / `driver` / `input`; the sheet's own instruction text points at it | Editable controls or bounded source parameters                         |
-| Outputs            | Formula-derived; sits in a summary or results block; a label such as `forecast` / `total` / `recommendation`                                                                              | Read-only results, charts, recommendations, exports, or review actions |
-| Static historicals | Prior-period rows, raw imports, dated actuals; a label such as `actual` / `historical`                                                                                                    | Read-only context; never turn into editable inputs by default          |
+| Bucket             | Strongest signals, in order                                                                                                                                                                                 | App treatment                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Inputs             | The sheet's own instruction text points at it; lives on an assumptions/inputs tab; a label such as `assumption` / `driver` / `input`; last and weakest, a hardcoded value where sibling cells hold formulas | Editable controls or bounded source parameters                         |
+| Outputs            | Formula-derived; sits in a summary or results block; a label such as `forecast` / `total` / `recommendation`                                                                                                | Read-only results, charts, recommendations, exports, or review actions |
+| Static historicals | Prior-period rows, raw imports, dated actuals; a label such as `actual` / `historical`                                                                                                                      | Read-only context; never turn into editable inputs by default          |
 
 **Structure decides; colour is a weak hint.** Whether a cell holds a formula or a
 typed value, which tab it lives on, and what its row and column headers say are
@@ -70,6 +70,15 @@ historical — is one convention among several. Real sheets seen so far:
 
 So never invert an input/output mapping on colour alone, and never label a range
 historical because its font is a default black with no explicit style metadata.
+
+**A typed value beside a formula is not enough on its own.** It is the weakest
+input signal because it is also what a dated actual looks like: in a forecast
+row, past periods are typed and future periods are formulas, so this test alone
+promotes the historical anchors to editable drivers. Treat it as confirmation
+for a cell that already passed a higher-ranked test — instruction text, an
+assumptions tab, a driver label. Where a row or column mixes recorded actuals
+with projected formulas, the actuals stay read-only context unless the user says
+otherwise.
 
 **Read the sheet's own words first.** Authors who colour-code usually say so
 somewhere — a note column, a header, an instruction block. One of the sheets

@@ -315,9 +315,12 @@ against a half-created directory. An app that is not the real Agent-Native
 scaffold is a different product, not a smaller version of this one, and a
 handoff that reports success for it is worse than no app at all.
 
-If a workaround genuinely is the only path forward, it is a finding, not a
-detail: name it in the handoff as a pending item with what you changed and why,
-so the next person sees the problem instead of inheriting it silently.
+Do not decide for yourself that a workaround is the only path forward. That
+judgment is what produced every case above — each of those runs had a reason
+that looked sufficient at the time. Report the blocker and let the user choose.
+If they ask for a workaround, it becomes a finding rather than a detail: name it
+in the handoff as a pending item, with what you changed and why, so the next
+person sees the problem instead of inheriting it silently.
 
 ## 3. Turn the workflow into buttons and agent work
 
