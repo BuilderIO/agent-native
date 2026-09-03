@@ -3174,6 +3174,44 @@ describe("server/auth", () => {
       expect(firstHtml).not.toContain("second.example");
     });
 
+    it("keeps the cached login document independent of workspace mount", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv(
+        "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        JSON.stringify([{ id: "plan" }, { id: "diagrams" }]),
+      );
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const firstEvent = createMockEvent({ path: "/login" });
+      firstEvent.context._mountedPathname = "/plan/login";
+      const secondEvent = createMockEvent({ path: "/login" });
+      secondEvent.context._mountedPathname = "/diagrams/login";
+      const first = await guard(firstEvent);
+      const second = await guard(secondEvent);
+
+      const firstHtml = await (first as Response).text();
+      const secondHtml = await (second as Response).text();
+      expect(firstHtml).toBe(secondHtml);
+      expect(firstHtml).not.toContain("/plan/_agent-native/auth/session");
+      expect(firstHtml).not.toContain("/diagrams/_agent-native/auth/session");
+    });
+
     it("normalizes fragment login HTML before adding the root handoff", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -4386,7 +4424,15 @@ describe("server/auth", () => {
         getBetterAuthSync: () => undefined,
       }));
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getDbExec: () => ({
+          execute: vi.fn(async (query: any) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            if (sql?.includes("SELECT email, created_at FROM sessions")) {
+              throw new Error("legacy sessions unavailable");
+            }
+            return { rows: [] };
+          }),
+        }),
         isLocalDatabase: () => true,
         isPostgres: () => false,
         intType: () => "INTEGER",
@@ -4403,7 +4449,10 @@ describe("server/auth", () => {
       )?.[1];
       expect(sessionHandler).toBeTypeOf("function");
 
-      const event = createMockEvent({ path: "/_agent-native/auth/session" });
+      const event = createMockEvent({
+        path: "/_agent-native/auth/session",
+        headers: { cookie: "an_session=legacy-session-token" },
+      });
       const result = await sessionHandler(event);
 
       expect(event.res.status).toBe(503);
