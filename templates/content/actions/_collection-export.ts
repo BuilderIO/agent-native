@@ -171,18 +171,41 @@ function queryPropertyIds(query: ContentDatabaseTableQuery) {
     .filter((key) => key !== "name");
 }
 
-function queryNeedsBlocks(
+function propertyNeedsPrimaryBody(
+  property: DocumentProperty,
+  propertyByName: ReadonlyMap<string, DocumentProperty>,
+  visiting = new Set<string>(),
+): boolean {
+  if (visiting.has(property.definition.id)) return false;
+  visiting.add(property.definition.id);
+  if (isBlocksPropertyType(property.definition.type)) {
+    return isPrimaryBlocksField(property.definition.options);
+  }
+  if (property.definition.type !== "formula") return false;
+  return formulaDependencyNames(property.definition.options.formula).some(
+    (name) => {
+      const dependency = propertyByName.get(name);
+      return (
+        !!dependency &&
+        propertyNeedsPrimaryBody(dependency, propertyByName, visiting)
+      );
+    },
+  );
+}
+
+function queryNeedsPrimaryBody(
   query: ContentDatabaseTableQuery,
   propertyById: ReadonlyMap<string, DocumentProperty>,
+  propertyByName: ReadonlyMap<string, DocumentProperty>,
 ) {
   if (query.search.trim()) {
     return [...propertyById.values()].some((property) =>
-      isBlocksPropertyType(property.definition.type),
+      propertyNeedsPrimaryBody(property, propertyByName),
     );
   }
   return [...query.filters, ...query.sorts].some(({ key }) => {
     const property = propertyById.get(key);
-    return !!property && isBlocksPropertyType(property.definition.type);
+    return !!property && propertyNeedsPrimaryBody(property, propertyByName);
   });
 }
 
@@ -325,16 +348,19 @@ export async function buildCollectionExportProjection(
   const propertyByName = new Map(
     allProperties.map((property) => [property.definition.name, property]),
   );
-  const selectedScalars = request.propertyIds.map((id) => {
+  const requestedProperties = request.propertyIds.map((id) => {
     const property = propertyById.get(id);
-    if (!property || isBlocksPropertyType(property.definition.type)) {
-      fail(`Unknown scalar database property "${id}".`, {
+    if (!property) {
+      fail(`Unknown database property "${id}".`, {
         errorCode: "invalid_collection_export_selection",
       });
     }
     return property;
   });
-  const selectedBlocks = request.blockPropertyIds.map((id) => {
+  const selectedScalars = requestedProperties.filter(
+    (property) => !isBlocksPropertyType(property.definition.type),
+  );
+  const explicitlySelectedBlocks = request.blockPropertyIds.map((id) => {
     const property = propertyById.get(id);
     if (
       !property ||
@@ -347,6 +373,25 @@ export async function buildCollectionExportProjection(
     }
     return property;
   });
+  const selectedBlocks = [
+    ...new Map(
+      [
+        ...requestedProperties.filter(
+          (property) =>
+            isBlocksPropertyType(property.definition.type) &&
+            !isPrimaryBlocksField(property.definition.options),
+        ),
+        ...explicitlySelectedBlocks,
+      ].map((property) => [property.definition.id, property]),
+    ).values(),
+  ];
+  const includePrimaryBody =
+    request.includePrimaryBody ||
+    requestedProperties.some(
+      (property) =>
+        isBlocksPropertyType(property.definition.type) &&
+        isPrimaryBlocksField(property.definition.options),
+    );
   const primaryBlocks = allProperties.find(
     (property) =>
       isBlocksPropertyType(property.definition.type) &&
@@ -409,8 +454,8 @@ export async function buildCollectionExportProjection(
   }
 
   const requiredPropertyIds = new Set<string>([
-    ...request.propertyIds,
-    ...request.blockPropertyIds,
+    ...selectedScalars.map((property) => property.definition.id),
+    ...selectedBlocks.map((property) => property.definition.id),
     ...savedQueries.flatMap(queryPropertyIds),
     ...(personalQuery ? queryPropertyIds(personalQuery) : []),
     ...(transientQuery
@@ -459,7 +504,7 @@ export async function buildCollectionExportProjection(
     isBlocksPropertyType(property.definition.type),
   );
   const includePrimaryContent =
-    request.includePrimaryBody ||
+    includePrimaryBody ||
     requiredBlocks.some((property) =>
       isPrimaryBlocksField(property.definition.options),
     );
@@ -728,7 +773,10 @@ export async function buildCollectionExportProjection(
     hydrationChecked = true;
   };
   for (const query of queryStages) {
-    if (!hydrationChecked && queryNeedsBlocks(query, propertyById)) {
+    if (
+      !hydrationChecked &&
+      queryNeedsPrimaryBody(query, propertyById, propertyByName)
+    ) {
       assertBodiesReady();
     }
     queryItems = applyContentDatabaseTableQuery(
@@ -739,13 +787,16 @@ export async function buildCollectionExportProjection(
   }
   if (
     !hydrationChecked &&
-    (request.includePrimaryBody || selectedBlocks.length > 0)
+    (includePrimaryBody ||
+      selectedScalars.some((property) =>
+        propertyNeedsPrimaryBody(property, propertyByName),
+      ))
   ) {
     assertBodiesReady();
   }
 
   const bodyFields = [
-    ...(request.includePrimaryBody
+    ...(includePrimaryBody
       ? [
           {
             id: "primary-body",
@@ -775,7 +826,7 @@ export async function buildCollectionExportProjection(
         ]),
       ),
       bodyValues: new Map([
-        ...(request.includePrimaryBody
+        ...(includePrimaryBody
           ? [["primary-body", item.document.content] as const]
           : []),
         ...selectedBlocks.map(

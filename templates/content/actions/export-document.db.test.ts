@@ -834,7 +834,11 @@ describe("export-document database collections", () => {
       documentId: databaseDocumentId,
       title: "CSV Scalars",
     });
-    await createDocument({ id: "csv-scalar-row", title: "=formula" });
+    await createDocument({
+      id: "csv-scalar-row",
+      title: "=formula",
+      content: "Primary body",
+    });
     await addDatabaseItem({
       id: "csv-scalar-item",
       databaseId,
@@ -867,6 +871,14 @@ describe("export-document database collections", () => {
       type: "blocks",
       position: 2,
       optionsJson: JSON.stringify({ blocks: { primary: false } }),
+    });
+    await addProperty({
+      id: "csv-body-formula",
+      databaseId,
+      name: "Body formula",
+      type: "formula",
+      position: 3,
+      optionsJson: JSON.stringify({ formula: "{Content}" }),
     });
     await getDb().insert(schema.documentBlockFieldContents).values({
       id: "csv-extra-blocks-content",
@@ -915,6 +927,59 @@ describe("export-document database collections", () => {
       errorCode: "collection_export_body_not_ready",
     });
 
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        exportDocumentAction.run({
+          id: databaseDocumentId,
+          format: "csv",
+          collection: {
+            scope: { kind: "all_members" },
+            propertyIds: ["csv-body-formula"],
+            includePrimaryBody: false,
+            blockPropertyIds: [],
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "collection_export_body_not_ready",
+    });
+
+    const independentBlocksResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        exportDocumentAction.run({
+          id: databaseDocumentId,
+          format: "csv",
+          collection: {
+            scope: { kind: "all_members" },
+            propertyIds: [],
+            includePrimaryBody: false,
+            blockPropertyIds: ["csv-extra-blocks"],
+          },
+        }),
+    );
+    expect(independentBlocksResult.content).toBe(
+      'Title,Notes\r\n\'=formula,"## Notes\nline"\r\n',
+    );
+
+    const legacyBlocksResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        exportDocumentAction.run({
+          id: databaseDocumentId,
+          format: "csv",
+          collection: {
+            scope: { kind: "all_members" },
+            propertyIds: ["csv-extra-blocks"],
+            includePrimaryBody: false,
+            blockPropertyIds: [],
+          },
+        }),
+    );
+    expect(legacyBlocksResult.content).toBe(
+      'Title,Notes\r\n\'=formula,"## Notes\nline"\r\n',
+    );
+
     await getDb()
       .update(schema.contentDatabaseItems)
       .set({ bodyHydrationStatus: "hydrated" })
@@ -933,6 +998,24 @@ describe("export-document database collections", () => {
     );
     expect(blocksResult.content).toBe(
       'Title,Notes\r\n\'=formula,"## Notes\nline"\r\n',
+    );
+
+    const legacyPrimaryResult = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        exportDocumentAction.run({
+          id: databaseDocumentId,
+          format: "csv",
+          collection: {
+            scope: { kind: "all_members" },
+            propertyIds: ["csv-blocks"],
+            includePrimaryBody: false,
+            blockPropertyIds: [],
+          },
+        }),
+    );
+    expect(legacyPrimaryResult.content).toBe(
+      "Title,Content\r\n'=formula,Primary body\r\n",
     );
   });
 
