@@ -1354,11 +1354,13 @@ export default function SlideEditor({
     clipboardId: string;
     nativeClipboardMode: "pending" | "rich" | "text-only" | "failed";
     copySequence: number;
+    copySessionId: number;
     deckId?: string;
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
   const copiedObjectCopySequenceRef = useRef(0);
+  const copiedObjectClipboardSessionRef = useRef(0);
   const overlappingNativeClipboardIdsRef = useRef(new Map<string, string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
@@ -3937,6 +3939,7 @@ export default function SlideEditor({
         clipboardId: createSlideObjectId(),
         nativeClipboardMode: "pending" as const,
         copySequence: copiedObjectCopySequenceRef.current++,
+        copySessionId: copiedObjectClipboardSessionRef.current,
         deckId,
         slideId: slide.id,
         sourceRect: selection[0]?.getBoundingClientRect(),
@@ -3954,7 +3957,8 @@ export default function SlideEditor({
           if (
             mode === "rich" &&
             currentClipboard &&
-            currentClipboard.copySequence > clipboard.copySequence
+            currentClipboard.copySequence > clipboard.copySequence &&
+            currentClipboard.copySessionId === clipboard.copySessionId
           ) {
             overlappingNativeClipboardIdsRef.current.set(
               clipboard.clipboardId,
@@ -4017,6 +4021,7 @@ export default function SlideEditor({
   // latest in-app layer copy observable alongside external clipboard copies.
   // It intentionally does not survive a deck switch.
   useEffect(() => {
+    copiedObjectClipboardSessionRef.current += 1;
     copiedObjectClipboardRef.current = null;
     overlappingNativeClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
@@ -4127,6 +4132,7 @@ export default function SlideEditor({
         overlappingNativeClipboardIdsRef.current.get(nativeClipboardId) ===
           clipboard.clipboardId
       ) {
+        overlappingNativeClipboardIdsRef.current.delete(nativeClipboardId);
         pasteLocalClipboard();
         return;
       }

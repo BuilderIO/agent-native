@@ -197,6 +197,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain("writeSlideObjectClipboard");
     expect(source).toContain("readSlideObjectClipboardId");
     expect(source).toContain("overlappingNativeClipboardIdsRef");
+    expect(source).toContain("copySessionId");
     expect(source).not.toContain("objectPasteFallbackRef");
     const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
     const pasteEnd = source.indexOf(
@@ -209,6 +210,9 @@ describe("SlideEditor render-phase safety", () => {
     );
     expect(pasteBody).toContain(
       "overlappingNativeClipboardIdsRef.current.get(nativeClipboardId)",
+    );
+    expect(pasteBody).toContain(
+      "overlappingNativeClipboardIdsRef.current.delete(nativeClipboardId)",
     );
     expect(pasteBody.indexOf("const hasNativeText")).toBeLessThan(
       pasteBody.indexOf('clipboard.nativeClipboardMode === "pending"'),
