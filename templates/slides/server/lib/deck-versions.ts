@@ -2,7 +2,10 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import { deckContentSignature } from "../../shared/deck-content.js";
 import { getDb, schema } from "../db/index.js";
+
+export { deckContentSignature as deckVersionContentSignature } from "../../shared/deck-content.js";
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -87,35 +90,6 @@ export interface DeckSnapshotSource {
   ownerEmail: string;
 }
 
-function stableDeckVersionStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableDeckVersionStringify).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(
-        ([key, entry]) =>
-          `${JSON.stringify(key)}:${stableDeckVersionStringify(entry)}`,
-      )
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
-export function deckVersionContentSignature(raw: unknown): string {
-  try {
-    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-    const clone = JSON.parse(JSON.stringify(data ?? {}));
-    if (clone && typeof clone === "object" && !Array.isArray(clone)) {
-      delete (clone as Record<string, unknown>).updatedAt;
-    }
-    return stableDeckVersionStringify(clone);
-  } catch {
-    return typeof raw === "string" ? raw : (JSON.stringify(raw ?? "") ?? "");
-  }
-}
-
 function normalizedChatContext(
   raw: string | null | undefined,
 ): string | null | undefined {
@@ -167,8 +141,8 @@ export async function createDeckVersionSnapshot(
   if (
     latestVersion &&
     latestVersion.title === source.title &&
-    deckVersionContentSignature(latestVersion.data) ===
-      deckVersionContentSignature(source.data)
+    deckContentSignature(latestVersion.data) ===
+      deckContentSignature(source.data)
   ) {
     return { created: false, reason: "duplicate" };
   }
@@ -176,6 +150,8 @@ export async function createDeckVersionSnapshot(
   const requestedChatContext = serializeDeckVersionChatContext(
     options.chatContext,
   );
+  const changeGroup =
+    options.chatContext?.turnId ?? options.chatContext?.runId ?? undefined;
   if (
     requestedChatContext &&
     requestedChatContext === normalizedChatContext(latestVersion?.chatContext)
@@ -194,7 +170,7 @@ export async function createDeckVersionSnapshot(
   }
 
   const id = nanoid();
-  await db.insert(schema.deckVersions).values({
+  const values = {
     id,
     ownerEmail: source.ownerEmail,
     deckId: source.id,
@@ -204,8 +180,19 @@ export async function createDeckVersionSnapshot(
     ...(options.chatContext
       ? { chatContext: JSON.stringify(options.chatContext) }
       : {}),
+    ...(changeGroup ? { changeGroup } : {}),
     createdAt: new Date().toISOString(),
-  });
+  };
+  const insert = db.insert(schema.deckVersions).values(values);
+  if (!changeGroup) {
+    await insert;
+    return { created: true, id };
+  }
+
+  const [inserted] = await insert
+    .onConflictDoNothing()
+    .returning({ id: schema.deckVersions.id });
+  if (!inserted) return { created: false, reason: "same-agent-turn" };
 
   return { created: true, id };
 }

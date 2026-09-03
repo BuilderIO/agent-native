@@ -36,6 +36,9 @@ export default defineAction({
       .limit(1);
     if (!rows.length) throw new Error(`Deck not found: ${deckId}`);
     const data = JSON.parse(rows[0].data);
+    if (data.aspectRatio === aspectRatio) {
+      return { id: deckId, aspectRatio, applied: false };
+    }
     data.aspectRatio = aspectRatio;
     const now = nextDeckRevision(rows[0].updatedAt);
     data.updatedAt = now;

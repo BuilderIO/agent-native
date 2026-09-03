@@ -10,6 +10,7 @@ import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
+  deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
@@ -51,12 +52,30 @@ export default defineAction({
     const now = nextDeckRevision(current.updatedAt);
     const title = version.title || data?.title || current.title || "Untitled";
     data.title = title;
-    data.updatedAt = now;
 
     const designSystemId =
       typeof data.designSystemId === "string" && data.designSystemId
         ? data.designSystemId
         : null;
+
+    if (
+      current.title === title &&
+      current.designSystemId === designSystemId &&
+      deckVersionContentSignature(current.data) ===
+        deckVersionContentSignature(data)
+    ) {
+      return {
+        id: deckId,
+        title,
+        slideCount: Array.isArray(data?.slides) ? data.slides.length : 0,
+        restoredVersionId: versionId,
+        updatedAt: current.updatedAt,
+        url: getDeckUrl(deckId),
+        applied: false,
+      };
+    }
+
+    data.updatedAt = now;
 
     await db.transaction(async (tx: any) => {
       await createDeckVersionSnapshot(

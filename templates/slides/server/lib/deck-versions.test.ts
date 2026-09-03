@@ -4,12 +4,14 @@ vi.mock("../db/index.js", () => ({
   getDb: vi.fn(),
   schema: {
     deckVersions: {
+      id: "id",
       deckId: "deckId",
       ownerEmail: "ownerEmail",
       title: "title",
       data: "data",
       createdAt: "createdAt",
       chatContext: "chatContext",
+      changeGroup: "changeGroup",
     },
   },
 }));
@@ -37,6 +39,8 @@ let latestVersion:
     }
   | undefined;
 const insertedVersions: unknown[] = [];
+let insertedRows: unknown[] = [];
+let conflictInsert = false;
 const db = {
   select: () => ({
     from: () => ({
@@ -48,8 +52,13 @@ const db = {
     }),
   }),
   insert: () => ({
-    values: async (value: unknown) => {
+    values: (value: unknown) => {
       insertedVersions.push(value);
+      return {
+        onConflictDoNothing: () => ({
+          returning: async () => (conflictInsert ? [] : insertedRows),
+        }),
+      };
     },
   }),
 };
@@ -86,6 +95,8 @@ describe("deck version snapshot deduplication", () => {
   beforeEach(() => {
     latestVersion = undefined;
     insertedVersions.length = 0;
+    insertedRows = [{ id: "version-1" }];
+    conflictInsert = false;
   });
 
   it("ignores updatedAt when checking for duplicate deck content", () => {
@@ -103,6 +114,21 @@ describe("deck version snapshot deduplication", () => {
           id: "deck-1",
           slides: [{ id: "s1" }],
           updatedAt: "old",
+        }),
+      ),
+    );
+    expect(
+      deckVersionContentSignature(
+        JSON.stringify({
+          slides: [{ id: "s1" }],
+          id: "deck-1",
+        }),
+      ),
+    ).toBe(
+      deckVersionContentSignature(
+        JSON.stringify({
+          id: "deck-1",
+          slides: [{ id: "s1" }],
         }),
       ),
     );
@@ -140,5 +166,28 @@ describe("deck version snapshot deduplication", () => {
       ),
     ).resolves.toEqual({ created: false, reason: "same-agent-turn" });
     expect(insertedVersions).toHaveLength(0);
+  });
+
+  it("uses an atomic change-group insert for concurrent agent turns", async () => {
+    conflictInsert = true;
+
+    await expect(
+      createDeckVersionSnapshot(
+        {
+          id: "deck-1",
+          title: "Deck",
+          data: JSON.stringify({ slides: [{ id: "s1", content: "last" }] }),
+          ownerEmail: "owner@example.com",
+        },
+        {
+          force: true,
+          chatContext: { turnId: "turn-1" },
+          db: db as unknown as ReturnType<typeof getDb>,
+        },
+      ),
+    ).resolves.toEqual({ created: false, reason: "same-agent-turn" });
+    expect(insertedVersions).toEqual([
+      expect.objectContaining({ changeGroup: "turn-1" }),
+    ]);
   });
 });

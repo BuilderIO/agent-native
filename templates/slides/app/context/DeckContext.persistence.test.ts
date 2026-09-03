@@ -35,6 +35,7 @@ vi.mock("@agent-native/core/client/org", () => ({
 import {
   DeckProvider,
   clearSlideEditingActive,
+  deckContentSignature,
   flushPendingSaves,
   hasUnsavedDeckChanges,
   hasUncommittedDeckChanges,
@@ -3505,6 +3506,12 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
 
+    // Keep the deck in the dirty reconciliation branch so agent updates still
+    // get the same undo grouping as clean-deck updates.
+    act(() => {
+      result.current.markDeckDirty(initial.id);
+    });
+
     const source = MockEventSource.lastInstance!;
     const sendAgentUpdate = async (content: string) => {
       setAccessibleDeck({
@@ -4136,6 +4143,18 @@ describe("DeckContext deck creation persistence", () => {
 
     afterEach(() => {
       clearSlideEditingActive("dirty-deck", "a");
+    });
+
+    it("ignores object key order when comparing deck content", () => {
+      const first = deckOf([slide("a", "a")]);
+      const second = {
+        slides: first.slides,
+        updatedAt: first.updatedAt,
+        createdAt: first.createdAt,
+        title: first.title,
+        id: first.id,
+      } satisfies Deck;
+      expect(deckContentSignature(first)).toBe(deckContentSignature(second));
     });
 
     // The regression this guards: an agent edit used to be adopted only for

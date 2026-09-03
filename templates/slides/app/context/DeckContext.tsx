@@ -30,6 +30,7 @@ import {
 
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
+import { deckContentSignature as stableDeckContentSignature } from "../../shared/deck-content";
 import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
 
 // ---------------------------------------------------------------------------
@@ -1283,9 +1284,7 @@ export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
  * metadata-only refresh does not create a no-op undo entry.
  */
 export function deckContentSignature(deck: Deck): string {
-  const { updatedAt: _updatedAt, ...rest } = deck;
-  void _updatedAt;
-  return JSON.stringify(rest);
+  return stableDeckContentSignature(deck);
 }
 
 /**
@@ -2483,13 +2482,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         );
         if (merged === clientDeck) return serverDeck; // nothing new to surface
         lastExternalUpdateRef.current = Date.now();
-        setDecks((prev) => {
-          const idx = prev.findIndex((d) => d.id === currentOpenId);
-          if (idx < 0) return prev;
-          const next = [...prev];
-          next[idx] = merged;
-          return next;
-        });
+        applyRemoteDeckUpdate(
+          merged,
+          "Agent edit",
+          options?.agentChangeId
+            ? { agentChangeId: options.agentChangeId }
+            : undefined,
+        );
         return serverDeck;
       }
 

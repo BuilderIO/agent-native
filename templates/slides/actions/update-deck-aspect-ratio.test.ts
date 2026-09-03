@@ -127,6 +127,21 @@ describe("update-deck-aspect-ratio action", () => {
     expect(dataJson.aspectRatio).toBe("4:5");
   });
 
+  it("skips a repeated aspectRatio without persisting or notifying", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "T",
+      slides: [],
+      aspectRatio: "16:9",
+    });
+
+    await expect(
+      action.run({ deckId: "deck-1", aspectRatio: "16:9" }),
+    ).resolves.toEqual({ id: "deck-1", aspectRatio: "16:9", applied: false });
+    expect(updatedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("throws when the deck row does not exist", async () => {
     mockDeckRow = undefined;
     await expect(
