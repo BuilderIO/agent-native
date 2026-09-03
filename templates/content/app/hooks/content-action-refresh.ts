@@ -46,6 +46,11 @@ const DOCUMENT_MUTATIONS = new Set([
   "update-document",
 ]);
 
+const CONTENT_MUTATIONS = new Set([
+  ...COMMENT_MUTATIONS,
+  ...DOCUMENT_MUTATIONS,
+]);
+
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (
@@ -78,15 +83,11 @@ export function contentActionInvalidatePredicate(
     if (documentId === undefined || !queryTargetsDocument(query, documentId)) {
       return false;
     }
-    const mutations =
-      query.queryKey[1] === "list-comments"
-        ? COMMENT_MUTATIONS
-        : DOCUMENT_MUTATIONS;
     return events.some(
       (event) =>
         event.source === "action" &&
         typeof event.key === "string" &&
-        mutations.has(event.key),
+        CONTENT_MUTATIONS.has(event.key),
     );
   };
 }

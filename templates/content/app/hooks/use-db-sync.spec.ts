@@ -25,6 +25,25 @@ describe("contentActionInvalidatePredicate", () => {
         [{ source: "action", key: "update-comment" }],
       ),
     ).toBe(true);
+    expect(
+      predicate(
+        {
+          queryKey: ["action", "get-document", { id: "document-1" }],
+        },
+        [{ source: "action", key: "update-comment" }],
+      ),
+    ).toBe(true);
+
+    // The poll state keeps the newest key for each source. A later document
+    // mutation can therefore be the only visible event after a comment write.
+    expect(
+      predicate(
+        {
+          queryKey: ["action", "list-comments", { documentId: "document-1" }],
+        },
+        [{ source: "action", key: "edit-document" }],
+      ),
+    ).toBe(true);
   });
 
   it("does not refresh unrelated documents or action queries", () => {
