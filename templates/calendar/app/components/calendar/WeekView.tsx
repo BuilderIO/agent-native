@@ -759,6 +759,8 @@ export const WeekView = memo(function WeekView({
     0,
     timeGridScrollbarWidth - allDayScrollbarWidth,
   );
+  const allDayCreateRowSpacerWidth =
+    allDayScrollbarWidth + allDayHeaderSpacerWidth;
 
   useEffect(() => {
     const measureScrollbars = () => {
@@ -1066,12 +1068,12 @@ export const WeekView = memo(function WeekView({
                     </button>
                   ))}
                 </div>
-                {allDayHeaderSpacerWidth > 0 && (
+                {allDayCreateRowSpacerWidth > 0 && (
                   <div
                     aria-hidden="true"
                     className="shrink-0"
                     style={{
-                      width: `${allDayHeaderSpacerWidth}px`,
+                      width: `${allDayCreateRowSpacerWidth}px`,
                       height: `${allDayCreateRowHeight}px`,
                     }}
                   />
