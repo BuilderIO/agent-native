@@ -660,8 +660,11 @@ describe("production Netlify site concurrency guard", () => {
       appSmoke.if,
       "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
     );
-    assert.match(String(appSmoke.run), /\/_agent-native\/health/);
-    assert.match(String(appSmoke.run), /--max-time 60/);
+    // The smoke step asserts the health BODY (ready, db, dialect, schema,
+    // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.
+    assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
+    assert.match(String(appSmoke.run), /--auth-routes/);
+    assert.match(String(appSmoke.run), /--canonical-host/);
 
     assert(docsSmoke);
     assert.equal(

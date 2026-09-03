@@ -63,7 +63,54 @@ export function isSlideTextEditingTarget(
 export function shouldStampBuilderId(element: HTMLElement): boolean {
   return (
     !element.classList.contains("fmd-layout-spacer") &&
-    !isInlineTextElement(element)
+    !isInlineTextElement(element) &&
+    !isRichTextLayerAncestor(element)
+  );
+}
+
+/**
+ * A single-cell table satisfies `isRichTextBlock` all the way up to `<table>`,
+ * but a table is a grid of independently selectable cells, not one text layer.
+ * Rich-text ownership stops here so cells keep their own rows and edits.
+ */
+const RICH_TEXT_TABLE_TAGS = new Set([
+  "CAPTION",
+  "COL",
+  "COLGROUP",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+]);
+
+function ownsRichTextLayer(element: HTMLElement): boolean {
+  return !RICH_TEXT_TABLE_TAGS.has(element.tagName) && isRichTextBlock(element);
+}
+
+/**
+ * Rich text is a single canvas layer, so the blocks inside it are structure
+ * rather than layers and must not each earn their own Layers panel row.
+ */
+function isRichTextLayerAncestor(element: HTMLElement): boolean {
+  let ancestor = element.parentElement;
+  while (ancestor) {
+    if (isSlideCanvasShell(ancestor)) return false;
+    if (RICH_TEXT_TABLE_TAGS.has(ancestor.tagName)) return false;
+    if (ownsRichTextLayer(ancestor)) return true;
+    ancestor = ancestor.parentElement;
+  }
+  return false;
+}
+
+export function isSlideCanvasShell(element: HTMLElement): boolean {
+  return (
+    element.classList.contains("fmd-slide") ||
+    element.classList.contains("fmd-autofit-scale") ||
+    element.hasAttribute("data-fmd-autofit-content") ||
+    element.hasAttribute("data-slide-canvas")
   );
 }
 
@@ -155,6 +202,26 @@ export function resolveRichTextEditingBlock(element: HTMLElement): HTMLElement {
   return block;
 }
 
+/**
+ * Outermost rich text block containing `target`, so a click on a paragraph
+ * inside one resolves to the whole layer instead of that one paragraph.
+ */
+function findSlideRichTextOwner(
+  target: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  if (target.closest(".fmd-text-box[data-slide-object-id]")) return null;
+  let owner: HTMLElement | null = null;
+  let element: HTMLElement | null = target;
+  while (element && element !== root && root.contains(element)) {
+    if (isSlideCanvasShell(element)) break;
+    if (RICH_TEXT_TABLE_TAGS.has(element.tagName)) break;
+    if (ownsRichTextLayer(element)) owner = element;
+    element = element.parentElement;
+  }
+  return owner;
+}
+
 /** Resolve a click inside inline markup to the containing editable text block. */
 export function findSmartBlock(
   target: HTMLElement,
@@ -162,6 +229,8 @@ export function findSmartBlock(
   options?: { includeTextBoxes?: boolean },
 ): HTMLElement | null {
   const includeTextBoxes = options?.includeTextBoxes ?? true;
+  const richTextOwner = findSlideRichTextOwner(target, root);
+  if (richTextOwner) return richTextOwner;
   let element: HTMLElement | null = target;
   while (element && root.contains(element)) {
     if (

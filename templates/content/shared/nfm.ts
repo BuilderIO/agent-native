@@ -1355,6 +1355,86 @@ function parseBlockSequence(
   return { nodes: out, end: i };
 }
 
+function parseDetailsBody(
+  lines: string[],
+  start: number,
+  end: number,
+  parentIndent: number,
+): PMNode[] {
+  const childIndent = parentIndent + 1;
+  const nestedContainers: Array<{ tagKey: string; closeTag: string }> = [];
+  let fence: { length: number; promoteBy: number } | undefined;
+  const sourceLines = lines.slice(start, end);
+  const hasMatchingClose = (from: number, tagKey: string): boolean => {
+    const closeTag = CONTAINER_CLOSE[tagKey];
+    let depth = 1;
+    let fenceLength = 0;
+    for (let i = from + 1; i < sourceLines.length; i++) {
+      const candidate = sourceLines[i].slice(leadingTabs(sourceLines[i]));
+      const fenceMatch = candidate.match(/^(`{3,})(.*)$/);
+      if (fenceLength) {
+        if (
+          fenceMatch &&
+          !fenceMatch[2].trim() &&
+          fenceMatch[1].length >= fenceLength
+        ) {
+          fenceLength = 0;
+        }
+        continue;
+      }
+      if (fenceMatch) {
+        fenceLength = fenceMatch[1].length;
+        continue;
+      }
+      if (matchContainerOpen(candidate) === tagKey) depth++;
+      if (candidate === closeTag && --depth === 0) return true;
+    }
+    return false;
+  };
+  const bodyLines = sourceLines.map((line, lineIndex) => {
+    const indent = leadingTabs(line);
+    const dedented = line.slice(indent);
+    if (fence) {
+      const requiredIndent = childIndent + nestedContainers.length;
+      const promoteBy =
+        fence.promoteBy > 0
+          ? fence.promoteBy
+          : Math.max(0, requiredIndent - indent);
+      const promoted = `${"\t".repeat(promoteBy)}${line}`;
+      const close = dedented.match(/^(`{3,})\s*$/);
+      if (close && close[1].length >= fence.length) fence = undefined;
+      return promoted;
+    }
+    if (nestedContainers[nestedContainers.length - 1]?.closeTag === dedented) {
+      nestedContainers.pop();
+    }
+    const detailsSummary =
+      nestedContainers[nestedContainers.length - 1]?.tagKey === "<details" &&
+      /^<summary>[\s\S]*<\/summary>\s*$/.test(dedented);
+    const requiredIndent =
+      childIndent + nestedContainers.length - (detailsSummary ? 1 : 0);
+    const open = dedented.match(/^(`{3,})(.*)$/);
+    if (open) {
+      const promoteBy = Math.max(0, requiredIndent - indent);
+      fence = { length: open[1].length, promoteBy };
+      return `${"\t".repeat(promoteBy)}${line}`;
+    }
+    if (!line.trim()) return line;
+    const tagKey = matchContainerOpen(dedented);
+    if (
+      tagKey &&
+      tagKey !== "<table" &&
+      tagKey !== "<meeting-notes>" &&
+      hasMatchingClose(lineIndex, tagKey)
+    ) {
+      nestedContainers.push({ tagKey, closeTag: CONTAINER_CLOSE[tagKey] });
+    }
+    if (indent >= requiredIndent) return line;
+    return `${"\t".repeat(requiredIndent - indent)}${line}`;
+  });
+  return parseBlockSequence(bodyLines, 0, childIndent).nodes;
+}
+
 function endsWithUnescapedPipe(value: string): boolean {
   if (!value.endsWith("|")) return false;
   let backslashes = 0;
@@ -2152,9 +2232,22 @@ function parseContainer(
   let i = start + 1;
   const childStart = i;
   let depth = 1;
+  let fence: { indent: number; length: number } | undefined;
   for (; i < lines.length; i++) {
     const li = leadingTabs(lines[i]);
     const ld = lines[i].slice(li);
+    if (fence) {
+      const close = ld.match(/^(`{3,})\s*$/);
+      if (close && close[1].length >= fence.length) {
+        fence = undefined;
+      }
+      continue;
+    }
+    const openFence = ld.match(/^(`{3,})(.*)$/);
+    if (openFence) {
+      fence = { indent: li, length: openFence[1].length };
+      continue;
+    }
     if (
       li === indent &&
       matchContainerOpen(ld) === tagKey &&
@@ -2193,7 +2286,6 @@ function parseContainer(
       summary = sm[1];
       bodyStart = childStart + 1;
     }
-    const childRes = parseBlockSequence(lines, bodyStart, indent + 1);
     const node: PMNode = {
       type: "notionToggle",
       attrs: {
@@ -2203,7 +2295,11 @@ function parseContainer(
         color: isColor(attrs.color) ? attrs.color : null,
         indent: 0,
       },
-      content: childRes.nodes,
+      // Actions accept Markdown, where <details> commonly contains ordinary
+      // unindented block content. Canonical NFM uses one extra tab, so promote
+      // only under-indented body lines before parsing; otherwise the container
+      // scanner consumes them through </details> without producing children.
+      content: parseDetailsBody(lines, bodyStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }

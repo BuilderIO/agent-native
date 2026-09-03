@@ -33,13 +33,15 @@ interface BlockBubbleMenuProps {
   slideId?: string;
   /** Deck that owns the slide — pins the revision to the right deck. */
   deckId?: string;
+  /** Content hash captured with the current slide before queuing a revision. */
+  slideContentHash?: string;
   /**
    * Ends the inline edit session and persists whatever is in the DOM now.
    * Required before handing work to the agent: otherwise the still-open
    * contentEditable serializes its stale text on the user's next click and
    * overwrites the revision the agent just wrote.
    */
-  onCommitInlineEdit?: () => void;
+  onCommitInlineEdit?: () => string | undefined | Promise<string | undefined>;
   /** Shared Content editor mounted inside the selected slide text block. */
   richTextEditor?: SlideRichTextEditorHandle | null;
 }
@@ -76,11 +78,13 @@ export function buildReviseSelectionContext({
   instruction,
   slideId,
   deckId,
+  slideContentHash,
 }: {
   selectedText: string;
   instruction: string;
   slideId?: string;
   deckId?: string;
+  slideContentHash?: string;
 }): string {
   // The deck is named explicitly rather than left to "the current slide": the
   // request is queued, and if the user opens another deck before the agent
@@ -88,6 +92,9 @@ export function buildReviseSelectionContext({
   const target = [
     deckId ? `Deck id: \`${deckId}\`` : null,
     slideId ? `Slide id: \`${slideId}\`` : null,
+    slideContentHash
+      ? `Captured slide content hash: \`${slideContentHash}\``
+      : null,
   ].filter((line) => line !== null);
 
   return [
@@ -100,7 +107,7 @@ export function buildReviseSelectionContext({
     `How to revise it: ${instruction}`,
     ...(target.length > 0 ? [``, ...target] : []),
     ``,
-    `Read that slide first with \`view-screen\`, then make one bounded \`update-slide --fullContent\` edit that replaces only the quoted text. Leave the surrounding HTML, inline styles, and layout untouched, and keep the replacement close to the original length so the slide still fits its canvas.`,
+    `Use the provided deck and slide ids. If either id is missing, call \`view-screen\` once; otherwise do not read the full deck. If a captured slide content hash is present, pass it as \`baseContentHash\`; if it is absent, call \`get-deck\` with \`slideId\` before writing. Then call \`update-slide\` with one \`edits\` literal replacement using the quoted text as \`find\` and \`expectedMatches: 1\`. If the selection crosses inline markup or the literal replacement reports no match, call \`get-deck\` with \`slideId\` only and retry with markup-aware edits and its returned \`contentHash\`. Do not use \`fullContent\`, fetch the full deck, or rewrite the surrounding HTML, inline styles, or layout, and keep the replacement close to the original length so the slide still fits its canvas.`,
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -121,6 +128,7 @@ export function BlockBubbleMenu({
   editingEl,
   slideId,
   deckId,
+  slideContentHash,
   onCommitInlineEdit,
   richTextEditor = null,
 }: BlockBubbleMenuProps) {
@@ -133,6 +141,7 @@ export function BlockBubbleMenu({
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiTargetText, setAiTargetText] = useState("");
   const [aiSending, setAiSending] = useState(false);
+  const [aiTargetContentHash, setAiTargetContentHash] = useState("");
   const savedRangeRef = useRef<Range | null>(null);
   // True while a popup/input has the user's focus — keeps the menu pinned
   // even when the contentEditable selection collapses behind the scenes.
@@ -148,6 +157,7 @@ export function BlockBubbleMenu({
     setShowLinkInput(false);
     setShowAiInput(false);
     setAiInstruction("");
+    setAiTargetContentHash("");
   }, [editingEl]);
 
   // Track selection and position the menu
@@ -273,9 +283,10 @@ export function BlockBubbleMenu({
     }
     // Snapshot the text now: opening the input moves focus out of the
     // contentEditable and the live selection collapses.
-    const selected = savedRangeRef.current?.toString().trim() ?? "";
-    if (!selected) return;
+    const selected = savedRangeRef.current?.toString() ?? "";
+    if (!selected.trim()) return;
     setAiTargetText(selected);
+    setAiTargetContentHash(slideContentHash ?? "");
     setAiInstruction("");
     interactingRef.current = true;
     setShowAiInput(true);
@@ -285,15 +296,14 @@ export function BlockBubbleMenu({
 
   const submitAiRevision = async () => {
     const instruction = aiInstruction;
-    if (!instruction.trim() || !aiTargetText || aiSending) return;
+    if (!instruction.trim() || !aiTargetText.trim() || aiSending) return;
 
     // Close the inline edit first. The block is still a live contentEditable
     // session; leaving it open means the next click away serializes the old
     // text over whatever the agent writes.
-    onCommitInlineEdit?.();
-
     setAiSending(true);
     try {
+      const committedContentHash = await onCommitInlineEdit?.();
       const delivery = await sendToAgentChatAndConfirm({
         message: instruction,
         context: buildReviseSelectionContext({
@@ -301,6 +311,8 @@ export function BlockBubbleMenu({
           instruction,
           slideId,
           deckId,
+          slideContentHash:
+            (committedContentHash ?? aiTargetContentHash) || undefined,
         }),
         submit: true,
         chatTarget: "local",

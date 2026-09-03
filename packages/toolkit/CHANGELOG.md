@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.19.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 760d108: Add an opt-in DataGrid edge affordance that reveals horizontally scrollable content without replacing the native scroll surface.
+
 ## 0.19.2
 
 ### Patch Changes

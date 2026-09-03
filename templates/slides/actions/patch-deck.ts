@@ -10,6 +10,7 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
+import { AgentActionStopError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -28,7 +29,9 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
+  deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
 import {
   assertSourceSlidePreserved,
@@ -243,6 +246,56 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+
+function persistedTargetSlideCount(deck: unknown): number | null {
+  if (!deck || typeof deck !== "object" || Array.isArray(deck)) return null;
+  const generationContext = (deck as Record<string, unknown>).generationContext;
+  if (
+    !generationContext ||
+    typeof generationContext !== "object" ||
+    Array.isArray(generationContext)
+  ) {
+    return null;
+  }
+  const targetSlideCount = (generationContext as Record<string, unknown>)
+    .targetSlideCount;
+  return typeof targetSlideCount === "number" &&
+    Number.isInteger(targetSlideCount) &&
+    targetSlideCount > 0
+    ? targetSlideCount
+    : null;
+}
+
+function projectedSlideCount(
+  slides: unknown[],
+  operations: Operation[],
+): { count: number; added: boolean } {
+  const slideIds = slides.map((slide) => {
+    if (!slide || typeof slide !== "object" || Array.isArray(slide)) {
+      return undefined;
+    }
+    return (slide as { id?: unknown }).id;
+  });
+  let added = false;
+
+  for (const operation of operations) {
+    if (operation.op === "add-slide") {
+      if (slideIds.some((id) => id === operation.slideId)) continue;
+      slideIds.push(operation.slideId);
+      added = true;
+      continue;
+    }
+    if (operation.op !== "delete-slide") continue;
+
+    const index = slideIds.findIndex((id) => id === operation.slideId);
+    if (index !== -1) slideIds.splice(index, 1);
+    if (slideIds.length === 0 && !operation.allowEmpty) {
+      slideIds.push(undefined);
+    }
+  }
+
+  return { count: slideIds.length, added };
+}
 
 function firstDuplicate(values: readonly string[]): string | undefined {
   const seen = new Set<string>();
@@ -731,6 +784,7 @@ export default defineAction({
       ),
   }),
   agentInputSchema: AgentPatchDeckInputSchema,
+  http: { method: "POST" },
   run: async (
     {
       deckId,
@@ -762,10 +816,9 @@ export default defineAction({
         designSystemId: deck.designSystemId,
       };
 
+      const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
       const existingSlideIds = new Set(
-        (Array.isArray(deck.slides) ? deck.slides : []).map(
-          (slide: { id?: unknown }) => slide.id,
-        ),
+        currentSlides.map((slide: { id?: unknown }) => slide.id),
       );
       const missingSlideIds = operations
         .filter((operation) => operation.op === "patch-slide")
@@ -816,6 +869,28 @@ export default defineAction({
           nextNotes: op.fields.notes,
           preserveSource: op.preserveSource,
         });
+      }
+
+      const targetSlideCount = persistedTargetSlideCount(deck);
+      const projected = projectedSlideCount(currentSlides, operations);
+      if (
+        isAgentCaller &&
+        targetSlideCount !== null &&
+        projected.added &&
+        projected.count > targetSlideCount
+      ) {
+        throw new AgentActionStopError(
+          `Cannot add slides: this deck would have ${projected.count} slides, exceeding its requested target of ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
+          {
+            errorCode: "target_slide_count_reached",
+            details: {
+              deckId,
+              currentSlideCount: currentSlides.length,
+              projectedSlideCount: projected.count,
+              targetSlideCount,
+            },
+          },
+        );
       }
 
       const layoutFitSlideIds = new Set<string>();
@@ -893,9 +968,6 @@ export default defineAction({
       assertPatchedSlideAnimationsResolve(deck, operations, {
         requireElementPaths: isAgentCaller,
       });
-
-      const now = nextDeckRevision(row.updatedAt);
-      deck.updatedAt = now;
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
         resolveDeckColumnUpdates(
@@ -1029,6 +1101,31 @@ export default defineAction({
         }
       }
 
+      const meaningfulChange =
+        deckVersionContentSignature(row.data) !==
+          deckVersionContentSignature(deck) ||
+        row.title !== sqlTitle ||
+        row.designSystemId !== sqlDesignSystemId ||
+        generationRecord !== undefined;
+      if (!meaningfulChange) {
+        if (isAgentCaller) {
+          throw new Error(
+            "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
+          );
+        }
+        return {
+          ok: true,
+          deckId,
+          updatedAt: row.updatedAt,
+          applied: false,
+          updatedSlideIds: [],
+          deletedSlideIds: [],
+        };
+      }
+
+      const now = nextDeckRevision(row.updatedAt);
+      deck.updatedAt = now;
+
       await db.transaction(async (tx: any) => {
         if (isAgentCaller && row.ownerEmail) {
           await createDeckVersionSnapshot(
@@ -1084,11 +1181,15 @@ export default defineAction({
           operation.op === "reorder-slides" ||
           operation.op === "patch-deck-fields",
       );
+      const agentChangeId = deckVersionChangeGroupFromAction(ctx);
       if (updatedSlideIds.length === 1 && !hasMixedStructuralOperation) {
         notifyClients(deckId, {
           slideId: updatedSlideIds[0],
           actor: isAgentCaller ? "agent" : "human",
+          ...(agentChangeId ? { agentChangeId } : {}),
         });
+      } else if (agentChangeId) {
+        notifyClients(deckId, { agentChangeId });
       } else {
         notifyClients(deckId);
       }

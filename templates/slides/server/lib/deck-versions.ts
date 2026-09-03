@@ -2,7 +2,10 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import { deckContentSignature } from "../../shared/deck-content.js";
 import { getDb, schema } from "../db/index.js";
+
+export { deckContentSignature as deckVersionContentSignature } from "../../shared/deck-content.js";
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -39,6 +42,13 @@ export function deckVersionChatContextFromAction(
     return undefined;
   }
   return contextFromFields(context);
+}
+
+export function deckVersionChangeGroupFromAction(
+  context?: ActionRunContext,
+): string | undefined {
+  const chatContext = deckVersionChatContextFromAction(context);
+  return chatContext?.turnId ?? chatContext?.runId;
 }
 
 export function deckVersionChatContextFromRun(run: {
@@ -80,6 +90,23 @@ export interface DeckSnapshotSource {
   ownerEmail: string;
 }
 
+function normalizedChatContext(
+  raw: string | null | undefined,
+): string | null | undefined {
+  if (!raw) return undefined;
+  try {
+    return (
+      serializeDeckVersionChatContext(parseDeckVersionChatContext(raw)) ??
+      undefined
+    );
+  } catch {
+    console.warn(
+      "Deck version chat metadata is unreadable; skipping turn deduplication.",
+    );
+    return null;
+  }
+}
+
 export async function createDeckVersionSnapshot(
   source: DeckSnapshotSource,
   options: {
@@ -99,6 +126,7 @@ export async function createDeckVersionSnapshot(
       title: schema.deckVersions.title,
       data: schema.deckVersions.data,
       createdAt: schema.deckVersions.createdAt,
+      chatContext: schema.deckVersions.chatContext,
     })
     .from(schema.deckVersions)
     .where(
@@ -113,9 +141,22 @@ export async function createDeckVersionSnapshot(
   if (
     latestVersion &&
     latestVersion.title === source.title &&
-    latestVersion.data === source.data
+    deckContentSignature(latestVersion.data) ===
+      deckContentSignature(source.data)
   ) {
     return { created: false, reason: "duplicate" };
+  }
+
+  const requestedChatContext = serializeDeckVersionChatContext(
+    options.chatContext,
+  );
+  const changeGroup =
+    options.chatContext?.turnId ?? options.chatContext?.runId ?? undefined;
+  if (
+    requestedChatContext &&
+    requestedChatContext === normalizedChatContext(latestVersion?.chatContext)
+  ) {
+    return { created: false, reason: "same-agent-turn" };
   }
 
   if (!options.force && latestVersion?.createdAt) {
@@ -129,7 +170,7 @@ export async function createDeckVersionSnapshot(
   }
 
   const id = nanoid();
-  await db.insert(schema.deckVersions).values({
+  const values = {
     id,
     ownerEmail: source.ownerEmail,
     deckId: source.id,
@@ -139,8 +180,19 @@ export async function createDeckVersionSnapshot(
     ...(options.chatContext
       ? { chatContext: JSON.stringify(options.chatContext) }
       : {}),
+    ...(changeGroup ? { changeGroup } : {}),
     createdAt: new Date().toISOString(),
-  });
+  };
+  const insert = db.insert(schema.deckVersions).values(values);
+  if (!changeGroup) {
+    await insert;
+    return { created: true, id };
+  }
+
+  const [inserted] = await insert
+    .onConflictDoNothing()
+    .returning({ id: schema.deckVersions.id });
+  if (!inserted) return { created: false, reason: "same-agent-turn" };
 
   return { created: true, id };
 }

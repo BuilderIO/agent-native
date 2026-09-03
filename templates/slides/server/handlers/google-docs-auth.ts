@@ -4,6 +4,7 @@ import {
   getAppUrl,
   getSession,
   isElectron,
+  logOAuthStateDecodeFailure,
   oauthCallbackResponse,
   oauthErrorPage,
   resolveOAuthRedirectUri,
@@ -115,6 +116,16 @@ export const handleGoogleDocsCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google-docs/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        return oauthErrorPage(
+          formatGoogleOAuthError(
+            new Error(
+              "Your sign-in link expired or is invalid. Please try again.",
+            ),
+          ),
+        );
+      }
       desktop = state.desktop ?? false;
       flowId = state.flowId;
 

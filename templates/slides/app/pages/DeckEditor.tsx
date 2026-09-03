@@ -18,6 +18,7 @@ import {
   useSensors,
   DragEndEvent,
 } from "@dnd-kit/core";
+import { hashSlideContent } from "@shared/slide-fit";
 import { nanoid } from "nanoid";
 import {
   useState,
@@ -115,6 +116,7 @@ import {
   slideBeingFilledInPlace,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
+import { normalizeSlidePadding } from "@/lib/normalize-slide-padding";
 import {
   shouldBlockPendingDeckNavigation,
   usePendingDeckUnloadGuard,
@@ -391,6 +393,9 @@ export default function DeckEditor() {
     useState<HTMLDivElement | null>(null);
   const [wideContextToolbarSlot, setWideContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
+  const [layersPanelSlot, setLayersPanelSlot] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [accessRequestSentDeckId, setAccessRequestSentDeckId] = useState<
     string | null
@@ -2489,12 +2494,17 @@ export default function DeckEditor() {
           <SlideEditor
             slide={editorSlide ?? currentSlide}
             deckId={id}
+            onFlushInlineEdit={() => {
+              flushPendingSaves();
+              return flushDeckSave(id);
+            }}
             flushInlineEditRef={inlineEditFlushRef}
             readOnly={!canEdit}
             canComment={canComment}
             comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
+            layersPanelSlot={layersPanelSlot}
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
@@ -2574,6 +2584,9 @@ export default function DeckEditor() {
                 );
               }
               updateSlide(id, targetSlideId, safeUpdates, options);
+              return typeof safeUpdates.content === "string"
+                ? hashSlideContent(normalizeSlidePadding(safeUpdates.content))
+                : undefined;
             }}
             onInlineEditStart={(slideId) => {
               setInlineEditActive(true);
@@ -2633,6 +2646,12 @@ export default function DeckEditor() {
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}
+
+        <div
+          ref={setLayersPanelSlot}
+          data-layers-panel-host="true"
+          className="flex h-full shrink-0"
+        />
 
         {commentsOpen && (
           <SlideCommentsPanel

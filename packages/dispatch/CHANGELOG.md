@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.33.2
+
+### Patch Changes
+
+- 1466345: Nudge users toward their host agent chat from prompt popovers and shared
+  sidebar surfaces.
+- 9c3eded: Keep the Dispatch Open app action usable for mounted web apps.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [760d108]
+  - @agent-native/toolkit@0.19.3
+
 ## 0.33.1
 
 ### Patch Changes
@@ -866,11 +878,5 @@
 ### Patch Changes
 
 - 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
-
-## 0.17.4
-
-### Patch Changes
-
-- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

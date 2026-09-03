@@ -133,6 +133,7 @@ import {
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
   addSignupAttributionHeader,
@@ -185,6 +186,7 @@ import {
   getOrigin,
   encodeOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
   createOAuthSession,
   oauthCallbackResponse,
   oauthDesktopExchangePage,
@@ -404,7 +406,6 @@ export interface AuthOptions {
     screenshotWidth?: number;
     screenshotHeight?: number;
     learnMoreUrl?: string;
-    learnMorePlacement?: "top-right" | "bottom-right";
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -788,9 +789,18 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const { rawPath } = getRequestPathAndSearch(event);
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
-  return loginHtml
-    ? injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event)
-    : null;
+  if (!loginHtml) return null;
+
+  const appOriginConfigScript = getAppOriginClientConfigScript();
+  const html =
+    appOriginConfigScript &&
+    !loginHtml.includes("data-agent-native-app-origin-config")
+      ? injectHeadScript(loginHtml, appOriginConfigScript)
+      : loginHtml;
+  return injectLoginSocialImageMeta(
+    injectBetaOptOutPersistence(html, rawPath),
+    event,
+  );
 }
 
 /**
@@ -988,9 +998,11 @@ async function getBearerLegacySession(
  * `allowDevOpen: false` and the `userEmail` guard ensure an invalid token (or a
  * bare ACCESS_TOKEN with no owner hint) never escalates to an unauthenticated
  * or unscoped identity on this path — it strictly adds acceptance of verified,
- * audience-bound caller tokens, nothing more.
+ * audience-bound caller tokens, nothing more. Custom routes can opt in by
+ * calling this helper explicitly; generic `getSession` calls keep this token
+ * limited to action routes by default.
  */
-async function getMcpOAuthBearerSession(
+export async function getMcpOAuthBearerSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
   const authHeader = getHeader(event, "authorization");
@@ -1471,6 +1483,7 @@ function betterAuthErrorFallback(path: string): string {
 async function sanitizeBetterAuthErrorResponse(
   response: Response,
   fallback: string,
+  request: { path: string; method: string },
 ): Promise<Response> {
   if (response.status < 400) return response;
   const payload = await response
@@ -1480,11 +1493,38 @@ async function sanitizeBetterAuthErrorResponse(
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return response;
   }
+  const rawPayload = payload as Record<string, unknown>;
 
-  const authError = publicAuthErrorFromPayload(
-    payload as Record<string, unknown>,
-    fallback,
+  // The response below is deliberately generic (see publicAuthErrorFromPayload)
+  // so the real Better Auth code/message must be logged here or it is gone —
+  // this is the only place that ever sees it. Regression for the 2026-08-29
+  // INVALID_ORIGIN outage: magic-link signup 403'd for a full day and every
+  // log/Sentry surface only showed the sanitized fallback copy.
+  const code =
+    typeof rawPayload.code === "string"
+      ? rawPayload.code
+      : typeof rawPayload.errorCode === "string"
+        ? rawPayload.errorCode
+        : typeof rawPayload.error === "string"
+          ? rawPayload.error
+          : undefined;
+  const message =
+    typeof rawPayload.message === "string" ? rawPayload.message : undefined;
+  console.error("[agent-native][auth] better-auth error", {
+    status: response.status,
+    code,
+    message,
+    path: request.path,
+    method: request.method,
+  });
+  captureAuthError(
+    new Error(
+      `Better Auth ${response.status} ${code ?? "UNKNOWN"}: ${message ?? "no message"}`,
+    ),
+    { route: "better-auth", path: request.path },
   );
+
+  const authError = publicAuthErrorFromPayload(rawPayload, fallback);
   const headers = new Headers(response.headers);
   headers.delete("content-length");
   headers.set("content-type", "application/json");
@@ -1754,6 +1794,22 @@ let _authGuardConfig: AuthGuardConfig | null = null;
 const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
+const SESSION_RESOLUTION_ERROR_CONTEXT_KEY = "__anSessionResolutionError";
+
+async function getLegacyCookieSessionSafely(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  try {
+    return await getLegacyCookieSession(event);
+  } catch (error) {
+    console.error("[auth] legacy cookie session resolution error:", error);
+    (event.context as Record<string, unknown>)[
+      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+    ] = true;
+    return null;
+  }
+}
+
 interface AuthPublicPathRegistry {
   exactPathsByApp: WeakMap<object, Set<string>>;
 }
@@ -3193,8 +3249,16 @@ function loginHtmlResponse(
     requestIndependent?: boolean;
   } = {},
 ): Response {
-  let html = injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(loginHtml),
+  const appOriginConfigScript = getAppOriginClientConfigScript();
+  let html = loginHtml;
+  if (
+    appOriginConfigScript &&
+    !html.includes("data-agent-native-app-origin-config")
+  ) {
+    html = injectHeadScript(html, appOriginConfigScript);
+  }
+  html = injectLoginSocialImageMeta(
+    injectBetaOptOutPersistence(html),
     options.requestIndependent ? undefined : event,
   );
   if (options.includeRootAuthRedirect) {
@@ -4174,7 +4238,7 @@ async function resolveSessionUncached(
   // 2. ACCESS_TOKEN check (programmatic/agent access)
   const accessTokens = getAccessTokens();
   if (accessTokens.length > 0) {
-    const cookieSession = await getLegacyCookieSession(event);
+    const cookieSession = await getLegacyCookieSessionSafely(event);
     if (cookieSession) return cookieSession;
   }
 
@@ -4222,10 +4286,13 @@ async function resolveSessionUncached(
       }
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
+      (event.context as Record<string, unknown>)[
+        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+      ] = true;
     }
 
     // 6. Legacy cookie fallback (for sessions created before migration)
-    const cookieSession = await getLegacyCookieSession(event);
+    const cookieSession = await getLegacyCookieSessionSafely(event);
     if (cookieSession) return cookieSession;
 
     // 7. Desktop SSO broker fallback.
@@ -4738,6 +4805,18 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
+          const state = decodeOAuthState(
+            query.state as string | undefined,
+            getAppUrl(event, "/_agent-native/google/callback"),
+          );
+          if (!state.ok) {
+            logOAuthStateDecodeFailure(event, state.reason, "google");
+            logGoogleOAuthDebug(event, "callback-error", {
+              message: AUTH_GOOGLE_START_FALLBACK,
+              code: state.reason,
+            });
+            return oauthErrorPage(AUTH_GOOGLE_START_FALLBACK);
+          }
           const {
             redirectUri,
             desktop,
@@ -4748,10 +4827,7 @@ async function mountBetterAuthRoutes(
             desktopBrowserBindingHash,
             signupAttribution,
             signupAnonymousId,
-          } = decodeOAuthState(
-            query.state as string | undefined,
-            getAppUrl(event, "/_agent-native/google/callback"),
-          );
+          } = state;
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
           callbackMobile = mobile ?? false;
@@ -5675,6 +5751,7 @@ async function mountBetterAuthRoutes(
         response = await sanitizeBetterAuthErrorResponse(
           response as Response,
           betterAuthErrorFallback(reqPath),
+          { path: reqPath, method: getMethod(event) },
         );
       }
 
@@ -6195,6 +6272,15 @@ async function mountBetterAuthRoutes(
         return { error: "Method not allowed" };
       }
       const session = await getSession(event);
+      if (
+        !session &&
+        (event.context as Record<string, unknown>)[
+          SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+        ] === true
+      ) {
+        setResponseStatus(event, 503);
+        return { error: "Session unavailable" };
+      }
       if (session) setFrameworkSessionHintCookie(event);
       else clearFrameworkSessionHintCookies(event);
       return session ?? { error: "Not authenticated" };
@@ -6404,6 +6490,15 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: "Method not allowed" };
       }
       const session = await getSession(event);
+      if (
+        !session &&
+        (event.context as Record<string, unknown>)[
+          SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+        ] === true
+      ) {
+        setResponseStatus(event, 503);
+        return { error: "Session unavailable" };
+      }
       if (session) setFrameworkSessionHintCookie(event);
       else clearFrameworkSessionHintCookies(event);
       return session ?? { error: "Not authenticated" };
@@ -6542,6 +6637,15 @@ export async function autoMountAuth(
           return { error: "Method not allowed" };
         }
         const session = await getSession(event);
+        if (
+          !session &&
+          (event.context as Record<string, unknown>)[
+            SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+          ] === true
+        ) {
+          setResponseStatus(event, 503);
+          return { error: "Session unavailable" };
+        }
         return session ?? { error: "Not authenticated" };
       }),
     );

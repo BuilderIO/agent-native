@@ -927,6 +927,25 @@ const zhCN = {
       s060: "选择要捕获的内容，然后在 Clips 中开始录制。",
       s061: "查看更多应用",
       s062: "查看所有模板",
+      faq: {
+        question1: "Clips 免费吗？",
+        answer1: "是的。Clips 免费且开源。",
+        question2: "AI 能读取屏幕录制吗？",
+        answer2:
+          "可以。每个剪辑都包含转录文本、摘要和带时间戳的画面，代理可以直接读取这些内容。",
+        question3: "Clips 与 Loom 有什么不同？",
+        answer3:
+          "Clips 开源，数据归你所有；每个共享链接不仅人能读取，AI 代理也能读取。",
+        question4: "屏幕录制能捕获控制台错误吗？",
+        answer4:
+          "可以。Clips 会在录制过程中同时捕获浏览器控制台错误和失败的网络请求。它们会与转录文本和画面一起附加到同一个共享链接中。代理可以根据剪辑进行调试，而不只是观看。",
+        question5: "Clips 支持 Claude、ChatGPT 或 Cursor 吗？",
+        answer5:
+          "支持！无需插件或 API 密钥。将 Clips 共享链接粘贴到任意代理中，它就能直接读取转录文本、摘要和画面。",
+        question6: "我的录制内容存储在哪里？",
+        answer6:
+          "存储在你的部署位置。自托管 Clips 会将视频、转录文本和分析数据保存在你自己的基础设施中。",
+      },
       quickStart: {
         recordingMode: "录制模式",
         modeScreenCamera: "屏幕 + 摄像头",
@@ -2056,7 +2075,7 @@ const zhCN = {
     fileUploads: "文件上传",
     deployment: "部署",
     deploymentOverview: "概览",
-    deploymentProviders: "提供商",
+    deploymentProviders: "托管服务商",
     deploymentProduction: "生产与高级",
     deployAnApp: "部署应用",
     workspaceDeployment: "工作区部署",

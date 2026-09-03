@@ -992,13 +992,17 @@ jobs:
         run: |
           set -euo pipefail
           url="$DEPLOY_URL"
+          # A status-only `curl --fail` cannot see a green deploy silently
+          # running on local SQLite or 500ing on Better Auth's jwks route —
+          # smoke-check-health.ts asserts the health body, not just the code.
           if [[ "$DEPLOY_MODE" == "production" ]]; then
             url="https://$HOST"
+            node --experimental-strip-types scripts/smoke-check-health.ts \
+              --url "$url" --canonical-host "$HOST" --auth-routes
+          else
+            node --experimental-strip-types scripts/smoke-check-health.ts \
+              --url "$url" --auth-routes
           fi
-          curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
-          echo "Smoke check passed: ${url%/}/"
-          curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
-          echo "Health check passed: ${url%/}/_agent-native/health"
 
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared

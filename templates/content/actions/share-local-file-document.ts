@@ -9,6 +9,7 @@ import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -127,6 +128,7 @@ export default defineAction({
           spaceId: existing.spaceId ?? targetSpaceId,
           title: localDocument.title,
           content: localDocument.content,
+          bodyRevision: bodyRevisionForContent(localDocument.content),
           icon: localDocument.icon,
           isFavorite: localDocument.isFavorite ? 1 : 0,
           hideFromSearch: localDocument.hideFromSearch ? 1 : 0,

@@ -577,6 +577,12 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("not-configured idle unresolved");
+    // A status we could not read must not render the same as a status we have
+    // not asked for yet: the connect CTA stays inert until this resolves, so
+    // the failure has to be visible rather than silently held.
+    expect(container.textContent).toContain(
+      "Couldn't reach Builder to check your account.",
+    );
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
@@ -585,6 +591,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("not-configured idle resolved");
+    expect(container.textContent).not.toContain("Couldn't reach Builder");
   });
 
   it("retries status from a connect trigger without bypassing consent", async () => {

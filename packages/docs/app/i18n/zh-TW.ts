@@ -927,6 +927,25 @@ const messages = {
       s060: "選擇要擷取的內容，然後在 Clips 中開始錄製。",
       s061: "查看更多應用程式",
       s062: "檢視所有範本",
+      faq: {
+        question1: "Clips 免費嗎？",
+        answer1: "是的。Clips 免費且開源。",
+        question2: "AI 能讀取螢幕錄影嗎？",
+        answer2:
+          "可以。每個剪輯都包含轉錄文字、摘要和帶時間戳記的畫面，代理可以直接讀取這些內容。",
+        question3: "Clips 與 Loom 有什麼不同？",
+        answer3:
+          "Clips 開源，資料歸你所有；每個分享連結不只人能讀取，AI 代理也能讀取。",
+        question4: "螢幕錄影能擷取主控台錯誤嗎？",
+        answer4:
+          "可以。Clips 會在錄影時同時擷取瀏覽器主控台錯誤和失敗的網路要求。它們會與轉錄文字和畫面一起附加到同一個分享連結中。代理可以根據剪輯進行除錯，而不只是觀看。",
+        question5: "Clips 支援 Claude、ChatGPT 或 Cursor 嗎？",
+        answer5:
+          "支援！不需要外掛或 API 金鑰。將 Clips 分享連結貼到任何代理中，它就能直接讀取轉錄文字、摘要和畫面。",
+        question6: "我的錄影儲存在哪裡？",
+        answer6:
+          "儲存在你的部署位置。自行託管的 Clips 會將影片、轉錄文字和分析資料保存在你自己的基礎設施中。",
+      },
       quickStart: {
         recordingMode: "錄製模式",
         modeScreenCamera: "螢幕 + 攝影機",
@@ -2056,7 +2075,7 @@ const messages = {
     fileUploads: "檔案上傳",
     deployment: "部署",
     deploymentOverview: "總覽",
-    deploymentProviders: "提供者",
+    deploymentProviders: "託管服務提供者",
     deploymentProduction: "正式環境與進階",
     deployAnApp: "部署應用程式",
     workspaceDeployment: "工作區部署",

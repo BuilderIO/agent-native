@@ -19,6 +19,7 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
@@ -165,7 +166,7 @@ function sourceEditabilityForDeck(
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Get a specific deck. Pass slideId to return only that slide; targeted agent reads include full HTML by default. In-app agent calls without slideId return compact slide metadata by default; set compact=false when full deck HTML is needed. Frontend and CLI reads remain full unless compact=true. For any continuation or follow-up, call this first and use generationContext as the canonical original brief, references, theme, and target slide count. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
+    "Read a Slides deck or one slide. Pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits.",
   timeoutMs: 60_000,
   schema: z.object({
     id: z.string().optional().describe("Deck ID (required)"),
@@ -261,6 +262,7 @@ export default defineAction({
         sourceEditability: sourceEditabilityForDeck(sourceImport),
         sourceCoverage,
         slideCount: slides.length,
+        appUrl: getDeckUrl(row.id),
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
         deepLink: deckDeepLink(row.id),
@@ -311,6 +313,7 @@ export default defineAction({
       sourceEditability: sourceEditabilityForDeck(sourceImport),
       sourceCoverage,
       slideCount: slides.length,
+      appUrl: getDeckUrl(row.id),
       slideNumbering:
         'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
       createdAt:

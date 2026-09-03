@@ -47,6 +47,10 @@ export interface Document {
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
+  /** Opaque token for optimistic document-body reconciliation. */
+  revision?: string;
+  bodyRevision?: number;
+  contentHash?: string;
   contentFidelity?: NfmFidelityReport;
 }
 

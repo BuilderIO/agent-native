@@ -99,6 +99,23 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("arranges flow layers through the shared z-order primitive", () => {
+    const start = source.indexOf("const handleArrangeSelected");
+    const end = source.indexOf("const handleToggleList", start);
+    const arrangeBody = source.slice(start, end);
+
+    expect(arrangeBody).toContain("arrangeSlideLayerInParent(element, target)");
+    expect(arrangeBody).toContain("isPersistedFreeformObject(element)");
+    expect(arrangeBody).toContain("resolveSlidePositioningLayer(element)");
+    expect(source).toContain("persistSlideObjectZOrderFromDom(source");
+    expect(source).toContain("function isZIndexedSlideLayer");
+    // Arrange means stacking order. Reordering the DOM here moved the layer
+    // down the `.fmd-slide` flex column instead of changing what it paints
+    // over, which is what made send-to-front look like it did nothing.
+    expect(source).not.toContain("function reorderSlideLayerInParent");
+    expect(source).not.toContain("function arrangeFlowSlideLayerInParent");
+  });
+
   it("keeps portaled context-menu presses from clearing canvas selection", () => {
     const start = source.indexOf("const handleCanvasBackgroundPointerDown");
     const end = source.indexOf("const handleSlideContextMenu", start);
@@ -198,7 +215,9 @@ describe("SlideEditor render-phase safety", () => {
   });
 
   it("lets HTML-only native paste beat a stale object clipboard", () => {
-    const pasteStart = source.indexOf("// Object paste waits");
+    const pasteStart = source.indexOf(
+      "// The native paste event is authoritative",
+    );
     const pasteEnd = source.indexOf(
       "// Appearance clipboard shortcuts",
       pasteStart,
@@ -208,6 +227,34 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain('type.startsWith("text/")');
     expect(pasteBody).toContain("e.clipboardData?.getData(type)?.length");
     expect(pasteBody).toContain("if (hasNativeText) return;");
+  });
+
+  it("uses the native layer marker instead of a timer to arbitrate paste", () => {
+    expect(source).toContain("writeSlideObjectClipboard");
+    expect(source).toContain("readSlideObjectClipboardId");
+    expect(source).toContain("overlappingNativeClipboardIdsRef");
+    expect(source).toContain("copySessionId");
+    expect(source).toContain('window.addEventListener("blur"');
+    expect(source).not.toContain("objectPasteFallbackRef");
+    const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
+    const pasteEnd = source.indexOf(
+      "// Appearance clipboard shortcuts",
+      pasteStart,
+    );
+    const pasteBody = source.slice(pasteStart, pasteEnd);
+    expect(pasteBody.indexOf("nativeClipboardId")).toBeLessThan(
+      pasteBody.indexOf("const hasNativeText"),
+    );
+    expect(pasteBody).toContain(
+      "overlappingNativeClipboardIdsRef.current.get(nativeClipboardId)",
+    );
+    expect(pasteBody.indexOf("const hasNativeText")).toBeLessThan(
+      pasteBody.indexOf('clipboard.nativeClipboardMode === "pending"'),
+    );
+    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "pending"');
+    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "failed"');
+    expect(pasteBody).not.toContain("clipboard.clipboardText");
+    expect(source).toContain("pasteSlideObjects(copySlideObjects(selection)");
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {

@@ -68,7 +68,7 @@ const fieldOpSchema = z.union([
     field: z
       .record(z.string(), z.any())
       .describe(
-        `Complete field object with id, type, label, and required. Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings.`,
+        `Complete field object with id, type, label, and required. Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings. This REPLACES the whole field, so never rebuild one from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the field with get-form first, or the options past the cap are deleted.`,
       ),
   }),
   z.object({
