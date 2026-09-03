@@ -15,13 +15,13 @@ on:
         type: string
         default: ""
       migrated_source_sha:
-        description: Exact source SHA already migrated in the production twin
+        description: Main ancestor whose production migration is complete
         required: false
         type: string
         default: ""
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -110,7 +110,8 @@ jobs:
           ref: ${{ needs.resolve-source.outputs.source_sha }}
           fetch-depth: 0
 
-      - name: Block schema-dependent beta code until production migration
+      - name: Detect schema-dependent beta code without production migration
+        id: detect-schema
         env:
           base_sha_input: ${{ github.event.before }}
           migrated_source_sha: ${{ inputs.migrated_source_sha }}
@@ -121,16 +122,64 @@ jobs:
             echo "::error::migrated_source_sha must be a full 40-character commit SHA."
             exit 1
           fi
-          if [[ -n "$migrated_source_sha" && "${migrated_source_sha,,}" != "${source_sha,,}" ]]; then
-            echo "::error::migrated_source_sha must exactly match the source SHA being published."
-            exit 1
-          fi
-          if [[ -n "$migrated_source_sha" ]]; then
-            echo "Production migration was explicitly confirmed for $source_sha."
-            exit 0
+          is_ancestor() {
+            git merge-base --is-ancestor "$1" "$2"
+          }
+          commit_for_tag() {
+            git rev-parse "$1^{commit}" 2>/dev/null
+          }
+
+          migrated_tags="$(git tag --list 'agent-native-beta-migrated/*' || true)"
+          pending_tags="$(git tag --list 'agent-native-beta-pending/*' || true)"
+          latest_migrated_sha=""
+          latest_migrated_distance=""
+          while IFS= read -r tag; do
+            [[ -z "$tag" ]] && continue
+            candidate="$(commit_for_tag "$tag")" || continue
+            is_ancestor "$candidate" "$source_sha" || continue
+            distance="$(git rev-list --count "$candidate..$source_sha")"
+            if [[ -z "$latest_migrated_distance" || "$distance" -lt "$latest_migrated_distance" ]]; then
+              latest_migrated_sha="$candidate"
+              latest_migrated_distance="$distance"
+            fi
+          done <<< "$migrated_tags"
+
+          unresolved_pending_sha=""
+          unresolved_pending_distance=""
+          if [[ -z "$migrated_source_sha" ]]; then
+            while IFS= read -r pending_tag; do
+              [[ -z "$pending_tag" ]] && continue
+              pending_sha="$(commit_for_tag "$pending_tag")" || continue
+              is_ancestor "$pending_sha" "$source_sha" || continue
+              resolved=false
+              while IFS= read -r migrated_tag; do
+                [[ -z "$migrated_tag" ]] && continue
+                migrated_sha="$(commit_for_tag "$migrated_tag")" || continue
+                is_ancestor "$pending_sha" "$migrated_sha" || continue
+                is_ancestor "$migrated_sha" "$source_sha" || continue
+                resolved=true
+                break
+              done <<< "$migrated_tags"
+              [[ "$resolved" == true ]] && continue
+              distance="$(git rev-list --count "$pending_sha..$source_sha")"
+              if [[ -z "$unresolved_pending_distance" || "$distance" -lt "$unresolved_pending_distance" ]]; then
+                unresolved_pending_sha="$pending_sha"
+                unresolved_pending_distance="$distance"
+              fi
+            done <<< "$pending_tags"
           fi
 
-          if [[ "$base_sha_input" =~ ^0+$ ]]; then
+          if [[ -n "$migrated_source_sha" ]]; then
+            if ! is_ancestor "$migrated_source_sha" "$source_sha"; then
+              echo "::error::migrated_source_sha must be an ancestor of the source SHA being published."
+              exit 1
+            fi
+            base_sha="$migrated_source_sha"
+          elif [[ -n "$unresolved_pending_sha" ]]; then
+            base_sha="$unresolved_pending_sha"
+          elif [[ -n "$latest_migrated_sha" ]]; then
+            base_sha="$latest_migrated_sha"
+          elif [[ "$base_sha_input" =~ ^0+$ ]]; then
             # An initial push can contain the whole repository history; compare
             # with the empty tree so an older schema change cannot hide.
             base_sha="$(git hash-object -t tree /dev/null)"
@@ -142,14 +191,97 @@ jobs:
           changed_files="$(git diff --name-only "$base_sha" "$source_sha")"
           # ponytail: path-based schema gate; replace with production migration
           # status when GitHub Actions can access Netlify's masked secrets.
-          schema_files="$(printf '%s\n' "$changed_files" | rg -N '(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(?:scripts/)?migrate-production\.ts|drizzle(?:\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$' || true)"
+          schema_files="$(printf '%s\n' "$changed_files" | rg -N '(^|/)(server/db/|packages/core/src/db/|packages/core/src/(resources|extensions|data-programs)/).+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(?:scripts/)?migrate-production\.ts|drizzle(?:\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || true)"
+          if [[ -n "$unresolved_pending_sha" ]]; then
+            echo "::error::Beta remains withheld for unconfirmed production migration at $unresolved_pending_sha."
+            if [[ -n "$schema_files" ]]; then
+              echo "New schema-dependent paths are also present after the pending migration:"
+              printf '%s\n' "$schema_files"
+              echo "record_pending=true" >> "$GITHUB_OUTPUT"
+              echo "required_source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+            else
+              echo "record_pending=false" >> "$GITHUB_OUTPUT"
+              echo "required_source_sha=$unresolved_pending_sha" >> "$GITHUB_OUTPUT"
+            fi
+            echo "schema_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ -n "$schema_files" ]]; then
             echo "::error::Beta is withheld until the production twin is migrated. Changed schema paths:"
             printf '%s\n' "$schema_files"
-            echo "Re-run this workflow manually with source_ref=$source_sha and migrated_source_sha=$source_sha after production migration succeeds."
-            exit 1
+            echo "record_pending=true" >> "$GITHUB_OUTPUT"
+            echo "required_source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+            echo "schema_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "record_pending=false" >> "$GITHUB_OUTPUT"
+          echo "required_source_sha=$migrated_source_sha" >> "$GITHUB_OUTPUT"
+          echo "schema_changed=false" >> "$GITHUB_OUTPUT"
           echo "No schema-dependent paths changed; beta may publish automatically."
+
+      - name: Record beta migration marker
+        if: >-
+          steps.detect-schema.outputs.record_pending == 'true' ||
+          (inputs.migrated_source_sha != '' && steps.detect-schema.outputs.schema_changed != 'true')
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          marker_kind: ${{ steps.detect-schema.outputs.record_pending == 'true' && 'pending' || 'migrated' }}
+          marker_sha: ${{ steps.detect-schema.outputs.record_pending == 'true' && needs.resolve-source.outputs.source_sha || inputs.migrated_source_sha }}
+          source_sha: ${{ needs.resolve-source.outputs.source_sha }}
+        with:
+          script: |
+            const markerKind = process.env.marker_kind;
+            const markerSha = process.env.marker_sha.trim().toLowerCase();
+            const sourceSha = process.env.source_sha.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(markerSha)) {
+              core.setFailed('The beta migration marker must target a full commit SHA.');
+              return;
+            }
+            if (markerKind === 'migrated') {
+              const comparison = await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: markerSha,
+                head: sourceSha,
+              });
+              if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                core.setFailed(`Migration marker ${markerSha} is not an ancestor of source ${sourceSha}.`);
+                return;
+              }
+            }
+            const ref = `refs/tags/agent-native-beta-${markerKind}/${markerSha}`;
+            try {
+              const existing = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: ref.slice('refs/'.length),
+              });
+              if (existing.data.object.sha.toLowerCase() !== markerSha) {
+                core.setFailed(`Refusing to change existing beta migration marker ${ref}.`);
+                return;
+              }
+              core.info(`Beta migration marker already exists: ${ref}`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+                sha: markerSha,
+              });
+              core.info(`Created beta migration marker: ${ref}`);
+            }
+
+      - name: Block schema-dependent beta code until production migration
+        if: steps.detect-schema.outputs.schema_changed == 'true'
+        env:
+          required_source_sha: ${{ steps.detect-schema.outputs.required_source_sha }}
+          source_sha: ${{ needs.resolve-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          echo "::error::Production migration is required before publishing beta source $source_sha."
+          echo "Re-run this workflow manually with source_ref=$source_sha and migrated_source_sha=$required_source_sha after production migration succeeds."
+          exit 1
 
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
@@ -162,7 +294,7 @@ jobs:
     with:
       target: beta
       site: ${{ matrix.site }}
-      caller: fleet
+      caller: ${{ github.event_name == 'workflow_dispatch' && inputs.migrated_source_sha != '' && 'recovery' || 'fleet' }}
       source_ref: ${{ needs.resolve-source.outputs.source_sha }}
       build_context: branch-deploy
       deploy: true

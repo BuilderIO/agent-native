@@ -804,6 +804,7 @@ jobs:
         with:
           script: |
             const sourceRef = process.env.SOURCE_REF.trim();
+            const allowPinnedRecovery = ${{ inputs.caller == 'recovery' }};
             if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
               core.setOutput('current', 'true');
               return;
@@ -814,8 +815,10 @@ jobs:
               ref: 'heads/main',
             })).data.object.sha;
             const current = mainSha.toLowerCase() === sourceRef.toLowerCase();
-            core.setOutput('current', String(current));
-            if (!current) {
+            core.setOutput('current', String(current || allowPinnedRecovery));
+            if (!current && allowPinnedRecovery) {
+              core.notice(`Publishing explicitly migrated beta recovery source ${sourceRef}.`);
+            } else if (!current) {
               core.notice(
                 `Skipping stale beta source ${sourceRef}; main is now ${mainSha}.`,
               );

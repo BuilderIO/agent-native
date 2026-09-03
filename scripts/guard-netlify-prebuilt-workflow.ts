@@ -208,8 +208,10 @@ issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
   issues.push(`${reusablePath} beta deploys must queue every source SHA`);
 }
-const betaConcurrency = asRecord(parsedWorkflows.get(betaPath)?.concurrency);
-if (betaConcurrency) {
+const betaWorkflowConcurrency = asRecord(
+  parsedWorkflows.get(betaPath)?.concurrency,
+);
+if (betaWorkflowConcurrency) {
   issues.push(
     `${betaPath} must not use a workflow-level queue that can evict a pending main push`,
   );
@@ -667,7 +669,11 @@ for (const [path, target, buildContext] of [
   if (deployWith?.build_context !== buildContext) {
     issues.push(`${path} deploy job must pass build_context=${buildContext}`);
   }
-  if (deployWith?.caller !== "fleet") {
+  const expectedCaller =
+    path === betaPath
+      ? "${{ github.event_name == 'workflow_dispatch' && inputs.migrated_source_sha != '' && 'recovery' || 'fleet' }}"
+      : "fleet";
+  if (deployWith?.caller !== expectedCaller) {
     issues.push(
       `${path} deploy job must explicitly select the reusable workflow child queue`,
     );
@@ -693,8 +699,18 @@ const betaSchemaGateStep = (
   (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
 ).find(
   (step) =>
+    step.name ===
+    "Detect schema-dependent beta code without production migration",
+);
+const betaSchemaGateBlockStep = (
+  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
+).find(
+  (step) =>
     step.name === "Block schema-dependent beta code until production migration",
 );
+const betaMigrationMarkerStep = (
+  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
+).find((step) => step.name === "Record beta migration marker");
 const betaSchemaGateCheckoutStep = (
   (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
 ).find(
@@ -710,6 +726,11 @@ if (betaMigrateJob || betaDeployNeeds.includes("migrate")) {
   );
 }
 if (
+  asRecord(parsedWorkflows.get(betaPath)?.permissions)?.contents !== "write"
+) {
+  issues.push(`${betaPath} must write immutable migration markers`);
+}
+if (
   betaSchemaGateJob?.needs !== "resolve-source" ||
   typeof betaSchemaGateStep?.run !== "string" ||
   !betaSchemaGateStep.run.includes("migrated_source_sha") ||
@@ -718,8 +739,20 @@ if (
     "${{ github.event.before }}" ||
   !betaSchemaGateStep.run.includes("git hash-object -t tree /dev/null") ||
   !betaSchemaGateStep.run.includes("git diff --name-only") ||
+  !betaSchemaGateStep.run.includes(
+    "git tag --list 'agent-native-beta-pending/*'",
+  ) ||
+  !betaSchemaGateStep.run.includes("agent-native-beta-migrated/*") ||
+  !betaSchemaGateStep.run.includes("unresolved_pending_sha") ||
+  !betaSchemaGateStep.run.includes("required_source_sha") ||
   !betaSchemaGateStep.run.includes("schema_files") ||
   asRecord(betaSchemaGateCheckoutStep?.with)?.["fetch-depth"] !== 0 ||
+  typeof betaSchemaGateBlockStep?.run !== "string" ||
+  !betaSchemaGateBlockStep.run.includes("required_source_sha") ||
+  typeof betaMigrationMarkerStep?.with !== "object" ||
+  !String(asRecord(betaMigrationMarkerStep.with)?.script).includes(
+    "createRef",
+  ) ||
   !betaDeployNeeds.includes("schema-gate")
 ) {
   issues.push(

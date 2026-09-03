@@ -208,6 +208,7 @@ describe("production Netlify site concurrency guard", () => {
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
     assert.equal(beta.concurrency, undefined);
+    assert.equal((beta.permissions as Workflow).contents, "write");
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
       8,
@@ -228,7 +229,7 @@ describe("production Netlify site concurrency guard", () => {
     const schemaGateStep = (schemaGate.steps as Array<Workflow>).find(
       (step) =>
         step.name ===
-        "Block schema-dependent beta code until production migration",
+        "Detect schema-dependent beta code without production migration",
     );
     assert.match(String(schemaGateStep?.run), /migrated_source_sha/);
     assert.match(String(schemaGateStep?.run), /base_sha_input/);
@@ -241,7 +242,24 @@ describe("production Netlify site concurrency guard", () => {
       /git hash-object -t tree \/dev\/null/,
     );
     assert.match(String(schemaGateStep?.run), /git diff --name-only/);
+    assert.match(
+      String(schemaGateStep?.run),
+      /git tag --list 'agent-native-beta-pending\/\*'/,
+    );
+    assert.match(String(schemaGateStep?.run), /agent-native-beta-migrated/);
+    assert.match(String(schemaGateStep?.run), /unresolved_pending_sha/);
+    assert.match(String(schemaGateStep?.run), /required_source_sha/);
     assert.match(String(schemaGateStep?.run), /schema_files/);
+    const schemaGateBlockStep = (schemaGate.steps as Array<Workflow>).find(
+      (step) =>
+        step.name ===
+        "Block schema-dependent beta code until production migration",
+    );
+    assert.match(String(schemaGateBlockStep?.run), /required_source_sha/);
+    const migrationMarkerStep = (schemaGate.steps as Array<Workflow>).find(
+      (step) => step.name === "Record beta migration marker",
+    );
+    assert.match(String(migrationMarkerStep?.with?.script), /createRef/);
     assert.equal(
       (schemaGate.steps as Array<Workflow>)[0].with?.["fetch-depth"],
       0,
@@ -272,6 +290,8 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /steps\.beta_freshness\.outputs\.current == 'true'/,
     );
+    assert.match(reusableSource, /allowPinnedRecovery/);
+    assert.match(reusableSource, /inputs\.caller/);
     assert.match(
       reusableSource,
       /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
