@@ -175,15 +175,14 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("closeSearch();");
   });
 
-  it("reveals child destinations and restores prior expansion on failure", () => {
+  it("reveals child destinations without concurrent rollback conflicts", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
     expect(sidebar).toContain("const revealParentForCreation = useCallback");
-    expect(sidebar).toContain("handleDocumentExpandedChange(parentId, true)");
-    expect(sidebar).toContain(
-      "return () => handleDocumentExpandedChange(parentId, false)",
-    );
-    expect(sidebar.match(/restoreParentExpansion\(\)/g)).toHaveLength(3);
+    expect(sidebar).toContain("parentCreationRevealsRef");
+    expect(sidebar).toContain("reveal.pendingCount += 1");
+    expect(sidebar).toContain("current.keepExpanded ||= succeeded");
+    expect(sidebar).toContain("settleParentExpansion(false)");
   });
 
   it("opens a new database immediately while persistence settles", () => {
@@ -196,6 +195,9 @@ describe("document sidebar layout", () => {
       "rollbackOptimisticCreatedDocument(\n          queryClient,\n          id",
     );
     expect(sidebar).toContain("navigate(previousPath, {");
+    expect(sidebar).toContain(
+      "if (window.location.pathname === `/page/${id}`)",
+    );
   });
 
   it("scopes sidebar creation to the selected Content space", () => {

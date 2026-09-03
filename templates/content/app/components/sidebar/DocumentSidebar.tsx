@@ -1103,13 +1103,44 @@ export function DocumentSidebar({
     [queueSidebarStateWrite],
   );
 
+  const parentCreationRevealsRef = useRef(
+    new Map<
+      string,
+      {
+        pendingCount: number;
+        initiallyExpanded: boolean;
+        keepExpanded: boolean;
+      }
+    >(),
+  );
+
   const revealParentForCreation = useCallback(
     (parentId?: string | null) => {
-      if (!parentId || expandedDocumentIdsRef.current.includes(parentId)) {
-        return () => {};
+      if (!parentId) {
+        return (_succeeded: boolean) => {};
       }
-      handleDocumentExpandedChange(parentId, true);
-      return () => handleDocumentExpandedChange(parentId, false);
+      const existing = parentCreationRevealsRef.current.get(parentId);
+      const reveal = existing ?? {
+        pendingCount: 0,
+        initiallyExpanded: expandedDocumentIdsRef.current.includes(parentId),
+        keepExpanded: false,
+      };
+      reveal.pendingCount += 1;
+      parentCreationRevealsRef.current.set(parentId, reveal);
+      if (!reveal.initiallyExpanded && reveal.pendingCount === 1) {
+        handleDocumentExpandedChange(parentId, true);
+      }
+      return (succeeded: boolean) => {
+        const current = parentCreationRevealsRef.current.get(parentId);
+        if (!current) return;
+        current.pendingCount -= 1;
+        current.keepExpanded ||= succeeded;
+        if (current.pendingCount > 0) return;
+        parentCreationRevealsRef.current.delete(parentId);
+        if (!current.initiallyExpanded && !current.keepExpanded) {
+          handleDocumentExpandedChange(parentId, false);
+        }
+      };
     },
     [handleDocumentExpandedChange],
   );
@@ -1305,7 +1336,7 @@ export function DocumentSidebar({
       optimisticId?: string,
       rootFilesDatabaseId?: string,
     ) => {
-      const restoreParentExpansion = revealParentForCreation(parentId);
+      const settleParentExpansion = revealParentForCreation(parentId);
       if (
         !shouldCreateDocumentOptimistically({
           localFileMode,
@@ -1325,10 +1356,11 @@ export function DocumentSidebar({
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
+          settleParentExpansion(true);
           navigateToDocument(created.id);
           onNavigate?.();
         } catch (err) {
-          restoreParentExpansion();
+          settleParentExpansion(false);
           toast.error(t("sidebar.failedCreatePage"), {
             description:
               err instanceof Error ? err.message : t("empty.genericError"),
@@ -1412,8 +1444,9 @@ export function DocumentSidebar({
             queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
           });
         }
+        settleParentExpansion(true);
       } catch (err) {
-        restoreParentExpansion();
+        settleParentExpansion(false);
         rollbackOptimisticCreatedDocument(
           queryClient,
           id,
@@ -1429,10 +1462,12 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        void navigate(previousPath, {
-          replace: true,
-          flushSync: true,
-        });
+        if (window.location.pathname === `/page/${id}`) {
+          void navigate(previousPath, {
+            replace: true,
+            flushSync: true,
+          });
+        }
         toast.error(t("sidebar.failedCreatePage"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
@@ -1457,7 +1492,7 @@ export function DocumentSidebar({
 
   const handleCreateDatabase = useCallback(
     async (parentId?: string | null, rootSpaceId = selectedSpace?.id) => {
-      const restoreParentExpansion = revealParentForCreation(parentId);
+      const settleParentExpansion = revealParentForCreation(parentId);
       const id = nanoid();
       const now = new Date().toISOString();
       const title = t("editor.untitledDatabase");
@@ -1507,8 +1542,9 @@ export function DocumentSidebar({
         void queryClient.invalidateQueries({
           queryKey: LIST_DOCUMENTS_QUERY_KEY,
         });
+        settleParentExpansion(true);
       } catch (err) {
-        restoreParentExpansion();
+        settleParentExpansion(false);
         rollbackOptimisticCreatedDocument(
           queryClient,
           id,
@@ -1518,10 +1554,12 @@ export function DocumentSidebar({
         void queryClient.invalidateQueries({
           queryKey: LIST_DOCUMENTS_QUERY_KEY,
         });
-        void navigate(previousPath, {
-          replace: true,
-          flushSync: true,
-        });
+        if (window.location.pathname === `/page/${id}`) {
+          void navigate(previousPath, {
+            replace: true,
+            flushSync: true,
+          });
+        }
         toast.error(t("sidebar.failedCreateDatabase"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
