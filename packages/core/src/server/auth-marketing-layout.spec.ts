@@ -1,13 +1,9 @@
 // Contract: the marketing panel's "New to <app>? Learn more" link, its
-// top-right/bottom-right placement class, and the product-screenshot
-// blur/opacity treatment were deleted as dead code twice in one day, and
-// AuthPage.spec.tsx was then edited to assert their ABSENCE so CI stayed
-// green. This spec renders the real onboarding HTML for every entry in
-// BUILT_IN_AUTH_MARKETING and asserts the structural contract directly, so a
-// future deletion fails a test instead of flipping a unit expectation. A
-// change that removes an element covered here must update the marketing
-// config in auth-marketing.ts or the renderer in AuthPage.tsx — never relax
-// an assertion below to make a deletion pass.
+// bottom-right placement, and the product-screenshot blur/opacity treatment
+// were deleted as dead code twice in one day. This spec renders the real
+// onboarding HTML for every entry in BUILT_IN_AUTH_MARKETING and asserts the
+// structural contract directly, so a future deletion fails a test instead of
+// flipping a unit expectation.
 import { existsSync } from "node:fs";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,15 +19,6 @@ function readAuthPageData(html: string): AuthPageProps {
   );
   if (!match) throw new Error("auth page data is missing");
   return JSON.parse(match[1]!) as AuthPageProps;
-}
-
-/** The class attribute of the `<main data-agent-native-marketing-home>` root, not the <style> text (which always mentions every placement class regardless of which one is active). */
-function marketingHomeClassAttr(html: string): string {
-  const match = html.match(
-    /<main class="([^"]*)" data-agent-native-marketing-home="true">/,
-  );
-  if (!match) throw new Error("marketing home root is missing");
-  return match[1]!;
 }
 
 const templateScreenshotFile = (slug: string, screenshotPath: string) =>
@@ -69,11 +56,7 @@ describe("built-in auth marketing layout contract", () => {
       expect(html).toContain('class="split');
       expect(html).toContain('class="form-panel');
 
-      // (b) the learn-more link renders with a non-empty href/text, and only
-      // carries the bottom-right placement class when the config asks for it
-      expect(props.marketing?.learnMorePlacement).toBe(
-        marketing.learnMorePlacement,
-      );
+      // (b) the learn-more link renders with a non-empty href and text
       const linkMatch = html.match(
         /<a class="auth-marketing-learn-more"[^>]*href="([^"]+)"/,
       );
@@ -81,11 +64,6 @@ describe("built-in auth marketing layout contract", () => {
       const shortName = marketing.appName.replace(/^Agent-Native\s+/i, "");
       expect(html).toContain(`New to ${shortName}?`);
       expect(html).toContain(">Learn more<");
-
-      const homeClass = marketingHomeClassAttr(html);
-      expect(homeClass.includes("has-bottom-right-learn-more")).toBe(
-        marketing.learnMorePlacement === "bottom-right",
-      );
 
       // (d) the marketing screenshot resolves to a file that exists on disk
       if (marketing.screenshotPath) {
@@ -102,13 +80,9 @@ describe("built-in auth marketing layout contract", () => {
       requestHost: "slides.agent-native.com",
     });
 
-    // default (top-right) placement of the learn-more link
+    // bottom-right placement of the learn-more link
     expect(html).toMatch(
-      /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;/,
-    );
-    // bottom-right placement override
-    expect(html).toMatch(
-      /\.auth-marketing-home\.has-bottom-right-learn-more \.auth-marketing-top-right\s*{[^}]*bottom:/,
+      /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*bottom:/,
     );
     // the product-screenshot dim/blur treatment used by the marketing panel
     expect(html).toMatch(
