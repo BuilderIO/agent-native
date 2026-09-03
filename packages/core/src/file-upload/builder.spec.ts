@@ -226,6 +226,41 @@ describe("builderFileUploadProvider", () => {
     ).toBe(false);
   });
 
+  it("includes the target space when uploading with a personal access token", async () => {
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-agent-native",
+    );
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "btk-agent-native",
+      publicKey: "space-agent-native",
+    });
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/upload",
+          assetId: "asset-1",
+          requiredHeaders: {},
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+      );
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "clip.webm",
+      mimeType: "video/webm",
+    });
+
+    expect(
+      new URL(fetchMock.mock.calls[0][0].toString()).searchParams.get("apiKey"),
+    ).toBe("space-agent-native");
+    expect(
+      new URL(fetchMock.mock.calls[2][0].toString()).searchParams.get("apiKey"),
+    ).toBe("space-agent-native");
+  });
+
   it("passes only stableUrl through signed URL completion when requested", async () => {
     fetchMock
       .mockResolvedValueOnce(
