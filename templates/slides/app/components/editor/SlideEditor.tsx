@@ -187,7 +187,6 @@ import {
   isInlineTextElement,
   isRichTextBlock,
   isSlideTextEditingTarget,
-  isTextLeaf,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
@@ -196,7 +195,6 @@ import {
   selectionOffsetsWithin,
   SlideRichTextEditor,
   type SlideRichTextEditorHandle,
-  type SlideTextSelectionOffsets,
 } from "./SlideRichTextEditor";
 import {
   SlidesLayersPanel,
