@@ -37,6 +37,15 @@ const DEFAULT_CACHE_SETTINGS = new Set([
   "1",
   "yes",
 ]);
+const DISABLED_CACHE_SETTINGS = new Set([
+  "off",
+  "false",
+  "0",
+  "none",
+  "no-store",
+  "disabled",
+]);
+const CACHE_DURATION_RE = /^\d+\s*(s|sec|secs|seconds?|m|min|mins?|h|hours?)?$/;
 
 /**
  * Real pages probed alongside the synthetic miss. The synthetic probe proves an
@@ -104,7 +113,11 @@ function directiveSeconds(policy, name) {
 
 function hasDeploymentWideCacheOverride() {
   const value = process.env.AGENT_NATIVE_SSR_CACHE?.trim().toLowerCase();
-  return value !== undefined && !DEFAULT_CACHE_SETTINGS.has(value);
+  return (
+    value !== undefined &&
+    !DEFAULT_CACHE_SETTINGS.has(value) &&
+    (DISABLED_CACHE_SETTINGS.has(value) || CACHE_DURATION_RE.test(value))
+  );
 }
 
 /**

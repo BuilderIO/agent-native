@@ -1102,19 +1102,6 @@ jobs:
           echo "::error::Google OAuth callback verification failed (exit code ${probe_exit_code:-2})."
           exit "${probe_exit_code:-2}"
 
-      # An unknown URL must still be storable. When it is not, every dead link
-      # and crawler miss re-invokes the render function, and Netlify runs one
-      # request per container — so a single site's regression drains the
-      # concurrency pool the whole account shares. Source review and green
-      # builds both missed this; only the live response shows it.
-      - name: Verify the deployed site still caches a miss
-        if: >-
-          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
-          inputs.smoke && inputs.deploy_mode == 'production'
-        env:
-          HOST: ${{ steps.target.outputs.host }}
-        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
-
       - name: Smoke-test the static docs deploy
         if: >-
           inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
@@ -1168,6 +1155,20 @@ jobs:
             process.exitCode = 1;
           });
           NODE
+
+      # An unknown URL must still be storable. When it is not, every dead link
+      # and crawler miss re-invokes the render function, and Netlify runs one
+      # request per container — so a single site's regression drains the
+      # concurrency pool the whole account shares. Source review and green
+      # builds both missed this; only the live response shows it. Run after
+      # purge so this observes the deployment just published, not its predecessor.
+      - name: Verify the deployed site still caches a miss
+        if: >-
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && inputs.deploy_mode == 'production' && success()
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
 
       - name: Lock the published production deploy
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
