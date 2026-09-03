@@ -1643,7 +1643,7 @@ export default function DeckEditor() {
       if (!deck || !id || !canEdit) return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
-      if (key !== "c" && key !== "v") return;
+      if (key !== "c" && key !== "v" && key !== "d") return;
       if (pinMode || drawMode) return;
       if (!document.activeElement?.closest("[data-slide-thumbnail-id]")) {
         return;
@@ -1717,6 +1717,14 @@ export default function DeckEditor() {
         return;
       }
 
+      if (key === "d") {
+        if (!activeSlideId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleDuplicateSlideFromRail([activeSlideId]);
+        return;
+      }
+
       if (
         !hasSlideClipboard ||
         !activeSlideId ||
@@ -1741,6 +1749,7 @@ export default function DeckEditor() {
     canEdit,
     activeSlideId,
     copySlides,
+    handleDuplicateSlideFromRail,
     hasSlideClipboard,
     pasteSlideAfter,
     selectedSlideIds,

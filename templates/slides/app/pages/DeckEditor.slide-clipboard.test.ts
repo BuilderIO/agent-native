@@ -91,6 +91,17 @@ describe("slide paste fallback", () => {
   });
 });
 
+describe("slide thumbnail shortcuts", () => {
+  it("keeps Cmd/Ctrl+D scoped to the focused thumbnail", () => {
+    expect(deckEditorSource).toContain(
+      'if (key !== "c" && key !== "v" && key !== "d") return;',
+    );
+    expect(deckEditorSource).toContain(
+      "handleDuplicateSlideFromRail([activeSlideId]);",
+    );
+  });
+});
+
 describe("source-imported deck structure", () => {
   it("recognizes source-preserving import metadata", () => {
     expect(
