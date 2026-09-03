@@ -183,9 +183,18 @@ export function getSsrBetaRedirectScriptBody(
     return response.json();
   }).then(function (session) {
     if (session === undefined) return;
-    var email = session && !session.error && typeof session.email === 'string'
+    var sessionError = session && typeof session.error === 'string'
+      ? session.error.trim()
+      : '';
+    if (sessionError && sessionError !== 'Not authenticated') return;
+    if (sessionError === 'Not authenticated') {
+      clearRedirectMarker();
+      return;
+    }
+    var email = session && typeof session.email === 'string'
       ? session.email.trim().toLowerCase()
       : '';
+    if (!email) return;
     if (!email.endsWith('@builder.io')) {
       clearRedirectMarker();
       return;

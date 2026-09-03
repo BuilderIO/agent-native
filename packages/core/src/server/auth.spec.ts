@@ -4358,6 +4358,45 @@ describe("server/auth", () => {
       expect(result).toEqual({ error: "Not authenticated" });
     });
 
+    it("returns a retryable status when session resolution is unavailable", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const getBetterAuth = vi.fn(async () => {
+        throw new Error("session database unavailable");
+      });
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth,
+        getBetterAuthSync: () => undefined,
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await expect(autoMountAuth(app)).resolves.toBe(true);
+
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+      expect(sessionHandler).toBeTypeOf("function");
+
+      const event = createMockEvent({ path: "/_agent-native/auth/session" });
+      const result = await sessionHandler(event);
+
+      expect(event.res.status).toBe(503);
+      expect(result).toEqual({ error: "Session unavailable" });
+    });
+
     it("desktop exchange establishes the session cookie when redeeming a token", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;

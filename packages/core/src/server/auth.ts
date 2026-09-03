@@ -1757,6 +1757,7 @@ let _authGuardConfig: AuthGuardConfig | null = null;
 const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
+const SESSION_RESOLUTION_ERROR_CONTEXT_KEY = "__anSessionResolutionError";
 interface AuthPublicPathRegistry {
   exactPathsByApp: WeakMap<object, Set<string>>;
 }
@@ -4228,6 +4229,9 @@ async function resolveSessionUncached(
       }
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
+      (event.context as Record<string, unknown>)[
+        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+      ] = true;
     }
 
     // 6. Legacy cookie fallback (for sessions created before migration)
@@ -6201,6 +6205,15 @@ async function mountBetterAuthRoutes(
         return { error: "Method not allowed" };
       }
       const session = await getSession(event);
+      if (
+        !session &&
+        (event.context as Record<string, unknown>)[
+          SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+        ] === true
+      ) {
+        setResponseStatus(event, 503);
+        return { error: "Session unavailable" };
+      }
       if (session) setFrameworkSessionHintCookie(event);
       else clearFrameworkSessionHintCookies(event);
       return session ?? { error: "Not authenticated" };
@@ -6410,6 +6423,15 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: "Method not allowed" };
       }
       const session = await getSession(event);
+      if (
+        !session &&
+        (event.context as Record<string, unknown>)[
+          SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+        ] === true
+      ) {
+        setResponseStatus(event, 503);
+        return { error: "Session unavailable" };
+      }
       if (session) setFrameworkSessionHintCookie(event);
       else clearFrameworkSessionHintCookies(event);
       return session ?? { error: "Not authenticated" };
@@ -6548,6 +6570,15 @@ export async function autoMountAuth(
           return { error: "Method not allowed" };
         }
         const session = await getSession(event);
+        if (
+          !session &&
+          (event.context as Record<string, unknown>)[
+            SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+          ] === true
+        ) {
+          setResponseStatus(event, 503);
+          return { error: "Session unavailable" };
+        }
         return session ?? { error: "Not authenticated" };
       }),
     );

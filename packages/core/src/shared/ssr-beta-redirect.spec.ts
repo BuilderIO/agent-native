@@ -392,6 +392,21 @@ describe("getSsrBetaRedirectScript", () => {
     expect(localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).toBeNull();
   });
 
+  it("retains the marker when the session response is indeterminate", async () => {
+    const localStorage = createStorage({
+      [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+    });
+
+    const result = await runScript({
+      href: "https://plan.agent-native.com/inbox",
+      localStorage,
+      session: { error: "Session unavailable" },
+    });
+
+    expect(result.redirectedTo).toBeNull();
+    expect(localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).not.toBeNull();
+  });
+
   it("fails open and retains the marker when the session probe is unavailable", async () => {
     const localStorage = createStorage({
       [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),

@@ -12,6 +12,7 @@ import {
   SSR_BETA_REDIRECT_MARKER,
 } from "../shared/ssr-beta-redirect.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import { resolvePublicAppOriginConfig } from "./app-origin-config.js";
 import { workspaceBasePathFromRequest } from "./onboarding-html.js";
 
 export const BETA_OPT_OUT_PERSISTENCE_MARKER =
@@ -33,6 +34,18 @@ function insertBeforeClosingTag(
   const closeIndex = html.indexOf(closingTag);
   if (closeIndex < 0) return html + fragment;
   return html.slice(0, closeIndex) + fragment + html.slice(closeIndex);
+}
+
+function betaRedirectBasePath(requestPath?: string): string {
+  const configuredBasePath = getAppBasePathFromViteEnv();
+  const requestWorkspaceBasePath = workspaceBasePathFromRequest(requestPath);
+  if (!requestWorkspaceBasePath) return configuredBasePath;
+
+  const workspaceMounts =
+    resolvePublicAppOriginConfig()?.workspaceAppMountPaths;
+  return workspaceMounts?.includes(requestWorkspaceBasePath)
+    ? requestWorkspaceBasePath
+    : configuredBasePath;
 }
 
 const environmentSwitcherMarkup = `<div class="environment-switcher" id="environment-switcher" ${ENVIRONMENT_SWITCHER_MARKER} hidden>
@@ -245,8 +258,7 @@ export function injectBetaOptOutPersistence(
 ): string {
   let html = loginHtml;
   if (!html.includes(SSR_BETA_REDIRECT_MARKER)) {
-    const appBasePath =
-      workspaceBasePathFromRequest(requestPath) || getAppBasePathFromViteEnv();
+    const appBasePath = betaRedirectBasePath(requestPath);
     html = insertBeforeClosingTag(
       html,
       getSsrBetaRedirectScript(`${appBasePath}/_agent-native/auth/session`),
