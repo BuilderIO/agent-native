@@ -334,6 +334,37 @@ describe("FirstRunOnboarding", () => {
     expect(flow.start).toHaveBeenCalledOnce();
   });
 
+  it("opens the additional Builder services when the count is clicked", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    const moreServices = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "+8 more",
+    );
+    expect(moreServices).toBeTruthy();
+    expect(document.body.textContent).not.toContain(
+      "Also included with Builder.io free credits",
+    );
+
+    act(() => moreServices?.click());
+
+    expect(document.body.textContent).toContain(
+      "Also included with Builder.io free credits",
+    );
+    expect(document.body.textContent).toContain("Voice input");
+  });
+
   it("uses the existing-account connection flow from the consent popover", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
