@@ -504,7 +504,7 @@ function GoogleCalendarsSections({
                 }}
               >
                 {!googleCalendarColors[preferenceKey] && (
-                  <IconCheck className="absolute inset-0 m-auto size-3 text-white drop-shadow" />
+                  <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
                 )}
               </button>
               {CALENDAR_COLORS.map((candidate) => (
@@ -519,7 +519,7 @@ function GoogleCalendarsSections({
                   style={{ backgroundColor: candidate }}
                 >
                   {googleCalendarColors[preferenceKey] === candidate && (
-                    <IconCheck className="absolute inset-0 m-auto size-3 text-white drop-shadow" />
+                    <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
                   )}
                 </button>
               ))}
