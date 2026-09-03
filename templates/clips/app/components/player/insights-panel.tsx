@@ -20,7 +20,6 @@ import {
   ViewerAvatar,
   viewerLabel,
 } from "@/components/player/recording-views-badge";
-import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 
 export interface InsightsPanelProps {
   recordingId: string;
@@ -70,21 +69,11 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
   return (
     <div className="p-4 space-y-6">
       <div className="grid grid-cols-2 gap-3">
-        {data.views > 0 ? (
-          <ViewedByPopover recordingId={recordingId} className="w-full">
-            <Stat
-              icon={<IconEye className="h-4 w-4" />}
-              label={t("recordingInsights.views")}
-              value={data.views}
-            />
-          </ViewedByPopover>
-        ) : (
-          <Stat
-            icon={<IconEye className="h-4 w-4" />}
-            label={t("recordingInsights.views")}
-            value={data.views}
-          />
-        )}
+        <Stat
+          icon={<IconEye className="h-4 w-4" />}
+          label={t("recordingInsights.views")}
+          value={data.views}
+        />
         <Stat
           icon={<IconUser className="h-4 w-4" />}
           label={t("recordingInsights.uniqueViewers")}

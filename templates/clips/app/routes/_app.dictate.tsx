@@ -23,7 +23,7 @@ import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { VocabularySection } from "@/components/dictate/vocabulary-section";
-import { PageHeader } from "@/components/library/page-header";
+import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { DayHeader } from "@/components/meetings/day-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -949,9 +949,7 @@ export default function DictateRoute() {
   return (
     <>
       <PageHeader>
-        <h1 className="text-base font-semibold tracking-tight truncate">
-          Dictate
-        </h1>
+        <PageBreadcrumb label={t("navigation.dictate")} />
       </PageHeader>
       <div className="p-6 max-w-5xl mx-auto w-full">
         <div className="mb-6">

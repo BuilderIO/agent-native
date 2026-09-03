@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import { resolveMediaDurationMs } from "@/components/player/media-duration";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2064,8 +2065,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onClick={() => onCtaClick?.(cta!.id)}
                 large
               />
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 data-player-ui
                 aria-label={t("videoPlayer.playClip")}
                 onClick={(e) => {
@@ -2080,11 +2083,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   }
                   requestPlay();
                 }}
-                className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="border-player-control-foreground/30 bg-player-control-foreground/10 text-player-control-foreground hover:bg-player-control-foreground/20 hover:text-player-control-foreground focus-visible:ring-player-control-foreground pointer-events-auto h-8 px-2.5 text-xs"
               >
-                <IconPlayerPlay className="h-4 w-4 fill-current" />
+                <IconPlayerPlay className="fill-current" />
                 {t("videoPlayer.playClip")}
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -2198,31 +2201,35 @@ function CenterPlaybackOverlay({
           </div>
         ) : (
           <>
-            <button
+            <Button
               data-player-ui
               type="button"
+              variant="secondary"
+              size="icon"
               aria-label={t("videoPlayer.playClip")}
               onClick={(e) => {
                 e.stopPropagation();
                 onPlay();
               }}
-              className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              className="bg-player-control-foreground text-player-control ring-player-control-foreground/35 hover:bg-player-control-foreground hover:text-player-control focus-visible:ring-player-control-foreground focus-visible:ring-offset-player-control pointer-events-auto size-[clamp(2.75rem,8cqw,4rem)] rounded-full shadow-xl ring-1 hover:scale-105 [&_svg]:size-[clamp(1.25rem,3.5cqw,1.75rem)]"
             >
-              <IconPlayerPlay className="h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
-            </button>
+              <IconPlayerPlay className="fill-current" />
+            </Button>
 
             <div
               data-player-ui
-              className="pointer-events-auto flex items-center gap-2 rounded-md bg-black/75 px-3 py-2 text-sm font-semibold text-white shadow-xl ring-1 ring-white/10 backdrop-blur-md"
+              className="bg-player-control/75 text-player-control-foreground ring-player-control-foreground/10 pointer-events-auto flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold shadow-lg ring-1 backdrop-blur-md"
             >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Button
                     type="button"
-                    className="rounded-md px-2 py-1 tabular-nums transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    variant="ghost"
+                    size="sm"
+                    className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground focus-visible:ring-player-control-foreground/70 h-6 rounded px-1.5 text-xs tabular-nums"
                   >
                     {formatSpeedLabel(speed)}
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="center"

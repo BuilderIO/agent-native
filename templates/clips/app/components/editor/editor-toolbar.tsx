@@ -74,6 +74,7 @@ export interface EditorToolbarProps {
   onPlaybackSpeedChange: (speed: number) => void;
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  timelineActive?: boolean;
   edits: EditsJson;
   /** Current selection (original ms) — used by "Trim selection". */
   selectionRange?: { startMs: number; endMs: number } | null;
@@ -102,6 +103,7 @@ export function EditorToolbar({
   onPlaybackSpeedChange,
   zoom,
   onZoomChange,
+  timelineActive = false,
   edits,
   selectionRange,
   video,
@@ -349,73 +351,76 @@ export function EditorToolbar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      {timelineActive ? (
+        <>
+          <Separator orientation="vertical" className="mx-1 h-6" />
+          <div
+            className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-background/70 px-1"
+            aria-label={t("editorToolbar.zoom")}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  aria-label={t("editorToolbar.zoomOut")}
+                  disabled={zoom <= MIN_TIMELINE_ZOOM}
+                  onClick={() =>
+                    onZoomChange(Math.max(MIN_TIMELINE_ZOOM, zoom - 1))
+                  }
+                >
+                  <IconZoomOut className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("editorToolbar.zoomOut")}</TooltipContent>
+            </Tooltip>
 
-      <div
-        className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-background/70 px-1"
-        aria-label={t("editorToolbar.zoom")}
-      >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-6 w-6"
-              aria-label={t("editorToolbar.zoomOut")}
-              disabled={zoom <= MIN_TIMELINE_ZOOM}
-              onClick={() =>
-                onZoomChange(Math.max(MIN_TIMELINE_ZOOM, zoom - 1))
-              }
-            >
-              <IconZoomOut className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.zoomOut")}</TooltipContent>
-        </Tooltip>
+            <Slider
+              value={[zoom]}
+              min={MIN_TIMELINE_ZOOM}
+              max={MAX_TIMELINE_ZOOM}
+              step={0.1}
+              aria-label={t("editorToolbar.zoom")}
+              onValueChange={(value) => onZoomChange(value[0] ?? zoom)}
+              className="hidden w-28 lg:flex"
+            />
 
-        <Slider
-          value={[zoom]}
-          min={MIN_TIMELINE_ZOOM}
-          max={MAX_TIMELINE_ZOOM}
-          step={0.1}
-          aria-label={t("editorToolbar.zoom")}
-          onValueChange={(value) => onZoomChange(value[0] ?? zoom)}
-          className="hidden w-28 lg:flex"
-        />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant={zoom === MIN_TIMELINE_ZOOM ? "secondary" : "ghost"}
+                  className="h-6 min-w-10 px-1.5 font-mono text-[11px] tabular-nums"
+                  aria-label={t("editorToolbar.fitToWidth")}
+                  onClick={() => onZoomChange(MIN_TIMELINE_ZOOM)}
+                >
+                  {formatZoomLabel(zoom)}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("editorToolbar.fitToWidth")}</TooltipContent>
+            </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="sm"
-              variant={zoom === MIN_TIMELINE_ZOOM ? "secondary" : "ghost"}
-              className="h-6 min-w-10 px-1.5 font-mono text-[11px] tabular-nums"
-              aria-label={t("editorToolbar.fitToWidth")}
-              onClick={() => onZoomChange(MIN_TIMELINE_ZOOM)}
-            >
-              {formatZoomLabel(zoom)}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.fitToWidth")}</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-6 w-6"
-              aria-label={t("editorToolbar.zoomIn")}
-              disabled={zoom >= MAX_TIMELINE_ZOOM}
-              onClick={() =>
-                onZoomChange(Math.min(MAX_TIMELINE_ZOOM, zoom + 1))
-              }
-            >
-              <IconZoomIn className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.zoomIn")}</TooltipContent>
-        </Tooltip>
-      </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  aria-label={t("editorToolbar.zoomIn")}
+                  disabled={zoom >= MAX_TIMELINE_ZOOM}
+                  onClick={() =>
+                    onZoomChange(Math.min(MAX_TIMELINE_ZOOM, zoom + 1))
+                  }
+                >
+                  <IconZoomIn className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("editorToolbar.zoomIn")}</TooltipContent>
+            </Tooltip>
+          </div>
+        </>
+      ) : null}
 
       {selectionRange ? (
         <>
@@ -513,20 +518,6 @@ export function EditorToolbar({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      {rewindAvailable && !rewindAlreadyAdded ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="hidden shrink-0 gap-1.5 xl:inline-flex"
-          onClick={onOpenRewind}
-        >
-          <IconHistory className="h-4 w-4" />
-          {rewindRequiresPrivate
-            ? "Make private + add earlier"
-            : "Add earlier…"}
-        </Button>
-      ) : null}
 
       <div className="min-w-3 flex-1" />
 

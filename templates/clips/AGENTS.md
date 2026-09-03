@@ -63,8 +63,8 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 ## Application State
 
 - `navigation` — library, shared-with-me, recording, share, meeting, dictation,
-  settings, and transcript context. `navigate` opens those surfaces,
-  `--view=shared` for shared-with-me.
+  settings, and transcript context. A recording includes its focused `panel`
+  and requested `atMs`; `navigate` can open that exact viewer context.
 - `selection` — selected library recording ids while in selection mode.
 - `recording-setup.import` — Loom import UI state while `/record` is open, never
   the pasted URL.

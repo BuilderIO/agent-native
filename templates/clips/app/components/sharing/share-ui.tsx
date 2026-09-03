@@ -310,17 +310,17 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
         aria-hidden
         // Muted reads darker than the surface in light mode, background does
         // the same in dark mode, so the chip stays subtly recessed in both.
-        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground dark:bg-background"
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground dark:bg-background"
       >
-        <IconUsersGroup size={14} strokeWidth={1.75} />
+        <IconUsersGroup size={12} strokeWidth={1.75} />
       </span>
     );
   }
 
   return (
-    <UserAvatar ref={avatarRef} className="h-7 w-7 shrink-0">
+    <UserAvatar ref={avatarRef} className="size-6 shrink-0">
       {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
-      <UserAvatarFallback className="bg-muted text-[11px] font-semibold text-muted-foreground dark:bg-background">
+      <UserAvatarFallback className="bg-muted text-[10px] font-semibold text-muted-foreground dark:bg-background">
         {(label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()}
       </UserAvatarFallback>
     </UserAvatar>
@@ -366,7 +366,7 @@ export function AccessAccordionRow({
   // hover affordance that expand into an empty panel.
   if (!children) {
     return (
-      <div className="flex w-full items-center gap-3 px-1 py-1.5">
+      <div className="flex min-h-8 w-full items-center gap-2 px-1.5 py-1">
         {summary}
       </div>
     );
@@ -376,16 +376,16 @@ export function AccessAccordionRow({
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleTrigger
         disabled={disabled}
-        className="flex w-full cursor-pointer items-center gap-3 rounded-md px-1 py-1.5 text-start transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
+        className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-start transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
       >
         {summary}
         {/* Sized like the row-level remove button so both trailing icons
             share the same optical center. */}
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+        <span className="flex size-6 shrink-0 items-center justify-center">
           <IconChevronDown
             aria-hidden
             className={cn(
-              "h-4 w-4 opacity-50 transition-transform",
+              "size-3.5 opacity-50 transition-transform",
               open && "rotate-180",
             )}
           />
@@ -441,12 +441,12 @@ export function GeneralAccessSelect({
         aria-label={t("shareUi.selectAccess")}
         // The caret's trailing margin lines it up with the accordion row's
         // caret, which sits inside a 28px box.
-        className="h-auto w-full cursor-pointer justify-start gap-3 rounded-md border-0 bg-transparent px-1 py-1.5 text-sm shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus:ring-offset-0 [&>span]:flex-1 [&>span]:text-start [&>svg:last-child]:me-1.5"
+        className="h-8 w-full cursor-pointer justify-start gap-2 rounded-md border-0 bg-transparent px-1.5 py-1 text-sm shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus:ring-offset-0 [&>span]:flex-1 [&>span]:text-start [&>svg:last-child]:me-1"
       >
         <meta.Icon
           aria-hidden
           strokeWidth={1.75}
-          className="h-7 w-7 shrink-0 rounded-full bg-muted p-1.5 text-muted-foreground"
+          className="size-6 shrink-0 rounded-full bg-muted p-1.5 text-muted-foreground"
         />
         <SelectValue>{optionLabel(visibility)}</SelectValue>
       </SelectTrigger>
@@ -528,8 +528,8 @@ export function InvitePeopleField({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-stretch gap-2">
-        <div className="flex h-9 min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+      <div className="flex items-stretch gap-1.5">
+        <div className="flex h-8 min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
           <Input
             type="email"
             placeholder={t("shareUi.addPeopleByEmail")}
@@ -542,7 +542,7 @@ export function InvitePeopleField({
             className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
           <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-            <SelectTrigger className="h-full w-auto shrink-0 gap-1 rounded-none border-0 bg-transparent px-3 text-sm text-muted-foreground shadow-none focus:ring-0 focus:ring-offset-0">
+            <SelectTrigger className="h-full w-auto shrink-0 gap-1 rounded-none border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none focus:ring-0 focus:ring-offset-0">
               <SelectValue>{t(`shareUi.roles.${role}`)}</SelectValue>
             </SelectTrigger>
             <SelectContent align="end">
@@ -561,7 +561,7 @@ export function InvitePeopleField({
           disabled={!hasInviteEmail || share.isPending}
           aria-label={t("shareUi.invite")}
           title={t("shareUi.invite")}
-          className="h-9 w-9 shrink-0"
+          className="size-8 shrink-0"
         >
           <IconSend2 size={16} />
         </Button>
@@ -620,7 +620,7 @@ export function PeopleAccessSection({
         first ? (
           <Avatar label={first} />
         ) : (
-          <span className="inline-block h-7 w-7 shrink-0 rounded-full bg-muted" />
+          <span className="inline-block size-6 shrink-0 rounded-full bg-muted" />
         )
       }
       label={
@@ -718,7 +718,7 @@ export function PeopleAccessSettingsBody({
   return (
     <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto p-0 m-0">
       {showOwner ? (
-        <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
+        <li className="flex min-h-8 items-center gap-2 px-1.5 py-1 text-sm">
           <Avatar label={ownerEmail} />
           <span className="min-w-0 flex-1 truncate">{ownerEmail}</span>
           <span className="text-xs text-muted-foreground">
@@ -730,7 +730,7 @@ export function PeopleAccessSettingsBody({
       {shares.map((s) => (
         <li
           key={`${s.principalType}:${s.principalId}`}
-          className="flex items-center gap-3 px-1 py-1.5 text-sm"
+          className="flex min-h-8 items-center gap-2 px-1.5 py-1 text-sm"
         >
           <Avatar label={s.principalId} org={s.principalType === "org"} />
           <span className="min-w-0 flex-1 truncate">{s.principalId}</span>

@@ -21,6 +21,13 @@ export type ClipsView =
   | "meeting"
   | "dictate";
 
+export type RecordingPanel =
+  | "comments"
+  | "transcript"
+  | "agent"
+  | "insights"
+  | "settings";
+
 export interface NavigationState {
   view: ClipsView;
   recordingId?: string;
@@ -32,6 +39,8 @@ export interface NavigationState {
   meetingId?: string;
   meetingsTab?: "agenda" | "past";
   dictationId?: string;
+  panel?: RecordingPanel;
+  atMs?: number;
 }
 
 interface NavigateCommand extends Partial<NavigationState> {
@@ -76,9 +85,20 @@ export function stateFromLocation(
   // /r/:recordingId[/insights]
   const recordingMatch = p.match(/^\/r\/([^/]+)(?:\/(insights))?$/);
   if (recordingMatch) {
+    const panel = params.get("panel");
+    const atParam = params.get("at") ?? params.get("t");
+    const atMs = atParam == null ? undefined : Number(atParam);
     return {
       view: recordingMatch[2] === "insights" ? "insights" : "recording",
       recordingId: recordingMatch[1],
+      ...(panel === "comments" ||
+      panel === "transcript" ||
+      panel === "agent" ||
+      panel === "insights" ||
+      panel === "settings"
+        ? { panel }
+        : {}),
+      ...(Number.isFinite(atMs) && atMs! >= 0 ? { atMs } : {}),
       ...(searchTerm ? { search: searchTerm } : {}),
     };
   }
@@ -165,7 +185,15 @@ export function pathFromCommand(cmd: NavigateCommand): string {
   if (cmd.path) return cmd.path;
   switch (cmd.view) {
     case "recording":
-      return cmd.recordingId ? `/r/${cmd.recordingId}` : "/library";
+      if (!cmd.recordingId) return "/library";
+      const recordingParams = new URLSearchParams();
+      if (cmd.panel) recordingParams.set("panel", cmd.panel);
+      if (typeof cmd.atMs === "number" && Number.isFinite(cmd.atMs)) {
+        recordingParams.set("at", String(Math.max(0, Math.round(cmd.atMs))));
+      }
+      return `/r/${cmd.recordingId}${
+        recordingParams.size > 0 ? `?${recordingParams.toString()}` : ""
+      }`;
     case "insights":
       return cmd.recordingId ? `/r/${cmd.recordingId}/insights` : "/library";
     case "share":

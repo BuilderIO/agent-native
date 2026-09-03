@@ -49,8 +49,123 @@ describe("direct recording route shell cue", () => {
       controlStart,
       route.indexOf("function parseTimeParam", controlStart),
     );
-    expect(control).toContain('size="icon"');
+    expect(control).toContain("<ViewerIconButton");
     expect(control).toContain('aria-label={t("recordingPage.backToLibrary")}');
     expect(control).toContain("<TooltipContent");
+  });
+
+  it("surfaces recording cleanup before advanced workflow submenus", () => {
+    const route = readRoute("r.$recordingId.tsx");
+    const menuStart = route.indexOf('t("recordingPage.askAboutClip")');
+    const menuEnd = route.indexOf(
+      't("recordingPage.includeFullVideo")',
+      menuStart,
+    );
+    const menu = route.slice(menuStart, menuEnd);
+
+    expect(menuStart).toBeGreaterThan(-1);
+    expect(menu).toContain('t("recordingPage.removeFillerWords")');
+    expect(menu).toContain('t("recordingPage.removeSilences")');
+    expect(menu).toContain("<DropdownMenuSub>");
+    expect(menu).toContain('t("recordingPage.enhanceRecording")');
+    expect(menu).toContain('t("recordingPage.createFromClip")');
+    expect(menu).not.toContain('t("recordingPage.cleanUpRecording")');
+  });
+
+  it("keeps Share primary and unifies mobile viewer panels", () => {
+    const route = readRoute("r.$recordingId.tsx");
+    const toolbarStart = route.indexOf("const recordingActions = (");
+    const toolbarEnd = route.indexOf("const ownerInitial", toolbarStart);
+    const toolbar = route.slice(toolbarStart, toolbarEnd);
+
+    expect(toolbarStart).toBeGreaterThan(-1);
+    expect(toolbar).toContain("<IconEdit");
+    expect(toolbar).toContain("<IconMoodSmile");
+    expect(toolbar).toContain('t("recordingPage.react")');
+    expect(toolbar).toContain("<PopoverContent");
+    expect(toolbar).toContain("REACTION_EMOJIS.map");
+    expect(toolbar).toContain("<RecordingOptionsMenu");
+    expect(toolbar).toContain("canDownload={canDownloadRecording}");
+    expect(toolbar).toContain("onDownload={() => void downloadRecording()}");
+    expect(toolbar).toContain("<ClipsShareTrigger");
+    expect(toolbar).not.toContain("<ReactionsTray");
+    expect(toolbar).not.toContain("<IconDownload");
+    expect(toolbar).not.toContain("<IconMessageCircleBolt");
+    expect(toolbar).not.toContain('aria-label={t("recordingPage.aiTools")}');
+    expect(toolbar).not.toContain("<IconLink");
+    expect(toolbar).not.toContain("copyShareLink");
+    expect(toolbar).not.toContain("<ViewerButton");
+    expect(route).toContain('className="flex shrink-0 items-center gap-2"');
+    expect(toolbar).toContain('className="flex items-center gap-0.5"');
+    const contentColumnStart = route.indexOf(
+      'className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 xl:max-w-[calc(177.778dvh-35.556rem)]"',
+    );
+    const contentColumn = route.slice(
+      contentColumnStart,
+      route.indexOf("{/* Side panel */}", contentColumnStart),
+    );
+    expect(contentColumnStart).toBeGreaterThan(-1);
+    expect(contentColumn).toContain("<VideoPlayer");
+    expect(contentColumn).toContain("renderCommentsSection()");
+    expect(toolbar).not.toContain("renderSidebarToggleButton()");
+    expect(toolbar).not.toContain("renderPanelTabs()");
+    expect(route).toContain("<ViewerTabsList");
+    expect(route).toContain('<ViewerTabsTrigger value="comments">');
+    expect(route).toContain('<ViewerTabsTrigger value="transcript">');
+    expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain('<ViewerTabsTrigger value="settings">');
+    expect(route).not.toContain("<ToggleGroup");
+    expect(route).toContain('value={panel ?? "comments"}');
+    expect(route).toContain('if (value === "comments")');
+    expect(route).toContain("openCommentsPanel();");
+    expect(route).not.toContain("IconLayoutSidebarRightCollapse");
+    expect(route).not.toContain("IconLayoutSidebarRightExpand");
+    expect(route).not.toContain("closeSidePanel");
+    expect(route).not.toContain("lastToolbarPanelRef");
+    expect(route).toContain(
+      '!editing && !isCompactLayout && panel && panel !== "comments"',
+    );
+    const mobilePanelStart = route.indexOf('id="clip-activity-panel"');
+    const mobilePanel = route.slice(
+      mobilePanelStart,
+      route.indexOf("</aside>", mobilePanelStart),
+    );
+    expect(mobilePanelStart).toBeGreaterThan(-1);
+    expect(mobilePanel).toContain("data-recording-side-panel");
+    expect(mobilePanel).toContain('panel === "comments"');
+    expect(mobilePanel).toContain("renderCommentsSection(true)");
+    expect(mobilePanel).toContain("border-y border-border");
+    expect(mobilePanel).toContain("{renderPanelTabs()}");
+    expect(mobilePanel.indexOf("{renderPanelTabs()}")).toBeLessThan(
+      mobilePanel.indexOf('panel === "comments"'),
+    );
+    const sidePanelStart = route.indexOf("{/* Side panel */}");
+    const sidePanel = route.slice(sidePanelStart, route.indexOf("</Tabs>"));
+    expect(sidePanelStart).toBeGreaterThan(-1);
+    expect(sidePanel).toContain("data-recording-side-panel");
+    expect(sidePanel).toContain("rounded-xl border border-border");
+    expect(sidePanel).toContain("{renderPanelTabs()}");
+    expect(sidePanel).toContain("{renderSidePanel()}");
+    expect(sidePanel.indexOf("{renderPanelTabs()}")).toBeLessThan(
+      sidePanel.indexOf("{renderSidePanel()}"),
+    );
+    expect(route).toContain("alwaysShowControls");
+  });
+
+  it("uses workspace chrome for signed-in viewers and keeps recording identity with the player", () => {
+    const route = readRoute("r.$recordingId.tsx");
+
+    expect(route).toContain("<LibraryLayout showAgentToggle={false}>");
+    expect(route).toContain("<PageHeader>");
+    expect(route).toContain("<BreadcrumbList");
+    expect(route).toContain("<BreadcrumbLink asChild>");
+    expect(route).toContain("<BreadcrumbPage");
+    expect(route).toContain("<BreadcrumbSeparator");
+    expect(route).toContain('to="/library"');
+    expect(route).toContain("recordingFolder.spaceId");
+    expect(route).toContain("{session ? recordingActions : null}");
+    expect(route).toContain("fallback={ownerInitial}");
+    expect(route).toContain("{recording.description}");
+    expect(route).toContain('t("shareDialog.more")');
   });
 });

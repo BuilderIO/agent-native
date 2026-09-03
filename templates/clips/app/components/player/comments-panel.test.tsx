@@ -86,6 +86,7 @@ describe("CommentsPanel reply composer", () => {
   function renderPanel(
     currentUserEmail = "viewer@example.com",
     comments: Comment[] = [rootComment],
+    presentation: "default" | "share" | "inline" = "share",
   ) {
     act(() => {
       root.render(
@@ -99,7 +100,7 @@ describe("CommentsPanel reply composer", () => {
             canComment
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
-            presentation="share"
+            presentation={presentation}
           />
         </QueryClientProvider>,
       );
@@ -146,6 +147,64 @@ describe("CommentsPanel reply composer", () => {
 
     expect(composer?.className).toContain("px-3 py-2");
     expect(composer?.parentElement?.className).not.toContain("border");
+  });
+
+  it("keeps the inline composer in the page flow and reveals its action on input", () => {
+    renderPanel("viewer@example.com", [rootComment], "inline");
+
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    const composerShell = composer?.closest(".border-b");
+    const comment = Array.from(container.querySelectorAll("p")).find(
+      (element) => element.textContent?.includes("Please take a look"),
+    );
+
+    expect(composerShell).not.toBeNull();
+    expect(composerShell?.className).not.toContain("rounded-md");
+    expect(container.textContent).not.toContain("commentsPanel.commentButton");
+    expect(comment).toBeDefined();
+    expect(
+      composer!.compareDocumentPosition(comment as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "A new comment");
+    });
+
+    expect(container.textContent).toContain("commentsPanel.commentButton");
+  });
+
+  it("opens account creation when a signed-out viewer activates the composer", () => {
+    const onUnauthenticated = vi.fn();
+
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[rootComment]}
+            currentMs={34_000}
+            enableComments
+            canComment={false}
+            onSeek={vi.fn()}
+            onUnauthenticated={onUnauthenticated}
+            queryKey={["recording", "recording-1"]}
+            presentation="inline"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const composer = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("commentsPanel.leaveComment"),
+    );
+
+    expect(composer).toBeDefined();
+    act(() => composer?.click());
+    expect(onUnauthenticated).toHaveBeenCalledWith("comment");
   });
 
   it("renders inline Markdown while flattening headings", () => {

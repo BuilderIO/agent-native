@@ -368,6 +368,7 @@ export default defineAction({
         animatedThumbnailEnabled: Boolean(rec.animatedThumbnailEnabled),
         visibility: rec.visibility,
         ownerEmail: rec.ownerEmail,
+        folderId: rec.folderId,
         spaceIds: parseSpaceIds(rec.spaceIds),
         createdAt: rec.createdAt,
         updatedAt: rec.updatedAt,

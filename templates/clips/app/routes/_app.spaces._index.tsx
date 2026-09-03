@@ -4,8 +4,7 @@ import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
-import { EmptyState } from "@/components/library/empty-state";
-import { PageHeader } from "@/components/library/page-header";
+import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
 import { Button } from "@/components/ui/button";
 import { useSpaces, useOrganizations } from "@/hooks/use-library";
@@ -49,12 +48,7 @@ export default function SpacesIndexRoute() {
   return (
     <div className="flex flex-1 flex-col min-h-0">
       <PageHeader>
-        <div className="flex items-center gap-2">
-          <IconUsersGroup className="h-4 w-4 text-primary" />
-          <h1 className="text-base font-semibold text-foreground">
-            {t("navigation.spaces")}
-          </h1>
-        </div>
+        <PageBreadcrumb label={t("navigation.spaces")} />
         {canManageOrg && (
           <div className="ml-auto">
             <Button
@@ -76,7 +70,18 @@ export default function SpacesIndexRoute() {
             ))}
           </div>
         ) : spaces.length === 0 ? (
-          <EmptyState kind="space" />
+          <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+            <IconUsersGroup className="size-10 text-muted-foreground" />
+            <h2 className="text-base font-semibold">
+              {t("navigation.noSpaces")}
+            </h2>
+            {canManageOrg ? (
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <IconPlus />
+                {t("createSpaceDialog.newSpace")}
+              </Button>
+            ) : null}
+          </div>
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {spaces.map((s) => (

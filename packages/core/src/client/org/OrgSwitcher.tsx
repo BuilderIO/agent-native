@@ -4,6 +4,7 @@ import {
   IconArrowUpRight,
   IconBrain,
   IconBrandJira,
+  IconBriefcase,
   IconBrush,
   IconCalendar,
   IconCalendarTime,
@@ -39,8 +40,8 @@ import {
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
@@ -62,6 +63,14 @@ import {
   visibleOrgAppLinks,
   type OrgSwitcherAppLink,
 } from "./workspace-app-links.js";
+
+export interface OrgSwitcherUtilityLink {
+  id: string;
+  label: string;
+  href: string;
+  icon?: ReactNode;
+  external?: boolean;
+}
 
 export interface OrgSwitcherProps {
   className?: string;
@@ -94,6 +103,8 @@ export interface OrgSwitcherProps {
   agentPath?: string | null;
   /** Omit the link to the app that currently owns this switcher. */
   currentAppId?: string;
+  /** App-owned, low-frequency utilities rendered before sign out. */
+  utilityLinks?: readonly OrgSwitcherUtilityLink[];
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -315,7 +326,7 @@ function OrgSwitcherLoadingPlaceholder({ className }: { className?: string }) {
       aria-label="Loading organization"
       className={`${SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
     >
-      <IconUsersGroup className="h-3.5 w-3.5 shrink-0 opacity-60" />
+      <IconBriefcase className="h-3.5 w-3.5 shrink-0 opacity-60" />
       <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
       <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
     </button>
@@ -337,6 +348,7 @@ export function OrgSwitcher({
   profilePath = DEFAULT_PROFILE_PATH,
   agentPath = DEFAULT_AGENT_PATH,
   currentAppId,
+  utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const { session } = useSession();
@@ -408,7 +420,7 @@ export function OrgSwitcher({
   const triggerLabel = demoModeEnabled
     ? `${buttonLabel}, Demo mode`
     : buttonLabel;
-  const ButtonIcon = inOrg ? IconUsersGroup : IconUser;
+  const ButtonIcon = inOrg ? IconBriefcase : IconUser;
   const organizationSettingsHref = settingsPath
     ? organizationSettingsPath(settingsPath)
     : null;
@@ -536,7 +548,7 @@ export function OrgSwitcher({
                   disabled={switchOrg.isPending}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
-                  <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate flex-1 text-start">
                     {o.orgName}
                   </span>
@@ -729,6 +741,47 @@ export function OrgSwitcher({
                   <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="flex-1 text-start">Invite member</span>
                 </button>
+              )}
+
+              {utilityLinks && utilityLinks.length > 0 && (
+                <>
+                  <div className="my-1 h-px bg-border" />
+                  {utilityLinks.map((link) => {
+                    const content = (
+                      <>
+                        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
+                          {link.icon ?? <IconExternalLink />}
+                        </span>
+                        <span className="flex-1 text-start">{link.label}</span>
+                        {link.external && (
+                          <IconArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                      </>
+                    );
+
+                    return link.external ? (
+                      <a
+                        key={link.id}
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setOpen(false)}
+                        className={ITEM_CLASS}
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      <Link
+                        key={link.id}
+                        to={link.href}
+                        onClick={() => setOpen(false)}
+                        className={ITEM_CLASS}
+                      >
+                        {content}
+                      </Link>
+                    );
+                  })}
+                </>
               )}
 
               <div className="my-1 h-px bg-border" />

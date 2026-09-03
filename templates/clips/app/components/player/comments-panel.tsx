@@ -13,8 +13,6 @@ import {
   IconMoodSmile,
   IconCornerDownRight,
   IconDots,
-  IconMessageCircle,
-  IconPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Ref, useEffect, useMemo, useRef, useState } from "react";
@@ -120,11 +118,11 @@ export interface CommentsPanelProps {
    */
   onUnauthenticated?: (intent: "comment" | "react") => void;
   /**
-   * The public share page uses a quieter Loom-style activity panel:
-   * composer first, empty state centered below. The authenticated recording
-   * editor keeps the denser bottom-composer layout.
+   * The public share page uses a quieter Loom-style activity panel. The
+   * authenticated viewer's inline presentation keeps the conversation in the
+   * primary reading flow beneath the player.
    */
-  presentation?: "default" | "share";
+  presentation?: "default" | "share" | "inline";
 }
 
 export function CommentsPanel(props: CommentsPanelProps) {
@@ -145,6 +143,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
   } = props;
   const isSignedIn = !!currentUserEmail;
   const isSharePresentation = presentation === "share";
+  const isInlinePresentation = presentation === "inline";
+  const isConversationPresentation =
+    isSharePresentation || isInlinePresentation;
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
@@ -465,7 +466,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
       currentUserEmail={currentUserEmail}
       currentUserName={currentUserName}
       isSignedIn={isSignedIn}
-      isSharePresentation={isSharePresentation}
+      isConversationPresentation={isConversationPresentation}
+      isInlinePresentation={isInlinePresentation}
       enableComments={enableComments}
       canComment={canComment}
       onDraftChange={setDraft}
@@ -479,10 +481,22 @@ export function CommentsPanel(props: CommentsPanelProps) {
   );
 
   return (
-    <div className="flex h-full flex-col bg-transparent">
+    <div
+      className={cn(
+        "flex min-h-0 flex-col bg-transparent",
+        !isInlinePresentation && "h-full",
+        isInlinePresentation && "xl:h-full xl:min-h-0",
+      )}
+    >
+      {isInlinePresentation && enableComments ? (
+        <div className="mb-5 shrink-0">{composer}</div>
+      ) : null}
       <div
         className={cn(
-          "flex-1 overflow-y-auto",
+          "min-h-0",
+          isInlinePresentation
+            ? "xl:flex-1 xl:overflow-y-auto xl:overscroll-contain"
+            : "flex-1 overflow-y-auto",
           isSharePresentation && "flex min-h-0 flex-col",
         )}
       >
@@ -491,14 +505,18 @@ export function CommentsPanel(props: CommentsPanelProps) {
             enableComments={enableComments}
             canComment={canComment}
             isSharePresentation={isSharePresentation}
+            isInlinePresentation={isInlinePresentation}
           />
         ) : (
-          <ul className="space-y-3">
+          <ul className="space-y-5">
             {sortedThreads.map((thread) => {
               const root = thread[0];
               const replies = thread.slice(1);
               return (
-                <li key={root.threadId} className="space-y-2 px-3 pt-3">
+                <li
+                  key={root.threadId}
+                  className={cn("space-y-2", !isInlinePresentation && "px-3")}
+                >
                   <CommentCard
                     comment={root}
                     currentUserEmail={currentUserEmail}
@@ -594,7 +612,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
       {isSharePresentation && enableComments ? (
         <div className="px-4 py-4">{composer}</div>
-      ) : !isSharePresentation ? (
+      ) : !isSharePresentation && !isInlinePresentation ? (
         composer
       ) : null}
     </div>
@@ -605,10 +623,12 @@ function EmptyCommentsState({
   enableComments,
   canComment,
   isSharePresentation,
+  isInlinePresentation,
 }: {
   enableComments: boolean;
   canComment: boolean;
   isSharePresentation: boolean;
+  isInlinePresentation: boolean;
 }) {
   const t = useT();
   if (!enableComments) {
@@ -626,16 +646,17 @@ function EmptyCommentsState({
     );
   }
 
+  if (isInlinePresentation && canComment) return null;
+
   if (!canComment) {
     return (
       <div
         className={cn(
-          "flex flex-col items-center justify-center px-8 py-12 text-center",
+          "flex items-center justify-center px-8 py-10 text-center",
           isSharePresentation ? "flex-1" : "min-h-full",
         )}
       >
-        <IconMessageCircle className="mb-5 size-16 stroke-[1.35] text-muted-foreground/40" />
-        <p className="text-base font-semibold text-foreground">
+        <p className="text-sm font-medium text-muted-foreground">
           {t("commentsPanel.beFirst")}
         </p>
       </div>
@@ -645,23 +666,12 @@ function EmptyCommentsState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center px-8 py-12 text-center",
+        "flex items-center justify-center px-8 py-10 text-center",
         isSharePresentation ? "flex-1" : "min-h-full",
       )}
     >
-      <div className="relative mb-5 flex size-16 items-center justify-center text-muted-foreground/40">
-        <IconMessageCircle className="size-16 stroke-[1.35]" />
-        <span className="absolute -right-1 top-1 flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
-          <IconPlus className="size-4" />
-        </span>
-      </div>
-      <p className="text-base font-semibold text-foreground">
+      <p className="text-sm font-medium text-muted-foreground">
         {t("commentsPanel.beFirst")}
-      </p>
-      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        {isSharePresentation
-          ? t("commentsPanel.leaveNotePanel")
-          : t("commentsPanel.leaveNoteTimestamp")}
       </p>
     </div>
   );
@@ -673,7 +683,8 @@ function CommentComposer({
   currentUserEmail,
   currentUserName,
   isSignedIn,
-  isSharePresentation,
+  isConversationPresentation,
+  isInlinePresentation,
   enableComments,
   canComment,
   onDraftChange,
@@ -687,7 +698,8 @@ function CommentComposer({
   currentUserEmail?: string;
   currentUserName?: string;
   isSignedIn: boolean;
-  isSharePresentation: boolean;
+  isConversationPresentation: boolean;
+  isInlinePresentation: boolean;
   enableComments: boolean;
   canComment: boolean;
   onDraftChange: (value: string) => void;
@@ -709,45 +721,33 @@ function CommentComposer({
   if (!canComment && isSignedIn) return null;
 
   if (!isSignedIn && onUnauthenticated) {
-    if (isSharePresentation) {
-      return (
-        <button
-          type="button"
-          onClick={() => onUnauthenticated("comment")}
-          className="flex min-h-16 w-full items-center gap-3 rounded-md border-0 bg-background px-3 py-2.5 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Avatar className="size-7 shrink-0">
-            <AvatarFallback className="bg-primary/15 text-xs text-primary">
-              A
-            </AvatarFallback>
-          </Avatar>
-          <span className="min-w-0 flex-1 truncate">
-            {t("commentsPanel.leaveComment")}
-          </span>
-          <IconMoodSmile className="size-4 shrink-0 text-muted-foreground" />
-        </button>
-      );
-    }
-
     return (
-      <div className="flex items-center justify-between gap-3 px-3 py-3">
-        <span className="text-xs text-muted-foreground">
-          {t("commentsPanel.signInToComment")}
+      <button
+        type="button"
+        onClick={() => onUnauthenticated("comment")}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-md border border-input bg-background px-3 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isConversationPresentation ? "min-h-11 py-2" : "min-h-10 py-2",
+        )}
+      >
+        <Avatar className="size-7 shrink-0">
+          <AvatarFallback className="bg-muted text-xs text-muted-foreground">
+            A
+          </AvatarFallback>
+        </Avatar>
+        <span className="min-w-0 flex-1 truncate">
+          {t("commentsPanel.leaveComment")}
         </span>
-        <Button
-          size="sm"
-          onClick={() => onUnauthenticated("comment")}
-          className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          {t("commentsPanel.signIn")}
-        </Button>
-      </div>
+        <IconMoodSmile className="size-4 shrink-0" />
+      </button>
     );
   }
 
   return (
-    <div className={cn(isSharePresentation ? "space-y-2" : "space-y-2 p-3")}>
-      {!isSharePresentation ? (
+    <div
+      className={cn(isConversationPresentation ? "space-y-2" : "space-y-2 p-3")}
+    >
+      {!isConversationPresentation ? (
         <div className="px-1 text-[11px] text-muted-foreground">
           {t("commentsPanel.commentAt")}{" "}
           <span className="font-mono">{msToClock(currentMs)}</span>
@@ -756,10 +756,13 @@ function CommentComposer({
       <div
         className={cn(
           "flex gap-2",
-          isSharePresentation && "items-start rounded-md p-3 shadow-sm",
+          isInlinePresentation && "items-center",
+          isConversationPresentation &&
+            !isInlinePresentation &&
+            "items-start rounded-md p-3 shadow-sm",
         )}
       >
-        {isSharePresentation ? (
+        {isConversationPresentation ? (
           <Avatar className="mt-0.5 size-7 shrink-0">
             {avatarUrl ? (
               <AvatarImage
@@ -772,32 +775,49 @@ function CommentComposer({
             </AvatarFallback>
           </Avatar>
         ) : null}
-        <CommentTextComposer
-          value={draft}
-          onChange={onDraftChange}
-          onMentionAdd={onMentionAdd}
-          members={members}
-          onSubmit={onSubmit}
-          placeholder={t("commentsPanel.leaveComment")}
+        <div
           className={cn(
-            "resize-none border-0 bg-background text-sm",
-            isSharePresentation
-              ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-              : "min-h-[60px]",
-          )}
-          submitOnEnter={false}
-        />
-        <Button
-          onClick={onSubmit}
-          disabled={!draft.trim()}
-          size="icon"
-          className={cn(
-            "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90",
-            isSharePresentation && "size-8",
+            "flex min-w-0 flex-1 gap-2",
+            isInlinePresentation && "items-center border-b border-border py-1",
           )}
         >
-          <IconSend className="size-4" />
-        </Button>
+          <CommentTextComposer
+            value={draft}
+            onChange={onDraftChange}
+            onMentionAdd={onMentionAdd}
+            members={members}
+            onSubmit={onSubmit}
+            placeholder={t("commentsPanel.leaveComment")}
+            rows={isInlinePresentation ? 1 : 2}
+            className={cn(
+              "resize-none border-0 bg-transparent text-sm",
+              isInlinePresentation
+                ? "min-h-8 flex-1 border-0 px-0 py-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                : isConversationPresentation
+                  ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  : "min-h-[60px]",
+            )}
+            submitOnEnter={false}
+          />
+          {!isInlinePresentation || draft.trim() ? (
+            <Button
+              onClick={onSubmit}
+              disabled={!draft.trim()}
+              size={isInlinePresentation ? "sm" : "icon"}
+              className={cn(
+                "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90",
+                isConversationPresentation && !isInlinePresentation && "size-8",
+                isInlinePresentation && "h-8 px-3",
+              )}
+            >
+              {isInlinePresentation ? (
+                t("commentsPanel.commentButton")
+              ) : (
+                <IconSend className="size-4" />
+              )}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

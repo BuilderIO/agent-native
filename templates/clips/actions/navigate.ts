@@ -9,6 +9,7 @@
  *   pnpm action navigate --view=library
  *   pnpm action navigate --view=shared
  *   pnpm action navigate --view=recording --recordingId=<id>
+ *   pnpm action navigate --view=recording --recordingId=<id> --panel=transcript --atMs=42000
  *   pnpm action navigate --view=meeting --meetingId=<id>
  *   pnpm action navigate --view=dictate
  *   pnpm action navigate --view=space --spaceId=<id>
@@ -69,6 +70,15 @@ export default defineAction({
       .string()
       .optional()
       .describe("Library search term (sets ?q=… on library/space)"),
+    panel: z
+      .enum(["comments", "transcript", "agent", "insights", "settings"])
+      .optional()
+      .describe("Viewer panel to focus when opening a recording"),
+    atMs: z.coerce
+      .number()
+      .min(0)
+      .optional()
+      .describe("Playback timestamp in milliseconds when opening a recording"),
     path: z
       .string()
       .optional()
@@ -81,7 +91,7 @@ export default defineAction({
     if (!args.view && !args.path) {
       throw new Error("at least --view or --path is required.");
     }
-    const nav: Record<string, string> = {};
+    const nav: Record<string, string | number> = {};
     if (args.view) nav.view = args.view;
     if (args.recordingId) nav.recordingId = args.recordingId;
     if (args.meetingId) nav.meetingId = args.meetingId;
@@ -90,6 +100,8 @@ export default defineAction({
     if (args.folderId) nav.folderId = args.folderId;
     if (args.shareId) nav.shareId = args.shareId;
     if (args.search) nav.search = args.search;
+    if (args.panel) nav.panel = args.panel;
+    if (args.atMs != null) nav.atMs = args.atMs;
     if (args.path) nav.path = args.path;
     await writeAppStateForCurrentTab("navigate", nav);
     const target =
@@ -102,6 +114,8 @@ export default defineAction({
         args.spaceId,
         args.folderId,
         args.shareId,
+        args.panel,
+        args.atMs,
       ]
         .filter(Boolean)
         .join(":");

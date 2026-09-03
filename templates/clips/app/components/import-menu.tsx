@@ -26,6 +26,7 @@ export interface ImportMenuProps {
   className?: string;
   disabled?: boolean;
   iconOnly?: boolean;
+  triggerIcon?: "upload" | "chevron";
   menuAlign?: MenuAlign;
   menuSide?: MenuSide;
   size?: ButtonProps["size"];
@@ -39,6 +40,7 @@ export function ImportMenu({
   className,
   disabled,
   iconOnly = false,
+  triggerIcon = "upload",
   menuAlign = "center",
   menuSide,
   size = iconOnly ? "icon" : "default",
@@ -57,7 +59,7 @@ export function ImportMenu({
       aria-label={t("preRecord.import")}
       className={cn(!iconOnly && "gap-2", className)}
     >
-      <IconUpload />
+      {triggerIcon === "chevron" ? <IconChevronDown /> : <IconUpload />}
       {!iconOnly ? (
         <>
           {t("preRecord.import")}

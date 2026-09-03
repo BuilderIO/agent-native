@@ -22,8 +22,11 @@ import {
   IconDeviceDesktop,
   IconDownload,
   IconDotsVertical,
+  IconFileText,
   IconLock,
   IconLogin2,
+  IconSparkles,
+  IconX,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { eq } from "drizzle-orm";
@@ -57,17 +60,13 @@ import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
-import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { RequestAccessDialog } from "@/components/player/request-access-dialog";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
-import {
-  TimestampedCommentBar,
-  TimestampedCommentButton,
-} from "@/components/player/timestamped-comment-button";
+import { TimestampedCommentBar } from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
   VideoPlayer,
@@ -83,7 +82,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -142,6 +140,8 @@ type SharePageLoaderData = {
   accessDeniedStatus?: 401 | 403;
   accessRequestToken?: string;
 };
+
+type SharePanel = "transcript" | "agent";
 
 function emptyLoaderData(
   url: URL,
@@ -489,7 +489,8 @@ export default function ShareRoute() {
     null,
   );
   const [processingTimeout, setProcessingTimeout] = useState(false);
-  const [panel, setPanel] = useState("comments");
+  const [panel, setPanel] = useState<SharePanel | null>(null);
+  const commentsSectionRef = useRef<HTMLElement | null>(null);
   const requireSignIn = useCallback(
     (intent: "comment" | "react") => setSignInIntent(intent),
     [],
@@ -706,14 +707,7 @@ export default function ShareRoute() {
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
-  useEffect(() => {
-    if (!viewerCanEdit && panel === "insights") {
-      setPanel("comments");
-    }
-  }, [panel, viewerCanEdit]);
-
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
-  const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -1179,7 +1173,7 @@ export default function ShareRoute() {
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
 
   return (
-    <div className="clips-recording-view flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden [&_.agent-composer-root]:!bg-background [&_.agent-composer-root]:!border-0">
+    <div className="clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background xl:h-screen xl:flex-row [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background">
       {agentDiscovery}
       <div className="flex min-h-0 w-full min-w-0 flex-col overflow-y-auto xl:flex-1 xl:overflow-y-hidden">
         <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 xl:flex-nowrap">
@@ -1222,11 +1216,37 @@ export default function ShareRoute() {
             <RecordingViewsBadge
               recordingId={recording.id}
               viewCount={viewCount}
-              agentViewCount={agentViewCount}
+              reactionCount={reactions.length}
+              durationMs={recording.durationMs}
               canViewDetails={viewerCanEdit}
-              onOpenInsights={() => setPanel("insights")}
               className="shrink-0 border-0 shadow-none"
             />
+            <Button
+              variant={panel === "transcript" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-8 gap-1.5 px-2.5 text-xs"
+              onClick={() =>
+                setPanel((current) =>
+                  current === "transcript" ? null : "transcript",
+                )
+              }
+            >
+              <IconFileText className="size-4" />
+              {t("sharePage.transcript")}
+            </Button>
+            {session ? (
+              <Button
+                variant={panel === "agent" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() =>
+                  setPanel((current) => (current === "agent" ? null : "agent"))
+                }
+              >
+                <IconSparkles className="size-4" />
+                {t("sharePage.agent")}
+              </Button>
+            ) : null}
             {session ? null : (
               <SignedOutShareActions
                 recordingId={recording.id}
@@ -1245,6 +1265,7 @@ export default function ShareRoute() {
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
+                expiresAt={recording.expiresAt}
                 viewerReshareOnly={viewerReshareOnly}
               >
                 <ClipsShareTrigger
@@ -1301,354 +1322,340 @@ export default function ShareRoute() {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0 sm:gap-4 sm:p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
-          <div className="relative aspect-video w-full xl:min-h-0 xl:flex-1 xl:aspect-auto">
-            <VideoPlayer
-              ref={playerRef}
-              onVideoElementChange={setTrackedVideoEl}
-              recordingId={recording.id}
-              videoUrl={recording.videoUrl}
-              mediaVersion={
-                recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
-              }
-              videoFormat={recording.videoFormat}
-              embedProvider={isLoomEmbedBacked ? "loom" : null}
-              durationMs={recording.durationMs}
-              startMs={resolveStartMs(startMs, recording.durationMs)}
-              persistPlaybackPosition={Boolean(session)}
-              editsJson={recording.editsJson}
-              thumbnailUrl={recording.thumbnailUrl}
-              role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
-              defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
-              comments={comments}
-              chapters={chapters}
-              reactions={reactions}
-              transcriptSegments={transcriptSegments}
-              cta={firstCta}
-              onCtaClick={() => tracking.reportCtaClick()}
-              onTimeUpdate={(ms) => setCurrentMs(ms)}
-              onCommentClick={
-                viewerCanUseFullscreenInteractions
-                  ? () => setPanel("comments")
-                  : undefined
-              }
-              onFullscreenChange={setIsPlayerFullscreen}
-              enableComments={
-                recording.enableComments && viewerCanUseFullscreenInteractions
-              }
-              onAddComment={
-                viewerCanUseFullscreenInteractions
-                  ? () => {
-                      if (!session) {
-                        requireSignIn("comment");
-                        return;
-                      }
-                      const liveCt = isLoomEmbedBacked
-                        ? null
-                        : playerRef.current?.video?.currentTime;
-                      const liveMs =
-                        typeof liveCt === "number" &&
-                        Number.isFinite(liveCt) &&
-                        liveCt >= 0 &&
-                        liveCt < 1e7
-                          ? Math.floor(liveCt * 1000)
-                          : playbackMs;
-                      setCommentAtMs(liveMs);
-                      setCommentOpen(true);
-                    }
-                  : undefined
-              }
-              enableReactions={
-                recording.enableReactions && viewerCanUseFullscreenInteractions
-              }
-              onReact={
-                viewerCanUseFullscreenInteractions
-                  ? (emoji) => {
-                      if (!session) {
-                        requireSignIn("react");
-                        return false;
-                      }
-                      tracking.reportReaction(emoji);
-                      const liveCt = isLoomEmbedBacked
-                        ? null
-                        : playerRef.current?.video?.currentTime;
-                      const liveMs =
-                        typeof liveCt === "number" &&
-                        Number.isFinite(liveCt) &&
-                        liveCt >= 0 &&
-                        liveCt < 1e7
-                          ? Math.floor(liveCt * 1000)
-                          : playbackMs;
-                      return fetch(
-                        agentNativePath(
-                          "/_agent-native/actions/react-to-recording",
-                        ),
-                        {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            recordingId: recording.id,
-                            emoji,
-                            videoTimestampMs: liveMs,
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 pb-10 sm:px-4">
+            <div className="relative aspect-video w-full">
+              <VideoPlayer
+                ref={playerRef}
+                onVideoElementChange={setTrackedVideoEl}
+                recordingId={recording.id}
+                videoUrl={recording.videoUrl}
+                mediaVersion={
+                  recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
+                }
+                videoFormat={recording.videoFormat}
+                embedProvider={isLoomEmbedBacked ? "loom" : null}
+                durationMs={recording.durationMs}
+                startMs={resolveStartMs(startMs, recording.durationMs)}
+                persistPlaybackPosition={Boolean(session)}
+                editsJson={recording.editsJson}
+                thumbnailUrl={recording.thumbnailUrl}
+                role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
+                defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
+                comments={comments}
+                chapters={chapters}
+                reactions={reactions}
+                transcriptSegments={transcriptSegments}
+                cta={firstCta}
+                onCtaClick={() => tracking.reportCtaClick()}
+                onTimeUpdate={(ms) => setCurrentMs(ms)}
+                onCommentClick={
+                  viewerCanUseFullscreenInteractions
+                    ? () => {
+                        setPanel(null);
+                        requestAnimationFrame(() =>
+                          commentsSectionRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
                           }),
-                        },
-                      )
-                        .then((res) => {
-                          if (!res.ok)
-                            throw new Error(`react failed: ${res.status}`);
-                          return dataQ.refetch();
-                        })
-                        .then(() => true)
-                        .catch((err) => {
-                          console.warn("[clips] react failed", err);
+                        );
+                      }
+                    : undefined
+                }
+                onFullscreenChange={setIsPlayerFullscreen}
+                enableComments={
+                  recording.enableComments && viewerCanUseFullscreenInteractions
+                }
+                onAddComment={
+                  viewerCanUseFullscreenInteractions
+                    ? () => {
+                        if (!session) {
+                          requireSignIn("comment");
+                          return;
+                        }
+                        const liveCt = isLoomEmbedBacked
+                          ? null
+                          : playerRef.current?.video?.currentTime;
+                        const liveMs =
+                          typeof liveCt === "number" &&
+                          Number.isFinite(liveCt) &&
+                          liveCt >= 0 &&
+                          liveCt < 1e7
+                            ? Math.floor(liveCt * 1000)
+                            : playbackMs;
+                        setCommentAtMs(liveMs);
+                        setCommentOpen(true);
+                      }
+                    : undefined
+                }
+                enableReactions={
+                  recording.enableReactions &&
+                  viewerCanUseFullscreenInteractions
+                }
+                onReact={
+                  viewerCanUseFullscreenInteractions
+                    ? (emoji) => {
+                        if (!session) {
+                          requireSignIn("react");
                           return false;
-                        });
-                    }
-                  : undefined
-              }
-              className="h-full w-full rounded-none sm:rounded-xl"
-            />
-            {commentOpen && viewerCanComment
-              ? (() => {
-                  const composer = (
-                    <TimestampedCommentBar
-                      recordingId={recording.id}
-                      atMs={commentAtMs}
-                      draft={commentDraft}
-                      onDraftChange={setCommentDraft}
-                      onClose={() => setCommentOpen(false)}
-                      onAdded={() => {
-                        setPanel("comments");
-                        void dataQ.refetch();
+                        }
+                        tracking.reportReaction(emoji);
+                        const liveCt = isLoomEmbedBacked
+                          ? null
+                          : playerRef.current?.video?.currentTime;
+                        const liveMs =
+                          typeof liveCt === "number" &&
+                          Number.isFinite(liveCt) &&
+                          liveCt >= 0 &&
+                          liveCt < 1e7
+                            ? Math.floor(liveCt * 1000)
+                            : playbackMs;
+                        return fetch(
+                          agentNativePath(
+                            "/_agent-native/actions/react-to-recording",
+                          ),
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              recordingId: recording.id,
+                              emoji,
+                              videoTimestampMs: liveMs,
+                            }),
+                          },
+                        )
+                          .then((res) => {
+                            if (!res.ok)
+                              throw new Error(`react failed: ${res.status}`);
+                            return dataQ.refetch();
+                          })
+                          .then(() => true)
+                          .catch((err) => {
+                            console.warn("[clips] react failed", err);
+                            return false;
+                          });
+                      }
+                    : undefined
+                }
+                className="h-full w-full rounded-none sm:rounded-xl"
+              />
+              {commentOpen && viewerCanComment
+                ? (() => {
+                    const composer = (
+                      <TimestampedCommentBar
+                        recordingId={recording.id}
+                        atMs={commentAtMs}
+                        draft={commentDraft}
+                        onDraftChange={setCommentDraft}
+                        onClose={() => setCommentOpen(false)}
+                        onAdded={() => {
+                          setPanel(null);
+                          void dataQ.refetch();
+                        }}
+                      />
+                    );
+                    // The Fullscreen API only paints the player's own element,
+                    // so portal the composer there instead of exiting
+                    // fullscreen when it's open.
+                    const fullscreenContainer =
+                      isPlayerFullscreen && playerRef.current?.container;
+                    return fullscreenContainer
+                      ? createPortal(composer, fullscreenContainer)
+                      : composer;
+                  })()
+                : null}
+            </div>
+
+            <section className="flex shrink-0 flex-col gap-3 px-4 sm:flex-row sm:items-start sm:px-0">
+              <div className="min-w-0 flex-1">
+                <div className="mb-3 sm:hidden">
+                  {showTitleSkeleton ? (
+                    <Skeleton
+                      aria-label={t("sharePage.generatingTitle")}
+                      className="h-7 w-72 max-w-full"
+                    />
+                  ) : (
+                    <h1 className="truncate text-2xl font-semibold leading-tight">
+                      {visibleTitle}
+                    </h1>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {recording.enableReactions ? (
+                    <ReactionsTray
+                      reactions={reactions}
+                      disabled={Boolean(session) && !viewerCanComment}
+                      className="border-0 shadow-none"
+                      onReact={(emoji) => {
+                        if (!session) {
+                          requireSignIn("react");
+                          return false;
+                        }
+                        tracking.reportReaction(emoji);
+                        const liveMs =
+                          playerRef.current?.getCurrentOriginalMs() ??
+                          playbackMs;
+                        return fetch(
+                          agentNativePath(
+                            "/_agent-native/actions/react-to-recording",
+                          ),
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              recordingId: recording.id,
+                              emoji,
+                              videoTimestampMs: liveMs,
+                            }),
+                          },
+                        )
+                          .then((res) => {
+                            if (!res.ok)
+                              throw new Error(`react failed: ${res.status}`);
+                            return dataQ.refetch();
+                          })
+                          .then(() => true)
+                          .catch((err) => {
+                            console.warn("[clips] react failed", err);
+                            return false;
+                          });
                       }}
                     />
-                  );
-                  // The Fullscreen API only paints the player's own element,
-                  // so portal the composer there instead of exiting
-                  // fullscreen when it's open.
-                  const fullscreenContainer =
-                    isPlayerFullscreen && playerRef.current?.container;
-                  return fullscreenContainer
-                    ? createPortal(composer, fullscreenContainer)
-                    : composer;
-                })()
-              : null}
-          </div>
+                  ) : null}
+                </div>
+                {recording.description ? (
+                  <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                    {recording.description}
+                  </p>
+                ) : null}
+                {viewerCanEdit && canDownloadRecording ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={downloadRecording}
+                    disabled={downloading}
+                    className="mt-3 gap-1.5 border-0 shadow-none"
+                  >
+                    <IconDownload className="h-4 w-4" />
+                    {downloading
+                      ? t("sharePage.downloading")
+                      : t("recordRoute.downloadRecording")}
+                  </Button>
+                ) : null}
+              </div>
+            </section>
 
-          <div className="flex shrink-0 flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:px-0 sm:py-0">
-            <div className="min-w-0 flex-1">
-              <div className="mb-3 sm:hidden">
-                {showTitleSkeleton ? (
-                  <Skeleton
-                    aria-label={t("sharePage.generatingTitle")}
-                    className="h-7 w-72 max-w-full"
-                  />
-                ) : (
-                  <h1 className="truncate text-2xl font-semibold leading-tight">
-                    {visibleTitle}
-                  </h1>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {recording.enableComments ? (
-                  <TimestampedCommentButton
-                    enableComments={recording.enableComments}
-                    canComment={!session || viewerCanComment}
-                    className="shrink-0 border-0 shadow-none"
-                    onOpen={() => {
-                      if (!session) {
-                        requireSignIn("comment");
-                        return;
-                      }
-                      const liveMs =
-                        playerRef.current?.getCurrentOriginalMs() ?? playbackMs;
-                      setCommentAtMs(liveMs);
-                      setCommentOpen(true);
-                    }}
-                  />
-                ) : null}
-                {recording.enableReactions ? (
-                  <ReactionsTray
-                    reactions={reactions}
-                    disabled={Boolean(session) && !viewerCanComment}
-                    className="border-0 shadow-none"
-                    onReact={(emoji) => {
-                      if (!session) {
-                        requireSignIn("react");
-                        return false;
-                      }
-                      tracking.reportReaction(emoji);
-                      const liveMs =
-                        playerRef.current?.getCurrentOriginalMs() ?? playbackMs;
-                      return fetch(
-                        agentNativePath(
-                          "/_agent-native/actions/react-to-recording",
-                        ),
-                        {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            recordingId: recording.id,
-                            emoji,
-                            videoTimestampMs: liveMs,
-                          }),
-                        },
-                      )
-                        .then((res) => {
-                          if (!res.ok)
-                            throw new Error(`react failed: ${res.status}`);
-                          return dataQ.refetch();
-                        })
-                        .then(() => true)
-                        .catch((err) => {
-                          console.warn("[clips] react failed", err);
-                          return false;
-                        });
-                    }}
-                  />
-                ) : null}
-              </div>
-              {recording.description ? (
-                <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                  {recording.description}
-                </p>
-              ) : null}
-              {viewerCanEdit && canDownloadRecording ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={downloadRecording}
-                  disabled={downloading}
-                  className="mt-3 gap-1.5 border-0 shadow-none"
-                >
-                  <IconDownload className="h-4 w-4" />
-                  {downloading
-                    ? t("sharePage.downloading")
-                    : t("recordRoute.downloadRecording")}
-                </Button>
-              ) : null}
-            </div>
+            {recording.enableComments ? (
+              <section
+                ref={commentsSectionRef}
+                className="mx-4 border-t border-border pt-5 sm:mx-0"
+              >
+                <div className="mb-4 flex items-center gap-2">
+                  <h2 className="text-sm font-semibold">
+                    {t("sharePage.comments")}
+                  </h2>
+                  {comments.length > 0 ? (
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {comments.length}
+                    </span>
+                  ) : null}
+                </div>
+                <CommentsPanel
+                  recordingId={recording.id}
+                  comments={comments}
+                  currentMs={playbackMs}
+                  currentUserEmail={session?.email}
+                  currentUserName={session?.name}
+                  enableComments={recording.enableComments}
+                  canComment={viewerCanComment}
+                  onSeek={(ms) => playerRef.current?.seek(ms)}
+                  onUnauthenticated={requireSignIn}
+                  queryKey={[
+                    "public-recording",
+                    shareId,
+                    password,
+                    agentAccessToken,
+                    session?.email ?? null,
+                  ]}
+                  selectComments={(d: any) => d?.data?.comments}
+                  applyComments={(d: any, next) =>
+                    d
+                      ? { ...d, data: { ...(d.data ?? {}), comments: next } }
+                      : d
+                  }
+                  presentation="inline"
+                />
+              </section>
+            ) : null}
           </div>
-        </div>
+        </main>
       </div>
 
-      <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted xl:w-[380px] xl:flex-none">
-        <Tabs
-          value={panel}
-          onValueChange={setPanel}
-          className="flex h-full flex-col"
-        >
-          <TabsList
-            className={`mx-3 mt-3 grid w-auto ${viewerCanEdit ? "grid-cols-4" : "grid-cols-3"}`}
-          >
-            <TabsTrigger value="comments" className="text-xs gap-1">
-              {t("recordingPage.activity")}
-              {comments.length > 0 ? (
-                <span className="ms-0.5 rounded-full bg-accent px-1.5 text-[10px] tabular-nums">
-                  {comments.length}
-                </span>
-              ) : null}
-            </TabsTrigger>
-            <TabsTrigger value="transcript" className="text-xs">
-              {t("sharePage.transcript")}
-            </TabsTrigger>
-            <TabsTrigger value="agent" className="text-xs">
-              {t("sharePage.agent")}
-            </TabsTrigger>
-            {viewerCanEdit ? (
-              <TabsTrigger value="insights" className="text-xs">
-                {t("sharePage.insights")}
-              </TabsTrigger>
-            ) : null}
-          </TabsList>
-          <TabsContent
-            value="agent"
-            className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
-          >
-            {sessionStatus === "loading" ||
-            sessionStatus === "signing-out" ? null : session ? (
-              <AgentPanel
-                emptyStateText={t("recordingPage.askAboutClip")}
-                dynamicSuggestions={false}
-                scope={
-                  recording
-                    ? { type: "recording" as const, id: recording.id }
-                    : null
-                }
-                missingApiKeySetupLayout="sidebar"
-                suggestions={[
-                  t("recordingPage.summarizeClip"),
-                  t("recordingPage.findKeyMoments"),
-                  t("recordingPage.listFollowUpActions"),
-                  t("recordingPage.draftQuestions"),
-                ]}
-                browserTabId={getBrowserTabId()}
-                showHeader={false}
-                showTabBar={false}
-              />
-            ) : (
-              <PublicAgentEmptyState
-                signupHref={signupHref}
-                onCtaClick={fireShareCtaClick}
-              />
-            )}
-          </TabsContent>
-          <TabsContent
-            value="transcript"
-            className="mt-3 min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
-          >
-            <TranscriptPanel
-              segments={transcriptSegments}
-              fullText={transcriptFullText}
-              durationMs={recording.durationMs}
-              currentMs={playbackMs}
-              onSeek={(ms) => playerRef.current?.seek(ms)}
-              status={transcriptStatus}
-              failureReason={transcriptFailureReason}
-              recordingTitle={recording.title}
-            />
-          </TabsContent>
-          <TabsContent
-            value="comments"
-            className="mt-3 min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
-          >
-            <CommentsPanel
-              recordingId={recording.id}
-              comments={comments}
-              currentMs={playbackMs}
-              currentUserEmail={session?.email}
-              currentUserName={session?.name}
-              enableComments={recording.enableComments}
-              canComment={viewerCanComment}
-              onSeek={(ms) => playerRef.current?.seek(ms)}
-              onUnauthenticated={requireSignIn}
-              queryKey={[
-                "public-recording",
-                shareId,
-                password,
-                agentAccessToken,
-                session?.email ?? null,
-              ]}
-              selectComments={(d: any) => d?.data?.comments}
-              applyComments={(d: any, next) =>
-                d ? { ...d, data: { ...(d.data ?? {}), comments: next } } : d
-              }
-              presentation="share"
-            />
-          </TabsContent>
-          {viewerCanEdit ? (
-            <TabsContent
-              value="insights"
-              className="mt-3 min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
+      {panel ? (
+        <aside className="absolute inset-0 flex min-h-0 min-w-0 flex-col border-l border-border bg-background xl:static xl:w-[380px] xl:flex-none">
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+            <h2 className="text-sm font-semibold">
+              {panel === "transcript"
+                ? t("sharePage.transcript")
+                : t("sharePage.agent")}
+            </h2>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label={t("autoRecordPrompt.dismiss")}
+              onClick={() => setPanel(null)}
             >
-              <InsightsPanel
-                recordingId={recording.id}
-                durationMs={recording.durationMs}
-              />
-            </TabsContent>
+              <IconX className="size-4" />
+            </Button>
+          </div>
+          {panel === "agent" ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              {sessionStatus === "loading" ||
+              sessionStatus === "signing-out" ? null : session ? (
+                <AgentPanel
+                  emptyStateText={t("recordingPage.askAboutClip")}
+                  dynamicSuggestions={false}
+                  scope={
+                    recording
+                      ? { type: "recording" as const, id: recording.id }
+                      : null
+                  }
+                  missingApiKeySetupLayout="sidebar"
+                  suggestions={[
+                    t("recordingPage.summarizeClip"),
+                    t("recordingPage.findKeyMoments"),
+                    t("recordingPage.listFollowUpActions"),
+                    t("recordingPage.draftQuestions"),
+                  ]}
+                  browserTabId={getBrowserTabId()}
+                  showHeader={false}
+                  showTabBar={false}
+                />
+              ) : (
+                <PublicAgentEmptyState
+                  signupHref={signupHref}
+                  onCtaClick={fireShareCtaClick}
+                />
+              )}
+            </div>
           ) : null}
-        </Tabs>
-      </aside>
+          {panel === "transcript" ? (
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+              <TranscriptPanel
+                segments={transcriptSegments}
+                fullText={transcriptFullText}
+                durationMs={recording.durationMs}
+                currentMs={playbackMs}
+                onSeek={(ms) => playerRef.current?.seek(ms)}
+                status={transcriptStatus}
+                failureReason={transcriptFailureReason}
+                recordingTitle={recording.title}
+              />
+            </div>
+          ) : null}
+        </aside>
+      ) : null}
 
       <SignInPromptDialog
         open={signInIntent !== null}
@@ -1656,7 +1663,9 @@ export default function ShareRoute() {
           if (!open) setSignInIntent(null);
         }}
         intent={signInIntent ?? "comment"}
+        returnTo={shareReturnTo}
         onSignIn={() => fireShareCtaClick("signin")}
+        onSignUp={() => fireShareCtaClick("signup")}
       />
     </div>
   );

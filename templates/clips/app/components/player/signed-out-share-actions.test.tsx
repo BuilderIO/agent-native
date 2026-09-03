@@ -6,13 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildShareSignInHref,
+  buildShareSignUpHref,
   SignedOutShareActions,
 } from "./signed-out-share-actions";
-
-vi.mock("@agent-native/core/client/api-path", () => ({
-  agentNativePath: (path: string) => path,
-  appPath: (path: string) => `/clips${path}`,
-}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -38,9 +34,12 @@ describe("SignedOutShareActions", () => {
     container.remove();
   });
 
-  it("shows a sign-in link that returns to the shared clip", () => {
+  it("shows sign-in and free-account links that return to the shared clip", () => {
     expect(buildShareSignInHref("clip/1")).toBe(
       "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1",
+    );
+    expect(buildShareSignUpHref("clip/1")).toBe(
+      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1&tab=signup",
     );
 
     act(() => {
@@ -52,7 +51,7 @@ describe("SignedOutShareActions", () => {
     );
     expect(signInLink).not.toBeNull();
     expect(signInLink?.textContent).toContain("sharePage.signIn");
-    expect(container.textContent).toContain("sharePage.tryClips");
+    expect(container.textContent).toContain("sharePage.getClipsFree");
   });
 
   it("preserves only the timestamp in the sign-in return path", () => {
@@ -68,6 +67,9 @@ describe("SignedOutShareActions", () => {
 
     expect(container.querySelector("a")?.getAttribute("href")).toBe(
       "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D1%253A30",
+    );
+    expect(container.querySelectorAll("a")[1]?.getAttribute("href")).toBe(
+      "/_agent-native/sign-in?return=%2Fshare%2Fclip%2F1%3Fat%3D1%253A30&tab=signup",
     );
   });
 
@@ -85,6 +87,6 @@ describe("SignedOutShareActions", () => {
     act(() => links[1]?.click());
 
     expect(onCtaClick).toHaveBeenNthCalledWith(1, "signin");
-    expect(onCtaClick).toHaveBeenNthCalledWith(2, "try_clips");
+    expect(onCtaClick).toHaveBeenNthCalledWith(2, "signup");
   });
 });

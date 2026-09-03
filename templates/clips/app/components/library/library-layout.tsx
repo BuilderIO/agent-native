@@ -2,17 +2,15 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { appPath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
   InvitationBanner,
   OrgSwitcher,
   useOrgRole,
 } from "@agent-native/core/client/org";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import { AgentNativeIcon } from "@agent-native/core/client/ui";
 import {
   IconInbox,
   IconArchive,
@@ -21,24 +19,21 @@ import {
   IconTrash,
   IconUsersGroup,
   IconFolderPlus,
-  IconPlayerRecord,
-  IconAppWindow,
+  IconBrandChrome,
+  IconDownload,
   IconMenu2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconPlus,
   IconShare,
-  IconSettings,
   IconSearch,
   IconDots,
   IconEdit,
 } from "@tabler/icons-react";
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
-import { CaptureInstallInlineLink } from "@/components/capture-install-options";
-import { ImportMenu } from "@/components/import-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,7 +43,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,16 +64,21 @@ import {
 } from "@/hooks/use-library";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePrefetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
+import {
+  clipsChromeExtensionUrl,
+  useClipsChromeExtensionEnabled,
+} from "@/lib/capture-install-options";
+import { SEARCH_FOCUS_PATH } from "@/lib/search-focus";
 import { cn } from "@/lib/utils";
 
 import { CreateSpaceDialog } from "./create-space-dialog";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { PageHeaderSlotProvider } from "./page-header";
-import { SearchBar } from "./search-bar";
 import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
   children: ReactNode;
+  showAgentToggle?: boolean;
 }
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "clips:left-sidebar-collapsed";
@@ -100,7 +99,10 @@ function ClipsAgentToggleButton() {
   return <AgentToggleButton />;
 }
 
-export function LibraryLayout({ children }: LibraryLayoutProps) {
+export function LibraryLayout({
+  children,
+  showAgentToggle = true,
+}: LibraryLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
@@ -120,6 +122,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   }>();
 
   const { shouldShowSidebarLink } = useDesktopPromo();
+  const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
   usePrefetchVideoStorageStatus();
 
   const { org, canManageOrg } = useOrgRole();
@@ -165,7 +168,44 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   );
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const showCollapsedSidebar = sidebarCollapsed && !isMobile;
-
+  const workspaceUtilityLinks = [
+    ...(chromeExtensionEnabled && clipsChromeExtensionUrl
+      ? [
+          {
+            id: "chrome-extension",
+            label: t("captureInstall.chromeTitle"),
+            href: clipsChromeExtensionUrl,
+            icon: <IconBrandChrome />,
+            external: true,
+          },
+        ]
+      : []),
+    ...(shouldShowSidebarLink
+      ? [
+          {
+            id: "desktop-app",
+            label: t("navigation.desktopCta"),
+            href: appPath("/download"),
+            icon: <IconDownload />,
+          },
+        ]
+      : []),
+  ];
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("root.commandSearch")}
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+          onClick={() => navigate(SEARCH_FOCUS_PATH)}
+        >
+          <IconSearch className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
   const collapseButton = !isMobile ? (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -176,13 +216,13 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               ? t("navigation.expandSidebar")
               : t("navigation.collapseSidebar")
           }
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
           onClick={() => setSidebarCollapsed((value) => !value)}
         >
           {showCollapsedSidebar ? (
-            <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+            <IconLayoutSidebarLeftExpand className="size-4" />
           ) : (
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+            <IconLayoutSidebarLeftCollapse className="size-4" />
           )}
         </button>
       </TooltipTrigger>
@@ -193,43 +233,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </TooltipContent>
     </Tooltip>
   ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("root.commandSearch")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-          onClick={openCommandMenu}
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
-    </Tooltip>
-  );
-  const feedbackButton = (
-    <FeedbackButton
-      variant={showCollapsedSidebar ? "icon" : "sidebar"}
-      side="right"
-      className={showCollapsedSidebar ? "size-8" : "min-w-0"}
-    />
-  );
-  const sidebarHasNewRecordingAction = isMobile
-    ? sidebarOpen
-    : !sidebarCollapsed;
-
   // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
   // + AgentSidebar, but skips its own header so there's no double-header.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
-  const pageHasHeaderSearch =
-    location.pathname.startsWith("/library") ||
-    location.pathname === "/shared" ||
-    location.pathname === "/archive" ||
-    /^\/spaces\/[^/]+/.test(location.pathname);
-
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
@@ -241,7 +249,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         sidebarCollapsed ? "true" : "false",
       );
     } catch {
-      // Ignore browsers that block localStorage; the toggle still works.
+      // The preference is optional when storage is unavailable.
     }
   }, [sidebarCollapsed]);
 
@@ -307,19 +315,115 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     },
   ];
 
-  const bottomNavItems: {
-    to: string;
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-    match: (path: string) => boolean;
-  }[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      match: (p) => p.startsWith("/settings"),
-    },
-  ];
+  const primaryNavItems = navItems.filter(
+    ({ to }) => to !== "/archive" && to !== "/trash",
+  );
+  const lifecycleNavItems = navItems.filter(
+    ({ to }) => to === "/archive" || to === "/trash",
+  );
+
+  const renderExpandedNavItem = ({
+    to,
+    label,
+    icon: Icon,
+    match,
+    count,
+  }: (typeof navItems)[number]) => {
+    const active = match(location.pathname);
+    const action =
+      to === "/library" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("navigation.newFolder")}
+              className="me-1 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => setNewFolderOpen(true)}
+            >
+              <IconFolderPlus className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {t("navigation.newFolder")}
+          </TooltipContent>
+        </Tooltip>
+      ) : to === "/spaces" && canManageOrg ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("createSpaceDialog.newSpace")}
+              className="me-1 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => setNewSpaceOpen(true)}
+            >
+              <IconPlus className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {t("createSpaceDialog.newSpace")}
+          </TooltipContent>
+        </Tooltip>
+      ) : null;
+
+    return (
+      <div
+        key={to}
+        className={cn(
+          "group flex items-center rounded",
+          active
+            ? "bg-primary/10 font-medium text-primary"
+            : "text-foreground hover:bg-accent/60",
+        )}
+      >
+        <NavLink
+          to={to}
+          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs"
+        >
+          <Icon className="size-4 shrink-0" />
+          <span className="flex-1 truncate">{label}</span>
+          {count !== undefined && count > 0 && (
+            <span
+              className={cn(
+                "shrink-0 tabular-nums text-[11px]",
+                active ? "text-primary/80" : "text-muted-foreground",
+              )}
+            >
+              {count}
+            </span>
+          )}
+        </NavLink>
+        {action}
+      </div>
+    );
+  };
+
+  const renderCollapsedNavItem = ({
+    to,
+    label,
+    icon: Icon,
+    match,
+  }: (typeof navItems)[number]) => {
+    const active = match(location.pathname);
+
+    return (
+      <Tooltip key={to}>
+        <TooltipTrigger asChild>
+          <NavLink
+            to={to}
+            aria-label={label}
+            className={cn(
+              "flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              active &&
+                "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
+            )}
+          >
+            <Icon className="size-4" />
+          </NavLink>
+        </TooltipTrigger>
+        <TooltipContent side="right">{label}</TooltipContent>
+      </Tooltip>
+    );
+  };
 
   return (
     <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
@@ -343,29 +447,17 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       >
         <div
           className={cn(
-            "flex h-12 shrink-0 items-center border-b border-border",
+            "flex h-14 shrink-0 items-center border-b border-border",
             showCollapsedSidebar ? "justify-center px-2" : "px-4",
           )}
         >
-          <button
-            type="button"
-            onClick={() => {
-              if (!isMobile) setSidebarCollapsed((value) => !value);
-            }}
-            aria-label={
-              isMobile
-                ? t("navigation.brand")
-                : showCollapsedSidebar
-                  ? t("navigation.expandSidebar")
-                  : t("navigation.collapseSidebar")
-            }
+          <NavLink
+            to="/library"
+            aria-label={t("navigation.brand")}
             className={cn(
-              "flex min-w-0 items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              showCollapsedSidebar
-                ? "size-8 justify-center"
-                : "flex-1 text-start",
+              "flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              showCollapsedSidebar ? "size-8 justify-center" : "flex-1",
             )}
-            data-sidebar-brand-toggle
           >
             <AgentNativeIcon
               aria-hidden="true"
@@ -376,324 +468,145 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 {t("navigation.brand")}
               </span>
             )}
-          </button>
+          </NavLink>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {showCollapsedSidebar ? (
-            <>
-              <div className="flex justify-center px-2 py-3">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <NavLink
-                      to="/record"
-                      aria-label={t("navigation.newRecording")}
-                      className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
-                    >
-                      <IconPlayerRecord className="h-4 w-4" />
-                    </NavLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("navigation.newRecording")}
-                  </TooltipContent>
-                </Tooltip>
+            <nav className="flex flex-col items-center gap-1 px-2 py-3">
+              {primaryNavItems.map(renderCollapsedNavItem)}
+              <div className="mt-2 flex flex-col items-center gap-1 border-t border-border/70 pt-2">
+                {lifecycleNavItems.map(renderCollapsedNavItem)}
               </div>
-
-              <div className="flex flex-col items-center gap-1 px-2">
-                <ImportMenu
-                  uploadHref="/record?autoUpload=1"
-                  importLoomHref="/import"
-                  iconOnly
-                  variant="ghost"
-                  menuSide="right"
-                  menuAlign="start"
-                />
-              </div>
-
-              <nav className="mt-3 flex flex-col items-center gap-1 px-2">
-                {navItems.map(({ to, label, icon: Icon, match }) => {
-                  const active = match(location.pathname);
-                  return (
-                    <Tooltip key={to}>
-                      <TooltipTrigger asChild>
-                        <NavLink
-                          to={to}
-                          aria-label={label}
-                          className={cn(
-                            "flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                            active &&
-                              "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
-                          )}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </NavLink>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">{label}</TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </nav>
-            </>
+            </nav>
           ) : (
             <>
-              <div className="px-3 py-3">
-                <Button className="w-full" size="sm" asChild>
-                  <NavLink to="/record">{t("navigation.newRecording")}</NavLink>
-                </Button>
-                <ImportMenu
-                  uploadHref="/record?autoUpload=1"
-                  importLoomHref="/import"
-                  size="sm"
-                  variant="ghost"
-                  className="mt-1.5 w-full"
-                />
-              </div>
+              <nav className="space-y-0.5 px-2 py-3">
+                {primaryNavItems.map((item) => (
+                  <Fragment key={item.to}>
+                    {renderExpandedNavItem(item)}
+                    {item.to === "/library" && libFolderList.length > 0 && (
+                      <div className="ms-4 border-s border-border/70 ps-1">
+                        <FolderTree
+                          folders={libFolderList}
+                          organizationId={currentOrganizationId}
+                          spaceId={null}
+                          buildPath={(id) => `/library/folder/${id}`}
+                          activeFolderId={folderId ?? null}
+                        />
+                      </div>
+                    )}
+                    {item.to === "/spaces" &&
+                      (spaces?.spaces ?? []).length > 0 && (
+                        <ul className="ms-4 space-y-0.5 border-s border-border/70 ps-1">
+                          {(spaces?.spaces ?? []).map((s: any) => {
+                            const active = spaceId === s.id;
+                            return (
+                              <li key={s.id}>
+                                <div
+                                  className={cn(
+                                    "group flex items-center gap-2 rounded px-2 py-1 text-xs",
+                                    active
+                                      ? "bg-primary/10 text-primary"
+                                      : "text-foreground hover:bg-accent/60",
+                                  )}
+                                >
+                                  <NavLink
+                                    to={`/spaces/${s.id}`}
+                                    className="flex min-w-0 flex-1 items-center gap-2"
+                                  >
+                                    <div
+                                      className="flex size-4 shrink-0 items-center justify-center rounded text-[10px]"
+                                      style={{
+                                        background:
+                                          s.color ?? "hsl(var(--primary))",
+                                        color: "hsl(var(--primary-foreground))",
+                                      }}
+                                    >
+                                      {s.iconEmoji ??
+                                        s.name.slice(0, 1).toUpperCase()}
+                                    </div>
+                                    <span className="truncate">{s.name}</span>
+                                  </NavLink>
+                                  {canManageOrg && (
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <button
+                                          type="button"
+                                          aria-label={`${s.name}: ${t("root.commandActions")}`}
+                                          title={`${s.name}: ${t("root.commandActions")}`}
+                                          className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                                        >
+                                          <IconDots className="size-3.5" />
+                                        </button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent
+                                        align="start"
+                                        side="right"
+                                      >
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            setTimeout(() => {
+                                              setRenameSpaceValue(s.name);
+                                              setRenameSpaceId(s.id);
+                                            }, 0);
+                                          }}
+                                        >
+                                          <IconEdit className="me-2 size-3.5" />
+                                          {t("spaceDialog.renameSpace")}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            setTimeout(() => {
+                                              setDeleteSpaceId(s.id);
+                                              setDeleteSpaceName(s.name);
+                                            }, 0);
+                                          }}
+                                          className="text-destructive"
+                                        >
+                                          <IconTrash className="me-2 size-3.5" />
+                                          {t("spaceDialog.deleteSpace")}
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                  </Fragment>
+                ))}
 
-              <nav className="mt-3 space-y-0.5 px-2">
-                {navItems.map(({ to, label, icon: Icon, match, count }) => {
-                  const active = match(location.pathname);
-                  return (
-                    <NavLink
-                      key={to}
-                      to={to}
-                      className={cn(
-                        "flex items-center gap-2 rounded px-2 py-1.5 text-xs",
-                        active
-                          ? "bg-primary/10 font-medium text-primary"
-                          : "text-foreground hover:bg-accent/60",
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                      <span className="flex-1 truncate">{label}</span>
-                      {count !== undefined && count > 0 && (
-                        <span
-                          className={cn(
-                            "shrink-0 tabular-nums text-[11px]",
-                            active
-                              ? "text-primary/80"
-                              : "text-muted-foreground",
-                          )}
-                        >
-                          {count}
-                        </span>
-                      )}
-                    </NavLink>
-                  );
-                })}
+                <div className="mt-3 space-y-0.5 border-t border-border/70 pt-3">
+                  {lifecycleNavItems.map(renderExpandedNavItem)}
+                </div>
               </nav>
-
-              <div className="mt-4 space-y-4 px-2 pb-3">
-                <div>
-                  <div className="flex items-center justify-between px-2 pb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t("navigation.folders")}
-                    </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label={t("navigation.newFolder")}
-                          className="rounded p-1 text-muted-foreground hover:bg-accent"
-                          onClick={() => setNewFolderOpen(true)}
-                        >
-                          <IconFolderPlus className="h-3.5 w-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("navigation.newFolder")}
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <FolderTree
-                    folders={libFolderList}
-                    organizationId={currentOrganizationId}
-                    spaceId={null}
-                    buildPath={(id) => `/library/folder/${id}`}
-                    activeFolderId={folderId ?? null}
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between px-2 pb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t("navigation.spaces")}
-                    </span>
-                    {canManageOrg && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={t("navigation.spaces")}
-                            className="rounded p-1 text-muted-foreground hover:bg-accent"
-                            onClick={() => setNewSpaceOpen(true)}
-                          >
-                            <IconPlus className="h-3.5 w-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {t("navigation.spaces")}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                  <ul className="space-y-0.5">
-                    {(spaces?.spaces ?? []).map((s: any) => {
-                      const active = spaceId === s.id;
-                      return (
-                        <li key={s.id}>
-                          <div
-                            className={cn(
-                              "group flex items-center gap-2 rounded px-2 py-1 text-xs",
-                              active
-                                ? "bg-primary/10 text-primary"
-                                : "text-foreground hover:bg-accent/60",
-                            )}
-                          >
-                            <NavLink
-                              to={`/spaces/${s.id}`}
-                              className="flex min-w-0 flex-1 items-center gap-2"
-                            >
-                              <div
-                                className="flex h-4 w-4 items-center justify-center rounded text-[10px] shrink-0"
-                                style={{
-                                  background: s.color ?? "hsl(var(--primary))",
-                                  color: "white",
-                                }}
-                              >
-                                {s.iconEmoji ??
-                                  s.name.slice(0, 1).toUpperCase()}
-                              </div>
-                              <span className="truncate">{s.name}</span>
-                            </NavLink>
-                            {canManageOrg && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button
-                                    type="button"
-                                    aria-label={`${s.name}: ${t("root.commandActions")}`}
-                                    title={`${s.name}: ${t("root.commandActions")}`}
-                                    className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
-                                  >
-                                    <IconDots className="h-3.5 w-3.5" />
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="start" side="right">
-                                  <DropdownMenuItem
-                                    onSelect={() => {
-                                      setTimeout(() => {
-                                        setRenameSpaceValue(s.name);
-                                        setRenameSpaceId(s.id);
-                                      }, 0);
-                                    }}
-                                  >
-                                    <IconEdit className="h-3.5 w-3.5 me-2" />
-                                    {t("spaceDialog.renameSpace")}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onSelect={() => {
-                                      setTimeout(() => {
-                                        setDeleteSpaceId(s.id);
-                                        setDeleteSpaceName(s.name);
-                                      }, 0);
-                                    }}
-                                    className="text-destructive"
-                                  >
-                                    <IconTrash className="h-3.5 w-3.5 me-2" />
-                                    {t("spaceDialog.deleteSpace")}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
-                    {(spaces?.spaces ?? []).length === 0 && (
-                      <li className="px-2 py-1 text-[11px] text-muted-foreground/70">
-                        {t("navigation.noSpaces")}
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              </div>
             </>
           )}
         </div>
 
-        <div className="shrink-0">
-          {showCollapsedSidebar ? (
-            <nav className="flex flex-col items-center gap-1 px-2 py-1">
-              {bottomNavItems.map(({ to, label, icon: Icon, match }) => (
-                <Tooltip key={to}>
-                  <TooltipTrigger asChild>
-                    <NavLink
-                      to={to}
-                      aria-label={label}
-                      className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                        match(location.pathname) &&
-                          "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </NavLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{label}</TooltipContent>
-                </Tooltip>
-              ))}
-            </nav>
-          ) : (
-            <nav className="space-y-0.5 border-t border-border px-2 py-1">
-              {bottomNavItems.map(({ to, label, icon: Icon, match }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={cn(
-                    "flex items-center gap-2 rounded px-2 py-1.5 text-xs",
-                    match(location.pathname)
-                      ? "bg-primary/10 font-medium text-primary"
-                      : "text-foreground hover:bg-accent/60",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span className="flex-1 truncate">{label}</span>
-                </NavLink>
-              ))}
-            </nav>
+        <div
+          className={cn(
+            "shrink-0 border-t border-border p-2 empty:hidden",
+            showCollapsedSidebar
+              ? "flex flex-col items-center gap-1"
+              : "flex items-center gap-0.5",
           )}
+        >
+          <OrgSwitcher
+            compact={showCollapsedSidebar}
+            className={cn(
+              "bg-transparent hover:bg-accent/60",
+              !showCollapsedSidebar && "min-w-0 flex-1",
+            )}
+            settingsPath="/settings/organization"
+            currentAppId="clips"
+            utilityLinks={workspaceUtilityLinks}
+          />
+          {searchButton}
+          {collapseButton}
         </div>
-
-        {!showCollapsedSidebar && (
-          <>
-            <div className="shrink-0 space-y-1.5 px-2 py-1.5">
-              {shouldShowSidebarLink && (
-                <CaptureInstallInlineLink
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60"
-                  downloadedChildren={
-                    <>
-                      <IconAppWindow className="h-4 w-4" />
-                      {t("captureInstall.openDesktopApp")}
-                    </>
-                  }
-                >
-                  <IconAppWindow className="h-4 w-4" />
-                  {t("navigation.desktopCta")}
-                </CaptureInstallInlineLink>
-              )}
-              {(isMobile || !pageHasHeaderSearch) && <SearchBar />}
-            </div>
-
-            <div className="shrink-0 space-y-2 px-3 py-2 empty:hidden">
-              <OrgSwitcher settingsPath="/settings/organization" />
-              <DevDatabaseLink />
-            </div>
-          </>
-        )}
-        <SidebarFooterActions
-          collapsed={showCollapsedSidebar}
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
       </aside>
 
       <AgentSidebar
@@ -714,6 +627,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           {!pageOwnsToolbar && (
             <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
               <button
+                type="button"
+                aria-label={t("navigation.expandSidebar")}
                 onClick={() => setSidebarOpen(true)}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
               >
@@ -723,17 +638,16 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 ref={setHeaderSlot}
                 className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
               />
-              <div className="ms-auto flex items-center gap-2">
-                <ClipsAgentToggleButton />
-              </div>
+              {showAgentToggle ? (
+                <div className="ms-auto flex items-center gap-2">
+                  <ClipsAgentToggleButton />
+                </div>
+              ) : null}
             </header>
           )}
           <InvitationBanner />
           <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <PageHeaderSlotProvider
-              slot={headerSlot}
-              sidebarHasNewRecordingAction={sidebarHasNewRecordingAction}
-            >
+            <PageHeaderSlotProvider slot={headerSlot}>
               {children}
             </PageHeaderSlotProvider>
           </main>

@@ -11,6 +11,7 @@ import {
   getActivePlaybackComments,
   getPlaybackCommentVisibleMs,
   PlaybackCommentOverlay,
+  COMMENT_PREVIEW_WIDTH_PX,
   PLAYBACK_COMMENT_VISIBLE_MS,
   type PlaybackComment,
 } from "./playback-comment-overlay";
@@ -108,6 +109,10 @@ describe("PlaybackCommentOverlay", () => {
         .querySelector("[data-player-comment-preview] img")
         ?.getAttribute("src"),
     ).toBe("https://lh3.googleusercontent.com/avatar.jpg");
+    expect(
+      container.querySelector("[data-player-comment-preview]")?.className,
+    ).toContain("w-80 max-w-full");
+    expect(COMMENT_PREVIEW_WIDTH_PX).toBe(320);
 
     act(() => root.unmount());
     container.remove();
@@ -177,8 +182,8 @@ describe("PlaybackCommentOverlay", () => {
 
       observe(target: Element): void {
         const width = target.hasAttribute("data-player-playback-comment")
-          ? 320
-          : 100;
+          ? 640
+          : COMMENT_PREVIEW_WIDTH_PX;
         Object.defineProperty(target, "getBoundingClientRect", {
           configurable: true,
           value: () => ({ width }),

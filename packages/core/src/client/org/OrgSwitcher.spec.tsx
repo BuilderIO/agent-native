@@ -18,6 +18,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("react-router", () => ({
+  Link: ({
+    to,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={to} {...props} />
+  ),
   useNavigate: () => mocks.navigate,
 }));
 
@@ -154,6 +160,60 @@ describe("OrgSwitcher", () => {
     expect(button).not.toBeNull();
     expect(button?.getAttribute("aria-label")).toBe("Brent's workspace");
     expect(button?.textContent).toBe("");
+  });
+
+  it("renders app utility links in the workspace menu", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+
+    render(
+      <OrgSwitcher
+        utilityLinks={[
+          {
+            id: "browser-extension",
+            label: "Browser extension",
+            href: "https://example.com/extension",
+            external: true,
+          },
+          {
+            id: "desktop-download",
+            label: "Desktop app",
+            href: "/download",
+          },
+        ]}
+      />,
+    );
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+
+    const utilityLinks = Array.from(
+      document.body.querySelectorAll<HTMLAnchorElement>("a"),
+    );
+    const extensionLink = utilityLinks.find(
+      (link) => link.textContent?.trim() === "Browser extension",
+    );
+    const desktopLink = utilityLinks.find(
+      (link) => link.textContent?.trim() === "Desktop app",
+    );
+
+    expect(extensionLink?.getAttribute("href")).toBe(
+      "https://example.com/extension",
+    );
+    expect(extensionLink?.getAttribute("target")).toBe("_blank");
+    expect(extensionLink?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(desktopLink?.getAttribute("href")).toBe("/download");
   });
 
   it("makes demo mode visible and removes the redacted email from sign out", () => {

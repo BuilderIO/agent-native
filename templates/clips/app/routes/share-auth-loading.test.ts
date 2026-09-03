@@ -32,11 +32,11 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("dataQ.data.status === 401");
     expect(route).toContain("dataQ.data.status === 404");
     expect(route).toContain("!needsPassword &&");
-    expect(route).toContain("overflow-y-auto data-[state=inactive]:hidden");
+    expect(route).toContain('type SharePanel = "transcript" | "agent"');
     expect(route).toContain(
       "h-[var(--agent-native-viewport-height,100vh)] min-h-0",
     );
-    expect(route).toContain("overflow-y-auto xl:flex-1 xl:overflow-y-hidden");
+    expect(route).toContain('className="min-h-0 flex-1 overflow-y-auto"');
     expect(route).toContain("request-recording-access");
     expect(route).toContain("RequestAccessDialog");
     expect(route).toContain("requesterEmail");
@@ -77,12 +77,13 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('t("shareMeeting.copyTranscript")');
   });
 
-  it("keeps editor shares editable and shows their insights", () => {
+  it("keeps editor shares editable and exposes attached viewer insights", () => {
     const route = readRoute("share.$shareId.tsx");
     expect(route).toContain('viewerRole === "editor"');
     expect(route).toContain("role={viewerRole ??");
-    expect(route).toContain("<InsightsPanel");
-    expect(route).toContain("{viewerCanEdit ? (");
+    expect(route).toContain("<RecordingViewsBadge");
+    expect(route).toContain("canViewDetails={viewerCanEdit}");
+    expect(route).not.toContain("<InsightsPanel");
   });
 
   it("gates fullscreen share interactions by the viewer permission", () => {
@@ -93,29 +94,23 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain(
       "recording.enableComments && viewerCanUseFullscreenInteractions",
     );
-    expect(route).toContain(
-      "recording.enableReactions && viewerCanUseFullscreenInteractions",
-    );
-    expect(route).toContain(
-      'viewerCanUseFullscreenInteractions\n                  ? () => setPanel("comments")',
-    );
+    expect(route).toContain("recording.enableReactions &&");
+    expect(route).toContain("viewerCanUseFullscreenInteractions");
+    expect(route).toContain("commentsSectionRef.current?.scrollIntoView");
   });
 
-  it("does not expose the insights tab to viewers", () => {
+  it("keeps public comments in flow and consolidates recording insights", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
-    const shareTrigger = shareRoute.indexOf(
-      '<TabsTrigger value="insights" className="text-xs">',
-    );
-    const shareTriggerGuard = shareRoute.lastIndexOf(
-      "{viewerCanEdit ? (",
-      shareTrigger,
-    );
-    expect(shareTrigger).toBeGreaterThan(-1);
-    expect(shareTriggerGuard).toBeGreaterThan(-1);
+    expect(shareRoute).not.toContain("<TabsTrigger");
+    expect(shareRoute).toContain('presentation="inline"');
+    expect(shareRoute).not.toContain('panel === "insights"');
 
     const recordingRoute = readRoute("r.$recordingId.tsx");
+    expect(recordingRoute).not.toContain(
+      'trigger("insights", t("recordingPage.insights"))',
+    );
     expect(recordingRoute).toContain(
-      'canEdit ? trigger("insights", t("recordingPage.insights")) : null,',
+      'defaultOpen={canEdit && panelParam === "insights"}',
     );
     expect(recordingRoute).not.toContain("InsightsUnavailableState");
   });

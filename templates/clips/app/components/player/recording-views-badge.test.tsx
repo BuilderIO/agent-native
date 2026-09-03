@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -111,7 +114,7 @@ describe("RecordingViewsBadge", () => {
     expect(queryMocks.calls).toEqual([]);
   });
 
-  it("renders a popover trigger button and loads viewers when details are allowed", () => {
+  it("renders a human-view trigger that opens attached viewer details", () => {
     render(
       <RecordingViewsBadge
         recordingId="recording-1"
@@ -126,37 +129,24 @@ describe("RecordingViewsBadge", () => {
     expect(queryMocks.calls).toEqual(["list-viewers"]);
   });
 
-  it("shows the agent count beside the human count without opening the popover", () => {
-    render(
-      <RecordingViewsBadge
-        recordingId="recording-1"
-        viewCount={4}
-        agentViewCount={2}
-        canViewDetails
-      />,
+  it("splits viewers and insights into tabs without splitting human and agent lists", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/components/player/recording-views-badge.tsx"),
+      "utf8",
     );
 
-    const button = container.querySelector("button");
-    expect(button?.textContent).toContain("recordingInsights.viewsCount");
-    expect(button?.textContent).toContain("2");
-    expect(
-      button?.querySelector('[aria-label*="agentViewsCount"]'),
-    ).not.toBeNull();
-  });
-
-  it("shows the agent count to a visitor with no human views", () => {
-    render(
-      <RecordingViewsBadge
-        recordingId="recording-1"
-        viewCount={0}
-        agentViewCount={3}
-        canViewDetails={false}
-      />,
-    );
-
-    expect(container.textContent).toContain("recordingInsights.viewsCount");
-    expect(container.textContent).toContain("3");
-    expect(queryMocks.calls).toEqual([]);
+    expect(source).toContain("<Popover");
+    expect(source).toContain("<Tabs");
+    expect(source).toContain("<ViewerTabsList");
+    expect(source).toContain("<ViewerTabsTrigger");
+    expect(source).not.toContain("<TabsList");
+    expect(source).not.toContain("<TabsTrigger");
+    expect(source).toContain('value="views"');
+    expect(source).toContain('value="insights"');
+    expect(source).not.toContain("onOpenInsights");
+    expect(source).not.toContain('t("recordingInsights.humanViews")');
+    expect(source).not.toContain("agentViewCount");
+    expect(source).not.toContain('t("recordingInsights.agentViews")');
   });
 
   it("resolves the stored profile image for an identified viewer", () => {

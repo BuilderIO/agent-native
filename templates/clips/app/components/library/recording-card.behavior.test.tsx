@@ -110,6 +110,8 @@ const recording: RecordingSummary = {
   effectiveDurationMs: 1_000,
   status: "ready",
   visibility: "private",
+  hasPassword: false,
+  expiresAt: null,
   ownerEmail: "owner@example.com",
   folderId: null,
   spaceIds: [],

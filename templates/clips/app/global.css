@@ -39,6 +39,8 @@
   --sidebar-ring: 0 0% 40%;
   --highlight: 197 100% 50%;
   --highlight-foreground: 0 0% 10%;
+  --player-control: 0 0% 0%;
+  --player-control-foreground: 0 0% 100%;
 }
 
 .dark {
@@ -83,6 +85,8 @@
   --color-success: hsl(var(--success));
   --color-highlight: hsl(var(--highlight));
   --color-highlight-foreground: hsl(var(--highlight-foreground));
+  --color-player-control: hsl(var(--player-control));
+  --color-player-control-foreground: hsl(var(--player-control-foreground));
 }
 
 @layer base {
@@ -91,6 +95,11 @@
     font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+}
+
+/* The shared development badge otherwise obscures the app-owned sidebar footer. */
+body:has(> .agent-layout-shell) > [aria-label="Local development environment"] {
+  display: none;
 }
 
 @keyframes clips-import-progress {

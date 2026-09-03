@@ -1,9 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { IconVideoPlus } from "@tabler/icons-react";
 import { NavLink } from "react-router";
 
+import { ImportMenu } from "@/components/import-menu";
 import { LibraryGrid } from "@/components/library/library-grid";
-import { usePageHeaderLayout } from "@/components/library/page-header";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
@@ -23,26 +25,33 @@ export function meta() {
 
 export default function LibraryIndexRoute() {
   const t = useT();
-  const { sidebarHasNewRecordingAction } = usePageHeaderLayout();
   return (
     <LibraryGrid
       view="library"
       folderId={null}
-      title="Library"
+      title={t("navigation.library")}
       extraActions={
-        !sidebarHasNewRecordingAction && (
-          <Button
-            className="gap-1.5 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
-            size="sm"
-            asChild
-          >
+        <ButtonGroup>
+          <Button size="sm" asChild>
             <NavLink to="/record" aria-label={t("navigation.newRecording")}>
+              <IconVideoPlus />
               <span className="hidden sm:inline">
                 {t("navigation.newRecording")}
               </span>
             </NavLink>
           </Button>
-        )
+          <ImportMenu
+            uploadHref="/record?autoUpload=1"
+            importLoomHref="/import"
+            iconOnly
+            triggerIcon="chevron"
+            size="sm"
+            variant="default"
+            className="w-8 self-stretch border-s border-primary-foreground/20 px-0 shadow-none"
+            menuSide="bottom"
+            menuAlign="end"
+          />
+        </ButtonGroup>
       }
     />
   );

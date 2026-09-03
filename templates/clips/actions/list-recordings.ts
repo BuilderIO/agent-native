@@ -326,6 +326,13 @@ export default defineAction({
           uploadProgress: schema.recordings.uploadProgress,
           failureReason: schema.recordings.failureReason,
           visibility: schema.recordings.visibility,
+          hasPassword: sql<number>`(
+            CASE WHEN ${schema.recordings.password} IS NOT NULL
+              AND ${schema.recordings.password} <> ''
+              THEN 1 ELSE 0
+            END
+          )`,
+          expiresAt: schema.recordings.expiresAt,
           ownerEmail: schema.recordings.ownerEmail,
           folderId: schema.recordings.folderId,
           spaceIds: schema.recordings.spaceIds,
@@ -454,6 +461,8 @@ export default defineAction({
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,
         visibility: r.visibility,
+        hasPassword: Number(r.hasPassword ?? 0) > 0,
+        expiresAt: r.expiresAt,
         ownerEmail: r.ownerEmail,
         ownerName: profileNameFor(r.ownerEmail, null, ownerProfiles),
         folderId: r.folderId,

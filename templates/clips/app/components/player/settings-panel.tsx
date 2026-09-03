@@ -3,48 +3,43 @@ import {
   useReconciledState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconLock,
-  IconClock,
-  IconMessage,
-  IconDownload,
-  IconPhoto,
-  IconX,
-  IconMoodSmile,
-} from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
-  SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 
 import { SPEED_OPTIONS } from "./player-controls";
+import {
+  ViewerButton,
+  ViewerIconButton,
+  ViewerInput,
+  ViewerSelectTrigger,
+  ViewerSwitch,
+} from "./viewer-controls";
 
 export interface SettingsPanelProps {
   recording: {
     id: string;
-    /**
-     * Whether a password is currently set on the recording. The plaintext
-     * password is never sent to the client — the editor sees `hasPassword`
-     * and can either replace or clear the password, but never read it.
-     */
-    hasPassword: boolean;
-    expiresAt: string | null;
     enableComments: boolean;
     enableReactions: boolean;
     enableDownloads: boolean;
     defaultSpeed: string;
     animatedThumbnailEnabled: boolean;
   };
-  visibility: "private" | "org" | "public";
   ctas: {
     id: string;
     label: string;
@@ -59,19 +54,9 @@ export interface SettingsPanelProps {
 
 export function SettingsPanel(props: SettingsPanelProps) {
   const t = useT();
-  const {
-    recording,
-    visibility,
-    ctas,
-    onClose,
-    onRefetch,
-    showHeader = true,
-  } = props;
+  const { recording, ctas, onClose, onRefetch, showHeader = true } = props;
 
   const update = useActionMutation("update-recording", {
-    onSuccess: () => onRefetch?.(),
-  });
-  const setVis = useActionMutation("set-resource-visibility", {
     onSuccess: () => onRefetch?.(),
   });
   const createCta = useActionMutation("create-cta", {
@@ -84,18 +69,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
     onSuccess: () => onRefetch?.(),
   });
 
-  // The plaintext password is never sent to the client (see action
-  // `get-recording-player-data`). Start empty; the placeholder communicates
-  // whether one is currently set. Saving an empty value clears it, saving a
-  // non-empty value replaces it.
-  const [password, setPassword] = useState("");
-  // Re-adopt the server/agent expiry when the user isn't actively editing the
-  // field, so an agent change to `expiresAt` shows up live in the open panel.
-  const expiresFocused = useRef(false);
-  const [expiresAt, setExpiresAt] = useReconciledState(
-    recording.expiresAt ?? "",
-    { active: expiresFocused.current },
-  );
+  const [openCtaId, setOpenCtaId] = useState("");
 
   function patch(fields: Record<string, unknown>) {
     update.mutate({ id: recording.id, ...fields } as any);
@@ -104,192 +78,84 @@ export function SettingsPanel(props: SettingsPanelProps) {
   return (
     <div className="flex h-full flex-col bg-transparent">
       {showHeader ? (
-        <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex h-10 items-center justify-between border-b border-border/70 px-3">
           <h2 className="text-sm font-medium">{t("playerSettings.title")}</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <IconX className="h-4 w-4" />
-          </Button>
+          <ViewerIconButton variant="ghost" onClick={onClose}>
+            <IconX />
+          </ViewerIconButton>
         </div>
       ) : null}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {/* Privacy */}
-        <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <IconLock className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {t("playerSettings.privacy")}
-            </h3>
-          </div>
-
-          <div>
-            <Label className="text-xs">{t("playerSettings.visibility")}</Label>
-            <Select
-              value={visibility}
-              onValueChange={(v) =>
-                setVis.mutate({
-                  resourceType: "recording",
-                  resourceId: recording.id,
-                  visibility: v,
-                } as any)
-              }
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="private">
-                  {t("playerSettings.visibilityPrivate")}
-                </SelectItem>
-                <SelectItem value="org">
-                  {t("playerSettings.visibilityOrg")}
-                </SelectItem>
-                <SelectItem value="public">
-                  {t("playerSettings.visibilityPublic")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label className="text-xs">
-              {t("playerSettings.passwordProtection")}
-            </Label>
-            <div className="mt-1 space-y-2">
-              <Input
-                type="text"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={
-                  recording.hasPassword
-                    ? t("playerSettings.passwordSetPlaceholder")
-                    : t("playerSettings.noPasswordPlaceholder")
-                }
-              />
-              {password.length > 0 && !password.trim() ? (
-                <p className="text-xs text-muted-foreground">
-                  {t("playerSettings.passwordWhitespaceOnly")}
-                </p>
-              ) : null}
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    patch({ password: password.trim() });
-                    setPassword("");
-                  }}
-                  disabled={update.isPending || !password.trim()}
-                >
-                  {t("common.save")}
-                </Button>
-                {recording.hasPassword ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      patch({ password: null });
-                      setPassword("");
-                    }}
-                    disabled={update.isPending}
-                  >
-                    {t("playerSettings.removePassword")}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <Label className="text-xs flex items-center gap-1">
-              <IconClock className="h-3 w-3" /> {t("playerSettings.expiry")}
-            </Label>
-            <div className="flex gap-2 mt-1">
-              <Input
-                type="datetime-local"
-                value={toDatetimeLocal(expiresAt)}
-                onFocus={() => {
-                  expiresFocused.current = true;
-                }}
-                onBlur={() => {
-                  expiresFocused.current = false;
-                }}
-                onChange={(e) =>
-                  setExpiresAt(fromDatetimeLocal(e.target.value))
-                }
-                className="flex-1"
-              />
-              <Button
-                variant="outline"
-                onClick={() => patch({ expiresAt: expiresAt || null })}
-                disabled={update.isPending}
+      <div className="flex-1 space-y-3 overflow-y-auto p-3">
+        <Card className="border border-border/70 shadow-none">
+          <CardHeader className="p-3 pb-1.5">
+            <CardTitle className="text-sm font-medium leading-none">
+              {t("playerSettings.viewerOptions")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-3 pb-3 pt-0">
+            <ToggleRow
+              id="viewer-comments"
+              label={t("playerSettings.comments")}
+              checked={recording.enableComments}
+              onChange={(v) => patch({ enableComments: v })}
+            />
+            <ToggleRow
+              id="viewer-reactions"
+              label={t("playerSettings.reactions")}
+              checked={recording.enableReactions}
+              onChange={(v) => patch({ enableReactions: v })}
+            />
+            <ToggleRow
+              id="viewer-downloads"
+              label={t("playerSettings.allowDownloads")}
+              checked={recording.enableDownloads}
+              onChange={(v) => patch({ enableDownloads: v })}
+            />
+            <ToggleRow
+              id="viewer-animated-thumbnail"
+              label={t("playerSettings.animatedThumbnail")}
+              checked={recording.animatedThumbnailEnabled}
+              onChange={(v) => patch({ animatedThumbnailEnabled: v })}
+            />
+            <div className="flex min-h-8 items-center gap-3 py-1">
+              <Label
+                htmlFor="recording-default-speed"
+                className="min-w-0 flex-1 text-sm font-normal"
               >
-                {t("common.save")}
-              </Button>
+                {t("playerSettings.defaultPlaybackSpeed")}
+              </Label>
+              <Select
+                value={recording.defaultSpeed}
+                onValueChange={(v) => patch({ defaultSpeed: v })}
+              >
+                <ViewerSelectTrigger
+                  id="recording-default-speed"
+                  className="h-7 w-16 px-2 text-xs"
+                >
+                  <SelectValue />
+                </ViewerSelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {SPEED_OPTIONS.map((s) => (
+                      <SelectItem key={s} value={String(s)}>
+                        {s}x
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </div>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
-        {/* Toggles */}
-        <section className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {t("playerSettings.viewerOptions")}
-          </h3>
-          <ToggleRow
-            icon={<IconMessage className="h-4 w-4" />}
-            label={t("playerSettings.comments")}
-            checked={recording.enableComments}
-            onChange={(v) => patch({ enableComments: v })}
-          />
-          <ToggleRow
-            icon={<IconMoodSmile className="h-4 w-4" />}
-            label={t("playerSettings.reactions")}
-            checked={recording.enableReactions}
-            onChange={(v) => patch({ enableReactions: v })}
-          />
-          <ToggleRow
-            icon={<IconDownload className="h-4 w-4" />}
-            label={t("playerSettings.allowDownloads")}
-            checked={recording.enableDownloads}
-            onChange={(v) => patch({ enableDownloads: v })}
-          />
-          <ToggleRow
-            icon={<IconPhoto className="h-4 w-4" />}
-            label={t("playerSettings.animatedThumbnail")}
-            checked={recording.animatedThumbnailEnabled}
-            onChange={(v) => patch({ animatedThumbnailEnabled: v })}
-          />
-        </section>
-
-        {/* Default speed */}
-        <section className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {t("playerSettings.defaultPlaybackSpeed")}
-          </h3>
-          <Select
-            value={recording.defaultSpeed}
-            onValueChange={(v) => patch({ defaultSpeed: v })}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SPEED_OPTIONS.map((s) => (
-                <SelectItem key={s} value={String(s)}>
-                  {s}x
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </section>
-
-        {/* CTA editor */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <Card className="border border-border/70 shadow-none">
+          <CardHeader className="flex-row items-center justify-between gap-3 p-3 pb-1.5">
+            <CardTitle className="text-sm font-medium leading-none">
               {t("playerSettings.callToAction")}
-            </h3>
-            <Button
-              size="sm"
-              variant="outline"
+            </CardTitle>
+            <ViewerButton
+              variant="ghost"
               onClick={() =>
                 createCta.mutate({
                   recordingId: recording.id,
@@ -301,52 +167,62 @@ export function SettingsPanel(props: SettingsPanelProps) {
               }
             >
               {t("playerSettings.addCta")}
-            </Button>
-          </div>
+            </ViewerButton>
+          </CardHeader>
 
-          {ctas.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {t("playerSettings.noCtas")}
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {ctas.map((cta) => (
-                <CtaEditor
-                  key={cta.id}
-                  cta={cta}
-                  t={t}
-                  onSave={(fields) =>
-                    updateCta.mutate({ id: cta.id, ...fields } as any)
-                  }
-                  onDelete={() => deleteCta.mutate({ id: cta.id } as any)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+          <CardContent className="px-3 pb-3 pt-0">
+            {ctas.length === 0 ? (
+              <p className="py-1 text-xs text-muted-foreground">
+                {t("playerSettings.noCtas")}
+              </p>
+            ) : (
+              <Accordion
+                type="single"
+                collapsible
+                value={openCtaId}
+                onValueChange={setOpenCtaId}
+              >
+                {ctas.map((cta) => (
+                  <CtaEditor
+                    key={cta.id}
+                    cta={cta}
+                    t={t}
+                    onSave={(fields) => {
+                      updateCta.mutate({ id: cta.id, ...fields } as any);
+                      setOpenCtaId("");
+                    }}
+                    onDelete={() => {
+                      deleteCta.mutate({ id: cta.id } as any);
+                      setOpenCtaId("");
+                    }}
+                  />
+                ))}
+              </Accordion>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
 
 function ToggleRow({
-  icon,
+  id,
   label,
   checked,
   onChange,
 }: {
-  icon: React.ReactNode;
+  id: string;
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2 text-sm">
-        {icon}
+    <div className="flex min-h-8 items-center justify-between gap-3 py-1">
+      <Label htmlFor={id} className="cursor-pointer text-sm font-normal">
         {label}
-      </div>
-      <Switch checked={checked} onCheckedChange={onChange} />
+      </Label>
+      <ViewerSwitch id={id} checked={checked} onCheckedChange={onChange} />
     </div>
   );
 }
@@ -372,7 +248,6 @@ function CtaEditor({
   // editing this card, so an agent edit to the CTA shows up live. `editing`
   // flips true while focus is anywhere inside the card.
   const editing = useRef(false);
-  const [collapsed, setCollapsed] = useState(true);
   const [label, setLabel] = useReconciledState(cta.label, {
     active: editing.current,
   });
@@ -387,8 +262,9 @@ function CtaEditor({
   });
 
   return (
-    <div
-      className="rounded-lg bg-card p-3 space-y-2"
+    <AccordionItem
+      value={cta.id}
+      className="border-0"
       onFocusCapture={() => {
         editing.current = true;
       }}
@@ -399,104 +275,70 @@ function CtaEditor({
         }
       }}
     >
-      {collapsed ? (
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{cta.label}</p>
-            <p className="text-xs text-muted-foreground">
-              {cta.placement === "throughout"
-                ? t("playerSettings.placementThroughout")
-                : t("playerSettings.placementEnd")}
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            title={t("recordingPage.edit")}
-            onClick={() => setCollapsed(false)}
+      <AccordionTrigger className="py-2 text-left hover:no-underline">
+        <span className="flex min-w-0 flex-1 items-baseline gap-2 pr-3">
+          <span className="truncate text-sm font-medium">{cta.label}</span>
+          <span className="shrink-0 text-xs font-normal text-muted-foreground">
+            {cta.placement === "throughout"
+              ? t("playerSettings.placementThroughout")
+              : t("playerSettings.placementEnd")}
+          </span>
+        </span>
+      </AccordionTrigger>
+      <AccordionContent className="grid gap-2 pb-2">
+        <ViewerInput
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder={t("playerSettings.buttonLabelPlaceholder")}
+        />
+        <ViewerInput
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://…"
+        />
+        <div className="flex gap-2">
+          <ViewerInput
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            className="w-10 cursor-pointer p-1"
+          />
+          <Select
+            value={placement}
+            onValueChange={(v) => setPlacement(v as "end" | "throughout")}
           >
-            {t("recordingPage.edit")}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onDelete}>
-            {t("playerSettings.delete")}
-          </Button>
-        </div>
-      ) : (
-        <>
-          <Input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={t("playerSettings.buttonLabelPlaceholder")}
-          />
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://…"
-          />
-          <div className="flex gap-2">
-            <input
-              type="color"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              className="h-9 w-12 rounded cursor-pointer border border-border"
-            />
-            <Select
-              value={placement}
-              onValueChange={(v) => setPlacement(v as "end" | "throughout")}
-            >
-              <SelectTrigger className="flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
+            <ViewerSelectTrigger className="flex-1">
+              <SelectValue />
+            </ViewerSelectTrigger>
+            <SelectContent>
+              <SelectGroup>
                 <SelectItem value="throughout">
                   {t("playerSettings.placementThroughout")}
                 </SelectItem>
                 <SelectItem value="end">
                   {t("playerSettings.placementEnd")}
                 </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={() => {
-                onSave({ label, url, color, placement });
-                setCollapsed(true);
-              }}
-            >
-              {t("common.save")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setCollapsed(true)}
-            >
-              {t("recordingPage.done")}
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={onDelete}>
-              {t("playerSettings.delete")}
-            </Button>
-          </div>
-        </>
-      )}
-    </div>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <ViewerButton
+            type="button"
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={onDelete}
+          >
+            {t("playerSettings.delete")}
+          </ViewerButton>
+          <ViewerButton
+            type="button"
+            onClick={() => onSave({ label, url, color, placement })}
+          >
+            {t("common.save")}
+          </ViewerButton>
+        </div>
+      </AccordionContent>
+    </AccordionItem>
   );
-}
-
-function toDatetimeLocal(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function fromDatetimeLocal(v: string): string {
-  if (!v) return "";
-  return new Date(v).toISOString();
 }

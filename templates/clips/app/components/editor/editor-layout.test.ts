@@ -16,4 +16,17 @@ describe("EditorLayout media loading", () => {
     expect(previewVideo).toContain("src={videoUrl}");
     expect(previewVideo).not.toContain("crossOrigin");
   });
+
+  it("opens on transcript editing and progressively discloses the timeline", () => {
+    const source = readSource();
+
+    expect(source).toContain('>("transcript")');
+    expect(source).toContain('value="transcript"');
+    expect(source).toContain('value="timeline"');
+    expect(source).toContain('editingSurface === "transcript"');
+    expect(source).toContain(
+      'editingSurface !== "timeline" || filmstripSprite',
+    );
+    expect(source).toContain('timelineActive={editingSurface === "timeline"}');
+  });
 });

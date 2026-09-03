@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { PageHeader } from "@/components/library/page-header";
+import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import {
   AgendaCard,
   AgendaCardSkeleton,
@@ -622,9 +622,7 @@ function MeetingsHeader({
   return (
     <>
       <PageHeader>
-        <h1 className="truncate text-base font-semibold tracking-tight">
-          {t("meetingsRoute.title")}
-        </h1>
+        <PageBreadcrumb label={t("meetingsRoute.title")} />
         <div className="ms-auto flex items-center gap-2">
           <CalendarAccountMenu
             accounts={calendarAccounts}
@@ -882,9 +880,7 @@ export default function MeetingsIndexRoute() {
     return (
       <>
         <PageHeader>
-          <h1 className="truncate text-base font-semibold tracking-tight">
-            {t("meetingsRoute.title")}
-          </h1>
+          <PageBreadcrumb label={t("meetingsRoute.title")} />
           <Skeleton className="ms-auto h-8 w-24" />
         </PageHeader>
         <div className="mx-auto w-full max-w-3xl p-6" aria-busy="true">
@@ -904,9 +900,7 @@ export default function MeetingsIndexRoute() {
     return (
       <>
         <PageHeader>
-          <h1 className="truncate text-base font-semibold tracking-tight">
-            {t("meetingsRoute.title")}
-          </h1>
+          <PageBreadcrumb label={t("meetingsRoute.title")} />
         </PageHeader>
         <div className="mx-auto w-full max-w-2xl p-6">
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">

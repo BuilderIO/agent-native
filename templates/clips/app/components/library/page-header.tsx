@@ -7,29 +7,30 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb";
+
 interface PageHeaderSlotContextValue {
   slot: HTMLElement | null;
-  sidebarHasNewRecordingAction: boolean;
 }
 
 const PageHeaderSlotContext = createContext<PageHeaderSlotContextValue>({
   slot: null,
-  sidebarHasNewRecordingAction: false,
 });
 
 export function PageHeaderSlotProvider({
   slot,
-  sidebarHasNewRecordingAction,
   children,
 }: {
   slot: HTMLElement | null;
-  sidebarHasNewRecordingAction: boolean;
   children: ReactNode;
 }) {
   return (
-    <PageHeaderSlotContext.Provider
-      value={{ slot, sidebarHasNewRecordingAction }}
-    >
+    <PageHeaderSlotContext.Provider value={{ slot }}>
       {children}
     </PageHeaderSlotContext.Provider>
   );
@@ -45,4 +46,18 @@ export function PageHeader({ children }: { children: ReactNode }) {
   useEffect(() => setReady(true), []);
   if (!ready || !slot) return null;
   return createPortal(children, slot);
+}
+
+export function PageBreadcrumb({ label }: { label: string }) {
+  return (
+    <Breadcrumb aria-label={label} className="min-w-0">
+      <BreadcrumbList className="flex-nowrap overflow-hidden">
+        <BreadcrumbItem className="min-w-0">
+          <BreadcrumbPage className="truncate font-medium">
+            {label}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
 }
