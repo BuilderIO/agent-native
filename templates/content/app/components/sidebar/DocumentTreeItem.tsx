@@ -1,0 +1,368 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import type { DocumentTreeNode } from "@shared/api";
+import {
+  IconChevronRight,
+  IconDatabase,
+  IconFolder,
+  IconFileText,
+  IconPlus,
+  IconPin,
+  IconTrash,
+  IconDots,
+} from "@tabler/icons-react";
+import { useState } from "react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+import { documentSidebarActionAvailability } from "./document-sidebar-actions";
+
+interface DocumentTreeItemProps {
+  node: DocumentTreeNode;
+  depth: number;
+  sidebarWidth?: number;
+  activeId: string | null;
+  expandedIds: Set<string>;
+  onToggleExpanded: (id: string) => void;
+  onSelect: (id: string) => void;
+  onCreateChildPage: (parentId: string) => void;
+  onCreateChildDatabase: (parentId: string) => void;
+  onDelete: (id: string, title: string) => void;
+  onToggleFavorite: (id: string, isFavorite: boolean) => void;
+}
+
+export function getDocumentSidebarIconKind(
+  document: Pick<DocumentTreeNode, "icon" | "database" | "source">,
+) {
+  if (
+    document.source?.mode === "local-files" &&
+    document.source.kind === "folder"
+  ) {
+    return "folder";
+  }
+  if (document.icon?.trim()) return "custom";
+  if (document.database) return "database";
+  return "page";
+}
+
+export function DocumentSidebarIcon({
+  document,
+}: {
+  document: Pick<DocumentTreeNode, "icon" | "database" | "source">;
+}) {
+  const iconKind = getDocumentSidebarIconKind(document);
+
+  if (iconKind === "custom") return <>{document.icon}</>;
+  if (iconKind === "database") {
+    return <IconDatabase size={14} className="text-muted-foreground" />;
+  }
+  if (iconKind === "folder") {
+    return <IconFolder size={14} className="text-muted-foreground" />;
+  }
+  return <IconFileText size={14} className="text-muted-foreground" />;
+}
+
+export function DocumentTreeItem({
+  node,
+  depth,
+  sidebarWidth,
+  activeId,
+  expandedIds,
+  onToggleExpanded,
+  onSelect,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDelete,
+  onToggleFavorite,
+}: DocumentTreeItemProps) {
+  const t = useT();
+  const expanded = expandedIds.has(node.id);
+  const hasChildren = node.children.length > 0;
+  const isActive = node.id === activeId;
+  const isLocalFileNode = node.source?.mode === "local-files";
+  const isLocalFolder = isLocalFileNode && node.source?.kind === "folder";
+  const { canEdit, canManage, canFavorite, hasMenuActions } =
+    documentSidebarActionAvailability(node, { favoriteAvailable: true });
+  const canCreateChild = canEdit && !isLocalFileNode;
+  const [contextSheetOpen, setContextSheetOpen] = useState(false);
+  const indent = depth * 12 + 12;
+  const rowWidth =
+    sidebarWidth === undefined ? undefined : Math.max(0, sidebarWidth - 8);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: node.id,
+    disabled: !canEdit || isLocalFileNode,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn("relative", isDragging && "z-10")}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+    >
+      <div
+        {...(isLocalFileNode ? {} : attributes)}
+        {...(isLocalFileNode ? {} : listeners)}
+        aria-label={node.title || "Untitled"}
+        className={cn(
+          "group relative flex min-w-0 items-center gap-1.5 rounded-md border-l-2 py-[5px] pe-2 text-sm cursor-pointer select-none",
+          canEdit && !isLocalFileNode && "cursor-grab active:cursor-grabbing",
+          isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
+          isActive
+            ? "border-primary bg-accent text-accent-foreground font-medium"
+            : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+        )}
+        style={{
+          paddingInlineStart: `${indent}px`,
+          width: rowWidth === undefined ? undefined : `${rowWidth}px`,
+        }}
+        onClick={() => {
+          if (isLocalFolder && hasChildren) {
+            onToggleExpanded(node.id);
+            return;
+          }
+          onSelect(node.id);
+        }}
+        aria-expanded={hasChildren ? expanded : undefined}
+      >
+        <span className="relative flex-shrink-0 w-5 h-5">
+          <span
+            className={cn(
+              "absolute inset-0 flex items-center justify-center text-center",
+              hasChildren && "group-hover:opacity-0",
+              hasChildren && (expanded || isActive) && "opacity-0",
+            )}
+          >
+            <DocumentSidebarIcon document={node} />
+          </span>
+          {hasChildren && (
+            <button
+              type="button"
+              aria-label={
+                expanded
+                  ? `Collapse ${node.title || "Untitled"}`
+                  : `Expand ${node.title || "Untitled"}`
+              }
+              className={cn(
+                "absolute inset-0 flex items-center justify-center rounded hover:bg-accent opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto",
+                (expanded || isActive) && "opacity-100 pointer-events-auto",
+              )}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleExpanded(node.id);
+              }}
+            >
+              <IconChevronRight
+                size={14}
+                className={cn(
+                  "transition-transform",
+                  expanded && "rotate-90",
+                  "rtl:-scale-x-100",
+                )}
+              />
+            </button>
+          )}
+        </span>
+
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            (hasMenuActions || canCreateChild) && "pr-12",
+          )}
+        >
+          {node.title || "Untitled"}
+        </span>
+
+        <div
+          className={cn(
+            "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md bg-accent px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+            "bg-accent text-foreground",
+            isActive && "text-accent-foreground",
+          )}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {hasMenuActions && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-6 w-6 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`More actions for ${node.title || "Untitled"}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <IconDots size={14} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                {canFavorite && (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavorite(node.id, !node.isFavorite);
+                    }}
+                  >
+                    <IconPin
+                      size={14}
+                      className="me-2"
+                      strokeWidth={node.isFavorite ? 2.2 : 1.7}
+                    />
+                    {node.isFavorite
+                      ? t("sidebar.unpinFromSidebar")
+                      : t("sidebar.pinToSidebar")}
+                  </DropdownMenuItem>
+                )}
+                {canFavorite && canManage && <DropdownMenuSeparator />}
+                {canEdit && !isLocalFileNode && (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setContextSheetOpen(true);
+                    }}
+                  >
+                    <IconPlus size={14} className="me-2" />
+                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+                  </DropdownMenuItem>
+                )}
+                {canManage && (
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onSelect={(e) => {
+                      e.stopPropagation();
+                      onDelete(node.id, node.title || t("sidebar.untitled"));
+                    }}
+                  >
+                    <IconTrash size={14} className="me-2" />
+                    {t("database.delete")}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {canCreateChild ? (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t("sidebar.addChildTo", {
+                        title: node.title || t("sidebar.untitled"),
+                      })}
+                      data-sidebar-add-child
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <IconPlus size={14} />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("sidebar.addChild")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="start" className="w-44">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateChildPage(node.id);
+                  }}
+                >
+                  <IconFileText className="me-2 size-4" />
+                  {t("sidebar.page")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateChildDatabase(node.id);
+                  }}
+                >
+                  <IconDatabase className="me-2 size-4" />
+                  {t("sidebar.database")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <button
+              type="button"
+              className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+              aria-label={t("sidebar.addChildTo", {
+                title: node.title || t("sidebar.untitled"),
+              })}
+              data-sidebar-add-child
+              disabled
+            >
+              <IconPlus size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <CreativeContextShareSheet
+        open={contextSheetOpen}
+        onOpenChange={setContextSheetOpen}
+        resource={{
+          appId: "content",
+          resourceType: "document",
+          resourceId: node.id,
+          title: node.title || "Untitled",
+          updatedAt: node.updatedAt,
+          visibility: node.visibility,
+          preview: { kind: "document", label: "Document" },
+        }}
+        canManage={canManage}
+      />
+
+      {hasChildren && expanded && (
+        <SortableContext
+          items={node.children.map((child) => child.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {node.children.map((child) => (
+            <DocumentTreeItem
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              sidebarWidth={sidebarWidth}
+              activeId={activeId}
+              expandedIds={expandedIds}
+              onToggleExpanded={onToggleExpanded}
+              onSelect={onSelect}
+              onCreateChildPage={onCreateChildPage}
+              onCreateChildDatabase={onCreateChildDatabase}
+              onDelete={onDelete}
+              onToggleFavorite={onToggleFavorite}
+            />
+          ))}
+        </SortableContext>
+      )}
+    </div>
+  );
+}

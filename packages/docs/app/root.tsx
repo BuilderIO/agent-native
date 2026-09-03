@@ -1,0 +1,751 @@
+import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/hooks";
+import {
+  AgentNativeRouteWarmup,
+  defineClientAction,
+} from "@agent-native/core/client/host";
+import {
+  AgentNativeI18nProvider,
+  getLocaleInitScript,
+  useT,
+} from "@agent-native/core/client/i18n";
+import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
+import { ErrorReportActions } from "@agent-native/core/client/ui";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  Link,
+  isRouteErrorResponse,
+  useMatches,
+  useNavigate,
+  useRouteError,
+  useLocation,
+  type LoaderFunctionArgs,
+} from "react-router";
+
+import { getGithubStarCount } from "../lib/github-star-count";
+import { hasDocBlockSyntax } from "./components/doc-block-detection";
+import {
+  DEFAULT_DOCS_LOCALE,
+  localeDirection,
+  routeLocaleFromPathname,
+  sitePathForLocale,
+  type DocsLocale,
+} from "./components/docs-locale";
+import {
+  canonicalPathForPath,
+  docsAlternateLinksForPath,
+  docsMarkdownPathForPath,
+} from "./components/docs-seo";
+import { Footer } from "./components/website-redesign/footer";
+import { SiteHeader } from "./components/website-redesign/site-header";
+import { isStaleDocsChunkError } from "./docs-error-classification.js";
+import { docsI18nCatalog, loadDocsMessages } from "./i18n";
+import { defaultSocialImageMeta } from "./seo";
+import { ShellSettledProvider } from "./shell-ready";
+
+import tokensCss from "./components/website-redesign/tokens.css?url";
+import appCss from "./global.css?url";
+
+const SITE_URL = "https://www.agent-native.com";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+const LazyAgentSidebar = lazy(async () => {
+  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  return { default: AgentSidebar };
+});
+
+const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
+
+const JSON_LD = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      name: "Builder.io",
+      url: "https://builder.io",
+      sameAs: ["https://github.com/BuilderIO/agent-native"],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: "support@builder.io",
+        url: `${SITE_URL}${sitePathForLocale("/contact")}`,
+      },
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: "95 3rd Street, 2nd Floor",
+        addressLocality: "San Francisco",
+        addressRegion: "CA",
+        postalCode: "94103",
+        addressCountry: "US",
+      },
+    },
+    {
+      "@type": "WebSite",
+      name: "Agent-Native",
+      url: SITE_URL,
+      description:
+        "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "Agent-Native",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Cross-platform",
+      description:
+        "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
+      url: SITE_URL,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      license: "https://opensource.org/licenses/MIT",
+      sourceOrganization: {
+        "@type": "Organization",
+        name: "Builder.io",
+        url: "https://builder.io",
+      },
+      codeRepository: "https://github.com/BuilderIO/agent-native",
+    },
+  ],
+});
+
+export function resolveLayoutLocale(pathname: string): DocsLocale {
+  return routeLocaleFromPathname(pathname) ?? DEFAULT_DOCS_LOCALE;
+}
+
+async function initialMessagesForLocale(locale: DocsLocale) {
+  if (locale === DEFAULT_DOCS_LOCALE) return null;
+  return loadDocsMessages(locale);
+}
+
+export async function loader({ request, url }: LoaderFunctionArgs) {
+  const requestUrl = url ?? new URL(request.url);
+  const locale = resolveLayoutLocale(requestUrl.pathname);
+  const [messages, starCount] = await Promise.all([
+    initialMessagesForLocale(locale),
+    getGithubStarCount(),
+  ]);
+  return {
+    locale,
+    preference: { locale },
+    messages,
+    starCount,
+  };
+}
+
+function DocsWebMcpNavigationRegistration() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const registration = createAgentNativeWebMcpRegistration({
+      actions: [
+        defineClientAction<{ path: string }, { path: string }>({
+          name: "navigate",
+          title: "Navigate docs",
+          description: "Navigate the documentation site to a same-origin path.",
+          schema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Absolute same-origin path, including query or hash",
+              },
+            },
+            required: ["path"],
+            additionalProperties: false,
+          },
+          run: (input) => {
+            if (typeof input?.path !== "string") {
+              throw new Error("Docs navigation requires a string path");
+            }
+            const { path } = input;
+            if (!path.startsWith("/")) {
+              throw new Error("Docs navigation requires an absolute path");
+            }
+            const target = new URL(path, window.location.origin);
+            if (target.origin !== window.location.origin) {
+              throw new Error("Docs navigation must stay on the current site");
+            }
+            const destination = `${target.pathname}${target.search}${target.hash}`;
+            navigate(destination);
+            return { path: destination };
+          },
+        }),
+      ],
+    });
+
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Unsupported browsers keep normal
+      // docs navigation without exposing a broken page-level integration.
+    });
+    return () => registration.stop();
+  }, [navigate]);
+
+  return null;
+}
+
+type RootLocaleData = Awaited<ReturnType<typeof loader>>;
+
+function isRootLocaleData(data: unknown): data is RootLocaleData {
+  if (!data || typeof data !== "object") return false;
+  const value = data as Partial<RootLocaleData>;
+  return typeof value.locale === "string" && Boolean(value.preference);
+}
+
+function fallbackRootLocaleData(pathname: string): RootLocaleData {
+  const locale = resolveLayoutLocale(pathname);
+  return {
+    locale,
+    preference: { locale },
+    messages: null,
+    starCount: null,
+  };
+}
+
+function useRootLocaleData() {
+  const location = useLocation();
+  const matches = useMatches() as unknown as Array<{ loaderData: unknown }>;
+  const rootMatch = matches.find((match) => isRootLocaleData(match.loaderData));
+  return isRootLocaleData(rootMatch?.loaderData)
+    ? rootMatch.loaderData
+    : fallbackRootLocaleData(location.pathname);
+}
+
+export const links = () => [
+  { rel: "stylesheet", href: appCss },
+  // Every selector in tokens.css is scoped under .builder-brand-tokens, which
+  // the header, the footer, and the homepage opt into. It deliberately stays
+  // off <body>: global.css has `:where(:not(.builder-brand-tokens *))`
+  // exclusions carrying the docs prose chrome, and a body-level opt-in would
+  // silently make all three of them match nothing. The page background is
+  // unified through --bg in global.css instead, which mirrors --b-bg-page.
+  { rel: "stylesheet", href: tokensCss },
+  { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+  { rel: "apple-touch-icon", href: "/logo192.png", type: "image/png" },
+];
+
+export const meta = () => [
+  { title: "Agent-Native — The Agentic Application Framework" },
+  {
+    name: "description",
+    content:
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
+  },
+  ...defaultSocialImageMeta(),
+  {
+    property: "og:title",
+    content: "Agent-Native — The Agentic Application Framework",
+  },
+  {
+    property: "og:description",
+    content:
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
+  },
+  { property: "og:type", content: "website" },
+  { property: "og:url", content: SITE_URL },
+  { property: "og:site_name", content: "Agent-Native" },
+];
+
+function DocsChrome({ children }: { children: React.ReactNode }) {
+  const { starCount } = useRootLocaleData();
+
+  return (
+    // core's `.agent-sidebar-shell` sits between <body> and this chrome and
+    // paints an opaque surface from the shadcn `--sidebar-background` token, so
+    // the background on <body> never shows and every route inherited a color
+    // from a token system the brand palette knows nothing about. Painting --bg
+    // here is what actually decides the page color, on every route.
+    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
+      <ScrollManager />
+      <SiteHeader starCount={starCount} />
+      {children}
+      <Footer />
+    </div>
+  );
+}
+
+function DocsI18nProvider({ children }: { children: React.ReactNode }) {
+  const localeData = useRootLocaleData();
+
+  return (
+    <AgentNativeI18nProvider
+      key={localeData.locale}
+      catalog={docsI18nCatalog}
+      initialLocale={localeData.locale}
+      initialPreference={localeData.preference.locale}
+      initialMessages={localeData.messages ?? undefined}
+      persistPreference={false}
+    >
+      {children}
+    </AgentNativeI18nProvider>
+  );
+}
+
+const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+function SeoLinks() {
+  const location = useLocation();
+  const canonicalPath = canonicalPathForPath(location.pathname);
+  const canonical = `${SITE_URL}${canonicalPath}`;
+  const alternates = docsAlternateLinksForPath(location.pathname);
+  const markdownPath = docsMarkdownPathForPath(location.pathname);
+  return (
+    <>
+      <link rel="canonical" href={canonical} />
+      {markdownPath ? (
+        <link
+          rel="alternate"
+          type="text/markdown"
+          href={`${SITE_URL}${markdownPath}`}
+        />
+      ) : null}
+      {alternates.map((alternate) => (
+        <link
+          key={alternate.hrefLang}
+          rel="alternate"
+          hrefLang={alternate.hrefLang}
+          href={`${SITE_URL}${alternate.path}`}
+        />
+      ))}
+    </>
+  );
+}
+
+function findScrollContainerFrom(el: HTMLElement | null): HTMLElement | Window {
+  let parent: HTMLElement | null = el?.parentElement ?? null;
+  while (parent) {
+    const overflowY = getComputedStyle(parent).overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      parent.scrollHeight > parent.clientHeight
+    ) {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+  return window;
+}
+
+function scrollElementIntoContainerView(target: HTMLElement) {
+  const scrollContainer = findScrollContainerFrom(target);
+  if (scrollContainer === window) {
+    target.scrollIntoView({ block: "start" });
+    return;
+  }
+
+  const container = scrollContainer as HTMLElement;
+  const targetRect = target.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  const scrollMarginTop =
+    Number.parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
+
+  container.scrollTo({
+    top:
+      container.scrollTop +
+      targetRect.top -
+      containerRect.top -
+      scrollMarginTop,
+  });
+}
+
+function getManagedScrollTop(): number | null {
+  if (typeof document === "undefined") return null;
+  const marker = document.querySelector<HTMLElement>(
+    `[data-${SCROLL_MANAGER_MARKER}]`,
+  );
+  if (!marker) return null;
+  const scrollContainer = findScrollContainerFrom(marker);
+  if (scrollContainer === window) return window.scrollY;
+  return (scrollContainer as HTMLElement).scrollTop;
+}
+
+function setManagedScrollTop(top: number) {
+  if (typeof document === "undefined") return;
+  const marker = document.querySelector<HTMLElement>(
+    `[data-${SCROLL_MANAGER_MARKER}]`,
+  );
+  if (!marker) return;
+  const scrollContainer = findScrollContainerFrom(marker);
+  if (scrollContainer === window) {
+    window.scrollTo(0, top);
+  } else {
+    (scrollContainer as HTMLElement).scrollTop = top;
+  }
+}
+
+// AgentSidebar wraps content in an overflow-auto div, so the window usually
+// does not scroll. Keep both normal route changes and hash links pointed at
+// that real scroll container.
+function ScrollManager() {
+  const { pathname, hash } = useLocation();
+  const ref = useRef<HTMLSpanElement>(null);
+  const isInitialEffectRef = useRef(true);
+
+  useBrowserLayoutEffect(() => {
+    const isInitialEffect = isInitialEffectRef.current;
+    isInitialEffectRef.current = false;
+
+    if (hash) {
+      const id = decodeURIComponent(hash.slice(1));
+      let raf = 0;
+      const timers: number[] = [];
+
+      const scrollToHash = () => {
+        const target = document.getElementById(id);
+        if (target) scrollElementIntoContainerView(target);
+      };
+
+      raf = window.requestAnimationFrame(scrollToHash);
+      timers.push(window.setTimeout(scrollToHash, 100));
+      timers.push(window.setTimeout(scrollToHash, 350));
+
+      return () => {
+        window.cancelAnimationFrame(raf);
+        for (const timer of timers) window.clearTimeout(timer);
+      };
+    }
+
+    if (isInitialEffect) return;
+
+    let parent: HTMLElement | null = ref.current?.parentElement ?? null;
+    while (parent) {
+      const overflowY = getComputedStyle(parent).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") {
+        parent.scrollTop = 0;
+        return;
+      }
+      parent = parent.parentElement;
+    }
+    window.scrollTo(0, 0);
+  }, [pathname, hash]);
+  return (
+    <span
+      ref={ref}
+      data-docs-scroll-manager-marker
+      aria-hidden
+      style={{ display: "none" }}
+    />
+  );
+}
+
+export function Layout({ children }: { children: React.ReactNode }) {
+  const localeData = useRootLocaleData();
+  const matches = useMatches() as unknown as Array<{ loaderData: unknown }>;
+  const hasDocBlocks = matches.some((match) => {
+    if (!match.loaderData || typeof match.loaderData !== "object") return false;
+    const data = match.loaderData as { body?: unknown };
+    return typeof data.body === "string" && hasDocBlockSyntax(data.body);
+  });
+  const locale = localeData.locale;
+  const localeInitScript =
+    typeof document !== "undefined"
+      ? (document.querySelector<HTMLScriptElement>(LOCALE_INIT_SCRIPT_SELECTOR)
+          ?.innerHTML ??
+        getLocaleInitScript({
+          locale,
+          preference:
+            locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
+        }))
+      : getLocaleInitScript({
+          locale,
+          preference:
+            locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
+        });
+
+  return (
+    <html
+      lang={locale}
+      dir={localeDirection(locale)}
+      data-doc-blocks={hasDocBlocks ? "true" : undefined}
+      suppressHydrationWarning
+    >
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON_LD }}
+        />
+        <SeoLinks />
+        <Meta />
+        <Links />
+      </head>
+      <body className="font-sans antialiased" suppressHydrationWarning>
+        {children}
+        <ScrollRestoration />
+        <Scripts />
+      </body>
+    </html>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+      }),
+  );
+  const [mounted, setMounted] = useState(false);
+  const pendingHydrationScrollTopRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    pendingHydrationScrollTopRef.current = window.location.hash
+      ? null
+      : getManagedScrollTop();
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const top = pendingHydrationScrollTopRef.current;
+    pendingHydrationScrollTopRef.current = null;
+    if (!top || top <= 0) return;
+
+    let raf = 0;
+    let secondRaf = 0;
+    const timer = window.setTimeout(() => setManagedScrollTop(top), 100);
+    raf = window.requestAnimationFrame(() => {
+      setManagedScrollTop(top);
+      secondRaf = window.requestAnimationFrame(() => setManagedScrollTop(top));
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.cancelAnimationFrame(secondRaf);
+      window.clearTimeout(timer);
+    };
+  }, [mounted]);
+
+  useEffect(() => {
+    void import("@agent-native/core/client/analytics").then(
+      ({ configureTracking }) => {
+        configureTracking({
+          sessionReplay: false,
+          getDefaultProps: (_name, properties) => ({
+            ...properties,
+            app: "agent-native-docs",
+          }),
+        });
+      },
+    );
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <DocsI18nProvider>
+        <RootShell mounted={mounted} />
+      </DocsI18nProvider>
+    </QueryClientProvider>
+  );
+}
+
+export function RootShell({ mounted }: { mounted: boolean }) {
+  const t = useT();
+  const content = (
+    <DocsChrome>
+      <Outlet />
+    </DocsChrome>
+  );
+
+  const fallback = (
+    // Mirror AgentSidebar's outer layout (h-screen + overflow-hidden shell
+    // with an overflow-auto child) so swapping in the real sidebar after
+    // hydration doesn't shift the scrollbar and re-anchor centered content.
+    <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
+        {content}
+      </div>
+    </div>
+  );
+
+  // One tree shape for every phase. Returning `fallback` bare before mount and
+  // a fragment+Suspense after put the placeholder at two different positions,
+  // so React tore the whole page down and rebuilt it on the `mounted` flip --
+  // on top of the rebuild the lazy swap itself causes. Keeping the fragment and
+  // the Suspense boundary mounted in every phase removes that first teardown.
+  return (
+    <>
+      {mounted && (
+        <>
+          <AgentNativeRouteWarmup />
+          <AgentNativeWebMcpActionRegistration />
+          <DocsWebMcpNavigationRegistration />
+        </>
+      )}
+      <Suspense fallback={fallback}>
+        {mounted ? (
+          <LazyAgentSidebar
+            storageKey="docs"
+            position="right"
+            defaultOpen={false}
+            defaultSidebarWidth={400}
+            emptyStateText={t("agent.emptyState")}
+            suggestions={[
+              t("agent.suggestionGettingStarted"),
+              t("agent.suggestionActions"),
+              t("agent.suggestionPolling"),
+              t("agent.suggestionDeploy"),
+            ]}
+          >
+            {/* Provided from inside the final tree, not from a state flag: the
+                lazy component still resolves a tick after its chunk arrives, so
+                anything keyed off "chunk loaded" opens while Suspense is still
+                showing the placeholder -- and mounts into the subtree that is
+                about to be thrown away. */}
+            <ShellSettledProvider value>{content}</ShellSettledProvider>
+          </LazyAgentSidebar>
+        ) : (
+          fallback
+        )}
+      </Suspense>
+    </>
+  );
+}
+
+// Mirrors core's ErrorBoundary.tsx useStaleChunkRecovery: reload once on a
+// stale chunk instead of stranding the user on the generic error screen.
+function useStaleChunkRecovery(error: unknown): boolean {
+  const [recovering, setRecovering] = useState(() =>
+    isStaleDocsChunkError(error),
+  );
+  useEffect(() => {
+    if (!isStaleDocsChunkError(error)) {
+      setRecovering(false);
+      return;
+    }
+    if (!recoverFromStaleChunkError(error)) setRecovering(false);
+  }, [error]);
+  return recovering;
+}
+
+function LocalizedError({ error }: { error: unknown }) {
+  const t = useT();
+  const localeData = useRootLocaleData();
+  const recovering = useStaleChunkRecovery(error);
+  const localizedPath = (path: string) =>
+    sitePathForLocale(path, localeData.locale);
+
+  // Always surface the underlying error to devtools/Sentry — a generic
+  // "Something went wrong" screen with nothing logged is how a root cause
+  // stays unknown (see the incident this recovery path was added for).
+  if (typeof console !== "undefined" && error && !recovering) {
+    console.error("[DocsErrorBoundary]", error);
+  }
+
+  if (recovering) {
+    return (
+      <DocsChrome>
+        <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
+          <p className="text-base text-[var(--fg-secondary)]">
+            {t("errors.loadingLatest")}
+          </p>
+        </main>
+      </DocsChrome>
+    );
+  }
+
+  if (isRouteErrorResponse(error) && error.status === 404) {
+    return (
+      <DocsChrome>
+        <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
+          <div className="mb-6 text-[120px] font-bold leading-none tracking-tighter text-[var(--docs-border)]">
+            404
+          </div>
+          <h1 className="mb-3 text-2xl font-semibold tracking-tight">
+            {t("errors.notFoundTitle")}
+          </h1>
+          <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
+            {t("errors.notFoundBody")}
+          </p>
+          <div className="flex items-center gap-3">
+            <Link
+              data-an-prefetch="viewport"
+              to={localizedPath("/")}
+              className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            >
+              {t("errors.goHome")}
+            </Link>
+            <Link
+              data-an-prefetch="viewport"
+              to={localizedPath("/docs")}
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            >
+              {t("errors.readDocs")}
+            </Link>
+          </div>
+          <ErrorReportActions
+            appName="Docs"
+            title={t("errors.notFoundTitle")}
+            details={t("errors.notFoundBody")}
+            status={404}
+            issueTitle="Docs error: Page not found"
+            feedbackLabel={t("errors.sendFeedback")}
+            feedbackPlaceholder={t("errors.feedbackPlaceholder")}
+            githubLabel={t("errors.openGitHubIssue")}
+            className="mt-4"
+          />
+        </main>
+      </DocsChrome>
+    );
+  }
+
+  return (
+    <DocsChrome>
+      <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
+        <h1 className="mb-3 text-2xl font-semibold tracking-tight">
+          {t("errors.genericTitle")}
+        </h1>
+        <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
+          {t("errors.genericBody")}
+        </p>
+        <Link
+          data-an-prefetch="viewport"
+          to={localizedPath("/")}
+          className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+        >
+          {t("errors.goHome")}
+        </Link>
+        <ErrorReportActions
+          appName="Docs"
+          title={t("errors.genericTitle")}
+          details={t("errors.genericBody")}
+          issueTitle="Docs error: Something went wrong"
+          feedbackLabel={t("errors.sendFeedback")}
+          feedbackPlaceholder={t("errors.feedbackPlaceholder")}
+          githubLabel={t("errors.openGitHubIssue")}
+          className="mt-4"
+        />
+      </main>
+    </DocsChrome>
+  );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+
+  return (
+    <DocsI18nProvider>
+      <LocalizedError error={error} />
+    </DocsI18nProvider>
+  );
+}

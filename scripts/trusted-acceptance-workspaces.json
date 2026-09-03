@@ -1,0 +1,140 @@
+{
+  "revision": "6",
+  "workspaces": [
+    {
+      "id": "calendar-content",
+      "enabled": false,
+      "runtimeAuthority": {
+        "lifecycle": "ephemeral-per-run",
+        "provisioner": {
+          "kind": "trusted-lease-v1",
+          "profileMapVariable": "ACCEPTANCE_AUTHORITY_PROFILES_JSON"
+        }
+      },
+      "directoryFixture": {
+        "origin": "https://directory.acceptance.agent-native.com",
+        "siteIdVariable": "ACCEPTANCE_DIRECTORY_NETLIFY_SITE_ID",
+        "withdrawnMemberId": "content"
+      },
+      "harness": {
+        "kind": "a2a-directory-withdrawal",
+        "callerMemberId": "calendar",
+        "targetMemberId": "content",
+        "message": "Return only this exact lease-bound marker: {{TRUSTED_ACCEPTANCE_LEASE_MARKER}}",
+        "expectedResult": "{{TRUSTED_ACCEPTANCE_LEASE_MARKER}}",
+        "maxStatusPolls": 20
+      },
+      "isolation": {
+        "productionOrigin": "https://calendar.agent-native.com",
+        "otherAcceptanceMemberId": "content"
+      },
+      "assertions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "A6",
+        "A7",
+        "A8",
+        "A9",
+        "A10",
+        "A11",
+        "A12",
+        "A13",
+        "A14",
+        "I1",
+        "I2",
+        "I3",
+        "I4",
+        "I5",
+        "I6",
+        "I7"
+      ],
+      "members": [
+        {
+          "template": "calendar",
+          "origin": "https://calendar.acceptance.agent-native.com",
+          "siteIdVariable": "ACCEPTANCE_CALENDAR_NETLIFY_SITE_ID",
+          "environment": {
+            "databaseUrl": "ACCEPTANCE_CALENDAR_DATABASE_URL",
+            "betterAuthSecret": "ACCEPTANCE_CALENDAR_BETTER_AUTH_SECRET",
+            "a2aSecret": "ACCEPTANCE_WORKSPACE_A2A_SECRET"
+          },
+          "build": {
+            "command": "pnpm --filter calendar build",
+            "publishDirectory": "templates/calendar/dist"
+          },
+          "paths": {
+            "health": "/_agent-native/health",
+            "oauthMetadata": "/.well-known/oauth-protected-resource",
+            "mcp": "/mcp"
+          }
+        },
+        {
+          "template": "content",
+          "origin": "https://content.acceptance.agent-native.com",
+          "siteIdVariable": "ACCEPTANCE_CONTENT_NETLIFY_SITE_ID",
+          "environment": {
+            "databaseUrl": "ACCEPTANCE_CONTENT_DATABASE_URL",
+            "betterAuthSecret": "ACCEPTANCE_CONTENT_BETTER_AUTH_SECRET",
+            "a2aSecret": "ACCEPTANCE_WORKSPACE_A2A_SECRET"
+          },
+          "inference": {
+            "provider": "openrouter",
+            "engine": "ai-sdk:openrouter"
+          },
+          "build": {
+            "command": "pnpm --filter content build",
+            "publishDirectory": "templates/content/dist"
+          },
+          "paths": {
+            "health": "/_agent-native/health",
+            "oauthMetadata": "/.well-known/oauth-protected-resource",
+            "mcp": "/mcp"
+          }
+        }
+      ]
+    },
+    {
+      "id": "tasks-hosted-oauth-proof",
+      "enabled": false,
+      "runtimeAuthority": {
+        "lifecycle": "ephemeral-per-run",
+        "provisioner": {
+          "kind": "unconfigured"
+        }
+      },
+      "harness": {
+        "kind": "mcp-read-only-tool",
+        "memberId": "tasks",
+        "tool": "list-tasks",
+        "arguments": {
+          "limit": 1
+        }
+      },
+      "assertions": ["I1", "I2", "I3", "I5", "I6", "I8"],
+      "members": [
+        {
+          "template": "tasks",
+          "origin": "https://tasks.acceptance.agent-native.com",
+          "siteIdVariable": "ACCEPTANCE_TASKS_NETLIFY_SITE_ID",
+          "environment": {
+            "databaseUrl": "ACCEPTANCE_TASKS_DATABASE_URL",
+            "betterAuthSecret": "ACCEPTANCE_TASKS_BETTER_AUTH_SECRET",
+            "a2aSecret": "ACCEPTANCE_TASKS_A2A_SECRET"
+          },
+          "build": {
+            "command": "pnpm --filter tasks build",
+            "publishDirectory": "templates/tasks/dist"
+          },
+          "paths": {
+            "health": "/_agent-native/health",
+            "oauthMetadata": "/.well-known/oauth-protected-resource",
+            "mcp": "/mcp"
+          }
+        }
+      ]
+    }
+  ]
+}

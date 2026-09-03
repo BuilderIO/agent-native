@@ -1,0 +1,154 @@
+---
+title: "Toolkit"
+description: "كتالوج متوازن للأسس القابلة لإعادة الاستخدام والمحررات واللوحات وسياق الوكيل والحوكمة وهيكل مساحة العمل والعمليات ووحدات قدرات Toolkit."
+---
+
+<!-- i18n-docs-ignore -->
+
+# Toolkit
+
+Toolkit هو رفّ اللبنات القابلة لإعادة الاستخدام والمجرّبة للتطبيقات الوكيلة
+عالية الجودة. يحوّل عمل المنتج المتكرر بين التطبيقات إلى أسطح قياسية، من دون
+جعل نمط تطبيق واحد محور الكتالوج.
+
+هذا القسم هو رف الاكتشاف الواحد لواجهة بناء التطبيقات القابلة لإعادة الاستخدام.
+ينتمي السطح إلى هذه الوثائق لأنه قابل لإعادة الاستخدام، حتى إن كان مالكه الحالي
+Core أو قالبًا. توضح تسميات الملكية ومسارات الاستيراد هذا الحد من دون تشتيت
+إرشادات الواجهة في الموقع.
+
+Each kit packages the UI patterns, action contracts, app-state expectations,
+access boundaries, and agent-visible behavior that users expect to work
+consistently. Apps still own their domain model and visual identity; Toolkit
+make the common product systems feel complete from the first version instead of
+being rebuilt in slightly different ways every time.
+
+<WireframeBlock id="doc-block-toolkits-index">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:grid;grid-template-columns:200px 1fr 280px;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:14px'><div style='display:flex;align-items:center;gap:8px'><div style='width:26px;height:26px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span> Home</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='edit'></span> Documents</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='user'></span> Team</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='settings'></span> Settings</div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1.4px solid var(--wf-line)'><div style='width:24px;height:24px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><small style='flex:1'>Steve</small><span data-icon='dots'></span></div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><div style='flex:1'></div><div style='display:flex'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><button class='primary'><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:45%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:55%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:95%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;gap:10px'><div class='wf-box' style='flex:1'><small class='wf-muted'>ARR</small><br/><strong>$4.2M</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Win rate</small><br/><strong>28%</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Pipeline</small><br/><strong>3.2x</strong></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box'>Summarize Q3 versus Q2 and flag risks.</div><div class='wf-box' style='background:var(--wf-accent-soft)'>Revenue up 12%. Two pipeline risks flagged.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><span class='wf-muted'>Ask about this dashboard...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'>Q3 Forecast</span><span class='wf-pill'>GPT-5</span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span></button></div></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+<Diagram id="doc-block-toolkits-boundary" title="كيف تتكامل الطبقات الثلاث" summary={"Core هو أساس الإطار. Toolkit بنية تحتية وواجهة مستخدم اختيارية قابلة لإعادة الاستخدام. Templates تطبيقات اختيارية مبنية على Core وغالبًا ما تستخدم Toolkit."}>
+
+```html
+<div class="diagram-row">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Core</span><br />
+    الإجراءات، SQL، المصادقة، حالة التطبيق، فحوصات الوصول، النقل الفوري
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Toolkit</span><br />
+    التعاون، المشاركة، الإعداد، المراجعة، السجل، قابلية الرصد
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Templates</span><br />
+    مخطط المجال، المسارات، الإجراءات، العلامة التجارية، تدفقات متخصصة
+  </div>
+</div>
+```
+
+```css
+.diagram-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.diagram-row .diagram-card {
+  flex: 1 1 210px;
+  padding: 14px;
+}
+.diagram-row .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+Core هو الإطار. Toolkit رف اختياري من الأجزاء القابلة لإعادة الاستخدام للإطار. Templates تطبيقات اختيارية مبنية على Core؛ يمكنها استخدام Toolkit ويمكن تفريعها كنقاط بداية كاملة. ويمكن للتطبيق أيضًا استخدام Core مباشرة من دون Toolkit أو قالب.
+
+## الكتالوج {#catalog}
+
+| المجال              | ابدأ من هنا                                         | ما الذي يغطيه                                                          |
+| ------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
+| الأسس               | [أوليات الواجهة](/docs/toolkit-ui)                  | عناصر تحكم وخطافات ومهايئات تطبيق ونقاط وصل للهيكل مشتركة.             |
+| المحررات واللوحات   | [المحررات واللوحات](/docs/toolkit-editors-canvases) | تحرير غني وكتل منظمة وعناصر تحكم قابلة لإعادة الاستخدام وأنماط Design. |
+| تجربة الوكيل وسياقه | [السياق والمعرفة](/docs/toolkit-context-knowledge)  | Context X-Ray والموارد والمعرفة وسياق المؤلف والحالة المرئية للوكيل.   |
+| التعاون والحوكمة    | [التعاون](/docs/toolkit-collaboration)              | المشاركة والحضور والمراجعة والسجل والتدقيق وحدود المؤسسة.              |
+| هيكل مساحة العمل    | [هيكل التطبيق](/docs/toolkit-settings)              | الإعدادات والفرق والإعداد والتنقل والموارد وتجربة الوكيل.              |
+| العمليات            | [قابلية المراقبة](/docs/toolkit-observability)      | الاستخدام والملاحظات وإعادة التشغيل والتشخيص والرؤية التشغيلية.        |
+| وحدات قدرات Toolkit | [حزم القدرات](/docs/toolkit-capability-packages)    | حزم نطاق تثبت عند الحاجة وبيانات دورة حياتها.                          |
+
+## مجموعات المنتج {#product-kits}
+
+| الحزمة                                                | استخدمها من أجل                                                                                     |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [المشاركة](/docs/toolkit-sharing)                     | موارد مملوكة، حوارات وإجراءات المشاركة، شارات الرؤية والوصول العام/الخاص/المنظمة.                   |
+| [التعاون](/docs/toolkit-collaboration)                | تحرير فوري، حضور، مؤشرات حية، إبراز التعديلات الأخيرة وتراجع تعاوني.                                |
+| [الإعدادات](/docs/toolkit-settings)                   | صفحات وعلامات إعدادات قياسية لإعدادات التطبيق والوكيل/المزود في مكان متوقع.                         |
+| [المنظمة والفريق](/docs/toolkit-org-team)             | صفحات الفريق، تبديل المنظمة، الدعوات، النطاقات، الأدوار وتبديل التطبيقات.                           |
+| [الإعداد والاتصالات](/docs/toolkit-setup-connections) | التهيئة، الأسرار، اتصالات مساحة العمل، OAuth وجاهزية المزود وBuilder connect (free tier available). |
+| [الأوامر والتنقل](/docs/toolkit-command-navigation)   | قائمة الأوامر، الروابط العميقة، المسارات القياسية وأنماط الشريط الجانبي والصدفة.                    |
+| [الموارد](/docs/toolkit-resources)                    | أشجار ومحررات الموارد، منتقي/بحث الملفات، المرفقات ووضع الملفات المحلي.                             |
+| [تجربة الوكيل](/docs/toolkit-agent-ux)                | المؤلف، منتقي النموذج، شرائح السياق، الموافقات، الاسترداد ودرج التشغيل.                             |
+| [السجل](/docs/toolkit-history)                        | موارد مإصدرة، لقطات، سجل، تدقيق، تراجع/إعادة، استعادة وأسـطح التغييرات.                             |
+| [التعليقات والمراجعة](/docs/toolkit-comments-review)  | موارد قابلة للمراجعة، تعليقات، قوائم ملاحظات، سلاسل، إشارات وحالة مراجعة.                           |
+| [قابلية الرصد](/docs/toolkit-observability)           | الاستخدام، الإنفاق، الملاحظات، الإعادة، الأخطاء وتشخيصات التشغيل.                                   |
+
+## نضج الحزمة وملكيتها {#package-maturity-and-ownership}
+
+- المحرر الغني مملوك لـ **Toolkit**؛ وتبقى استيرادات Core الحالية عمليات إعادة تصدير متوافقة وخفيفة أثناء الترحيل.
+- Design هو **نمط قالب** مع `design-tweaks` قابلة لإعادة الاستخدام، وليس محررًا أو لوحة كاملة قابلة للإضافة مباشرة.
+- تظل Blocks ومحرك Context X-Ray مملوكين لـ **Core** في هذه المرحلة؛ أما عرض Context X-Ray القابل لإعادة الاستخدام فمملوك لـ Toolkit.
+- Creative Context وScheduling وPinpoint هي **وحدات قدرات Toolkit** تثبت عند الحاجة؛ وتحافظ على حزم npm وبيانات دورة حياة منفصلة. ويظل Dispatch منتجًا منفصلًا.
+
+## حزمة لوحة المعلومات {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` وحدة قابلة للإخراج للعرض فقط: بطاقات المقاييس
+والإحصاءات والجداول ومحدد التاريخ وترتيب اللوحات والتخطيط والرسوم العامة. يمرر
+التطبيق الصفوف والاستدعاءات؛ لا تجلب الحزمة البيانات ولا تملك حالة اللوحة أو
+بيانات الاعتماد. أنشئ `@agent-native/core/dashboard-storage` لكل تطبيق مع مخطط
+ووصول مستقلين، واستخدم مصدر `program` الافتراضي لبرامج البيانات المملوكة للتطبيق.
+قبل تطبيقها، شغّل `agent-native eject inspect toolkit/dashboard`. تبقى محللات
+الموفر في التطبيق الذي يملك اتصاله وسياسة الاستعلام الخاصة به.
+
+## حد التنفيذ {#implementation-boundary}
+
+الحزم هي أسطح منتج أولًا. بعض الأجزاء مدعومة بوقت التشغيل
+(`@agent-native/core`), some are presentation primitives
+(`@agent-native/toolkit`), and apps usually wrap both through local adapters.
+استخدم مسار الحزمة التي تملك السلوك المطلوب، لكن صمّم الإعدادات والتعاون
+والمشاركة والفريق والمراجعة والإعداد كتجربة حزمة متماسكة بدل كشف حدود الحزم في
+التطبيق.
+
+## اللبنات الأساسية {#foundation-pieces}
+
+- [أوليات الواجهة](/docs/toolkit-ui) تغطي أوليات شبيهة بـ shadcn تحت
+  `@agent-native/toolkit/ui/*`، ومحولات التطبيق المحلية وخطافات الصدفة المشتركة.
+- تبقى [واجهة مكونات API](/docs/components) المرجع الأدنى لصادرات React العامة.
+
+## قاعدة التصميم {#design-rule}
+
+استخدم حزمة عندما يتكرر السلوك عبر التطبيقات ويتوقع المستخدمون أن يكون قياسيًا:
+لا ينبغي أن تختلف المشاركة والإعدادات والفرق والتعليقات والسجل وتقدم الوكيل بين
+القوالب. أبقِ بيانات المجال وتدفقات العمل والتسميات والأسلوب البصري داخل التطبيق.
+
+## الخطوات التالية
+
+- [**أوليات واجهة Toolkit**](/docs/toolkit-ui) — أوليات ومهايئات تطبيق وخطافات shell مشتركة.
+- [**مجموعة المشاركة**](/docs/toolkit-sharing) — بداية جيدة للموارد وحوارات المشاركة والرؤية.
+- [**إنشاء القوالب**](/docs/creating-templates) — أنشئ قالباً كاملاً لترى موضع المجموعات.
+- [**واجهة مكونات API**](/docs/components) — مرجع exports العامة لـ React.
+- [**دورة حياة الحزم**](/docs/package-lifecycle) — افحص وأضف وأخرج وحدات قدرات Toolkit المعتمدة على manifest بأمان.
+
+## تخصيص مجموعة أو إخراجها {#customize-or-eject}
+
+اتبع هذا الترتيب: اضبط API العامة ← ركّب العناصر العامة ← أخرج أصغر وحدة ← اقترح نقطة توسيع مشتركة. استخدم `agent-native eject --list` و`agent-native eject inspect <unit>` للاستكشاف، ثم عاين `agent-native eject <unit> --app <app>` قبل إضافة `--apply`.
+
+تغطي بيانات Toolkit كل نقطة دخول عامة، ويسجل التطبيق المصدر وإعادات كتابة الاستيراد في `agent-native.ejections.json`. يعرض `agent-native eject diff <unit> --app <app>` التغييرات، ولا تعيد `restore` الملفات إلا إذا بقيت التجزئات والاستيرادات مطابقة. تشمل الوحدات الرسمية أيضًا كتالوجات MCP البعيدة واتصالات مساحة العمل وتعريفات provider API ومهايئات الرسائل وواجهة الاستعداد وحزم المجال. الوصفة الرسمية المفقودة تفشل حارس الإصدار؛ الحزمة الخارجية تحصل على مخطط add؛ وعقود Core المحمية تبقى خلف نقاط التوسعة العامة.

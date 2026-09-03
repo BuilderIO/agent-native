@@ -1,0 +1,1459 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { publishActionChangeFastPath } from "../action-change-fast-path.js";
+
+const mockExecute = vi.hoisted(() => vi.fn());
+const mockGetSession = vi.hoisted(() =>
+  vi.fn(
+    async (): Promise<{ email: string; orgId?: string }> => ({
+      email: "test@example.com",
+    }),
+  ),
+);
+
+vi.mock("h3", () => ({
+  defineEventHandler: (handler: any) => handler,
+  getQuery: (event: any) => event.query ?? {},
+  setResponseStatus: () => {},
+}));
+
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => ({ execute: mockExecute }),
+  isPostgres: () => false,
+}));
+
+// Stub auth so the handler doesn't try to read a real session cookie. Tests
+// that need a different session (e.g. an org membership) override this via
+// `mockGetSession.mockResolvedValueOnce(...)` before importing poll.js.
+vi.mock("./auth.js", () => ({
+  getSession: mockGetSession,
+}));
+
+describe("poll handler", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE = "1";
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
+    mockExecute.mockReset();
+    mockGetSession.mockReset();
+    mockGetSession.mockResolvedValue({ email: "test@example.com" });
+  });
+
+  afterEach(() => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
+    vi.useRealTimers();
+  });
+
+  it("returns durable sync events without running the legacy watermark scan", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const durableEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "create-project",
+      owner: "test@example.com",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 2_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          const since = Number(query.args?.[0]) || 0;
+          return {
+            rows:
+              durableEvent.version > since
+                ? [
+                    {
+                      version: durableEvent.version,
+                      event_json: JSON.stringify(durableEvent),
+                    },
+                  ]
+                : [],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result).toEqual({
+      version: 2_000,
+      events: [expect.objectContaining(durableEvent)],
+    });
+    expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
+    expect(executedSql()).not.toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+  });
+
+  it("does not advance past an unread durable event page when memory is ahead", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const durableRows = Array.from({ length: 1000 }, (_, index) => {
+      const version = 1_001 + index;
+      return {
+        version,
+        event_json: JSON.stringify({
+          version,
+          source: "action",
+          type: "change",
+          key: `action-${version}`,
+          owner: "test@example.com",
+        }),
+      };
+    });
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 10_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return { rows: durableRows };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result.version).toBe(2_000);
+    expect(result.events).toHaveLength(1000);
+    expect(result.events.at(-1)).toMatchObject({ version: 2_000 });
+  });
+
+  it("does not skip same-version durable events at a page boundary", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const durableRows = [
+      ...Array.from({ length: 999 }, (_, index) => {
+        const version = 1_001 + index;
+        return {
+          version,
+          event_json: JSON.stringify({
+            version,
+            source: "action",
+            type: "change",
+            key: `action-${version}`,
+            owner: "test@example.com",
+          }),
+        };
+      }),
+      {
+        version: 2_000,
+        event_json: JSON.stringify({
+          version: 2_000,
+          source: "settings",
+          type: "change",
+          key: "first-boundary",
+          owner: "test@example.com",
+        }),
+      },
+      {
+        version: 2_000,
+        event_json: JSON.stringify({
+          version: 2_000,
+          source: "settings",
+          type: "change",
+          key: "second-boundary",
+          owner: "test@example.com",
+        }),
+      },
+    ];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 10_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return { rows: durableRows };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result.version).toBe(1_999);
+    expect(result.events).toHaveLength(999);
+    expect(result.events.at(-1)).toMatchObject({ version: 1_999 });
+    expect(result.events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "first-boundary" }),
+      ]),
+    );
+  });
+
+  it("does not advance past a durable event waiting on access resolution", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const pendingEvent = {
+      version: 2_000,
+      source: "collab",
+      type: "change",
+      resourceType: "document",
+      resourceId: "doc-1",
+      owner: "someone@example.com",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 10_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return {
+            rows: [
+              { version: 2_000, event_json: JSON.stringify(pendingEvent) },
+              {
+                version: 3_000,
+                event_json: JSON.stringify({
+                  version: 3_000,
+                  source: "action",
+                  type: "change",
+                  owner: "test@example.com",
+                }),
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result).toEqual({ version: 1_999, events: [] });
+  });
+
+  it("preserves distinct durable events that share the same version", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const firstEvent = {
+      version: 2_000,
+      source: "settings",
+      type: "change",
+      key: "theme",
+    };
+    const secondEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "update-dashboard",
+      owner: "test@example.com",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 2_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return {
+            rows: [
+              { version: 2_000, event_json: JSON.stringify(firstEvent) },
+              { version: 2_000, event_json: JSON.stringify(secondEvent) },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result.version).toBe(2_000);
+    expect(result.events).toEqual([
+      expect.objectContaining(firstEvent),
+      expect.objectContaining(secondEvent),
+    ]);
+  });
+
+  it("uses the durable id as a cursor tie-breaker for same-version events", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const firstEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "first",
+    };
+    const secondEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "second",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 2_000 }] };
+        }
+        if (sql.includes("(version > ? OR")) {
+          expect(query.args?.slice(0, 3)).toEqual([2_000, 2_000, "a"]);
+          return {
+            rows: [
+              {
+                id: "b",
+                version: 2_000,
+                event_json: JSON.stringify(secondEvent),
+              },
+            ],
+          };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return {
+            rows: [
+              {
+                id: "a",
+                version: 2_000,
+                event_json: JSON.stringify(firstEvent),
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const first = await handler({ query: { since: "1000" } });
+    expect(first.events).toEqual([expect.objectContaining({ key: "first" })]);
+
+    const second = await handler({
+      query: { since: "2000", cursor: "2000.a" },
+    });
+    expect(second.events).toEqual([
+      expect.objectContaining({ key: "second", cursorId: "b" }),
+    ]);
+    expect(second.cursor).toBe("2000.b");
+  });
+
+  it("emits screen-refresh events when the refresh marker changes", async () => {
+    let appStateTs = 1_000;
+    let settingsTs = 900;
+    let extensionsTs = 800;
+    let extensionMarkerTs = 0;
+    let actionMarkerTs = 0;
+    let refreshTs = 500;
+    let refreshValue = JSON.stringify({ scope: "initial" });
+    let appStateRows = [
+      {
+        session_id: "test@example.com",
+        key: "__screen_refresh__",
+        updated_at: appStateTs,
+      },
+    ];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        const key = query.args?.[0];
+        return {
+          rows: [
+            {
+              max_ts:
+                key === "__action_change__"
+                  ? actionMarkerTs
+                  : extensionMarkerTs,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: appStateTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("SELECT session_id, value, updated_at")
+      ) {
+        if (query.args?.[0] === "__action_change__") {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        const since = Number(query.args?.[0]) || 0;
+        return {
+          rows: appStateRows.filter((row) => row.updated_at > since),
+        };
+      }
+      if (sql.includes("WHERE key = ?")) {
+        return {
+          rows: [
+            {
+              session_id: "test@example.com",
+              updated_at: refreshTs,
+              value: refreshValue,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const baseline = await handler({ query: { since: "0" } });
+    expect(baseline).toEqual({ version: 1_000, events: [] });
+
+    vi.setSystemTime(101_500);
+    appStateTs = 2_000;
+    settingsTs = 900;
+    extensionsTs = 800;
+    extensionMarkerTs = 0;
+    actionMarkerTs = 0;
+    refreshTs = 2_000;
+    refreshValue = JSON.stringify({ scope: "documents" });
+    appStateRows = [
+      {
+        session_id: "test@example.com",
+        key: "__screen_refresh__",
+        updated_at: appStateTs,
+      },
+    ];
+
+    const next = await handler({ query: { since: String(baseline.version) } });
+
+    expect(next.version).toBeGreaterThan(baseline.version);
+    expect(next.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "app-state",
+          type: "change",
+          key: "__screen_refresh__",
+          owner: "test@example.com",
+        }),
+        expect.objectContaining({
+          source: "screen-refresh",
+          type: "change",
+          key: "__screen_refresh__",
+          owner: "test@example.com",
+          scope: "documents",
+        }),
+      ]),
+    );
+  });
+
+  it("emits scoped extension changes from the tools table fallback", async () => {
+    let appStateTs = 1_000;
+    let settingsTs = 900;
+    let extensionsTs = "2026-05-15T12:00:00.000Z";
+    let extensionMarkerTs = 700;
+    let actionMarkerTs = 0;
+    let extensionRows: Array<Record<string, unknown>> = [];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        const key = query.args?.[0];
+        return {
+          rows: [
+            {
+              max_ts:
+                key === "__action_change__"
+                  ? actionMarkerTs
+                  : extensionMarkerTs,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: appStateTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("SELECT session_id, value, updated_at")
+      ) {
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [] };
+      }
+      if (sql.includes("WHERE key = ?")) {
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        return { rows: extensionRows };
+      }
+      if (sql.includes("FROM tool_shares")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const baseline = await handler({ query: { since: "0" } });
+    expect(baseline.events).toEqual([]);
+
+    vi.setSystemTime(101_500);
+    extensionsTs = "2026-05-15T12:00:01.250Z";
+    extensionRows = [
+      {
+        id: "ext-1",
+        owner_email: "test@example.com",
+        org_id: "org-1",
+        visibility: "private",
+        updated_at: extensionsTs,
+      },
+    ];
+
+    const next = await handler({ query: { since: String(baseline.version) } });
+
+    expect(next.version).toBeGreaterThan(baseline.version);
+    expect(next.events).toEqual([
+      expect.objectContaining({
+        source: "extensions",
+        type: "change",
+        key: "*",
+        owner: "test@example.com",
+      }),
+    ]);
+    const toolRowQueries = mockExecute.mock.calls
+      .map(([query]) => query)
+      .filter((query: any) => {
+        const sql = typeof query === "string" ? query : query?.sql;
+        return (
+          typeof sql === "string" &&
+          sql.includes("SELECT id, owner_email") &&
+          sql.includes("FROM tools")
+        );
+      });
+    const latestToolRowQuery = toolRowQueries[toolRowQueries.length - 1] as {
+      sql: string;
+      args?: unknown[];
+    };
+    expect(latestToolRowQuery.sql).toContain("FROM tools WHERE updated_at > ?");
+    expect(latestToolRowQuery.args).toEqual(["2026-05-15T12:00:00.000Z"]);
+    expect(executedSql()).not.toContain(
+      "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
+    );
+  });
+
+  it("emits action changes from durable markers for child-process actions", async () => {
+    let appStateTs = 1_000;
+    let settingsTs = 900;
+    let extensionsTs = 800;
+    let extensionMarkerTs = 0;
+    let actionMarkerTs = 700;
+    let actionMarkerRows: Array<Record<string, unknown>> = [];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        const key = query.args?.[0];
+        return {
+          rows: [
+            {
+              max_ts:
+                key === "__action_change__"
+                  ? actionMarkerTs
+                  : extensionMarkerTs,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: appStateTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("SELECT session_id, value, updated_at")
+      ) {
+        if (query.args?.[0] === "__action_change__") {
+          return { rows: actionMarkerRows };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        const since = Number(query.args?.[0]) || 0;
+        return {
+          rows: actionMarkerRows
+            .filter((row) => Number(row.updated_at) > since)
+            .map((row) => ({
+              session_id: row.session_id,
+              key: "__action_change__",
+              updated_at: row.updated_at,
+            })),
+        };
+      }
+      if (sql.includes("WHERE key = ?")) {
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const baseline = await handler({ query: { since: "0" } });
+    expect(baseline.events).toEqual([]);
+
+    vi.setSystemTime(101_500);
+    appStateTs = 2_000;
+    actionMarkerTs = 2_000;
+    actionMarkerRows = [
+      {
+        session_id: "test@example.com",
+        value: JSON.stringify({
+          source: "action",
+          actionName: "create-project",
+          owner: "test@example.com",
+          nonce: "create-project-2000",
+        }),
+        updated_at: 2_000,
+      },
+    ];
+    publishActionChangeFastPath({
+      actionName: "create-project",
+      owner: "test@example.com",
+      nonce: "create-project-2000",
+    });
+
+    const next = await handler({ query: { since: String(baseline.version) } });
+
+    expect(next.events).toEqual([
+      expect.objectContaining({
+        source: "action",
+        type: "change",
+        key: "create-project",
+        owner: "test@example.com",
+      }),
+    ]);
+    expect(next.events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "app-state",
+          key: "__action_change__",
+        }),
+      ]),
+    );
+
+    // The marker can advance while the table-wide MAX stays ahead of it due
+    // to clock skew between action and web processes. Its own max probe must
+    // still make the marker row visible.
+    appStateTs = 3_000;
+    actionMarkerTs = 2_600;
+    actionMarkerRows.push({
+      session_id: "test@example.com",
+      value: JSON.stringify({
+        source: "action",
+        actionName: "update-project",
+        owner: "test@example.com",
+      }),
+      updated_at: 2_600,
+    });
+    vi.setSystemTime(102_500);
+    const ahead = await handler({ query: { since: String(next.version) } });
+    expect(ahead.events).toEqual([
+      expect.objectContaining({ key: "update-project", source: "action" }),
+    ]);
+
+    actionMarkerTs = 2_700;
+    actionMarkerRows.push({
+      session_id: "test@example.com",
+      value: JSON.stringify({
+        source: "action",
+        actionName: "rename-project",
+        owner: "test@example.com",
+      }),
+      updated_at: 2_700,
+    });
+    vi.setSystemTime(103_500);
+    const skewed = await handler({ query: { since: String(ahead.version) } });
+    expect(skewed.events).toEqual([
+      expect.objectContaining({ key: "rename-project", source: "action" }),
+    ]);
+  });
+
+  it("emits existing action markers on cold start instead of baselining past them", async () => {
+    const appStateTs = 1_000;
+    const settingsTs = 900;
+    const extensionsTs = 800;
+    const extensionMarkerTs = 0;
+    const actionMarkerTs = 1_000;
+    const actionMarkerRows: Array<Record<string, unknown>> = [
+      {
+        session_id: "test@example.com",
+        value: JSON.stringify({
+          source: "action",
+          actionName: "create-project",
+          owner: "test@example.com",
+        }),
+        updated_at: 1_000,
+      },
+    ];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        const key = query.args?.[0];
+        return {
+          rows: [
+            {
+              max_ts:
+                key === "__action_change__"
+                  ? actionMarkerTs
+                  : extensionMarkerTs,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: appStateTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("SELECT session_id, value, updated_at")
+      ) {
+        if (query.args?.[0] === "__action_change__") {
+          return { rows: actionMarkerRows };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [] };
+      }
+      if (sql.includes("WHERE key = ?")) {
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const baseline = await handler({ query: { since: "0" } });
+
+    expect(baseline.events).toEqual([
+      expect.objectContaining({
+        source: "action",
+        type: "change",
+        key: "create-project",
+        owner: "test@example.com",
+      }),
+    ]);
+    expect(baseline.events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "app-state",
+          key: "__action_change__",
+        }),
+      ]),
+    );
+  });
+
+  it("emits extension changes from durable markers for delete and hide fallback", async () => {
+    let appStateTs = 1_000;
+    let settingsTs = 900;
+    let extensionsTs = 800;
+    let extensionMarkerTs = 700;
+    let actionMarkerTs = 0;
+    let extensionMarkerRows: Array<Record<string, unknown>> = [];
+    let actionMarkerRows: Array<Record<string, unknown>> = [];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        const key = query.args?.[0];
+        return {
+          rows: [
+            {
+              max_ts:
+                key === "__action_change__"
+                  ? actionMarkerTs
+                  : extensionMarkerTs,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        return { rows: [{ max_ts: appStateTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("settings")) {
+        return { rows: [{ max_ts: settingsTs }] };
+      }
+      if (sql.includes("MAX(updated_at)") && sql.includes("tools")) {
+        return { rows: [{ max_ts: extensionsTs }] };
+      }
+      if (
+        sql.includes("FROM application_state") &&
+        sql.includes("key = ?") &&
+        sql.includes("SELECT session_id, value, updated_at")
+      ) {
+        if (query.args?.[0] === "__action_change__") {
+          return { rows: actionMarkerRows };
+        }
+        return { rows: extensionMarkerRows };
+      }
+      if (
+        sql.includes("SELECT session_id, key, updated_at") &&
+        sql.includes("application_state")
+      ) {
+        const since = Number(query.args?.[0]) || 0;
+        return {
+          rows: extensionMarkerRows
+            .filter((row) => Number(row.updated_at) > since)
+            .map((row) => ({
+              session_id: row.session_id,
+              key: "__extensions_change__",
+              updated_at: row.updated_at,
+            })),
+        };
+      }
+      if (sql.includes("WHERE key = ?")) {
+        return { rows: [] };
+      }
+      if (
+        sql.includes("SELECT id, owner_email") &&
+        sql.includes("FROM tools")
+      ) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const baseline = await handler({ query: { since: "0" } });
+    expect(baseline.events).toEqual([]);
+
+    vi.setSystemTime(101_500);
+    appStateTs = 2_000;
+    extensionMarkerTs = 2_000;
+    actionMarkerTs = 0;
+    actionMarkerRows = [];
+    extensionMarkerRows = [
+      {
+        session_id: "test@example.com",
+        value: JSON.stringify({
+          source: "extensions",
+          owner: "test@example.com",
+        }),
+        updated_at: 2_000,
+      },
+    ];
+
+    const next = await handler({ query: { since: String(baseline.version) } });
+
+    expect(next.events).toEqual([
+      expect.objectContaining({
+        source: "extensions",
+        type: "change",
+        key: "*",
+        owner: "test@example.com",
+      }),
+    ]);
+    const extensionScan = mockExecute.mock.calls.find(([query]) => {
+      if (typeof query === "string") return false;
+      return (
+        query?.sql?.includes(
+          "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ?",
+        ) && query?.args?.[0] === "__extensions_change__"
+      );
+    });
+    expect(extensionScan?.[0]).toMatchObject({
+      args: ["__extensions_change__", 700],
+    });
+    // The extension-marker scan is bounded by the same watermark clause, so
+    // match on the key argument rather than the SQL text: this asserts the
+    // screen-refresh scan did not run, not that no bounded scan ran.
+    expect(executedBoundedScanKeys()).not.toContain("__screen_refresh__");
+  });
+
+  it("scopes the durable sync_events query so unrelated-owner noise cannot crowd a page ahead of the caller's own, global, and resource-scoped events", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+
+    // Deliberately more than DURABLE_READ_LIMIT (1000) so an unscoped query
+    // would fill the entire page with another tenant's events and never
+    // reach this caller's own/global/resource-scoped events in one poll —
+    // exactly the bug this fix closes.
+    const noiseRows = Array.from({ length: 1_500 }, (_, index) => {
+      const version = 1_001 + index; // 1001..2500
+      return {
+        version,
+        owner: "other-tenant@example.com",
+        event: {
+          version,
+          source: "action",
+          type: "change",
+          key: `noise-${version}`,
+          owner: "other-tenant@example.com",
+        },
+      };
+    });
+    const globalRow = {
+      version: 2_501,
+      event: {
+        version: 2_501,
+        source: "settings",
+        type: "change",
+        key: "*",
+      },
+    };
+    const ownRow = {
+      version: 2_502,
+      owner: "test@example.com",
+      event: {
+        version: 2_502,
+        source: "action",
+        type: "change",
+        key: "own-event",
+        owner: "test@example.com",
+      },
+    };
+    // Owned by yet another user, but resource-scoped — must still reach the
+    // access-aware `getChangeVisibilityForUser` branch regardless of owner.
+    const resourceRow = {
+      version: 2_503,
+      owner: "someone-else@example.com",
+      resourceType: "document",
+      event: {
+        version: 2_503,
+        source: "collab",
+        type: "change",
+        resourceType: "document",
+        resourceId: "doc-1",
+        owner: "someone-else@example.com",
+      },
+    };
+    const store = [...noiseRows, globalRow, ownRow, resourceRow];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 2_503 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return { rows: scopedSyncEventsRows(store, query.args) };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    // The resource-scoped event is the highest version and still owned by a
+    // different user, so it's a cache-miss on the access-aware branch: it
+    // triggers a "pending" stop rather than being delivered. The two events
+    // below it (global + the caller's own) must still come back in this same
+    // poll — proving the SQL scope filter kept them off the noise-crowded
+    // page instead of deferring them behind 1500 irrelevant rows.
+    expect(result.events).toEqual([
+      expect.objectContaining({ key: "*" }),
+      expect.objectContaining({ key: "own-event", owner: "test@example.com" }),
+    ]);
+    expect(result.events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ owner: "other-tenant@example.com" }),
+      ]),
+    );
+    expect(result.version).toBe(2_502);
+
+    const syncCall = mockExecute.mock.calls.find(([q]) => {
+      const sql = typeof q === "string" ? q : q?.sql;
+      return (
+        typeof sql === "string" &&
+        sql.includes("FROM sync_events") &&
+        sql.includes("WHERE version > ?")
+      );
+    });
+    const syncQuery = syncCall?.[0] as { sql: string; args?: unknown[] };
+    expect(syncQuery.sql).toContain("owner = ?");
+    expect(syncQuery.sql).toContain("org_id = ?");
+    expect(syncQuery.sql).toContain("resource_type IS NOT NULL");
+    expect(syncQuery.args).toEqual([1_000, "test@example.com", null, 1_001]);
+  });
+
+  it("scopes durable events by org_id when the caller belongs to an org, without leaking a different org's events", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockGetSession.mockResolvedValue({
+      email: "test@example.com",
+      orgId: "org-1",
+    });
+
+    const store = [
+      {
+        version: 1_001,
+        orgId: "org-1",
+        event: {
+          version: 1_001,
+          source: "settings",
+          type: "change",
+          key: "own-org-event",
+          orgId: "org-1",
+        },
+      },
+      {
+        version: 1_002,
+        orgId: "org-2",
+        event: {
+          version: 1_002,
+          source: "settings",
+          type: "change",
+          key: "other-org-event",
+          orgId: "org-2",
+        },
+      },
+    ];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 1_002 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return { rows: scopedSyncEventsRows(store, query.args) };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result.events).toEqual([
+      expect.objectContaining({ key: "own-org-event" }),
+    ]);
+    expect(result.events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "other-org-event" }),
+      ]),
+    );
+
+    const syncCall = mockExecute.mock.calls.find(([q]) => {
+      const sql = typeof q === "string" ? q : q?.sql;
+      return (
+        typeof sql === "string" &&
+        sql.includes("FROM sync_events") &&
+        sql.includes("WHERE version > ?")
+      );
+    });
+    const syncQuery = syncCall?.[0] as { sql: string; args?: unknown[] };
+    expect(syncQuery.args).toEqual([1_000, "test@example.com", "org-1", 1_001]);
+  });
+
+  // ─── Idle cost ────────────────────────────────────────────────────────────
+  // The legacy watermark scan used to read `application_state` four separate
+  // times per check whether or not anything had changed, and that cost repeats
+  // per app per connected client. These two tests pin the marker gate: one
+  // independent max probes when nothing moved, the full read the moment it
+  // does. The action marker has its own watermark, so it must stay independent
+  // from the table-wide max under cross-process clock skew.
+
+  /** Serves the legacy watermark scan with a settable application_state max. */
+  function mockLegacyScan(appStateMax: () => number): void {
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql: string = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        // Marker reads (`WHERE key = ?`) share the table's max here; the gate
+        // must not depend on them being lower.
+        return { rows: [{ max_ts: appStateMax() }] };
+      }
+      if (sql.includes("MAX(updated_at)")) return { rows: [{ max_ts: 0 }] };
+      if (sql.includes("FROM application_state")) return { rows: [] };
+      return { rows: [] };
+    });
+  }
+
+  function applicationStateReads(): string[] {
+    return mockExecute.mock.calls
+      .map(([query]) =>
+        typeof query === "string" ? query : (query?.sql ?? ""),
+      )
+      .filter((sql: string) => sql.includes("application_state"));
+  }
+
+  it("keeps independent application_state max probes when nothing changed", async () => {
+    mockLegacyScan(() => 5_000);
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    // First poll seeds the watermarks; the throttle defers the scan itself.
+    await handler({ query: { since: "0" } });
+    vi.setSystemTime(102_000);
+    mockExecute.mockClear();
+
+    await handler({ query: { since: "1" } });
+
+    const reads = applicationStateReads();
+    expect(reads).toHaveLength(2);
+    expect(reads.every((sql) => sql.includes("MAX(updated_at)"))).toBe(true);
+    expect(executedSql()).not.toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+  });
+
+  it("still reads the changed rows once the application_state max advances", async () => {
+    let max = 5_000;
+    mockLegacyScan(() => max);
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await handler({ query: { since: "0" } });
+    max = 6_000;
+    vi.setSystemTime(102_000);
+    mockExecute.mockClear();
+
+    await handler({ query: { since: "1" } });
+
+    expect(executedSql()).toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+    expect(applicationStateReads().length).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * Simulates the SQL-level scope filter the durable `sync_events` query now
+ * applies (see poll.ts `getDurableChangesSinceForUser`): a row surfaces only
+ * when it is deployment-global (no owner, no org), owned by the caller,
+ * scoped to the caller's org, or resource-scoped (any `resourceType`,
+ * regardless of owner — the in-memory access-aware check downstream decides
+ * those). Filtering here — instead of returning the whole `store` and relying
+ * on `getChangeVisibilityForUser` alone — is what proves the SQL scoping
+ * itself keeps unrelated-tenant rows out of the page, not just out of the
+ * final `events` array.
+ */
+function scopedSyncEventsRows(
+  store: Array<{
+    version: number;
+    owner?: string;
+    orgId?: string;
+    resourceType?: string;
+    event: Record<string, unknown>;
+  }>,
+  args: unknown[] | undefined,
+): Array<{ version: number; event_json: string }> {
+  const [since, userEmail, orgId, limit] = args ?? [];
+  return store
+    .filter((row) => row.version > Number(since))
+    .filter((row) => {
+      if (!row.owner && !row.orgId) return true;
+      if (row.owner && row.owner === userEmail) return true;
+      if (row.orgId && orgId != null && row.orgId === orgId) return true;
+      if (row.resourceType) return true;
+      return false;
+    })
+    .sort((a, b) => a.version - b.version)
+    .slice(0, Number(limit))
+    .map((row) => ({
+      version: row.version,
+      event_json: JSON.stringify(row.event),
+    }));
+}
+
+/** Key arguments of every `WHERE key = ? AND updated_at > ?` scan executed. */
+function executedBoundedScanKeys(): string[] {
+  return mockExecute.mock.calls
+    .filter(
+      ([query]) =>
+        typeof query !== "string" &&
+        (query?.sql ?? "").includes(
+          "application_state WHERE key = ? AND updated_at > ?",
+        ),
+    )
+    .map(([query]) => String((query as { args?: unknown[] })?.args?.[0] ?? ""));
+}
+
+function executedSql(): string {
+  return mockExecute.mock.calls
+    .map(([query]) => (typeof query === "string" ? query : (query?.sql ?? "")))
+    .join("\n");
+}

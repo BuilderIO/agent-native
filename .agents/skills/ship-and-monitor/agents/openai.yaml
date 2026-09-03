@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ship and Monitor"
+  short_description: "Guarded ship, then monitor beta and release tails"
+  default_prompt: "Use $ship-and-monitor to run the normal guarded ship flow, rotate after merge, and monitor beta deployments, releases, and any explicitly requested manual production promotion."

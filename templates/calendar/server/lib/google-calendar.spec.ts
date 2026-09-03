@@ -1,0 +1,2395 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const getOAuthAccountsMock = vi.hoisted(() => vi.fn());
+const listOAuthAccountsByOwnerMock = vi.hoisted(() => vi.fn());
+const listOAuthAccountsMock = vi.hoisted(() =>
+  vi.fn(
+    (): Promise<
+      Array<{ accountId: string; owner: string | null; tokens: unknown }>
+    > => Promise.resolve([]),
+  ),
+);
+const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
+const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
+const createOAuth2ClientMock = vi.hoisted(() => vi.fn());
+const oauth2GetUserInfoMock = vi.hoisted(() => vi.fn());
+const peopleGetProfileMock = vi.hoisted(() => vi.fn());
+const calendarGetEventMock = vi.hoisted(() => vi.fn());
+const calendarGetCalendarMock = vi.hoisted(() => vi.fn());
+const calendarListEventsMock = vi.hoisted(() => vi.fn());
+const calendarListCalendarsMock = vi.hoisted(() => vi.fn());
+const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
+const calendarInsertEventMock = vi.hoisted(() => vi.fn());
+const calendarDeleteEventMock = vi.hoisted(() => vi.fn());
+const calendarPatchEventMock = vi.hoisted(() => vi.fn());
+const calendarUpdateEventMock = vi.hoisted(() => vi.fn());
+const dbExecuteMock = vi.hoisted(() => vi.fn());
+const resolveSecretMock = vi.hoisted(() => vi.fn());
+const runWithRequestContextMock = vi.hoisted(() => vi.fn());
+const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/server", () => ({
+  getOAuthAccounts: getOAuthAccountsMock,
+  getCredentialContext: vi.fn(() => null),
+  getRequestOrgId: getRequestOrgIdMock,
+  isOAuthConnected: vi.fn(),
+  resolveGoogleProviderCredentialCandidatesWithReader: async ({
+    readCredential,
+    fallbackReadCredential,
+  }: any) => {
+    const candidates: Array<{ clientId: string; clientSecret: string }> = [];
+    for (const [clientIdKey, clientSecretKey] of [
+      ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+      ["GOOGLE_LEGACY_CLIENT_ID", "GOOGLE_LEGACY_CLIENT_SECRET"],
+    ]) {
+      const [clientId, clientSecret] = await Promise.all([
+        readCredential(clientIdKey),
+        readCredential(clientSecretKey),
+      ]);
+      const fallback =
+        !clientId || !clientSecret
+          ? await Promise.all([
+              fallbackReadCredential?.(clientIdKey),
+              fallbackReadCredential?.(clientSecretKey),
+            ])
+          : null;
+      const [resolvedClientId, resolvedClientSecret] =
+        clientId && clientSecret
+          ? [clientId, clientSecret]
+          : [fallback?.[0], fallback?.[1]];
+      if (
+        resolvedClientId &&
+        resolvedClientSecret &&
+        !candidates.some((candidate) => candidate.clientId === resolvedClientId)
+      ) {
+        candidates.push({
+          clientId: resolvedClientId,
+          clientSecret: resolvedClientSecret,
+        });
+      }
+    }
+    return candidates;
+  },
+  resolveSecret: resolveSecretMock,
+  runWithRequestContext: runWithRequestContextMock,
+}));
+
+vi.mock("@agent-native/core/oauth-tokens", () => ({
+  getOAuthTokens: vi.fn(),
+  saveOAuthTokens: saveOAuthTokensMock,
+  deleteOAuthTokens: deleteOAuthTokensMock,
+  listOAuthAccountsByOwner: listOAuthAccountsByOwnerMock,
+  listOAuthAccounts: listOAuthAccountsMock,
+  hasOAuthTokens: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => ({ execute: dbExecuteMock }),
+}));
+
+vi.mock("./google-api.js", () => ({
+  createOAuth2Client: createOAuth2ClientMock,
+  oauth2GetUserInfo: oauth2GetUserInfoMock,
+  peopleGetProfile: peopleGetProfileMock,
+  calendarListEvents: calendarListEventsMock,
+  calendarListCalendars: calendarListCalendarsMock,
+  calendarGetEvent: calendarGetEventMock,
+  calendarGetCalendar: calendarGetCalendarMock,
+  calendarInsertEvent: calendarInsertEventMock,
+  calendarDeleteEvent: calendarDeleteEventMock,
+  calendarPatchEvent: calendarPatchEventMock,
+  calendarUpdateEvent: calendarUpdateEventMock,
+  calendarFreeBusy: calendarFreeBusyMock,
+  isGoogleEventAbsentError: (error: unknown) =>
+    error instanceof Error &&
+    /^Google API error \((?:404|410)\):/.test(error.message),
+}));
+
+import {
+  exchangeCode,
+  getAuthUrl,
+  getAuthStatus,
+  getClientsWithErrors,
+  getFreeBusy,
+  getPrimaryAccountPhotoUrl,
+  createEvent,
+  moveEvent,
+  deleteEvent,
+  disconnect,
+  getClientForAccount,
+  getDefaultAccountSelection,
+  getEvent,
+  getGoogleAccountTimezone,
+  invalidateAccountTimezoneCache,
+  listEvents,
+  listGoogleCalendars,
+  listOverlayEvents,
+  rsvpEvent,
+  updateEvent,
+} from "./google-calendar";
+
+describe("calendar Google auth status", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getRequestOrgIdMock.mockReturnValue(undefined);
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    delete process.env.GOOGLE_LEGACY_CLIENT_ID;
+    delete process.env.GOOGLE_LEGACY_CLIENT_SECRET;
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    getOAuthAccountsMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    dbExecuteMock.mockResolvedValue({ rows: [] });
+  });
+
+  it("uses the OAuth userinfo picture for account avatars", async () => {
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "steve@example.com",
+      picture: "https://lh3.googleusercontent.com/a/photo",
+    });
+
+    const status = await getAuthStatus("steve@example.com");
+
+    expect(status.accounts[0]?.photoUrl).toBe(
+      "https://lh3.googleusercontent.com/a/photo",
+    );
+    expect(peopleGetProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to People API photos when userinfo has no picture", async () => {
+    oauth2GetUserInfoMock.mockResolvedValue({ email: "steve@example.com" });
+    peopleGetProfileMock.mockResolvedValue({
+      photos: [
+        { url: "https://example.com/default.png", default: true },
+        { url: "https://example.com/profile.png", default: false },
+      ],
+    });
+
+    const status = await getAuthStatus("steve@example.com");
+
+    expect(status.accounts[0]?.photoUrl).toBe(
+      "https://example.com/profile.png",
+    );
+  });
+
+  it("keeps the owner when refreshing an added account during status lookup", async () => {
+    getOAuthAccountsMock.mockResolvedValue([
+      {
+        accountId: "secondary@example.com",
+        tokens: {
+          access_token: "old-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    createOAuth2ClientMock.mockReturnValue({
+      refreshToken: vi.fn().mockResolvedValue({
+        access_token: "new-token",
+        expiry_date: Date.now() + 60_000,
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "secondary@example.com",
+      picture: "https://example.com/secondary.png",
+    });
+
+    await getAuthStatus("owner@example.com");
+
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "secondary@example.com",
+      expect.objectContaining({ access_token: "new-token" }),
+      "owner@example.com",
+    );
+  });
+
+  it("falls back to legacy Google credentials when refreshed tokens were minted by the previous client", async () => {
+    process.env.GOOGLE_LEGACY_CLIENT_ID = "legacy-client-id";
+    process.env.GOOGLE_LEGACY_CLIENT_SECRET = "legacy-client-secret";
+    const primaryRefresh = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("OAuth token refresh failed: unauthorized_client"),
+      );
+    const legacyRefresh = vi.fn().mockResolvedValue({
+      access_token: "legacy-refreshed-token",
+      expiry_date: Date.now() + 60_000,
+    });
+    createOAuth2ClientMock.mockImplementation((clientId: string) => ({
+      refreshToken:
+        clientId === "legacy-client-id" ? legacyRefresh : primaryRefresh,
+    }));
+    getOAuthAccountsMock.mockResolvedValue([
+      {
+        accountId: "secondary@example.com",
+        tokens: {
+          access_token: "old-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "secondary@example.com",
+    });
+
+    await getAuthStatus("owner@example.com");
+
+    expect(primaryRefresh).toHaveBeenCalledWith("refresh-token");
+    expect(legacyRefresh).toHaveBeenCalledWith("refresh-token");
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalledWith(
+      "google",
+      "secondary@example.com",
+    );
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "secondary@example.com",
+      expect.objectContaining({ access_token: "legacy-refreshed-token" }),
+      "owner@example.com",
+    );
+  });
+
+  it("returns the primary Google account photo for booking OG images", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+          photoUrl: "https://lh3.googleusercontent.com/a/photo",
+        },
+      },
+    ]);
+
+    await expect(getPrimaryAccountPhotoUrl("steve@example.com")).resolves.toBe(
+      "https://lh3.googleusercontent.com/a/photo",
+    );
+  });
+
+  it("falls back to Better Auth user image for booking OG images", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    dbExecuteMock.mockResolvedValue({
+      rows: [{ image: "https://lh3.googleusercontent.com/a/auth-photo" }],
+    });
+
+    await expect(getPrimaryAccountPhotoUrl("steve@example.com")).resolves.toBe(
+      "https://lh3.googleusercontent.com/a/auth-photo",
+    );
+  });
+});
+
+describe("calendar unusable OAuth token records", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getRequestOrgIdMock.mockReturnValue(undefined);
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    dbExecuteMock.mockResolvedValue({ rows: [] });
+  });
+
+  it("reports disconnected without deleting the row when a record parses to an empty object", async () => {
+    // A stored row that fails to decrypt (key rotation / wrong key) parses to
+    // `{}` in core's parseStoredTokens. The account must read as disconnected
+    // — but the row must NOT be deleted, because this process may simply hold
+    // the wrong key while the row is still decryptable elsewhere.
+    getOAuthAccountsMock.mockResolvedValue([
+      { accountId: "steve@example.com", tokens: {} },
+    ]);
+
+    const status = await getAuthStatus("steve@example.com");
+
+    expect(status.connected).toBe(false);
+    expect(status.accounts).toEqual([]);
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
+    expect(createOAuth2ClientMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a reconnect error instead of an undefined bearer token", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      { accountId: "steve@example.com", tokens: {} },
+    ]);
+
+    const { clients, errors } = await getClientsWithErrors("steve@example.com");
+
+    expect(clients).toEqual([]);
+    expect(errors).toEqual([
+      {
+        email: "steve@example.com",
+        error: expect.stringContaining("please reconnect"),
+      },
+    ]);
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes instead of returning undefined when only a refresh token survives", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: { refresh_token: "refresh-token" },
+      },
+    ]);
+    createOAuth2ClientMock.mockReturnValue({
+      refreshToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-token",
+        expiry_date: Date.now() + 3_600_000,
+      }),
+    });
+
+    const { clients, errors } = await getClientsWithErrors("steve@example.com");
+
+    expect(errors).toEqual([]);
+    expect(clients).toEqual([
+      { email: "steve@example.com", accessToken: "fresh-token" },
+    ]);
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "steve@example.com",
+      expect.objectContaining({ access_token: "fresh-token" }),
+      "steve@example.com",
+    );
+  });
+});
+
+describe("calendar event listing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calendarListEventsMock.mockReset();
+    calendarListCalendarsMock.mockReset();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("paginates CalendarList entries across connected accounts", async () => {
+    calendarListCalendarsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "primary@example.com",
+            summary: "Primary",
+            primary: true,
+            selected: true,
+            accessRole: "owner",
+          },
+        ],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "team@example.com",
+            summaryOverride: "Team",
+            backgroundColor: "#123456",
+            accessRole: "reader",
+          },
+        ],
+      });
+
+    const result = await listGoogleCalendars("owner@example.com");
+
+    expect(result.errors).toEqual([]);
+    expect(result.calendars).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          accountEmail: "steve@example.com",
+          calendarId: "primary@example.com",
+          primary: true,
+          readOnly: false,
+        }),
+        expect.objectContaining({
+          calendarId: "team@example.com",
+          name: "Team",
+          color: "#123456",
+          accessRole: "reader",
+          readOnly: true,
+        }),
+      ]),
+    );
+    expect(calendarListCalendarsMock).toHaveBeenNthCalledWith(
+      1,
+      "access-token",
+      { maxResults: 250, pageToken: undefined },
+    );
+    expect(calendarListCalendarsMock).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      { maxResults: 250, pageToken: "page-2" },
+    );
+  });
+
+  it("validates selected sources and preserves their event provenance", async () => {
+    calendarListCalendarsMock.mockResolvedValue({
+      items: [
+        {
+          id: "team@example.com",
+          summary: "Team",
+          accessRole: "reader",
+        },
+      ],
+    });
+    calendarListEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: "team-event",
+          summary: "Team standup",
+          start: { dateTime: "2026-07-06T16:00:00Z" },
+          end: { dateTime: "2026-07-06T16:30:00Z" },
+        },
+      ],
+    });
+    const [{ sourceKey }] = (await listGoogleCalendars("owner@example.com"))
+      .calendars;
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: [sourceKey!] },
+    );
+
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "access-token",
+      "team@example.com",
+      expect.any(Object),
+    );
+    expect(result.events[0]).toMatchObject({
+      id: `google-${sourceKey}-team-event`,
+      calendarSourceKey: sourceKey,
+      calendarId: "team@example.com",
+      calendarName: "Team",
+      calendarAccessRole: "reader",
+      calendarReadOnly: true,
+    });
+  });
+
+  it("revalidates a shared source before reading one event", async () => {
+    calendarListCalendarsMock.mockResolvedValue({
+      items: [
+        {
+          id: "team@example.com",
+          summary: "Team",
+          accessRole: "reader",
+        },
+      ],
+    });
+    calendarGetEventMock.mockResolvedValue({
+      id: "team-event",
+      summary: "Team standup",
+      start: { dateTime: "2026-07-06T16:00:00Z" },
+      end: { dateTime: "2026-07-06T16:30:00Z" },
+    });
+    const [{ sourceKey }] = (await listGoogleCalendars("owner@example.com"))
+      .calendars;
+
+    const result = await getEvent(
+      "team-event",
+      { ownerEmail: "owner@example.com", accountEmail: "steve@example.com" },
+      { calendarSourceKey: sourceKey },
+    );
+
+    expect(calendarGetEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "team@example.com",
+      "team-event",
+    );
+    expect(result).toMatchObject({
+      id: `google-${sourceKey}-team-event`,
+      calendarSourceKey: sourceKey,
+      calendarId: "team@example.com",
+      calendarReadOnly: true,
+    });
+  });
+
+  it("namespaces duplicate provider ids from separate non-primary calendars", async () => {
+    calendarListCalendarsMock.mockResolvedValue({
+      items: [
+        { id: "team-a@example.com", summary: "Team A", accessRole: "reader" },
+        { id: "team-b@example.com", summary: "Team B", accessRole: "reader" },
+      ],
+    });
+    calendarListEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: "same-event-id",
+          start: { dateTime: "2026-07-06T16:00:00Z" },
+          end: { dateTime: "2026-07-06T16:30:00Z" },
+        },
+      ],
+    });
+    const sources = (await listGoogleCalendars("owner@example.com")).calendars;
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: sources.map((source) => source.sourceKey) },
+    );
+
+    expect(new Set(result.events.map((event) => event.id)).size).toBe(2);
+    expect(result.events.map((event) => event.googleEventId)).toEqual([
+      "same-event-id",
+      "same-event-id",
+    ]);
+  });
+
+  it("keeps a successful shared source when another shared source fails", async () => {
+    calendarListCalendarsMock.mockResolvedValue({
+      items: [
+        { id: "team-a@example.com", summary: "Team A", accessRole: "reader" },
+        { id: "team-b@example.com", summary: "Team B", accessRole: "reader" },
+      ],
+    });
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "team-a-event",
+            start: { dateTime: "2026-07-06T16:00:00Z" },
+            end: { dateTime: "2026-07-06T16:30:00Z" },
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("provider unavailable"));
+    const sources = (await listGoogleCalendars("owner@example.com")).calendars;
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: sources.map((source) => source.sourceKey) },
+    );
+
+    expect(result.events).toHaveLength(1);
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        error: expect.stringContaining("Unable to read Google Calendar source"),
+      }),
+    );
+  });
+
+  it("does not treat a free-busy-only source as an empty detailed read", async () => {
+    calendarListCalendarsMock.mockResolvedValue({
+      items: [
+        {
+          id: "availability@example.com",
+          summary: "Availability",
+          accessRole: "freeBusyReader",
+        },
+      ],
+    });
+    const [{ sourceKey }] = (await listGoogleCalendars("owner@example.com"))
+      .calendars;
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: [sourceKey!] },
+    );
+
+    expect(result.events).toEqual([]);
+    expect(result.errors[0]?.error).toContain("free/busy access");
+    expect(calendarListEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("paginates Google events so broad searches can see later matches", async () => {
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "routine-1",
+            summary: "Routine check-in",
+            start: { dateTime: "2026-01-05T17:00:00Z" },
+            end: { dateTime: "2026-01-05T17:30:00Z" },
+          },
+        ],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "adobe-1",
+            summary: "Adobe Corp Dev",
+            start: { dateTime: "2026-02-05T17:00:00Z" },
+            end: { dateTime: "2026-02-05T17:30:00Z" },
+            attendees: [{ email: "poppy@adobe.com" }],
+          },
+        ],
+      });
+
+    const result = await listEvents(
+      "2026-01-01T00:00:00Z",
+      "2026-03-01T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(result.events.map((event) => event.googleEventId)).toEqual([
+      "routine-1",
+      "adobe-1",
+    ]);
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      1,
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        eventTypes: expect.arrayContaining(["workingLocation"]),
+        maxResults: 2500,
+        pageToken: undefined,
+      }),
+    );
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        maxResults: 2500,
+        pageToken: "page-2",
+      }),
+    );
+  });
+
+  it("validates and reads only the selected owned account", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "primary@example.com",
+        tokens: {
+          access_token: "primary-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "quiet@example.com",
+        tokens: {
+          access_token: "quiet-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarListEventsMock.mockResolvedValue({ items: [] });
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-13T00:00:00Z",
+      "owner@example.com",
+      { accountEmails: ["QUIET@example.com"] },
+    );
+
+    expect(result).toEqual({ events: [], errors: [] });
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "quiet-token",
+      "primary",
+      expect.objectContaining({ maxResults: 2500 }),
+    );
+  });
+
+  it("preserves a successful empty account alongside a failed account", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "quiet@example.com",
+        tokens: {
+          access_token: "quiet-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "failed@example.com",
+        tokens: {
+          access_token: "failed-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarListEventsMock.mockImplementation(async (token: string) => {
+      if (token === "failed-token") throw new Error("provider unavailable");
+      return { items: [] };
+    });
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-13T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(2);
+    expect(result.events).toEqual([]);
+    expect(result.errors).toEqual([
+      { email: "failed@example.com", error: "provider unavailable" },
+    ]);
+  });
+
+  it("bounds multi-account provider concurrency at four", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue(
+      Array.from({ length: 5 }, (_, index) => ({
+        accountId: `account-${index}@example.com`,
+        tokens: {
+          access_token: `token-${index}`,
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      })),
+    );
+    let active = 0;
+    let maxActive = 0;
+    calendarListEventsMock.mockImplementation(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active -= 1;
+      return { items: [] };
+    });
+
+    await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-13T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(5);
+    expect(maxActive).toBe(4);
+  });
+
+  it("rejects an unowned selection before any provider call", async () => {
+    calendarListEventsMock.mockClear();
+
+    await expect(
+      listEvents(
+        "2026-07-06T00:00:00Z",
+        "2026-07-13T00:00:00Z",
+        "owner@example.com",
+        { accountEmails: ["missing@example.com"] },
+      ),
+    ).rejects.toThrow("not connected");
+    expect(calendarListEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("maps Google working-location metadata from listed events", async () => {
+    calendarListEventsMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "working-location-1",
+          summary: "Home",
+          start: { date: "2026-07-06" },
+          end: { date: "2026-07-07" },
+          eventType: "workingLocation",
+          transparency: "transparent",
+          visibility: "public",
+          workingLocationProperties: {
+            type: "homeOffice",
+            homeOffice: {},
+          },
+        },
+      ],
+    });
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(result.events[0]).toMatchObject({
+      id: "google-working-location-1",
+      title: "Home",
+      allDay: true,
+      eventType: "workingLocation",
+      transparency: "transparent",
+      visibility: "public",
+      workingLocationProperties: {
+        type: "homeOffice",
+        homeOffice: {},
+      },
+    });
+  });
+
+  it("preserves attendee details for overlay calendars", async () => {
+    calendarListEventsMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "overlay-1",
+          summary: "Design critique",
+          start: { dateTime: "2026-02-05T17:00:00Z" },
+          end: { dateTime: "2026-02-05T17:30:00Z" },
+          attendees: [
+            {
+              email: "host@example.com",
+              displayName: "Host Person",
+              organizer: true,
+              responseStatus: "accepted",
+            },
+            {
+              email: "guest@example.com",
+              displayName: "Guest Person",
+              responseStatus: "needsAction",
+            },
+          ],
+          organizer: {
+            email: "host@example.com",
+            displayName: "Host Person",
+          },
+        },
+      ],
+    });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["host@example.com"],
+      "owner@example.com",
+    );
+
+    expect(result.events[0]).toMatchObject({
+      id: "overlay-host@example.com-overlay-1",
+      accountEmail: "steve@example.com",
+      overlayEmail: "host@example.com",
+      attendees: [
+        {
+          email: "host@example.com",
+          displayName: "Host Person",
+          organizer: true,
+          responseStatus: "accepted",
+        },
+        {
+          email: "guest@example.com",
+          displayName: "Guest Person",
+          responseStatus: "needsAction",
+        },
+      ],
+      organizer: {
+        email: "host@example.com",
+        displayName: "Host Person",
+      },
+    });
+  });
+
+  it("falls back to another selected account when the first cannot read an overlay", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "alpha@example.com",
+        tokens: {
+          access_token: "alpha-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "zulu@example.com",
+        tokens: {
+          access_token: "zulu-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarListEventsMock
+      .mockRejectedValueOnce(new Error("403 Forbidden"))
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "overlay-1",
+            start: { dateTime: "2026-02-05T17:00:00Z" },
+            end: { dateTime: "2026-02-05T17:30:00Z" },
+          },
+        ],
+      });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+      { accountEmails: ["alpha@example.com", "zulu@example.com"] },
+    );
+
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      1,
+      "alpha-token",
+      "person@example.com",
+      expect.any(Object),
+    );
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      2,
+      "zulu-token",
+      "person@example.com",
+      expect.any(Object),
+    );
+    expect(result).toMatchObject({
+      errors: [],
+      accountErrors: [],
+      events: [
+        {
+          googleEventId: "overlay-1",
+          accountEmail: "zulu@example.com",
+          overlayEmail: "person@example.com",
+        },
+      ],
+    });
+  });
+
+  it("returns selected-account refresh failures separately from overlay coverage", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "broken@example.com",
+        tokens: {
+          access_token: "expired-token",
+          refresh_token: "broken-refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+      {
+        accountId: "healthy@example.com",
+        tokens: {
+          access_token: "healthy-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    createOAuth2ClientMock.mockReturnValue({
+      refreshToken: vi
+        .fn()
+        .mockRejectedValue(new Error("Refresh token revoked")),
+    });
+    calendarListEventsMock.mockResolvedValue({ items: [] });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+      { accountEmails: ["broken@example.com", "healthy@example.com"] },
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.accountErrors).toEqual([
+      expect.objectContaining({
+        email: "broken@example.com",
+        error: expect.stringContaining("Refresh token revoked"),
+      }),
+    ]);
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "healthy-token",
+      "person@example.com",
+      expect.any(Object),
+    );
+  });
+
+  it("paginates overlay reads without losing later events", async () => {
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "overlay-1",
+            start: { dateTime: "2026-02-05T17:00:00Z" },
+            end: { dateTime: "2026-02-05T17:30:00Z" },
+          },
+        ],
+        nextPageToken: "overlay-page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "overlay-2",
+            start: { dateTime: "2026-02-05T18:00:00Z" },
+            end: { dateTime: "2026-02-05T18:30:00Z" },
+          },
+        ],
+      });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+    );
+
+    expect(result.events.map((event) => event.googleEventId)).toEqual([
+      "overlay-1",
+      "overlay-2",
+    ]);
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      "person@example.com",
+      expect.objectContaining({ pageToken: "overlay-page-2" }),
+    );
+  });
+
+  it("degrades to an error result instead of throwing when account resolution itself fails", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+      { accountEmails: ["owner@example.com"] },
+    );
+
+    expect(result.events).toEqual([]);
+    expect(result.errors).toEqual([
+      expect.objectContaining({ email: "person@example.com" }),
+    ]);
+  });
+});
+
+describe("Google account time zone lookup", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("reuses the same access token across a Calendar-call retry instead of refreshing again", async () => {
+    calendarGetCalendarMock
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValueOnce({ timeZone: "America/Chicago" });
+
+    await expect(getGoogleAccountTimezone("peer@example.com")).resolves.toBe(
+      "America/Chicago",
+    );
+
+    expect(calendarGetCalendarMock).toHaveBeenCalledTimes(2);
+    expect(calendarGetCalendarMock.mock.calls[0][0]).toBe("access-token");
+    expect(calendarGetCalendarMock.mock.calls[1][0]).toBe("access-token");
+  });
+
+  it("coalesces concurrent lookups for the same email into a single provider read", async () => {
+    let resolveCalendar: (value: { timeZone: string }) => void;
+    calendarGetCalendarMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCalendar = resolve;
+      }),
+    );
+
+    const first = getGoogleAccountTimezone("coalesce-peer@example.com");
+    const second = getGoogleAccountTimezone("coalesce-peer@example.com");
+    resolveCalendar!({ timeZone: "America/Chicago" });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      "America/Chicago",
+      "America/Chicago",
+    ]);
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(1);
+    expect(calendarGetCalendarMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops serving a cached negative result once the account is invalidated", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBeNull();
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(1);
+
+    invalidateAccountTimezoneCache("negative-peer@example.com");
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "negative-peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBe("America/Chicago");
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates the cached time zone when the account reconnects", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("steve@example.com"),
+    ).resolves.toBeNull();
+
+    createOAuth2ClientMock.mockReturnValue({
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "scope",
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({ email: "steve@example.com" });
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    await exchangeCode(
+      "oauth-code",
+      undefined,
+      "https://app.example.com/_agent-native/google/callback",
+    );
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(getGoogleAccountTimezone("steve@example.com")).resolves.toBe(
+      "America/Chicago",
+    );
+  });
+
+  it("invalidates the cached time zone on disconnect", async () => {
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("disconnect-peer@example.com"),
+    ).resolves.toBe("America/Chicago");
+
+    await disconnect("disconnect-peer@example.com");
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("disconnect-peer@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a lookup started before a disconnect cache its stale result afterward", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "racing-peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    let resolveCalendar: (value: { timeZone: string }) => void;
+    calendarGetCalendarMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCalendar = resolve;
+      }),
+    );
+
+    const inFlight = getGoogleAccountTimezone("racing-peer@example.com");
+
+    // Disconnect races ahead of the in-flight lookup finishing.
+    await disconnect("racing-peer@example.com");
+
+    resolveCalendar!({ timeZone: "America/Chicago" });
+    await expect(inFlight).resolves.toBe("America/Chicago");
+
+    // The in-flight lookup's result (reflecting pre-disconnect state) must
+    // not have been written to the cache after the disconnect invalidated
+    // it - the next lookup should re-resolve from scratch.
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("racing-peer@example.com"),
+    ).resolves.toBeNull();
+  });
+
+  it("invalidates the owner-keyed cache when connecting a secondary account on someone else's behalf", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("owner-secondary@example.com"),
+    ).resolves.toBeNull();
+
+    createOAuth2ClientMock.mockReturnValue({
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "scope",
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "personal-secondary@example.com",
+    });
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    // Connecting a secondary Google account (a different email than the
+    // app-owner) on someone else's behalf - `owner` is who the timezone
+    // cache is actually keyed by.
+    await exchangeCode(
+      "oauth-code",
+      undefined,
+      "https://app.example.com/_agent-native/google/callback",
+      "owner-secondary@example.com",
+    );
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "personal-secondary@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(
+      getGoogleAccountTimezone("owner-secondary@example.com"),
+    ).resolves.toBe("America/Chicago");
+  });
+
+  it("invalidates the owner-keyed cache when disconnecting a secondary account", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "personal-disconnect@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("owner-disconnect@example.com"),
+    ).resolves.toBe("America/Chicago");
+
+    // disconnect() is called with the connected account's own email, not
+    // the app-owner the cache is keyed by - the fix must resolve the owner
+    // from the account row before it's deleted.
+    listOAuthAccountsMock.mockResolvedValueOnce([
+      {
+        accountId: "personal-disconnect@example.com",
+        owner: "owner-disconnect@example.com",
+        tokens: {},
+      },
+    ]);
+    await disconnect("personal-disconnect@example.com");
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("owner-disconnect@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("calendar event creation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarInsertEventMock.mockResolvedValue({
+      id: "event-1",
+      htmlLink: "https://calendar.google.com/event",
+    });
+  });
+
+  it("sends attendee RSVP statuses when creating an event", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Planning",
+        description: "",
+        location: "",
+        start: "2026-07-09T16:00:00.000Z",
+        end: "2026-07-09T16:30:00.000Z",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        attendees: [
+          {
+            email: "steve@example.com",
+            organizer: true,
+            self: true,
+            responseStatus: "accepted",
+          },
+          {
+            email: "guest@example.com",
+            responseStatus: "needsAction",
+          },
+        ],
+        createdAt: "2026-07-09T15:00:00.000Z",
+        updatedAt: "2026-07-09T15:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "accepted",
+          },
+          {
+            email: "guest@example.com",
+            responseStatus: "needsAction",
+          },
+        ],
+      }),
+      undefined,
+    );
+  });
+
+  it("lets Google derive the summary for titleless multi-day working locations", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "",
+        description: "",
+        location: "",
+        start: "2026-07-08",
+        end: "2026-07-11",
+        allDay: true,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "transparent",
+        visibility: "public",
+        eventType: "workingLocation",
+        workingLocationProperties: {
+          type: "customLocation",
+          customLocation: { label: "Neighborhood cafe" },
+        },
+        createdAt: "2026-07-08T00:00:00.000Z",
+        updatedAt: "2026-07-08T00:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        start: { date: "2026-07-08" },
+        end: { date: "2026-07-11" },
+        workingLocationProperties: {
+          type: "customLocation",
+          customLocation: { label: "Neighborhood cafe" },
+        },
+      }),
+      undefined,
+    );
+    const body = calendarInsertEventMock.mock.calls[0]?.[2];
+    expect(body).not.toHaveProperty("summary");
+    expect(body).not.toHaveProperty("description");
+    expect(body).not.toHaveProperty("location");
+  });
+
+  it("sends a Home/Office summary for timed working locations so they are not Untitled", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "",
+        description: "",
+        location: "",
+        start: "2026-08-14T16:00:00.000Z",
+        end: "2026-08-15T00:00:00.000Z",
+        startTimeZone: "America/Los_Angeles",
+        endTimeZone: "America/Los_Angeles",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "transparent",
+        visibility: "public",
+        eventType: "workingLocation",
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: {},
+        },
+        createdAt: "2026-08-14T00:00:00.000Z",
+        updatedAt: "2026-08-14T00:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        summary: "Office",
+        start: {
+          dateTime: "2026-08-14T16:00:00.000Z",
+          timeZone: "America/Los_Angeles",
+        },
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: {},
+        },
+      }),
+      undefined,
+    );
+  });
+
+  it("ignores a generated Working location title for timed Home/Office summaries", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Working location",
+        titleIsGenerated: true,
+        description: "",
+        location: "",
+        start: "2026-08-14T16:00:00.000Z",
+        end: "2026-08-15T00:00:00.000Z",
+        startTimeZone: "America/Los_Angeles",
+        endTimeZone: "America/Los_Angeles",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "transparent",
+        visibility: "public",
+        eventType: "workingLocation",
+        workingLocationProperties: {
+          type: "homeOffice",
+          homeOffice: {},
+        },
+        createdAt: "2026-08-14T00:00:00.000Z",
+        updatedAt: "2026-08-14T00:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        summary: "Home",
+      }),
+      undefined,
+    );
+  });
+
+  it("serializes full-day OOO semantics as timed Google event bounds", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Out of office",
+        description: "",
+        location: "",
+        start: "2026-07-31T04:00:00.000Z",
+        end: "2026-08-01T04:00:00.000Z",
+        startTimeZone: "America/Indiana/Indianapolis",
+        endTimeZone: "America/Indiana/Indianapolis",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "opaque",
+        eventType: "outOfOffice",
+        outOfOfficeProperties: {
+          autoDeclineMode: "declineAllConflictingInvitations",
+          declineMessage: "Declined because I am out of office",
+        },
+        createdAt: "2026-07-26T14:00:00.000Z",
+        updatedAt: "2026-07-26T14:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        eventType: "outOfOffice",
+        start: {
+          dateTime: "2026-07-31T04:00:00.000Z",
+          timeZone: "America/Indiana/Indianapolis",
+        },
+        end: {
+          dateTime: "2026-08-01T04:00:00.000Z",
+          timeZone: "America/Indiana/Indianapolis",
+        },
+        outOfOfficeProperties: {
+          autoDeclineMode: "declineAllConflictingInvitations",
+          declineMessage: "Declined because I am out of office",
+        },
+      }),
+      undefined,
+    );
+  });
+});
+
+describe("calendar recurring event updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    calendarListEventsMock.mockReset();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarPatchEventMock.mockResolvedValue({
+      id: "series-1",
+      htmlLink: "https://calendar.google.com/event",
+    });
+  });
+
+  it("patches the recurring master when updating all events from an occurrence", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+        end: { dateTime: "2026-05-20T16:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        end: { dateTime: "2026-05-06T16:00:00Z" },
+      });
+
+    await updateEvent(
+      "instance-1",
+      {
+        accountEmail: "steve@example.com",
+        start: "2026-05-20T16:00:00Z",
+        end: "2026-05-20T17:00:00Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        scope: "all",
+      },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      expect.objectContaining({
+        start: { dateTime: "2026-05-06T16:00:00Z" },
+        end: { dateTime: "2026-05-06T17:00:00Z" },
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("clears Google Meet data when removing a conference", async () => {
+    await updateEvent(
+      "event-1",
+      { accountEmail: "steve@example.com" },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        removeGoogleMeet: true,
+      },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      { conferenceData: null },
+      {
+        sendUpdates: undefined,
+        conferenceDataVersion: 1,
+        supportsAttachments: undefined,
+      },
+    );
+  });
+
+  it("removes selected and later materialized exceptions when deleting this and following", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-01T15:00:00Z" },
+        originalStartTime: { dateTime: "2026-05-20T15:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "instance-1",
+            recurringEventId: "series-1",
+            originalStartTime: { dateTime: "2026-05-20T15:00:00Z" },
+            start: { dateTime: "2026-05-01T15:00:00Z" },
+          },
+          {
+            id: "instance-before",
+            recurringEventId: "series-1",
+            originalStartTime: { dateTime: "2026-05-13T15:00:00Z" },
+          },
+        ],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "instance-2",
+            recurringEventId: "series-1",
+            originalStartTime: { dateTime: "2026-05-27T15:00:00Z" },
+            start: { dateTime: "2026-05-02T15:00:00Z" },
+          },
+        ],
+      });
+
+    await deleteEvent(
+      "instance-1",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      { scope: "thisAndFollowing" },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      { recurrence: ["RRULE:FREQ=WEEKLY;UNTIL=20260519T235959Z"] },
+      { sendUpdates: undefined },
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-1",
+      undefined,
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-2",
+      undefined,
+    );
+    expect(calendarDeleteEventMock).not.toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-before",
+      undefined,
+    );
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      1,
+      "access-token",
+      "primary",
+      {
+        singleEvents: false,
+        showDeleted: true,
+        maxResults: 2500,
+        pageToken: undefined,
+      },
+    );
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      "primary",
+      {
+        singleEvents: false,
+        showDeleted: true,
+        maxResults: 2500,
+        pageToken: "page-2",
+      },
+    );
+  });
+
+  it("uses no date-only timeMin when cleaning up all-day recurrences", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { date: "2026-05-20" },
+        originalStartTime: { date: "2026-05-20" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { date: "2026-05-06" },
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarListEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: "instance-1",
+          recurringEventId: "series-1",
+          originalStartTime: { date: "2026-05-20" },
+        },
+      ],
+    });
+
+    await deleteEvent(
+      "instance-1",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      { scope: "thisAndFollowing" },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      { recurrence: ["RRULE:FREQ=WEEKLY;UNTIL=20260519"] },
+      { sendUpdates: undefined },
+    );
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      {
+        singleEvents: false,
+        showDeleted: true,
+        maxResults: 2500,
+        pageToken: undefined,
+      },
+    );
+  });
+
+  it("treats a gone occurrence as already absent after truncating the series", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarDeleteEventMock.mockRejectedValue(
+      new Error("Google API error (410): Gone"),
+    );
+
+    await expect(
+      deleteEvent(
+        "instance-1",
+        {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        { scope: "thisAndFollowing" },
+      ),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("calendar working-location updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarUpdateEventMock.mockResolvedValue({
+      id: "working-location-1",
+      htmlLink: "https://calendar.google.com/event",
+    });
+  });
+
+  it("updates working locations as complete status-event resources", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "working-location-1",
+      summary: "Home",
+      eventType: "workingLocation",
+      start: { date: "2026-07-08" },
+      end: { date: "2026-07-09" },
+      visibility: "public",
+      transparency: "transparent",
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+    });
+
+    await updateEvent(
+      "working-location-1",
+      {
+        accountEmail: "steve@example.com",
+        location: "Pier 57",
+        attachments: [{ fileUrl: "https://example.com/brief", title: "Brief" }],
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: { label: "Pier 57" },
+        },
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        sendUpdates: "none",
+      },
+    );
+
+    expect(calendarUpdateEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "working-location-1",
+      expect.objectContaining({
+        eventType: "workingLocation",
+        start: { date: "2026-07-08" },
+        end: { date: "2026-07-09" },
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: { label: "Pier 57" },
+        },
+      }),
+      {
+        sendUpdates: "none",
+        conferenceDataVersion: undefined,
+        supportsAttachments: true,
+      },
+    );
+    expect(calendarPatchEventMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("calendar RSVP updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("includes the attendee response note when RSVP-ing", async () => {
+    await rsvpEvent(
+      "event-1",
+      "declined",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      "single",
+      "I have a conflict",
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "declined",
+            comment: "I have a conflict",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "none" },
+    );
+  });
+
+  it("sends an empty comment so an RSVP note can be cleared", async () => {
+    await rsvpEvent(
+      "event-1",
+      "accepted",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      "single",
+      "",
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "accepted",
+            comment: "",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "none" },
+    );
+  });
+});
+
+describe("owner-aware Google Calendar writes", () => {
+  const ownerEmail = "owner@example.com";
+  const secondaryEmail = "secondary@example.com";
+  const account = { ownerEmail, accountEmail: secondaryEmail };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: ownerEmail,
+        tokens: {
+          access_token: "owner-access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: secondaryEmail,
+        tokens: {
+          access_token: "secondary-access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarInsertEventMock.mockResolvedValue({ id: "event-secondary" });
+    calendarPatchEventMock.mockResolvedValue({ id: "event-secondary" });
+    calendarDeleteEventMock.mockResolvedValue(undefined);
+  });
+
+  it("resolves a secondary account beneath the signed-in owner", async () => {
+    await expect(getClientForAccount(account)).resolves.toEqual({
+      accessToken: "secondary-access-token",
+    });
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledWith(
+      "google",
+      ownerEmail,
+    );
+  });
+
+  it("keeps legacy owner-scoped callers on the owner's default account", async () => {
+    await expect(getDefaultAccountSelection(ownerEmail)).resolves.toEqual({
+      ownerEmail,
+      accountEmail: ownerEmail,
+    });
+  });
+
+  it("fails loudly when the selected account is not connected for the owner", async () => {
+    await expect(
+      getClientForAccount({
+        ownerEmail,
+        accountEmail: "missing@example.com",
+      }),
+    ).rejects.toThrow(
+      "Google Calendar account not connected for this user: missing@example.com",
+    );
+  });
+
+  it("routes create, update, delete, and RSVP through the secondary account", async () => {
+    const event = {
+      id: "",
+      title: "Secondary planning",
+      description: "",
+      location: "",
+      start: "2026-07-09T16:00:00.000Z",
+      end: "2026-07-09T16:30:00.000Z",
+      allDay: false,
+      source: "google" as const,
+      accountEmail: secondaryEmail,
+      createdAt: "2026-07-09T15:00:00.000Z",
+      updatedAt: "2026-07-09T15:00:00.000Z",
+    };
+
+    await createEvent(event, { account });
+    await updateEvent(
+      "event-secondary",
+      { accountEmail: secondaryEmail, title: "Updated" },
+      { account },
+    );
+    await deleteEvent("event-secondary", account);
+    await rsvpEvent("event-secondary", "accepted", account);
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      expect.any(Object),
+      undefined,
+    );
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      "event-secondary",
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      "event-secondary",
+      undefined,
+    );
+  });
+
+  it("recreates an event on the destination account before deleting the source", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      description: "Agenda",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+      attendees: [
+        { email: ownerEmail, self: true, organizer: true },
+        { email: "guest@example.com" },
+      ],
+    });
+    calendarInsertEventMock.mockResolvedValue({
+      id: "destination-event",
+      htmlLink: "https://calendar.google.com/destination-event",
+    });
+
+    const result = await moveEvent("source-event", {
+      sourceAccount: {
+        ownerEmail,
+        accountEmail: ownerEmail,
+      },
+      destinationAccount: account,
+      sendUpdates: "all",
+    });
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      expect.objectContaining({
+        summary: "Move me",
+        description: "Agenda",
+        attendees: [{ email: "guest@example.com" }],
+      }),
+      { sendUpdates: "all" },
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "owner-access-token",
+      "primary",
+      "source-event",
+      "all",
+    );
+    expect(result).toEqual({
+      id: "destination-event",
+      htmlLink: "https://calendar.google.com/destination-event",
+      meetLink: undefined,
+      conferenceData: undefined,
+    });
+  });
+
+  it("cleans up the destination copy when deleting the source fails", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+    });
+    calendarInsertEventMock.mockResolvedValue({ id: "destination-event" });
+    calendarDeleteEventMock
+      .mockRejectedValueOnce(new Error("source delete failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      moveEvent("source-event", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+        sendUpdates: "all",
+      }),
+    ).rejects.toThrow("source delete failed");
+
+    expect(calendarDeleteEventMock).toHaveBeenNthCalledWith(
+      2,
+      "secondary-access-token",
+      "primary",
+      "destination-event",
+      "all",
+    );
+  });
+
+  it("rejects moving a recurring series master before creating or deleting anything", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "series-master",
+      summary: "Recurring meeting",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+      recurrence: ["RRULE:FREQ=WEEKLY;COUNT=4"],
+    });
+
+    await expect(
+      moveEvent("series-master", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+      }),
+    ).rejects.toThrow("Recurring series masters cannot be moved");
+
+    expect(calendarInsertEventMock).not.toHaveBeenCalled();
+    expect(calendarDeleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the destination when source and rollback deletion both fail", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+    });
+    calendarInsertEventMock.mockResolvedValue({ id: "destination-event" });
+    calendarDeleteEventMock.mockRejectedValue(new Error("delete failed"));
+
+    await expect(
+      moveEvent("source-event", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+      }),
+    ).rejects.toMatchObject({
+      name: "CalendarMoveRollbackError",
+      code: "CALENDAR_MOVE_ROLLBACK_FAILED",
+      replacementId: "destination-event",
+      destinationAccountEmail: secondaryEmail,
+      message: expect.stringContaining("destination-event"),
+    });
+  });
+});
+
+describe("calendar free/busy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "primary@example.com",
+        tokens: {
+          access_token: "primary-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "secondary@example.com",
+        tokens: {
+          access_token: "secondary-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarFreeBusyMock.mockResolvedValue({
+      calendars: { "secondary@example.com": { busy: [] } },
+    });
+  });
+
+  it("uses the selected organizer account for free/busy lookup", async () => {
+    await getFreeBusy(
+      "2026-05-28T16:00:00Z",
+      "2026-05-28T18:00:00Z",
+      ["secondary@example.com"],
+      "owner@example.com",
+      "America/Los_Angeles",
+      "secondary@example.com",
+    );
+
+    expect(calendarFreeBusyMock).toHaveBeenCalledWith(
+      "secondary-token",
+      expect.objectContaining({
+        timeZone: "America/Los_Angeles",
+        items: [{ id: "secondary@example.com" }],
+      }),
+    );
+  });
+
+  it("marks a calendar omitted by Google as unavailable", async () => {
+    calendarFreeBusyMock.mockResolvedValue({ calendars: {} });
+
+    await expect(
+      getFreeBusy(
+        "2026-05-28T16:00:00Z",
+        "2026-05-28T18:00:00Z",
+        ["secondary@example.com"],
+        "owner@example.com",
+        "America/Los_Angeles",
+        "secondary@example.com",
+      ),
+    ).resolves.toEqual({
+      calendars: {
+        "secondary@example.com": {
+          busy: [],
+          errors: [
+            {
+              reason: "Calendar was omitted from the Google free/busy response",
+            },
+          ],
+        },
+      },
+      errors: [
+        {
+          email: "secondary@example.com",
+          error: "Calendar was omitted from the Google free/busy response",
+        },
+      ],
+    });
+  });
+});
+
+describe("calendar Google OAuth exchange", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getRequestOrgIdMock.mockReturnValue(undefined);
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+  });
+
+  it("stores the Google profile picture captured during OAuth", async () => {
+    createOAuth2ClientMock.mockReturnValue({
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "scope",
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "steve@example.com",
+      picture: "https://lh3.googleusercontent.com/a/photo",
+    });
+
+    await exchangeCode(
+      "oauth-code",
+      undefined,
+      "https://app.example.com/_agent-native/google/callback",
+      "owner@example.com",
+    );
+
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "steve@example.com",
+      expect.objectContaining({
+        access_token: "access-token",
+        photoUrl: "https://lh3.googleusercontent.com/a/photo",
+      }),
+      "owner@example.com",
+    );
+  });
+
+  it("resolves Google credentials with the owner org when creating auth URLs", async () => {
+    const generateAuthUrl = vi.fn().mockReturnValue("auth-url");
+    createOAuth2ClientMock.mockReturnValue({ generateAuthUrl });
+
+    await expect(
+      getAuthUrl(
+        undefined,
+        "https://app.example.com/_agent-native/google/callback",
+        "signed-state",
+        "owner@example.com",
+        "org-123",
+      ),
+    ).resolves.toBe("auth-url");
+
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-123" },
+      expect.any(Function),
+    );
+    expect(createOAuth2ClientMock).toHaveBeenCalledWith(
+      "client-id",
+      "client-secret",
+      "https://app.example.com/_agent-native/google/callback",
+    );
+  });
+
+  it("fails closed when no Google OAuth redirect URI is available", async () => {
+    await expect(getAuthUrl()).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+    await expect(exchangeCode("oauth-code")).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+  });
+});

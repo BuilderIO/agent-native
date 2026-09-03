@@ -1,0 +1,45 @@
+---
+title: "SSR कैशिंग"
+description: "SSR HTML और React Router .data responses के लिए डिफ़ॉल्ट hard-cache policy, और AGENT_NATIVE_SSR_CACHE से इसे override करने का तरीका।"
+---
+
+# SSR कैशिंग
+
+हर SSR HTML response और हर React Router `.data` response एक ही impersonal, public shell है। `createH3SSRHandler` render करने से पहले cookies हटा देता है, इसलिए वही bytes हर visitor के लिए सही होते हैं और सारा personalization load होने के बाद client पर होता है। यही कारण है कि इन responses पर डिफ़ॉल्ट रूप से एक ही hard-cache policy लगाना सुरक्षित है:
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+वही value `cdn-cache-control` पर भी mirror होती है। `netlify-cdn-cache-control` इसके बजाय अपना खुद का ज़्यादा लंबे समय तक चलने वाला डिफ़ॉल्ट रखता है, `public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600`, क्योंकि Netlify का CDN उस header को standard header से अलग पढ़ता है। इसके बाद एक शेयर्ड CDN entry हर request के लिए अलग render करने के बजाय पूरी site को serve करती है। यह first-response latency पर सबसे बड़ा एक अकेला lever है। इसे चालू रखें, जब तक नीचे दिए गए मामलों में से कोई आपकी तैनाती पर लागू न हो।
+
+## `AGENT_NATIVE_SSR_CACHE` से override करना {#ssr-cache-env}
+
+पूरी तैनाती के लिए policy बदलने के लिए deploy environment में `AGENT_NATIVE_SSR_CACHE` सेट करें:
+
+| Value                                               | नतीजा                                                                                                                                                                                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| unset, `on`, `default`, `true`, `1`                 | ऊपर दी गई डिफ़ॉल्ट policy, अपरिवर्तित। सबसे अच्छे performance के लिए अनुशंसित।                                                                                                                                                                                |
+| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `cache-control`, `cdn-cache-control`, और `netlify-cdn-cache-control` पर `no-store`।                                                                                                                                                                           |
+| एक अवधि: `30`, `30s`, `5m`, `2h`                    | `cache-control` और `cdn-cache-control` पर `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`। `netlify-cdn-cache-control` उसी अवधि के साथ `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600` उपयोग करता है। |
+
+खाली संख्याएं seconds होती हैं। `stale-while-revalidate` किसी custom अवधि के लिए जान-बूझकर `max-age` को दोहराता है: एक छोटी freshness window को डिफ़ॉल्ट सात-दिन की stale window के साथ जोड़ने पर ठीक वही staleness वापस मिल जाएगी जिससे आप बचना चाहते थे। कोई अपरिचित value एक warning log करती है और डिफ़ॉल्ट पर वापस चली जाती है, इसलिए कोई typo कभी भी चुपचाप CDN को disable नहीं कर सकता।
+
+इसे कम करें या बंद करें जब इनमें से कोई एक सच हो:
+
+1. **आपका host deploy पर अपने CDN को purge नहीं करता।** Netlify और Vercel करते हैं। कुछ self-managed setups नहीं करते। बिना purge के, एक shipped build `max-age` plus `stale-while-revalidate` तक पुराना shell serve करता रह सकता है।
+2. **आपके loaders mutable public data लौटाते हैं।** एक सफल mutation के बाद, एक `useRevalidator()` या redirect-after-action re-fetch fresh loader output के बजाय browser की cached `.data` copy पढ़ सकता है।
+
+यह setting हर public-shell surface पर लागू होती है: React Router SSR HTML और `.data`, login HTML shell, `/_agent-native/speculation-rules.json` route, docs site, और forms template में public-form SSR। Generated Cloudflare Worker इसे build time पर resolve करता है, इसलिए build चलने से पहले इसे deploy environment में सेट करें।
+
+तीन बातें ध्यान रखने योग्य:
+
+- **Caching बंद करने से SSR personalized नहीं हो जाता।** Render से पहले cookies अब भी हटाई जाती हैं और SSR loaders अब भी anonymous branch देखते हैं। Per-user data को अब भी client-side resolve करना होगा। यह variable केवल cache की _अवधि_ नियंत्रित करता है।
+- **यह design के हिसाब से पूरी तैनाती पर लागू होता है, per-route नहीं।** एक per-route या per-request cache override ही वह तरीका है जिससे एक visitor का payload किसी दूसरे visitor की शेयर्ड CDN entry में पहुंच जाता है, इसलिए framework ऐसा कोई विकल्प नहीं देता। `guard:ssr-cache-shell` इसे enforce करता है।
+- **Mutation के बाद fresh data के लिए, cache disable करने के बजाय actions को प्राथमिकता दें।** ऐप data [actions](/docs/actions-overview) में रहता है, जिसे client से `useActionQuery` / `useActionMutation` से पढ़ा जाता है और `useDbSync()` polling द्वारा live रखा जाता है। इनमें से कुछ भी SSR shell cache से होकर नहीं गुज़रता। SSR loaders को public shell render करते रहने दें, और इस variable का इस्तेमाल तभी करें जब आपको वाकई loader data ज़्यादा fresh चाहिए।
+
+## आगे क्या है
+
+- [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) — पूरा production env var reference
+- [**Netlify**](/docs/netlify) — `netlify-cdn-cache-control` का अपना खुद का ज़्यादा लंबे समय तक चलने वाला डिफ़ॉल्ट क्यों है

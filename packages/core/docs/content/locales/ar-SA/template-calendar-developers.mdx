@@ -1,0 +1,524 @@
+---
+title: "التقويم: دليل المطور"
+description: "البدء السريع، وقائمة الإجراءات الكاملة، ونموذج البيانات، والمسارات، وكيفية توسيع قالب التقويم."
+---
+
+# دليل المطور
+
+هذه الصفحة لأي شخص يخصص قالب التقويم أو يوسّعه: البدء السريع، وكل إجراء،
+ونموذج البيانات، وسطح المسارات، وكيفية الإضافة إليه. راجع
+[التقويم](/docs/template-calendar) لمعرفة ما يفعله التطبيق.
+
+## البدء السريع
+
+يشرح هذا تشغيل التقويم من عدم وجود أي تثبيت إلى الاتصال بـ Google Calendar.
+الأوامر متطابقة سواء كنت في Terminal على macOS أو PowerShell/Command Prompt
+على Windows، فهي أدوات Node.js عادية.
+
+<Steps>
+
+### أنشئ التطبيق
+
+```bash
+npx @agent-native/core@latest create my-calendar --standalone --template calendar
+cd my-calendar
+pnpm install
+```
+
+يتطلب هذا تثبيت [Node.js](https://nodejs.org) الإصدار 22 أو أحدث و
+[pnpm](https://pnpm.io) أولًا. راجع [بدء الاستخدام](/docs/getting-started)
+إذا لم تكن قد ثبّت أيًا منهما بعد، أو لم يكن لديك اتصال بنموذج لغوي
+(Builder.io، أو مفتاح Anthropic/OpenAI، أو Ollama محلي) مُعد.
+
+### شغّل خادم التطوير
+
+```bash
+pnpm dev
+```
+
+يُفتح التطبيق على `http://localhost:8082`. إذا لم يُفتح تلقائيًا، فزُر هذا
+العنوان في متصفحك. يعمل التقويم بشكل كامل مع كون Google غير متصل. لن تواجه
+خطأ إلا إذا جرّبت إجراءً يحتاجه قبل الاتصال.
+
+### وصّل Google Calendar
+
+في التطبيق، افتح **الإعدادات**، وفي تبويب **General** ابحث عن بطاقة
+**Google Calendar**، ثم انقر على **الاتصال بتقويم Google**. يفتح هذا
+معالج إعداد:
+
+1. **أنشئ مشروع Google Cloud**، إذا لم يكن لديك مشروع جاهز للاستخدام بالفعل:
+   في [Google Cloud Console](https://console.cloud.google.com/)، انقر على
+   القائمة المنسدلة للمشروع بالقرب من أعلى الصفحة، ثم **New Project**. أعطه
+   أي اسم، وانقر على **Create**، وانتظر الإشعار بأنه جاهز. تأكد من أنه محدد
+   في نفس القائمة المنسدلة قبل الاستمرار.
+2. **فعّل واجهة برمجة التطبيقات**: مع تحديد مشروعك، اذهب إلى **APIs &
+   Services → Library**، وابحث عن "Google Calendar API"، وافتحها، وانقر على
+   **Enable**.
+3. **اضبط شاشة الموافقة**: ضمن **APIs & Services → OAuth consent screen**،
+   أعدّ واحدة ("External" مناسبة للتطوير).
+4. **أنشئ بيانات الاعتماد**: ضمن **APIs & Services → Credentials**، أنشئ
+   معرّف عميل OAuth من نوع "Web application"، وأضف
+   `http://localhost:8082/_agent-native/google/callback` كعنوان URI
+   لإعادة توجيه معتمد (8082 هو منفذ التطوير الافتراضي للتقويم).
+5. **أضف بيانات الاعتماد**: نزّل ملف JSON لبيانات الاعتماد وحمّله في
+   المعالج، أو فعّل "Paste manually" وأدخل Client ID وClient Secret مباشرة.
+
+يحفظ التقويم هذه البيانات في مخزن أسراره الخاص، لا في ملف `.env`، لذا فإن
+هذه الخطوة متطابقة على Windows وmacOS. تُحدَّث الرموز المميزة تلقائيًا بعد
+الاتصال.
+
+### وصّل Zoom (اختياري)
+
+بخلاف Google، لا يملك Zoom نموذج إعدادات. أنشئ ملف `.env` في جذر المشروع
+(أو أضف إلى الملف الموجود) بما يلي:
+
+```text
+ZOOM_CLIENT_ID=your-client-id
+ZOOM_CLIENT_SECRET=your-client-secret
+```
+
+احصل على Client ID وSecret من [تطبيق Zoom OAuth](https://marketplace.zoom.us/)
+(Zoom Marketplace → Develop → Build App → OAuth)، مع
+`/_agent-native/zoom/callback` كعنوان إعادة التوجيه، ثم أعد تشغيل `pnpm dev`
+حتى يأخذ القيم الجديدة. بدون اتصال Zoom، يمكن لروابط الحجز أن تقدّم Google
+Meet، لكن ليس Zoom.
+
+</Steps>
+
+<Callout tone="warning">
+
+على Windows، تضيف بعض المحررات لاحقة `.txt` مخفية عند حفظ ملف باسم `.env`،
+مما يترك `.env.txt` لا يقرأه التقويم أبدًا. في File Explorer، فعّل "File
+name extensions" (تبويب View) وتأكد من أن الملف المحفوظ يُسمى بالضبط `.env`،
+دون أي شيء بعده.
+
+</Callout>
+
+<Callout tone="info">
+
+**تعيش الأحداث في Google Calendar، لا في SQL.** يستدعي كل إجراء متعلق
+بالأحداث واجهة برمجة تطبيقات Google Calendar مباشرة، فلا يوجد جدول أحداث
+محلي. يتم تخزين روابط الحجز والحجوزات والتوفر وحالة الاتصال محليًا فقط. لا
+تقرأ أو تكتب بيانات الأحداث باستخدام SQL خام مطلقًا.
+
+</Callout>
+
+## قائمة الإجراءات
+
+كل عملية هي ملف TypeScript في `templates/calendar/actions/`، يتم تركيبه
+تلقائيًا على `POST /_agent-native/actions/:name`.
+
+### الأحداث والحاضرون
+
+تعيش بيانات الأحداث في Google Calendar، لا في SQL مطلقًا.
+
+| الإجراء                  | ما يفعله                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `list-events`            | سرد الأحداث في نطاق زمني                                                                        |
+| `search-events`          | البحث في الأحداث باستعلام                                                                       |
+| `get-event`              | قراءة حدث واحد بحسب المعرّف                                                                     |
+| `create-event`           | إنشاء حدث، بما في ذلك التكرار (RRULE)، ومواقع العمل، وأنواع الحالة (`outOfOffice`، `focusTime`) |
+| `update-event`           | تحديث حدث، بما في ذلك التكرار، ومواقع العمل، وأنواع الحالة                                      |
+| `delete-event`           | حذف حدث                                                                                         |
+| `manage-event-draft`     | تجهيز دعوة غير مُرسلة لمراجعة المستخدم قبل كتابة أي شيء أو إشعار الحاضرين                       |
+| `rsvp-event`             | القبول أو الرفض أو التأشير كمؤقت على دعوة                                                       |
+| `get-attendee-timezones` | قراءة إعدادات المناطق الزمنية المخصصة لكل ضيف                                                   |
+| `set-attendee-timezone`  | ضبط إعداد منطقة زمنية مخصص لضيف بحيث يظل وقته المحلي يظهر بشكل صحيح                             |
+
+### التوفر والعثور على وقت
+
+| الإجراء               | ما يفعله                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `get-availability`    | قراءة الجدول الأسبوعي، والمنطقة الزمنية، والفاصل الزمني، والإشعار المسبق، وإعدادات نافذة الحجز المسبق         |
+| `update-availability` | تحديث الجدول الأسبوعي، والمنطقة الزمنية، والفاصل الزمني، والإشعار المسبق، وإعدادات نافذة الحجز المسبق         |
+| `check-availability`  | العثور على فترات متاحة ليوم واحد                                                                              |
+| `find-a-time`         | بحث مشترك عن فترة متاحة بين منظّم وحاضرين محدّدين بالاسم، يجمع بين حالة تفرغ/انشغال Google والتعارضات المحلية |
+
+### روابط الحجز والحجوزات
+
+| الإجراء                  | ما يفعله                                                |
+| ------------------------ | ------------------------------------------------------- |
+| `create-booking-link`    | إنشاء رابط حجز                                          |
+| `update-booking-link`    | تحديث رابط حجز                                          |
+| `duplicate-booking-link` | تكرار رابط حجز، بما في ذلك المضيفين المشاركين (`hosts`) |
+| `list-booking-links`     | سرد روابط الحجز المتاحة                                 |
+| `list-bookings`          | سرد المواعيد المؤكدة                                    |
+
+### التقويمات الخارجية
+
+خلاصات ICS للقراءة فقط.
+
+| الإجراء                     | ما يفعله                                 |
+| --------------------------- | ---------------------------------------- |
+| `add-external-calendar`     | الاشتراك في خلاصة ICS/webcal للقراءة فقط |
+| `list-external-calendars`   | سرد الخلاصات المشترك بها                 |
+| `remove-external-calendar`  | إزالة خلاصة مشترك بها                    |
+| `update-external-calendars` | تحديث الخلاصات المشترك بها               |
+
+### الأشخاص والتراكبات
+
+| الإجراء                 | ما يفعله                                               |
+| ----------------------- | ------------------------------------------------------ |
+| `search-people`         | البحث في جهات اتصال Google ودليل Workspace             |
+| `get-overlay-people`    | قراءة الأشخاص الآخرين الذين تم تثبيت تقويماتهم في عرضك |
+| `update-overlay-people` | تحديث الأشخاص الآخرين الذين تم تثبيت تقويماتهم في عرضك |
+
+### Zoom
+
+| الإجراء           | ما يفعله                                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-zoom-status` | قراءة حالة اتصال Zoom للمستخدم الحالي. يتم الاتصال وقطع الاتصال عبر مسارات `/_agent-native/zoom/*`، لا عبر إجراء، لأن OAuth يحتاج إلى جلسة المتصفح المسجَّلة الدخول |
+
+### اتصال Google Calendar والمزامنة
+
+| الإجراء                   | ما يفعله                                                         |
+| ------------------------- | ---------------------------------------------------------------- |
+| `connect-google-calendar` | إرجاع عنوان URL للاتصال عبر OAuth لجلسة المتصفح المسجَّلة الدخول |
+| `sync-google-calendar`    | فرض إعادة مزامنة                                                 |
+
+### الإعدادات والتفضيلات
+
+| الإجراء                              | ما يفعله                                                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `get-settings`                       | قراءة إعدادات المستخدم                                                                                     |
+| `update-settings`                    | تحديث إعدادات المستخدم                                                                                     |
+| `update-calendar-visual-preferences` | تحديث تفضيلات العرض المحلية فقط (ألوان الأحداث، إخفاء عطلات نهاية الأسبوع). لا تلمس Google Calendar مطلقًا |
+
+### التنقل وحالة واجهة المستخدم
+
+| الإجراء       | ما يفعله                                   |
+| ------------- | ------------------------------------------ |
+| `navigate`    | نقل واجهة المستخدم إلى عرض أو تاريخ أو حدث |
+| `view-screen` | قراءة العرض الحالي للوكيل                  |
+
+### التصعيد إلى واجهة برمجة تطبيقات المزوّد
+
+واجهة برمجة تطبيقات Google Calendar الخام (وأي CRM متصل)، لاستخدامها عندما
+تكون الإجراءات أعلاه ضيقة جدًا.
+
+| الإجراء                 | ما يفعله                                                               |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `provider-api-catalog`  | سرد واجهات برمجة تطبيقات المزوّد الخام المتاحة للاستدعاء المباشر       |
+| `provider-api-docs`     | قراءة وثائق نقطة نهاية خام لواجهة برمجة تطبيقات المزوّد                |
+| `provider-api-request`  | استدعاء واجهة برمجة تطبيقات Google Calendar الخام (أو CRM متصل) مباشرة |
+| `list-staged-datasets`  | سرد الفحوصات الكبيرة المُدرجة للاستعلام بدلاً من إرجاع نتائج خام       |
+| `query-staged-dataset`  | الاستعلام عن مجموعة بيانات مُدرجة                                      |
+| `delete-staged-dataset` | حذف مجموعة بيانات مُدرجة                                               |
+
+## نموذج البيانات
+
+معرَّف في `templates/calendar/server/db/schema.ts`. تُخزَّن محليًا فقط
+البيانات غير المتعلقة بالأحداث، أما الأحداث نفسها فتعيش في Google Calendar.
+
+<DataModel
+  id="doc-block-calendar6"
+  title="نموذج بيانات التقويم"
+  summary={
+    "تُخزَّن محليًا فقط البيانات غير المتعلقة بالأحداث، أما الأحداث فتعيش في Google Calendar. تستخدم روابط الحجز ownableColumns بحيث يُطبَّق نظام المشاركة، وأسماء المستخدمين للحجز جدول حجز منفصل لأن اسم المستخدم مشترك بين كل الروابط التي يملكها مستخدم."
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "تعريفات روابط على نمط Calendly (قابلة للتملك)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "slug",
+          type: "string",
+          note: "فريد، الصفحة العامة في /book/{username}/{slug}",
+        },
+        { name: "title", type: "string" },
+        { name: "description", type: "string", nullable: true },
+        { name: "duration", type: "int", note: "المدة الأساسية بالدقائق" },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "مدد بديلة",
+        },
+        {
+          name: "hosts",
+          type: "json",
+          nullable: true,
+          note: "مضيفون مشاركون مطلوبون بالإضافة إلى المالك",
+        },
+        { name: "customFields", type: "json", nullable: true },
+        {
+          name: "conferencing",
+          type: "json",
+          nullable: true,
+          note: "none | google_meet | zoom | custom",
+        },
+        { name: "color", type: "string", nullable: true },
+        { name: "isActive", type: "bool", note: "إيقاف مؤقت دون حذف" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "المواعيد المؤكدة من صفحات الحجز العامة",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "slug", type: "string", fk: "booking_links.slug" },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "start", type: "datetime" },
+        { name: "end", type: "datetime" },
+        { name: "eventTitle", type: "string", nullable: true },
+        { name: "notes", type: "string", nullable: true },
+        {
+          name: "fieldResponses",
+          type: "json",
+          nullable: true,
+          note: "استجابات الحقول المخصصة",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+          note: "Zoom أو Google Meet أو مخصص",
+        },
+        { name: "googleEventId", type: "string", nullable: true },
+        {
+          name: "calendarAccountId",
+          type: "string",
+          nullable: true,
+          note: "الحساب المتصل الذي يملك الحدث",
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "يُشغّل /booking/manage/{token}",
+        },
+        { name: "status", type: "enum", note: "confirmed | cancelled" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "يحافظ على عمل عناوين URL العامة القديمة بعد إعادة تسمية لاحقة الرابط",
+      fields: [
+        { name: "oldSlug", type: "string", pk: true },
+        {
+          name: "newSlug",
+          type: "string",
+          note: "لاحقة الرابط الحالية",
+        },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_usernames",
+      name: "booking_usernames",
+      note: "يحجز جزء {username} من /book/{username}/{slug}، واحد لكل مالك",
+      fields: [
+        { name: "username", type: "string", pk: true },
+        {
+          name: "ownerEmail",
+          type: "string",
+          note: "فريد، اسم مستخدم حجز واحد لكل مستخدم",
+        },
+        { name: "createdAt", type: "datetime" },
+        { name: "updatedAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_username_changes",
+      name: "booking_username_changes",
+      note: "سجل تدقيق يفرض حد 3 تغييرات كل 30 يومًا",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "oldUsername", type: "string", nullable: true },
+        { name: "newUsername", type: "string" },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "منح المشاركة لروابط الحجز",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "linkId", type: "id", fk: "booking_links.id" },
+        { name: "principal", type: "string", note: "مستخدم أو مؤسسة" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "له حجوزات",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "له منح مشاركة",
+    },
+  ]}
+/>
+
+تعيش قواعد التوفر في إعدادات كل مستخدم تحت مفتاح `calendar-availability`؛
+والأشخاص المتراكبون تحت `calendar-overlay-people`؛ وإعدادات المناطق الزمنية
+للحاضرين المخصصة تحت `attendee-timezones`؛ والخلاصات المشترك بها من ICS تحت
+`external-calendars`. تعيش رموز OAuth المميزة لـ Google وZoom في جدول إطار
+العمل `oauth_tokens`. تعيش حالة واجهة المستخدم المؤقتة (العرض الحالي،
+والتاريخ، والحدث المحدد) في `application_state` تحت مفتاح `navigation`.
+
+## استعراض إجراء واحد بالتفصيل
+
+يُظهر `create-booking-link` أنماطًا تستحق إعادة استخدامها في أي إجراء:
+التحقق من صحة المدخلات قبل أن تلمس قاعدة البيانات، وتطبيق قاعدة عبر جدولين،
+وتحديد المستخدم المسجّل الدخول بأمان، وتوحيد شكل مدخل مرن مرة واحدة بدلاً من
+تكراره في كل قارئ.
+
+<AnnotatedCode
+  id="doc-block-calendar8"
+  title="إنشاء رابط حجز"
+  filename="templates/calendar/actions/create-booking-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core";\nimport {\n  getRequestUserEmail,\n  getRequestOrgId,\n} from "@agent-native/core/server/request-context";\nimport { eq } from "drizzle-orm";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";\nimport {\n  rowToBookingLink,\n  serializeBookingHosts,\n} from "../server/lib/booking-link-utils.js";\n\nconst hostsSchema = z\n  .union([\n    z.array(\n      z.union([\n        z.string(),\n        z.object({\n          email: z.string(),\n          displayName: z.string().optional(),\n        }),\n      ]),\n    ),\n    z.string(),\n  ])\n  .optional();\n\nexport default defineAction({\n  description:\n    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",\n  schema: z.object({\n    title: z.string().min(1).describe("Booking link title"),\n    slug: z\n      .string()\n      .min(1)\n      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)\n      .describe("URL slug, lowercase words separated by hyphens"),\n    duration: z.coerce\n      .number()\n      .int()\n      .min(5)\n      .max(24 * 60)\n      .describe("Default duration in minutes"),\n    description: z.string().optional().describe("Description"),\n    durations: z\n      .array(\n        z.coerce\n          .number()\n          .int()\n          .min(5)\n          .max(24 * 60),\n      )\n      .optional()\n      .describe("Optional duration choices, e.g. [30,45,60]"),\n    hosts: hostsSchema.describe(\n      "Required co-hosts besides the owner. Accepts emails, comma-separated emails, or {email, displayName} objects.",\n    ),\n    customFields: z.array(z.any()).optional().describe("Custom form fields"),\n    conferencing: z.any().optional().describe("Conferencing configuration"),\n    color: z.string().optional().describe("Display color"),\n    isActive: z.boolean().optional().describe("Whether the link is active"),\n  }),\n  run: async (args) => {\n    const body = args as Record<string, any>;\n    const durationInput = normalizeBookingDurationInput({\n      duration: body.duration,\n      durations: body.durations,\n    });\n    if ("error" in durationInput) {\n      throw new Error(durationInput.error);\n    }\n    const slug = String(body.slug).trim().toLowerCase();\n    const [existingLink, existingRedirect] = await Promise.all([\n      getDb()\n        .select({ id: schema.bookingLinks.id })\n        .from(schema.bookingLinks)\n        .where(eq(schema.bookingLinks.slug, slug)),\n      getDb()\n        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })\n        .from(schema.bookingSlugRedirects)\n        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),\n    ]);\n\n    if (existingLink.length > 0 || existingRedirect.length > 0) {\n      throw new Error("A booking link with this slug already exists");\n    }\n\n    const now = new Date().toISOString();\n    const id = nanoid();\n    const ownerEmail = (() => {\n      const e = getRequestUserEmail();\n      if (!e) throw new Error("no authenticated user");\n      return e;\n    })();\n    await getDb()\n      .insert(schema.bookingLinks)\n      .values({\n        id,\n        slug,\n        title: String(body.title).trim(),\n        description: body.description ? String(body.description).trim() : null,\n        duration: durationInput.duration,\n        durations: durationInput.durations\n          ? JSON.stringify(durationInput.durations)\n          : null,\n        hosts: serializeBookingHosts(body.hosts, ownerEmail),\n        customFields: body.customFields\n          ? JSON.stringify(body.customFields)\n          : null,\n        conferencing: body.conferencing\n          ? JSON.stringify(body.conferencing)\n          : null,\n        color: body.color ? String(body.color).trim() : null,\n        isActive: body.isActive ?? true,\n        ownerEmail,\n        orgId: getRequestOrgId(),\n        createdAt: now,\n        updatedAt: now,\n      });\n\n    const created = await getDb()\n      .select()\n      .from(schema.bookingLinks)\n      .where(eq(schema.bookingLinks.id, id));\n    return rowToBookingLink(created[0]);\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "37-41",
+      label: "يتم التحقق من صيغة اللاحقة (slug) مسبقًا",
+      note: "تفرض التعبير النمطي (regex) لاحقات عناوين URL بحروف صغيرة ومفصولة بشرطات قبل أن يلمس أي شيء قاعدة البيانات، لذا لا تصل لاحقة مشوّهة أبدًا إلى فحص التفرّد أدناه.",
+    },
+    {
+      lines: "59-61",
+      label: "المضيفون المشاركون اختياريون",
+      note: "حذف `hosts` ينشئ رابطًا فرديًا. تصبح القائمة غير الفارغة مضيفين مشاركين مطلوبين يجب أن يكونوا متفرغين أيضًا قبل أن يعرض `find-a-time` أي فترة.",
+    },
+    {
+      lines: "76-90",
+      label: "يجب أن تكون اللاحقة متاحة في جدولين",
+      note: "يجب أن تكون اللاحقة الجديدة غير مستخدَمة في كل من `booking_links` و`booking_slug_redirects`، وإلا فقد يستحوذ رابط جديد بصمت على عنوان URL لا يزال رابط أقدم أعيدت تسميته يُعيد توجيه الزوار منه.",
+    },
+    {
+      lines: "94-98",
+      label: "يتم تحديد المستخدم المسجَّل الدخول مرة واحدة، وتضييق نوعه",
+      note: "تُرجع `getRequestUserEmail()` قيمة من نوع `string | undefined`، لأنه من الناحية التقنية لا يوجد مستخدم مسجَّل الدخول لاستدعاء غير مُصادَق عليه. يسمح تغليفها في دالة تُستدعى فورًا للإجراء بإطلاق خطأ في تلك اللحظة إذا حدث ذلك، بحيث تصبح `ownerEmail` من نوع `string` عادي لبقية الدالة بدلاً من شيء يتعين على كل سطر لاحق إعادة التحقق منه.",
+    },
+    {
+      lines: "110",
+      label: "يتم توحيد مُدخل المضيفين المشاركين مرة واحدة",
+      note: "تقبل `serializeBookingHosts` عناوين بريد إلكتروني، أو نصوصًا مفصولة بفواصل، أو كائنات `{email, displayName}`، وتخزّن دائمًا نفس شكل JSON، لذا لا يتعامل كل قارئ إلا مع صيغة واحدة.",
+    },
+  ]}
+/>
+
+## مرجع المسارات
+
+<FileTree
+  id="doc-block-calendar7"
+  title="تخطيط قالب التقويم"
+  entries={[
+    {
+      path: "actions/",
+      note: "كل إجراء يمكن للوكيل استدعاؤه، الأحداث، والتوفر، والحجز، والأشخاص، وZoom، والمشاركة",
+    },
+    {
+      path: "app/routes/_app._index.tsx",
+      note: "عرض التقويم الرئيسي (يوم/أسبوع/شهر)",
+    },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "تبويب دردشة الوكيل بملء الصفحة",
+    },
+    {
+      path: "app/routes/_app.availability.tsx",
+      note: "محرر التوفر",
+    },
+    {
+      path: "app/routes/_app.booking-links._index.tsx",
+      note: "قائمة روابط الحجز، ويُعدّل _app.booking-links.$id.tsx رابطًا واحدًا",
+    },
+    { path: "app/routes/_app.bookings.tsx", note: "قائمة الحجوزات المؤكدة" },
+    {
+      path: "app/routes/_app.extensions.tsx",
+      note: "مسارات أدوات الامتدادات",
+    },
+    {
+      path: "app/routes/_app.settings.tsx",
+      note: "اتصال Google/Zoom، وإعدادات التوفر الافتراضية، والمشاركة",
+    },
+    {
+      path: "app/routes/book.$username.$slug.tsx",
+      note: "صفحة الحجز العامة (المسار الأساسي: /book/{username}/{slug})",
+    },
+    {
+      path: "app/routes/booking.manage.$token.tsx",
+      note: "صفحة إعادة الجدولة/الإلغاء للزائر",
+    },
+    {
+      path: "app/routes/event.tsx",
+      note: "صفحة معاينة حدث مستقلة يضمّنها الوكيل في الدردشة",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "جداول Drizzle، booking_links، وbookings، وbooking_usernames، والمشاركات",
+    },
+    { path: "server/lib/zoom.ts", note: "مصادقة Zoom OAuth وإنشاء الاجتماعات" },
+    {
+      path: "server/lib/google-calendar.ts",
+      note: "عميل واجهة برمجة تطبيقات Google Calendar",
+    },
+    {
+      path: "shared/api.ts",
+      note: "أنواع TypeScript مشتركة يستخدمها الخادم والعميل",
+    },
+  ]}
+/>
+
+يبقى مساران قديمان مُركَّبين للروابط التي شُوركت قبل تغيير مخطط عنوان URL:
+`book.$slug.tsx` (بدون جزء اسم المستخدم) و`meet.$username.$slug.tsx`، وكلاهما
+يُحوَّل إلى الصيغة الأساسية `/book/:username/:slug`. يُعيد `_app.team.tsx`
+التوجيه إلى `/settings/organization`، فإدارة الفريق موجودة في الإعدادات، لا
+في صفحة منفصلة.
+
+## تخصيصه
+
+كل جزء من التطبيق مصدر قابل للتحرير. ابدأ من هنا:
+
+- `templates/calendar/actions/` — أضف ملفًا جديدًا باستخدام `defineAction`
+  لكشف قدرة جديدة لكل من الوكيل والواجهة الأمامية.
+- `templates/calendar/app/routes/` — واجهة المستخدم، المذكورة أعلاه.
+- `templates/calendar/server/db/schema.ts` — أضف أعمدة أو جداول باستخدام
+  Drizzle. حافظ على أن يكون الرمز مستقلًا عن اللهجة (dialect) حتى يعمل
+  القالب على SQLite وPostgres وTurso وD1 وNeon.
+- `templates/calendar/server/lib/` — تكاملات المزوّدين: `google-calendar.ts`،
+  و`zoom.ts`، و`people-search.ts`، و`ical-fetcher.ts`، و`find-time.ts`،
+  و`provider-api.ts`.
+- `templates/calendar/AGENTS.md` — تعليمات الوكيل. حدّث هذا الملف عندما
+  تعلّم الوكيل قدرات أو اصطلاحات جديدة.
+- `templates/calendar/.agents/skills/` — الأنماط التفصيلية التي يتبعها
+  الوكيل. skills ذات الصلة: `event-management`، و`availability-booking`،
+  و`real-time-sync`، و`storing-data`، و`delegate-to-agent`،
+  و`frontend-design`.
+- `templates/calendar/shared/api.ts` — أنواع TypeScript المشتركة
+  (`CalendarEvent`، و`BookingLink`، و`ExternalCalendar`،
+  و`ConferencingConfig`، وغيرها) التي يستخدمها كل من الخادم والعميل.
+
+إذا أضفت ميزة، تذكّر تحديث المجالات الأربعة كلها: واجهة المستخدم، والإجراء،
+وskill أو إدخال AGENTS.md، وأي حالة تطبيق يحتاج الوكيل إلى رؤيتها. هذا ما
+يحافظ على تكافؤ الوكيل وواجهة المستخدم.
+
+## ما التالي
+
+- [**التقويم**](/docs/template-calendar) — نظرة عامة وخطوات البدء
+- [**الميزات**](/docs/template-calendar-features) — السلوك الذي يظهر للمستخدم والذي تُشغّله هذه الإجراءات ونموذج البيانات هذا
+- [**التحدث مع الوكيل**](/docs/template-calendar-agent) — كيف يختار الوكيل بين هذه الإجراءات وواجهة برمجة تطبيقات Google Calendar الخام
+- [**التقويم في مساحة عمل متعددة التطبيقات**](/docs/template-calendar-integrations) — كيف تُعرَض هذه الإجراءات لتطبيقات أخرى وDispatch
+- [**الإجراءات**](/docs/actions-overview) — نظام الإجراءات الذي يُبنى عليه هذا القالب
+- [**المشاركة**](/docs/sharing) — نموذج منح المشاركة الذي يستخدمه `booking_link_shares`

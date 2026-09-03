@@ -1,0 +1,81 @@
+---
+title: "Agent-Nativeとは？"
+description: "Agent-Nativeとは何か、共有アクションのアーキテクチャがどのように機能するか、いつこの方法でアプリを構築するかを説明します。"
+---
+
+# Agent-Nativeとは？
+
+Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築するための
+オープンソースTypeScriptフレームワークです。各機能を一度だけ
+[アクション](/docs/actions-overview)として定義します。アクションは、エージェントが
+ツールとして使用し、UIがコードから呼び出す型付き関数です。
+
+## UIを備えたエージェントを構築する理由
+
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>テキストボックスだけのエージェント</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>エージェント</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>何ができる？</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>UIを備えたエージェント</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>ローンチ資料</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>構成</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>スライド</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>レビュー</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Q3製品ローンチ</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>エージェント</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>エージェントとUIを1つのワークスペースに</span></section></div>"
+    }
+  />
+</WireframeBlock>
+
+コーディングエージェントを見ると、テキストボックスだけで十分に思えるかもしれません。しかし、テキストボックスは作業環境の一部にすぎません。コードベースがコンテキストを提供し、ツールが明確な実行手段を与え、ファイル、テスト、プレビューが結果を可視化します。
+
+多くのナレッジワークには、このような構造がありません。空のテキストボックスでは、エージェントに何ができるのか、どのようなコンテキストを持っているのか、何を頼めばよいのかを人が推測する必要があります。
+
+UIは、テキストボックスに欠けているものを提供します。エージェントの機能を見えるようにし、コンテキストとワークフローを体験に組み込み、作業の進行を見ながら形にできるようにします。
+
+Agent-Nativeでは、このようなエージェントを構築できます。UIは、エージェントを固定されたワークフローに制限することなく、明確な出発点を提供します。エージェントとUIは同じ機能を使用するため、人は作業をエージェントに委任し、UIで確認または変更し、進行を失うことなく両者を行き来できます。
+
+## Agent-Nativeの仕組み
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="同じアプリケーションで、人が直接利用する場合とAIエージェントを介して利用する場合の比較。"
+  align="full"
+  caption="Agent-Nativeアーキテクチャの4分間の紹介をご覧ください。"
+/>
+
+Agent-Nativeは、3つの共有基盤を通じてエージェントとUIをつなぎます。
+
+- **[共有アクション](/docs/actions-overview)。** 各機能を一度だけ定義します。エージェントはツールとして呼び出し、UIはコードから呼び出します。どちらの経路も同じ検証、権限、実装を使用します。
+- **[共有データ](/docs/server-database)。** アクションは同じデータを読み取り、更新します。そのため、エージェントが行った作業はUIに表示され、UIで行った作業はエージェントから利用できます。
+- **[共有アプリケーション状態](/docs/context-awareness)。** アプリケーション状態は、現在のページ、選択中のレコード、アクティブなビューなど、UIで起きていることを表します。Agent-Nativeは関連する状態をコンテキストとしてエージェントに渡すため、人が何に取り組んでいるかを理解できます。
+
+エージェントはUIをクリックして操作するわけではありません。UIと同じアクションレイヤーを通じて作業します。
+
+たとえば、人はUIからサポートチケットを担当者に割り当てることも、エージェントに依頼することもできます。どちらの経路でも同じアクションが実行され、同じチケットが更新されます。人はUIで結果を確認または変更してから、エージェントにそこから作業を続けさせられます。
+
+## Agent-Nativeを使うべきとき
+
+次の場合、Agent-Nativeは適しています。
+
+- エージェントに、質問への回答だけでなく実際の作業をさせたい。
+- エージェントに何ができるかを確認し、その作業を確認、編集、承認、共有するためのUIが必要である。
+- 進行やコンテキストを失わずに、エージェントとUIの間を移動できるようにしたい。
+
+生成された応答が1つだけ必要なら、モデルを直接呼び出してください。作業が固定された予測可能な手順に従うなら、通常のアプリケーションロジックまたは自動化の方がシンプルです。エージェントとUIの両方が同じ作業で継続的な役割を持つ場合に、Agent-Nativeを使ってください。
+
+## 次のステップ
+
+<Cards>
+
+### [はじめに](/docs/getting-started)
+
+アプリを作成し、同じアクションをエージェントとUIから呼び出します。
+
+### [主要な概念](/docs/key-concepts)
+
+アクション、SQLデータ、アプリケーションコンテキスト、アクセス、ライブ同期がどのように連携するかを学びます。
+
+### [エージェントサーフェス](/docs/agent-surfaces)
+
+同じモデルが、UI、チャット、自動化、別のエージェント主導のアプリをどのように支えるかを確認します。
+
+### [テンプレート](/docs/cloneable-saas)
+
+Chat から一つずつ積み上げるのではなく、完成した SaaS プロダクトを起点として始めます。
+
+</Cards>

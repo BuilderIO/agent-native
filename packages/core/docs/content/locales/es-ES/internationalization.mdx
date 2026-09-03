@@ -1,0 +1,158 @@
+---
+title: "Internacionalización"
+description: "Localice aplicaciones Agent-Native con catálogos de configuración regional compartidos, un selector de idioma y respaldo al idioma del navegador."
+---
+
+# Internacionalización
+
+Las aplicaciones Agent-Native pueden localizar la interfaz del framework y de las plantillas a través del runtime compartido `@agent-native/core/client/i18n`. El framework almacena la elección de idioma del usuario en la configuración de SQL, la expone como acciones y recurre al inglés cuando una aplicación todavía no ha traducido una cadena.
+
+## Tiempo de ejecución
+
+Utilice el proveedor a través de `AppProviders`:
+
+```tsx
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { i18nCatalog } from "./i18n";
+
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
+
+<script
+  data-agent-native-locale-init
+  dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+/>;
+
+<AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+  <Outlet />
+</AppProviders>;
+```
+
+`getLocaleInitScript()` establece los valores iniciales de `lang`, `dir` y
+`window.__AGENT_NATIVE_LOCALE__` antes de que React se hidrate. Las rutas
+públicas SSR pueden llamar a `resolveLocaleFromRequest()` desde
+`@agent-native/core/server` y pasar la configuración regional o el catálogo
+resuelto a ese script para evitar discrepancias de hidratación.
+
+## Catálogos
+
+Cada plantilla localizada mantiene sus catálogos en `app/i18n/`:
+
+```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
+import enUS from "./en-US";
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
+  messages: enUS,
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
+  },
+});
+```
+
+`messages` incluye `en-US` directamente para que esté siempre disponible
+antes de que se cargue cualquier configuración regional. `localeLoaders`
+importa dinámicamente todos los demás catálogos para que los usuarios solo
+descarguen la configuración regional activa. Los códigos de configuración
+regional admitidos son `en-US`, `zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`,
+`ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` y `ar-SA`.
+
+Esta lista está fijada por el framework. No es simplemente lo que este
+ejemplo incluye por casualidad. `LocaleCode` es una unión de TypeScript
+formada exactamente por estos códigos, y `set-localization-preference`
+rechaza cualquier otro valor en tiempo de ejecución. Cada configuración
+regional también necesita metadatos curados por el framework, como la
+dirección del texto para los idiomas que se escriben de derecha a izquierda.
+Agregar una nueva configuración regional implica extender el framework en
+sí, no agregar un archivo de catálogo a su aplicación.
+
+`createAgentNativeI18nCatalog` también acepta un `sourceLocale` opcional,
+que por defecto es `en-US`, y un arreglo `supportedLocales` opcional.
+Configure `supportedLocales` cuando una aplicación distribuya traducciones
+para solo algunas de las configuraciones regionales del framework en lugar
+de las diez. Por defecto incluye todas las configuraciones regionales que
+admite el framework. `LanguagePicker` solo lista las configuraciones
+regionales de este conjunto, y cualquier configuración regional detectada o
+solicitada que quede fuera de él recurre a `sourceLocale`.
+
+## UI
+
+Utilice `useT()` para traducir las cadenas de la interfaz:
+
+```tsx
+import { useT } from "@agent-native/core/client/i18n";
+
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
+}
+```
+
+Utilice `useFormatters()` para fechas, números, tiempo relativo y listas. No
+coloque el formato de fecha o número sensible a la configuración regional
+dentro de las cadenas de traducción.
+
+Coloque `<LanguagePicker />` en cualquier lugar donde la aplicación permita
+a un usuario cambiar su idioma. Consulte [Kit de configuración](/docs/toolkit-settings)
+para conocer el patrón estándar de la página de configuración, incluido
+dónde encaja `openAgentSettings()`.
+
+## Acciones y persistencia
+
+Toda aplicación hereda:
+
+- `get-localization-preference` — lee el `{ locale, timezone }` del usuario actual
+- `set-localization-preference` — configura `locale` y/o `timezone`, cada uno opcional
+
+`locale` es `"system"` o una configuración regional BCP-47 admitida.
+`timezone` es `"system"` o una zona IANA como `America/New_York`. Existe
+para que el trabajo programado y de automatización se ejecute en la zona
+horaria del usuario en lugar de la del host. Configurar solo uno de los
+campos deja el otro sin cambios, porque `set-localization-preference`
+fusiona los valores con el valor almacenado existente en lugar de
+sobrescribirlo.
+
+El valor duradero se almacena en la configuración de SQL asociada al
+usuario, bajo `localization`. `localStorage` solo se usa para la
+prehidratación y como respaldo anónimo. La configuración regional activa se
+refleja en el estado de la aplicación como contexto ambiental, para que los
+agentes puedan ver el idioma actual de la interfaz.
+
+## Guardia
+
+Ejecute:
+
+```bash
+pnpm guard:i18n-catalogs
+```
+
+Para los catálogos de aplicaciones y plantillas, la guardia verifica:
+
+- Nombres de archivo de configuración regional, paridad de claves, paridad de marcadores de posición y claves obsoletas
+- Claves duplicadas y marcadores de solo desarrollo que quedaron olvidados
+- Contaminación de script incorrecto, por ejemplo texto en chino dentro de un catálogo en árabe
+- Categorías plurales de CLDR mediante `Intl.PluralRules`
+- Llamadas a `t()` en el código fuente de la aplicación cuyas claves faltan en el catálogo en inglés
+
+La guardia verifica la estructura, no la calidad de la traducción. Las
+cadenas de alta visibilidad todavía necesitan revisión humana.
+
+No traduzca identificadores estables como nombres de acciones, rutas,
+valores de enumeración, claves de estado de la aplicación, valores de base
+de datos, campos de protocolo, nombres de variables de entorno o nombres de
+proveedores.
+
+## Qué sigue
+
+- [**Resumen**](/docs/client-overview#app-shell) — el wrapper `AppProviders` y otros hooks de navegador sobre los que se construye la internacionalización
+- [**Kit de configuración**](/docs/toolkit-settings) — coloca `<LanguagePicker>` en la página de configuración estándar
+- [**Primeros pasos**](/docs/getting-started) — crea tu primera aplicación sobre una plantilla que ya incluye catálogos localizados

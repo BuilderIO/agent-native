@@ -1,0 +1,49 @@
+---
+title: "Deployment"
+description: "किसी Agent-Native ऐप या वर्कस्पेस को persistent SQL database के साथ Nitro-compatible platform पर deploy करें।"
+---
+
+<!-- i18n-docs-ignore -->
+
+# Deployment
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+Agent-Native apps Nitro पर चलती हैं। अपने deployment के अनुसार रास्ता चुनें:
+
+<Cards columns={2}>
+
+### [ऐप deploy करें](/docs/deploy-an-app)
+
+एक standalone app बनाएं और अपने domain पर चलाएं।
+
+### [वर्कस्पेस deploy करें](/docs/workspace-deployment)
+
+Shared login के साथ कई apps को एक origin के पीछे चलाएं।
+
+</Cards>
+
+## Deploy करने से पहले: persistent database चुनें {#persistent-database}
+
+हर deployed app को persistent SQL database चाहिए। पहले production deploy से पहले deployment environment में `DATABASE_URL` सेट करें। अगर provider अलग token मांगता है, तो `DATABASE_AUTH_TOKEN` भी सेट करें।
+
+Standalone app को stable `BETTER_AUTH_SECRET` चाहिए। Signed cross-app requests वाले workspace को `A2A_SECRET` चाहिए।
+
+## ईमेल डिलीवरी वैकल्पिक है, लेकिन इसकी सलाह दी जाती है {#email-provider}
+
+ईमेल और पासवर्ड वाले authentication के लिए ईमेल provider आवश्यक नहीं है। इसके बिना deployed apps ईमेल और पासवर्ड से signup और login करती हैं, signup email verification छोड़ देती हैं और magic-link authentication उपलब्ध नहीं कराती हैं।
+
+अगर आपको magic links, email verification, password resets, invitations या share notifications चाहिए, तो deploy से पहले Resend या SendGrid connect करें। Deployment environment में `RESEND_API_KEY` या `SENDGRID_API_KEY` सेट करें; SendGrid के लिए `EMAIL_FROM` भी चाहिए। Authentication modes के लिए [Authentication](/docs/authentication) देखें।
+
+## Supported targets
+
+Agent-Native [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) और [Render](/docs/render) को support करता है।
+
+Advanced settings, secrets और production values के लिए [Deployment environment variables reference](/docs/deployment-environment-variables) देखें।
+
+## आगे
+
+- [ऐप deploy करें](/docs/deploy-an-app)
+- [वर्कस्पेस deploy करें](/docs/workspace-deployment)
+- [Database](/docs/server-database#production)

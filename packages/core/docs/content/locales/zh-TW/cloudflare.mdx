@@ -1,0 +1,42 @@
+---
+title: "Cloudflare"
+description: "使用對應的 Nitro 預設集將 agent-native 應用程式部署到 Cloudflare Pages 或 Cloudflare Workers。"
+---
+
+# Cloudflare
+
+## Cloudflare Pages {#cloudflare-pages}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## Cloudflare Workers {#cloudflare-workers}
+
+針對 Cloudflare Worker 使用 Nitro 原生的 module 輸出格式。這樣可以保持
+SSR 啟用，並將 Worker 的進入點與靜態資源一併輸出到
+`.output/server` 和 `.output/public` 底下：
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
+使用 Wrangler 建置並部署產生出來的 Worker：
+
+```bash
+npx @agent-native/core@latest build
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+你也可以使用 `NITRO_PRESET=cloudflare_module` 明確選擇這個預設集。部署之前，
+請先設定一個持久性的外部 SQL 資料庫。Worker 的檔案系統並不是持久性的應用程式儲存區。
+
+## 接下來呢
+
+- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
+- [**Workspace Deployment**](/docs/workspace-deployment) — Cloudflare Pages 是統一 `deploy` 指令的預設預設集
+- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify) 和 [**Other Platforms**](/docs/other-platforms) — 其他的 Nitro 預設集

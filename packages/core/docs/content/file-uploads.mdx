@@ -1,0 +1,271 @@
+---
+title: "File Uploads"
+description: "Configure durable file upload storage with Builder.io or a custom object storage provider for production."
+---
+
+# File Uploads
+
+The framework provides a file upload abstraction that routes uploads through a configurable provider. Templates call `uploadFile()` and get back a URL. The storage backend is swappable without changing application code.
+
+## How It Works {#how-it-works}
+
+Upload requests go to `POST /_agent-native/file-upload`, which dispatches to the active provider. You can check which provider is configured at `GET /_agent-native/file-upload/status`.
+
+The provider resolution order is:
+
+1. **User-registered providers**: custom providers registered via `registerFileUploadProvider()`.
+2. **Builder.io provider**: built-in, and it activates automatically when Builder.io is connected.
+3. **No provider**: the upload is rejected and the chat renders a storage setup CTA. Binary data is never persisted in SQL.
+
+Among user-registered providers, the first one registered that reports
+itself configured wins. `registerFileUploadProvider()` is idempotent per
+`id`. Registering under an id that is already in use replaces the existing
+provider.
+
+The UI decides whether to show a storage-setup prompt using only the
+synchronous `isConfigured()` check, before an upload is attempted. The
+actual upload checks both `isConfigured()` and `isConfiguredForRequest()`.
+A provider that only reports itself configured through
+`isConfiguredForRequest()` stays invisible to the setup prompt even though
+uploads through it would succeed.
+
+<Diagram id="doc-block-hq5uvx" title="Provider resolution order" summary="uploadFile() picks the first configured provider in order. Without one, the upload fails closed so binary data is never persisted in SQL.">
+
+```html
+<div class="diagram-upload">
+  <div class="diagram-box" data-rough>
+    uploadFile()<br /><small class="diagram-muted"
+      >POST /_agent-native/file-upload</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-step">
+      <span class="diagram-pill accent">1</span>
+      <div class="diagram-node">
+        User-registered<br /><small class="diagram-muted"
+          >registerFileUploadProvider() for S3, R2, GCS…</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span>
+      <div class="diagram-node">
+        Builder.io<br /><small class="diagram-muted"
+          >auto when connected, CDN-served</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill warn">3</span>
+      <div class="diagram-node">
+        No provider<br /><small class="diagram-muted"
+          >setup CTA, no binary persistence</small
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-upload .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-upload .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-upload .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-4os0mo" title="The upload endpoint" method="POST" path="/_agent-native/file-upload" summary="Upload a file through the active provider and get back a public URL." request={{
+  "contentType": "multipart/form-data"
+}} responses={[
+  {
+    "status": "201",
+    "description": "`{ url, id?, provider }`: the public URL and which provider handled it."
+  },
+  {
+    "status": "401",
+    "description": "No authenticated session."
+  },
+  {
+    "status": "413",
+    "description": "File exceeds the 25 MB upload ceiling."
+  },
+  {
+    "status": "415",
+    "description": "Blocked MIME type, such as an executable or script."
+  },
+  {
+    "status": "503",
+    "description": "No file upload provider is configured."
+  }
+]}>
+
+Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.
+
+</Endpoint>
+
+## Storage required for durable uploads {#storage-required}
+
+When no provider is configured, `uploadFile()` returns `null` and the multipart route returns `503`. Chat attachments remain available only for the current request, the agent receives a storage setup hint, and the transcript stores a setup marker instead of the binary payload. This fail-closed behavior keeps SQL small and makes the missing configuration visible.
+
+## Builder.io Hosting {#builder-hosting}
+
+When your app is connected to Builder.io, file uploads are automatically routed to Builder's asset hosting. Builder.io's free tier includes this managed storage. Files are served from a CDN with no configuration needed, and the durable URL is stored in the chat thread so later turns can reuse it. This is the recommended production setup.
+
+## Custom Providers {#custom-providers}
+
+The framework already ships a built-in provider for S3-compatible storage
+(AWS S3, Cloudflare R2, MinIO, and similar). Connect it with environment
+variables or through the sidebar onboarding checklist. No code is required.
+See [Onboarding](/docs/onboarding).
+
+Register a custom provider only for a different kind of backend. This
+example uploads through a generic HTTP API using `fetch()`:
+
+```ts filename="server/plugins/file-upload.ts"
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
+
+export default defineNitroPlugin(() => {
+  registerFileUploadProvider({
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
+    upload: async ({ data, filename, mimeType }) => {
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
+    },
+  });
+});
+```
+
+Use `resolveSecret()` from `@agent-native/core/server` instead of an
+environment variable when the provider needs a real credential, such as an
+API key. See [Security — Secrets Management](/docs/security#secrets).
+
+## Upload API {#upload-api}
+
+The `FileUploadProvider` interface:
+
+```ts
+interface FileUploadProvider {
+  id: string; // Unique id, e.g. "s3"
+  name: string; // Human-readable name
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
+  upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+}
+
+interface FileUploadInput {
+  data: Uint8Array | Buffer; // File contents
+  filename?: string; // Original filename
+  mimeType?: string; // MIME type, e.g. "image/png"
+  ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
+}
+
+interface FileUploadResult {
+  url: string; // Public URL for the uploaded file
+  id?: string; // Provider-specific id
+  provider: string; // Which provider handled it
+}
+```
+
+Use `uploadFile()` from `@agent-native/core/file-upload` in actions or server code:
+
+```ts
+import { uploadFile } from "@agent-native/core/file-upload";
+
+const result = await uploadFile({
+  data: fileBuffer,
+  filename: "photo.jpg",
+  mimeType: "image/jpeg",
+});
+
+if (result) {
+  // Provider handled it. result.url is the public URL.
+} else {
+  // No provider configured. Show the storage setup CTA, or skip.
+}
+```
+
+## Resumable / Streaming Uploads {#resumable}
+
+A provider can optionally implement a `resumable` block on `FileUploadProvider` for uploads that need to stream to storage as data arrives instead of buffering the whole file first. The Clips template uses this to relay a recording to storage chunk-by-chunk while it is still being recorded, rather than assembling the full blob after the recorder stops.
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+When `resumable` is present, callers that stream data in (like a recorder) call `startSession` once, `relayChunk` repeatedly as bytes arrive, and `completeSession` when the stream ends. This replaces the single buffered `upload()` call. A provider with no `resumable` block only ever sees the buffered path. Implement it only when your storage backend has a native chunked/resumable upload API (S3 multipart, GCS resumable uploads, etc.) worth exposing.
+
+## What's next
+
+- [**Database**](/docs/server-database) — the `getDb()`/schema pattern for persisting the URL `uploadFile()` returns
+- [**Security — Secrets Management**](/docs/security#secrets) — how `resolveSecret()` and the credential vault encrypt provider keys at rest
+- [**Onboarding**](/docs/onboarding) — registering a custom provider's setup step in the sidebar checklist

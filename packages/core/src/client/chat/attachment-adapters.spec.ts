@@ -1,0 +1,89 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  BinaryDocumentAttachmentAdapter,
+  isTextLikeFile,
+  serializeAttachmentContentPart,
+  serializeQueuedAttachments,
+} from "./attachment-adapters.js";
+
+describe("BinaryDocumentAttachmentAdapter", () => {
+  it("accepts SVGs as document attachments in the main chat UI", () => {
+    const adapter = new BinaryDocumentAttachmentAdapter();
+
+    expect(adapter.accept.split(",")).toContain("image/svg+xml");
+    expect(adapter.accept.split(",")).toContain(".svg");
+  });
+
+  it("rejects oversized PDFs when they are added", async () => {
+    const adapter = new BinaryDocumentAttachmentAdapter();
+    const file = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pdf", {
+      type: "application/pdf",
+    });
+
+    await expect(adapter.add({ file })).rejects.toThrow(
+      '"large.pdf" is 4.0 MB - documents are capped at 4 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+    );
+  });
+});
+
+describe("isTextLikeFile", () => {
+  it("does not route SVGs through the inline text attachment adapter", () => {
+    expect(
+      isTextLikeFile(
+        new File(["<svg />"], "logo.svg", { type: "image/svg+xml" }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("serializeAttachmentContentPart", () => {
+  it("keeps hosted file URLs when a persisted thread is re-queued", () => {
+    expect(
+      serializeAttachmentContentPart({
+        type: "file",
+        url: "https://cdn.example.com/report.pdf",
+        mimeType: "application/pdf",
+        filename: "report.pdf",
+      }),
+    ).toEqual({
+      type: "file",
+      url: "https://cdn.example.com/report.pdf",
+      mimeType: "application/pdf",
+      filename: "report.pdf",
+    });
+  });
+});
+
+describe("serializeQueuedAttachments", () => {
+  it("keeps display-only file descriptors without reading file bytes", async () => {
+    await expect(
+      serializeQueuedAttachments([
+        {
+          type: "file",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          displayOnly: true,
+        },
+        {
+          type: "file",
+          name: "pasted-text-1.txt",
+          contentType: "text/plain",
+          displayOnly: true,
+          text: "pasted outline",
+        },
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        name: "reference.pdf",
+        content: [],
+        metadata: { displayOnly: true },
+      }),
+      expect.objectContaining({
+        name: "pasted-text-1.txt",
+        content: [{ type: "text", text: "pasted outline" }],
+        metadata: { displayOnly: true },
+      }),
+    ]);
+  });
+});

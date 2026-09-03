@@ -1,0 +1,60 @@
+import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+describe("Design editor mobile layout", () => {
+  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const layoutSource = readFileSync("app/components/layout/Layout.tsx", "utf8");
+  const bottomToolbarSource = readFileSync(
+    "app/components/design/editor/DesignBottomToolbar.tsx",
+    "utf8",
+  );
+  const workspaceRailSource = readFileSync(
+    "app/components/design/editor/DesignWorkspaceRail.tsx",
+    "utf8",
+  );
+
+  it("uses the dynamic viewport height for the app shell", () => {
+    expect(layoutSource).toContain(
+      "agent-layout-shell flex h-dvh w-full overflow-hidden",
+    );
+    expect(layoutSource).not.toContain(
+      "agent-layout-shell flex h-screen w-full overflow-hidden",
+    );
+  });
+
+  it("keeps wide rails out while preserving mobile editor controls", () => {
+    expect(bottomToolbarSource).toContain(
+      "flex max-w-[calc(100%-1rem)] -translate-x-1/2",
+    );
+    expect(bottomToolbarSource).toContain("overflow-x-auto rounded-xl");
+    expect(editorSource).toContain(
+      "relative hidden h-full min-h-0 shrink-0 flex-col",
+    );
+    expect(editorSource).toContain(
+      "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
+    );
+    expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
+    expect(editorSource).toContain(
+      'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
+    );
+  });
+
+  it("keeps the app shell in non-Builder embedded routes", () => {
+    expect(layoutSource).toContain(
+      'type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";',
+    );
+    expect(layoutSource).toContain('if (layoutMode === "host-bare")');
+    expect(layoutSource).toContain('if (layoutMode === "standalone-editor")');
+    expect(layoutSource).toContain(
+      "!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p))",
+    );
+    expect(layoutSource).toContain("{!standaloneEditor && (\n");
+  });
+
+  it("lets the compact workspace rail scroll on short screens", () => {
+    expect(workspaceRailSource).toContain(
+      "items-center overflow-y-auto overscroll-contain",
+    );
+  });
+});
