@@ -1168,3 +1168,119 @@ describe("voice composer insertion", () => {
     ).toBe(false);
   });
 });
+
+describe("ModeSelector Act/Plan toggle", () => {
+  function Harness(props: {
+    execMode: "build" | "plan";
+    onExecModeChange: (mode: "build" | "plan") => void;
+  }) {
+    const runtime = useLocalRuntime(emptyChatModelAdapter);
+    return React.createElement(
+      AssistantRuntimeProvider,
+      { runtime },
+      React.createElement(
+        TooltipProvider,
+        null,
+        React.createElement(TiptapComposer, {
+          includeDefaultSlashSkills: false,
+          plusMenuMode: "hidden",
+          voiceEnabled: false,
+          execMode: props.execMode,
+          onExecModeChange: props.onExecModeChange,
+        }),
+      ),
+    );
+  }
+
+  function getModeButton() {
+    return container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="mode-button"]',
+    );
+  }
+
+  function getPopoverOptionButton(label: "Act" | "Plan") {
+    const popover = document.querySelector(
+      '[data-agent-native-composer-popover="true"]',
+    );
+    return Array.from(popover?.querySelectorAll("button") ?? []).find(
+      (button) => button.querySelector("span")?.textContent?.trim() === label,
+    );
+  }
+
+  it("switches mode from a single click on the popover option, with no extra click needed", async () => {
+    const onExecModeChange = vi.fn();
+    await act(async () => {
+      root.render(
+        React.createElement(Harness, { execMode: "build", onExecModeChange }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => getModeButton()?.click());
+    expect(
+      document.querySelector('[data-agent-native-composer-popover="true"]'),
+    ).not.toBeNull();
+
+    act(() => getPopoverOptionButton("Plan")?.click());
+
+    expect(onExecModeChange).toHaveBeenCalledTimes(1);
+    expect(onExecModeChange).toHaveBeenCalledWith("plan");
+    expect(
+      document.querySelector('[data-agent-native-composer-popover="true"]'),
+    ).toBeNull();
+  });
+
+  it("toggles mode with the Shift+Tab shortcut while the editor is focused", async () => {
+    const onExecModeChange = vi.fn();
+    await act(async () => {
+      root.render(
+        React.createElement(Harness, { execMode: "build", onExecModeChange }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Tab",
+          shiftKey: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onExecModeChange).toHaveBeenCalledTimes(1);
+    expect(onExecModeChange).toHaveBeenCalledWith("plan");
+  });
+
+  it("does not change mode on focus/blur alone, only on an explicit selection", async () => {
+    const onExecModeChange = vi.fn();
+    await act(async () => {
+      root.render(
+        React.createElement(Harness, { execMode: "build", onExecModeChange }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const modeButton = getModeButton()!;
+    act(() => modeButton.click());
+    expect(
+      document.querySelector('[data-agent-native-composer-popover="true"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      modeButton.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+      document.body.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true }),
+      );
+      document.body.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    });
+
+    expect(onExecModeChange).not.toHaveBeenCalled();
+  });
+});
