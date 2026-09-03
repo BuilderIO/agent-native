@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockInvalidatePublicFormCache = vi.hoisted(() => vi.fn());
+const mockWithFormLock = vi.hoisted(() =>
+  vi.fn(async (_id: string, fn: () => Promise<unknown>) => fn()),
+);
 const state = vi.hoisted(() => ({
   existing: {
     id: "form-1",
@@ -75,14 +78,20 @@ vi.mock("../server/db/index.js", () => ({
   schema: { forms: { id: "forms.id" } },
 }));
 
+vi.mock("./patch-form-fields.js", () => ({
+  withFormLock: mockWithFormLock,
+}));
+
 const { default: updateForm } = await import("./update-form.js");
 
 describe("update-form settings", () => {
   beforeEach(() => {
     state.updated = null;
     state.returnStaleAfterWrite = false;
+    state.existing.status = "draft";
     mockAssertAccess.mockClear();
     mockInvalidatePublicFormCache.mockClear();
+    mockWithFormLock.mockClear();
   });
 
   it("merges partial settings without dropping integrations", async () => {
@@ -105,6 +114,10 @@ describe("update-form settings", () => {
       emailOnNewResponses: true,
     });
     expect(mockAssertAccess).toHaveBeenCalledWith("form", "form-1", "editor");
+    expect(mockWithFormLock).toHaveBeenCalledWith(
+      "form-1",
+      expect.any(Function),
+    );
   });
 
   it("returns written fields without trusting a stale post-write read", async () => {
@@ -129,5 +142,14 @@ describe("update-form settings", () => {
       state.existing,
       expect.objectContaining({ fields: JSON.stringify(fields) }),
     );
+  });
+
+  it("validates field replacements on an already-published form", async () => {
+    state.existing.status = "published";
+
+    await expect(updateForm.run({ id: "form-1", fields: [] })).rejects.toThrow(
+      "Cannot publish",
+    );
+    expect(state.updated).toBeNull();
   });
 });
