@@ -15,7 +15,11 @@ import {
 
 function createFakeWindow(
   startHref = "https://example.com/dispatch/apps",
-  opts: { lockReload?: boolean; userAgent?: string } = {},
+  opts: {
+    lockReload?: boolean;
+    userAgent?: string;
+    viteDevRecovery?: boolean;
+  } = {},
 ) {
   const documentListeners = new Map<string, EventListener[]>();
   const windowListeners = new Map<string, EventListener[]>();
@@ -89,6 +93,9 @@ function createFakeWindow(
         listener,
       ]);
     }),
+    ...(opts.viteDevRecovery
+      ? { __agentNativeViteDevRecoveryInstalled: true }
+      : {}),
   } as unknown as Window;
 
   return {
@@ -568,6 +575,26 @@ describe("route chunk recovery", () => {
       "https://example.com/dispatch/apps",
     );
     expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it("leaves Vite dev dynamic import recovery to the Vite handler", () => {
+    const { fakeWindow, fakeLocation, dispatchWindow } = createFakeWindow(
+      "https://example.com/dispatch/apps",
+      { viteDevRecovery: true },
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const preventDefault = vi.fn();
+    dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/AnalysisDetail-stale.js",
+      ),
+      preventDefault,
+    } as unknown as PromiseRejectionEvent);
+
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
   });
 
   it("recoverFromStaleChunkError only recovers dynamic import failures", () => {

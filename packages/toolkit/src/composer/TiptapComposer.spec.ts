@@ -29,6 +29,7 @@ import {
   getComposerSendTooltipKey,
   getComposerSubmitIntentForEnterKey,
   getComposerPopoverPosition,
+  getComposerPopoverAnchorPosition,
   getComposerReasoningEffortOptions,
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
@@ -869,6 +870,42 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("anchors the composer popover to the composer root", () => {
+    const root = document.createElement("div");
+    root.setAttribute("data-agent-composer-slot", "root");
+    const editor = document.createElement("div");
+    root.appendChild(editor);
+    document.body.appendChild(root);
+    vi.spyOn(root, "getBoundingClientRect").mockReturnValue({
+      top: 180,
+      left: 24,
+      width: 640,
+      right: 664,
+      bottom: 260,
+      height: 80,
+      x: 24,
+      y: 180,
+      toJSON: () => {},
+    });
+
+    expect(
+      getComposerPopoverAnchorPosition(
+        {
+          coordsAtPos: () => ({
+            top: 224,
+            bottom: 244,
+            left: 96,
+            right: 96,
+          }),
+          dom: editor,
+        },
+        1,
+      ),
+    ).toEqual({ top: 180, left: 24, width: 640 });
+
+    root.remove();
+  });
+
   it("consumes composer file drops so parent drop targets do not attach duplicates", () => {
     const file = new File(["fake"], "image.png", { type: "image/png" });
     const added: File[] = [];
@@ -1009,6 +1046,105 @@ describe("createTiptapComposerExtensions", () => {
 });
 
 describe("TiptapComposer slash commands", () => {
+  it("locks submission without blurring the editable surface", () => {
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness({ submitting }: { submitting: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            submitting,
+            onSubmit: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness, { submitting: false })));
+    act(() => focusRef.current?.setText("Queue the next instruction"));
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    editor.focus();
+
+    act(() => root.render(React.createElement(Harness, { submitting: true })));
+
+    expect(editor.getAttribute("contenteditable")).toBe("true");
+    expect(document.activeElement).toBe(editor);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )?.disabled,
+    ).toBe(true);
+  });
+
+  it("keeps the editor focused after a successful submission", async () => {
+    const onSubmit = vi.fn(async () => undefined);
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            placeholder: "Ask the agent...",
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("Continue the review"));
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(onSubmit).toHaveBeenCalled();
+    expect(editor.textContent).toBe("");
+    expect(document.activeElement).toBe(editor);
+    const emptyParagraph = editor.querySelector(
+      "p.is-empty:first-child:last-child",
+    );
+    expect(emptyParagraph?.getAttribute("data-placeholder")).toBe(
+      "Ask the agent...",
+    );
+    expect(
+      Array.from(container.querySelectorAll("style")).some((style) =>
+        style.textContent?.includes(
+          "p.is-empty:first-child:last-child::before",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("submits a slash-prefixed prompt when no command handler is provided", async () => {
     const onSubmit = vi.fn();
     const focusRef = React.createRef<TiptapComposerHandle>();
@@ -1023,6 +1159,7 @@ describe("TiptapComposer slash commands", () => {
           null,
           React.createElement(TiptapComposer, {
             focusRef,
+            ariaLabel: "Message release agent",
             onSubmit,
             clearOnSubmit: false,
             includeDefaultSlashSkills: false,
@@ -1039,6 +1176,9 @@ describe("TiptapComposer slash commands", () => {
     const editor = container.querySelector(
       ".agent-composer-prosemirror",
     ) as HTMLElement;
+    expect(editor.getAttribute("role")).toBe("textbox");
+    expect(editor.getAttribute("aria-label")).toBe("Message release agent");
+    expect(editor.getAttribute("aria-multiline")).toBe("true");
     await act(async () => {
       editor.dispatchEvent(
         new KeyboardEvent("keydown", {

@@ -121,6 +121,7 @@ const messages: AgentChatTranslation = {
     "Abre la aplicación de escritorio para usar este chat.",
   "composer.removeAttachment": "Quitar {{name}}",
   "composer.scrollToBottom": "Desplazarse hasta el final",
+  "composer.suggestedPrompts": "Indicaciones sugeridas",
   "composer.stopResponse": "Detener respuesta",
   "composer.subAgentReadOnly":
     "Envía mensajes al chat del orquestador; este subagente se ejecuta automáticamente",
@@ -187,6 +188,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Quitar de la cola",
   "queue.sendNow": "Enviar ahora",
   "queue.sendNowHint": "Enviar ahora (detiene la respuesta actual)",
+  "queue.steer": "Dirigir",
+  "queue.steerHint": "Enviar este mensaje a continuación",
+  "queue.moreActions": "Más acciones",
+  "queue.moveToTop": "Mover arriba",
   "recovery.connectingBuilder": "Conectando con Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",

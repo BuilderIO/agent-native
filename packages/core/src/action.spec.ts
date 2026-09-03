@@ -6,7 +6,9 @@ import {
   ActionContractError,
   isActionContractError,
   AgentActionStopError,
+  AgentConnectionRequiredError,
   isAgentActionStopError,
+  isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
 } from "./action.js";
@@ -1025,6 +1027,28 @@ describe("AgentActionStopError", () => {
     expect(isAgentActionStopError({ agentNativeStop: false })).toBe(false);
     expect(isAgentActionStopError(null)).toBe(false);
     expect(isAgentActionStopError("agentNativeStop")).toBe(false);
+  });
+});
+
+describe("AgentConnectionRequiredError", () => {
+  it("carries only a trusted provider reference and resumable reason", () => {
+    const error = new AgentConnectionRequiredError("Slack must be connected.", {
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+    });
+
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(error).toMatchObject({
+      agentNativeStop: true,
+      agentConnectionRequired: true,
+      errorCode: "connection_required",
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+    });
+    expect(error).not.toHaveProperty("url");
+    expect(error).not.toHaveProperty("scopes");
   });
 });
 

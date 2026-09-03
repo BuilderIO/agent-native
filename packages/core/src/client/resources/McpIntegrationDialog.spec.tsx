@@ -751,6 +751,39 @@ describe("McpIntegrationDialog", () => {
     expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
   });
 
+  it("keeps contextual provider setup in a focused modal", () => {
+    const slack = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "slack",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="slack"
+            presentation="modal"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[slack]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.className).toContain("max-w-xl");
+    expect(dialog?.className).not.toContain("h-[100dvh]");
+    expect(document.body.textContent).toContain("Connect Slack");
+    expect(document.body.textContent).not.toContain("Back to integrations");
+    expect(document.body.textContent).not.toContain("Provider setup required");
+    expect(document.body.textContent).toContain("Open setup guide");
+    expect(document.body.textContent).toContain("Connect my account");
+  });
+
   it("opens provider setup guidance from the catalog", () => {
     const slack = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "slack",

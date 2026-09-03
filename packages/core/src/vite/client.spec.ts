@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -16,6 +16,7 @@ import {
   _installReactRouterVirtualInvalidationMirror,
   _mirrorReactRouterVirtualInvalidation,
   _nitroModuleGraphSignature,
+  _resolveNitroSsrServiceEntry,
   _nitroStartupGate,
   _nitroStartupRecovery,
   agentNative,
@@ -26,6 +27,21 @@ import {
 } from "./client.js";
 
 describe("Nitro dev startup recovery", () => {
+  it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
+    const repositoryRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../..",
+    );
+    const rootDir = path.join(repositoryRoot, "templates/chat");
+
+    expect(_resolveNitroSsrServiceEntry(rootDir)).toBe(
+      path.join(rootDir, "ssr-entry.ts"),
+    );
+    expect(
+      _resolveNitroSsrServiceEntry(path.join(rootDir, "app")),
+    ).toBeUndefined();
+  });
+
   it("waits for Nitro's module graph to become stable", () => {
     const dependency = {
       id: "/app/server.ts",
@@ -234,6 +250,7 @@ describe("Nitro dev startup recovery", () => {
     expect(plugins[startupGateIndex]?.enforce).toBe("pre");
     expect(recoveryIndex).toBeGreaterThan(nitroIndex);
     expect(plugins[recoveryIndex]?.enforce).toBeUndefined();
+    expect(plugins[nitroIndex]?.configureServer?.order).toBeUndefined();
   });
 });
 
@@ -345,7 +362,7 @@ describe("dev server mounted path helpers", () => {
     expect(isFrameworkDynamicDevPath("/favicon.ico", "/")).toBe(false);
   });
 
-  it("forces Nitro's dev classifier to treat framework assets as dynamic", () => {
+  it("forces Nitro's dev classifier to treat framework assets as dynamic without changing API content negotiation", () => {
     const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
     let middleware: Function | null = null;
     const server = {
@@ -365,7 +382,7 @@ describe("dev server mounted path helpers", () => {
     };
     const next = vi.fn();
     middleware?.(request, {}, next);
-    expect(request.headers.accept).toContain("text/html");
+    expect(request.headers.accept).toBe("application/json");
     expect(request.headers["sec-fetch-dest"]).toBe("empty");
     expect(next).toHaveBeenCalledOnce();
 
@@ -1711,6 +1728,7 @@ describe("agentNative Vite plugin preset", () => {
     const depPlugins = config.optimizeDeps.rolldownOptions.plugins;
     expect(depPlugins.map((p: any) => p.name)).toEqual([
       "app-dep-plugin",
+      "agent-native-external-store-esm-shim",
       "agent-native:no-dep-prebundle-sourcemaps",
     ]);
     // Vite hardcodes `sourcemap: "hidden"` in the optimizer's bundle.write();
@@ -1750,7 +1768,11 @@ describe("agentNative Vite plugin preset", () => {
     expect(Object.hasOwn(config.build, "rollupOptions")).toBe(false);
     expect(
       config.optimizeDeps.rolldownOptions.plugins.map((p: any) => p.name),
-    ).toEqual(["app-dep-plugin", "agent-native:no-dep-prebundle-sourcemaps"]);
+    ).toEqual([
+      "app-dep-plugin",
+      "agent-native-external-store-esm-shim",
+      "agent-native:no-dep-prebundle-sourcemaps",
+    ]);
   });
 
   it("restores dep prebundle sourcemaps when AGENT_NATIVE_DEP_SOURCEMAPS=1", async () => {
@@ -2569,6 +2591,35 @@ describe("Vite SSR stubs", () => {
   });
 });
 
+describe("external store client compatibility", () => {
+  it("replaces CommonJS shims with ESM modules only in the client graph", async () => {
+    const plugin = agentNative().find(
+      (entry) => entry.name === "agent-native-external-store-esm-shim",
+    ) as any;
+
+    expect(plugin).toBeDefined();
+    const directEntry = await plugin.resolveId(
+      "use-sync-external-store/with-selector.js",
+      undefined,
+      { ssr: false },
+    );
+    const shimEntry = await plugin.resolveId(
+      "use-sync-external-store/shim/with-selector.js",
+      undefined,
+      { ssr: false },
+    );
+    expect(directEntry).toMatch(/external-store-shim\.(?:ts|js)$/);
+    expect(shimEntry).toBe(directEntry);
+    expect(
+      await plugin.resolveId(
+        "use-sync-external-store/shim/with-selector.js",
+        undefined,
+        { ssr: true },
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("local-core dev aliases and router dedupe", () => {
   it("dedupes react-router when the app depends on react-router", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
@@ -2688,6 +2739,97 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).not.toContain("@agent-native/toolkit/editor");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("keeps AgentKit framework packages as ESM and prebundles only third-party seams", () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-agentkit-esm-"),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@agent-native/agentkit": "^0.1.0",
+          "@agent-native/agentkit-react": "^0.1.0",
+          "@agent-native/core": "^0.176.0",
+          "@agent-native/toolkit": "^0.19.0",
+          clsx: "^2.1.1",
+          react: "^19.2.0",
+          "react-dom": "^19.2.0",
+          recharts: "^3.9.2",
+          "tailwind-merge": "^3.6.0",
+          "use-sync-external-store": "^1.6.0",
+          zustand: "^5.0.15",
+        },
+      }),
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const config = defineConfig();
+      const exclude =
+        (config.optimizeDeps as { exclude?: string[] } | undefined)?.exclude ??
+        [];
+      const include =
+        (config.optimizeDeps as { include?: string[] } | undefined)?.include ??
+        [];
+
+      expect(exclude).not.toContain("@agent-native/agentkit");
+      expect(exclude).not.toContain("@agent-native/agentkit-react");
+      expect(exclude).not.toContain("@agent-native/core");
+      expect(exclude).not.toContain("@agent-native/toolkit");
+      expect(include).not.toContain("@agent-native/agentkit");
+      expect(include).not.toContain("@agent-native/core");
+      expect(include).not.toContain("@agent-native/toolkit/agentkit");
+      expect(include).not.toContain("@agent-native/toolkit/clipboard");
+      expect(include).not.toContain(
+        "@agent-native/toolkit/composer/runtime-adapters",
+      );
+      expect(include).not.toContain(
+        "@agent-native/toolkit/streaming-text-smoothing",
+      );
+      expect(config.optimizeDeps?.noDiscovery).toBe(true);
+      expect(
+        include.some((entry) => entry.endsWith("@radix-ui/react-tooltip")),
+      ).toBe(false);
+      expect(exclude).not.toContain("@radix-ui/react-tooltip");
+      expect(include).not.toContain("@agent-native/agentkit/react");
+      expect(include).not.toContain("@agent-native/toolkit/composer");
+      expect(include).not.toContain(
+        "@agent-native/toolkit/editor/SharedRichEditor",
+      );
+      expect(include).not.toContain("@agent-native/core");
+      expect(include).not.toContain("@excalidraw/excalidraw");
+      expect(include).not.toContain("mermaid");
+      expect(include).toEqual(
+        expect.arrayContaining([
+          "react",
+          "react-dom",
+          "react-dom/client",
+          "react-dom/server",
+          "@agent-native/core > @assistant-ui/react",
+          "@agent-native/core > @assistant-ui/react > assistant-stream > secure-json-parse",
+          "@agent-native/core > react-markdown > void-elements",
+          "@agent-native/core > react-markdown > unified > extend",
+          "@agent-native/core > react-markdown > hast-util-to-jsx-runtime > style-to-js",
+          "@agent-native/core > react-markdown > remark-parse > mdast-util-from-markdown > micromark > debug",
+          "@agent-native/core > recharts > decimal.js-light",
+          "@agent-native/core > recharts > eventemitter3",
+          "@agent-native/core > recharts > react-is",
+          "clsx",
+          "tailwind-merge",
+          "zustand",
+          "zustand/shallow",
+          "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/with-selector.js",
+          "@agent-native/toolkit > tiptap-markdown > markdown-it-task-lists",
+        ]),
+      );
+      expect(include).not.toEqual(expect.arrayContaining(["recharts"]));
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("excludes and aliases the i18n subpath when local core source is active", () => {
@@ -3037,6 +3179,11 @@ describe("local-core dev aliases and router dedupe", () => {
 
   it("source-aliases workspace package dependencies during app builds", () => {
     const previousCwd = process.cwd();
+    const agentkitRoot = path.resolve(
+      import.meta.dirname,
+      "../../..",
+      "agentkit",
+    );
     const toolkitRoot = path.resolve(
       import.meta.dirname,
       "../../..",
@@ -3052,6 +3199,7 @@ describe("local-core dev aliases and router dedupe", () => {
       path.join(appDir, "package.json"),
       JSON.stringify({
         dependencies: {
+          "@agent-native/agentkit": "workspace:*",
           "@agent-native/pinpoint": "workspace:*",
           "@agent-native/toolkit": "workspace:*",
         },
@@ -3060,12 +3208,16 @@ describe("local-core dev aliases and router dedupe", () => {
 
     try {
       process.chdir(appDir);
+      const config = defineConfig();
       const aliases =
         (
-          defineConfig().resolve as {
+          config.resolve as {
             alias?: Array<{ find: RegExp; replacement: string }>;
           }
         )?.alias ?? [];
+      const exclude =
+        (config.optimizeDeps as { exclude?: string[] } | undefined)?.exclude ??
+        [];
 
       const popoverAlias = aliases.find((alias) =>
         alias.find instanceof RegExp
@@ -3076,6 +3228,21 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(popoverAlias?.replacement).toBe(
         path.join(toolkitRoot, "src/ui/$1"),
       );
+      const agentkitStylesAlias = aliases.find((alias) =>
+        alias.find instanceof RegExp
+          ? alias.find.test("@agent-native/agentkit/react/styles.css")
+          : alias.find === "@agent-native/agentkit/react/styles.css",
+      );
+      expect(agentkitStylesAlias?.replacement).toBe(
+        path.join(agentkitRoot, "src/styles.css"),
+      );
+      expect(exclude).toEqual(
+        expect.arrayContaining([
+          "@agent-native/agentkit",
+          "@agent-native/toolkit",
+        ]),
+      );
+      expect(exclude).not.toContain("@agent-native/pinpoint");
       expect(
         aliases.some((alias) =>
           alias.find instanceof RegExp

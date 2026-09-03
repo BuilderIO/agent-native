@@ -1,3 +1,5 @@
+import type { AgentSuggestion } from "@agent-native/agentkit-protocol";
+
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
@@ -308,9 +310,36 @@ export interface AgentChatRequest {
 
 export type AgentToolInput = Record<string, unknown>;
 
+export interface AgentChatRichEventReference {
+  /** Reference class, for example action, audit, trace, context, or artifact. */
+  kind: string;
+  /** Stable identifier in the owning system. Never place credentials here. */
+  id: string;
+  label?: string;
+  uri?: string;
+}
+
+/**
+ * Provider-neutral extension envelope for rich events not yet promoted into
+ * the shared event union. Producers must keep `data` bounded and sanitized;
+ * durable or sensitive values belong behind references, not in the stream.
+ */
+export interface AgentChatRichEventEnvelope {
+  /** Reverse-DNS or package-style owner namespace. */
+  namespace: string;
+  /** Event name within the owner namespace. */
+  name: string;
+  version?: number;
+  data?: unknown;
+  references?: AgentChatRichEventReference[];
+  metadata?: Record<string, unknown>;
+}
+
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
+  | { type: "suggestions"; suggestions: AgentSuggestion[] }
+  | { type: "rich_event"; event: AgentChatRichEventEnvelope }
   | {
       type: "activity";
       label: string;
@@ -398,6 +427,16 @@ export type AgentChatEvent =
        * permanently hide Approve/Deny with no way to retry.
        */
       askId?: string;
+    }
+  | {
+      /** Host-resolved provider setup required before this run can continue. */
+      type: "connection_required";
+      requestId: string;
+      provider: string;
+      reason: "connect" | "grant" | "reauthorize" | "admin_required";
+      appId?: string;
+      detail?: string;
+      source?: { id: string; kind?: string; label?: string };
     }
   | {
       type: "agent_call";
