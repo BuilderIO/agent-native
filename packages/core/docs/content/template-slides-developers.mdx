@@ -270,7 +270,7 @@ Each slide inside `decks.data` is:
 
 ### Deck lifecycle
 
-- `create-deck` — new deck, optionally pre-populated with slides, or an atomic bulk replace of an existing deck's slides
+- `create-deck` — new deck, optionally pre-populated with slides, or an atomic bulk replace of an existing deck's slides. Omit `slides` or pass `[]` for an empty deck. The action opens the new deck through application state.
 - `get-deck` — full deck JSON, or a compact slide-summary view
 - `list-decks` — every deck the caller can see, with light/compact/full-slide projections for cheap polling
 - `duplicate-deck` — copy a deck with fresh slide ids
@@ -280,7 +280,7 @@ Each slide inside `decks.data` is:
 
 ### Slide edits
 
-- `add-slide` — append (or insert at a position) one slide; how the agent builds a deck slide by slide
+- `add-slide` — append (or insert at a position) one slide. Call it sequentially after an empty `create-deck` so the editor can show progress.
 - `update-slide` — surgical find/replace or full-content slide edit
 - `patch-deck` — the granular op queue the browser editor uses instead of a full-deck PUT
 

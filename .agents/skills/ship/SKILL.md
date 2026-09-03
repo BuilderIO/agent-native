@@ -344,11 +344,26 @@ branch, stay on it.
 
 6. **Babysit immediately and durably**: run `/babysit-pr <number>` and follow
    that skill’s tick loop exactly. Before yielding after PR creation, confirm
-   that its durable heartbeat is active and targets this task. Treat
-   `babysit-pr` as the source of truth for how to watch the PR. Its Step 0
-   checks the current nonignored branch snapshot and publishes only actionable
-   work, then checks mergeability, every unaddressed review comment by reply
-   state, and CI.
+   that the task-scoped durable heartbeat
+   `babysit-pr-<number>-<this task's threadId>` is active and targets this task,
+   following the babysit ownership check, successful PR-scoped lease claim, and
+   atomic conditional-update or serialized-coordinator requirement. The lease
+   is the remote `agent-native-babysit-lock-<number>` ref described by
+   `/babysit-pr`; never create the task-scoped heartbeat until that lease is
+   held. An ACTIVE legacy per-PR heartbeat or task-scoped heartbeat targeting
+   another task is owned by that task: do not overwrite, pause, or duplicate it.
+   For a task-scoped foreign heartbeat, read the PR lease ref before treating it
+   as blocking. It blocks only while its owner matches the current unexpired
+   lease record; a missing, expired, released, or owner-mismatched lease makes
+   the heartbeat stale. Do not mutate the stale heartbeat, but take over the
+   lease with the documented atomic precondition and let `/babysit-pr` create
+   the current watcher. If the lease cannot be read or the legacy retirement
+   fence cannot be verified, keep this ship invocation in the foreground and
+   do not overwrite the heartbeat. Treat `babysit-pr` as the source of truth for
+   how to watch the PR.
+   Its Step 0 checks the current nonignored branch snapshot and publishes only
+   actionable work, then checks mergeability, every unaddressed review comment
+   by reply state, and CI.
    If the heartbeat cannot be created or updated, stay in the foreground
    babysit loop and report the exact failure; never end the ship task after
    opening the PR without an active watcher.

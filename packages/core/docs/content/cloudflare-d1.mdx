@@ -3,6 +3,8 @@ title: "Cloudflare D1"
 description: "Use Cloudflare D1 as the SQLite database binding for a Cloudflare Workers or Pages deployment."
 ---
 
+<!-- i18n-copy-ignore: formatting-only base synchronization; no translated prose changed. -->
+
 # Cloudflare D1
 
 Cloudflare D1 is a supported SQLite database. Choose the deployment section
@@ -31,9 +33,9 @@ Merge the D1 binding into the generated `.output/server/wrangler.json`:
       "binding": "DB",
       "database_name": "agent-native-app",
       "database_id": "YOUR_DATABASE_ID",
-      "migrations_dir": "migrations"
-    }
-  ]
+      "migrations_dir": "migrations",
+    },
+  ],
 }
 ```
 
@@ -63,9 +65,9 @@ Cloudflare dashboard:
       "binding": "DB",
       "database_name": "agent-native-app",
       "database_id": "YOUR_DATABASE_ID",
-      "migrations_dir": "server/db/migrations"
-    }
-  ]
+      "migrations_dir": "server/db/migrations",
+    },
+  ],
 }
 ```
 
