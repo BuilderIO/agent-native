@@ -580,14 +580,19 @@ describe("production Netlify site concurrency guard", () => {
       "utf8",
     );
     const migrationStart = workflow.indexOf("name: Run CRM release migrations");
-    const verifyStart = workflow.indexOf("name: Verify deploy directories");
-    assert.ok(migrationStart >= 0 && migrationStart < verifyStart);
-    const migration = workflow.slice(migrationStart, verifyStart);
+    const pauseStart = workflow.indexOf(
+      "name: Pause automatic Netlify builds for production cutover",
+    );
+    const unlockStart = workflow.indexOf(
+      "name: Unlock the published production deploy",
+    );
+    assert.ok(migrationStart > pauseStart && migrationStart < unlockStart);
+    const migration = workflow.slice(migrationStart, unlockStart);
     assert.match(migration, /inputs\.target == 'production'/);
     assert.match(migration, /inputs\.deploy_mode == 'production'/);
     assert.match(migration, /source_template == 'crm'/);
     assert.match(migration, /getSiteDatabase/);
-    assert.match(migration, /account_id.*builder-io/);
+    assert.match(migration, /role.*netlifydb_owner/);
     assert.match(migration, /netlify-migration-url\.ts/);
     assert.match(migration, /pnpm --filter crm migrate:production/);
   });
