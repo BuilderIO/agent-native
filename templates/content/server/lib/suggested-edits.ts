@@ -145,6 +145,19 @@ type ContentDecisionCoordination = {
   sync: TransactionalChange;
 };
 
+export function publishPersistedAcceptedSuggestion(
+  sync: TransactionalChange,
+  result: unknown,
+): void {
+  if (
+    sync.isPersisted() &&
+    (result as { decision?: { outcome?: string } }).decision?.outcome ===
+      "accepted"
+  ) {
+    sync.publish();
+  }
+}
+
 let contentEditorSchema: ReturnType<typeof getSchema> | undefined;
 
 function replacePreparedCollabContent(
@@ -227,12 +240,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         : undefined,
       (ydoc) => run({ ydoc, sync } satisfies ContentDecisionCoordination),
     );
-    if (
-      (result as { decision?: { outcome?: string } }).decision?.outcome ===
-      "accepted"
-    ) {
-      sync.publish();
-    }
+    publishPersistedAcceptedSuggestion(sync, result);
     return result;
   },
   async apply(context) {

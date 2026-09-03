@@ -85,6 +85,7 @@ export interface ChangeEvent {
 
 export interface TransactionalChange {
   persist(transaction: DbExec): Promise<ChangeEvent>;
+  isPersisted(): boolean;
   publish(): ChangeEvent;
 }
 
@@ -1296,6 +1297,7 @@ export class AppSyncState {
         persisted = { ...event, version, cursorId: id } as ChangeEvent;
         return persisted;
       },
+      isPersisted: () => persisted !== null,
       publish: () => {
         if (!persisted) {
           throw new Error(

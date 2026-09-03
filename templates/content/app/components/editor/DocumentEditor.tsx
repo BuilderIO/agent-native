@@ -664,6 +664,10 @@ function DocumentEditorBody({
   );
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [suggestionDraft, setSuggestionDraft] = useState(document.content);
+  const suggestionBaseRef = useRef<{
+    content: string;
+    updatedAt: string;
+  } | null>(null);
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const canSuggest =
     suggestedEditsEnabled &&
@@ -1909,34 +1913,43 @@ function DocumentEditorBody({
     async (next: boolean) => {
       if (next) {
         if (!canSuggest) return;
+        suggestionBaseRef.current = {
+          content: document.content,
+          updatedAt: document.updatedAt,
+        };
         setSuggestionDraft(document.content);
         setIsSuggesting(true);
         return;
       }
       if (!isSuggesting) return;
-      if (suggestionDraft === document.content) {
+      const base = suggestionBaseRef.current;
+      if (!base) return;
+      if (suggestionDraft === base.content) {
         setIsSuggesting(false);
+        suggestionBaseRef.current = null;
         return;
       }
       try {
         const operation = markdownSuggestionOperation(
-          document.content,
+          base.content,
           suggestionDraft,
         );
         if (!operation) {
           setIsSuggesting(false);
+          suggestionBaseRef.current = null;
           return;
         }
         await createSuggestion.mutateAsync({
           resourceType: "document",
           resourceId: documentId,
           adapterKind: "content.document-markdown",
-          baseRevision: document.updatedAt,
+          baseRevision: base.updatedAt,
           summary: t("editor.toolbar.suggestEdits"),
           idempotencyKey: globalThis.crypto.randomUUID(),
           operations: [operation],
         });
         setIsSuggesting(false);
+        suggestionBaseRef.current = null;
         setUtilityPanel("comments");
       } catch (error) {
         toast.error(t("editor.suggestionCreateFailed"), {
@@ -1949,7 +1962,6 @@ function DocumentEditorBody({
       canSuggest,
       createSuggestion,
       document.content,
-      document.updatedAt,
       documentId,
       isSuggesting,
       suggestionDraft,

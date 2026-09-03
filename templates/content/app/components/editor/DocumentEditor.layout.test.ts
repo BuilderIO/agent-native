@@ -623,6 +623,20 @@ describe("document editor layout", () => {
     expect(source).toContain("suggestionEditorIsolation.bindCanonicalYDoc");
   });
 
+  it("binds suggestion operations to the body and revision captured at mode entry", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("suggestionBaseRef.current = {");
+    expect(source).toContain(
+      "markdownSuggestionOperation(\n          base.content",
+    );
+    expect(source).toContain("baseRevision: base.updatedAt");
+    expect(source).not.toContain("baseRevision: document.updatedAt");
+  });
+
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),

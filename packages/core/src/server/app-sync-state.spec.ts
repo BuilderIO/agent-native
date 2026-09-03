@@ -142,9 +142,11 @@ describe("AppSyncState multi-app isolation", () => {
       resourceType: "document",
       resourceId: "doc-1",
     });
+    expect(change.isPersisted()).toBe(false);
 
     expect(state.getChangesSince(0).events).toEqual([]);
     const persisted = await change.persist(transaction);
+    expect(change.isPersisted()).toBe(true);
     expect(state.getChangesSince(0).events).toEqual([]);
     expect(transaction.execute).toHaveBeenCalledOnce();
     expect(persisted.resourceId).toBe("doc-1");

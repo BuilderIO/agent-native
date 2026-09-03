@@ -242,6 +242,12 @@ export const decideResourceSuggestion = defineAction({
       db.transaction!(async (tx) => {
         const current = await getSuggestion(args.id, tx);
         if (!current) throw new Error("Suggestion not found");
+        const decisionAccess = await assertReviewableResourceAccess(
+          current.resourceType,
+          current.resourceId,
+          { ...(ctx as any), transaction: tx },
+          "editor",
+        );
         if (current.status !== "pending") {
           const decision = await getDecision(tx, args.idempotencyKey);
           if (
@@ -304,8 +310,12 @@ export const decideResourceSuggestion = defineAction({
               resourceId: current.resourceId,
               suggestion: current,
               operations: current.operations,
-              access,
-              ctx: { ...(ctx as any), suggestionAccess: access },
+              access: decisionAccess,
+              ctx: {
+                ...(ctx as any),
+                suggestionAccess: decisionAccess,
+                transaction: tx,
+              },
               transaction: tx,
               coordination,
             });

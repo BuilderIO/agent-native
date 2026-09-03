@@ -10,8 +10,11 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: exclusions }),
 }));
 
-const { applyMarkdownSuggestionOperation, contentDocumentSuggestionAdapter } =
-  await import("./suggested-edits");
+const {
+  applyMarkdownSuggestionOperation,
+  contentDocumentSuggestionAdapter,
+  publishPersistedAcceptedSuggestion,
+} = await import("./suggested-edits");
 
 const operation = {
   ordinal: 0,
@@ -37,6 +40,11 @@ const access = {
 };
 
 function decisionCoordination() {
+  const persistSync = vi.fn(async () => ({
+    source: "action",
+    type: "change",
+    version: 1,
+  }));
   return {
     ydoc: {
       doc: new Y.Doc(),
@@ -44,7 +52,8 @@ function decisionCoordination() {
       persist: vi.fn(async () => {}),
     },
     sync: {
-      persist: vi.fn(async () => ({ version: 1 })),
+      persist: persistSync,
+      isPersisted: () => persistSync.mock.calls.length > 0,
       publish: vi.fn(),
     },
   };
@@ -88,6 +97,14 @@ describe("Content document suggestion adapter", () => {
         },
       }),
     ).rejects.toThrow("inline databases cannot receive suggestions yet");
+  });
+
+  it("does not publish a duplicate accepted retry without a persisted event", () => {
+    const sync = decisionCoordination().sync;
+    publishPersistedAcceptedSuggestion(sync, {
+      decision: { outcome: "accepted" },
+    });
+    expect(sync.publish).not.toHaveBeenCalled();
   });
 
   it("snapshots and applies with an exact compare-and-swap", async () => {
