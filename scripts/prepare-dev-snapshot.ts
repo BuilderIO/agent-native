@@ -134,7 +134,7 @@ function isDirectExecution(): boolean {
   const entrypoint = process.argv[1];
   return Boolean(
     entrypoint &&
-      import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
+    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
   );
 }
 

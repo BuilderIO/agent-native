@@ -200,7 +200,10 @@ describe("npm package release workflow", () => {
 
     it("only runs on a manual dispatch with a non-empty devTag", () => {
       assert(devSnapshot);
-      assert.match(String(devSnapshot.if), /github\.event_name == 'workflow_dispatch'/);
+      assert.match(
+        String(devSnapshot.if),
+        /github\.event_name == 'workflow_dispatch'/,
+      );
       assert.match(String(devSnapshot.if), /inputs\.devTag != ''/);
       assert.doesNotMatch(String(devSnapshot.if), /needs\.verify-stable-merge/);
       assert.equal(devSnapshot.needs, undefined);
@@ -225,7 +228,10 @@ describe("npm package release workflow", () => {
         (step) => step.name === "Create dev snapshot versions",
       );
       assert(version);
-      assert.match(String(version.run), /changeset version --snapshot "\$DEV_TAG"/);
+      assert.match(
+        String(version.run),
+        /changeset version --snapshot "\$DEV_TAG"/,
+      );
 
       const prepareIndex = steps.indexOf(prepare);
       const versionIndex = steps.indexOf(version);
@@ -244,7 +250,10 @@ describe("npm package release workflow", () => {
         "dev-${{ inputs.devTag }}",
       );
       assert.equal(publish.run, "node scripts/changeset-publish-sequential.ts");
-      assert.doesNotMatch(String((publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG), /^(latest|nightly)$/);
+      assert.doesNotMatch(
+        String((publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG),
+        /^(latest|nightly)$/,
+      );
     });
 
     it("reuses the npm-publish environment for OIDC trusted publishing", () => {
@@ -265,7 +274,10 @@ describe("npm package release workflow", () => {
         (summary.env as Workflow).PUBLISHED_PACKAGES,
         "${{ steps.publish.outputs.published-packages }}",
       );
-      assert.doesNotMatch(String(summary.run), /readdir|ls packages|find packages/);
+      assert.doesNotMatch(
+        String(summary.run),
+        /readdir|ls packages|find packages/,
+      );
     });
 
     it("has its own concurrency lane keyed by branch and tag", () => {

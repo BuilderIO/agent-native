@@ -53,7 +53,10 @@ describe("devSnapshotChangesetContents", () => {
     for (const packageName of NPM_PUBLISH_PACKAGE_NAMES) {
       assert.match(
         contents,
-        new RegExp(`^"${packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}": patch$`, "m"),
+        new RegExp(
+          `^"${packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}": patch$`,
+          "m",
+        ),
       );
     }
   });
@@ -139,10 +142,7 @@ describe("hasPendingChangesets / createDevSnapshotChangeset / prepareDevSnapshot
 
   it("rejects an invalid tag before touching the filesystem", async () => {
     await withTempRepo(async (repoRoot) => {
-      await assert.rejects(
-        prepareDevSnapshot("latest", repoRoot),
-        /reserved/,
-      );
+      await assert.rejects(prepareDevSnapshot("latest", repoRoot), /reserved/);
       const entries = await readFile(
         path.join(repoRoot, ".changeset", "README.md"),
         "utf8",
