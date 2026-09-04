@@ -327,6 +327,25 @@ export function shouldAwaitAuthoritativeDocument({
   return isFetching && !isFetchedAfterMount;
 }
 
+export function updateAdditionalBlockContents(args: {
+  current: Record<string, string>;
+  activeDocumentId: string;
+  sourceDocumentId: string;
+  propertyId: string;
+  content: string | null;
+}): Record<string, string> {
+  if (args.sourceDocumentId !== args.activeDocumentId) return args.current;
+  if (args.content === null) {
+    if (!(args.propertyId in args.current)) return args.current;
+    const next = { ...args.current };
+    delete next[args.propertyId];
+    return next;
+  }
+  return args.current[args.propertyId] === args.content
+    ? args.current
+    : { ...args.current, [args.propertyId]: args.content };
+}
+
 export function visualEditorInstanceKey(args: {
   documentId: string;
   documentUpdatedAt: string | null;
@@ -719,20 +738,18 @@ function DocumentEditorBody({
     Record<string, string>
   >({});
   const handleAdditionalBlockContentChange = useCallback(
-    (propertyId: string, content: string | null) => {
-      setAdditionalBlockContents((current) => {
-        if (content === null) {
-          if (!(propertyId in current)) return current;
-          const next = { ...current };
-          delete next[propertyId];
-          return next;
-        }
-        return current[propertyId] === content
-          ? current
-          : { ...current, [propertyId]: content };
-      });
+    (sourceDocumentId: string, propertyId: string, content: string | null) => {
+      setAdditionalBlockContents((current) =>
+        updateAdditionalBlockContents({
+          current,
+          activeDocumentId: documentId,
+          sourceDocumentId,
+          propertyId,
+          content,
+        }),
+      );
     },
-    [],
+    [documentId],
   );
 
   useEffect(() => {

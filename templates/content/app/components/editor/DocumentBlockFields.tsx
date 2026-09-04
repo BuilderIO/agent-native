@@ -53,6 +53,7 @@ interface DocumentBlockFieldsProps {
    */
   primaryEditor: ReactNode;
   onAdditionalContentChange?: (
+    documentId: string,
     propertyId: string,
     content: string | null,
   ) => void;
@@ -395,6 +396,7 @@ function MultiBlockFields({
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   onAdditionalContentChange?: (
+    documentId: string,
     propertyId: string,
     content: string | null,
   ) => void;
@@ -944,7 +946,11 @@ function AdditionalBlockEditor({
   databaseDocumentId: string;
   property: DocumentProperty;
   canEdit: boolean;
-  onContentChange?: (propertyId: string, content: string | null) => void;
+  onContentChange?: (
+    documentId: string,
+    propertyId: string,
+    content: string | null,
+  ) => void;
 }) {
   const t = useT();
   const setProperty = useSetDocumentProperty(
@@ -965,13 +971,13 @@ function AdditionalBlockEditor({
       onRevisionConflict: () =>
         toast.error(t("editor.blocksFieldRevisionConflict")),
       onReleaseSettled: (evicted) => {
-        if (evicted) onContentChange?.(propertyId, null);
+        if (evicted) onContentChange?.(documentId, propertyId, null);
       },
     });
 
   useEffect(() => {
-    onContentChange?.(propertyId, content);
-  }, [content, onContentChange, propertyId]);
+    onContentChange?.(documentId, propertyId, content);
+  }, [content, documentId, onContentChange, propertyId]);
 
   return (
     <VisualEditor

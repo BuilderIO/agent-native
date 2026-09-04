@@ -144,6 +144,7 @@ describe("flushOpenDocumentEditorToSql", () => {
       id: "doc-1",
       requestId: "timed-out-request",
       status: "success",
+      ts: Date.now() - 4_001,
     };
     mocks.appStateCompareAndSet
       .mockResolvedValueOnce(false)
@@ -168,6 +169,35 @@ describe("flushOpenDocumentEditorToSql", () => {
       "owner@example.com",
       "flush-request-doc-1",
       stale,
+      null,
+      { requestSource: "agent" },
+    );
+  });
+
+  it("does not reclaim a concurrent request's fresh acknowledgement", async () => {
+    const fresh = {
+      id: "doc-1",
+      requestId: "concurrent-request",
+      status: "success",
+      ts: Date.now(),
+    };
+    mocks.appStateCompareAndSet.mockResolvedValue(false);
+    mocks.appStateGet.mockResolvedValue(fresh);
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    const rejected = expect(flush).rejects.toThrow(
+      /could not ask the open document editor/i,
+    );
+    await vi.advanceTimersByTimeAsync(4_200);
+
+    await rejected;
+    expect(mocks.appStateCompareAndSet).not.toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      fresh,
       null,
       { requestSource: "agent" },
     );

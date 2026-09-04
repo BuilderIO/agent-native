@@ -135,7 +135,9 @@ export async function flushOpenDocumentEditorToSql(args: {
         const occupied = await appStateGet(session, flushKey);
         if (
           occupied &&
-          (occupied.status === "success" || occupied.status === "error")
+          (occupied.status === "success" || occupied.status === "error") &&
+          typeof occupied.ts === "number" &&
+          Date.now() - occupied.ts >= FLUSH_TIMEOUT_MS
         ) {
           await appStateCompareAndSet(session, flushKey, occupied, null, {
             requestSource: "agent",
