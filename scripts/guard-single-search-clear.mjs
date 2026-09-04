@@ -31,7 +31,7 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 
-const SOURCE_ROOTS = ["packages", "templates", "examples"];
+const SOURCE_ROOTS = ["packages", "templates"];
 const SOURCE_EXTENSIONS = /\.(tsx|jsx)$/;
 const EXCLUDED_PATH =
   /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus|\.tmp[^/]*)(\/|$)/;
