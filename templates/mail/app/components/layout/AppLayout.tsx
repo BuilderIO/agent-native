@@ -871,6 +871,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       if (!target) continue;
       targets.set(JSON.stringify(target), target);
     }
+    void queryClient.cancelQueries({ queryKey: ["email-prefetch"] });
     void prefetchMailTabTargets([...targets.values()], (target) =>
       prefetchEmails(queryClient, target.view, target.search, target.label),
     );

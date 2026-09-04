@@ -115,13 +115,11 @@ describe("useEmails query warming", () => {
     const source = emailsHookSource();
 
     expect(source).toContain("function emailQueryOptions(");
-    expect(source).toContain("queryClient.prefetchInfiniteQuery");
-    expect(source).toContain(
-      "AbortSignal.any([signal, AbortSignal.timeout(prefetchTimeoutMs)])",
-    );
-    expect(source).toContain(
-      "emailQueryOptions(view, search, label, EMAIL_PREFETCH_TIMEOUT_MS)",
-    );
+    expect(source).toContain("prefetchInfiniteQuery({");
+    expect(source).toContain('const prefetchKey = ["email-prefetch"');
+    expect(source).toContain("EMAIL_PREFETCH_TIMEOUT_MS");
+    expect(source).toContain("queryClient.removeQueries");
+    expect(source).toContain("queryKey: prefetchKey");
     expect(source).toContain("...emailQueryOptions(view, search, label)");
   });
 });

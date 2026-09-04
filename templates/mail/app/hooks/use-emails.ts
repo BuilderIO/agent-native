@@ -512,8 +512,9 @@ function emailQueryOptions(
   label?: string,
   prefetchTimeoutMs?: number,
 ) {
+  const queryKey = ["emails", view, search, label] as const;
   return {
-    queryKey: ["emails", view, search, label] as const,
+    queryKey,
     queryFn: ({
       pageParam,
       signal,
@@ -554,9 +555,24 @@ export function prefetchEmails(
   search?: string,
   label?: string,
 ) {
-  return queryClient.prefetchInfiniteQuery(
-    emailQueryOptions(view, search, label, EMAIL_PREFETCH_TIMEOUT_MS),
-  );
+  const queryKey = ["emails", view, search, label] as const;
+  const prefetchKey = ["email-prefetch", view, search, label] as const;
+  // Keep timeout/cancellation-only prefetch requests off the foreground cache
+  // key so a tab opened mid-prefetch always uses the normal query function.
+  return queryClient
+    .prefetchInfiniteQuery({
+      ...emailQueryOptions(view, search, label, EMAIL_PREFETCH_TIMEOUT_MS),
+      queryKey: prefetchKey,
+    })
+    .then(() => {
+      const data = queryClient.getQueryData(prefetchKey);
+      if (data && queryClient.getQueryData(queryKey) === undefined) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    })
+    .finally(() => {
+      queryClient.removeQueries({ queryKey: prefetchKey, exact: true });
+    });
 }
 
 export function useEmails(

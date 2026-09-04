@@ -128,6 +128,9 @@ describe("AppLayout inbox rail count", () => {
 
     expect(source).not.toContain('key: "Tab"');
     expect(source).toContain("prefetchEmails(");
+    expect(source).toContain(
+      'queryClient.cancelQueries({ queryKey: ["email-prefetch"] })',
+    );
     expect(source).toContain("Promise.allSettled(");
   });
 
