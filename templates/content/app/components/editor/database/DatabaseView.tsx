@@ -56,6 +56,7 @@ import {
   formulaValueText,
   isComputedPropertyType,
   isEmptyPropertyValue,
+  isPrimaryBlocksField,
 } from "@shared/properties";
 import {
   IconArrowDown,
@@ -1082,6 +1083,9 @@ function DatabaseTable({
               id: property.definition.id,
               name: property.definition.name,
               type: property.definition.type,
+              primaryBody:
+                property.definition.type === "blocks" &&
+                isPrimaryBlocksField(property.definition.options),
               visible: isDatabasePropertyVisibleInView(
                 property,
                 items,

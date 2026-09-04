@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   googleFetch: vi.fn(),
   htmlSignatureToMarkdown: vi.fn(),
   isElectron: vi.fn(),
+  logOAuthStateDecodeFailure: vi.fn(),
   oauthCallbackResponse: vi.fn(),
   oauthDesktopExchangePage: vi.fn(),
   oauthErrorPage: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock("@agent-native/core/server", () => ({
   getAppUrl: mocks.getAppUrl,
   getSession: mocks.getSession,
   isElectron: mocks.isElectron,
+  logOAuthStateDecodeFailure: mocks.logOAuthStateDecodeFailure,
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
@@ -180,6 +182,7 @@ describe("Mail Google auth-url handlers", () => {
 
   it("does not disclose which login owns a conflicting Google account", async () => {
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://mail.agent-native.com/_agent-native/google/callback",
       owner: "second-login@example.com",
@@ -209,6 +212,7 @@ describe("Mail Google auth-url handlers", () => {
 
   it("gives an actionable recovery path for an unverified password account", async () => {
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://mail.agent-native.com/_agent-native/google/callback",
       owner: "owner@example.com",
@@ -233,6 +237,7 @@ describe("Mail Google auth-url handlers", () => {
 
   it("treats scope failures from the primary callback query as missing permissions", async () => {
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://mail.agent-native.com/_agent-native/google/callback",
       owner: "owner@example.com",
@@ -257,6 +262,7 @@ describe("Mail Google auth-url handlers", () => {
     const { handleGoogleAddAccountCallback } = await import("./google-auth.js");
     mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://mail.agent-native.com/_agent-native/google/add-account/callback",
       owner: "owner@example.com",

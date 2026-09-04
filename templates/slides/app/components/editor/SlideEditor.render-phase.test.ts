@@ -60,6 +60,13 @@ describe("SlideEditor render-phase safety", () => {
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
   });
 
+  it("cancels stale draft capture before a slide switch can read the new DOM", () => {
+    expect(source).toContain("const currentSlideIdRef = useRef(slide.id);");
+    expect(source).toContain("currentSlideIdRef.current = slide.id;");
+    expect(source).toContain("currentSlideIdRef.current !== slideId");
+    expect(source).toContain("session?.slideId !== slideId");
+  });
+
   it("selects persisted text boxes on plain click while keeping double-click editing", () => {
     const clickStart = source.indexOf("const handleSlideClick");
     const clickEnd = source.indexOf("const handleSlideDoubleClick", clickStart);
@@ -215,7 +222,9 @@ describe("SlideEditor render-phase safety", () => {
   });
 
   it("lets HTML-only native paste beat a stale object clipboard", () => {
-    const pasteStart = source.indexOf("// Object paste waits");
+    const pasteStart = source.indexOf(
+      "// The native paste event is authoritative",
+    );
     const pasteEnd = source.indexOf(
       "// Appearance clipboard shortcuts",
       pasteStart,
@@ -225,6 +234,34 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain('type.startsWith("text/")');
     expect(pasteBody).toContain("e.clipboardData?.getData(type)?.length");
     expect(pasteBody).toContain("if (hasNativeText) return;");
+  });
+
+  it("uses the native layer marker instead of a timer to arbitrate paste", () => {
+    expect(source).toContain("writeSlideObjectClipboard");
+    expect(source).toContain("readSlideObjectClipboardId");
+    expect(source).toContain("overlappingNativeClipboardIdsRef");
+    expect(source).toContain("copySessionId");
+    expect(source).toContain('window.addEventListener("blur"');
+    expect(source).not.toContain("objectPasteFallbackRef");
+    const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
+    const pasteEnd = source.indexOf(
+      "// Appearance clipboard shortcuts",
+      pasteStart,
+    );
+    const pasteBody = source.slice(pasteStart, pasteEnd);
+    expect(pasteBody.indexOf("nativeClipboardId")).toBeLessThan(
+      pasteBody.indexOf("const hasNativeText"),
+    );
+    expect(pasteBody).toContain(
+      "overlappingNativeClipboardIdsRef.current.get(nativeClipboardId)",
+    );
+    expect(pasteBody.indexOf("const hasNativeText")).toBeLessThan(
+      pasteBody.indexOf('clipboard.nativeClipboardMode === "pending"'),
+    );
+    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "pending"');
+    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "failed"');
+    expect(pasteBody).not.toContain("clipboard.clipboardText");
+    expect(source).toContain("pasteSlideObjects(copySlideObjects(selection)");
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {

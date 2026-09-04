@@ -11,6 +11,7 @@
   },
   "include": [
     "app/**/*",
+    "e2e/**/*",
     "server/**/*",
     "shared/**/*",
     "scripts/**/*",

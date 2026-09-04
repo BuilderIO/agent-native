@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   documentVersionChatContextFromAction,
   serializeDocumentVersionChatContext,
@@ -71,6 +72,7 @@ export default defineAction({
       .set({
         title: version.title,
         content: version.content,
+        bodyRevision: bodyRevisionForContent(version.content),
         updatedAt: now,
       })
       .where(

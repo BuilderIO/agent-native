@@ -112,6 +112,11 @@ describe("getOnboardingHtml", () => {
       readAuthPageData(getOnboardingHtml({ requestPath: "/signup?tab=signup" }))
         .initialView,
     ).toBe("signup");
+    expect(
+      readAuthPageData(
+        getOnboardingHtml({ requestPath: "/sign-in?c=continuation" }),
+      ).initialView,
+    ).toBe("login");
   });
 
   it("keeps the local-dev CTA hidden in cached HTML and reveals it only for loopback hosts", () => {

@@ -91,11 +91,17 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
+# PostgreSQL용 Amazon RDS
+DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
+
+# PostgreSQL용 Cloud SQL
+DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
+
+# PostgreSQL용 Azure Database
+DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
+
 # 일반 Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
-
-# Turso (libSQL). DATABASE_AUTH_TOKEN도 필요합니다.
-DATABASE_URL=libsql://my-db-org.turso.io
 ```
 
 프레임워크는 URL의 접두사에서 방언을 자동으로 감지하고 그에 맞춰 Drizzle를 구성합니다.
@@ -433,10 +439,9 @@ const { rows } = await getDbExec().execute({
 
 ## 환경변수 {#environment-variables}
 
-| 변수                  | 목적                                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | 영구 SQL 연결 문자열(설정 안 됨 = 로컬 SQLite, `pglite:./data/pglite` = 로컬 Postgres 선택) |
-| `DATABASE_AUTH_TOKEN` | Turso/libSQL처럼 별도 토큰이 필요한 공급자를 위한 인증 토큰                                 |
+| 변수           | 목적                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | 영구 SQL 연결 문자열(설정 안 됨 = 로컬 SQLite, `pglite:./data/pglite` = 로컬 Postgres 선택) |
 
 ## 다음 단계 {#whats-next}
 

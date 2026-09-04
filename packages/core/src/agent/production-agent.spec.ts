@@ -63,6 +63,7 @@ import {
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   permanentPreconditionRemedy,
+  normalizeToolErrorForBreaker,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
@@ -3546,6 +3547,174 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(1);
   });
 
+  it("honors a classified Retry-After wait longer than the fixed backoff", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError("Too many requests", {
+            errorCode: "http_429",
+            statusCode: 429,
+            retryAfterMs: 5_000,
+          });
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // The fixed exponential backoff for attempt 0 (~2.2s incl. jitter) is
+      // well under the classified 5s Retry-After — the retry must not have
+      // fired yet at 2.5s.
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(streamCalls).toBe(1);
+
+      // Past the 5s Retry-After, the retry fires.
+      await vi.advanceTimersByTimeAsync(2_600);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
+  });
+
+  it("does not retry when the classified Retry-After alone exceeds the remaining run budget", async () => {
+    vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "15000");
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        throw new EngineError("Too many requests", {
+          errorCode: "http_429",
+          statusCode: 429,
+          // The fixed backoff alone (~2.2s) would fit a 15s budget; only the
+          // 12s Retry-After pushes the estimate past what's left, and the
+          // wait must not be silently truncated to fit.
+          retryAfterMs: 12_000,
+        });
+      },
+    };
+
+    try {
+      await expect(
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow("Too many requests");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(streamCalls).toBe(1);
+  });
+
+  it("keeps the plain exponential backoff when no Retry-After was classified", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError("Connection error.", {
+            errorCode: "provider_network_error",
+          });
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Below the ~1.8s-2.2s backoff window (2s base ± 10% jitter): no retry yet.
+      await vi.advanceTimersByTimeAsync(1_700);
+      expect(streamCalls).toBe(1);
+
+      // Comfortably past the max of that window.
+      await vi.advanceTimersByTimeAsync(1_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
+  });
+
   // End-to-end shape of the Analytics outage: the gateway answered 200, emitted
   // its unhandled-500 envelope in-stream, and the turn ended on the first
   // attempt — 14 turns, every one at exactly 1.00 runs/turn. The envelope now
@@ -6111,6 +6280,12 @@ describe("runAgentLoop", () => {
       "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
       "no authenticated user",
       "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
+      // A nested A2A/ask_app delegation embedding the callee's OWN
+      // `formatA2ATerminalError` text verbatim (2026-08-26 Slides incident).
+      "Error running generate-image-api: Assets could not generate this image (failed): I stopped because generate-image-batch needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. Retrying would not have changed it, and anything completed before this is saved.\ncode: permanent_precondition",
+      // `fail(message, { errorCode: "permanent_precondition" })`, rendered by
+      // this module's own non-AgentActionStopError catch branch.
+      "Error running stage-dataset: Staged dataset byte cap exceeded (errorCode: permanent_precondition)",
     ]) {
       expect(permanentPreconditionRemedy(permanent)).not.toBeNull();
     }
@@ -6134,9 +6309,54 @@ describe("runAgentLoop", () => {
       // Retention windows, fixed by narrowing the range and asking again.
       "Error running list-session-recordings: Data is only available from the last 90 days",
       "Error running gong-calls: transcripts are only available in the last 12 months",
+      // The precondition SENTENCE with no marker line: a closest-match tool
+      // echoing another candidate's content (an extension or slide whose own
+      // text happens to contain this exact sentence) must not be misread as
+      // this framework's own stop. Only the `code: permanent_precondition` /
+      // `errorCode: permanent_precondition` marker is diagnostic; every real
+      // emitter of the sentence also sends that marker.
+      'Error running find-closest-match: closest candidate: "...needs a setup step outside this turn before it can run..." (no code line, not this run\'s own stop)',
+      // The marker text itself, but on an INDENTED echoed candidate line, not
+      // this framework's own column-0 framing — a retryable patch miss from
+      // an edit tool, not a stop.
+      "Error running find-closest-match: Closest matches in the current extension:\n  line 12: code: permanent_precondition",
     ]) {
       expect(permanentPreconditionRemedy(recoverable)).toBeNull();
     }
+  });
+
+  // Echoed candidate/ambiguous-match text an edit tool quotes back from the
+  // user's own content is fenced with `<<<diagnostic-snippet` /
+  // `>>>end-diagnostic-snippet` (diagnostic-snippet.ts) precisely so it can
+  // never be read as this framework's own signal, no matter what phrases it
+  // happens to contain.
+  it("never classifies precondition markers quoted inside a diagnostic-snippet fence, but still classifies them outside it", () => {
+    const fenced =
+      "Error running find-closest-match: Closest matches:\n" +
+      "<<<diagnostic-snippet\n" +
+      "    no authenticated user\n" +
+      "    code: permanent_precondition\n" +
+      ">>>end-diagnostic-snippet";
+    expect(permanentPreconditionRemedy(fenced)).toBeNull();
+
+    // Same markers, outside the fence: still classify.
+    const unfenced =
+      "Error running find-closest-match: no authenticated user\ncode: permanent_precondition";
+    expect(permanentPreconditionRemedy(unfenced)).not.toBeNull();
+  });
+
+  // The identical-error breaker keys on this normalized text (see
+  // `normalizeToolErrorForBreaker`'s own doc comment). A fenced candidate
+  // snippet that varies attempt to attempt must not defeat it, the same way
+  // a varying argument echo must not.
+  it("normalizes two tool errors that differ only in fenced candidate text to the same breaker key", () => {
+    const a =
+      "No exact match for the requested text.\n<<<diagnostic-snippet\n    candidate A text here\n>>>end-diagnostic-snippet";
+    const b =
+      "No exact match for the requested text.\n<<<diagnostic-snippet\n    completely different candidate B\n>>>end-diagnostic-snippet";
+    expect(normalizeToolErrorForBreaker(a)).toBe(
+      normalizeToolErrorForBreaker(b),
+    );
   });
 
   it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
@@ -6206,6 +6426,84 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).not.toContain("GEMINI_API_KEY");
     expect((stop as { error: string }).error).toContain(
       "needs a setup step outside this turn",
+    );
+  });
+
+  // 2026-08-26 Slides incident: an A2A/ask_app delegation (Assets) already
+  // classified its own failure as a permanent precondition and stopped, but
+  // its terminal-stop text only reaches the caller as a plain Error message
+  // once wrapped (`Assets could not generate this image (failed): …`). The
+  // outer run must recognize the callee's embedded marker on the FIRST
+  // failure rather than retrying an error the callee already proved
+  // unrecoverable.
+  it("stops on the FIRST failure when a tool error embeds a nested permanent-precondition marker", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Assets could not generate this image (failed): I stopped because " +
+          "generate-image-batch needs a setup step outside this turn — a " +
+          "credential, a role, a connected account, or an approval — before " +
+          "it can run. Retrying would not have changed it, and anything " +
+          "completed before this is saved.\ncode: permanent_precondition",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `gen-image-${streamCalls}`,
+              name: "generate-image-api",
+              input: { prompt: `attempt ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "generate-image-api": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // Not 3: the identical-error breaker never gets a chance to count this.
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "needs a setup step outside this turn",
+    );
+    // Not the scarier, less specific repeated-failure message the incident
+    // actually produced.
+    expect((stop as { error: string }).error).not.toContain(
+      "failed 3 times in a row",
     );
   });
 

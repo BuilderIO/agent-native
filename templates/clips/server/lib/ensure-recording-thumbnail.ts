@@ -358,6 +358,44 @@ async function cleanupUnreferencedThumbnail(
 }
 
 /**
+ * Best-effort terminal-status write, independent of the compare-and-set
+ * thumbnail update above: a recording with no video (or a Loom-embed-backed
+ * recording, which has no local media) will never get a generated thumbnail,
+ * so mark it 'none' rather than leaving thumbnail_status stuck at 'pending'
+ * forever for the sweeper to keep retrying. Logged and swallowed — this is
+ * observability, not the operation the caller asked for.
+ */
+async function setThumbnailStatus(
+  recordingId: string,
+  status: "none" | "failed",
+  reason: string,
+): Promise<void> {
+  try {
+    await getDb()
+      .update(schema.recordings)
+      .set({
+        thumbnailStatus: status,
+        thumbnailFailureReason: reason.slice(0, 300),
+      })
+      .where(eq(schema.recordings.id, recordingId));
+  } catch (error) {
+    console.warn("[clips] recording thumbnail status persist failed", {
+      recordingId,
+      status,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** Called by the post-finalize worker once thumbnail retries are exhausted. */
+export function markThumbnailFailed(
+  recordingId: string,
+  reason: string,
+): Promise<void> {
+  return setThumbnailStatus(recordingId, "failed", reason);
+}
+
+/**
  * Persist one still thumbnail when the upload path did not already provide
  * one. Supplied frames can arrive before the recording is ready; generated
  * frames wait for playable media. The update is compare-and-set so a user or
@@ -399,6 +437,7 @@ async function ensureRecordingThumbnailOnce(
     return { recordingId, status: "skipped-not-ready", changed: false };
   }
   if (!recording.videoUrl && !suppliedBytes && !suppliedThumbnailBytes) {
+    await setThumbnailStatus(recordingId, "none", "skipped-no-media");
     return { recordingId, status: "skipped-no-media", changed: false };
   }
 
@@ -417,10 +456,12 @@ async function ensureRecordingThumbnailOnce(
     let mimeType = normalizeMimeType(params.mimeType, recording.videoFormat);
     if (!bytes && !suppliedThumbnailBytes) {
       if (!recording.videoUrl) {
+        await setThumbnailStatus(recordingId, "none", "skipped-no-media");
         return { recordingId, status: "skipped-no-media", changed: false };
       }
       try {
         if (isLoomEmbedBackedRecording(recording)) {
+          await setThumbnailStatus(recordingId, "none", "skipped-loom-embed");
           return { recordingId, status: "skipped-loom-embed", changed: false };
         }
         const media = await loadRecordingMediaBytes(recording);
@@ -441,6 +482,7 @@ async function ensureRecordingThumbnailOnce(
     }
 
     if (!bytes?.byteLength && !suppliedThumbnailBytes) {
+      await setThumbnailStatus(recordingId, "none", "skipped-no-media");
       return { recordingId, status: "skipped-no-media", changed: false };
     }
 
@@ -508,6 +550,8 @@ async function ensureRecordingThumbnailOnce(
         .update(schema.recordings)
         .set({
           thumbnailUrl: url,
+          thumbnailStatus: "generated",
+          thumbnailFailureReason: null,
           updatedAt: new Date().toISOString(),
         })
         .where(

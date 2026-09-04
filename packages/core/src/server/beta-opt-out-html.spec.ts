@@ -93,19 +93,82 @@ describe("injectBetaOptOutPersistence", () => {
     expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
   });
 
-  it("embeds no request-derived path in the inline redirect script", () => {
-    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
-    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+  it("uses the Vite SSR base path for the auth session probe", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("VITE_APP_BASE_PATH", "/starter/");
 
     const html = injectBetaOptOutPersistence(
       "<html><head></head><body>Sign in</body></html>",
     );
 
-    // The early redirect decides from the browser's own location and storage.
-    // Nothing from the request reaches this inline script, so the login shell
-    // has no injection surface to escape in the first place.
-    expect(html).toContain(SSR_BETA_REDIRECT_MARKER);
-    expect(html).not.toContain("_agent-native/auth/session");
+    expect(html).toContain("/starter/_agent-native/auth/session");
+  });
+
+  it("uses the mounted workspace path when no build-time base exists", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "plan" }]),
+    );
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/plan/login",
+    );
+
+    expect(html).toContain("/plan/_agent-native/auth/session");
+  });
+
+  it("prefers the request mount over a stale build-time base", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "dispatch" }, { id: "diagrams" }]),
+    );
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/diagrams/login",
+    );
+
+    expect(html).toContain("/diagrams/_agent-native/auth/session");
+    expect(html).not.toContain("/dispatch/_agent-native/auth/session");
+  });
+
+  it("escapes a request-derived session probe path in the inline script", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ path: "/<script>alert(1)" }]),
+    );
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/<script>alert(1)/login",
+    );
+
+    expect(html).toContain("\\u003cscript\\u003ealert(1)");
+    expect(html).not.toContain("<script>alert(1)");
+  });
+
+  it("keeps the root session path for an unlisted workspace login route", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/settings/login",
+    );
+
+    expect(html).toContain("/_agent-native/auth/session");
+    expect(html).not.toContain("/settings/_agent-native/auth/session");
   });
 
   it("keeps the existing onboarding switcher instead of injecting a second one", () => {

@@ -3,7 +3,25 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-03
+
+### Improved
+
+- Calendar now supports reliable batch event updates and booking cancellations.
+- The agent now asks for your approval before it deletes events in bulk, emails your guests about a cancellation or change, or moves an event to another calendar.
+
+## 2026-09-02
+
+### Improved
+
+- Creating an event with guests now uses Save while still sending invitations
+- Updated the booking-link OG preview image with the new monochrome logo and dark background.
+
 ## 2026-09-01
+
+### Added
+
+- Calendars shared with your connected Google accounts can now appear alongside your primary calendars.
 
 ### Improved
 

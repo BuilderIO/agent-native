@@ -351,6 +351,14 @@ const messages = {
       right: "正確的",
       justify: "證明合法",
     },
+    positionAligns: {
+      left: "靠左對齊",
+      centerHorizontal: "水平置中對齊",
+      right: "靠右對齊",
+      top: "靠上對齊",
+      centerVertical: "垂直置中對齊",
+      bottom: "靠下對齊",
+    },
     textDecorations: {
       underline: "底線",
       strikethrough: "刪除線",

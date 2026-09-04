@@ -739,6 +739,7 @@ const messages = {
     transcriptCleanupDescription:
       "Muestra la transcripción nativa de inmediato y luego la mejora en segundo plano cuando esté disponible.",
     notifications: "Notificaciones",
+    monthlyRecap: "Resumen mensual",
     sharing: "Compartir",
     defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
     defaultVisibilityDescription:
@@ -748,7 +749,7 @@ const messages = {
     visibilityPublic: "Público - cualquiera con el enlace",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:
-      "Recibe un correo cuando alguien comente o reaccione a tu grabación.",
+      "Elige qué correos opcionales de Clips quieres recibir.",
     saved: "Ajustes guardados",
     saveFailed: "No se pudo guardar",
     builderConnectedToast: "Builder.io conectado",

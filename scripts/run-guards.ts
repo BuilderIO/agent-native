@@ -7,6 +7,7 @@ const guards = [
   "guard:hooks-registered",
   "guard:agent-native-brand",
   "guard:no-drizzle-push",
+  "guard:mcp-registry",
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",
@@ -70,6 +71,8 @@ const guards = [
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",
+  "guard:e2e-quarantine",
+  "guard:e2e-harness",
 ] as const;
 
 type GuardName = (typeof guards)[number];

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
@@ -17,6 +17,9 @@ import {
   computeSlideObjectZOrder,
   createSlideObjectPlacementGeometry,
   copySlideObjects,
+  readSlideObjectClipboardId,
+  slideObjectClipboardHtml,
+  writeSlideObjectClipboard,
   createSlidesSelectionState,
   ensureSlideObjectId,
   ensureSlideTextBoxCanvas,
@@ -60,6 +63,188 @@ function createFreeformObject(
 }
 
 describe("slide object interactions", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("marks layer clipboard HTML so native text and layer copies are exclusive", () => {
+    const copied = {
+      html: ['<div data-slide-object-id="layer-1">Layer</div>'],
+    };
+    const html = slideObjectClipboardHtml("copy-1", copied);
+
+    expect(readSlideObjectClipboardId(html, document)).toBe("copy-1");
+    expect(
+      readSlideObjectClipboardId("<div>external text</div>", document),
+    ).toBe(null);
+  });
+
+  it("writes readable text and a layer marker to the native clipboard", async () => {
+    const write = vi.fn(async (_items: ClipboardItem[]) => undefined);
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    vi.stubGlobal("navigator", { clipboard: { write } });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+
+    await writeSlideObjectClipboard(
+      "copy-1",
+      { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+      null,
+    );
+
+    const item = write.mock.calls[0]![0]![0] as unknown as FakeClipboardItem;
+    expect(await item.items["text/plain"]?.text()).toBe("Layer");
+    expect(await item.items["text/html"]?.text()).toContain(
+      'data-agent-native-slide-object-clipboard="copy-1"',
+    );
+  });
+
+  it("does not start a fallback write after rich clipboard rejection", async () => {
+    const write = vi.fn(async () => {
+      throw new Error("clipboard denied");
+    });
+    const writeText = vi.fn(async (_text: string) => undefined);
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    vi.stubGlobal("navigator", { clipboard: { write, writeText } });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+
+    await expect(
+      writeSlideObjectClipboard(
+        "copy-1",
+        { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+        null,
+      ),
+    ).rejects.toThrow("clipboard denied");
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("preserves line breaks in plain-text clipboard content", async () => {
+    const write = vi.fn(async (_items: ClipboardItem[]) => undefined);
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    vi.stubGlobal("navigator", { clipboard: { write } });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+
+    await writeSlideObjectClipboard(
+      "copy-1",
+      {
+        html: [
+          '<div data-slide-object-id="layer-1">First<br>Second</div>',
+          "<p>Third</p><p>Fourth</p><style>.hidden{display:none}</style><script>bad()</script><template>Hidden</template>",
+        ],
+      },
+      null,
+    );
+
+    const item = write.mock.calls[0]![0]![0] as unknown as FakeClipboardItem;
+    expect(await item.items["text/plain"]?.text()).toBe(
+      "First\nSecond\nThird\nFourth",
+    );
+  });
+
+  it("uses plain text when rich clipboard writing is unavailable", async () => {
+    const writeText = vi.fn(async (_text: string) => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.stubGlobal("ClipboardItem", undefined);
+
+    await expect(
+      writeSlideObjectClipboard(
+        "copy-1",
+        { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+        null,
+      ),
+    ).resolves.toBe("text-only");
+    expect(writeText).toHaveBeenCalledWith("Layer");
+  });
+
+  it("keeps the marker when the legacy copy event writes clipboard HTML", async () => {
+    const written = new Map<string, string>();
+    const originalExecCommand = Object.getOwnPropertyDescriptor(
+      document,
+      "execCommand",
+    );
+    const execCommand = vi.fn(() => {
+      const event = new Event("copy", { cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: {
+          setData: (type: string, value: string) => written.set(type, value),
+        },
+      });
+      document.dispatchEvent(event);
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    try {
+      await expect(
+        writeSlideObjectClipboard(
+          "copy-1",
+          { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+          document,
+        ),
+      ).resolves.toBe("rich");
+      expect(
+        readSlideObjectClipboardId(written.get("text/html"), document),
+      ).toBe("copy-1");
+      expect(written.get("text/html")).toContain(
+        "<div data-agent-native-slide-object-clipboard=",
+      );
+    } finally {
+      if (originalExecCommand) {
+        Object.defineProperty(document, "execCommand", originalExecCommand);
+      } else {
+        Reflect.deleteProperty(document, "execCommand");
+      }
+    }
+  });
+
+  it("starts each asynchronous native clipboard write immediately", async () => {
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    const htmlWrites: Blob[] = [];
+    const releases: Array<() => void> = [];
+    const write = vi.fn((items: FakeClipboardItem[]) => {
+      htmlWrites.push(items[0]!.items["text/html"]!);
+      return new Promise<void>((resolve) => releases.push(resolve));
+    });
+    vi.stubGlobal("navigator", { clipboard: { write } });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+
+    const first = writeSlideObjectClipboard(
+      "copy-1",
+      { html: ['<div data-slide-object-id="layer-1">First</div>'] },
+      null,
+    );
+    await Promise.resolve();
+    const second = writeSlideObjectClipboard(
+      "copy-2",
+      { html: ['<div data-slide-object-id="layer-2">Second</div>'] },
+      null,
+    );
+    await Promise.resolve();
+
+    expect(write).toHaveBeenCalledTimes(2);
+    await expect(htmlWrites[0]!.text()).resolves.toContain(
+      'data-agent-native-slide-object-clipboard="copy-1"',
+    );
+    await expect(htmlWrites[1]!.text()).resolves.toContain(
+      'data-agent-native-slide-object-clipboard="copy-2"',
+    );
+    releases[1]!();
+    releases[0]!();
+    await expect(first).resolves.toBe("rich");
+    await expect(second).resolves.toBe("rich");
+    expect(htmlWrites).toHaveLength(2);
+  });
+
   it("lets explicit image sizing override image size caps", () => {
     const image = document.createElement("img");
     image.style.setProperty("height", "auto", "important");
