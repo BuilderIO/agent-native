@@ -694,19 +694,41 @@ function getCookieNameForApp(id: string | null | undefined): string {
   return slug ? `an_session_${slug}` : "an_session";
 }
 
+function resolveCookieNameForOrigin(
+  baseCookieName: string,
+  origin: string,
+): string {
+  if (baseCookieName === "an_session") return baseCookieName;
+  const appSlug = baseCookieName
+    .replace(/^an_session_/, "")
+    .replace(/^beta_/, "");
+  const isBetaOrigin = new URL(origin).hostname.split(".")[0] === "beta";
+  return getCookieNameForApp(isBetaOrigin ? `beta-${appSlug}` : appSlug);
+}
+
+function getBetterAuthPrefixForCookieName(cookieName: string): string {
+  const appSlug = cookieName.replace(/^an_session_/, "");
+  return appSlug ? `an_${appSlug}` : "an";
+}
+
 function resolveAlternateCookieNameMap(
-  primaryCookieName: string,
+  baseCookieName: string,
+  primaryOrigin: string,
   alternateOrigin: string,
 ): Record<string, string> {
-  if (primaryCookieName === "an_session") return {};
-  if (new URL(alternateOrigin).hostname.split(".")[0] !== "beta") {
-    return {};
-  }
-
-  const appSlug = primaryCookieName.replace(/^an_session_/, "");
-  const alternateCookieName = getCookieNameForApp(`beta-${appSlug}`);
-  const primaryBetterAuthPrefix = `an_${appSlug}`;
-  const alternateBetterAuthPrefix = `an_beta_${appSlug}`;
+  if (baseCookieName === "an_session") return {};
+  const primaryCookieName = resolveCookieNameForOrigin(
+    baseCookieName,
+    primaryOrigin,
+  );
+  const alternateCookieName = resolveCookieNameForOrigin(
+    baseCookieName,
+    alternateOrigin,
+  );
+  const primaryBetterAuthPrefix =
+    getBetterAuthPrefixForCookieName(primaryCookieName);
+  const alternateBetterAuthPrefix =
+    getBetterAuthPrefixForCookieName(alternateCookieName);
   return {
     [primaryCookieName]: alternateCookieName,
     [`${primaryBetterAuthPrefix}.session_token`]: `${alternateBetterAuthPrefix}.session_token`,
@@ -915,9 +937,9 @@ function resolveDesktopIdentityApp(
   }
   if (!isDesktopIdentityOriginEligible(origin)) return null;
 
-  const primaryCookieName = getCookieNameForApp(appId);
-  const appSlug = primaryCookieName.replace(/^an_session_/, "");
-  const betterAuthPrefix = appSlug ? `an_${appSlug}` : "an";
+  const baseCookieName = getCookieNameForApp(appId);
+  const primaryCookieName = resolveCookieNameForOrigin(baseCookieName, origin);
+  const betterAuthPrefix = getBetterAuthPrefixForCookieName(primaryCookieName);
   const betterAuthCookieNames = [
     `${betterAuthPrefix}.session_token`,
     `__Secure-${betterAuthPrefix}.session_token`,
@@ -935,7 +957,7 @@ function resolveDesktopIdentityApp(
   const alternateCookieNameMap = Object.fromEntries(
     alternateOrigins.map((alternateOrigin) => [
       alternateOrigin,
-      resolveAlternateCookieNameMap(primaryCookieName, alternateOrigin),
+      resolveAlternateCookieNameMap(baseCookieName, origin, alternateOrigin),
     ]),
   );
   return {

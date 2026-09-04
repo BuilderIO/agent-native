@@ -1954,6 +1954,67 @@ describe("DesktopIdentityBroker", () => {
     expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
   });
 
+  it("maps a beta-primary app session back to its production cookie name", async () => {
+    const authority = authorityFixture();
+    const betaMail = appFixture();
+    betaMail.origin = "https://beta.mail.agent-native.com";
+    betaMail.alternateOrigins = ["https://mail.agent-native.com"];
+    betaMail.cookieNames = ["an_session_beta_mail", "an_session"];
+    betaMail.cookieNamesToClear = [
+      "an_session_beta_mail",
+      "an_session_mail",
+      "an_session",
+      "an_beta_mail.session_token",
+      "an_mail.session_token",
+    ];
+    betaMail.alternateCookieNameMap = {
+      "https://mail.agent-native.com": {
+        an_session_beta_mail: "an_session_mail",
+        "an_beta_mail.session_token": "an_mail.session_token",
+      },
+    };
+    const betaCookies = cookieStore([
+      sessionCookie(
+        "an_session_beta_mail",
+        betaMail.origin,
+        "beta-mail-session",
+      ),
+    ]);
+    betaMail.session = {
+      cookies: betaCookies,
+      fetch: vi.fn(async () => sessionResponse()),
+    } as unknown as Electron.Session;
+    authority.session = {
+      cookies: cookieStore(),
+      fetch: vi.fn(async () => sessionResponse()),
+    } as unknown as Electron.Session;
+    const identitySession = {
+      cookies: cookieStore(),
+      fetch: vi.fn(async () => sessionResponse()),
+      clearStorageData: vi.fn(async () => {}),
+    } as unknown as Electron.Session;
+    const broker = new DesktopIdentityBroker({
+      identitySession,
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === betaMail.id ? betaMail : null,
+      listApps: () => [authority, betaMail],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    broker.setStatusForSetting("signed-in");
+
+    await expect(broker.ensureAppSession(betaMail.id)).resolves.toBe(true);
+
+    expect(betaCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://mail.agent-native.com",
+        name: "an_session_mail",
+        value: "beta-mail-session",
+      }),
+    );
+  });
+
   it("keeps Google sign-in alive when its hosted callback closes the window", async () => {
     const authority = authorityFixture();
     const identityCookies = cookieStore();

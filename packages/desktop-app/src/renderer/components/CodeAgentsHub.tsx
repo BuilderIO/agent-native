@@ -749,11 +749,8 @@ export default function CodeAgentsHub({
       setDesktopIdentityStatusByTab((current) =>
         updateDesktopIdentityStatusByTab(current, tabId, status),
       );
-      if (status === "failed" || status === "sign-in-required") {
-        onDesktopIdentityStatusChange?.(status);
-      }
     },
-    [onDesktopIdentityStatusChange],
+    [],
   );
   const handleAppAuthStateChange = useCallback(
     (tabId: string, state: AppWebviewAuthState) => {
@@ -2784,6 +2781,12 @@ export default function CodeAgentsHub({
                       }}
                       onDesktopIdentityStatusChange={(status) => {
                         handleDesktopIdentityStatusChange(tab.id, status);
+                        if (
+                          isTabActive &&
+                          (status === "failed" || status === "sign-in-required")
+                        ) {
+                          onDesktopIdentityStatusChange?.(status);
+                        }
                       }}
                       onWebContentsIdChange={(webContentsId) =>
                         handleWebContentsIdChange(tab.id, webContentsId)
@@ -2847,6 +2850,7 @@ export default function CodeAgentsHub({
       host,
       isActive,
       onLocalCodeChangeStarted,
+      onDesktopIdentityStatusChange,
       onOpenSettings,
       refreshKey,
       surfaceApps,

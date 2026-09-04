@@ -1005,7 +1005,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           desktopIdentitySessionReady,
         ),
       );
-    }, [desktopIdentitySessionReady, desktopIdentityStatus]);
+    }, [desktopIdentitySessionReady, desktopIdentityStatus, isActive]);
 
     useEffect(() => {
       const identity = window.electronAPI?.identity;
