@@ -19,6 +19,7 @@ import {
   deriveGroundingActionNames,
   draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
+  hasCatalogSearchAttempt,
   hasDashboardConstructionAttempt,
   hasDashboardMutationAttempt,
   hasExplicitPartialDisclosure,
@@ -68,6 +69,35 @@ const ANALYSIS_EDIT_TOOLS = new Set([
   "restore-analysis-revision",
   "save-analysis",
 ]);
+
+// Every action that persists a dashboard, analysis, extension, or Data
+// Program edit. A successful call to any of these this turn is real,
+// completed work — the real-data guard's catch-all must not discard a "done,
+// I updated X" summary just because the turn also reads as an analytics-
+// result question. Reuses the sets already tracked for autosave above plus
+// the extension/Data Program actions they don't cover.
+const WORKSPACE_MUTATION_ACTIONS = new Set([
+  ...DASHBOARD_EDIT_TOOLS,
+  ...ANALYSIS_EDIT_TOOLS,
+  "create-extension",
+  "update-extension",
+  "delete-extension",
+  "save-data-program",
+  "delete-data-program",
+]);
+
+function hasWorkspaceMutationAttempt(
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    const name = String(result.name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+    return WORKSPACE_MUTATION_ACTIONS.has(name);
+  });
+}
 
 function eventRecord(entry: unknown): Record<string, unknown> | undefined {
   if (!entry || typeof entry !== "object") return undefined;
@@ -398,6 +428,96 @@ function configuredDataSourceLabels(
     }
   }
   return [...labels];
+}
+
+const UNVERIFIED_DRAFT_RETRY_INSTRUCTION =
+  ' If you cannot run a query, restate every number, count, or trend in the draft as explicitly unverified (prefix the sentence with "Unverified:") rather than asserting it.';
+
+function exhaustedDraftPrefixFor({
+  toolResults,
+  setupMarkdown,
+  includeConnectOption,
+}: {
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"];
+  setupMarkdown: string;
+  includeConnectOption: boolean;
+}): string {
+  const configuredSources = configuredDataSourceLabels(toolResults);
+  const connectedSentence = configuredSources.length
+    ? ` Connected sources: ${configuredSources.join(", ")}.`
+    : "";
+  const nextOptions = [
+    "ask me to query an existing dashboard (I'll search certified ones first)",
+    "narrow the question to one metric and time range",
+  ];
+  if (includeConnectOption) {
+    nextOptions.push(`connect the missing source: ${setupMarkdown}`);
+  }
+  return (
+    "Unverified — no live data query ran for this answer." +
+    connectedSentence +
+    ` Next options: ${nextOptions.join(", ")}.`
+  );
+}
+
+function isRealUserTextMessage(message: {
+  role?: string;
+  content?: unknown;
+}): boolean {
+  if (message?.role !== "user" || !Array.isArray(message.content)) {
+    return false;
+  }
+  const parts = message.content as Array<{ type?: string }>;
+  return (
+    parts.some((part) => part?.type === "text") &&
+    !parts.some((part) => part?.type === "tool-result")
+  );
+}
+
+// `context.toolResults` only carries this turn's tool calls, so a follow-up
+// question that reasons over an earlier turn's grounded result ("what about
+// last week?", "and by region?") looks exactly like an ungrounded turn to the
+// catch-all below. `context.messages` carries the full structured thread —
+// tool-call/tool-result content parts from earlier turns included — so pull
+// grounding evidence from the two assistant turns immediately before this
+// one. A real user text message (not a synthetic tool-result carrier) marks
+// a turn boundary; this is a heuristic over message shape, not a stored turn
+// id, because the guard context does not expose one. Deliberately scoped to
+// the catch-all only: the connect-source branches must still judge this
+// turn's own evidence, not history.
+function priorTurnToolResults(
+  messages: AgentLoopFinalResponseGuardContext["messages"],
+): Array<{ name?: string; isError?: boolean; content?: string }> {
+  const collected: Array<{
+    name?: string;
+    isError?: boolean;
+    content?: string;
+  }> = [];
+  let turnBoundariesCrossed = 0;
+  // Skip the last entry: it is always this turn's fresh user request.
+  for (let i = messages.length - 2; i >= 0; i--) {
+    const message = messages[i] as { role?: string; content?: unknown };
+    if (isRealUserTextMessage(message)) {
+      turnBoundariesCrossed += 1;
+      if (turnBoundariesCrossed > 2) break;
+      continue;
+    }
+    if (!Array.isArray(message?.content)) continue;
+    for (const part of message.content as Array<{
+      type?: string;
+      toolName?: string;
+      isError?: boolean;
+      content?: string;
+    }>) {
+      if (part?.type !== "tool-result") continue;
+      collected.push({
+        name: part.toolName,
+        isError: part.isError,
+        content: part.content,
+      });
+    }
+  }
+  return collected;
 }
 
 interface DataSourceStatusSummary {
@@ -967,12 +1087,24 @@ export function realDataFinalGuard(
     };
   }
   if (dataQueryAttempted) return null;
+  // A draft with no analytics claim is not asserting anything this guard has
+  // to protect, so the two "no query ran and nothing else applies" branches
+  // below only fire when the draft actually claims a metric. The guard's own
+  // canned give-up sentence is the one exception: a model must not use it to
+  // end a turn it never actually attempted, so that still forces a retry.
+  const draftMakesAnalyticsClaim =
+    draftClaimsAnalyticsMetrics(context.text) ||
+    isGenericNoDataFallback(context.text);
   // Whether the built-in source is worth trying is decided by tool evidence,
   // not by how the draft is worded, so it is asked once for every draft shape.
   // A source that already failed this turn is not an untried source: steering
   // the model back into it is how a permanently failing precondition turns
   // into a retry loop.
-  if (firstPartySourceShouldBeTried && !failedQueryMessage) {
+  if (
+    firstPartySourceShouldBeTried &&
+    !failedQueryMessage &&
+    draftMakesAnalyticsClaim
+  ) {
     return {
       retryMessage:
         "The user asked for live analytics, and the built-in first-party Analytics source is available even though no external provider is connected. Call `query-agent-native-analytics` for first-party product, usage, conversion, or observability data and answer from that result. If the request specifically names an external provider, explain what is missing and include the real Connect data sources link.",
@@ -980,6 +1112,11 @@ export function realDataFinalGuard(
         "I couldn't complete a grounded first-party Analytics query yet. Please retry and I'll use the built-in Analytics source before asking you to connect an external provider.",
       maxRetries: 2,
       expandToolSurface: true,
+      exhaustedDraftPrefix: exhaustedDraftPrefixFor({
+        toolResults: context.toolResults,
+        setupMarkdown,
+        includeConnectOption: false,
+      }),
     };
   }
   if (isSafeNoDataAnalyticsResponse(context.text)) {
@@ -1024,15 +1161,65 @@ export function realDataFinalGuard(
     };
   }
 
+  // A successful dashboard/extension/Data-Program construction or mutation
+  // action this turn is real, completed work, even when the request also
+  // reads as an analytics-result question. Forcing a data query here, or
+  // discarding the draft, throws away a finished "I updated X" summary that
+  // never needed grounding in the first place. Still gated on
+  // draftClaimsAnalyticsMetrics, same as the narrower dashboard-save check
+  // above: a mutation is not a license to also assert an invented number
+  // (e.g. a fabricated win-rate) that the mutation itself did not compute.
+  if (
+    !draftClaimsAnalyticsMetrics(context.text) &&
+    (hasDashboardConstructionAttempt(context.toolResults) ||
+      hasWorkspaceMutationAttempt(context.toolResults))
+  ) {
+    return null;
+  }
+  // A follow-up question reasoning over a PRIOR turn's grounded result ("what
+  // about last week?", "and by region?") has no tool calls of its own this
+  // turn — check the last two turns of thread history before treating that
+  // the same as a turn that never queried anything.
+  if (hasDataQueryAttempt(priorTurnToolResults(context.messages ?? []))) {
+    return null;
+  }
+  if (!draftMakesAnalyticsClaim) return null;
+
   const configuredSources = configuredDataSourceLabels(context.toolResults);
   const configuredSourceGuidance = configuredSources.length
     ? ` \`data-source-status\` already confirmed these connected sources: ${configuredSources.join(", ")}. Do not claim that no sources are connected and do not ask the user to reconnect them. Immediately call the relevant query action for one of those sources.`
     : "";
+  const catalogSearched = hasCatalogSearchAttempt(context.toolResults);
+  const exhaustedDraftPrefix = exhaustedDraftPrefixFor({
+    toolResults: context.toolResults,
+    setupMarkdown,
+    includeConnectOption: !catalogSearched,
+  });
+
+  if (catalogSearched) {
+    // A turn that already searched the query catalog or dashboard references
+    // did discovery work, whether or not it found a match. The retry must not
+    // read as "nothing was found" — it wasn't proven either way — and the
+    // fallback must not point at connecting a data source, since nothing here
+    // shows one is missing.
+    return {
+      retryMessage:
+        "You already ran catalog/dashboard-reference discovery this turn. If it returned a usable dashboard or query, adapt and run it now and cite the dashboard; if not, run the next discovery pass (list-data-dictionary, search-bigquery-schema, or data-source-status) and one bounded query." +
+        UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
+      fallbackMessage:
+        "I searched the dashboard/query catalog but didn't finish a real source query. Please retry; I'll adapt a matching dashboard or query if one exists, or run the next discovery pass and query it directly.",
+      maxRetries: 2,
+      expandToolSurface: true,
+      exhaustedDraftPrefix,
+    };
+  }
+
   return {
     retryMessage:
       "This looks like an analytics result request, but no real source query ran. If you are making data claims, run one relevant data-source action or connected provider MCP tool now and answer from that result." +
       configuredSourceGuidance +
-      " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead.",
+      " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead." +
+      UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
     fallbackMessage: configuredSources.length
       ? `I found connected data sources (${configuredSources.join(", ")}), but the model still did not run a real source query. Please retry the request; you do not need to reconnect those sources.`
       : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
@@ -1045,6 +1232,7 @@ export function realDataFinalGuard(
     // some model families spend the retry on tool-search narration and hit
     // the canned fallback without ever running a query.
     expandToolSurface: true,
+    exhaustedDraftPrefix,
   };
 }
 

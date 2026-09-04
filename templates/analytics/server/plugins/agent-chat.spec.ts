@@ -1152,6 +1152,172 @@ describe("realDataFinalGuard", () => {
     expect(result).toBeNull();
   });
 
+  it("lets a data question through when the draft makes no analytics claim and no tool ran", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText:
+          "I'd want to double check the exact denominator before stating a rate here.",
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries a data question with a numeric claim and no tool, carrying an unverified draft prefix", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText: "Signup conversion was 4.2% last week.",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+      exhaustedDraftPrefix: expect.stringContaining("Unverified"),
+    });
+  });
+
+  it("treats a completed catalog/dashboard-reference search as discovery, not a dead end", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText: "Signup conversion was 4.2% last week.",
+        toolResults: [
+          {
+            name: "search-analytics-query-catalog",
+            isError: false,
+            content: '[{"id":"conversion-dashboard"}]',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+      retryMessage: expect.stringContaining(
+        "You already ran catalog/dashboard-reference discovery",
+      ),
+      exhaustedDraftPrefix: expect.stringContaining("Unverified"),
+    });
+    const { retryMessage, fallbackMessage, exhaustedDraftPrefix } = result as {
+      retryMessage: string;
+      fallbackMessage: string;
+      exhaustedDraftPrefix: string;
+    };
+    expect(retryMessage).not.toMatch(/no match|nothing (was )?found/i);
+    expect(fallbackMessage).not.toContain("[connect data sources](");
+    expect(fallbackMessage).not.toContain("Connect data sources");
+    expect(exhaustedDraftPrefix).not.toContain("connect the missing source");
+  });
+
+  it("does not discard a completed extension-update summary as an ungrounded analytics answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get this week?",
+        draftText:
+          "Done — I switched the extension display window from 7 days to 30 days.",
+        toolResults: [
+          {
+            name: "update-extension",
+            isError: false,
+            content: '{"id":"signups-panel"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries a mutation-turn draft that also states an invented metric", () => {
+    // A completed mutation is not a license to also assert a number the
+    // mutation itself did not compute — see agent-chat.dashboard-edit.spec.ts
+    // for the original coverage of this rule against the narrower dashboard
+    // save actions; this exercises the broader WORKSPACE_MUTATION_ACTIONS set.
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many signups did we get this week?",
+        draftText:
+          "Done — I updated the extension; it now shows 1,204 signups this week.",
+        toolResults: [
+          {
+            name: "update-extension",
+            isError: false,
+            content: '{"id":"signups-panel"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("treats a follow-up question over an earlier turn's grounded result as evidence, not a new ungrounded claim", () => {
+    const context: AgentLoopFinalResponseGuardContext = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "What was our signup count last week from BigQuery?",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            { type: "tool-call", id: "tc1", name: "bigquery", input: {} },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "tc1",
+              toolName: "bigquery",
+              toolInput: "{}",
+              content: '{"rows":[{"count":532}]}',
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "Signup count last week was 532, from BigQuery.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "How many signups was that the week before?",
+            },
+          ],
+        },
+      ],
+      requestText: "How many signups was that the week before?",
+      assistantContent: [],
+      text: "The week before that, signups were 480.",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    };
+
+    const result = realDataFinalGuard(context);
+
+    expect(result).toBeNull();
+  });
+
   it("does not let the guard's own non-analytics retry turn re-trigger the analytics retry path", () => {
     expect(
       looksLikeAnalyticsDataRequest(NON_ANALYTICS_FALLBACK_RETRY_MESSAGE),

@@ -44,6 +44,9 @@ Read the relevant skill before deeper work:
 6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
    cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
 
+State confidence, never a dead end: cite the dashboard or query used (note
+certified ones); label figures "Unverified" when no live query ran.
+
 ## Core Rules
 
 - A sibling app sends natural-language or shaped input over A2A, never SQL; this

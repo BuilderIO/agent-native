@@ -9275,6 +9275,117 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
+  it("prepends exhaustedDraftPrefix to the draft instead of the fallback when retries are exhausted", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const text = streamCalls === 1 ? "fake answer" : "still fake";
+        yield { type: "text-delta", text };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: () => ({
+        retryMessage: "Query a real source before answering.",
+        fallbackMessage: "I stopped because no real data-source query ran.",
+        exhaustedDraftPrefix: "Unverified — here is what I tried:",
+      }),
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Unverified — here is what I tried:\n\nstill fake",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        text: "I stopped because no real data-source query ran.",
+      }),
+    );
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("falls back to fallbackMessage when exhaustedDraftPrefix is set but the draft is empty", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        // Streamed live as UI feedback, but the structured assistant-content
+        // carries only a thinking part — the draft the guard/exhaustion path
+        // actually evaluates is empty, so there is nothing to prefix.
+        yield { type: "text-delta", text: "still fake" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "thinking" as const, text: "reasoning only" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: () => ({
+        retryMessage: "Query a real source before answering.",
+        fallbackMessage: "I stopped because no real data-source query ran.",
+        exhaustedDraftPrefix: "Unverified — here is what I tried:",
+        maxRetries: 0,
+      }),
+    });
+
+    expect(visibleEvents(events)).toEqual([
+      { type: "text", text: "still fake" },
+      { type: "clear" },
+      {
+        type: "text",
+        text: "I stopped because no real data-source query ran.",
+      },
+      { type: "done" },
+    ]);
+  });
+
   it("allows a final-response guard to request additional corrective retries", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

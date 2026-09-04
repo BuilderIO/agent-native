@@ -4,6 +4,7 @@ import {
   draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
+  hasCatalogSearchAttempt,
   hasDashboardConstructionAttempt,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
@@ -284,6 +285,29 @@ describe("analytics data request classification", () => {
     expect(
       looksLikeAnalyticsDataRequest(
         "the chat keeps typing long messages that disappear",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps PR/code-review framing out of the guard even when it names analytics vocabulary", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Is my PR description clear about the events we track?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Can you review this pull request and check the diff for the signups migration?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Does this commit's changelog entry accurately describe the sessions fix?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What did the reviewer say about the release notes for this PR?",
       ),
     ).toBe(false);
   });
@@ -895,6 +919,31 @@ describe("incomplete evidence detection", () => {
     expect(hasDashboardConstructionAttempt([])).toBe(false);
   });
 
+  it("recognizes catalog/dashboard-reference discovery as a search attempt", () => {
+    expect(
+      hasCatalogSearchAttempt([
+        { name: "search-analytics-query-catalog", content: "[]" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCatalogSearchAttempt([
+        { name: "search-dashboard-references", content: "[]" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCatalogSearchAttempt([
+        {
+          name: "search-analytics-query-catalog",
+          isError: true,
+          content: "boom",
+        },
+      ]),
+    ).toBe(false);
+    expect(hasCatalogSearchAttempt([{ name: "bigquery" }])).toBe(false);
+    expect(hasCatalogSearchAttempt([])).toBe(false);
+    expect(hasCatalogSearchAttempt(undefined)).toBe(false);
+  });
+
   it("does not treat authoring/saving a dashboard or extension alone as construction progress", () => {
     // update-dashboard/mutate-dashboard/create-extension/update-extension can
     // all author brand-new SQL or extension content, so calling them with no
@@ -950,5 +999,25 @@ describe("incomplete evidence detection", () => {
         "I've cloned the Company A extension for Company B. What org id should I filter on?",
       ),
     ).toBe(false);
+  });
+
+  it("treats a qualitative trend claim as a claim, not just an explicit number", () => {
+    expect(draftClaimsAnalyticsMetrics("signups increased last week")).toBe(
+      true,
+    );
+    expect(draftClaimsAnalyticsMetrics("traffic dropped this week")).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("sessions are trending up recently"),
+    ).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("usage is higher than last month")).toBe(
+      true,
+    );
+    expect(draftClaimsAnalyticsMetrics("churn was lower than expected")).toBe(
+      true,
+    );
+    // Still a topic word, not a claim — no assertion is being made.
+    expect(draftClaimsAnalyticsMetrics("what's the trend for signups?")).toBe(
+      false,
+    );
   });
 });

@@ -54,6 +54,15 @@ export const DASHBOARD_MUTATION_ACTIONS = new Set([
   "update-extension",
 ]);
 
+// A turn that already searched the saved-query catalog or dashboard
+// references found something to adapt or found nothing, either way it did
+// discovery work. The guard's catch-all fallback must not treat that turn
+// identically to one that never looked.
+export const CATALOG_DISCOVERY_ACTIONS = new Set([
+  "search-analytics-query-catalog",
+  "search-dashboard-references",
+]);
+
 const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
@@ -157,6 +166,10 @@ function isDashboardMutationActionName(name: string): boolean {
   return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
 }
 
+function isCatalogDiscoveryActionName(name: string): boolean {
+  return CATALOG_DISCOVERY_ACTIONS.has(normalizeActionToolName(name));
+}
+
 // "Build/clone/template" language targeting a dashboard/extension/panel is
 // dashboard construction, distinct from an analytics-result question. Turns
 // like this may inspect and clone a template without running a metric query.
@@ -196,6 +209,17 @@ export function hasDashboardMutationAttempt(
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;
     return isDashboardMutationActionName(String(result.name ?? ""));
+  });
+}
+
+export function hasCatalogSearchAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isCatalogDiscoveryActionName(String(result.name ?? ""));
   });
 }
 
@@ -335,7 +359,9 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     return false;
   }
   if (
-    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
+    /\b(fix|bug|layout|style|component|route|code|source code|pr|pull request|diff|commit|reviewer|review this|changelog|release notes)\b/.test(
+      lower,
+    )
   ) {
     return false;
   }
@@ -374,8 +400,13 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   );
 }
 
+// Each unit alternative after the number carries its own trailing `\b`
+// instead of one shared after the group: `%` is not a word character, so a
+// shared `\b` right after it can never match (neither "%" nor the following
+// space is a word char) and silently dropped every percentage claim, e.g.
+// "4.2%".
 const UNSUPPORTED_RESULT_CLAIM =
-  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent\b|users?\b|customers?\b|accounts?\b|sessions?\b|events?\b|deals?\b|tickets?\b|issues?\b|calls?\b|messages?\b|signups?\b|pageviews?\b)|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|dropped|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b|\btrending (?:up|down)\b|\bup \d|\bdown \d|\b(?:higher|lower) than\b)/i;
 
 // Reuse the same broad unsupported-result-claim vocabulary that gates
 // isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
