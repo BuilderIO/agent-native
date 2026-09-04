@@ -147,8 +147,9 @@ function dataRouteUrlForHref(href: string): string | null {
   const url = hrefUrl(href);
   if (!url || !isWarmableRouteUrl(url)) return null;
 
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
-  url.pathname = `${pathname}.data`;
+  url.pathname = url.pathname.endsWith("/")
+    ? `${url.pathname}_.data`
+    : `${url.pathname}.data`;
   url.hash = "";
   return url.href;
 }

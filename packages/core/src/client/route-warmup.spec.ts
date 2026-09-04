@@ -35,8 +35,11 @@ describe("route warmup runtime helpers", () => {
     expect(parseBuildTimeRouteWarmupConfig("render")).toBe("render");
   });
 
-  it("warms the root route data endpoint", () => {
-    expect(new URL(dataRouteUrlForHref("/")!).pathname).toBe("/.data");
+  it("uses React Router single-fetch data endpoints", () => {
+    expect(new URL(dataRouteUrlForHref("/")!).pathname).toBe("/_.data");
+    expect(new URL(dataRouteUrlForHref("/docs/")!).pathname).toBe(
+      "/docs/_.data",
+    );
   });
 
   it("refreshes the route tree when React Router patches manifest routes in place", () => {
