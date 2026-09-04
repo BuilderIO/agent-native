@@ -59,6 +59,7 @@ const enUS = {
   },
   common: {
     copied: "Copied",
+    copyFailed: "Copy failed",
     copyCommand: "Copy command",
     copyCode: "Copy code",
     tryIt: "Try It",
@@ -520,7 +521,8 @@ const enUS = {
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
       saasTerms: "Hosted Terms",
-      legalResources: "Legal resources",
+      // i18n-copy-ignore: English-only capitalization fix; translations unchanged
+      legalResources: "Legal Resources",
     },
   },
   gettingStarted: {

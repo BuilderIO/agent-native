@@ -22,8 +22,8 @@ import type {
   UpdateEventScope,
 } from "../../shared/api.js";
 import {
+  createGoogleCalendarCanonicalKey,
   createGoogleCalendarSourceKey,
-  parseGoogleCalendarSourceKey,
 } from "../../shared/google-calendar-sources.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import { isCalendarTimezone } from "../../shared/timezone.js";
@@ -1058,13 +1058,52 @@ export async function getClientsForAccountsWithErrors(
 
 function asCalendarAccessRole(
   value: unknown,
-): GoogleCalendarSource["accessRole"] {
+): GoogleCalendarSource["accessRole"] | null {
   return value === "freeBusyReader" ||
     value === "reader" ||
     value === "writer" ||
     value === "owner"
     ? value
-    : "reader";
+    : null;
+}
+
+const CALENDAR_ACCESS_RANK = {
+  freeBusyReader: 0,
+  reader: 1,
+  writer: 2,
+  owner: 3,
+} as const;
+
+function compareCalendarSourcePaths(
+  a: GoogleCalendarSource,
+  b: GoogleCalendarSource,
+): number {
+  const role =
+    CALENDAR_ACCESS_RANK[b.accessRole] - CALENDAR_ACCESS_RANK[a.accessRole];
+  if (role !== 0) return role;
+  if (a.primary !== b.primary) return a.primary ? -1 : 1;
+  return a.accountEmail.localeCompare(b.accountEmail);
+}
+
+/**
+ * Resolve a client-supplied canonical source identity against the user's live
+ * CalendarList. Provider paths stay server-selected, so a stale or forged
+ * source key can never choose an arbitrary account/calendar pair.
+ */
+export async function resolveGoogleCalendarSource(
+  ownerEmail: string,
+  sourceKey: string,
+): Promise<GoogleCalendarSource> {
+  const discovered = await listGoogleCalendars(ownerEmail);
+  const source = discovered.calendars.find(
+    (candidate) => candidate.sourceKey === sourceKey,
+  );
+  if (!source) {
+    throw new Error(
+      "Google Calendar source is not connected or no longer available",
+    );
+  }
+  return source;
 }
 
 /** Discover every CalendarList entry visible to each connected Google account. */
@@ -1092,24 +1131,28 @@ export async function listGoogleCalendars(forEmail?: string): Promise<{
       } while (pageToken);
       return items
         .filter((item) => typeof item.id === "string" && item.id.length > 0)
-        .map((item): GoogleCalendarSource => {
+        .flatMap((item): GoogleCalendarSource[] => {
           const accessRole = asCalendarAccessRole(item.accessRole);
-          return {
-            sourceKey: createGoogleCalendarSourceKey({
+          if (!accessRole) return [];
+          return [
+            {
+              sourceKey: createGoogleCalendarSourceKey({
+                accountEmail: client.email,
+                calendarId: item.id,
+              }),
+              canonicalKey: createGoogleCalendarCanonicalKey(item.id),
               accountEmail: client.email,
               calendarId: item.id,
-            }),
-            accountEmail: client.email,
-            calendarId: item.id,
-            name: item.summaryOverride || item.summary || item.id,
-            color: item.backgroundColor || undefined,
-            selected: item.selected === true,
-            primary: item.primary === true,
-            accessRole,
-            readOnly:
-              item.primary !== true ||
-              (accessRole !== "owner" && accessRole !== "writer"),
-          };
+              name: item.summaryOverride || item.summary || item.id,
+              color: item.backgroundColor || undefined,
+              selected: item.selected === true,
+              primary: item.primary === true,
+              accessRole,
+              readOnly:
+                item.primary !== true ||
+                (accessRole !== "owner" && accessRole !== "writer"),
+            },
+          ];
         });
     } catch (error: any) {
       errors.push({
@@ -1120,8 +1163,28 @@ export async function listGoogleCalendars(forEmail?: string): Promise<{
     }
   });
   return {
-    calendars: results
-      .flat()
+    calendars: Array.from(
+      results.flat().reduce((byCalendar, source) => {
+        const paths = byCalendar.get(source.calendarId) ?? [];
+        paths.push(source);
+        byCalendar.set(source.calendarId, paths);
+        return byCalendar;
+      }, new Map<string, GoogleCalendarSource[]>()),
+    )
+      .map(([, paths]) => {
+        const sortedPaths = [...paths].sort(compareCalendarSourcePaths);
+        const selected = sortedPaths[0]!;
+        return {
+          ...selected,
+          primary: sortedPaths.some((path) => path.primary),
+          sourcePaths: sortedPaths.map((path) => ({
+            sourceKey: path.sourceKey,
+            accountEmail: path.accountEmail,
+            accessRole: path.accessRole,
+            primary: path.primary,
+          })),
+        };
+      })
       .sort((a, b) => a.sourceKey.localeCompare(b.sourceKey)),
     errors: errors.sort((a, b) => a.email.localeCompare(b.email)),
   };
@@ -1277,10 +1340,9 @@ export async function listEvents(
     const discoveredByKey = new Map(
       discovered.calendars.map((source) => [source.sourceKey, source]),
     );
-    const invalid = requestedSourceKeys.filter((sourceKey) => {
-      const identity = parseGoogleCalendarSourceKey(sourceKey);
-      return !identity || !discoveredByKey.has(sourceKey);
-    });
+    const invalid = requestedSourceKeys.filter(
+      (sourceKey) => !discoveredByKey.has(sourceKey),
+    );
     if (invalid.length > 0) {
       throw new Error(
         `Google Calendar source is not connected or no longer available: ${invalid.join(", ")}`,
@@ -1288,11 +1350,29 @@ export async function listEvents(
     }
     for (const sourceKey of requestedSourceKeys) {
       const source = discoveredByKey.get(sourceKey)!;
-      const accountKey = source.accountEmail.trim().toLowerCase();
-      selectedSourcesByAccount.set(accountKey, [
-        ...(selectedSourcesByAccount.get(accountKey) ?? []),
-        source,
-      ]);
+      const paths = source.sourcePaths ?? [
+        {
+          sourceKey: source.sourceKey,
+          accountEmail: source.accountEmail,
+          accessRole: source.accessRole,
+          primary: source.primary,
+        },
+      ];
+      for (const path of paths) {
+        const accountKey = path.accountEmail.trim().toLowerCase();
+        selectedSourcesByAccount.set(accountKey, [
+          ...(selectedSourcesByAccount.get(accountKey) ?? []),
+          {
+            ...source,
+            accountEmail: path.accountEmail,
+            accessRole: path.accessRole,
+            primary: path.primary,
+            readOnly:
+              path.primary !== true ||
+              (path.accessRole !== "owner" && path.accessRole !== "writer"),
+          },
+        ]);
+      }
     }
     const availableAccounts = new Set(
       clients.map((client) => client.email.trim().toLowerCase()),
@@ -1390,8 +1470,10 @@ export async function listEvents(
             htmlLink: event.htmlLink || undefined,
             accountEmail: email,
             calendarSourceKey: calendarSource?.sourceKey,
+            canonicalKey: calendarSource?.canonicalKey,
             calendarId: calendarSource?.calendarId,
             calendarName: calendarSource?.name,
+            calendarColor: calendarSource?.color,
             calendarAccessRole: calendarSource?.accessRole,
             calendarPrimary: calendarSource?.primary,
             calendarReadOnly: calendarSource?.readOnly,
@@ -1448,7 +1530,16 @@ export async function listEvents(
     },
   );
 
-  return { events: allResults.flat(), errors };
+  const events = allResults.flat();
+  const dedupedEvents = new Map<string, CalendarEvent>();
+  for (const event of events) {
+    const key =
+      event.canonicalKey && event.googleEventId
+        ? `${event.canonicalKey}:${event.googleEventId}`
+        : event.id;
+    if (!dedupedEvents.has(key)) dedupedEvents.set(key, event);
+  }
+  return { events: Array.from(dedupedEvents.values()), errors };
 }
 
 export async function getFreeBusy(
@@ -1670,9 +1761,9 @@ export async function getEvent(
 ): Promise<CalendarEvent> {
   let calendarSource: GoogleCalendarSource | undefined;
   if (options.calendarSourceKey) {
-    const discovered = await listGoogleCalendars(account.ownerEmail);
-    calendarSource = discovered.calendars.find(
-      (source) => source.sourceKey === options.calendarSourceKey,
+    calendarSource = await resolveGoogleCalendarSource(
+      account.ownerEmail,
+      options.calendarSourceKey,
     );
     if (
       !calendarSource ||
@@ -1714,8 +1805,10 @@ export async function getEvent(
     htmlLink: event.htmlLink || undefined,
     accountEmail: account.accountEmail,
     calendarSourceKey: calendarSource?.sourceKey,
+    canonicalKey: calendarSource?.canonicalKey,
     calendarId: calendarSource?.calendarId,
     calendarName: calendarSource?.name,
+    calendarColor: calendarSource?.color,
     calendarAccessRole: calendarSource?.accessRole,
     calendarPrimary: calendarSource?.primary,
     calendarReadOnly: calendarSource?.readOnly,

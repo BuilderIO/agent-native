@@ -417,6 +417,7 @@ const jaJP = {
   },
   common: {
     copied: "コピーされました",
+    copyFailed: "コピーできませんでした",
     copyCommand: "コピーコマンド",
     copyCode: "コードをコピーする",
     tryIt: "試す",

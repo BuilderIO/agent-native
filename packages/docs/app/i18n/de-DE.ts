@@ -418,6 +418,7 @@ const deDE = {
   },
   common: {
     copied: "Kopiert",
+    copyFailed: "Kopieren fehlgeschlagen",
     copyCommand: "Befehl kopieren",
     copyCode: "Code kopieren",
     tryIt: "Ausprobieren",

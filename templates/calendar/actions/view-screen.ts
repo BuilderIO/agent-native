@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -15,7 +14,6 @@ import {
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
 import { getWeekStartsOn } from "../shared/calendar-week.js";
-import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 import {
   getCalendarViewDateRange,
   dateKeyInTimezone,
@@ -104,49 +102,39 @@ export default defineAction({
         getWeekStartsOn(settings.weekStart),
       );
 
-      const sharedCalendarsEnabled = await isFeatureFlagEnabled(
-        SHARED_GOOGLE_CALENDARS,
-        ctx,
-      );
-      const calendarSourceResult = sharedCalendarsEnabled
-        ? await listGoogleCalendars(email)
-        : { calendars: [], errors: [] };
+      const calendarSourceResult = await listGoogleCalendars(email);
       const calendarSources = calendarSourceResult.calendars;
       const visibleCalendarSources = calendarSources.filter(
         (source) =>
           source.accessRole !== "freeBusyReader" &&
           (source.primary ||
-            (visualPreferences.googleCalendarVisibility[source.sourceKey] ??
+            (visualPreferences.googleCalendarVisibility[source.canonicalKey] ??
               source.selected)),
       );
 
-      if (sharedCalendarsEnabled) {
-        screen.googleCalendars = calendarSources.map((source) => ({
-          sourceKey: source.sourceKey,
-          accountEmail: source.accountEmail,
-          calendarId: source.calendarId,
-          name: source.name,
-          color: source.color,
-          visible:
-            source.primary ||
-            (visualPreferences.googleCalendarVisibility[source.sourceKey] ??
-              source.selected),
-          primary: source.primary,
-          accessRole: source.accessRole,
-          readOnly: source.readOnly || !source.primary,
-        }));
-        if (calendarSourceResult.errors.length > 0) {
-          screen.googleCalendarErrors = calendarSourceResult.errors;
-        }
+      screen.googleCalendars = calendarSources.map((source) => ({
+        sourceKey: source.sourceKey,
+        accountEmail: source.accountEmail,
+        calendarId: source.calendarId,
+        name: source.name,
+        color: source.color,
+        visible:
+          source.primary ||
+          (visualPreferences.googleCalendarVisibility[source.canonicalKey] ??
+            source.selected),
+        primary: source.primary,
+        accessRole: source.accessRole,
+        readOnly: source.readOnly || !source.primary,
+      }));
+      if (calendarSourceResult.errors.length > 0) {
+        screen.googleCalendarErrors = calendarSourceResult.errors;
       }
 
       const eventResult = await fetchEventsForRange(
         range.from,
         range.to,
         timezone,
-        sharedCalendarsEnabled
-          ? visibleCalendarSources.map((source) => source.sourceKey)
-          : undefined,
+        visibleCalendarSources.map((source) => source.sourceKey),
       );
       const { events } = eventResult;
 

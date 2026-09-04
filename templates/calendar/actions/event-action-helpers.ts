@@ -262,6 +262,9 @@ export function undeletableEventReason(
   if (event.source === "local") {
     return 'Is a booking; cancel the booking with "cancel-booking" instead';
   }
+  if (event.calendarReadOnly) {
+    return "Comes from a read-only Google calendar source";
+  }
   if (!event.googleEventId) return "Has no Google event id to delete";
   return undefined;
 }

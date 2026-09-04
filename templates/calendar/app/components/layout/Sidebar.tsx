@@ -81,12 +81,7 @@ import {
 } from "@/hooks/use-overlay-people";
 import { useSettings } from "@/hooks/use-settings";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import {
-  CALENDAR_COLORS,
-  defaultColorForAccount,
-  type CalendarColorMode,
-} from "@/lib/calendar-view-preferences";
-import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
+import { CALENDAR_COLORS } from "@/lib/calendar-view-preferences";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import { cn } from "@/lib/utils";
 
@@ -376,21 +371,6 @@ function GoogleConnectSidebarButton() {
   );
 }
 
-/** A conic-gradient dot indicating "multiple colors" (by-type mode) */
-function MultiColorDot({ className }: { className?: string }) {
-  const colors = Object.values(EVENT_CATEGORY_COLORS).filter((_, i) => i < 4);
-  const pct = 100 / colors.length;
-  const stops = colors
-    .map((c, i) => `${c} ${i * pct}% ${(i + 1) * pct}%`)
-    .join(", ");
-  return (
-    <span
-      className={cn("inline-block shrink-0 rounded-full", className)}
-      style={{ background: `conic-gradient(${stops})` }}
-    />
-  );
-}
-
 /** Popover color picker for a single-color selection */
 function ColorPickerPopover({
   color,
@@ -425,313 +405,196 @@ function ColorPickerPopover({
   );
 }
 
-function GoogleAccountsSection({
-  accounts,
-  canAddAccount,
+function GoogleCalendarsSections({
   onClose,
+  section = "owned",
 }: {
-  accounts: Array<{ email: string }>;
-  canAddAccount: boolean;
   onClose: () => void;
+  section?: "owned" | "other";
 }) {
   const t = useT();
-  const { toggleHiddenCalendar, isHiddenCalendar } = useCalendarContext();
+  const { setAddCalendarOpen, setAddCalendarDefaultTab } = useCalendarContext();
+  const [showAllCalendars, setShowAllCalendars] = useState(false);
+  const { data: calendars, enabled } = useGoogleCalendars();
   const {
-    prefs: { colorMode, singleColor, accountColorModes, accountColors },
-    updateAccountColor,
-    updateAccountColorMode,
+    prefs: { googleCalendarColors, googleCalendarVisibility },
+    updateGoogleCalendarColor,
+    updateGoogleCalendarVisibility,
   } = useViewPreferences();
-  const accountEmails = useMemo(
-    () => accounts.map((account) => account.email),
-    [accounts],
+  const readableCalendars = useMemo(
+    () =>
+      (calendars ?? []).filter(
+        (calendar) => calendar.accessRole !== "freeBusyReader",
+      ),
+    [calendars],
   );
-  const {
-    isDesktopGoogleAuth,
-    isGoogleDesktopAuthPending,
-    startDesktopGoogleAuth,
-  } = useGoogleDesktopAuth({
-    onError: (issue) =>
-      toast.error(issue.message || issue.error || t("settings.googleFailed")),
-    onSuccess: () => window.location.reload(),
-  });
-
-  function handleAddAccount() {
-    if (isDesktopGoogleAuth) {
-      startDesktopGoogleAuth({
-        addAccount: true,
-        previousAccountCount: accounts.length,
-      });
-      return;
-    }
-    const returnPath = `${window.location.pathname}${window.location.search}`;
-    startWorkspaceProviderOAuth("google_calendar", {
-      appId: "calendar",
-      returnPath,
-      scope: "user",
-    });
-  }
-
-  function accountColorMode(email: string): CalendarColorMode {
-    return accountColorModes[email] ?? colorMode;
-  }
-
-  function accountColor(email: string): string {
+  const ownedCalendars = readableCalendars.filter(
+    (calendar) => calendar.accessRole === "owner",
+  );
+  const otherCalendars = readableCalendars.filter(
+    (calendar) => calendar.accessRole !== "owner",
+  );
+  function renderCalendarRow(calendar: (typeof readableCalendars)[number]) {
+    const preferenceKey = calendar.canonicalKey;
+    const displayName =
+      section === "owned" && calendar.primary
+        ? calendar.accountEmail
+        : calendar.name;
+    const visible =
+      googleCalendarVisibility[preferenceKey] ??
+      (calendar.primary || calendar.selected);
+    const color =
+      googleCalendarColors[preferenceKey] ??
+      calendar.color ??
+      CALENDAR_COLORS[6];
     return (
-      accountColors[email] ??
-      singleColor ??
-      defaultColorForAccount(email, accountEmails)
+      <div
+        key={preferenceKey}
+        className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+      >
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={`${t("eventForm.color")}: ${displayName}`}
+              className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "block size-2.5 rounded-full ring-1 ring-border",
+                  !visible && "opacity-40",
+                )}
+                style={{ backgroundColor: color }}
+              />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="right" align="start" className="w-auto p-2">
+            <div className="mb-1.5 text-xs font-medium">
+              {t("eventForm.color")}
+            </div>
+            <div className="flex max-w-[132px] flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => updateGoogleCalendarColor(preferenceKey, null)}
+                aria-label={t("eventForm.default")}
+                className="relative size-5 rounded-full ring-1 ring-border"
+                style={{
+                  backgroundColor: calendar.color || CALENDAR_COLORS[6],
+                }}
+              >
+                {!googleCalendarColors[preferenceKey] && (
+                  <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
+                )}
+              </button>
+              {CALENDAR_COLORS.map((candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  onClick={() =>
+                    updateGoogleCalendarColor(preferenceKey, candidate)
+                  }
+                  aria-label={candidate}
+                  className="relative size-5 rounded-full"
+                  style={{ backgroundColor: candidate }}
+                >
+                  {googleCalendarColors[preferenceKey] === candidate && (
+                    <IconCheck className="absolute inset-0 m-auto size-3 text-primary-foreground drop-shadow" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            visible ? "text-muted-foreground" : "text-muted-foreground/40",
+          )}
+        >
+          {displayName}
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            updateGoogleCalendarVisibility(preferenceKey, !visible)
+          }
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={
+            visible ? t("sidebar.hideCalendar") : t("sidebar.showCalendar")
+          }
+          aria-pressed={visible}
+        >
+          {visible ? (
+            <IconEye className="size-3" />
+          ) : (
+            <IconEyeOff className="size-3" />
+          )}
+        </button>
+      </div>
     );
-  }
-
-  function handlePickColor(email: string, color: string) {
-    updateAccountColor(email, color);
-  }
-
-  function handleSetColorMode(email: string, mode: CalendarColorMode) {
-    updateAccountColorMode(email, mode);
   }
 
   return (
     <div className="px-1.5 py-1.5">
-      <div className="mb-1 flex min-h-8 items-center justify-between px-3">
-        <div className="flex items-center">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            {t("sidebar.myCalendars")}
-          </span>
-        </div>
-        <div className="flex items-center">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/settings"
-                onClick={onClose}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-              >
-                <IconSettings className="h-3.5 w-3.5" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent>
-              {t("sidebar.googleCalendarSettings")}
-            </TooltipContent>
-          </Tooltip>
-          {canAddAccount && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleAddAccount}
-                  disabled={isGoogleDesktopAuthPending}
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                >
-                  <IconPlus className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("sidebar.addGoogleAccount")}</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      </div>
-
-      {accounts.map((account) => {
-        const mode = accountColorMode(account.email);
-        const color = accountColor(account.email);
-        return (
-          <div
-            key={account.email}
-            className="group flex min-h-7 items-center gap-2 px-3"
-          >
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border"
-                >
-                  {mode === "multi" ? (
-                    <MultiColorDot
-                      className={cn(
-                        "h-2.5 w-2.5",
-                        isHiddenCalendar("accounts", account.email) &&
-                          "opacity-40",
-                      )}
-                    />
-                  ) : (
-                    <span
-                      className={cn(
-                        "block h-2.5 w-2.5 rounded-full",
-                        isHiddenCalendar("accounts", account.email) &&
-                          "opacity-40",
-                      )}
-                      style={{ backgroundColor: color }}
-                    />
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="right" align="start" className="w-auto p-2">
-                <div className="flex flex-wrap gap-1.5" style={{ width: 132 }}>
-                  {/* Multicolor "by type" option */}
-                  <Tooltip delayDuration={700}>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleSetColorMode(account.email, "multi")
-                        }
-                        className="relative flex h-5 w-5 items-center justify-center rounded-full"
-                      >
-                        <MultiColorDot className="h-5 w-5" />
-                        {mode === "multi" && (
-                          <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="top"
-                      className="max-w-[160px] text-xs"
-                    >
-                      {t("sidebar.colorByMeetingType")}
-                    </TooltipContent>
-                  </Tooltip>
-                  {/* Single color options */}
-                  {CALENDAR_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => handlePickColor(account.email, c)}
-                      className="relative h-5 w-5 rounded-full"
-                      style={{ backgroundColor: c }}
-                    >
-                      {c === color && mode === "single" && (
-                        <IconCheck className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-            <p
-              className={cn(
-                "min-w-0 flex-1 truncate text-xs",
-                isHiddenCalendar("accounts", account.email)
-                  ? "text-muted-foreground/40"
-                  : "text-muted-foreground",
-              )}
-            >
-              {account.email}
-            </p>
+      {section === "owned" && (
+        <div className="mb-1 flex min-h-8 items-center justify-between px-3">
+          <div className="flex items-center">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t("sidebar.myCalendars")}
+            </span>
+          </div>
+          <div className="flex items-center">
             <button
               type="button"
-              onClick={() => toggleHiddenCalendar("accounts", account.email)}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100"
+              aria-label={t("sidebar.addGoogleAccount")}
+              onClick={() => {
+                setAddCalendarDefaultTab("google");
+                setAddCalendarOpen(true);
+              }}
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             >
-              {isHiddenCalendar("accounts", account.email) ? (
-                <IconEyeOff className="h-3 w-3" />
-              ) : (
-                <IconEye className="h-3 w-3" />
-              )}
+              <IconPlus className="h-3.5 w-3.5" />
             </button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function SharedGoogleCalendarsGroup() {
-  const t = useT();
-  const { data: calendars, enabled } = useGoogleCalendars();
-  const {
-    prefs: { googleCalendarVisibility },
-    updateGoogleCalendarVisibility,
-  } = useViewPreferences();
-  const sharedCalendars = (calendars ?? []).filter(
-    (calendar) => !calendar.primary && calendar.accessRole !== "freeBusyReader",
-  );
-  const grouped = useMemo(() => {
-    const groups = new Map<string, typeof sharedCalendars>();
-    for (const calendar of sharedCalendars) {
-      const current = groups.get(calendar.accountEmail) ?? [];
-      current.push(calendar);
-      groups.set(calendar.accountEmail, current);
-    }
-    return Array.from(groups.entries());
-  }, [sharedCalendars]);
-
-  if (!enabled || grouped.length === 0) return null;
-
-  return (
-    <div className="space-y-1">
-      {grouped.map(([accountEmail, accountCalendars]) => (
-        <div key={accountEmail}>
-          <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground/60">
-            {accountEmail}
-          </div>
-          <div className="space-y-0.5">
-            {accountCalendars.map((calendar) => {
-              const visible =
-                googleCalendarVisibility[calendar.sourceKey] ??
-                calendar.selected;
-              return (
-                <div
-                  key={calendar.sourceKey}
-                  className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/settings"
+                  onClick={onClose}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
                 >
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "block size-2.5 shrink-0 rounded-full ring-1 ring-border",
-                      !visible && "opacity-40",
-                    )}
-                    style={{
-                      backgroundColor: calendar.color || CALENDAR_COLORS[6],
-                    }}
-                  />
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate",
-                      visible
-                        ? "text-muted-foreground"
-                        : "text-muted-foreground/40",
-                    )}
-                  >
-                    {calendar.name}
-                  </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateGoogleCalendarVisibility(
-                            calendar.sourceKey,
-                            !visible,
-                          )
-                        }
-                        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
-                        aria-label={
-                          visible
-                            ? t("sidebar.hideCalendar")
-                            : t("sidebar.showCalendar")
-                        }
-                        aria-pressed={visible}
-                      >
-                        {visible ? (
-                          <IconEye className="size-3" />
-                        ) : (
-                          <IconEyeOff className="size-3" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {visible
-                        ? t("sidebar.hideCalendar")
-                        : t("sidebar.showCalendar")}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              );
-            })}
+                  <IconSettings className="h-3.5 w-3.5" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("sidebar.googleCalendarSettings")}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
-      ))}
+      )}
+
+      {enabled &&
+        (section === "owned"
+          ? ownedCalendars
+          : showAllCalendars
+            ? otherCalendars
+            : otherCalendars.slice(0, 8)
+        ).map(renderCalendarRow)}
+      {enabled && section === "other" && otherCalendars.length > 8 && (
+        <button
+          type="button"
+          onClick={() => setShowAllCalendars((current) => !current)}
+          className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {
+            showAllCalendars
+              ? t("common.showLess") // i18n-key-ignore generated calendar catalog
+              : t("common.showMore") // i18n-key-ignore generated calendar catalog
+          }{" "}
+          ({otherCalendars.length - 8})
+        </button>
+      )}
     </div>
   );
 }
@@ -991,14 +854,7 @@ export function Sidebar({
 
               {isConnected &&
                 (googleStatus.data?.accounts?.length ?? 0) > 0 && (
-                  <GoogleAccountsSection
-                    accounts={googleStatus.data!.accounts!}
-                    canAddAccount={
-                      googleStatus.data?.configured === true ||
-                      canOfferGoogleOAuthSetup
-                    }
-                    onClose={onClose}
-                  />
+                  <GoogleCalendarsSections onClose={onClose} />
                 )}
 
               {/* Other Calendars — people overlays + external ICS feeds combined */}
@@ -1014,13 +870,17 @@ export function Sidebar({
                           <IconInfoCircle className="h-3 w-3" />
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent side="right">
+                      <TooltipContent
+                        side="right"
+                        className="pointer-events-none"
+                      >
                         <p>{t("sidebar.otherCalendarsDescription")}</p>
                       </TooltipContent>
                     </Tooltip>
                   </div>
                   <button
                     type="button"
+                    aria-label={t("eventForm.addCalendar")}
                     onClick={() => {
                       setAddCalendarDefaultTab("people");
                       setAddCalendarOpen(true);
@@ -1030,7 +890,13 @@ export function Sidebar({
                     <IconPlus className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                <SharedGoogleCalendarsGroup />
+                {isConnected &&
+                  (googleStatus.data?.accounts?.length ?? 0) > 0 && (
+                    <GoogleCalendarsSections
+                      onClose={onClose}
+                      section="other"
+                    />
+                  )}
                 {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
                   <div className="mt-1 space-y-1">
                     {overlayPeople.length > 0 && (
@@ -1124,34 +990,24 @@ export function Sidebar({
                                 </Tooltip>
                               )}
                               <div className="flex items-center">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        toggleHiddenCalendar(
-                                          "people",
-                                          person.email,
-                                        )
-                                      }
-                                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                    >
-                                      {isHiddenCalendar(
-                                        "people",
-                                        person.email,
-                                      ) ? (
-                                        <IconEyeOff className="h-3 w-3" />
-                                      ) : (
-                                        <IconEye className="h-3 w-3" />
-                                      )}
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    {isHiddenCalendar("people", person.email)
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleHiddenCalendar("people", person.email)
+                                  }
+                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                  aria-label={
+                                    isHiddenCalendar("people", person.email)
                                       ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")}
-                                  </TooltipContent>
-                                </Tooltip>
+                                      : t("sidebar.hideCalendar")
+                                  }
+                                >
+                                  {isHiddenCalendar("people", person.email) ? (
+                                    <IconEyeOff className="h-3 w-3" />
+                                  ) : (
+                                    <IconEye className="h-3 w-3" />
+                                  )}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -1231,28 +1087,24 @@ export function Sidebar({
                                 {cal.name}
                               </span>
                               <div className="flex items-center">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        toggleHiddenCalendar("external", cal.id)
-                                      }
-                                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                    >
-                                      {isHiddenCalendar("external", cal.id) ? (
-                                        <IconEyeOff className="h-3 w-3" />
-                                      ) : (
-                                        <IconEye className="h-3 w-3" />
-                                      )}
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    {isHiddenCalendar("external", cal.id)
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleHiddenCalendar("external", cal.id)
+                                  }
+                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                  aria-label={
+                                    isHiddenCalendar("external", cal.id)
                                       ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")}
-                                  </TooltipContent>
-                                </Tooltip>
+                                      : t("sidebar.hideCalendar")
+                                  }
+                                >
+                                  {isHiddenCalendar("external", cal.id) ? (
+                                    <IconEyeOff className="h-3 w-3" />
+                                  ) : (
+                                    <IconEye className="h-3 w-3" />
+                                  )}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => removeExternal.mutate(cal.id)}

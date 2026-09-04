@@ -411,6 +411,7 @@ const zhCN = {
   },
   common: {
     copied: "已复制",
+    copyFailed: "复制失败",
     copyCommand: "复制命令",
     copyCode: "复制代码",
     tryIt: "试用",

@@ -44,3 +44,10 @@ export function parseGoogleCalendarSourceKey(
     return null;
   }
 }
+
+/** A stable client identity for one provider calendar across account paths. */
+export function createGoogleCalendarCanonicalKey(calendarId: string): string {
+  return `google-calendar-canonical:${Buffer.from(
+    JSON.stringify([calendarId]),
+  ).toString("base64url")}`;
+}

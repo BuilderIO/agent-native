@@ -416,6 +416,7 @@ const hiIN = {
   },
   common: {
     copied: "नकल की गई",
+    copyFailed: "कॉपी नहीं हो सका",
     copyCommand: "आदेश कॉपी करें",
     copyCode: "कोड कॉपी करें",
     tryIt: "आज़माएँ",
