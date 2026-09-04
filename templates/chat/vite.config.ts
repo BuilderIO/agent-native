@@ -20,6 +20,7 @@ export default defineConfig({
     // standalone consumer does not leave the browser waiting on the full
     // composer/editor graph one module at a time.
     entries: [
+      "app/entry.client.tsx",
       "app/root.tsx",
       "app/components/layout/{Layout,Sidebar}.tsx",
       "app/components/chat/ChatRouteContent.tsx",
