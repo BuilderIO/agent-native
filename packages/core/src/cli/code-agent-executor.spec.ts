@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { EngineContentPart } from "../agent/engine/types.js";
 import type { AgentEngine } from "../agent/engine/types.js";
@@ -29,13 +29,6 @@ import {
   updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
 import type { CodeAgentTranscriptEvent } from "./code-agent-runs.js";
-
-vi.mock("../db/ddl-guard.js", () => ({
-  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
-  ensureTableExists: vi.fn().mockResolvedValue(undefined),
-}));
 
 const tmpRoots: string[] = [];
 const providerEnvKeys = [

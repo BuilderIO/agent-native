@@ -83,11 +83,22 @@ import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
 
+const mockTryClaimRunSlot = vi.hoisted(() =>
+  vi.fn(async () => ({ claimed: true, activeRunId: null })),
+);
+
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),
   ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./run-manager.js", async () => ({
+  ...(await vi.importActual<typeof import("./run-manager.js")>(
+    "./run-manager.js",
+  )),
+  tryClaimRunSlot: mockTryClaimRunSlot,
 }));
 
 describe("runCompletionCallbackWithDatabaseRetry", () => {
