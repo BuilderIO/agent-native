@@ -1436,20 +1436,7 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
   ];
 }
 
-function getAgentKitOptimizeExcludes(
-  cwd: string,
-  command?: AgentNativeViteCommand,
-): string[] {
-  // Published standalone apps do not have a source checkout to keep hot, so
-  // serving every framework module as native ESM only creates a cold-start
-  // waterfall in Vite dev. Monorepo apps keep the exclusions below so HMR
-  // continues to resolve framework changes from source.
-  if (
-    (command === "serve" || (!command && !isBuildCommand(command))) &&
-    findCoreSrcDir(cwd) === null
-  )
-    return [];
-
+function getAgentKitOptimizeExcludes(): string[] {
   // These packages already ship browser-native ESM. Prebundling them makes
   // Vite traverse the entire framework graph before the generated Chat server
   // can answer its first action request, which can starve constrained CI and
@@ -2117,6 +2104,10 @@ function frameworkDevDynamicForwarder(): Plugin {
       server.middlewares.use((req, _res, next) => {
         const url = req.url;
         if (url && isFrameworkDynamicDevPath(url, server.config.base)) {
+          const accept = req.headers["accept"];
+          if (typeof accept !== "string" || !/\btext\/html\b/.test(accept)) {
+            req.headers["accept"] = accept ? `text/html,${accept}` : "text/html";
+          }
           // Embed-start uses document/iframe to select its transplant response,
           // and Nitro's own dev classifier already treats document/iframe/frame
           // as non-asset, so those (and an already-"empty" value) pass through
@@ -4293,7 +4284,7 @@ function createAgentNativeConfig(
       // serves stale code even after the source / dist is updated.
       exclude: [
         ...(findCoreSrcDir(cwd) !== null ? CORE_CLIENT_SUBPATHS : []),
-        ...(usesAgentKit ? getAgentKitOptimizeExcludes(cwd, command) : []),
+        ...(usesAgentKit ? getAgentKitOptimizeExcludes() : []),
         // Workspace dependencies resolve to source and must remain outside the
         // optimizer for HMR. This supplements the explicit AgentKit framework
         // exclusions above for every other local source package.
