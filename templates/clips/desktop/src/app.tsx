@@ -138,6 +138,11 @@ import {
   copyRecordingShareLink,
   recordingShareUrl,
 } from "./lib/recording-link";
+import {
+  RECORDING_SERVER_UNAVAILABLE,
+  RECORDING_SESSION_EXPIRED,
+  isStorageSetupFailureMessage,
+} from "./lib/recording-request";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
@@ -374,8 +379,6 @@ type VideoStorageStatus = "checking" | "configured" | "missing";
 
 const STORAGE_SETUP_HELP_TEXT =
   "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
-const STORAGE_SETUP_FAILURE_RE =
-  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
 const DEFAULT_SCREEN_MEMORY_CONFIG = {
   enabled: false,
   paused: false,
@@ -396,10 +399,6 @@ const DEFAULT_SCREEN_MEMORY_CONFIG = {
   ],
   excludePrivateWindows: false,
 };
-
-function isStorageSetupFailureMessage(message: string | null | undefined) {
-  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
-}
 
 // Shared with overlays via lib/url.ts — the meeting pill reads the same key.
 const STORAGE_KEY = SERVER_URL_STORAGE_KEY;
@@ -1501,6 +1500,16 @@ export function App({
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           clearDesktopAuthToken(requestServerUrl);
+          setAuthStatus("anon");
+          setSignedInAs(null);
+          return { state: "anonymous" };
+        }
+        if (res.status >= 500) {
+          setServerReachable(false);
+          setAuthStatus((current) =>
+            current === "authed" ? current : "unavailable",
+          );
+          return { state: "unavailable" };
         }
         setAuthStatus("anon");
         setSignedInAs(null);
@@ -1762,6 +1771,7 @@ export function App({
           serverUrl,
           hasAudio,
           request.startAt,
+          loadDesktopAuthToken(serverUrl),
         );
         recordingId = recording.id;
         await invoke("rewind_agent_handoff_upload", {
@@ -1864,6 +1874,7 @@ export function App({
           serverUrl,
           origin.includeMicrophone || origin.includeSystemAudio,
           startedAt,
+          loadDesktopAuthToken(serverUrl),
         );
         preRollRecordingId = recording.id;
         const upload = await invoke<NativeRewindUploadResult>(
@@ -3773,8 +3784,29 @@ export function App({
       openVideoStorageSetup();
       return null;
     }
+    if (
+      message === RECORDING_SESSION_EXPIRED ||
+      message === RECORDING_SERVER_UNAVAILABLE
+    ) {
+      setRecError(message);
+      return null;
+    }
     setRecError(message);
     return null;
+  }
+
+  async function reconnectSession() {
+    const authResult = await checkAuth();
+    if (authResult.state === "unavailable") {
+      setRecError(RECORDING_SERVER_UNAVAILABLE);
+      return;
+    }
+    if (
+      authResult.state === "authenticated" ||
+      authResult.state === "anonymous"
+    ) {
+      setRecError(null);
+    }
   }
 
   // The restart listener lives in an effect keyed on `recorder`; calling the
@@ -4725,6 +4757,10 @@ export function App({
             <StorageConnectionBanner
               onConnect={() => openVideoStorageSetup()}
             />
+          ) : recError === RECORDING_SESSION_EXPIRED ? (
+            <SessionExpiredBanner onReconnect={() => void reconnectSession()} />
+          ) : recError === RECORDING_SERVER_UNAVAILABLE ? (
+            <ServerUnavailableBanner onRetry={() => beginRecording()} />
           ) : (
             <div className="error-banner">{recError}</div>
           )
@@ -4896,6 +4932,42 @@ function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
         <IconExternalLink size={14} stroke={2} />
         Connect
       </button>
+    </div>
+  );
+}
+
+function SessionExpiredBanner({ onReconnect }: { onReconnect: () => void }) {
+  return (
+    <div className="error-banner permission-banner">
+      <div className="permission-copy">
+        <div className="permission-title">Session expired</div>
+        <div>Your Clips session expired. Sign in again to start recording.</div>
+      </div>
+      <div className="permission-actions" aria-label="Session recovery">
+        <button
+          type="button"
+          className="permission-retry"
+          onClick={onReconnect}
+        >
+          Sign in again
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ServerUnavailableBanner({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="error-banner permission-banner">
+      <div className="permission-copy">
+        <div className="permission-title">Clips server unavailable</div>
+        <div>Check your connection, then try starting the recording again.</div>
+      </div>
+      <div className="permission-actions" aria-label="Server recovery">
+        <button type="button" className="permission-retry" onClick={onRetry}>
+          Try again
+        </button>
+      </div>
     </div>
   );
 }

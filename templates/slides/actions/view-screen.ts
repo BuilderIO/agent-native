@@ -168,7 +168,7 @@ export default defineAction({
       lines.push(``);
       lines.push(`view: ${effectiveNavigation.view ?? "editor"}`);
       lines.push(
-        `deckId: ${rows[0].id}            ← use this for add-slide / update-slide / create-deck --deckId`,
+        `deckId: ${rows[0].id}            ← use this as deckId for add-slide / update-slide / create-deck, and as id for get-deck`,
       );
       lines.push(`deckTitle: ${rows[0].title ?? deck?.title ?? "(untitled)"}`);
       lines.push(`slideCount: ${slides.length}`);

@@ -32,7 +32,11 @@ vi.mock("jspdf", () => ({
 
 vi.mock("modern-screenshot", () => ({ domToJpeg: mocks.domToJpeg }));
 
-import { exportDeckAsPdf, findSlideExportSource } from "./export-pdf-client.js";
+import {
+  exportDeckAsPdf,
+  findSlideExportSource,
+  imageProxyUrl,
+} from "./export-pdf-client.js";
 
 /**
  * A slide renders twice — sidebar thumbnail and editor canvas — with the same
@@ -105,6 +109,18 @@ describe("findSlideExportSource", () => {
     expect(() => findSlideExportSource("missing", 2, 5)).toThrow(
       /Slide 3 of 5 is not currently rendered/,
     );
+  });
+
+  it("can restrict lookup to a dedicated export stage", () => {
+    const stage = document.createElement("div");
+    const canvas = addSlideCopy("s1", {
+      offsetWidth: 960,
+      renderedWidth: 960,
+    });
+    stage.appendChild(canvas);
+    document.body.appendChild(stage);
+
+    expect(findSlideExportSource("s1", 0, 1, stage)).toBe(canvas);
   });
 });
 
@@ -238,6 +254,59 @@ describe("exportDeckAsPdf", () => {
     );
   });
 
+  it("keeps export-stage text in the PDF text layer", async () => {
+    const stage = document.createElement("div");
+    stage.setAttribute("aria-hidden", "true");
+    stage.setAttribute("data-pdf-export-stage", "true");
+    const canvas = renderSlide("s1");
+    stage.appendChild(canvas);
+    document.body.appendChild(stage);
+    stubRangeLayout();
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.text.mock.calls.map(([value]) => value)).toContain(
+      "Growth & margin",
+    );
+  });
+
+  it("does not wait on terminal renderer placeholders", async () => {
+    const stage = document.createElement("div");
+    stage.setAttribute("data-pdf-export-stage", "true");
+    const canvas = renderSlide("s1");
+    const mermaid = document.createElement("div");
+    mermaid.setAttribute("data-mermaid-index", "0");
+    mermaid.setAttribute("data-mermaid-state", "empty");
+    canvas.appendChild(mermaid);
+    stage.appendChild(canvas);
+    document.body.appendChild(stage);
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.addImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("authorizes public-share image proxy URLs with the share token", () => {
+    expect(
+      imageProxyUrl("https://cdn.example.com/hero.png", "share-token"),
+    ).toContain("shareToken=share-token");
+  });
+
+  it("keeps exporting when a same-origin image cannot decode", async () => {
+    const canvas = renderSlide("s1");
+    const image = document.createElement("img");
+    image.src = "/missing.png";
+    image.decode = vi.fn().mockRejectedValue(new Error("404"));
+    canvas.appendChild(image);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.addImage).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("leaves speaker notes out of the PDF", async () => {
     // A PDF is the artifact people forward. Notes are private commentary the
     // page never shows, and every other share surface blanks them.
@@ -336,6 +405,25 @@ describe("exportDeckAsPdf", () => {
     // jsPDF passes setFontSize straight through as points while scaling
     // coordinates by the px unit factor, so the size has to carry it by hand.
     expect(full).toBeCloseTo(64 * (96 / 72), 3);
+  });
+
+  it("does not download after capture is cancelled", async () => {
+    renderSlide("s1");
+    const controller = new AbortController();
+    mocks.domToJpeg.mockImplementationOnce(async () => {
+      controller.abort();
+      return "data:image/jpeg;base64,AA==";
+    });
+
+    await expect(
+      exportDeckAsPdf(
+        "Q3 review",
+        [{ id: "s1", content: "<div></div>" }],
+        undefined,
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+    expect(mocks.addImage).not.toHaveBeenCalled();
   });
 
   it("still exports, without a sidecar, when the deck source is too large to carry", async () => {

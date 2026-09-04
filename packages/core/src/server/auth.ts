@@ -155,7 +155,10 @@ import {
   getBetterAuthSync,
   isDeployPreview,
 } from "./better-auth-instance.js";
-import type { BetterAuthConfig } from "./better-auth-instance.js";
+import type {
+  BetterAuthConfig,
+  BetterAuthInstance,
+} from "./better-auth-instance.js";
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_RELAY_PATH,
@@ -1681,6 +1684,89 @@ export async function removeSession(token: string): Promise<void> {
   );
   // Sign-out must take effect immediately, not after the cache TTL.
   invalidateSessionEmailCache();
+}
+
+/**
+ * The one logout implementation, shared by every auth mode's route.
+ *
+ * Login mints a session by mirroring one token into the framework's
+ * `an_session` cookie, the legacy `sessions` table (`addSession`), AND
+ * Better Auth's own `"session"` table — but never gives the browser Better
+ * Auth's own session cookie. `auth.api.signOut()` identifies what to revoke
+ * from THAT cookie, which was never issued, so it silently finds nothing and
+ * Better Auth's `"session"` row survives sign-out. `getSession`'s legacy-
+ * cookie fallback then falls through to a direct Better-Auth-table lookup by
+ * token (kept for magic-link resilience — see `getLegacyCookieSession`) and
+ * resurrects the "logged out" user. Deleting the `"session"` row directly by
+ * the same token candidates closes that gap regardless of whether
+ * `auth.api.signOut()` finds anything.
+ */
+async function performLogout(
+  event: H3Event,
+  getAuth: () => Promise<BetterAuthInstance | null> | BetterAuthInstance | null,
+): Promise<void> {
+  const bearerToken = getBearerSessionToken(event);
+  const rawTokens = [
+    ...getFrameworkSessionCookieValues(event),
+    ...(bearerToken ? [bearerToken] : []),
+  ];
+  const candidates = rawTokens.flatMap(sessionTokenLookupCandidates);
+
+  let auth: BetterAuthInstance | null = null;
+  try {
+    auth = await getAuth();
+  } catch (error) {
+    // The fallback route's `getAuth` retries resolving Better Auth here and
+    // may still find it unavailable — expected on that route, not tracked.
+    console.warn(
+      "[auth] could not resolve Better Auth instance during logout:",
+      error,
+    );
+  }
+
+  for (const token of candidates) {
+    await removeSession(token);
+    // No Better Auth instance in this mode (BYOA) means no `"session"`
+    // table to revoke from — skip rather than generate a guaranteed,
+    // uninformative "table missing" failure on every logout.
+    if (!auth) continue;
+    try {
+      await getDbExec().execute({
+        sql: 'DELETE FROM "session" WHERE token = ?',
+        args: [token],
+      });
+    } catch (error) {
+      // A resolved Better Auth instance means this table should exist, so a
+      // failure here is a real signal that the row this bug depends on may
+      // have survived logout — not routine noise. `route: "logout"` is
+      // captured at `warning` level (see `captureAuthError`), so a spike is
+      // visible without paging anyone on a one-off.
+      captureAuthError(error, { route: "logout" });
+    }
+  }
+  invalidateSessionEmailCache();
+
+  clearFrameworkSessionCookies(event);
+  clearFirstRunOnboardingCookie(event);
+  optOutOfAuthDisabledSession(event);
+
+  if (auth) {
+    try {
+      const result = await auth.api.signOut({
+        headers: event.headers,
+        returnHeaders: true,
+      });
+      forwardBetterAuthSetCookies(event, result);
+    } catch (error) {
+      // Better Auth's own signOut looks for its own session cookie, which
+      // this framework never issues to the browser (see the doc comment
+      // above) — expected to fail on essentially every call today, so this
+      // is logged for local debugging rather than tracked as an anomaly.
+      console.warn("[auth] Better Auth signOut failed during logout:", error);
+    }
+  }
+
+  if (isElectronRequest(event)) await clearDesktopSso();
 }
 
 /**
@@ -6162,27 +6248,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
-      for (const cookie of getFrameworkSessionCookieValues(event)) {
-        await removeSession(cookie);
-      }
-      const bearerToken = getBearerSessionToken(event);
-      if (bearerToken) await removeSession(bearerToken);
-      clearFrameworkSessionCookies(event);
-      clearFirstRunOnboardingCookie(event);
-      optOutOfAuthDisabledSession(event);
-
-      try {
-        const result = await auth.api.signOut({
-          headers: event.headers,
-          returnHeaders: true,
-        });
-        forwardBetterAuthSetCookies(event, result);
-      } catch {
-        // Ignore if no Better Auth session
-      }
-
-      if (isElectronRequest(event)) await clearDesktopSso();
-
+      await performLogout(event, () => auth);
       return { ok: true };
     }),
   );
@@ -6456,28 +6522,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/logout",
     defineEventHandler(async (event) => {
-      for (const cookie of getFrameworkSessionCookieValues(event)) {
-        await removeSession(cookie);
-      }
-      const bearerToken = getBearerSessionToken(event);
-      if (bearerToken) await removeSession(bearerToken);
-      clearFrameworkSessionCookies(event);
-      clearFirstRunOnboardingCookie(event);
-      optOutOfAuthDisabledSession(event);
-
-      try {
-        const auth = await getBetterAuth();
-        const result = await auth.api.signOut({
-          headers: event.headers,
-          returnHeaders: true,
-        });
-        forwardBetterAuthSetCookies(event, result);
-      } catch {
-        // Ignore if Better Auth is still unavailable
-      }
-
-      if (isElectronRequest(event)) await clearDesktopSso();
-
+      await performLogout(event, () => getBetterAuth());
       return { ok: true };
     }),
   );
@@ -6656,15 +6701,7 @@ export async function autoMountAuth(
     app.use(
       "/_agent-native/auth/logout",
       defineEventHandler(async (event) => {
-        for (const cookie of getFrameworkSessionCookieValues(event)) {
-          await removeSession(cookie);
-        }
-        const bearerToken = getBearerSessionToken(event);
-        if (bearerToken) await removeSession(bearerToken);
-        clearFrameworkSessionCookies(event);
-        clearFirstRunOnboardingCookie(event);
-        optOutOfAuthDisabledSession(event);
-        if (isElectronRequest(event)) await clearDesktopSso();
+        await performLogout(event, () => null);
         return { ok: true };
       }),
     );

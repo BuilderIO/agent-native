@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -302,10 +302,11 @@ export default defineAction({
       .limit(1);
 
     if (!file) {
-      throw new Error(
+      fail(
         requestedFileId
           ? `File id "${requestedFileId}" not found in design ${designId}`
           : `File "${targetFilename}" not found in design ${designId}`,
+        { errorCode: "design_file_not_found", statusCode: 404 },
       );
     }
 
@@ -387,65 +388,76 @@ export default defineAction({
 
       if (!changed) break;
 
+      const hasCreativeContextRequest =
+        contextPackId !== undefined ||
+        contextModeOverride !== undefined ||
+        reuseLabels.length > 0;
+      // Unscoped deterministic edits are independent of the optional context
+      // service; only an explicit context request needs a prior scope lookup.
       const previous =
-        contextModeOverride === "off"
-          ? null
-          : await getGenerationCreativeContext({
+        hasCreativeContextRequest && contextModeOverride !== "off"
+          ? await getGenerationCreativeContext({
               appId: "design",
               artifactType: "design",
               artifactId: designId,
-            });
-      if (
-        contextPackId !== undefined &&
-        previous?.contextPackId &&
-        contextPackId !== previous.contextPackId
-      ) {
-        throw new Error(
-          "The design edit must preserve the design's creative-context pack",
-        );
+            })
+          : null;
+      if (hasCreativeContextRequest) {
+        if (
+          contextPackId !== undefined &&
+          previous?.contextPackId &&
+          contextPackId !== previous.contextPackId
+        ) {
+          fail(
+            "The design edit must preserve the design's creative-context pack",
+            { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
+          );
+        }
+        const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
+          ? reuseLabels
+          : [
+              {
+                kind: "design-file",
+                label: "Net-new design edit",
+                dataRole: "untrusted-reference",
+                elementId: file.id,
+                influence: "generated",
+              },
+            ];
+        const validated = await validateGenerationCreativeContext({
+          contextPackId: contextPackId ?? previous?.contextPackId,
+          contextPackSource:
+            contextPackId === undefined ? "inherited" : "explicit",
+          contextModeOverride,
+          reuseLabels: requestedLabels,
+          reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+        });
+        const elementProvenance = validated.reuseLabels.map((label) => ({
+          elementId: file.id,
+          influence: label.influence ?? ("reference-conditioned" as const),
+          ...(label.itemId ? { itemId: label.itemId } : {}),
+          ...(label.itemVersionId
+            ? { itemVersionId: label.itemVersionId }
+            : {}),
+          label: label.label,
+        }));
+        const contextMode =
+          validated.contextMode === "off"
+            ? "off"
+            : (previous?.contextMode ?? validated.contextMode);
+        creativeContext = {
+          contextMode,
+          contextPackId: validated.contextPackId,
+          reuseLabels: validated.reuseLabels,
+          elementProvenance:
+            contextMode === "off"
+              ? elementProvenance
+              : replaceCreativeContextElementProvenance(
+                  previous?.elementProvenance ?? [],
+                  elementProvenance,
+                ),
+        };
       }
-      const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
-        ? reuseLabels
-        : [
-            {
-              kind: "design-file",
-              label: "Net-new design edit",
-              dataRole: "untrusted-reference",
-              elementId: file.id,
-              influence: "generated",
-            },
-          ];
-      const validated = await validateGenerationCreativeContext({
-        contextPackId: contextPackId ?? previous?.contextPackId,
-        contextPackSource:
-          contextPackId === undefined ? "inherited" : "explicit",
-        contextModeOverride,
-        reuseLabels: requestedLabels,
-        reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
-      });
-      const elementProvenance = validated.reuseLabels.map((label) => ({
-        elementId: file.id,
-        influence: label.influence ?? ("reference-conditioned" as const),
-        ...(label.itemId ? { itemId: label.itemId } : {}),
-        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
-        label: label.label,
-      }));
-      const contextMode =
-        validated.contextMode === "off"
-          ? "off"
-          : (previous?.contextMode ?? validated.contextMode);
-      creativeContext = {
-        contextMode,
-        contextPackId: validated.contextPackId,
-        reuseLabels: validated.reuseLabels,
-        elementProvenance:
-          contextMode === "off"
-            ? elementProvenance
-            : replaceCreativeContextElementProvenance(
-                previous?.elementProvenance ?? [],
-                elementProvenance,
-              ),
-      };
       assertLockedLayersPreserved(base, nextContent);
 
       // Mark agent presence + selection so live viewers can see where the
@@ -485,12 +497,14 @@ export default defineAction({
       } finally {
         agentLeaveDocument(file.id);
       }
-      await recordGenerationCreativeContext({
-        appId: "design",
-        artifactType: "design",
-        artifactId: designId,
-        ...creativeContext,
-      });
+      if (creativeContext) {
+        await recordGenerationCreativeContext({
+          appId: "design",
+          artifactType: "design",
+          artifactId: designId,
+          ...creativeContext,
+        });
+      }
       break;
     }
 

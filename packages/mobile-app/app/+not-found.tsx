@@ -1,9 +1,10 @@
-import { Link } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 
 import { SafeAreaView } from "@/components/uniwind-interop";
+import { useMobileNavigation } from "@/lib/navigation";
 
 export default function NotFoundScreen() {
+  const navigation = useMobileNavigation();
   return (
     <SafeAreaView
       edges={["top", "bottom"]}
@@ -16,13 +17,14 @@ export default function NotFoundScreen() {
         <Text className="text-white text-2xl font-bold tracking-tight mt-2.5 text-center">
           This page is unavailable.
         </Text>
-        <Link href="/chat" asChild>
-          <Pressable className="bg-primary rounded-xl px-5 py-3 mt-7 active:opacity-75">
-            <Text className="text-primary-foreground text-sm font-bold">
-              Back to Chat
-            </Text>
-          </Pressable>
-        </Link>
+        <Pressable
+          className="bg-primary rounded-xl px-5 py-3 mt-7 active:opacity-75"
+          onPress={() => navigation.replace("/chat")}
+        >
+          <Text className="text-primary-foreground text-sm font-bold">
+            Back to Chat
+          </Text>
+        </Pressable>
       </View>
     </SafeAreaView>
   );

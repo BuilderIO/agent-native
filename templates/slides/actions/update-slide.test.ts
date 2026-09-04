@@ -210,20 +210,10 @@ describe("update-slide", () => {
       slideId: "slide-1",
       actor: "agent",
     });
-    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        artifactId: "deck-1",
-        contextMode: "auto",
-        contextPackId: null,
-        elementProvenance: [
-          expect.objectContaining({
-            elementId: "slide-1",
-            influence: "generated",
-          }),
-        ],
-      }),
-      expect.objectContaining({ db: mockDb }),
-    );
+    // A deterministic focused edit without an existing or explicit Creative
+    // Context scope must not enter the generation-context gate.
+    expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
     // The agent's presence is recorded on the DECK presence doc for this slide.
     expect(mockAgentTouchDocument).toHaveBeenCalledWith(
       "deck-deck-1",
@@ -234,6 +224,22 @@ describe("update-slide", () => {
         }),
       }),
     );
+  });
+
+  it("does not require Creative Context for an unscoped WebMCP edit", async () => {
+    const result = await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New", expectedMatches: 1 }],
+      },
+      { caller: "webmcp" },
+    );
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(mockGetGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
   it("preserves dismissed overflow warnings for human content edits", async () => {
