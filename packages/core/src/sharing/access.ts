@@ -18,6 +18,7 @@ import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 import { isPostgres } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
+import { isMissingOrganizationTableError } from "../org/membership.js";
 import { orgMembers } from "../org/schema.js";
 import { organizations } from "../org/schema.js";
 import {
@@ -125,14 +126,25 @@ async function isOrgMember(
     .limit(1);
   if (rows.length === 0) return false;
 
-  const [organization] = await db
-    .select({
-      identityAuthority: organizations.identityAuthority,
-      identityId: organizations.identityId,
-    })
-    .from(organizations)
-    .where(eq(organizations.id, memberOrgId))
-    .limit(1);
+  let organization: {
+    identityAuthority: string | null;
+    identityId: string | null;
+  } | null = null;
+  try {
+    [organization] = await db
+      .select({
+        identityAuthority: organizations.identityAuthority,
+        identityId: organizations.identityId,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, memberOrgId))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) throw error;
+    // Embedded hosts may provide org_members for a fixture without the org
+    // module. Preserve the historical local membership behavior there.
+    return true;
+  }
   const linked =
     String(organization?.identityAuthority ?? "").trim() ||
     String(organization?.identityId ?? "").trim();
