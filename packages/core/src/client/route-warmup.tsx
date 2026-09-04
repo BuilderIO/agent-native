@@ -147,9 +147,14 @@ function dataRouteUrlForHref(href: string): string | null {
   const url = hrefUrl(href);
   if (!url || !isWarmableRouteUrl(url)) return null;
 
-  url.pathname = url.pathname.endsWith("/")
-    ? `${url.pathname}_.data`
-    : `${url.pathname}.data`;
+  const basename = normalizeBasename(window.__reactRouterContext?.basename);
+  if (basename !== "/" && url.pathname === basename) {
+    url.pathname = `${basename}/_.data`;
+  } else {
+    url.pathname = url.pathname.endsWith("/")
+      ? `${url.pathname}_.data`
+      : `${url.pathname}.data`;
+  }
   url.hash = "";
   return url.href;
 }

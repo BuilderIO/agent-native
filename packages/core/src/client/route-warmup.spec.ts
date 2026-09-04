@@ -40,6 +40,11 @@ describe("route warmup runtime helpers", () => {
     expect(new URL(dataRouteUrlForHref("/docs/")!).pathname).toBe(
       "/docs/_.data",
     );
+
+    window.__reactRouterContext = { basename: "/dispatch" };
+    expect(new URL(dataRouteUrlForHref("/dispatch")!).pathname).toBe(
+      "/dispatch/_.data",
+    );
   });
 
   it("refreshes the route tree when React Router patches manifest routes in place", () => {
