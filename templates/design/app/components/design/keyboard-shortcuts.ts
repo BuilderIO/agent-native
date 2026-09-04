@@ -152,9 +152,16 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "toggle-ui",
     category: "view",
-    bindings: ["shift+\\"],
+    bindings: ["$mod+\\"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleUi",
     handler: "onToggleUi",
+  }),
+  shortcut({
+    id: "toggle-minimal-ui",
+    category: "view",
+    bindings: ["$mod+shift+\\"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleUi",
+    handler: "onToggleMinimalUi",
   }),
   shortcut({
     id: "toggle-comments",
