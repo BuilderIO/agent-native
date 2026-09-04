@@ -10,6 +10,7 @@ import {
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   stripEditorOnlyAttributes,
+  wrapBareTextLeavesInHtml,
   type EditIntent,
 } from "./code-layer";
 
@@ -2762,5 +2763,126 @@ describe("style edit property normalization for fill layers", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("background: #f5f5f5");
+  });
+});
+
+describe("design node classification", () => {
+  const typeOf = (html: string, tag: string) => {
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const found: Array<{ type: string; name: string; isComponent?: boolean }> =
+      [];
+    const walk = (nodes: ReturnType<typeof buildCodeLayerTree>) => {
+      for (const node of nodes) {
+        if (node.tag === tag) {
+          found.push({
+            type: node.type,
+            name: node.name,
+            isComponent: node.isComponent,
+          });
+        }
+        walk(node.children);
+      }
+    };
+    walk(tree);
+    return found[0];
+  };
+
+  it("classifies a painted, padded text leaf as a frame, not text", () => {
+    const node = typeOf(
+      `<div><button class="px-6 py-3 bg-blue-600 rounded">Get Started</button></div>`,
+      "button",
+    );
+    expect(node?.type).toBe("frame");
+    expect(node?.isComponent).toBe(true);
+  });
+
+  it("keeps a plain text leaf as text", () => {
+    expect(typeOf(`<div><a href="/x">Features</a></div>`, "a")?.type).toBe(
+      "text",
+    );
+    expect(
+      typeOf(`<div><h1 class="text-4xl">Hello</h1></div>`, "h1")?.type,
+    ).toBe("text");
+  });
+
+  it("keeps a heading with inline runs as one text layer", () => {
+    const html = `<div><h1 class="text-4xl">Transform <span class="text-blue-400">Your</span> Workflow</h1></div>`;
+    const heading = typeOf(html, "h1");
+    expect(heading?.type).toBe("text");
+    expect(heading?.name).toBe("Transform Your Workflow");
+    expect(typeOf(html, "span")).toBeUndefined();
+  });
+
+  it("classifies painted void leaves by their radius", () => {
+    const dot = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-3 h-3 rounded-full bg-red-500"></div><div class="h-px w-full bg-border"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(dot?.[0]?.type).toBe("ellipse");
+    expect(dot?.[1]?.type).toBe("shape");
+  });
+
+  it("treats a wide rounded-full box as a pill, not an ellipse", () => {
+    const shapes = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-20 h-6 rounded-full bg-slate-200"></div><div class="size-3 rounded-full bg-red-500"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(shapes?.[0]?.type).toBe("shape");
+    expect(shapes?.[1]?.type).toBe("ellipse");
+  });
+
+  it("does not treat a colour utility as a component marker", () => {
+    const card = typeOf(
+      `<section><div class="p-6 rounded-lg border bg-card"><p>Body</p></div></section>`,
+      "div",
+    );
+    expect(card?.type).toBe("frame");
+    expect(card?.isComponent).toBe(false);
+  });
+
+  it("never names a layer after a tailwind utility", () => {
+    const tree = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="flex flex-col opacity-90 top-0"><p class="text-lg">Body</p></div></section>`,
+      ),
+    );
+    expect(tree[0]?.children[0]?.name).toBe("Frame");
+  });
+});
+
+describe("wrapBareTextLeavesInHtml", () => {
+  it("gives a painted text leaf its own text layer", () => {
+    const wrapped = wrapBareTextLeavesInHtml(
+      `<div><button class="px-6 py-3 bg-blue-600">Get Started</button></div>`,
+    );
+    expect(wrapped.wrapped).toBe(1);
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(wrapped.content));
+    const button = tree[0]?.children[0];
+    expect(button?.type).toBe("frame");
+    expect(button?.children[0]?.type).toBe("text");
+    expect(button?.children[0]?.name).toBe("Get Started");
+  });
+
+  it("is idempotent", () => {
+    const html = `<div><button class="px-6 py-3 bg-blue-600">Save</button></div>`;
+    const once = wrapBareTextLeavesInHtml(html);
+    expect(once.changed).toBe(true);
+    expect(once.wrapped).toBe(1);
+    const twice = wrapBareTextLeavesInHtml(once.content);
+    expect(twice.changed).toBe(false);
+    expect(twice.content).toBe(once.content);
+  });
+
+  it("leaves unpainted text and mixed content alone", () => {
+    const result = wrapBareTextLeavesInHtml(
+      `<div><h1 class="text-4xl">Title</h1><p class="p-4 bg-muted">Hi <b>there</b></p><button class="px-4 py-2 bg-blue-600">Save</button></div>`,
+    );
+    expect(result.wrapped).toBe(1);
+    expect(result.content).toContain(`<h1 class="text-4xl">Title</h1>`);
+    expect(result.content).toContain(
+      `<p class="p-4 bg-muted">Hi <b>there</b></p>`,
+    );
   });
 });

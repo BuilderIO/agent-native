@@ -101,6 +101,8 @@ export interface LayersPanelNode {
   id: string;
   name: string;
   type?: LayersPanelNodeType;
+  /** Identity, not shape: a button is a frame that is *also* a component. */
+  isComponent?: boolean;
   tagName?: string;
   layout?: {
     display?: string;
@@ -2670,10 +2672,18 @@ function IconTooltipButton({
 function LayerGlyph({
   node,
 }: {
-  node: Pick<LayersPanelNode, "type" | "layout" | "tagName" | "detail">;
+  node: Pick<
+    LayersPanelNode,
+    "type" | "layout" | "tagName" | "detail" | "isComponent"
+  >;
 }) {
-  const common = "size-[var(--design-icon-size)]";
   const componentColor = "text-[var(--design-editor-component-color)]";
+  // Component-ness tints the shape glyph rather than replacing it, so a button
+  // still reads as the frame it is.
+  const common = cn(
+    "size-[var(--design-icon-size)]",
+    node.isComponent && componentColor,
+  );
   if (layerNodeUsesImageGlyph(node)) {
     return <IconPhoto className={common} />;
   }
@@ -2756,8 +2766,14 @@ function layerNodeUsesImageGlyph(
   return node.type === "image" || tag === "img" || tag === "picture";
 }
 
-function layerNodeIsComponent(node: Pick<LayersPanelNode, "type">): boolean {
-  return node.type === "component" || node.type === "instance";
+function layerNodeIsComponent(
+  node: Pick<LayersPanelNode, "type" | "isComponent">,
+): boolean {
+  return (
+    node.isComponent === true ||
+    node.type === "component" ||
+    node.type === "instance"
+  );
 }
 
 function LayoutLayerGlyph({
