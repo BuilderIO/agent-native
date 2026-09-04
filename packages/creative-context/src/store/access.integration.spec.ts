@@ -45,7 +45,8 @@ async function setup() {
   await exec.execute(`
     CREATE TABLE IF NOT EXISTS org_members (
       id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
-      role TEXT NOT NULL, joined_at INTEGER NOT NULL
+      role TEXT NOT NULL, joined_at INTEGER NOT NULL,
+      federation_removal_pending_at INTEGER
     )
   `);
   await exec.execute({

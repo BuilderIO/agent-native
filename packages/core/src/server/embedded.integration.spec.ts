@@ -170,7 +170,8 @@ describe("embedded Agent-Native host fixture", () => {
         org_id TEXT NOT NULL,
         email TEXT NOT NULL,
         role TEXT NOT NULL,
-        joined_at INTEGER NOT NULL
+        joined_at INTEGER NOT NULL,
+        federation_removal_pending_at INTEGER
       )
     `);
     await getDbExec().execute({
