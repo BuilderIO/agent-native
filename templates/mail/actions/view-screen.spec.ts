@@ -246,6 +246,23 @@ describe("view-screen Mail preview", () => {
     });
   });
 
+  it("reports selected accounts that no longer resolve", async () => {
+    const missingAccount = "missing@example.com";
+    mocks.readAppState.mockResolvedValue({
+      view: "inbox",
+      activeAccounts: [missingAccount],
+    });
+    mocks.getClientsWithErrors.mockResolvedValue({ clients: [], errors: [] });
+    mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.emailList.coverage).toEqual({
+      complete: false,
+      failedAccounts: [missingAccount],
+    });
+  });
+
   it("does not read label maps for saved filters outside Inbox", async () => {
     mocks.readAppState.mockResolvedValue({ view: "sent" });
     mocks.readSettings.mockResolvedValue({

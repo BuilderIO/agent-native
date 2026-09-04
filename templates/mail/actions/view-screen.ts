@@ -181,6 +181,12 @@ async function fetchEmailList(
     const connectedEmails = new Set(
       clients.map(({ email }) => email.toLowerCase()),
     );
+    const clientErrorEmails = new Set(
+      clientErrors.map(({ email }) => email.toLowerCase()),
+    );
+    const missingSelectedAccounts = selectedAccountEmails.filter(
+      (email) => !connectedEmails.has(email) && !clientErrorEmails.has(email),
+    );
     const prepareEmails = (emails: any[]) => {
       const augmented = augmentSelfSentLabels(emails as EmailMessage[], {
         isGoogleConnected: googleConnected,
@@ -222,7 +228,10 @@ async function fetchEmailList(
     }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
-      const failedAccounts = new Set(clientErrors.map(({ email }) => email));
+      const failedAccounts = new Set([
+        ...clientErrors.map(({ email }) => email),
+        ...missingSelectedAccounts,
+      ]);
       if (needsLabelMap) {
         await Promise.all(
           clients.map(async ({ email, accessToken }) => {
