@@ -131,14 +131,14 @@
      read --b-border-default. This mirrors it; drifting from that value puts a
      different grey on the two halves of one continuous header rule. */
   --sidebar-seam: #cac9c6;
-  --docs-accent: #0072f5;
-  --docs-accent-light: rgba(0, 114, 245, 0.1);
+  --docs-accent: #005fcc;
+  --docs-accent-light: rgba(0, 95, 204, 0.1);
   --header-bg: rgba(255, 255, 255, 0.8);
   --code-bg: #f5f5f5;
   --code-border: #ebebeb;
   --table-header-bg: #f0efeb;
   --sidebar-hover: #f5f5f5;
-  --selection: rgba(0, 114, 245, 0.15);
+  --selection: rgba(0, 95, 204, 0.15);
   --approaches-good: #15803d;
   --approaches-warn: #b45309;
   --approaches-bad: #b91c1c;

@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
@@ -1203,7 +1204,11 @@ export async function writePrimaryBlocksContent(args: {
   const db = getDb();
   await db
     .update(schema.documents)
-    .set({ content: args.content, updatedAt: args.now })
+    .set({
+      content: args.content,
+      bodyRevision: bodyRevisionForContent(args.content),
+      updatedAt: args.now,
+    })
     .where(eq(schema.documents.id, args.documentId));
 }
 

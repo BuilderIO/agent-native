@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { createCornerNode, type PenPath } from "@shared/pen-path";
 import { describe, expect, it } from "vitest";
 
 import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/types";
@@ -9,6 +10,7 @@ import {
   blankScreenHtml,
   extractCanvasPrimitiveHtml,
 } from "./canvas-primitive-insert";
+import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
 
 describe("blankScreenHtml", () => {
   const html = blankScreenHtml("Screen 1");
@@ -530,5 +532,151 @@ describe("nesting follows where you started, not whether the box fits", () => {
     expect(html.indexOf('data-agent-native-node-id="r"')).toBeGreaterThan(
       html.indexOf("</div>", hostAt),
     );
+  });
+});
+
+describe("pen path paint defaults", () => {
+  const penPath = (pathData: string): CanvasPrimitiveInsert => ({
+    kind: "path",
+    nodeId: "pen-1",
+    geometry: { x: 10, y: 10, width: 80, height: 60 },
+    pathData,
+  });
+
+  const committedPath = (primitive: CanvasPrimitiveInsert) => {
+    const html = appendCanvasPrimitiveToHtml(
+      blankScreenHtml("Screen 1"),
+      primitive,
+    );
+    const path = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("path");
+    if (!path) throw new Error("no <path> committed");
+    return path;
+  };
+
+  it("commits a closed pen path like a drawn rectangle: filled, unstroked", () => {
+    const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
+    expect(path.getAttribute("fill")).toBe("rgb(218 218 218)");
+    expect(path.getAttribute("stroke")).toBe("none");
+  });
+
+  it("keeps the stroke on an open pen path, which is only its stroke", () => {
+    const path = committedPath(penPath("M 10 10 L 90 10 L 50 70"));
+    expect(path.getAttribute("fill")).toBe("none");
+    expect(path.getAttribute("stroke")).toBe("#000000");
+  });
+
+  it("still honours an explicitly chosen fill and stroke", () => {
+    const path = committedPath({
+      ...penPath("M 10 10 L 90 10 L 50 70 Z"),
+      fill: "#ff0000",
+      stroke: "#00ff00",
+      strokeWidth: 4,
+    });
+    expect(path.getAttribute("fill")).toBe("#ff0000");
+    expect(path.getAttribute("stroke")).toBe("#00ff00");
+    expect(path.getAttribute("stroke-width")).toBe("4");
+  });
+
+  it("gives a polygon the same unstroked shape paint", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "polygon",
+      nodeId: "poly-1",
+      geometry: { x: 0, y: 0, width: 40, height: 40 },
+    });
+    const polygon = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("polygon");
+    expect(polygon?.getAttribute("fill")).toBe("rgb(218 218 218)");
+    expect(polygon?.getAttribute("stroke")).toBe("none");
+  });
+});
+
+describe("reopening and reclosing a pen path", () => {
+  const svgHtml = (fill: string, stroke: string, extra = "") =>
+    `<!doctype html><html><body><svg data-agent-native-node-id="pen-1" ` +
+    `data-an-primitive="path" style="position:absolute;left:0px;top:0px" ${extra}>` +
+    `<path d="M 0 0 L 10 0 L 5 10 Z" fill="${fill}" stroke="${stroke}"/></svg></body></html>`;
+
+  const openPath: PenPath = {
+    closed: false,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      createCornerNode({ x: 10, y: 0 }),
+      createCornerNode({ x: 5, y: 10 }),
+    ],
+  };
+  const closedPath: PenPath = { ...openPath, closed: true };
+
+  const pathAttributes = (html: string) => {
+    const path = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("path");
+    if (!path) throw new Error("no <path>");
+    return {
+      fill: path.getAttribute("fill"),
+      stroke: path.getAttribute("stroke"),
+    };
+  };
+
+  it("drops the stroke it added for visibility when the path closes again", () => {
+    // A path drawn closed commits unstroked; reopening has to paint something,
+    // but reclosing must land back on the closed default, not keep the outline.
+    const reopened = writeBackVectorEditedPenPath(
+      svgHtml("rgb(218 218 218)", "none"),
+      "pen-1",
+      openPath,
+    );
+    expect(pathAttributes(reopened)).toEqual({
+      fill: "none",
+      stroke: "#000000",
+    });
+
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened,
+      "pen-1",
+      closedPath,
+    );
+    expect(pathAttributes(reclosed)).toEqual({
+      fill: "rgb(218 218 218)",
+      stroke: "none",
+    });
+  });
+
+  it("keeps a stroke the user chose when the path closes", () => {
+    const reclosed = writeBackVectorEditedPenPath(
+      svgHtml("none", "#ff0000"),
+      "pen-1",
+      closedPath,
+    );
+    expect(pathAttributes(reclosed).stroke).toBe("#ff0000");
+  });
+});
+
+describe("arrow paint target", () => {
+  it("is the shaft, not the arrowhead buried in <defs>", () => {
+    // The marker's <path> is appended before the shaft, so a descendant
+    // search finds the arrowhead first — the bridge must match direct
+    // children only, like code-layer's childIndexes walk.
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "arrow",
+      nodeId: "arrow-1",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg[data-an-primitive='arrow']");
+    if (!svg) throw new Error("no arrow svg");
+
+    const shaft = svg.querySelector(
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
+    );
+    expect(shaft?.getAttribute("marker-end")).toBe("url(#arrow-1-arrow)");
+    expect(svg.querySelector("defs path")).not.toBe(shaft);
   });
 });

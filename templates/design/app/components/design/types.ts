@@ -114,8 +114,15 @@ export interface ElementInfo {
     width: number;
     height: number;
   };
+  /** Capped at 200 chars by the editor-chrome bridge. `apply-visual-edit`
+   *  kind:"textContent" replaces the element's whole text, so writing this
+   *  value back when `textContentTruncated` is true destroys everything past
+   *  the cap. Read the full text before any textContent overwrite. */
   textContent?: string;
+  textContentTruncated?: boolean;
+  /** Capped at 4000 chars; same overwrite hazard as `textContent`. */
   htmlContent?: string;
+  htmlContentTruncated?: boolean;
   /** Direct element children; text nodes are ignored. */
   childElementCount?: number;
   isFlexChild: boolean;

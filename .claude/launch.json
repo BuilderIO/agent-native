@@ -2,42 +2,6 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "chat-mui",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "exec",
-        "tsx",
-        "scripts/claude-launch.ts",
-        "--name",
-        "chat-mui",
-        "--dir",
-        "examples/chat-mui",
-        "--",
-        "dev",
-        "--port",
-        "3210"
-      ],
-      "port": 3210
-    },
-    {
-      "name": "chat-antd",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "exec",
-        "tsx",
-        "scripts/claude-launch.ts",
-        "--name",
-        "chat-antd",
-        "--dir",
-        "examples/chat-antd",
-        "--",
-        "dev",
-        "--port",
-        "3211"
-      ],
-      "port": 3211
-    },
-    {
       "name": "docs",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
@@ -700,6 +664,26 @@
         "3241"
       ],
       "port": 3241
+    },
+    {
+      "name": "slides-webmcp-helper",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides-webmcp-helper",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3197"
+      ],
+      "port": 3197
     }
   ]
 }

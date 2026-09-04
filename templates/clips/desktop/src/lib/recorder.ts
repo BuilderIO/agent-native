@@ -80,7 +80,11 @@ import {
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
+  buildCreateRecordingRequestHeaders,
   buildCreateRecordingRequestBody,
+  RECORDING_SERVER_UNAVAILABLE,
+  RECORDING_SESSION_EXPIRED,
+  isStorageSetupFailureMessage,
   type NativeRecordingRequestOptions,
 } from "./recording-request";
 import {
@@ -1596,7 +1600,10 @@ async function createServerRecording(
   hasCamera: boolean,
   hasAudio: boolean,
   titleContext?: CaptureTitleResult,
-  options?: NativeRecordingRequestOptions & { signal?: AbortSignal },
+  options?: NativeRecordingRequestOptions & {
+    authToken?: string;
+    signal?: AbortSignal;
+  },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
   console.log("[clips-recorder] POST", url, {
@@ -1609,7 +1616,7 @@ async function createServerRecording(
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildCreateRecordingRequestHeaders(options?.authToken),
       // Tauri webview is a different origin from the clips server. The dev
       // CORS middleware is permissive for "*" but won't accept credentialed
       // requests without Allow-Credentials — and dev auth is bypassed, so
@@ -1626,15 +1633,27 @@ async function createServerRecording(
       ),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     console.error("[clips-recorder] fetch failed:", url, err);
-    throw new Error(
-      `Can't reach Clips server at ${url} — ${msg}. Is the dev server running on that port?`,
-    );
+    if (
+      options?.signal?.aborted ||
+      (err instanceof DOMException && err.name === "AbortError")
+    ) {
+      throw err;
+    }
+    throw new Error(RECORDING_SERVER_UNAVAILABLE);
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.error("[clips-recorder] bad response:", url, res.status, body);
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(RECORDING_SESSION_EXPIRED);
+    }
+    if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
+      throw new Error(body.slice(0, 200));
+    }
+    if (res.status >= 500) {
+      throw new Error(RECORDING_SERVER_UNAVAILABLE);
+    }
     throw new Error(`create-recording ${res.status}: ${body.slice(0, 200)}`);
   }
   const data = (await res.json()) as {
@@ -1655,6 +1674,7 @@ export async function createPrivateAgentRewindRecording(
   serverUrl: string,
   hasAudio: boolean,
   startedAt: string,
+  authToken?: string,
 ): Promise<{ id: string; uploadMode: UploadMode }> {
   return createServerRecording(
     serverUrl,
@@ -1671,6 +1691,7 @@ export async function createPrivateAgentRewindRecording(
       requestStreaming: true,
       streamingUploadClient: "desktop-native",
       visibility: "private",
+      authToken,
     },
   );
 }
@@ -2814,6 +2835,7 @@ async function tryStartRewindFullscreenRecording(
             // fail with 409 after the local encode has completed.
             requestStreaming: true,
             streamingUploadClient: "desktop-native",
+            authToken: params.authToken,
             signal: params.signal,
           },
         );
@@ -3482,6 +3504,7 @@ async function startNativeFullscreenRecording(
               mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
               requestStreaming: true,
               streamingUploadClient: "desktop-native",
+              authToken: params.authToken,
               signal: params.signal,
             },
           );
@@ -4952,6 +4975,7 @@ async function startRecordingInner(
       {
         mimeType: mimeType || "video/webm",
         requestStreaming: true,
+        authToken: params.authToken,
         signal: params.signal,
       },
     ).finally(() => {

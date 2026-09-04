@@ -4,6 +4,7 @@ import { getDialect, type Dialect } from "@agent-native/core/db";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -2418,7 +2419,11 @@ async function processBuilderBodyHydrationJob(
           : eq(schema.documents.content, currentContent);
       const [updatedDocument] = await tx
         .update(schema.documents)
-        .set({ content: nextContent, updatedAt: now })
+        .set({
+          content: nextContent,
+          bodyRevision: bodyRevisionForContent(nextContent),
+          updatedAt: now,
+        })
         .where(and(eq(schema.documents.id, row.documentId), contentCas))
         .returning({ id: schema.documents.id });
       wroteBody = Boolean(updatedDocument);
@@ -2665,17 +2670,19 @@ async function persistPristineBuilderBodyHydrationsInBulk(
           builderBodyHydrationQueueOwnershipFilter(job),
         );
 
+        const hydratedContent = hydrationCaseSql(
+          schema.documents.id,
+          schema.documents.content,
+          batch.map((row) => ({
+            id: row.job.documentId,
+            value: row.content,
+          })),
+        );
         const updatedDocuments = await tx
           .update(schema.documents)
           .set({
-            content: hydrationCaseSql(
-              schema.documents.id,
-              schema.documents.content,
-              batch.map((row) => ({
-                id: row.job.documentId,
-                value: row.content,
-              })),
-            ),
+            content: hydratedContent,
+            bodyRevision: bodyRevisionForContent(hydratedContent),
             updatedAt: now,
           })
           .where(

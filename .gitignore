@@ -118,7 +118,7 @@ db-exec
 # Every mode-specific variant too: `.env.production` and friends were not
 # matched by the old explicit list, and `ship:push` stages the whole snapshot.
 # Patterns without a slash match at any depth, so this covers templates/,
-# packages/ and examples/ alike. The .example files stay tracked.
+# packages/ and templates/ alike. The .example files stay tracked.
 .env
 .env.*
 !.env.example

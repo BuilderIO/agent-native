@@ -84,7 +84,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### Production database {#production}
 
-Set `DATABASE_URL` in your `.env` file or deploy-provider environment to connect a hosted database:
+Set `DATABASE_URL` in your `.env` file or deploy-provider environment to connect a hosted PostgreSQL database. Common managed options include [Neon](/docs/neon), [Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](https://aws.amazon.com/rds/postgresql/), [Cloud SQL for PostgreSQL](https://cloud.google.com/sql/postgresql), and [Azure Database for PostgreSQL](https://learn.microsoft.com/en-us/azure/postgresql/overview). You can also use a self-hosted PostgreSQL server:
 
 ```bash
 # Neon Postgres
@@ -93,11 +93,17 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
+# Amazon RDS for PostgreSQL
+DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
+
+# Cloud SQL for PostgreSQL
+DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
+
+# Azure Database for PostgreSQL
+DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
+
 # Plain Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
-
-# Turso (libSQL). Also requires DATABASE_AUTH_TOKEN.
-DATABASE_URL=libsql://my-db-org.turso.io
 ```
 
 The framework auto-detects the dialect from the URL prefix and configures Drizzle accordingly.
@@ -479,10 +485,9 @@ const { rows } = await getDbExec().execute({
 
 ## Environment Variables {#environment-variables}
 
-| Variable              | Purpose                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Persistent SQL connection string (unset = local SQLite; `pglite:./data/pglite` = local Postgres opt-in) |
-| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL                            |
+| Variable       | Purpose                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | Persistent SQL connection string (unset = local SQLite; `pglite:./data/pglite` = local Postgres opt-in) |
 
 ## What's next {#whats-next}
 

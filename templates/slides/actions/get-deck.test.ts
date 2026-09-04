@@ -81,6 +81,12 @@ beforeEach(() => {
 });
 
 describe("get-deck", () => {
+  it("advertises id as the required deck parameter", () => {
+    expect(action.schema.safeParse({}).success).toBe(false);
+    expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
+    expect((action.tool.parameters as any).required).toContain("id");
+  });
+
   it("bounds a full-deck read so a stalled lookup can return a tool error", () => {
     expect(action.timeoutMs).toBe(60_000);
   });

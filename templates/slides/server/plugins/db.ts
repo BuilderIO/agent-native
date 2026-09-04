@@ -326,6 +326,14 @@ WHERE principal_type = 'user'`,
       name: "slides-deck-version-chat-context",
       sql: `ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
     },
+    {
+      version: 27,
+      name: "slides-deck-version-change-group",
+      sql: `ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS change_group TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS deck_versions_deck_owner_change_group_uidx
+ON deck_versions (deck_id, owner_email, change_group)
+WHERE change_group IS NOT NULL`,
+    },
   ],
   { table: "slides_migrations" },
 );

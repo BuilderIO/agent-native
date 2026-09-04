@@ -181,3 +181,20 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "./agent-readable-resource.js";
+export {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatch,
+  type TargetedMatchFailure,
+  type TargetedMatchesResult,
+  type TargetedReplaceResult,
+  type TargetedTextEditOptions,
+} from "./targeted-text-edit.js";
+export {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+  stripDiagnosticSnippets,
+  wrapDiagnosticSnippet,
+} from "./diagnostic-snippet.js";

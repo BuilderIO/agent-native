@@ -12,6 +12,7 @@ import {
   findMcpIntegrationForText,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   isMcpConnectionFailureText,
   isMcpConnectionSuggestionText,
   type DefaultMcpIntegration,
@@ -113,25 +114,14 @@ export function shouldRenderMcpIntegrationFallback(
   return !logoUrl || logoLoadFailed;
 }
 
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
-}
-
 function isConnected(
   integration: DefaultMcpIntegration,
   servers: McpServer[],
 ): boolean {
-  const targetUrl = compareUrl(integration.url);
   return servers.some(
     (server) =>
       server.status.state === "connected" &&
-      compareUrl(server.url) === targetUrl,
+      isMcpIntegrationUrl(integration, server.url),
   );
 }
 

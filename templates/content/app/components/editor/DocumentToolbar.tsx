@@ -1115,48 +1115,50 @@ export function DocumentToolbar({
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
-                      {exportDocument.isPending ? (
-                        <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <IconDownload className="me-2 h-4 w-4" />
-                      )}
+                  {databaseExportContext ? (
+                    <DropdownMenuItem
+                      onSelect={() => setDatabaseExportOpen(true)}
+                    >
+                      <IconDownload className="me-2 h-4 w-4" />
                       {t("editor.toolbar.export")}
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-44">
-                      {databaseExportContext ? (
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger
+                        disabled={exportDocument.isPending}
+                      >
+                        {exportDocument.isPending ? (
+                          <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <IconDownload className="me-2 h-4 w-4" />
+                        )}
+                        {t("editor.toolbar.export")}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-44">
                         <DropdownMenuItem
                           disabled={exportDocument.isPending}
-                          onSelect={() => setDatabaseExportOpen(true)}
+                          onSelect={() => void handleExport("pdf")}
                         >
-                          <IconDownload className="me-2 h-4 w-4" />
-                          CSV
+                          <IconFileTypePdf className="me-2 h-4 w-4" />
+                          PDF
                         </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("pdf")}
-                      >
-                        <IconFileTypePdf className="me-2 h-4 w-4" />
-                        PDF
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("markdown")}
-                      >
-                        <IconMarkdown className="me-2 h-4 w-4" />
-                        Markdown
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={exportDocument.isPending}
-                        onSelect={() => void handleExport("html")}
-                      >
-                        <IconFileTypeHtml className="me-2 h-4 w-4" />
-                        HTML
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                        <DropdownMenuItem
+                          disabled={exportDocument.isPending}
+                          onSelect={() => void handleExport("markdown")}
+                        >
+                          <IconMarkdown className="me-2 h-4 w-4" />
+                          Markdown
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={exportDocument.isPending}
+                          onSelect={() => void handleExport("html")}
+                        >
+                          <IconFileTypeHtml className="me-2 h-4 w-4" />
+                          HTML
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
                 </>
               )}
               <DropdownMenuSeparator />
@@ -1561,7 +1563,6 @@ export function DocumentToolbar({
       <DatabaseExportDialog
         documentId={documentId}
         context={databaseExportContext ?? null}
-        defaultScope="current_view"
         open={databaseExportOpen}
         onOpenChange={setDatabaseExportOpen}
       />
