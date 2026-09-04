@@ -75,6 +75,8 @@ import {
   changeMemberRoleHandler,
   removeMemberHandler,
   retryPendingFederatedRemovalHandler,
+  acceptInvitationHandler,
+  joinByDomainHandler,
   updateOrgHandler,
   setDomainHandler,
   setWorkspaceAppDefaultVisibilityHandler,
@@ -150,6 +152,75 @@ describe("org handlers", () => {
     expect(mockExecute.mock.calls[1][0].sql).toContain(
       "SET federation_removal_pending_at = ?",
     );
+  });
+
+  it("does not grant a domain join to a linked organization", async () => {
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "org-1",
+          name: "Example",
+          allowed_domain: "example.test",
+          identity_authority: "https://dispatch.example.test",
+          identity_id: "dispatch-org-1",
+        },
+      ],
+    });
+
+    await expect(
+      joinByDomainHandler(
+        makeEvent("/_agent-native/org/join-by-domain", { orgId: "org-1" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for federated invitation approval before inserting local membership", async () => {
+    mockExecute.mockImplementation(async (input: { sql: string }) => {
+      const sql = input.sql;
+      if (sql.includes("SELECT id, org_id AS")) {
+        return {
+          rows: [
+            {
+              id: "invite-1",
+              orgId: "org-1",
+              role: "member",
+              invitedBy: "owner@example.test",
+            },
+          ],
+        };
+      }
+      if (sql.includes("SELECT role, federation_removal_pending_at")) {
+        return { rows: [] };
+      }
+      if (sql.includes("SELECT name FROM organizations")) {
+        return { rows: [{ name: "Example" }] };
+      }
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+    mockAddFederatedOrganizationMember.mockImplementation(async () => {
+      expect(
+        mockExecute.mock.calls.some(([input]) =>
+          input.sql.includes("INSERT INTO org_members"),
+        ),
+      ).toBe(false);
+      return true;
+    });
+
+    await expect(
+      acceptInvitationHandler(
+        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      ),
+    ).resolves.toMatchObject({ orgId: "org-1", role: "member" });
+    expect(mockAddFederatedOrganizationMember).toHaveBeenCalled();
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("INSERT INTO org_members"),
+      ),
+    ).toBe(true);
   });
 
   it("lets a pending member finish local cleanup after authority confirmation", async () => {

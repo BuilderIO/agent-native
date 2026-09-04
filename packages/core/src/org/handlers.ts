@@ -810,12 +810,6 @@ export const acceptInvitationHandler = defineEventHandler(
     });
     const inviterRole = String((inviterRes.rows[0] as any)?.role ?? "");
 
-    await e.execute({
-      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
-      args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
-    });
-    invalidateMemberOrgCaches();
-
     try {
       await addFederatedOrganizationMember(event, {
         orgId: invOrgId,
@@ -828,37 +822,25 @@ export const acceptInvitationHandler = defineEventHandler(
         memberRole: inviteRole,
       });
     } catch (error) {
-      // Do not leave a local membership that the identity authority rejected.
       // The invitation remains pending so the authorized inviter can repair or
-      // retry the federation path without granting cross-app access locally.
+      // retry the federation path without granting local access.
       void error;
-      try {
-        await e.execute({
-          sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
-          args: [invOrgId, email.toLowerCase()],
-        });
-        invalidateMemberOrgCaches();
-      } catch (rollbackError) {
-        // A restrictive pending marker keeps a failed rollback from granting
-        // local access if the database is partially unavailable.
-        void rollbackError;
-        try {
-          await e.execute({
-            sql: `UPDATE org_members
-                  SET federation_removal_pending_at = ?
-                  WHERE org_id = ? AND LOWER(email) = ?`,
-            args: [Date.now(), invOrgId, email.toLowerCase()],
-          });
-        } catch (markerError) {
-          void markerError;
-        }
-      }
       throw createError({
         statusCode: 503,
         message:
           "Could not synchronize this invitation with the identity authority.",
       });
     }
+
+    // Do not expose a local membership while the identity authority is still
+    // deciding whether this invitee belongs in the shared roster.
+    await e.execute({
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
+      args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
+    });
+    invalidateMemberOrgCaches();
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
@@ -1287,7 +1269,8 @@ export const joinByDomainHandler = defineEventHandler(
     const e = await exec();
 
     const orgRes = await e.execute({
-      sql: `SELECT id, name, allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+      sql: `SELECT id, name, allowed_domain, identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
       args: [orgId],
     });
     if (orgRes.rows.length === 0) {
@@ -1302,6 +1285,24 @@ export const joinByDomainHandler = defineEventHandler(
         statusCode: 403,
         message:
           "Your email domain does not match this organization's allowed domain",
+      });
+    }
+
+    const identityAuthority = String(org.identity_authority ?? "").trim();
+    const identityId = String(org.identity_id ?? "").trim();
+    if (identityAuthority || identityId) {
+      if (!identityAuthority || !identityId) {
+        throw createError({
+          statusCode: 409,
+          message: "Organization has an invalid identity mapping",
+        });
+      }
+      // A linked org's roster is owned by its identity authority. Domain
+      // matching remains local-only for unlinked organizations.
+      throw createError({
+        statusCode: 409,
+        message:
+          "Federated organizations must be joined through the identity authority",
       });
     }
 

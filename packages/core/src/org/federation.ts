@@ -10,6 +10,7 @@ import {
   resolveIdentityHubUrl,
   resolveIdentitySsoAppId,
 } from "../server/identity-sso.js";
+import { getRequestContext } from "../server/request-context.js";
 import { setActiveOrgId } from "./active-org.js";
 import { createOrganization } from "./context.js";
 import {
@@ -55,6 +56,30 @@ type FederatedMemberOperation =
 export type FederatedMembershipValidation =
   | { active: true; role: OrgRole }
   | { active: false; role: null };
+
+function requestEventFromContext(): H3Event {
+  const requestOrigin = getRequestContext()?.requestOrigin;
+  if (!requestOrigin) {
+    throw new Error(
+      "Federated membership validation requires a request origin.",
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(requestOrigin);
+  } catch {
+    throw new Error("Federated membership validation has an invalid origin.");
+  }
+  const protocol = url.protocol.replace(":", "");
+  const headerValues = {
+    host: url.host,
+    "x-forwarded-proto": protocol,
+  };
+  return {
+    req: { headers: new Headers(headerValues) },
+    node: { req: { headers: headerValues } },
+  } as unknown as H3Event;
+}
 
 function isOrgRole(value: unknown): value is OrgRole {
   return value === "owner" || value === "admin" || value === "member";
@@ -508,6 +533,17 @@ export async function validateFederatedOrganizationMembership(
     invalidateMemberOrgCaches();
   }
   return { active: true, role: body.memberRole };
+}
+
+/** Validate a linked membership from an action, which only retains request metadata. */
+export async function validateFederatedOrganizationMembershipForCurrentRequest(input: {
+  orgId: string;
+  email: string;
+}): Promise<FederatedMembershipValidation> {
+  return validateFederatedOrganizationMembership(
+    requestEventFromContext(),
+    input,
+  );
 }
 
 /** Register the local org and its current member with the Dispatch authority. */

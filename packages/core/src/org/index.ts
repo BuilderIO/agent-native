@@ -73,6 +73,7 @@ export {
   revokeFederatedOrganizationMember,
   syncOrganizationToIdentityHub,
   validateFederatedOrganizationMembership,
+  validateFederatedOrganizationMembershipForCurrentRequest,
   updateFederatedOrganizationMemberRole,
 } from "./federation.js";
 export type {
