@@ -219,6 +219,19 @@ export function shouldRetryAuthSessionProbe(
   return !readable || response.status === 429 || response.status >= 500;
 }
 
+export function isConfirmedAnonymousAuthSession(
+  response: Pick<Response, "ok" | "status">,
+  data: Record<string, unknown>,
+  readable: boolean,
+): boolean {
+  return (
+    response.ok &&
+    response.status === 200 &&
+    readable &&
+    data.error === "Not authenticated"
+  );
+}
+
 async function requestJson(
   url: string,
   init: RequestInit = {},
@@ -680,6 +693,8 @@ export function AuthPage(props: AuthPageProps) {
   const verifiedReturnHandled = React.useRef(false);
   const verificationStepStartedRef = React.useRef(false);
   const [sessionProbeComplete, setSessionProbeComplete] = React.useState(false);
+  const [sessionProbeAnonymous, setSessionProbeAnonymous] =
+    React.useState(false);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -871,6 +886,10 @@ export function AuthPage(props: AuthPageProps) {
             redirectToSignedInApp();
             return;
           }
+          if (isConfirmedAnonymousAuthSession(response, data, readable)) {
+            setSessionProbeAnonymous(true);
+            return;
+          }
           retry = shouldRetryAuthSessionProbe(response, readable);
         } catch {
           retry = true;
@@ -889,6 +908,7 @@ export function AuthPage(props: AuthPageProps) {
       !identitySsoAuto ||
       !runtimeBasePathResolved ||
       !sessionProbeComplete ||
+      !sessionProbeAnonymous ||
       isAgentNativeDesktop() ||
       (view !== "login" && view !== "signup")
     ) {
@@ -909,6 +929,7 @@ export function AuthPage(props: AuthPageProps) {
     identitySsoAuto,
     resumeHref,
     runtimeBasePathResolved,
+    sessionProbeAnonymous,
     sessionProbeComplete,
     view,
   ]);

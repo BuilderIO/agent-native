@@ -385,6 +385,25 @@ describe("authorization code and PKCE handlers", () => {
     expect(response.status).toBe(302);
   });
 
+  it("rejects silent prompts from custom browser registrations", async () => {
+    process.env.IDENTITY_SSO_APP_REGISTRY_JSON = JSON.stringify([
+      {
+        appId: "custom",
+        clientId: "custom-client",
+        origin: "https://workspace.example.com",
+        callbackPath: "/_agent-native/identity/callback",
+        capabilities: ["identity-sso"],
+      },
+    ]);
+    const response = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=custom&client_id=custom-client&redirect_uri=${encodeURIComponent("https://workspace.example.com/_agent-native/identity/callback")}&state=${STATE}&code_challenge=${"c".repeat(43)}&code_challenge_method=S256&prompt=none`,
+      ),
+    );
+    expect(response.status).toBe(400);
+    expect(getSessionMock).not.toHaveBeenCalled();
+  });
+
   it("keeps the default-off Desktop flag as a hard availability gate", async () => {
     const response = await authorizeHandler(
       event(

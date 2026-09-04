@@ -45,6 +45,7 @@ import {
   buildRedirectLocation,
   consumeIdentityAuthorizationCode,
   createIdentityAuthorizationCode,
+  DEFAULT_ALLOWED_ORIGINS,
   isValidSsoState,
   normalizeIdentityAuthority,
   resolveIdentitySsoApp,
@@ -194,18 +195,21 @@ export const authorizeHandler = defineEventHandler(
     const isDesktopRequest = isDesktopWorkspaceSsoRequest(
       getHeader(event, "user-agent"),
     );
-    const isSilentBrowserRequest = !isDesktopRequest && prompt === "none";
 
     // Validate every browser-controlled protocol parameter before resolving a
     // Dispatch session or constructing a continuation URL.
     const registration = resolveIdentitySsoApp(appId, clientId, redirectUri);
+    const isCanonicalBrowserClient =
+      !isDesktopRequest &&
+      DEFAULT_ALLOWED_ORIGINS.includes(registration?.origin ?? "");
     if (
       !registration ||
       responseType !== "code" ||
       !isValidSsoState(state) ||
       !isValidSsoState(codeChallenge) ||
       codeChallengeMethod !== "S256" ||
-      (prompt !== null && prompt !== "none")
+      (prompt !== null && prompt !== "none") ||
+      (prompt === "none" && !isCanonicalBrowserClient)
     ) {
       return jsonResponse(
         {
@@ -216,6 +220,7 @@ export const authorizeHandler = defineEventHandler(
         400,
       );
     }
+    const isSilentBrowserRequest = prompt === "none";
     const safeRedirectUri = redirectUri as string;
     const safeAppId = appId as string;
     const safeClientId = clientId as string;

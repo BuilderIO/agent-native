@@ -1129,6 +1129,9 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
+  /** Exact host and protocol used by the SSO route's request-boundary check. */
+  identitySsoRequestHost?: string;
+  identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
   /**
@@ -1265,12 +1268,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
+  const identitySsoRequestHost =
+    opts.identitySsoRequestHost ?? opts.requestHost;
   const identitySsoEnabled = Boolean(
-    identitySsoLoginButtonHtml({ requestHost: opts.requestHost }),
+    identitySsoLoginButtonHtml({ requestHost: identitySsoRequestHost }),
   );
   const identitySsoAuto =
     identitySsoEnabled &&
-    isCanonicalIdentitySsoClientRequest(opts.requestHost, "https");
+    isCanonicalIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      opts.identitySsoRequestProtocol,
+    );
   const embeddedAuthCss = identitySsoEnabled
     ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
     : "";
