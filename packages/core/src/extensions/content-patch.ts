@@ -1,3 +1,4 @@
+import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
 import {
   applyTargetedReplace,
   findTargetedMatches,
@@ -356,17 +357,22 @@ function throwLiteralMatchFailure(
   throw new Error(`${expected}${formatCandidates(result.candidates)}`);
 }
 
+// Candidate/ambiguous text below is echoed from the user's own extension
+// content, not a system diagnostic — wrap it so production-agent's
+// permanent-precondition classifier (broad phrases like "no authenticated
+// user", column-0-anchored) never mistakes quoted file content for a real
+// signal and stops the turn on a false positive.
 function formatCandidates(candidates: TargetedCandidate[]): string {
   if (candidates.length === 0) return "";
-  const lines = candidates.map((c) => `  line ${c.line}: ${c.text}`).join("\n");
-  return `\nClosest matches in the current extension:\n${lines}`;
+  const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");
+  return `\nClosest matches in the current extension:\n${wrapDiagnosticSnippet(lines)}`;
 }
 
 function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {
-  const lines = matches.map((m) => `  line ${m.line}: ${m.snippet}`).join("\n");
+  const lines = matches.map((m) => `line ${m.line}: ${m.snippet}`).join("\n");
   return (
     `matched ${matches.length} places; pass occurrence to pick one, or add ` +
-    `more surrounding context so it matches exactly one location:\n${lines}`
+    `more surrounding context so it matches exactly one location:\n${wrapDiagnosticSnippet(lines)}`
   );
 }
 

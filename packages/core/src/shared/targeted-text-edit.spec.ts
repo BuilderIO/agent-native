@@ -26,25 +26,30 @@ describe("findTargetedMatches", () => {
     expect(result.matches[0]?.line).toBe(3);
   });
 
-  it("falls back to whitespace-flexible matching when the exact text is absent", () => {
+  it("reports a whitespace-flexible hit as a not_found candidate instead of applying it", () => {
     const content = "<span>Hello   World</span>";
     const result = findTargetedMatches(content, "Hello World");
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // The match spans the ORIGINAL bytes (3 spaces), not the normalized find text.
-    expect(result.matches[0]).toMatchObject({
-      index: 6,
-      end: 19,
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "not_found") return;
+    // The candidate carries the ORIGINAL bytes (3 spaces), not the
+    // normalized find text — the model can copy it verbatim next time.
+    expect(result.candidates[0]).toMatchObject({
+      line: 1,
       text: "Hello   World",
+      similarity: 1,
     });
   });
 
-  it("matches a CRLF find target against LF-normalized content", () => {
+  it("reports a CRLF-vs-LF hit as a not_found candidate instead of applying it", () => {
     const content = "a\nb";
     const result = findTargetedMatches(content, "a\r\nb");
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.matches[0]).toMatchObject({ index: 0, end: 3, text: "a\nb" });
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "not_found") return;
+    expect(result.candidates[0]).toMatchObject({
+      line: 1,
+      text: "a\nb",
+      similarity: 1,
+    });
   });
 
   it("returns not_found with closest-match candidates when nothing matches", () => {
@@ -134,12 +139,14 @@ describe("applyTargetedReplace", () => {
     });
   });
 
-  it("splices the replacement over the original bytes for a whitespace-flexible match", () => {
+  it("never applies a whitespace-flexible match — reports it as a not_found candidate, content untouched", () => {
     const content = "<span>Hello   World</span>";
     const result = applyTargetedReplace(content, "Hello World", "Hi There");
-    expect(result).toMatchObject({
-      ok: true,
-      content: "<span>Hi There</span>",
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    if (result.ok || result.reason !== "not_found") return;
+    expect(result.candidates[0]).toMatchObject({
+      text: "Hello   World",
+      similarity: 1,
     });
   });
 

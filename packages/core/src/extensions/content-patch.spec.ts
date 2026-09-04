@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+} from "../shared/diagnostic-snippet.js";
 import { applyExtensionContentUpdate } from "./content-patch.js";
 
 describe("extension content patching", () => {
@@ -127,45 +131,70 @@ describe("extension content patching", () => {
     expect(result.content).toContain("<span>Hi</span>");
   });
 
-  it("matches across differing whitespace and splices the replacement over the original bytes", async () => {
+  it("never applies a whitespace-flexible match — reports the original bytes as a fenced candidate", async () => {
     const content = "<div>\n  <span>Hello   World</span>\n</div>";
-    const result = await applyExtensionContentUpdate(content, {
-      edits: [
-        {
-          op: "replace",
-          find: "<span>Hello World</span>",
-          replace: "<span>Hi There</span>",
-        },
-      ],
-    });
+    let error: unknown;
+    try {
+      await applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            op: "replace",
+            find: "<span>Hello World</span>",
+            replace: "<span>Hi There</span>",
+          },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
 
-    expect(result.content).toBe("<div>\n  <span>Hi There</span>\n</div>");
+    // Nothing applied: collapsing whitespace to match could otherwise
+    // silently rewrite semantically significant whitespace (<pre>, embedded
+    // JS/CSS) if it were spliced in.
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("Closest matches in the current extension:");
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_OPEN);
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_CLOSE);
+    expect(message).toContain("<span>Hello   World</span>");
   });
 
-  it("matches a CRLF find target against LF-normalized content", async () => {
+  it("never applies a CRLF-vs-LF match — reports the original bytes as a fenced candidate", async () => {
     const content = "<ul>\n  <li>One</li>\n  <li>Two</li>\n</ul>";
-    const result = await applyExtensionContentUpdate(content, {
-      edits: [
-        {
-          op: "replace",
-          find: "<li>One</li>\r\n  <li>Two</li>",
-          replace: "<li>Combined</li>",
-        },
-      ],
-    });
+    let error: unknown;
+    try {
+      await applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            op: "replace",
+            find: "<li>One</li>\r\n  <li>Two</li>",
+            replace: "<li>Combined</li>",
+          },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
 
-    expect(result.content).toBe("<ul>\n  <li>Combined</li>\n</ul>");
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("Closest matches in the current extension:");
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_OPEN);
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_CLOSE);
+    expect(message).toContain("<li>One</li>");
+    expect(message).toContain("<li>Two</li>");
   });
 
-  it("reports closest-match candidates instead of a bare miss", async () => {
+  it("reports closest-match candidates, fenced, instead of a bare miss", async () => {
     const content = [
       "<section>",
       '  <button class="save-btn">Save changes</button>',
       "</section>",
     ].join("\n");
 
-    await expect(
-      applyExtensionContentUpdate(content, {
+    let error: unknown;
+    try {
+      await applyExtensionContentUpdate(content, {
         edits: [
           {
             op: "replace",
@@ -173,8 +202,17 @@ describe("extension content patching", () => {
             replace: "x",
           },
         ],
-      }),
-    ).rejects.toThrow(/Closest matches in the current extension:\n {2}line 2:/);
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("Closest matches in the current extension:");
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_OPEN);
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_CLOSE);
+    expect(message).toMatch(/ {4}line 2:/);
   });
 
   it("reports ambiguity instead of silently patching the first of several matches", async () => {

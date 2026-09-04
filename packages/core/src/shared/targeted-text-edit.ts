@@ -3,18 +3,19 @@
  * style edits (extensions, slides). Pure and dependency-free so both server
  * packages and template code can import it without pulling in server code.
  *
- * Matching rungs, tried in order until one produces at least one match:
- *   (a) exact substring
- *   (b) whitespace-flexible — runs of whitespace (including CRLF/LF) in both
- *       `find` and `content` collapse to a single space for matching, but the
- *       returned match spans point at the ORIGINAL bytes so a caller splices
- *       the replacement over real content, not the normalized text
- *   (c) still nothing: return the closest-scoring regions in the file so the
- *       caller (and the model) can retarget without a re-read
+ * Only an EXACT substring match is ever applied. A whitespace-flexible match
+ * (runs of whitespace, including CRLF/LF, collapsed to a single space before
+ * comparing) is never spliced in — collapsing whitespace before applying an
+ * edit risks silently rewriting semantically significant whitespace
+ * (`<pre>`, `white-space: pre`, embedded JS/CSS string literals). Instead a
+ * whitespace-flexible hit is reported as the top "not_found" candidate, with
+ * its exact current bytes, so the caller's next attempt can copy the real
+ * text verbatim. Cheap token-overlap window candidates fill any remaining
+ * slots when nothing matches at all, even loosely.
  *
- * A find that matches more than once — at whichever rung resolved it — is
- * reported as "ambiguous" instead of silently applying to the first hit,
- * unless the caller passed `occurrence` or `all` to say which one(s) it wants.
+ * A find that matches more than once is reported as "ambiguous" instead of
+ * silently applying to the first hit, unless the caller passed `occurrence`
+ * or `all` to say which one(s) it wants.
  *
  * Never throws: every outcome is a discriminated result. Callers decide what
  * "not found" or "ambiguous" should mean for their op (fail loudly, no-op,
@@ -40,8 +41,8 @@ export interface TargetedMatch {
   end: number;
   /** 1-based line number the match starts on. */
   line: number;
-  /** The exact original text at [index, end) — differs from `find` only for a
-   * whitespace-flexible match. */
+  /** The exact original text at [index, end) — always equals `find` (only
+   * exact matches are ever returned as a `TargetedMatch`). */
   text: string;
 }
 
@@ -99,8 +100,7 @@ export function findTargetedMatches(
     };
   }
 
-  let raw = scanExactMatches(content, find);
-  if (raw.length === 0) raw = scanFlexibleMatches(content, find);
+  const raw = scanExactMatches(content, find);
   if (raw.length === 0) {
     return {
       ok: false,
@@ -239,6 +239,9 @@ function normalizeForMatch(text: string): {
   return { normalized: chars.join(""), spans };
 }
 
+/** Whitespace-flexible matches — diagnostic only, never applied (see file
+ * header). Returns each hit's ORIGINAL bytes, whatever whitespace they
+ * actually contain. */
 function scanFlexibleMatches(content: string, find: string): RawMatch[] {
   const needle = find.replace(/\s+/g, " ");
   if (!needle) return [];
@@ -309,11 +312,43 @@ function diceSimilarity(a: Set<string>, b: Set<string>): number {
   return (2 * overlap) / (a.size + b.size);
 }
 
-/** Cheap "closest region" search for the not-found case: score every window
- * of the file with the same line count as `find` by token overlap between its
- * first line and `find`'s first line, and return the top few. O(lines), no
- * dependency — good enough to point the model at the right neighborhood. */
+/**
+ * Build the "closest matches" list shown when nothing exact was found.
+ * Whitespace-flexible hits come first at similarity 1 — they're the real
+ * text with only whitespace differing, so the model can very likely just
+ * copy the candidate's exact text verbatim on its next attempt. They are
+ * reported here, never applied (see file header). Cheap token-overlap window
+ * candidates fill any remaining slots up to MAX_CANDIDATES.
+ */
 function computeCandidates(content: string, find: string): TargetedCandidate[] {
+  const lineStarts = buildLineIndex(content);
+  const flexible: TargetedCandidate[] = scanFlexibleMatches(content, find)
+    .slice(0, MAX_CANDIDATES)
+    .map((m) => ({
+      line: lineNumberFor(lineStarts, m.index),
+      text: truncate(m.text, SNIPPET_MAX_CHARS),
+      similarity: 1,
+    }));
+
+  const remaining = MAX_CANDIDATES - flexible.length;
+  if (remaining <= 0) return flexible;
+
+  const seenLines = new Set(flexible.map((c) => c.line));
+  const scored = tokenOverlapCandidates(content, find)
+    .filter((c) => !seenLines.has(c.line))
+    .slice(0, remaining);
+
+  return [...flexible, ...scored];
+}
+
+/** Cheap "closest region" search: score every window of the file with the
+ * same line count as `find` by token overlap between its first line and
+ * `find`'s first line, and return the top few. O(lines), no dependency —
+ * good enough to point the model at the right neighborhood. */
+function tokenOverlapCandidates(
+  content: string,
+  find: string,
+): TargetedCandidate[] {
   const needleLines = find.split(/\r\n|\r|\n/);
   const needleLineCount = needleLines.length;
   const needleTokens = tokenize(needleLines[0] ?? "");

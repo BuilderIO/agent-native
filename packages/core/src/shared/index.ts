@@ -192,3 +192,9 @@ export {
   type TargetedReplaceResult,
   type TargetedTextEditOptions,
 } from "./targeted-text-edit.js";
+export {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+  stripDiagnosticSnippets,
+  wrapDiagnosticSnippet,
+} from "./diagnostic-snippet.js";

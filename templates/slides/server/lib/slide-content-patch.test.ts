@@ -1,3 +1,7 @@
+import {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+} from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -92,13 +96,31 @@ describe("applySlideContentEdits", () => {
     expect(result.content).not.toBe("<div>Old</div>");
   });
 
-  it("matches across differing whitespace and splices the replacement over the original bytes", async () => {
-    const result = await applySlideContentEdits(
-      "<div>\n  <span>Hello   World</span>\n</div>",
-      [{ find: "<span>Hello World</span>", replace: "<span>Hi There</span>" }],
-    );
+  it("never applies a whitespace-flexible match — reports the original bytes as a fenced candidate", async () => {
+    let error: unknown;
+    try {
+      await applySlideContentEdits(
+        "<div>\n  <span>Hello   World</span>\n</div>",
+        [
+          {
+            find: "<span>Hello World</span>",
+            replace: "<span>Hi There</span>",
+          },
+        ],
+      );
+    } catch (caught) {
+      error = caught;
+    }
 
-    expect(result.content).toBe("<div>\n  <span>Hi There</span>\n</div>");
+    // Nothing applied: collapsing whitespace to match could otherwise
+    // silently rewrite semantically significant whitespace (<pre>, embedded
+    // JS/CSS) if it were spliced in.
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    const message = (error as Error).message;
+    expect(message).toContain("Closest matches in the current slide:");
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_OPEN);
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_CLOSE);
+    expect(message).toContain("<span>Hello   World</span>");
   });
 
   it("reports ambiguity instead of silently patching the first of several matches", async () => {

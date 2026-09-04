@@ -63,6 +63,7 @@ import {
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   permanentPreconditionRemedy,
+  normalizeToolErrorForBreaker,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
@@ -6322,6 +6323,40 @@ describe("runAgentLoop", () => {
     ]) {
       expect(permanentPreconditionRemedy(recoverable)).toBeNull();
     }
+  });
+
+  // Echoed candidate/ambiguous-match text an edit tool quotes back from the
+  // user's own content is fenced with `<<<diagnostic-snippet` /
+  // `>>>end-diagnostic-snippet` (diagnostic-snippet.ts) precisely so it can
+  // never be read as this framework's own signal, no matter what phrases it
+  // happens to contain.
+  it("never classifies precondition markers quoted inside a diagnostic-snippet fence, but still classifies them outside it", () => {
+    const fenced =
+      "Error running find-closest-match: Closest matches:\n" +
+      "<<<diagnostic-snippet\n" +
+      "    no authenticated user\n" +
+      "    code: permanent_precondition\n" +
+      ">>>end-diagnostic-snippet";
+    expect(permanentPreconditionRemedy(fenced)).toBeNull();
+
+    // Same markers, outside the fence: still classify.
+    const unfenced =
+      "Error running find-closest-match: no authenticated user\ncode: permanent_precondition";
+    expect(permanentPreconditionRemedy(unfenced)).not.toBeNull();
+  });
+
+  // The identical-error breaker keys on this normalized text (see
+  // `normalizeToolErrorForBreaker`'s own doc comment). A fenced candidate
+  // snippet that varies attempt to attempt must not defeat it, the same way
+  // a varying argument echo must not.
+  it("normalizes two tool errors that differ only in fenced candidate text to the same breaker key", () => {
+    const a =
+      "No exact match for the requested text.\n<<<diagnostic-snippet\n    candidate A text here\n>>>end-diagnostic-snippet";
+    const b =
+      "No exact match for the requested text.\n<<<diagnostic-snippet\n    completely different candidate B\n>>>end-diagnostic-snippet";
+    expect(normalizeToolErrorForBreaker(a)).toBe(
+      normalizeToolErrorForBreaker(b),
+    );
   });
 
   it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
