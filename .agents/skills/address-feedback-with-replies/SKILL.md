@@ -41,8 +41,8 @@ Even when invoked alone, this workflow asks at most three new clarification
 questions per run across all threads, ranked by which answer would unblock a
 safe fix.
 
-If an earlier run already added `👀` to an out-of-scope item, remove that
-reaction with the connected Slack removal action when available. Do not add
+If this workflow earlier added `👀` to an out-of-scope item, remove that reaction
+with the connected Slack removal action when available. Do not add
 another reaction, investigate it as a bug, ask a compensating question, or post
 a new reply. If this workflow already posted a mistaken reply, delete that
 reply when safe; otherwise edit it to one brief `Skipped` disposition. If the
@@ -128,32 +128,6 @@ before investigation or delegation. Leave subjective/product, policy,
 informational, bot-forward, status-only, non-repo-owned, and Design items
 without reaction, reply, or code unless the invoking identity's `:upvote:` put
 them in scope; Design goes to Sid unless upvoted or explicitly assigned.
-
-`👀` is a temporary exclusive-work lock, not a handled marker. Keep it while
-actively investigating or fixing, or while waiting on one targeted reporter
-clarification that could unblock the fix. Keep internal verification gaps
-internal and do not claim **Fixed**.
-
-If the investigation cannot produce a verified reproduction or safe fix,
-remove the `👀` and record **Open - no reply** with the concrete evidence. Post
-nothing: releasing the eye is the handoff, and a reply saying another owner
-should act adds no value. Ask for reporter input only when a specific missing
-detail, such as a browser-console screenshot, would let you reproduce and fix
-the issue.
-
-Remove this workflow's eye for every terminal disposition, including **Fixed**, **Shipped**,
-**Open - no reply**, **Resolved elsewhere**, **Skipped**, and **Abandoned - no
-answer in 4 days**, and **Clustered**. Only active **In progress** work or a pending
-**Clarification needed** question may retain it.
-**Clustered** is terminal for a non-owning duplicate or repeat row, so remove
-that row's eye; only the single owning investigation row may retain one.
-
-Only remove the invoking identity's own eye. A foreign eye from another valid
-workflow identity is an ownership signal, even when it looks stale: do not
-remove it, duplicate it, or reply over it. Record **Owned elsewhere**, leave
-that item out of this run's claimed work, and let the owning workflow release
-or explicitly hand off the eye. If the item is required for this PR, preserve
-the foreign claim as a handoff blocker rather than inventing a terminal state.
 
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
@@ -279,19 +253,12 @@ non-repeating question only if one specific required detail still blocks it.
    afterward to confirm the reply landed under the intended parent. Use the
    exact parent timestamp as `thread_ts`; never reply to a search-result
    timestamp or an adjacent thread. Before ending the run, mechanically
-   audit the reply ledger: for every claimed parent, record the invoking user's
-   reply timestamp when one exists, its disposition, and its eye state. The
-   disposition may be **Fixed**, **Shipped**, **In progress**, **Clarification
-   needed**, **Open - no reply**, **Resolved elsewhere**, **Skipped**, or
-   **Clustered** with the reason; silent terminal states intentionally have no
-   reply timestamp. For a foreign eye, record
-   **Owned elsewhere** and leave the reaction untouched. For a
-   mistakenly eyed out-of-scope item, record reaction removal and no new reply
-   instead. Keep an eye-only clear bug while actively working it; if the
-   investigation cannot reproduce or fix it, remove the eye and record
-   **Open - no reply** without posting a status message. For a non-owning
-   clustered row, remove the eye and record **Clustered** without posting.
-   Do not create new reactions or questions for out-of-scope items.
+   audit the reply ledger: for every claimed parent, record the optional
+   invoking-user reply timestamp, disposition, and eye state. Use the states in
+   the contract above, with a reason; silent terminal states have no timestamp.
+   Record **Owned elsewhere** for a foreign eye without mutating it. Record
+   out-of-scope and non-owning **Clustered** rows with the eye removed and no
+   reply. Do not create reactions or questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
