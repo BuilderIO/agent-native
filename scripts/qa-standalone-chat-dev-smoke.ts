@@ -1219,8 +1219,11 @@ async function readChatSurfaceState(page: Page): Promise<ChatSurfaceState> {
   });
 }
 
-async function waitForStableChatSurface(page: Page): Promise<void> {
-  const timeoutMs = isCi ? 120_000 : 30_000;
+async function waitForStableChatSurface(
+  page: Page,
+  timeoutOverrideMs?: number,
+): Promise<void> {
+  const timeoutMs = timeoutOverrideMs ?? (isCi ? 120_000 : 30_000);
   const deadline = Date.now() + timeoutMs;
   let lastState = "unreadable";
 
@@ -1747,12 +1750,39 @@ async function waitForChatText(
     } catch (err) {
       if (!isNavigationContextError(err)) throw err;
       lastError = err instanceof Error ? err.message : String(err);
+
+      // A Vite reload or the Chat home handoff can destroy the current
+      // execution context after the provider has already completed a stream.
+      // Re-establish the durable surface before polling again so a transient
+      // document transition cannot turn a rendered response into a false
+      // timeout.
+      const recoveryTimeoutMs = Math.min(
+        5_000,
+        Math.max(1_000, deadline - Date.now()),
+      );
+      try {
+        await waitForStableChatSurface(page, recoveryTimeoutMs);
+      } catch (recoveryError) {
+        if (!isNavigationContextError(recoveryError)) {
+          lastError =
+            recoveryError instanceof Error
+              ? recoveryError.message
+              : String(recoveryError);
+        }
+      }
     }
     await sleep(250);
   }
+  let currentUrl = "";
+  try {
+    currentUrl = page.url();
+  } catch {
+    // Preserve the assertion error when the page closed during cleanup.
+  }
   throw new Error(
     `Chat text ${JSON.stringify(expected)} did not render within ${timeoutMs}ms` +
-      (lastError ? ` (${lastError})` : "."),
+      (lastError ? ` (${lastError})` : ".") +
+      (currentUrl ? ` Current URL: ${currentUrl}` : ""),
   );
 }
 
