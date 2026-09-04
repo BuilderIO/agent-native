@@ -890,7 +890,7 @@ export function MultiTabAssistantChat({
       ? `tab:${browserTabId}`
       : undefined;
   const keyPrefix = localStorageNamespace ? `:${localStorageNamespace}` : "";
-  const modelSelectionKey = chatModelSelectionStorageKey(localStorageNamespace);
+  const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
   const contextNamespace = scope
     ? scope.contextKey?.trim() || `scope:${scope.type}:${scope.id}`
     : undefined;

@@ -267,6 +267,28 @@ describe("application-state script-helpers", () => {
     });
   });
 
+  describe("readAppStateForCurrentTab", () => {
+    it("surfaces scoped store failures instead of treating them as missing state", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { readAppStateForCurrentTab } = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      const failure = new Error("application state unavailable");
+      mockAppStateGet.mockRejectedValue(failure);
+
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@test.com", run: { browserTabId: "tab-a" } },
+          () => readAppStateForCurrentTab("navigation"),
+        ),
+      ).rejects.toThrow(failure);
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigation:tab-a",
+      );
+    });
+  });
+
   describe("deleteAppStateByPrefix", () => {
     it("delegates to appStateDeleteByPrefix", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";

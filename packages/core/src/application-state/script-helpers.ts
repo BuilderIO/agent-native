@@ -179,7 +179,7 @@ export async function readAppStateForCurrentTab(
   const browserTabId = getCurrentRequestBrowserTabId();
   const tabKey = appStateKeyForBrowserTab(key, browserTabId);
   if (tabKey !== key) {
-    const scoped = await readAppState(tabKey).catch(() => null);
+    const scoped = await readAppState(tabKey);
     if (scoped) return scoped;
     if (options?.fallbackToGlobal !== true) return null;
   }
