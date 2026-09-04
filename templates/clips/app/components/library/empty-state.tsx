@@ -9,6 +9,14 @@ import {
 import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 
 type EmptyKind =
   | "library"
@@ -62,23 +70,21 @@ export function EmptyState({
   };
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
-      <Icon className="mb-6 h-10 w-10 text-primary" />
-      <h2 className="text-base font-semibold text-foreground mb-1">
-        {t(`empty.${kind}.title`)}
-      </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-5">
-        {t(`empty.${kind}.body`)}
-      </p>
-      {hasCta && (
-        <Button
-          onClick={handleCta}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-          size="sm"
-        >
-          {t(`empty.${kind}.cta`)}
-        </Button>
-      )}
-    </div>
+    <Empty className="min-h-full rounded-none py-20">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Icon />
+        </EmptyMedia>
+        <EmptyTitle>{t(`empty.${kind}.title`)}</EmptyTitle>
+        <EmptyDescription>{t(`empty.${kind}.body`)}</EmptyDescription>
+      </EmptyHeader>
+      {hasCta ? (
+        <EmptyContent>
+          <Button onClick={handleCta} size="sm">
+            {t(`empty.${kind}.cta`)}
+          </Button>
+        </EmptyContent>
+      ) : null}
+    </Empty>
   );
 }

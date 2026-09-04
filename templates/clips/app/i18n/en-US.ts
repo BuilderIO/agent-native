@@ -1522,6 +1522,7 @@ const messages = {
     emptyWebDescription:
       "Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere.",
     downloadDesktopApp: "Download Clips desktop app",
+    tryInBrowser: "Try in browser",
     holdToDictate: "hold to dictate",
     toggle: "toggle",
     desktopCtaTitle: "Dictate from anywhere with the desktop app",
@@ -1534,6 +1535,19 @@ const messages = {
     loadFailed: "Couldn't load dictations.",
     noFilterMatches: "No dictations matching this filter.",
     dictionaryTitle: "Dictionary",
+    dictionaryAutoLearn: "Desktop learns from corrections",
+    dictionaryAddTerms: "Add terms",
+    dictionaryImport: "Import",
+    dictionaryExport: "Export CSV",
+    dictionaryImportFailed: "Choose a CSV, TSV, or text file with valid terms.",
+    dictionaryExported: "Dictionary exported",
+    dictionaryTermsPlaceholder: "Agent-Native\nagent native → Agent-Native",
+    dictionaryTermsRequired: "Enter at least one term.",
+    dictionarySearch: "Search dictionary",
+    dictionaryNoMatches: "No matching terms.",
+    dictionaryRemoveTitle: "Remove “{{term}}”?",
+    dictionaryRemoveDescription:
+      "Future dictations will no longer use this correction.",
     dictionaryDescription:
       "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.",
     dictionaryTermPlaceholder: "Term",

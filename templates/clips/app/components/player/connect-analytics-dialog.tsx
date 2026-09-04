@@ -85,6 +85,8 @@ export function buildAnalyticsHandoff(
 export interface ConnectAnalyticsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Activates a route-owned Agent surface instead of the workspace rail. */
+  onOpenAgent?: () => void;
   recordingId: string;
   recordingTitle?: string;
   snapshot: AnalyticsInsightSnapshot;
@@ -93,6 +95,7 @@ export interface ConnectAnalyticsDialogProps {
 export function ConnectAnalyticsDialog({
   open,
   onOpenChange,
+  onOpenAgent,
   recordingId,
   recordingTitle,
   snapshot,
@@ -111,12 +114,13 @@ export function ConnectAnalyticsDialog({
       surface: "recording_insights",
       destination,
     });
+    onOpenAgent?.();
     sendToAgentChat({
       message: payload.message,
       context: payload.context,
       submit: true,
       newTab: true,
-      openSidebar: true,
+      openSidebar: !onOpenAgent,
       background: false,
       usageLabel: `clips:analytics-${destination}`,
     });

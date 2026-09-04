@@ -9,6 +9,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 
 export interface TrendPoint {
   date: string;
@@ -41,9 +42,13 @@ export function EngagementChart({
   const t = useT();
   if (!data || data.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">
-        {t("clipsFinalRaw.noEngagementData")}
-      </div>
+      <Empty className="h-64 gap-2 rounded-none">
+        <EmptyHeader>
+          <EmptyTitle className="text-sm font-medium text-muted-foreground">
+            {t("clipsFinalRaw.noEngagementData")}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

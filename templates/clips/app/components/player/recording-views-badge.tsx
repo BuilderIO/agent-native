@@ -63,6 +63,8 @@ export interface RecordingViewsBadgeProps {
   defaultOpen?: boolean;
   /** True only for owner/editor — gates avatars, the dialog, and all viewer identities. */
   canViewDetails: boolean;
+  /** Activates a route-owned Agent surface for Analytics handoffs. */
+  onOpenAgent?: () => void;
   className?: string;
 }
 
@@ -80,6 +82,7 @@ export function RecordingViewsBadge({
   durationMs = 0,
   defaultOpen = false,
   canViewDetails,
+  onOpenAgent,
   className,
 }: RecordingViewsBadgeProps): React.ReactElement | null {
   const t = useT();
@@ -279,6 +282,7 @@ export function RecordingViewsBadge({
       <ConnectAnalyticsDialog
         open={analyticsOpen}
         onOpenChange={setAnalyticsOpen}
+        onOpenAgent={onOpenAgent}
         recordingId={recordingId}
         recordingTitle={recordingTitle}
         snapshot={analyticsSnapshot}

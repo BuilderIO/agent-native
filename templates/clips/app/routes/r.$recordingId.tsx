@@ -1,3 +1,4 @@
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
@@ -421,7 +422,7 @@ export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
 
-type SidePanel = "transcript" | "comments" | "settings";
+type SidePanel = "transcript" | "comments" | "agent" | "settings";
 type ToolbarPanel = Exclude<SidePanel, "comments">;
 
 const WORKFLOW_MENU_ITEMS: Array<{
@@ -574,12 +575,9 @@ export default function RecordingPage() {
       });
     });
   }, [searchParams, setSearchParams]);
-  const openGlobalAgentPanel = useCallback(() => {
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:set-mode", { detail: { mode: "chat" } }),
-    );
-    window.dispatchEvent(new Event("agent-panel:open"));
-  }, []);
+  const openAgentPanel = useCallback(() => {
+    openSidePanel("agent");
+  }, [openSidePanel]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -828,19 +826,13 @@ export default function RecordingPage() {
     if (
       (panelParam === "transcript" ||
         panelParam === "insights" ||
+        (panelParam === "agent" && Boolean(session)) ||
         panelParam === "settings") &&
       (panelParam !== "settings" || canEdit)
     ) {
       setPanel(panelParam === "insights" ? "transcript" : panelParam);
     }
-  }, [canEdit, panelParam]);
-
-  useEffect(() => {
-    if (panelParam !== "agent" || !session || !recording?.id) return;
-    setPanel("transcript");
-    const timeout = window.setTimeout(openGlobalAgentPanel, 0);
-    return () => window.clearTimeout(timeout);
-  }, [openGlobalAgentPanel, panelParam, recording?.id, session]);
+  }, [canEdit, panelParam, session]);
 
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
@@ -1255,7 +1247,7 @@ export default function RecordingPage() {
     if (!recording) return;
     if (generatedWorkflow?.status === "generating") return;
     setEditing(false);
-    openGlobalAgentPanel();
+    openAgentPanel();
     generateWorkflow.mutate({
       recordingId: recording.id,
       kind,
@@ -1552,7 +1544,7 @@ export default function RecordingPage() {
       );
 
       return session ? (
-        <LibraryLayout>{processingView}</LibraryLayout>
+        <LibraryLayout showAgentSidebar={false}>{processingView}</LibraryLayout>
       ) : (
         processingView
       );
@@ -1666,6 +1658,11 @@ export default function RecordingPage() {
       <ViewerTabsTrigger value="transcript">
         {t("recordingPage.transcript")}
       </ViewerTabsTrigger>
+      {session ? (
+        <ViewerTabsTrigger value="agent">
+          {t("recordingPage.agent")}
+        </ViewerTabsTrigger>
+      ) : null}
       {canEdit ? (
         <ViewerTabsTrigger value="settings">
           {t("recordingPage.settings")}
@@ -1751,6 +1748,28 @@ export default function RecordingPage() {
             isRegenerating={requestTranscript.isPending}
           />
         </TabsContent>
+        {session ? (
+          <TabsContent
+            value="agent"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto data-[state=inactive]:hidden"
+          >
+            <AgentPanel
+              emptyStateText={t("recordingPage.askAboutClip")}
+              dynamicSuggestions={false}
+              scope={{ type: "recording", id: recording.id }}
+              missingApiKeySetupLayout="sidebar"
+              suggestions={[
+                t("recordingPage.summarizeClip"),
+                t("recordingPage.findKeyMoments"),
+                t("recordingPage.listFollowUpActions"),
+                t("recordingPage.draftQuestions"),
+              ]}
+              browserTabId={browserTabId}
+              showHeader={false}
+              showTabBar={false}
+            />
+          </TabsContent>
+        ) : null}
         {canEdit ? (
           <TabsContent
             value="settings"
@@ -1780,6 +1799,7 @@ export default function RecordingPage() {
           durationMs={recording.durationMs}
           defaultOpen={canEdit && panelParam === "insights"}
           canViewDetails={canEdit}
+          onOpenAgent={openAgentPanel}
           className="shrink-0 border-0 shadow-none"
         />
       ) : null}
@@ -1905,7 +1925,7 @@ export default function RecordingPage() {
                 {t("recordingPage.edit")}
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem onSelect={openGlobalAgentPanel}>
+            <DropdownMenuItem onSelect={openAgentPanel}>
               <IconMessage className="h-4 w-4" />
               {t("recordingPage.askAboutClip")}
             </DropdownMenuItem>
@@ -2454,7 +2474,11 @@ export default function RecordingPage() {
     </>
   );
 
-  return session ? <LibraryLayout>{viewer}</LibraryLayout> : viewer;
+  return session ? (
+    <LibraryLayout showAgentSidebar={false}>{viewer}</LibraryLayout>
+  ) : (
+    viewer
+  );
 }
 
 function capitalize(s: string) {

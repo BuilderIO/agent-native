@@ -85,6 +85,13 @@ import {
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { Button } from "@/components/ui/button";
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -1816,18 +1823,20 @@ function PublicAgentEmptyState({
   const t = useT();
 
   return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <div className="w-full max-w-xs">
-        <h2 className="text-base font-semibold text-foreground">
+    <Empty className="h-full rounded-none px-8 py-12">
+      <EmptyHeader>
+        <EmptyTitle className="text-base">
           {t("sharePage.agentEmptyTitle")}
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+        </EmptyTitle>
+        <EmptyDescription>
           {t("sharePage.agentEmptyDescription")}
-        </p>
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent className="max-w-xs gap-3">
         {onSignup ? (
           <Button
             type="button"
-            className="mt-6 w-full"
+            className="w-full"
             onClick={() => {
               onCtaClick("signup");
               onSignup();
@@ -1836,13 +1845,13 @@ function PublicAgentEmptyState({
             {t("signInPrompt.createAccount")}
           </Button>
         ) : (
-          <Button asChild className="mt-6 w-full">
+          <Button asChild className="w-full">
             <a href={signupHref} onClick={() => onCtaClick("signup")}>
               {t("signInPrompt.createAccount")}
             </a>
           </Button>
         )}
-        <p className="mt-3 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {t("sharePage.agentEmptySignInPrompt")}{" "}
           <a
             href={signInHref}
@@ -1855,7 +1864,7 @@ function PublicAgentEmptyState({
         <CaptureInstallButton
           variant="link"
           size="sm"
-          className="mt-4 h-auto gap-1.5 px-0 py-0 text-xs font-medium text-muted-foreground"
+          className="h-auto gap-1.5 px-0 py-0 text-xs font-medium text-muted-foreground"
           onClick={() => onCtaClick("download")}
           downloadedChildren={
             <>
@@ -1867,8 +1876,8 @@ function PublicAgentEmptyState({
           <IconDownload className="size-3.5" />
           {t("sharePage.downloadDesktopApp")}
         </CaptureInstallButton>
-      </div>
-    </div>
+      </EmptyContent>
+    </Empty>
   );
 }
 

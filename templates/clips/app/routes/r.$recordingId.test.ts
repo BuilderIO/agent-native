@@ -120,7 +120,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("<ViewerTabsList");
     expect(route).toContain('<ViewerTabsTrigger value="comments">');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
-    expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain('<ViewerTabsTrigger value="agent">');
     expect(route).toContain('<ViewerTabsTrigger value="settings">');
     expect(route).not.toContain("<ToggleGroup");
     expect(route).toContain('value={panel ?? "comments"}');
@@ -182,18 +182,20 @@ describe("direct recording route shell cue", () => {
     expect(viewerControls).not.toContain("hover:bg-muted/50");
   });
 
-  it("uses the workspace agent sidebar for signed-in viewers", () => {
+  it("embeds Agent in the recording panel without mounting a second rail", () => {
     const route = readRoute("r.$recordingId.tsx");
     const layout = readFileSync(
       resolve(process.cwd(), "app/components/library/library-layout.tsx"),
       "utf8",
     );
 
-    expect(route).toContain("<LibraryLayout>");
-    expect(route).not.toContain("<AgentPanel");
-    expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
-    expect(route).toContain('panelParam !== "agent"');
-    expect(route).toContain("openGlobalAgentPanel");
+    expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain('value="agent"');
+    expect(route).toContain("<AgentPanel");
+    expect(route).toContain('scope={{ type: "recording", id: recording.id }}');
+    expect(route).toContain("openAgentPanel");
+    expect(route).not.toContain("openGlobalAgentPanel");
+    expect(route).toContain("<LibraryLayout showAgentSidebar={false}>");
     expect(layout).toContain("<AgentSidebar");
     expect(layout).toContain(
       'className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col"',
@@ -204,7 +206,8 @@ describe("direct recording route shell cue", () => {
     expect(layout).toContain("<IconLayoutSidebarRight");
     expect(layout).toContain("<ClipsAgentToggleButton />");
     expect(layout).toContain("[&>.agent-sidebar-shell]:h-full");
-    expect(layout).not.toContain("showAgentToggle");
+    expect(layout).toContain("showAgentSidebar = true");
+    expect(layout).toContain("{showAgentSidebar ? (");
     expect(route).toContain("<PageHeader>");
     expect(route).toContain("<BreadcrumbList");
     expect(route).toContain("<BreadcrumbLink asChild>");
@@ -225,7 +228,9 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("<PageHeader>");
     expect(route).toContain("{recordingBreadcrumb}");
     expect(route).toContain("renderShareControl()");
-    expect(route).toContain("<LibraryLayout>{processingView}</LibraryLayout>");
+    expect(route).toContain(
+      "<LibraryLayout showAgentSidebar={false}>{processingView}</LibraryLayout>",
+    );
     expect(route).toContain('session ? "h-full min-h-0" : "min-h-screen"');
     expect(route).toContain('session && "min-h-0 overflow-y-auto"');
   });

@@ -10,6 +10,13 @@ import {
   PageHeaderPrimaryAction,
 } from "@/components/library/page-header";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { useSpaces, useOrganizations } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
@@ -62,7 +69,7 @@ export default function SpacesIndexRoute() {
         )}
       </PageHeader>
 
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
         {isLoading ? (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -70,21 +77,19 @@ export default function SpacesIndexRoute() {
             ))}
           </div>
         ) : spaces.length === 0 ? (
-          <div className="flex min-h-full items-center justify-center p-6">
-            <div className="flex max-w-sm flex-col items-center text-center">
-              <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <IconUsersGroup className="size-6" />
-              </div>
-              <h2 className="text-base font-semibold text-foreground">
-                {t("navigation.noSpaces")}
-              </h2>
+          <Empty className="min-h-full rounded-none">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconUsersGroup />
+              </EmptyMedia>
+              <EmptyTitle>{t("navigation.noSpaces")}</EmptyTitle>
               {canManageOrg ? (
-                <p className="mt-1.5 text-sm text-muted-foreground">
+                <EmptyDescription>
                   {t("createSpaceDialog.description")}
-                </p>
+                </EmptyDescription>
               ) : null}
-            </div>
-          </div>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {spaces.map((s) => (

@@ -6,6 +6,7 @@ import {
   ViewerAvatar,
   viewerLabel,
 } from "@/components/player/recording-views-badge";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 
 export interface InsightsPanelProps {
   recordingId: string;
@@ -67,9 +68,13 @@ export function InsightsPanel({ recordingId }: InsightsPanelProps) {
           {t("recordingInsights.recentViewers")}
         </div>
         {viewers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {t("recordingInsights.noViewers")}
-          </p>
+          <Empty className="flex-none gap-2 border px-4 py-5 md:p-5">
+            <EmptyHeader>
+              <EmptyTitle className="text-sm font-normal text-muted-foreground">
+                {t("recordingInsights.noViewers")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="flex flex-wrap gap-2">
             {viewers.slice(0, 12).map((v, i) => (

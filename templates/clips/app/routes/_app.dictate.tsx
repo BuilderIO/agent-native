@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
-import { VocabularySection } from "@/components/dictate/vocabulary-section";
+import { VocabularyManager } from "@/components/dictate/vocabulary-section";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { DayHeader } from "@/components/meetings/day-header";
 import { Badge } from "@/components/ui/badge";
@@ -31,8 +31,17 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -264,35 +273,26 @@ function FilterTabs({
     { id: "cmd-shift-space", label: shortcutLabel("cmd+shift+space") },
   ];
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-1">
-      {tabs.map((t) => {
-        const active = value === t.id;
-        return (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => onChange(t.id)}
-            aria-pressed={active}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs cursor-pointer transition-colors",
-              active
-                ? "bg-foreground text-background"
-                : "bg-accent/40 text-foreground hover:bg-accent/70",
-            )}
-          >
-            {t.label}
-            <span
-              className={cn(
-                "tabular-nums text-[10px]",
-                active ? "text-background/70" : "text-muted-foreground",
-              )}
-            >
-              {counts[t.id]}
+    <Tabs
+      value={value}
+      onValueChange={(nextValue) => onChange(nextValue as SourceFilter)}
+      className="mb-3 gap-0"
+    >
+      <TabsList
+        variant="line"
+        className="h-9 max-w-full justify-start overflow-x-auto"
+        aria-label={t("navigation.dictate")}
+      >
+        {tabs.map((tab) => (
+          <TabsTrigger key={tab.id} value={tab.id} className="gap-1.5 px-3">
+            {tab.label}
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {counts[tab.id]}
             </span>
-          </button>
-        );
-      })}
-    </div>
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   );
 }
 
@@ -650,6 +650,71 @@ function DownloadDesktopAppCard() {
   );
 }
 
+function DictateEmptyState({
+  isDesktopApp,
+  speechSupported,
+  onTryInBrowser,
+}: {
+  isDesktopApp: boolean;
+  speechSupported: boolean;
+  onTryInBrowser: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <Empty className="min-h-[calc(100dvh-8rem)] border-0 px-4 py-12">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <IconMicrophone2 />
+        </EmptyMedia>
+        <EmptyTitle>{t("dictateRoute.startFirst")}</EmptyTitle>
+        <EmptyDescription className="text-pretty">
+          {isDesktopApp
+            ? t("dictateRoute.emptyDesktopDescription", {
+                fnKey: "Fn",
+                modifierKey: shortcutModifierLabel(),
+              })
+            : t("dictateRoute.emptyWebDescription")}
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        {isDesktopApp ? (
+          <div className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border bg-accent px-3 text-sm font-medium">
+            <Kbd>Fn</Kbd>
+            <span>{t("dictateRoute.holdToDictate")}</span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap justify-center gap-2">
+            <CaptureInstallButton
+              className="gap-1.5"
+              downloadedChildren={
+                <>
+                  <IconDeviceDesktop className="size-4" />
+                  {t("captureInstall.openDesktopApp")}
+                </>
+              }
+            >
+              <IconDownload className="size-4" />
+              {t("dictateRoute.downloadDesktopApp")}
+            </CaptureInstallButton>
+            {speechSupported ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1.5"
+                onClick={onTryInBrowser}
+              >
+                <IconMicrophone2 className="size-4" />
+                {t("dictateRoute.tryInBrowser")}
+              </Button>
+            ) : null}
+          </div>
+        )}
+      </EmptyContent>
+    </Empty>
+  );
+}
+
 export default function DictateRoute() {
   const t = useT();
   const { isDesktopApp } = useDesktopPromo();
@@ -893,30 +958,19 @@ export default function DictateRoute() {
   }, [filtered]);
 
   const isEmpty = !isLoading && !isError && dictations.length === 0;
+  const hasActiveBrowserCapture =
+    listening ||
+    createDictation.isPending ||
+    draftText.trim().length > 0 ||
+    interimText.trim().length > 0;
 
   return (
     <>
       <PageHeader>
         <PageBreadcrumb label={t("navigation.dictate")} />
+        <VocabularyManager />
       </PageHeader>
       <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
-        {isDesktopApp ? (
-          <HowToCard defaultOpen={isEmpty} />
-        ) : (
-          <DownloadDesktopAppCard />
-        )}
-        <WebDictationPanel
-          supported={speechSupported}
-          listening={listening}
-          saving={createDictation.isPending}
-          draftText={draftText}
-          interimText={interimText}
-          isDesktopApp={isDesktopApp}
-          isEmpty={isEmpty}
-          onStart={() => startBrowserDictation("manual")}
-          onStop={stopBrowserDictation}
-        />
-
         {isLoading ? (
           <div className="space-y-2">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -927,43 +981,74 @@ export default function DictateRoute() {
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             {t("dictateRoute.loadFailed")}
           </div>
-        ) : isEmpty ? null : (
+        ) : isEmpty && !hasActiveBrowserCapture ? (
+          <DictateEmptyState
+            isDesktopApp={isDesktopApp}
+            speechSupported={speechSupported}
+            onTryInBrowser={() => startBrowserDictation("manual")}
+          />
+        ) : (
           <>
-            <FilterTabs value={filter} onChange={setFilter} counts={counts} />
-
-            {filtered.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-10 text-center text-sm text-muted-foreground">
-                {t("dictateRoute.noFilterMatches")}
-              </div>
+            {isEmpty ? null : isDesktopApp ? (
+              <HowToCard defaultOpen={false} />
             ) : (
-              <div className="space-y-6">
-                {grouped.map(([day, items]) => (
-                  <div key={day} className="space-y-2">
-                    <DayHeader label={day} />
-                    <div className="rounded-lg border border-border bg-background overflow-hidden">
-                      <div className="hidden grid-cols-12 items-center gap-3 border-b border-border bg-accent/20 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:grid">
-                        <div className="col-span-2">When</div>
-                        <div className="col-span-2">Source</div>
-                        <div className="col-span-6">Text</div>
-                        <div className="col-span-1 text-end">Duration</div>
-                        <div className="col-span-1" />
+              <DownloadDesktopAppCard />
+            )}
+            <WebDictationPanel
+              supported={speechSupported}
+              listening={listening}
+              saving={createDictation.isPending}
+              draftText={draftText}
+              interimText={interimText}
+              isDesktopApp={isDesktopApp}
+              isEmpty={isEmpty}
+              onStart={() => startBrowserDictation("manual")}
+              onStop={stopBrowserDictation}
+            />
+
+            {isEmpty ? null : (
+              <>
+                <FilterTabs
+                  value={filter}
+                  onChange={setFilter}
+                  counts={counts}
+                />
+
+                {filtered.length === 0 ? (
+                  <Empty className="border bg-accent/20 py-10">
+                    <EmptyHeader>
+                      <EmptyTitle className="text-sm font-medium text-muted-foreground">
+                        {t("dictateRoute.noFilterMatches")}
+                      </EmptyTitle>
+                    </EmptyHeader>
+                  </Empty>
+                ) : (
+                  <div className="space-y-6">
+                    {grouped.map(([day, items]) => (
+                      <div key={day} className="space-y-2">
+                        <DayHeader label={day} />
+                        <div className="overflow-hidden rounded-lg border border-border bg-background">
+                          <div className="hidden grid-cols-12 items-center gap-3 border-b border-border bg-accent/20 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:grid">
+                            <div className="col-span-2">When</div>
+                            <div className="col-span-2">Source</div>
+                            <div className="col-span-6">Text</div>
+                            <div className="col-span-1 text-end">Duration</div>
+                            <div className="col-span-1" />
+                          </div>
+                          <div>
+                            {items.map((d) => (
+                              <DictationRow key={d.id} dictation={d} />
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        {items.map((d) => (
-                          <DictationRow key={d.id} dictation={d} />
-                        ))}
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </>
         )}
-
-        <div className="mt-6">
-          <VocabularySection />
-        </div>
       </div>
     </>
   );

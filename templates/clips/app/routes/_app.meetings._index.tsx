@@ -3,10 +3,8 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
-  IconBellRinging,
   IconCalendar,
   IconLoader2,
-  IconMicrophone2,
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
@@ -48,7 +46,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import enMessages from "@/i18n/en-US";
@@ -57,6 +64,7 @@ import {
   buildMeetingHistoryQuery,
   MEETING_HISTORY_PAGE_SIZE,
 } from "@/lib/meeting-history-query";
+import { shortcutLabel } from "@/lib/utils";
 
 export function meta() {
   return [{ title: enMessages.meetingsRoute.pageTitle }];
@@ -335,32 +343,6 @@ function CalendarConnectionAction({
   );
 }
 
-function MeetingNotesSteps() {
-  const t = useT();
-  return (
-    <div className="grid gap-2 sm:grid-cols-3">
-      <div className="rounded-md border border-border bg-background/70 p-3">
-        <IconCalendar className="h-4 w-4 text-muted-foreground" />
-        <div className="mt-2 text-xs font-medium text-foreground">
-          {t("meetingsRoute.guideCalendarTitle")}
-        </div>
-      </div>
-      <div className="rounded-md border border-border bg-background/70 p-3">
-        <IconMicrophone2 className="h-4 w-4 text-muted-foreground" />
-        <div className="mt-2 text-xs font-medium text-foreground">
-          {t("meetingsRoute.guideDesktopTitle")}
-        </div>
-      </div>
-      <div className="rounded-md border border-border bg-background/70 p-3">
-        <IconBellRinging className="h-4 w-4 text-muted-foreground" />
-        <div className="mt-2 text-xs font-medium text-foreground">
-          {t("meetingsRoute.guideStartTitle")}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ConnectCalendarEmptyState({
   onConnect,
   isPending,
@@ -370,33 +352,24 @@ function ConnectCalendarEmptyState({
 }) {
   const t = useT();
   return (
-    <div className="mx-auto mt-12 max-w-xl">
-      <div className="overflow-hidden rounded-lg border border-border">
-        <div className="flex items-start gap-3 bg-gradient-to-br from-primary/5 via-transparent to-transparent px-4 py-3.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
-            <IconCalendar className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-foreground">
-              {t("meetingsRoute.connectGoogleCalendar")}
-            </div>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              {t("meetingsRoute.desktopReminder")}
-            </p>
-            <div className="mt-3">
-              <CalendarConnectionAction
-                label={t("meetingsRoute.connectGoogleCalendar")}
-                onConnect={onConnect}
-                isPending={isPending}
-              />
-            </div>
-            <div className="mt-4">
-              <MeetingNotesSteps />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <Empty className="min-h-[24rem] w-full rounded-none border-0">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <IconCalendar />
+        </EmptyMedia>
+        <EmptyTitle>{t("meetingsRoute.connectGoogleCalendar")}</EmptyTitle>
+        <EmptyDescription>
+          {t("meetingsRoute.desktopReminder")}
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <CalendarConnectionAction
+          label={t("meetingsRoute.connectGoogleCalendar")}
+          onConnect={onConnect}
+          isPending={isPending}
+        />
+      </EmptyContent>
+    </Empty>
   );
 }
 
@@ -448,8 +421,8 @@ function CalendarAccountMenu({
         <DropdownMenuTrigger asChild>
           <Button
             size="sm"
-            variant="ghost"
-            className="h-8 shrink-0 px-2.5 font-medium cursor-pointer"
+            variant="outline"
+            className="h-9 shrink-0 cursor-pointer px-2.5 font-medium"
             aria-label={t("meetingsRoute.calendarSettings")}
             aria-busy={isBusy}
             disabled={isBusy}
@@ -457,9 +430,14 @@ function CalendarAccountMenu({
             {isBusy ? (
               <Skeleton className="h-4 w-16" />
             ) : (
-              t("meetingsRoute.calendarAccountsButton", {
-                defaultValue: "Calendars",
-              })
+              <>
+                <IconCalendar />
+                <span className="hidden sm:inline">
+                  {t("meetingsRoute.calendarAccountsButton", {
+                    defaultValue: "Calendars",
+                  })}
+                </span>
+              </>
             )}
           </Button>
         </DropdownMenuTrigger>
@@ -619,10 +597,71 @@ function MeetingsHeader({
   isCalendarBusy: boolean;
 }) {
   const t = useT();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName.toLowerCase();
+      if (
+        event.key === "/" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        tagName !== "input" &&
+        tagName !== "textarea" &&
+        !target?.isContentEditable
+      ) {
+        event.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
-    <>
-      <PageHeader>
-        <PageBreadcrumb label={t("meetingsRoute.title")} />
+    <PageHeader>
+      <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_24rem_minmax(0,1fr)]">
+        <div className="hidden min-w-0 lg:block">
+          <PageBreadcrumb label={t("meetingsRoute.title")} />
+        </div>
+        <div className="relative min-w-0 flex-1 lg:w-full">
+          <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder={t("meetingsRoute.searchPlaceholder")}
+            aria-label={t("meetingsRoute.searchPlaceholder")}
+            className="h-9 ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
+          />
+          {query ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                onQueryChange("");
+                inputRef.current?.focus();
+              }}
+              className="absolute end-1 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring/50 focus-visible:ring-offset-0"
+              aria-label={t("meetingsRoute.clearSearch")}
+            >
+              <IconX className="size-3.5" />
+            </Button>
+          ) : (
+            <Kbd
+              aria-hidden="true"
+              className="absolute end-1.5 top-1/2 h-5 -translate-y-1/2 px-1 font-mono text-[10px]"
+            >
+              {shortcutLabel("/")}
+            </Kbd>
+          )}
+        </div>
         <div className="ms-auto flex items-center gap-2">
           <CalendarAccountMenu
             accounts={calendarAccounts}
@@ -631,27 +670,8 @@ function MeetingsHeader({
             isBusy={isCalendarBusy}
           />
         </div>
-      </PageHeader>
-      <div className="relative mb-6">
-        <IconSearch className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder={t("meetingsRoute.searchPlaceholder")}
-          className="h-9 ps-8 pe-8 text-sm"
-        />
-        {query && (
-          <button
-            type="button"
-            onClick={() => onQueryChange("")}
-            className="absolute end-2 top-1/2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-foreground"
-            aria-label={t("meetingsRoute.clearSearch")}
-          >
-            <IconX className="h-3.5 w-3.5" />
-          </button>
-        )}
       </div>
-    </>
+    </PageHeader>
   );
 }
 
@@ -876,187 +896,192 @@ export default function MeetingsIndexRoute() {
     calendarErrors.find((error) => error.needsReauth)?.accountId;
   const isCalendarBusy = isCalendarConnectionInFlight || isRefreshingCalendar;
 
-  if (isLoading) {
-    return (
-      <>
-        <PageHeader>
-          <PageBreadcrumb label={t("meetingsRoute.title")} />
-          <Skeleton className="ms-auto h-8 w-24" />
-        </PageHeader>
-        <div className="mx-auto w-full max-w-3xl p-6" aria-busy="true">
-          <Skeleton className="mb-6 h-9 w-full" />
-          <AgendaCardSkeleton />
-          <div className="mt-8 space-y-1">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <MeetingHistoryRowSkeleton key={i} />
-            ))}
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  if (calendarLoadError) {
-    return (
-      <>
-        <PageHeader>
-          <PageBreadcrumb label={t("meetingsRoute.title")} />
-        </PageHeader>
-        <div className="mx-auto w-full max-w-2xl p-6">
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            {calendarLoadError}
-          </div>
-        </div>
-      </>
-    );
-  }
-
   const nothingAtAll =
     historyMeetings.length === 0 && agendaMeetings.length === 0;
 
-  // Search reads server-side across all meetings regardless of calendar
-  // connection state (trashed/manually-created meetings, past imports), so a
-  // query in flight must still reach the search branch below rather than
-  // being preempted by the "connect your calendar" empty state.
-  if (!hasCalendar && nothingAtAll && !isSearching) {
-    return (
-      <div className="w-full p-6">
-        <MeetingsHeader
-          query={query}
-          onQueryChange={setQuery}
-          calendarAccounts={calendarAccounts}
-          onConnect={handleStartCalendarOAuth}
-          onDisconnected={handleCalendarDisconnected}
-          isCalendarBusy={isCalendarBusy}
-        />
-        <ConnectCalendarEmptyState
-          onConnect={handleStartCalendarOAuth}
-          isPending={isCalendarBusy}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="mx-auto w-full max-w-3xl p-6">
+    <div className="flex min-h-0 flex-1 flex-col">
       <MeetingsHeader
         query={query}
         onQueryChange={setQuery}
         calendarAccounts={calendarAccounts}
         onConnect={handleStartCalendarOAuth}
         onDisconnected={handleCalendarDisconnected}
-        isCalendarBusy={isCalendarBusy}
+        isCalendarBusy={isCalendarBusy || accounts.isLoading}
       />
-
-      {needsCalendarReauth && (
-        <CalendarReauthBanner
-          onReconnect={() => handleStartCalendarOAuth(reconnectAccountId)}
-          isPending={isCalendarBusy}
-        />
-      )}
-
-      {isSearching ? (
-        searchQuery.isLoading ? (
-          <div className="space-y-1">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <MeetingHistoryRowSkeleton key={i} />
-            ))}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {isLoading ? (
+          <div
+            className="flex min-h-full w-full flex-col gap-4 p-5"
+            aria-busy="true"
+          >
+            <Skeleton className="h-9 w-52" />
+            <AgendaCardSkeleton />
+            <div className="mt-4 space-y-1">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <MeetingHistoryRowSkeleton key={i} />
+              ))}
+            </div>
           </div>
-        ) : searchQuery.isError ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            {t("meetingsRoute.searchFailed", {
-              defaultValue: "Couldn't search meetings. Try again in a moment.",
-            })}
+        ) : calendarLoadError ? (
+          <div className="flex min-h-full w-full flex-1 items-start p-5">
+            <div className="w-full rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {calendarLoadError}
+            </div>
           </div>
-        ) : searchResults.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-12 text-center">
-            <IconSearch className="mx-auto h-7 w-7 text-muted-foreground/50" />
-            <p className="mt-2 text-sm text-foreground">
-              {t("meetingsRoute.noMeetingsMatch", { query: trimmedQuery })}
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setQuery("")}
-              className="mt-2 cursor-pointer"
-            >
-              {t("meetingsRoute.clearSearch")}
-            </Button>
+        ) : !hasCalendar && nothingAtAll && !isSearching ? (
+          <div className="flex min-h-full w-full flex-1 p-5">
+            <ConnectCalendarEmptyState
+              onConnect={handleStartCalendarOAuth}
+              isPending={isCalendarBusy}
+            />
           </div>
         ) : (
-          <MeetingHistoryList
-            meetings={searchResults}
-            snippets={searchSnippets}
-          />
-        )
-      ) : (
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4 grid w-full max-w-xs grid-cols-2">
-            <TabsTrigger value="agenda" className="text-xs">
-              {t("meetingsRoute.agendaTab", { defaultValue: "Agenda" })}
-            </TabsTrigger>
-            <TabsTrigger value="past" className="text-xs">
-              {t("meetingsRoute.pastTab", { defaultValue: "Past" })}
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="agenda">
-            {agendaQuery.isLoading && agendaMeetings.length === 0 ? (
-              <AgendaCardSkeleton />
-            ) : agendaSorted.length > 0 ? (
-              <AgendaCard meetings={agendaSorted} />
-            ) : (
-              <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
-                <IconCalendar className="mx-auto h-10 w-10 text-muted-foreground/50" />
-                <p className="mt-3 text-sm font-medium text-foreground">
-                  {t("meetingsRoute.noMeetingsYet")}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("meetingsRoute.noMeetingsDescription")}
-                </p>
-              </div>
+          <div className="flex min-h-full w-full flex-1 flex-col p-5">
+            {needsCalendarReauth && (
+              <CalendarReauthBanner
+                onReconnect={() => handleStartCalendarOAuth(reconnectAccountId)}
+                isPending={isCalendarBusy}
+              />
             )}
-          </TabsContent>
 
-          <TabsContent value="past" className="space-y-4">
-            {historyMeetings.length > 0 ? (
-              <>
-                <MeetingHistoryList meetings={historyMeetings} />
-                {history.hasNextPage ? (
-                  <div className="flex justify-center pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => history.fetchNextPage()}
-                      disabled={history.isFetchingNextPage}
-                      className="h-8 cursor-pointer gap-1.5 text-xs"
-                    >
-                      {history.isFetchingNextPage ? (
-                        <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : null}
-                      {t("meetingsRoute.loadOlder", {
-                        defaultValue: "Load older",
-                      })}
-                    </Button>
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
-                <IconCalendar className="mx-auto h-10 w-10 text-muted-foreground/50" />
-                <p className="mt-3 text-sm font-medium text-foreground">
-                  {t("meetingsRoute.noPastMeetings", {
-                    defaultValue: "No past meetings yet",
+            {isSearching ? (
+              searchQuery.isLoading ? (
+                <div className="space-y-1">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <MeetingHistoryRowSkeleton key={i} />
+                  ))}
+                </div>
+              ) : searchQuery.isError ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                  {t("meetingsRoute.searchFailed", {
+                    defaultValue:
+                      "Couldn't search meetings. Try again in a moment.",
                   })}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("meetingsRoute.noMeetingsDescription")}
-                </p>
-              </div>
+                </div>
+              ) : searchResults.length === 0 ? (
+                <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <IconSearch />
+                    </EmptyMedia>
+                    <EmptyTitle className="text-base">
+                      {t("meetingsRoute.noMeetingsMatch", {
+                        query: trimmedQuery,
+                      })}
+                    </EmptyTitle>
+                  </EmptyHeader>
+                  <EmptyContent>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setQuery("")}
+                      className="cursor-pointer"
+                    >
+                      {t("meetingsRoute.clearSearch")}
+                    </Button>
+                  </EmptyContent>
+                </Empty>
+              ) : (
+                <MeetingHistoryList
+                  meetings={searchResults}
+                  snippets={searchSnippets}
+                />
+              )
+            ) : (
+              <Tabs
+                value={activeTab}
+                onValueChange={setActiveTab}
+                className="flex min-h-[24rem] flex-1 flex-col gap-0"
+              >
+                <TabsList
+                  variant="line"
+                  className="mb-4 h-9 w-fit"
+                  aria-label={t("meetingsRoute.title")}
+                >
+                  <TabsTrigger value="agenda" className="min-w-24">
+                    {t("meetingsRoute.agendaTab", {
+                      defaultValue: "Agenda",
+                    })}
+                  </TabsTrigger>
+                  <TabsTrigger value="past" className="min-w-24">
+                    {t("meetingsRoute.pastTab", { defaultValue: "Past" })}
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent
+                  value="agenda"
+                  className="mt-0 flex flex-1 flex-col data-[state=inactive]:hidden"
+                >
+                  {agendaQuery.isLoading && agendaMeetings.length === 0 ? (
+                    <AgendaCardSkeleton />
+                  ) : agendaSorted.length > 0 ? (
+                    <AgendaCard meetings={agendaSorted} />
+                  ) : !hasCalendar ? (
+                    <ConnectCalendarEmptyState
+                      onConnect={handleStartCalendarOAuth}
+                      isPending={isCalendarBusy}
+                    />
+                  ) : (
+                    <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <IconCalendar />
+                        </EmptyMedia>
+                        <EmptyTitle className="text-base">
+                          {t("meetingsRoute.noMeetingsYet")}
+                        </EmptyTitle>
+                      </EmptyHeader>
+                    </Empty>
+                  )}
+                </TabsContent>
+
+                <TabsContent
+                  value="past"
+                  className="mt-0 flex flex-1 flex-col gap-4 data-[state=inactive]:hidden"
+                >
+                  {historyMeetings.length > 0 ? (
+                    <>
+                      <MeetingHistoryList meetings={historyMeetings} />
+                      {history.hasNextPage ? (
+                        <div className="flex justify-center pt-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => history.fetchNextPage()}
+                            disabled={history.isFetchingNextPage}
+                            className="h-8 cursor-pointer gap-1.5 text-xs"
+                          >
+                            {history.isFetchingNextPage ? (
+                              <IconLoader2 className="size-3.5 animate-spin" />
+                            ) : null}
+                            {t("meetingsRoute.loadOlder", {
+                              defaultValue: "Load older",
+                            })}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <Empty className="min-h-[24rem] w-full flex-1 rounded-none border-0">
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <IconCalendar />
+                        </EmptyMedia>
+                        <EmptyTitle className="text-base">
+                          {t("meetingsRoute.noPastMeetings", {
+                            defaultValue: "No past meetings yet",
+                          })}
+                        </EmptyTitle>
+                      </EmptyHeader>
+                    </Empty>
+                  )}
+                </TabsContent>
+              </Tabs>
             )}
-          </TabsContent>
-        </Tabs>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

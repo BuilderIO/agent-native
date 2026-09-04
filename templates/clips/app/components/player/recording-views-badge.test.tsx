@@ -213,6 +213,43 @@ describe("RecordingViewsBadge", () => {
       expect.objectContaining({
         message: expect.stringContaining("Launch walkthrough"),
         newTab: true,
+        openSidebar: true,
+        usageLabel: "clips:analytics-analysis",
+      }),
+    );
+  });
+
+  it("hands Analytics prompts to a route-owned Agent panel when provided", () => {
+    const onOpenAgent = vi.fn();
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        recordingTitle="Launch walkthrough"
+        viewCount={12}
+        defaultOpen
+        canViewDetails
+        onOpenAgent={onOpenAgent}
+      />,
+    );
+
+    const connectButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("recordingInsights.connectAnalytics"),
+    );
+    act(() => connectButton?.click());
+
+    const openButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("recordingInsights.startChatAction"),
+    );
+    act(() => openButton?.click());
+
+    expect(onOpenAgent).toHaveBeenCalledOnce();
+    expect(handoffMocks.sendToAgentChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openSidebar: false,
         usageLabel: "clips:analytics-analysis",
       }),
     );

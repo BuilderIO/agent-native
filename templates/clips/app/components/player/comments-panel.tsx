@@ -25,6 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Kbd } from "@/components/ui/kbd";
 import {
   Popover,
@@ -666,16 +667,18 @@ function EmptyCommentsState({
   if (isInlinePresentation) return null;
 
   return (
-    <div
+    <Empty
       className={cn(
-        "flex items-center justify-center px-8 py-10 text-center",
+        "gap-2 rounded-none px-8 py-10",
         isSharePresentation ? "flex-1" : "min-h-full",
       )}
     >
-      <p className="text-sm font-medium text-muted-foreground">
-        {t("commentsPanel.beFirst")}
-      </p>
-    </div>
+      <EmptyHeader>
+        <EmptyTitle className="text-sm font-medium text-muted-foreground">
+          {t("commentsPanel.beFirst")}
+        </EmptyTitle>
+      </EmptyHeader>
+    </Empty>
   );
 }
 

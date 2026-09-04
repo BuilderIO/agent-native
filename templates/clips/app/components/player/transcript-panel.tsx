@@ -21,6 +21,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -354,11 +355,15 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
 
       <div className="flex-1 overflow-y-auto px-3">
         {filtered.length === 0 ? (
-          <div className="p-4 text-sm text-muted-foreground">
-            {query
-              ? t("transcriptPanel.noMatches")
-              : t("transcriptPanel.noTranscript")}
-          </div>
+          <Empty className="min-h-full gap-2 rounded-none p-4 md:p-6">
+            <EmptyHeader>
+              <EmptyTitle className="text-sm font-medium text-muted-foreground">
+                {query
+                  ? t("transcriptPanel.noMatches")
+                  : t("transcriptPanel.noTranscript")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <ul className="py-1">
             {filtered.map((seg) => {

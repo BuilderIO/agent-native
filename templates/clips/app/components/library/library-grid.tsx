@@ -421,7 +421,7 @@ export function LibraryGrid({
           )}
           aria-busy={isLoading}
         >
-          <div className="p-5">
+          <div className="flex min-h-full flex-col p-5">
             {isLoading ? (
               <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
                 {Array.from({ length: 8 }).map((_, i) => (

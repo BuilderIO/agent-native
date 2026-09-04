@@ -73,6 +73,8 @@ import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
   children: ReactNode;
+  /** Disable the workspace Agent rail when a route embeds Agent in its own panel. */
+  showAgentSidebar?: boolean;
 }
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "clips:left-sidebar-collapsed";
@@ -98,7 +100,10 @@ function ClipsAgentToggleButton() {
   );
 }
 
-export function LibraryLayout({ children }: LibraryLayoutProps) {
+export function LibraryLayout({
+  children,
+  showAgentSidebar = true,
+}: LibraryLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
@@ -365,6 +370,17 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     );
   };
 
+  const pageContent = (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <InvitationBanner />
+      <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <PageHeaderSlotProvider slot={headerSlot}>
+          {children}
+        </PageHeaderSlotProvider>
+      </main>
+    </div>
+  );
+
   return (
     <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
       {/* Mobile backdrop */}
@@ -605,36 +621,34 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               ref={setHeaderSlot}
               className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
             />
-            <div className="ms-1 flex items-center border-s border-border ps-2">
-              <ClipsAgentToggleButton />
-            </div>
+            {showAgentSidebar ? (
+              <div className="ms-1 flex items-center border-s border-border ps-2">
+                <ClipsAgentToggleButton />
+              </div>
+            ) : null}
           </header>
         )}
         <div className="flex min-h-0 flex-1 overflow-hidden [&>.agent-sidebar-shell]:h-full [&>.agent-sidebar-shell]:min-h-0">
-          <AgentSidebar
-            position="right"
-            defaultOpen={false}
-            showCollapseButton={isMobile}
-            emptyStateText={t("navigation.agentEmptyState")}
-            suggestions={[
-              t("navigation.agentSuggestionSummary"),
-              t("navigation.agentSuggestionPricing"),
-              t("navigation.agentSuggestionFiller"),
-            ]}
-            agentPageHref="/settings/agent"
-            scope={recordingScope}
-            browserTabId={getBrowserTabId()}
-          >
-            {/* Main content area */}
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <InvitationBanner />
-              <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
-                <PageHeaderSlotProvider slot={headerSlot}>
-                  {children}
-                </PageHeaderSlotProvider>
-              </main>
-            </div>
-          </AgentSidebar>
+          {showAgentSidebar ? (
+            <AgentSidebar
+              position="right"
+              defaultOpen={false}
+              showCollapseButton={isMobile}
+              emptyStateText={t("navigation.agentEmptyState")}
+              suggestions={[
+                t("navigation.agentSuggestionSummary"),
+                t("navigation.agentSuggestionPricing"),
+                t("navigation.agentSuggestionFiller"),
+              ]}
+              agentPageHref="/settings/agent"
+              scope={recordingScope}
+              browserTabId={getBrowserTabId()}
+            >
+              {pageContent}
+            </AgentSidebar>
+          ) : (
+            pageContent
+          )}
         </div>
       </div>
 

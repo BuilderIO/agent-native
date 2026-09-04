@@ -19,6 +19,15 @@
 - Media transport may reach 44px; the central play control tops out at 64px.
 - Compact visual controls keep a larger invisible hit area when needed.
 
+## Navigation tabs
+
+- Route-, page-, and panel-level navigation uses the installed shadcn `Tabs`
+  with `TabsList variant="line"`.
+- Hover changes the label color; selection adds the standard underline. Do not
+  introduce a filled button background on hover for navigation tabs.
+- Reserve the default segmented variant for compact input-mode selectors where
+  the options behave like a mutually exclusive control rather than navigation.
+
 ## Typeset
 
 Inter is the interface face. Viewer chrome uses 12px medium labels, fields and

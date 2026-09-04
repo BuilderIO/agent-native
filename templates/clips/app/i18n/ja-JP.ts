@@ -1552,6 +1552,7 @@ const messages = {
     emptyWebDescription:
       "Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere. (ローカライズ済み)",
     downloadDesktopApp: "Download Clips desktop app (ローカライズ済み)",
+    tryInBrowser: "ブラウザで試す",
     holdToDictate: "hold to dictate (ローカライズ済み)",
     toggle: "toggle (ローカライズ済み)",
     desktopCtaTitle:
@@ -1564,19 +1565,34 @@ const messages = {
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (ローカライズ済み)",
     loadFailed: "Couldn't load dictations. (ローカライズ済み)",
     noFilterMatches: "No dictations matching this filter. (ローカライズ済み)",
-    dictionaryTitle: "Dictionary (ローカライズ済み)",
+    dictionaryTitle: "辞書",
+    dictionaryAutoLearn: "デスクトップ版は修正から学習します",
+    dictionaryAddTerms: "用語を追加",
+    dictionaryImport: "読み込む",
+    dictionaryExport: "CSVを書き出す",
+    dictionaryImportFailed:
+      "有効な用語を含むCSV、TSV、またはテキストファイルを選択してください。",
+    dictionaryExported: "辞書を書き出しました",
+    dictionaryTermsPlaceholder:
+      "Agent-Native\nエージェントネイティブ → Agent-Native",
+    dictionaryTermsRequired: "用語を1つ以上入力してください。",
+    dictionarySearch: "辞書を検索",
+    dictionaryNoMatches: "一致する用語はありません。",
+    dictionaryRemoveTitle: "「{{term}}」を削除しますか？",
+    dictionaryRemoveDescription:
+      "今後の音声入力ではこの修正が使われなくなります。",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (ローカライズ済み)",
+      "音声認識で優先したい表記をこれらの用語から学習します。",
     dictionaryTermPlaceholder: "Term (ローカライズ済み)",
     dictionaryReplacementPlaceholder:
       "Replacement (optional) (ローカライズ済み)",
     dictionaryAdd: "Add (ローカライズ済み)",
     dictionaryLoading: "Loading dictionary... (ローカライズ済み)",
-    dictionaryEmpty: "No learned terms yet. (ローカライズ済み)",
-    dictionaryUsesCount: "Used {{count}}x (ローカライズ済み)",
-    dictionaryRemove: "Remove (ローカライズ済み)",
-    vocabularyAddFailed: "Couldn't add term (ローカライズ済み)",
-    vocabularyRemoveFailed: "Couldn't remove term (ローカライズ済み)",
+    dictionaryEmpty: "学習した用語はまだありません。",
+    dictionaryUsesCount: "{{count}}回使用",
+    dictionaryRemove: "削除",
+    vocabularyAddFailed: "用語を追加できませんでした",
+    vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "再生位置で分割 (S)",

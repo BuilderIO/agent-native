@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Table,
   TableBody,
@@ -31,9 +32,13 @@ export function TopCreatorsTable({ rows }: TopCreatorsTableProps) {
   const t = useT();
   if (!rows.length) {
     return (
-      <div className="py-6 text-center text-sm text-muted-foreground">
-        {t("clipsFinalRaw.noCreatorsYet")}
-      </div>
+      <Empty className="gap-2 rounded-none py-6 md:p-6">
+        <EmptyHeader>
+          <EmptyTitle className="text-sm font-medium text-muted-foreground">
+            {t("clipsFinalRaw.noCreatorsYet")}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -121,9 +122,13 @@ export function ChaptersEditor({
 
       <div className="flex-1 overflow-auto">
         {local.length === 0 ? (
-          <div className="px-3 py-4 text-xs text-muted-foreground">
-            {t("chapters.empty")}
-          </div>
+          <Empty className="gap-2 rounded-none px-3 py-6 md:p-6">
+            <EmptyHeader>
+              <EmptyTitle className="text-xs font-normal text-muted-foreground">
+                {t("chapters.empty")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           local.map((c, i) => (
             <div
