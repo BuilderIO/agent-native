@@ -129,6 +129,32 @@ describe("MCP integration catalog", () => {
     });
   });
 
+  it("catalogs Sigma with its organization-specific OAuth endpoint", () => {
+    const sigma = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "sigma",
+    );
+
+    expect(sigma).toMatchObject({
+      url: "",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+      verification: "preflight-only",
+      docsUrl: "https://help.sigmacomputing.com/docs/use-sigma-mcp-server",
+      setupNoteKey: "mcpIntegrations.catalog.sigma.setupNote",
+    });
+    expect(sigma?.supportsOrganizationScope).not.toBe(true);
+    expect(filterMcpIntegrations("sigma").map((item) => item.id)).toEqual([
+      "sigma",
+    ]);
+    expect(findMcpIntegrationForText("Connect Sigma dashboard")?.id).toBe(
+      "sigma",
+    );
+    expect(
+      findMcpIntegrationForText("Find the sigma of this distribution"),
+    ).toBe(null);
+  });
+
   it("records logo and provider-gating metadata for remote directory entries", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",
@@ -177,11 +203,11 @@ describe("MCP integration catalog", () => {
     });
     expect(getMcpIntegrationApiFallback(figma, "analytics")).toBeNull();
     expect(getMcpIntegrationApiFallback(figma, null)).toBeNull();
-    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(35);
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(36);
     expect(
       new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
         .size,
-    ).toBe(35);
+    ).toBe(36);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
         /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon)(?:;base64,|,)/,

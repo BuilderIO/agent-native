@@ -366,6 +366,18 @@ export function McpIntegrationDialog({
     });
   };
 
+  const connectSelectedWithOAuth = () => {
+    if (!name.trim()) {
+      setError(t("mcpIntegrations.serverNameRequired"));
+      return;
+    }
+    beginOAuth({
+      name: name.trim(),
+      url: url.trim(),
+      description: description.trim(),
+    });
+  };
+
   const createServer = async (args: CreateMcpServerArgs) => {
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
@@ -404,6 +416,10 @@ export function McpIntegrationDialog({
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
+      return;
+    }
+    if (!integration.url.trim()) {
+      openForm(integration);
       return;
     }
     if (requiresMcpIntegrationSetup(integration)) {
@@ -1102,7 +1118,7 @@ export function McpIntegrationDialog({
               ) : selected?.authMode === "oauth" ? (
                 <button
                   type="button"
-                  onClick={() => connectWithOAuth(selected)}
+                  onClick={connectSelectedWithOAuth}
                   disabled={!oauthReady || !name.trim() || !url.trim() || busy}
                   aria-busy={busy}
                   className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
