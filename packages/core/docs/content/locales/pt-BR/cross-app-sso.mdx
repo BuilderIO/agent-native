@@ -54,6 +54,11 @@ de vínculo. Uma organização local existente sem mapeamento permanece inaltera
 e não é mesclada automaticamente. Use uma migração explícita depois de confirmar
 a correspondência desejada.
 
+Organizações locais não vinculadas continuam utilizáveis durante uma interrupção
+temporária do Dispatch. Associações federadas vinculadas falham com segurança até
+que a autoridade esteja acessível, e o registro é tentado novamente na próxima
+leitura da organização.
+
 ## Como funciona {#how-it-works}
 
 O fluxo é um redirecionamento padrão de autorização → token assinado → retorno de chamada, com e-mail como a única coisa que ultrapassa o limite de confiança.

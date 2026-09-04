@@ -91,8 +91,10 @@ local organization by that ID, then applies its normal local access checks.
 Organization names, email domains, and browser cookies are not join keys. An
 existing local organization with no mapping is left unchanged rather than
 silently merged. Link those organizations through an explicit migration after
-confirming the intended match. A temporary Dispatch outage leaves local access
-available and the source app retries registration on a later organization read.
+confirming the intended match. Unlinked local organizations remain usable during
+a temporary Dispatch outage. Linked memberships fail closed until the authority
+is reachable, and the source app retries registration on a later organization
+read.
 
 ## How it works {#how-it-works}
 

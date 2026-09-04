@@ -55,6 +55,11 @@ Zuordnungsschlüssel. Eine bestehende lokale Organisation ohne Zuordnung bleibt
 unverändert und wird nicht automatisch zusammengeführt. Verwenden Sie nach
 Bestätigung der gewünschten Zuordnung eine ausdrückliche Migration.
 
+Nicht verknüpfte lokale Organisationen bleiben während eines vorübergehenden
+Dispatch-Ausfalls nutzbar. Verknüpfte Verbundmitgliedschaften werden bis zur
+Erreichbarkeit der Identitätsinstanz aus Sicherheitsgründen abgelehnt; die
+Registrierung wird beim nächsten Lesen der Organisation erneut versucht.
+
 ## Wie es funktioniert {#how-it-works}
 
 Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rückrufumleitung, wobei E-Mail das einzige ist, was die Vertrauensgrenze überschreitet.

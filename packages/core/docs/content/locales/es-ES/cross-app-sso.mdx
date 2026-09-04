@@ -55,6 +55,11 @@ navegador no son claves de vinculación. Una organización local existente sin
 correspondencia permanece sin cambios y no se fusiona automáticamente. Use una
 migración explícita después de confirmar la correspondencia prevista.
 
+Las organizaciones locales sin vincular siguen disponibles durante una
+interrupción temporal de Dispatch. Las membresías federadas vinculadas fallan de
+forma segura hasta que la autoridad vuelva a estar disponible, y el registro se
+reintenta al leer la organización posteriormente.
+
 ## Cómo funciona {#how-it-works}
 
 El flujo es una autorización estándar → token firmado → redireccionamiento de devolución de llamada, con el correo electrónico como lo único que cruza el límite de confianza.

@@ -132,7 +132,43 @@ type MembershipRow = {
   role: OrgRole;
   orgName: string;
   allowedDomain: string | null;
+  identityAuthority: string | null;
+  identityId: string | null;
 };
+
+async function refreshFederatedMemberships(
+  event: H3Event,
+  email: string,
+  memberships: MembershipRow[],
+): Promise<MembershipRow[]> {
+  if (
+    !memberships.some(
+      (membership) => membership.identityAuthority || membership.identityId,
+    )
+  ) {
+    return memberships;
+  }
+  const { validateFederatedOrganizationMembership } =
+    await import("./federation.js");
+  let refreshed = memberships;
+  for (const membership of memberships) {
+    if (!membership.identityAuthority && !membership.identityId) continue;
+    const result = await validateFederatedOrganizationMembership(event, {
+      orgId: membership.orgId,
+      email,
+    });
+    if (!result.active) {
+      refreshed = refreshed.filter((item) => item.orgId !== membership.orgId);
+      continue;
+    }
+    if (result.role !== membership.role) {
+      refreshed = refreshed.map((item) =>
+        item.orgId === membership.orgId ? { ...item, role: result.role } : item,
+      );
+    }
+  }
+  return refreshed;
+}
 
 const MEMBERSHIPS_CACHE_KEY = "__anOrgMembershipsCache";
 const ACTIVE_ORG_SETTING_CACHE_KEY = "__anActiveOrgSettingCache";
@@ -253,6 +289,16 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
+  const refreshedMemberships = await refreshFederatedMemberships(
+    event,
+    email,
+    memberships,
+  );
+  if (refreshedMemberships !== memberships) {
+    memberships = refreshedMemberships;
+    updateMembershipsForEvent(event, email, memberships);
+  }
+
   const activeOrgSetting = await activeOrgSettingPromise;
   const explicitPersonal = activeOrgSetting?.orgId === null;
 
@@ -371,12 +417,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     if (pending.rows.length > 0) {
       return { email, orgId: null, orgName: null, role: null };
     }
-    return {
-      email,
-      orgId: sessionOrgId,
-      orgName: null,
-      role: sessionOrgRole,
-    };
+    return { email, orgId: null, orgName: null, role: null };
   }
 
   if (memberships.length === 0 && autoCreateDefaultOrgEnabled()) {
@@ -417,7 +458,9 @@ async function loadMembershipsUncached(
 ): Promise<MembershipRow[] | null> {
   const rows = await queryOrgMembers({
     sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
-                 o.allowed_domain AS "allowedDomain"
+                 o.allowed_domain AS "allowedDomain",
+                 o.identity_authority AS "identityAuthority",
+                 o.identity_id AS "identityId"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
           WHERE LOWER(m.email) = ?
@@ -433,6 +476,10 @@ async function loadMembershipsUncached(
         role: String(r.role) as OrgRole,
         orgName: String(r.orgName ?? r.org_name),
         allowedDomain: domain ? String(domain) : null,
+        identityAuthority:
+          String(r.identityAuthority ?? r.identity_authority ?? "").trim() ||
+          null,
+        identityId: String(r.identityId ?? r.identity_id ?? "").trim() || null,
       };
     }) ?? null
   );

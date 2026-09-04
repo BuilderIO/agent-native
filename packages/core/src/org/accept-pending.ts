@@ -36,18 +36,31 @@ export async function acceptPendingInvitationsForEmail(
 
   const db = getDbExec();
 
-  let rows: Array<{ id: string; orgId: string; role: string | null }> = [];
+  let rows: Array<{
+    id: string;
+    orgId: string;
+    role: string | null;
+    federated: boolean;
+  }> = [];
   try {
     const res = await db.execute({
-      sql: `SELECT id, org_id AS "orgId", role FROM org_invitations
-            WHERE LOWER(email) = ? AND status = 'pending'
-            ORDER BY created_at DESC`,
+      sql: `SELECT i.id, i.org_id AS "orgId", i.role,
+                   o.identity_authority AS "identityAuthority",
+                   o.identity_id AS "identityId"
+            FROM org_invitations i
+            LEFT JOIN organizations o ON o.id = i.org_id
+            WHERE LOWER(i.email) = ? AND i.status = 'pending'
+            ORDER BY i.created_at DESC`,
       args: [email],
     });
     rows = res.rows.map((r: any) => ({
       id: String(r.id),
       orgId: String(r.orgId ?? r.org_id),
       role: r.role == null ? null : String(r.role),
+      federated: Boolean(
+        String(r.identityAuthority ?? r.identity_authority ?? "").trim() &&
+        String(r.identityId ?? r.identity_id ?? "").trim(),
+      ),
     }));
   } catch {
     // Template doesn't use the org module / tables not migrated yet.
@@ -61,11 +74,12 @@ export async function acceptPendingInvitationsForEmail(
   const accepted: AcceptPendingResult["accepted"] = [];
   for (const inv of rows) {
     if (
-      await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
+      inv.federated &&
+      (await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
         userEmail: email,
         userKey: email,
         orgId: inv.orgId,
-      })
+      }))
     ) {
       continue;
     }

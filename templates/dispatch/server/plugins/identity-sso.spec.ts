@@ -987,6 +987,48 @@ describe("organization federation endpoint", () => {
     });
   });
 
+  it("answers satellite membership checks from the current central roster", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+    };
+    centralMemberRole = "admin";
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "member@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://slides.agent-native.com",
+        app_id: "slides",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "member",
+        federation_operation: "check-member",
+        federation_member_email: "member@example.test",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer membership-check-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      orgId: "dispatch-org-1",
+      memberEmail: "member@example.test",
+      memberPresent: true,
+      memberRole: "admin",
+    });
+  });
+
   it("lets a pending member retry its own authority removal idempotently", async () => {
     featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
       return flag.key === "organization.cross-app-federation";

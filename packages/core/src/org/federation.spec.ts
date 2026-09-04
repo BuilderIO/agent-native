@@ -9,6 +9,7 @@ const canonicalA2AAudienceMock = vi.hoisted(() => vi.fn());
 const signA2ATokenMock = vi.hoisted(() => vi.fn());
 const resolveIdentityHubUrlMock = vi.hoisted(() => vi.fn());
 const resolveIdentitySsoAppIdMock = vi.hoisted(() => vi.fn());
+const getOriginMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../feature-flags/store.js", () => ({
   isFeatureFlagEnabled: isFeatureFlagEnabledMock,
@@ -24,6 +25,7 @@ vi.mock("../server/identity-sso.js", () => ({
   resolveIdentityHubUrl: resolveIdentityHubUrlMock,
   resolveIdentitySsoAppId: resolveIdentitySsoAppIdMock,
 }));
+vi.mock("../server/google-oauth.js", () => ({ getOrigin: getOriginMock }));
 vi.mock("./active-org.js", () => ({ setActiveOrgId: setActiveOrgIdMock }));
 vi.mock("./context.js", () => ({
   createOrganization: createOrganizationMock,
@@ -38,6 +40,7 @@ const {
   revokeFederatedOrganizationMember,
   syncOrganizationToIdentityHub,
   updateFederatedOrganizationMemberRole,
+  validateFederatedOrganizationMembership,
 } = await import("./federation.js");
 
 const identity = {
@@ -58,6 +61,7 @@ describe("cross-app organization federation", () => {
     resolveIdentityHubUrlMock.mockReturnValue(
       "https://dispatch.agent-native.com",
     );
+    getOriginMock.mockReturnValue("https://slides.agent-native.com");
     resolveIdentitySsoAppIdMock.mockReturnValue("slides");
     signA2ATokenMock.mockResolvedValue("signed-assertion");
     vi.stubGlobal(
@@ -318,5 +322,98 @@ describe("cross-app organization federation", () => {
       }),
     ).rejects.toThrow("Invalid federated member email");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("removes a satellite membership when the authority no longer has it", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT name, identity_authority/i.test(sql)) {
+        return {
+          rows: [
+            {
+              name: "Example Org",
+              identity_authority: identity.authority,
+              identity_id: identity.id,
+            },
+          ],
+        };
+      }
+      if (/SELECT role, federation_removal_pending_at/i.test(sql)) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (/SET federation_removal_pending_at/i.test(sql)) return { rows: [] };
+      if (/DELETE FROM org_members/i.test(sql)) return { rows: [] };
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              orgId: identity.id,
+              memberEmail: identity.email,
+              memberPresent: false,
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await expect(
+      validateFederatedOrganizationMembership({} as any, {
+        orgId: identity.id,
+        email: identity.email,
+      }),
+    ).resolves.toEqual({ active: false, role: null });
+    expect(executeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("DELETE FROM org_members"),
+      }),
+    );
+  });
+
+  it("refreshes a satellite membership role from the authority", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT name, identity_authority/i.test(sql)) {
+        return {
+          rows: [
+            {
+              name: "Example Org",
+              identity_authority: identity.authority,
+              identity_id: identity.id,
+            },
+          ],
+        };
+      }
+      if (/SELECT role, federation_removal_pending_at/i.test(sql)) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (/SET role = \?/i.test(sql)) return { rows: [] };
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              orgId: identity.id,
+              memberEmail: identity.email,
+              memberPresent: true,
+              memberRole: "admin",
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await expect(
+      validateFederatedOrganizationMembership({} as any, {
+        orgId: identity.id,
+        email: identity.email,
+      }),
+    ).resolves.toEqual({ active: true, role: "admin" });
   });
 });

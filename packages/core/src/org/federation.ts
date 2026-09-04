@@ -5,6 +5,7 @@ import type { H3Event } from "h3";
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
 import { isFeatureFlagEnabled } from "../feature-flags/store.js";
+import { getOrigin } from "../server/google-oauth.js";
 import {
   resolveIdentityHubUrl,
   resolveIdentitySsoAppId,
@@ -48,7 +49,12 @@ type FederatedRosterMember = { email: string; role: OrgRole };
 type FederatedMemberOperation =
   | "add-member"
   | "update-member-role"
-  | "remove-member";
+  | "remove-member"
+  | "check-member";
+
+export type FederatedMembershipValidation =
+  | { active: true; role: OrgRole }
+  | { active: false; role: null };
 
 function isOrgRole(value: unknown): value is OrgRole {
   return value === "owner" || value === "admin" || value === "member";
@@ -185,6 +191,7 @@ async function sendFederatedMemberOperation(
   }
   if (
     operation !== "remove-member" &&
+    operation !== "check-member" &&
     !isFederatedMemberRole(input.memberRole)
   ) {
     throw new Error("A federated member role is required.");
@@ -359,6 +366,129 @@ export async function revokeFederatedOrganizationMember(
   },
 ): Promise<boolean> {
   return sendFederatedMemberOperation(event, input, "remove-member");
+}
+
+/**
+ * Revalidate a linked local membership against Dispatch before using it for
+ * authorization. This is the satellite-side revocation boundary: local rows
+ * are copied state, so a successful authority response can remove or retag
+ * them while an unavailable authority fails closed.
+ */
+export async function validateFederatedOrganizationMembership(
+  event: H3Event,
+  input: { orgId: string; email: string },
+): Promise<FederatedMembershipValidation> {
+  const email = input.email.trim().toLowerCase();
+  const exec = getDbExec();
+  const organization = await exec.execute({
+    sql: `SELECT name, identity_authority, identity_id
+          FROM organizations WHERE id = ? LIMIT 1`,
+    args: [input.orgId],
+  });
+  const org = organization.rows[0] as any;
+  if (!org) return { active: false, role: null };
+
+  const member = await exec.execute({
+    sql: `SELECT role, federation_removal_pending_at FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    args: [input.orgId, email],
+  });
+  const localRole = (member.rows[0] as any)?.role;
+  if (
+    !member.rows[0] ||
+    (member.rows[0] as any).federation_removal_pending_at ||
+    !isOrgRole(localRole)
+  ) {
+    return { active: false, role: null };
+  }
+
+  const identityAuthority = String(org.identity_authority ?? "").trim();
+  const identityId = String(org.identity_id ?? "").trim();
+  if (!identityAuthority && !identityId) {
+    return { active: true, role: localRole };
+  }
+  if (!identityAuthority || identityId !== input.orgId) {
+    throw new Error("Organization has an invalid identity mapping.");
+  }
+  if (!(await federationEnabled(email, input.orgId))) {
+    return { active: true, role: localRole };
+  }
+
+  const currentOrigin = normalizeAuthority(getOrigin(event));
+  if (currentOrigin === identityAuthority) {
+    return { active: true, role: localRole };
+  }
+  const hub = resolveIdentityHubUrl(event);
+  const authority = normalizeAuthority(hub ?? "");
+  if (!authority || authority !== identityAuthority) {
+    throw new Error(
+      "Organization is linked to an unavailable identity authority.",
+    );
+  }
+
+  const sent = await sendFederationAssertion(
+    event,
+    {
+      authority,
+      id: input.orgId,
+      name: String(org.name ?? ""),
+      role: localRole,
+      email,
+    },
+    {
+      federation_operation: "check-member",
+      federation_member_email: email,
+    },
+  );
+  if (!sent) throw new Error("Identity authority is not configured.");
+  if (!sent.response.ok) {
+    throw new Error(
+      `Identity authority membership check failed (${sent.response.status}).`,
+    );
+  }
+  const body = (await sent.response.json().catch((error) => {
+    void error;
+    return null;
+  })) as Record<string, unknown> | null;
+  if (
+    body?.orgId !== input.orgId ||
+    String(body.memberEmail ?? "")
+      .trim()
+      .toLowerCase() !== email
+  ) {
+    throw new Error("Identity authority returned an invalid membership check.");
+  }
+  if (body.memberPresent === false) {
+    await exec.execute({
+      sql: `UPDATE org_members SET federation_removal_pending_at = ?
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL`,
+      args: [Date.now(), input.orgId, email],
+    });
+    try {
+      await exec.execute({
+        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+        args: [input.orgId, email],
+      });
+    } catch (error) {
+      void error;
+    }
+    invalidateMemberOrgCaches();
+    return { active: false, role: null };
+  }
+  if (body.memberPresent !== true || !isOrgRole(body.memberRole)) {
+    throw new Error("Identity authority returned an invalid membership check.");
+  }
+  if (body.memberRole !== localRole) {
+    await exec.execute({
+      sql: `UPDATE org_members SET role = ?
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL`,
+      args: [body.memberRole, input.orgId, email],
+    });
+    invalidateMemberOrgCaches();
+  }
+  return { active: true, role: body.memberRole };
 }
 
 /** Register the local org and its current member with the Dispatch authority. */

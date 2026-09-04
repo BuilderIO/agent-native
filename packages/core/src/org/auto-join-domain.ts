@@ -16,6 +16,8 @@ export interface AutoJoinDomainResult {
   activeOrgId: string | null;
 }
 
+type DomainMatch = { orgId: string; federated: boolean };
+
 /**
  * Negative cache for "no org has this email domain as its `allowed_domain`".
  *
@@ -105,10 +107,11 @@ export async function autoJoinDomainMatchingOrgs(
 
   const db = getDbExec();
 
-  let matches: Array<{ orgId: string }> = [];
+  let matches: DomainMatch[] = [];
   try {
     const res = await db.execute({
-      sql: `SELECT o.id AS "orgId"
+      sql: `SELECT o.id AS "orgId", o.identity_authority AS "identityAuthority",
+                   o.identity_id AS "identityId"
             FROM organizations o
             WHERE LOWER(o.allowed_domain) = ?
               AND NOT EXISTS (
@@ -123,6 +126,10 @@ export async function autoJoinDomainMatchingOrgs(
     });
     matches = res.rows.map((r: any) => ({
       orgId: String(r.orgId ?? r.org_id),
+      federated: Boolean(
+        String(r.identityAuthority ?? r.identity_authority ?? "").trim() &&
+        String(r.identityId ?? r.identity_id ?? "").trim(),
+      ),
     }));
   } catch {
     // Template without org tables (or `allowed_domain` column not yet
@@ -142,11 +149,12 @@ export async function autoJoinDomainMatchingOrgs(
   let localJoinAttempted = false;
   for (const m of matches) {
     if (
-      await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
+      m.federated &&
+      (await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
         userEmail: email,
         userKey: email,
         orgId: m.orgId,
-      })
+      }))
     ) {
       federationSkipped = true;
       continue;

@@ -72,10 +72,12 @@ export {
   provisionFederatedOrganization,
   revokeFederatedOrganizationMember,
   syncOrganizationToIdentityHub,
+  validateFederatedOrganizationMembership,
   updateFederatedOrganizationMemberRole,
 } from "./federation.js";
 export type {
   FederatedOrganizationIdentity,
+  FederatedMembershipValidation,
   FederatedOrganizationSyncInput,
 } from "./federation.js";
 

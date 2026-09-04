@@ -138,7 +138,8 @@ function validOrganizationRole(
 type FederationOperation =
   | "add-member"
   | "update-member-role"
-  | "remove-member";
+  | "remove-member"
+  | "check-member";
 
 function validFederationOperation(
   value: unknown,
@@ -146,7 +147,8 @@ function validFederationOperation(
   return (
     value === "add-member" ||
     value === "update-member-role" ||
-    value === "remove-member"
+    value === "remove-member" ||
+    value === "check-member"
   );
 }
 
@@ -464,6 +466,7 @@ export const organizationFederationHandler = defineEventHandler(
     }
     if (
       federationOperation !== "remove-member" &&
+      federationOperation !== "check-member" &&
       federationOperation !== undefined &&
       !validFederatedMemberRole(federationMemberRole)
     ) {
@@ -721,6 +724,23 @@ export const organizationFederationHandler = defineEventHandler(
       const memberRemovalPending = Boolean(
         (member.rows[0] as any)?.federation_removal_pending_at,
       );
+      if (federationOperation === "check-member") {
+        if (federationMemberEmail !== email) {
+          return jsonResponse({ error: "Unauthorized" }, 403);
+        }
+        return jsonResponse(
+          {
+            orgId,
+            name: organizationName,
+            memberEmail: federationMemberEmail,
+            memberPresent: Boolean(member.rows[0]) && !memberRemovalPending,
+            ...(member.rows[0] && !memberRemovalPending
+              ? { memberRole: currentMemberRole }
+              : {}),
+          },
+          200,
+        );
+      }
       let actorRole = "";
       const isSelfRemoval =
         federationOperation === "remove-member" &&

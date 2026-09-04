@@ -55,6 +55,11 @@ sont pas des clés de liaison. Une organisation locale existante sans
 correspondance reste inchangée et n'est pas fusionnée automatiquement. Utilisez
 une migration explicite après avoir confirmé la correspondance souhaitée.
 
+Les organisations locales non liées restent utilisables pendant une interruption
+temporaire de Dispatch. Les appartenances fédérées liées échouent par défaut
+jusqu'à ce que l'autorité soit accessible, et l'enregistrement est réessayé lors
+d'une lecture ultérieure de l'organisation.
+
 ## Comment ça marche {#how-it-works}
 
 Le flux est une redirection standard d'autorisation → jeton signé → rappel, avec le courrier électronique comme seule chose qui traverse la limite de confiance.

@@ -40,7 +40,7 @@ describe("acceptPendingInvitationsForEmail", () => {
     const out = await acceptPendingInvitationsForEmail("a@b.com");
 
     const calls = mockExecute.mock.calls.map((c) => c[0]);
-    expect(calls[0].sql).toContain("SELECT id, org_id");
+    expect(calls[0].sql).toContain("SELECT i.id, i.org_id");
     expect(calls[1].sql).toContain(
       "SELECT federation_removal_pending_at FROM org_members",
     );

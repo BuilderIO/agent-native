@@ -134,10 +134,9 @@ describe("getOrgContext", () => {
     });
   });
 
-  it("trusts a session.orgId the user is NOT a member of, but with null name and session role", async () => {
-    // Cross-app A2A / impersonation context: the session asserts an org the
-    // local memberships table doesn't have. We surface it but cannot supply a
-    // name and must use the session-claimed role only.
+  it("drops a session.orgId the user is no longer a member of", async () => {
+    // A successful membership read is authoritative. A stale session claim
+    // must not become a new organization grant.
     mockGetSession.mockResolvedValue({
       email: "a@b.com",
       orgId: "ghost-org",
@@ -147,9 +146,9 @@ describe("getOrgContext", () => {
     const ctx = await getOrgContext(EVENT);
     expect(ctx).toEqual({
       email: "a@b.com",
-      orgId: "ghost-org",
+      orgId: null,
       orgName: null,
-      role: "owner",
+      role: null,
     });
   });
 
@@ -161,7 +160,7 @@ describe("getOrgContext", () => {
     });
     queueSelect([]); // no memberships
     const ctx = await getOrgContext(EVENT);
-    expect(ctx.orgId).toBe("ghost-org");
+    expect(ctx.orgId).toBeNull();
     expect(ctx.role).toBeNull();
   });
 
