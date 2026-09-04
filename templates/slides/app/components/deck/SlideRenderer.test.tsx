@@ -583,6 +583,43 @@ describe("SlideInner autofit", () => {
       ).not.toBeNull();
     });
   });
+
+  it("measures an off-screen slide mounted in the PDF export stage", async () => {
+    let observerConstructed = false;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor() {
+          observerConstructed = true;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () => rect(0, 100_000, 740, 380),
+    );
+
+    const slide: Slide = {
+      id: "raw-export-stage",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide" style="padding: 80px 110px;"><h2>Flow title</h2></div>',
+    };
+    render(
+      <div data-pdf-export-stage="true">
+        <SlideInner slide={slide} />
+      </div>,
+    );
+
+    await waitFor(() => {
+      expect(
+        document.querySelector("[data-fmd-autofit-content]"),
+      ).not.toBeNull();
+    });
+    expect(observerConstructed).toBe(false);
+  });
 });
 
 describe("imported deck webfonts", () => {

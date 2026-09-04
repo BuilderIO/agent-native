@@ -41,6 +41,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
   parseDashboardCertification,
@@ -633,12 +634,14 @@ function accessFields(role?: AccessRole): {
 
 function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
   const certification = parseDashboardCertification(row.certification);
+  const rawConfig =
+    typeof row.config === "string" ? JSON.parse(row.config) : row.config;
   return {
     id: row.id,
     kind: row.kind,
     title: row.title,
     config:
-      typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+      row.kind === "sql" ? normalizeDashboardConfig(rawConfig) : rawConfig,
     ownerEmail: row.ownerEmail,
     orgId: row.orgId ?? null,
     visibility: row.visibility,
@@ -657,13 +660,15 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
 }
 
 function rowToDashboardRevision(row: any): DashboardRevisionRecord {
+  const rawConfig =
+    typeof row.config === "string" ? JSON.parse(row.config) : row.config;
   return {
     id: row.id,
     dashboardId: row.dashboardId,
     kind: row.kind,
     title: row.title,
     config:
-      typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+      row.kind === "sql" ? normalizeDashboardConfig(rawConfig) : rawConfig,
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
     chatContext: parseRevisionChatContext(row.chatContext),
@@ -689,7 +694,10 @@ function configDescriptionFromValue(
   return typeof description === "string" ? description : null;
 }
 
-function configFromSettings(data: Record<string, unknown>): {
+function configFromSettings(
+  data: Record<string, unknown>,
+  kind?: DashboardKind,
+): {
   title: string;
   config: Record<string, unknown>;
 } {
@@ -699,7 +707,10 @@ function configFromSettings(data: Record<string, unknown>): {
       : typeof (data as any).title === "string"
         ? (data as any).title
         : "Untitled";
-  return { title, config: data };
+  return {
+    title,
+    config: kind === "sql" ? normalizeDashboardConfig(data) : data,
+  };
 }
 
 function stringProperty(value: unknown, key: string): string | null {
@@ -729,7 +740,7 @@ async function migrateDashboardFromSettings(
   visibility: DashboardRecord["visibility"],
   role?: AccessRole,
 ): Promise<DashboardRecord> {
-  const { title, config } = configFromSettings(settingsValue);
+  const { title, config } = configFromSettings(settingsValue, kind);
   const db = getDb() as any;
   const createdAt =
     (typeof (settingsValue as any).createdAt === "string" &&
@@ -1071,7 +1082,7 @@ export async function listDashboardSummaries(
       if (filter?.kind && filter.kind !== kind) continue;
       seen.add(id);
       const config = value as Record<string, unknown>;
-      const { title } = configFromSettings(config);
+      const { title } = configFromSettings(config, kind);
       const catalogMetadata = includeCatalogMetadata
         ? catalogMetadataFromConfig(config)
         : {
@@ -1229,6 +1240,7 @@ export async function searchDashboardReferences(
     }
     const { title, config } = configFromSettings(
       value as Record<string, unknown>,
+      scope.kind,
     );
     const match = dashboardReferenceMatch(
       {
@@ -1379,6 +1391,7 @@ export async function loadDashboardCatalogDashboards(
       if (!config || typeof config !== "object" || Array.isArray(config)) {
         return [];
       }
+      if (row.kind === "sql") config = normalizeDashboardConfig(config);
       const certification = parseDashboardCertification(row.certification);
       const description =
         typeof row.description === "string"
@@ -1413,7 +1426,7 @@ export async function loadDashboardCatalogDashboards(
 
     const legacy = await findLegacyDashboard(id, ctx);
     if (!legacy) continue;
-    const { title, config } = configFromSettings(legacy.data);
+    const { title, config } = configFromSettings(legacy.data, legacy.kind);
     out.push({
       id,
       kind: legacy.kind,
@@ -1624,7 +1637,7 @@ export async function upsertDashboard(
     throw new DashboardConflictError(id);
   }
   const db = getDb() as any;
-  const { title, config } = configFromSettings(body);
+  const { title, config } = configFromSettings(body, kind);
   const configJson = stableStringify(config);
   if (existing) {
     await assertAccess("dashboard", id, "editor", {

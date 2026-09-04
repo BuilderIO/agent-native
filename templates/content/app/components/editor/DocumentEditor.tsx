@@ -368,6 +368,7 @@ type PendingDocumentSave = {
 type DocumentSaveOptions = {
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
+  adoptCurrentServerBase?: boolean;
 };
 
 type DocumentSaveResult = {
@@ -755,6 +756,9 @@ function DocumentEditorBody({
     diskDocument: Document;
     diskRevision?: DesktopContentFileRevision;
     unsavedText: string;
+  } | null>(null);
+  const [documentReconcileConflict, setDocumentReconcileConflict] = useState<{
+    localDraft: string;
   } | null>(null);
   const [localSourceMissing, setLocalSourceMissing] = useState(false);
   const [localSourceAccess, setLocalSourceAccess] = useState<
@@ -1484,6 +1488,12 @@ function DocumentEditorBody({
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
+      if (options.adoptCurrentServerBase) {
+        lastSavedContentRef.current = {
+          content: documentContentRef.current,
+          updatedAt: documentUpdatedAtRef.current,
+        };
+      }
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -1920,13 +1930,17 @@ function DocumentEditorBody({
       if (!editorCanEdit) return;
       localContentRef.current = newContent;
       setLocalContent(newContent);
+      if (documentReconcileConflict) {
+        setDocumentReconcileConflict({ localDraft: newContent });
+        return;
+      }
       debouncedSave(localTitleRef.current, newContent);
     },
-    [debouncedSave, editorCanEdit],
+    [debouncedSave, documentReconcileConflict, editorCanEdit],
   );
 
   const handleContentSaveNow = useCallback(
-    async (newContent: string) => {
+    async (newContent: string, adoptCurrentServerBase = false) => {
       if (!editorCanEdit) return false;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -1935,10 +1949,30 @@ function DocumentEditorBody({
       }
       localContentRef.current = newContent;
       setLocalContent(newContent);
-      const result = await queueDocumentSave(localTitleRef.current, newContent);
+      const result = await queueDocumentSave(
+        localTitleRef.current,
+        newContent,
+        {
+          adoptCurrentServerBase,
+        },
+      );
       return result.contentPersisted;
     },
     [editorCanEdit, queueDocumentSave],
+  );
+
+  const handleBaseAwareReconcile = useCallback(
+    (result: { status: "merged" | "conflict" | "failed"; content: string }) => {
+      if (result.status === "merged") {
+        void handleContentSaveNow(result.content, true).then((persisted) => {
+          if (persisted) setDocumentReconcileConflict(null);
+          else setDocumentReconcileConflict({ localDraft: result.content });
+        });
+        return;
+      }
+      setDocumentReconcileConflict({ localDraft: result.content });
+    },
+    [handleContentSaveNow],
   );
 
   const useDiskVersion = useCallback(() => {
@@ -2571,6 +2605,49 @@ function DocumentEditorBody({
             </div>
           ) : null}
 
+          {documentReconcileConflict ? (
+            <div
+              className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+              role="alert"
+              data-document-reconcile-conflict
+            >
+              <span className="me-auto">{t("editor.toolbar.conflict")}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void writeClipboardText(
+                    documentReconcileConflict.localDraft,
+                  ).then((copied) => {
+                    if (copied) toast.success(t("editor.unsavedTextCopied"));
+                    else
+                      toast.error(
+                        t("editor.toolbar.clipboardAccessUnavailable"),
+                      );
+                  });
+                }}
+              >
+                {t("editor.copyUnsavedText")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  const localDraft = documentReconcileConflict.localDraft;
+                  void handleContentSaveNow(localDraft, true).then(
+                    (persisted) => {
+                      if (persisted) setDocumentReconcileConflict(null);
+                      else setDocumentReconcileConflict({ localDraft });
+                    },
+                  );
+                }}
+              >
+                {t("editor.keepLocalDraft")}
+              </Button>
+            </div>
+          ) : null}
+
           {localSourceMissing ? (
             <div
               className="border-b bg-muted/40 px-4 py-2 text-sm"
@@ -2849,6 +2926,12 @@ function DocumentEditorBody({
                                 ? (localContentUpdatedAt ?? document.updatedAt)
                                 : document.updatedAt
                             }
+                            contentRevision={
+                              isLocalFileDocument
+                                ? null
+                                : (document.revision ?? null)
+                            }
+                            onBaseAwareReconcile={handleBaseAwareReconcile}
                             onChange={handleContentChange}
                             onSaveContent={handleContentSaveNow}
                             ydoc={collabEditorEnabled ? ydoc : null}

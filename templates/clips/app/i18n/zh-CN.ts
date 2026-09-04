@@ -688,6 +688,7 @@ const messages = {
     transcriptCleanup: "后台清理",
     transcriptCleanupDescription: "先立即显示原生转录，后台可用时再进行清理。",
     notifications: "通知",
+    monthlyRecap: "每月摘要",
     sharing: "共享",
     defaultVisibility: "新录制内容的默认可见性",
     defaultVisibilityDescription:
@@ -696,7 +697,7 @@ const messages = {
     visibilityOrg: "组织 - 工作区中的任何人",
     visibilityPublic: "公开 - 任何拥有链接的人",
     emailNotifications: "邮件通知",
-    emailNotificationsDescription: "当有人评论或回应你的录制时，收到邮件通知。",
+    emailNotificationsDescription: "选择你想接收的 Clips 可选邮件通知。",
     saved: "设置已保存",
     saveFailed: "保存失败",
     builderConnectedToast: "Builder.io 已连接",

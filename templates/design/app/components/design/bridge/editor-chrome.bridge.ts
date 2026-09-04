@@ -2295,9 +2295,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ? rectInfoForElement(el.parentElement)
         : undefined,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
+      textContentTruncated: el.textContent
+        ? el.textContent.length > 200
+        : undefined,
       htmlContent:
         el.innerHTML && el.innerHTML !== el.textContent
           ? el.innerHTML.slice(0, 4000)
+          : undefined,
+      htmlContentTruncated:
+        el.innerHTML && el.innerHTML !== el.textContent
+          ? el.innerHTML.length > 4000
           : undefined,
       childElementCount: el.children ? el.children.length : 0,
       isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
@@ -2349,6 +2356,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: rect.height,
       },
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
+      textContentTruncated: el.textContent
+        ? el.textContent.length > 200
+        : undefined,
       childElementCount: el.children ? el.children.length : 0,
       isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
       isGridContainer: cs.display === "grid" || cs.display === "inline-grid",

@@ -32,7 +32,7 @@ const LANES = Math.max(1, Number(process.env.LANES || 5));
 
 // Must track the package globs in pnpm-workspace.yaml. A package under a glob
 // not listed here would be missed, so keep this in sync when workspaces change.
-const PACKAGE_PARENTS = ["packages", "examples", "templates"];
+const PACKAGE_PARENTS = ["packages", "templates"];
 const NESTED_TEMPLATE_DIRS = ["desktop", "chrome-extension"];
 
 const TEST_FILE_RE = /\.(test|spec)\.(c|m)?[jt]sx?$/;

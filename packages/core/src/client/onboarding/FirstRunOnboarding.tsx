@@ -25,6 +25,11 @@ import type {
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -127,6 +132,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const builderMoreServicesTitleId = React.useId();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -603,8 +609,8 @@ export function FirstRunOnboarding({
                   <span aria-hidden="true" className="text-muted-foreground">
                     ·
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <button
                         type="button"
                         className="text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -612,16 +618,25 @@ export function FirstRunOnboarding({
                       >
                         +{BUILDER_MORE_SERVICES.length} more
                       </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-sm text-xs">
-                      <p className="font-medium">
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="start"
+                      sideOffset={6}
+                      aria-labelledby={builderMoreServicesTitleId}
+                      className="w-[min(24rem,calc(100vw-2rem))] text-xs"
+                    >
+                      <p
+                        id={builderMoreServicesTitleId}
+                        className="font-medium"
+                      >
                         Also included with Builder.io free credits
                       </p>
                       <p className="mt-1 leading-5">
                         {BUILDER_MORE_SERVICES.join(" · ")}
                       </p>
-                    </TooltipContent>
-                  </Tooltip>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
               <BuilderConnectPopover
@@ -646,6 +661,15 @@ export function FirstRunOnboarding({
                   <IconArrowRight size={15} />
                 </button>
               </BuilderConnectPopover>
+              {connectFlow.error && !connectFlow.statusResolved && (
+                <p
+                  role="status"
+                  data-testid="first-run-builder-status-error"
+                  className="mt-2 text-center text-xs text-destructive"
+                >
+                  {connectFlow.error}
+                </p>
+              )}
             </section>
 
             <div
@@ -1341,8 +1365,12 @@ function CapabilityInfoButton({
   );
 }
 
+// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
+// Builder status is still in flight, so the `disabled:` styles never engage and
+// a pending CTA is pixel-identical to a live one — which is why this class of
+// dead button survives screenshot review.
 const primaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
 /** Inline failure signal for a failed completeFirstRun() call — keeps the
  *  user on their current screen with a way forward, instead of swapping to

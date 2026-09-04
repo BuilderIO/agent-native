@@ -21,7 +21,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -70,12 +70,53 @@ import { SendLaterButton } from "./SendLaterButton";
 
 const LAST_SEND_ACCOUNT_KEY = "mail:lastSendAccount";
 
+type ComposeAccount = { email: string; displayName?: string };
+
+function ComposeFieldRow({
+  label,
+  children,
+  trailing,
+}: {
+  label: string;
+  children: ReactNode;
+  trailing?: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-10 items-center gap-2 border-b border-border px-4">
+      <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+        {label}
+      </span>
+      {children}
+      {trailing}
+    </div>
+  );
+}
+
+function accountDisplayName(account: ComposeAccount) {
+  return account.displayName?.trim() || account.email;
+}
+
+function AccountChip({ account }: { account: ComposeAccount }) {
+  const displayName = accountDisplayName(account);
+
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md bg-accent px-2 py-0.5 text-xs text-accent-foreground">
+      <span className="truncate font-medium">{displayName}</span>
+      {displayName !== account.email && (
+        <span className="truncate text-muted-foreground/70">
+          {account.email}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function FromAccountSelector({
   accounts,
   value,
   onChange,
 }: {
-  accounts: Array<{ email: string; displayName?: string }>;
+  accounts: ComposeAccount[];
   value: string | undefined;
   onChange: (email: string) => void;
 }) {
@@ -88,6 +129,9 @@ function FromAccountSelector({
       ? localStorage.getItem(LAST_SEND_ACCOUNT_KEY)!
       : accounts[0]?.email) ||
     "";
+  const selectedAccount =
+    accounts.find((account) => account.email === resolvedValue) ??
+    (resolvedValue ? { email: resolvedValue } : accounts[0]);
 
   // Sync the sticky default into the draft if it wasn't set
   useEffect(() => {
@@ -97,10 +141,7 @@ function FromAccountSelector({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex items-center border-b border-border px-4">
-      <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-        From
-      </span>
+    <ComposeFieldRow label="From">
       <Select
         value={resolvedValue}
         onValueChange={(email) => {
@@ -108,20 +149,27 @@ function FromAccountSelector({
           onChange(email);
         }}
       >
-        <SelectTrigger className="flex-1 border-0 bg-transparent py-2 text-sm shadow-none focus:ring-0 h-auto px-0 cursor-pointer">
-          <SelectValue />
+        <SelectTrigger className="h-10 min-w-0 flex-1 cursor-pointer border-0 bg-transparent p-0 text-sm shadow-none focus:ring-0">
+          <SelectValue className="min-w-0 flex-1">
+            {selectedAccount && <AccountChip account={selectedAccount} />}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {accounts.map((acct) => (
             <SelectItem key={acct.email} value={acct.email}>
-              {acct.displayName
-                ? `${acct.displayName} <${acct.email}>`
-                : acct.email}
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{accountDisplayName(acct)}</span>
+                {accountDisplayName(acct) !== acct.email && (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {acct.email}
+                  </span>
+                )}
+              </span>
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </ComposeFieldRow>
   );
 }
 
@@ -749,10 +797,34 @@ export function ComposeModal({
                 }
               />
             )}
-            <div className="flex items-center border-b border-border px-4">
-              <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                To
-              </span>
+            <ComposeFieldRow
+              label="To"
+              trailing={
+                <button
+                  type="button"
+                  aria-label={`${t("mail.draftQueue.cc")} / ${t("mail.draftQueue.bcc")}`}
+                  aria-expanded={showCcBcc}
+                  onClick={() => {
+                    const next = !showCcBcc;
+                    setShowCcBcc(next);
+                    if (next) {
+                      if (activeDraft.cc === undefined)
+                        onUpdate(activeId!, { cc: "" });
+                      if (activeDraft.bcc === undefined)
+                        onUpdate(activeId!, { bcc: "" });
+                    }
+                  }}
+                  className="flex size-4 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <IconChevronDown
+                    className={cn(
+                      "size-4 transition-transform",
+                      showCcBcc && "rotate-180",
+                    )}
+                  />
+                </button>
+              }
+            >
               <RecipientInput
                 value={activeDraft.to}
                 onChange={(val) => onUpdate(activeId!, { to: val })}
@@ -760,52 +832,26 @@ export function ComposeModal({
                 field="to"
                 onMoveRecipient={moveRecipient}
               />
-              <button
-                onClick={() => {
-                  const next = !showCcBcc;
-                  setShowCcBcc(next);
-                  if (next) {
-                    if (activeDraft.cc === undefined)
-                      onUpdate(activeId!, { cc: "" });
-                    if (activeDraft.bcc === undefined)
-                      onUpdate(activeId!, { bcc: "" });
-                  }
-                }}
-                className="text-muted-foreground hover:text-foreground transition-colors p-1"
-              >
-                <IconChevronDown
-                  className={cn(
-                    "h-4 w-4 transition-transform",
-                    showCcBcc && "rotate-180",
-                  )}
-                />
-              </button>
-            </div>
+            </ComposeFieldRow>
 
             {showCcBcc && (
               <>
-                <div className="flex items-center border-b border-border px-4">
-                  <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                    Cc
-                  </span>
+                <ComposeFieldRow label="Cc">
                   <RecipientInput
                     value={activeDraft.cc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { cc: val })}
                     field="cc"
                     onMoveRecipient={moveRecipient}
                   />
-                </div>
-                <div className="flex items-center border-b border-border px-4">
-                  <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                    Bcc
-                  </span>
+                </ComposeFieldRow>
+                <ComposeFieldRow label="Bcc">
                   <RecipientInput
                     value={activeDraft.bcc ?? ""}
                     onChange={(val) => onUpdate(activeId!, { bcc: val })}
                     field="bcc"
                     onMoveRecipient={moveRecipient}
                   />
-                </div>
+                </ComposeFieldRow>
               </>
             )}
 

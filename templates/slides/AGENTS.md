@@ -57,12 +57,11 @@ Read the relevant skill before deeper work:
   reveals.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
-- Prefer exposed direct actions for bounded current-app work. Use `view-screen`
-  first when selection or context matters, use the smallest action, and read
-  back. `patch-deck` owns `delete-slide` and `reorder-slides`; read
-  `get-deck` first. Source-preserving decks block structure; use its
-  `rewriteSource` path only for rewrites. Verify delegated writes with
-  `get-deck` before success.
+- For focused selected-text edits, use the current `view-screen` exact range and
+  one `update-slide` literal replacement with `expectedMatches: 1`; do not load
+  the full deck. Use targeted `get-deck` only for ambiguous or structural text.
+  Read back. `patch-deck` owns delete/reorder; source-preserving decks block
+  structure and `rewriteSource` is for explicit rewrites. Verify writes.
 - For data requests, read `analytics-data-for-decks` and delegate via Analytics
   over A2A; do not write SQL or call providers directly.
 - When the user names no reference deck or design system, call

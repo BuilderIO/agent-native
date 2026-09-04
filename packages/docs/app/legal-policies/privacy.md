@@ -221,8 +221,7 @@ application.
 
 ## Children's Privacy
 
-We do not knowingly collect or solicit personal information from anyone under
-18. If we learn that we have collected personal information from a person under
+We do not knowingly collect or solicit personal information from anyone under 18. If we learn that we have collected personal information from a person under
 18, we will delete it promptly where required by law. Use the contact method
 published on the Agent-Native Site if you believe we may have information from
 or about someone under 18.

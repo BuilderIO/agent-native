@@ -5,10 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let db: ReturnType<typeof drizzle>;
 let sqlite: Client;
 
+const mocks = vi.hoisted(() => ({
+  getUserSetting: vi.fn(),
+}));
+
 vi.mock("../db/index.js", async () => {
   const schema = await import("../db/schema.js");
   return { getDb: () => db, schema };
 });
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: (...args: unknown[]) => mocks.getUserSetting(...args),
+}));
 
 import type { MonthlyRecap } from "../lib/recap-metrics.js";
 import { createTransactionalEmailStore } from "../lib/transactional-email-store.js";
@@ -43,6 +51,7 @@ async function createTables() {
 }
 
 beforeEach(async () => {
+  mocks.getUserSetting.mockResolvedValue(null);
   sqlite = createClient({ url: ":memory:" });
   db = drizzle(sqlite);
   await createTables();
@@ -657,6 +666,37 @@ describe("transactional email worker", () => {
         viewerEmail: "external@example.com",
       }),
     );
+  });
+
+  it("cancels a queued view email after the owner opts out", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const clip = recording("recording-1", ownerEmail);
+    const send = vi.fn();
+    mocks.getUserSetting.mockResolvedValue({ viewNotifications: false });
+    await clock.store.enqueue("first-view:recording-1", {
+      type: "first-view",
+      recipient: ownerEmail,
+      recordingIds: [clip.id],
+      requestedBy: ownerEmail,
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([[clip.id, clip]]),
+        countedViews: new Map([[clip.id, ["external@example.com"]]]),
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(await clock.store.readJob("first-view:recording-1")).toMatchObject({
+      state: "cancelled",
+    });
   });
 
   it.each(["archived", "trashed"] as const)(

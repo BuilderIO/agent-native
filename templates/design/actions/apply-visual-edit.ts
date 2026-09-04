@@ -434,7 +434,11 @@ const intentSchema = z.preprocess(
     z.object({
       kind: z.literal("textContent"),
       target: targetSchema,
-      value: z.string().describe("Text content for a leaf HTML element."),
+      value: z
+        .string()
+        .describe(
+          "Text content for a leaf HTML element. This REPLACES the element's entire text. view-screen's selection preview caps textContent at 200 chars, so when its textContentTruncated is true, read the element's full text first — writing the preview back deletes everything past the cap.",
+        ),
       html: z
         .string()
         .optional()
