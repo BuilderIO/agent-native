@@ -976,8 +976,16 @@ const INLINE_TEXT_TAGS = new Set([
   "wbr",
 ]);
 
-const COMPONENT_CLASS_PATTERN =
-  /component|card|button|control|(^|[-_])btn([-_]|$)/;
+const COMPONENT_CLASS_PATTERN = /component|card|button|control|\bbtn\b/i;
+
+/**
+ * The one component-identity test. The editor's Create Component gate and the
+ * Layers panel badge must agree, or a layer reads "not a component" while the
+ * gate refuses to make it one.
+ */
+export function componentIdentityHint(value: string): boolean {
+  return !looksLikeUtilityClass(value) && COMPONENT_CLASS_PATTERN.test(value);
+}
 
 /**
  * First segments of Tailwind utilities. Tailwind's stem vocabulary is closed,
@@ -1324,11 +1332,7 @@ function visualFactsOf(
 function treeNodeIsComponent(node: CodeLayerNode): boolean {
   if (node.componentInstance) return true;
   if (COMPONENT_LAYER_TAGS.has(node.tag)) return true;
-  // `bg-card` names a colour, not a component; utilities never mark identity.
-  return node.classes.some(
-    (item) =>
-      !looksLikeUtilityClass(item) && COMPONENT_CLASS_PATTERN.test(item),
-  );
+  return node.classes.some(componentIdentityHint);
 }
 
 function hashStable(value: string): string {
