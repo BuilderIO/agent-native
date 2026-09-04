@@ -1678,96 +1678,121 @@ async function assertViewportContract(
   label: string,
   options: { dark: boolean },
 ): Promise<void> {
-  const metrics = await page.evaluate(() => {
-    const transcript = document.querySelector<HTMLElement>(
-      ".agentkit-transcript",
-    );
-    const footer = document.querySelector<HTMLElement>(".agentkit-chat-footer");
-    const composer = document.querySelector<HTMLElement>(".agentkit-composer");
-    if (!transcript || !footer || !composer) return null;
-    const transcriptRect = transcript.getBoundingClientRect();
-    const footerRect = footer.getBoundingClientRect();
-    const composerStyle = getComputedStyle(composer);
-    const composerBorderChannels = composerStyle.borderColor
-      .match(/\d+(?:\.\d+)?/gu)
-      ?.map(Number);
-    const layoutGeometry: Array<Record<string, string | number | boolean>> = [];
-    for (const selector of [
-      ".agent-layout-shell",
-      ".agent-layout-main-surface",
-      ".agent-native-app-main",
-      ".agent-kit-chat-canvas-body",
-      ".agentkit-chat",
-      ".agentkit-chat-footer",
-      ".agentkit-composer-stack",
-      '[data-agent-composer-slot="area"]',
-      '[data-agent-composer-slot="root"]',
-      '[data-agent-composer-slot="toolbar"]',
-      '[data-agent-composer-slot="toolbar-spacer"]',
-    ]) {
-      const node = document.querySelector<HTMLElement>(selector);
-      if (!node) {
-        layoutGeometry.push({ selector, missing: true });
-        continue;
-      }
-      const rect = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
-      layoutGeometry.push({
-        selector,
-        left: Math.round(rect.left),
-        right: Math.round(rect.right),
-        width: Math.round(rect.width),
-        minWidth: style.minWidth,
-        overflow: style.overflow,
-      });
-    }
-    return {
-      documentOverflow:
-        document.documentElement.scrollWidth -
-        document.documentElement.clientWidth,
-      transcriptBottom: transcriptRect.bottom,
-      footerTop: footerRect.top,
-      footerBottom: footerRect.bottom,
-      viewportHeight: window.innerHeight,
-      composerBorder: composerStyle.borderColor,
-      composerBorderHasLightRim:
-        composerBorderChannels !== undefined &&
-        composerBorderChannels.length >= 3 &&
-        composerBorderChannels.slice(0, 3).every((channel) => channel >= 160) &&
-        (composerBorderChannels[3] ?? 1) > 0.01,
-      composerShadow: composerStyle.boxShadow,
-      layoutGeometry,
-      controlGeometry: [
-        "plus-button",
-        "model-button",
-        "mode-button",
-        "voice-button",
-        "send-button",
-      ].map((slot) => {
-        const node = document.querySelector<HTMLElement>(
-          `[data-agent-composer-slot="${slot}"]`,
-        );
-        if (!node) return { slot, visible: false, missing: true };
+  const readMetrics = () =>
+    page.evaluate(() => {
+      const transcript = document.querySelector<HTMLElement>(
+        ".agentkit-transcript",
+      );
+      const footer = document.querySelector<HTMLElement>(
+        ".agentkit-chat-footer",
+      );
+      const composer =
+        document.querySelector<HTMLElement>(".agentkit-composer");
+      if (!transcript || !footer || !composer) return null;
+      const transcriptRect = transcript.getBoundingClientRect();
+      const footerRect = footer.getBoundingClientRect();
+      const composerStyle = getComputedStyle(composer);
+      const composerBorderChannels = composerStyle.borderColor
+        .match(/\d+(?:\.\d+)?/gu)
+        ?.map(Number);
+      const layoutGeometry: Array<Record<string, string | number | boolean>> =
+        [];
+      for (const selector of [
+        ".agent-layout-shell",
+        ".agent-layout-main-surface",
+        ".agent-native-app-main",
+        ".agent-kit-chat-canvas-body",
+        ".agentkit-chat",
+        ".agentkit-chat-footer",
+        ".agentkit-composer-stack",
+        '[data-agent-composer-slot="area"]',
+        '[data-agent-composer-slot="root"]',
+        '[data-agent-composer-slot="toolbar"]',
+        '[data-agent-composer-slot="toolbar-spacer"]',
+      ]) {
+        const node = document.querySelector<HTMLElement>(selector);
+        if (!node) {
+          layoutGeometry.push({ selector, missing: true });
+          continue;
+        }
         const rect = node.getBoundingClientRect();
         const style = getComputedStyle(node);
-        return {
-          slot,
-          visible:
-            style.display !== "none" &&
-            style.visibility !== "hidden" &&
-            rect.width > 0 &&
-            rect.left >= -1 &&
-            rect.right <= window.innerWidth + 1,
+        layoutGeometry.push({
+          selector,
           left: Math.round(rect.left),
           right: Math.round(rect.right),
           width: Math.round(rect.width),
-          display: style.display,
-          visibility: style.visibility,
-        };
-      }),
-    };
-  });
-  assert.ok(metrics, `${label}: required chat geometry must be rendered`);
+          minWidth: style.minWidth,
+          overflow: style.overflow,
+        });
+      }
+      return {
+        documentOverflow:
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+        transcriptBottom: transcriptRect.bottom,
+        footerTop: footerRect.top,
+        footerBottom: footerRect.bottom,
+        viewportHeight: window.innerHeight,
+        composerBorder: composerStyle.borderColor,
+        composerBorderHasLightRim:
+          composerBorderChannels !== undefined &&
+          composerBorderChannels.length >= 3 &&
+          composerBorderChannels
+            .slice(0, 3)
+            .every((channel) => channel >= 160) &&
+          (composerBorderChannels[3] ?? 1) > 0.01,
+        composerShadow: composerStyle.boxShadow,
+        layoutGeometry,
+        controlGeometry: [
+          "plus-button",
+          "model-button",
+          "mode-button",
+          "voice-button",
+          "send-button",
+        ].map((slot) => {
+          const node = document.querySelector<HTMLElement>(
+            `[data-agent-composer-slot="${slot}"]`,
+          );
+          if (!node) return { slot, visible: false, missing: true };
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            slot,
+            visible:
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              rect.width > 0 &&
+              rect.left >= -1 &&
+              rect.right <= window.innerWidth + 1,
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            display: style.display,
+            visibility: style.visibility,
+          };
+        }),
+      };
+    });
+  let metrics: Awaited<ReturnType<typeof readMetrics>> | null = null;
+  const deadline = Date.now() + (isCi ? 120_000 : 30_000);
+  let lastReadError = "";
+  while (Date.now() < deadline) {
+    try {
+      metrics = await readMetrics();
+      if (metrics) break;
+    } catch (err) {
+      if (!isNavigationContextError(err)) throw err;
+      lastReadError = err instanceof Error ? err.message : String(err);
+    }
+    await sleep(250);
+  }
+  if (!metrics) {
+    throw new Error(
+      `${label}: required chat geometry did not settle within ${isCi ? 120_000 : 30_000}ms` +
+        (lastReadError ? ` (${lastReadError})` : "."),
+    );
+  }
   assert.ok(
     metrics.documentOverflow <= 1,
     `${label}: horizontal overflow was ${metrics.documentOverflow}px`,
