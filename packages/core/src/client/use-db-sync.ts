@@ -1,0 +1,1992 @@
+import { useEffect, useRef, useState } from "react";
+
+import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import {
+  parseHandshakeFrame,
+  parseTokenFrame,
+  REALTIME_PROTOCOL_VERSION,
+  REALTIME_SSE_HANDSHAKE_EVENT,
+  REALTIME_SSE_TOKEN_EVENT,
+} from "../realtime-protocol.js";
+import {
+  addSurfaceVisibilityListener,
+  isHostSurfaceHidden,
+  isSurfaceHidden,
+} from "../shared/surface-visibility.js";
+import { agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
+import {
+  ensureEmbedAuthFetchInterceptor,
+  isEmbedAuthActive,
+} from "./embed-auth.js";
+import { bumpChangeVersion } from "./use-change-version.js";
+
+interface Query {
+  queryKey: readonly unknown[];
+  state?: { error?: unknown };
+}
+
+interface QueryClient {
+  invalidateQueries(
+    opts?: {
+      queryKey?: string[];
+      predicate?: (query: Query) => boolean;
+    },
+    options?: { cancelRefetch?: boolean },
+  ): unknown;
+  isFetching?(filters?: {
+    queryKey?: string[];
+    predicate?: (query: Query) => boolean;
+  }): number;
+}
+
+type InvalidateFilters = {
+  queryKey?: string[];
+  predicate?: (query: Query) => boolean;
+  /** Stable identity for freshly-created predicates that target the same set. */
+  dedupeKey?: string;
+};
+
+const POLL_ABORT_MIN_MS = 10_000;
+// SSE delivers changes immediately in the normal path. The poll is a
+// cross-process/serverless safety net, so an idle tab should not bill the host
+// four times per minute forever. Focus and active agent work still poll now.
+const SSE_FALLBACK_INTERVAL_MS = 60_000;
+const IDLE_POLL_INTERVAL_MS = 60_000;
+const HIDDEN_POLL_INTERVAL_MS = 10_000;
+const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
+const LOCAL_SSE_RECONNECT_BASE_MS = 1_000;
+const LOCAL_SSE_RECONNECT_MAX_MS = 30_000;
+const ACTIVE_CHAT_TTL_MS = 5 * 60 * 1_000;
+const ACTIVE_CHAT_MAX = 1_000;
+/**
+ * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
+ * that arrive within this window of the first one in a burst are merged into
+ * a single `invalidateForEvents` call instead of one call per event — see the
+ * `queueInvalidateBatch` comment at the call site.
+ */
+const INVALIDATE_COALESCE_MS = 250;
+/**
+ * Web Lock / BroadcastChannel name prefix for cross-tab SSE sharing.
+ *
+ * The browser caps HTTP/1.1 connections at ~6 PER ORIGIN, PER BROWSER PROCESS
+ * — not per tab. Every held stream is one of those six, so N tabs each opening
+ * their own EventSource starves ordinary requests: they queue behind the
+ * streams and only run when one closes. Locally this is far worse than hosted,
+ * because the dev gateway serves every app from a single origin, so the six are
+ * shared across the whole workspace rather than per app subdomain.
+ *
+ * One tab per app holds that app's stream and forwards frames to the rest.
+ */
+const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
+
+class HttpStatusError extends Error {
+  status: number;
+
+  constructor(status: number) {
+    super("HTTP " + status);
+    this.status = status;
+  }
+}
+
+export type SyncEvent = {
+  version?: number;
+  cursorId?: string;
+  source?: string;
+  type?: string;
+  key?: string;
+  requestSource?: string;
+  [k: string]: unknown;
+};
+
+type PollResponse = {
+  version: number;
+  events: SyncEvent[];
+  cursor?: string;
+};
+
+type SyncCursor = {
+  version: number;
+  id: string;
+};
+
+const INITIAL_SYNC_CURSOR: SyncCursor = { version: 0, id: "" };
+
+function encodeSyncCursor(cursor: SyncCursor): string {
+  return `${cursor.version}.${cursor.id}`;
+}
+
+function decodeSyncCursor(value: unknown): SyncCursor | undefined {
+  if (typeof value !== "string") return undefined;
+  const separator = value.indexOf(".");
+  if (separator < 1) return undefined;
+  const version = Number(value.slice(0, separator));
+  const id = value.slice(separator + 1);
+  if (!Number.isSafeInteger(version) || version < 0) return undefined;
+  return { version, id };
+}
+
+function compareSyncCursors(a: SyncCursor, b: SyncCursor): number {
+  if (a.version !== b.version) return a.version - b.version;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function syncEventCursor(event: SyncEvent): SyncCursor | undefined {
+  if (
+    typeof event.version !== "number" ||
+    !Number.isSafeInteger(event.version) ||
+    typeof event.cursorId !== "string"
+  ) {
+    return undefined;
+  }
+  return { version: event.version, id: event.cursorId };
+}
+
+function maxSyncCursor(a: SyncCursor, b: SyncCursor | undefined): SyncCursor {
+  return b && compareSyncCursors(b, a) > 0 ? b : a;
+}
+
+function cursorForEvents(events: readonly SyncEvent[]): SyncCursor | undefined {
+  let cursor: SyncCursor | undefined;
+  for (const event of events) {
+    const eventCursor =
+      syncEventCursor(event) ??
+      (typeof event.version === "number" &&
+      Number.isSafeInteger(event.version) &&
+      event.version >= 0
+        ? { version: event.version, id: "" }
+        : undefined);
+    if (
+      eventCursor &&
+      (!cursor || compareSyncCursors(eventCursor, cursor) > 0)
+    ) {
+      cursor = eventCursor;
+    }
+  }
+  return cursor;
+}
+
+function isSyncEventAfterCursor(
+  event: SyncEvent,
+  cursor: SyncCursor,
+  subscriberVersion: number,
+): boolean {
+  const eventCursor = syncEventCursor(event);
+  if (eventCursor) return compareSyncCursors(eventCursor, cursor) > 0;
+  const version = typeof event.version === "number" ? event.version : 0;
+  return version === 0 || version > subscriberVersion;
+}
+
+/** Frames the SSE leader forwards to follower tabs over BroadcastChannel. */
+type SyncBroadcast =
+  | {
+      type: "events";
+      events: SyncEvent[];
+      version: number | undefined;
+      cursor?: SyncCursor;
+    }
+  | { type: "sse-state"; connected: boolean; capabilities: string[] }
+  | { type: "sse-state-request" };
+
+/** Callback delivered to each transport subscriber for every batch of events. */
+type EventSubscriber = (
+  events: SyncEvent[],
+  version: number | undefined,
+  cursor?: SyncCursor,
+) => void;
+
+function getPollAbortMs(interval: number): number {
+  return Math.max(POLL_ABORT_MIN_MS, interval * 4);
+}
+
+function isDocumentHidden(): boolean {
+  return isSurfaceHidden();
+}
+
+function resolveSseUrl(sseUrl: string | false | undefined): string | false {
+  if (sseUrl === false) return false;
+  if (isEmbedAuthActive()) return false;
+  return agentNativePath(sseUrl ?? "/_agent-native/events");
+}
+
+// --- Hosted Realtime Gateway binding ----------------------------------------
+//
+// When the app is configured for the hosted gateway, the transport connects to
+// the gateway (cross-origin) instead of the Netlify app, carrying a short-lived
+// subscribe token minted from the app's own same-origin endpoint. All of this
+// is gated on a non-null binding — apps without hosted config keep the exact
+// local behavior below.
+
+const REALTIME_GATEWAY_SSE_PATH = "/stream";
+const REALTIME_GATEWAY_POLL_PATH = "/poll";
+const REALTIME_TOKEN_MINT_PATH = "/_agent-native/realtime-token";
+/** Consecutive gateway failures before health-gating back to the local app. */
+const HOSTED_UNHEALTHY_THRESHOLD = 3;
+
+interface RealtimeGatewayBinding {
+  /** Gateway SSE URL (token appended per connect). */
+  sseUrl: string;
+  /** Gateway poll URL (token appended per request). */
+  pollUrl: string;
+  /** Same-origin app endpoint that mints the subscribe token. */
+  tokenMintUrl: string;
+}
+
+function getRealtimeConfig():
+  | { transport?: string; gatewayBaseUrl?: string }
+  | undefined {
+  if (typeof window === "undefined") return undefined;
+  return window.__AGENT_NATIVE_CONFIG__?.realtime;
+}
+
+/**
+ * Resolve the hosted-gateway binding, or null to stay on the local app. Gated
+ * on: SSE enabled (the gateway is push-first), not embed auth (needs the
+ * same-origin session to mint), and `transport: "hosted"` with a base URL in
+ * the impersonal SSR config.
+ */
+function resolveGatewayBinding(
+  localSseUrl: string | false,
+): RealtimeGatewayBinding | null {
+  if (localSseUrl === false) return null;
+  if (isEmbedAuthActive()) return null;
+  const config = getRealtimeConfig();
+  if (config?.transport !== "hosted") return null;
+  const base = config.gatewayBaseUrl?.replace(/\/+$/, "");
+  if (!base) return null;
+  return {
+    sseUrl: `${base}${REALTIME_GATEWAY_SSE_PATH}`,
+    pollUrl: `${base}${REALTIME_GATEWAY_POLL_PATH}`,
+    tokenMintUrl: agentNativePath(REALTIME_TOKEN_MINT_PATH),
+  };
+}
+
+/** ±20% jitter so gateway timeout/deploy-driven reconnects don't stampede. */
+function applyReconnectJitter(delay: number): number {
+  const jitter = delay * 0.2 * (Math.random() * 2 - 1);
+  return Math.max(0, Math.round(delay + jitter));
+}
+
+function normalizeEventPayload(payload: unknown): SyncEvent[] {
+  if (!payload || typeof payload !== "object") return [];
+  const record = payload as { type?: unknown; events?: unknown };
+  if (record.type === "batch" && Array.isArray(record.events)) {
+    return record.events.filter(
+      (event): event is SyncEvent => !!event && typeof event === "object",
+    );
+  }
+  if (Array.isArray(record.events)) {
+    return record.events.filter(
+      (event): event is SyncEvent => !!event && typeof event === "object",
+    );
+  }
+  return [payload as SyncEvent];
+}
+
+function isAuthFailure(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
+/**
+ * True for a query whose last fetch failed authorization. Such a query needs a
+ * new session, not another request: every background invalidation reissues the
+ * identical 401. One expired session used to turn the sync loop into a poll
+ * storm (135k 401s over 20h across a handful of action queries), so sync-driven
+ * invalidation skips these. A remount, a mutation, or an explicit refetch still
+ * retries them.
+ */
+function hasTerminalAuthFailure(query: Query): boolean {
+  return isAuthFailure(query.state?.error);
+}
+
+/**
+ * App-state keys that drive immediate UI navigation/interaction and must
+ * never sit behind the invalidation coalesce window (see
+ * `isInteractionCriticalSyncEvent`).
+ */
+const INTERACTION_CRITICAL_APP_STATE_KEYS = [
+  "navigate",
+  "show-questions",
+  "__set_url__",
+];
+
+/**
+ * True for sync events that drive immediate, agent-initiated UI navigation
+ * or interaction rather than passive data invalidation — app-state writes in
+ * general (they back `["app-state"]` queries directly), and specifically the
+ * `navigate` / `show-questions` / `__set_url__` app-state keys that
+ * `invalidateForEvents` special-cases into their own query keys below.
+ *
+ * `useDbSync` batches ordinary invalidation-driving events (action/collab/db
+ * change events) into one flush per `INVALIDATE_COALESCE_MS` so a chatty doc
+ * doesn't refetch on every keystroke. That trade-off is wrong for these
+ * events: agent-driven navigation, `set-url`, and guided-questions prompts
+ * must land as close to instantly as possible, so any batch containing one
+ * of these bypasses the coalesce window and flushes immediately instead.
+ *
+ * Exported as a small pure predicate so this classification is unit-testable
+ * independent of the transport/timer plumbing around it.
+ */
+export function isInteractionCriticalSyncEvent(event: SyncEvent): boolean {
+  return (
+    event.source === "app-state" &&
+    (event.key === "*" ||
+      INTERACTION_CRITICAL_APP_STATE_KEYS.some(
+        (key) =>
+          event.key === key ||
+          (typeof event.key === "string" && event.key.startsWith(`${key}:`)),
+      ))
+  );
+}
+
+function appStateQueryMatchesKeys(
+  query: Query,
+  changedKeys: readonly string[],
+): boolean {
+  if (query.queryKey[0] !== "app-state") return false;
+  // The aggregate query is the fallback for callers that read all app state.
+  if (query.queryKey.length === 1) return true;
+  const queryStateKey = query.queryKey[1];
+  if (typeof queryStateKey !== "string") return false;
+  return changedKeys.some(
+    (changedKey) =>
+      changedKey === "*" ||
+      changedKey === queryStateKey ||
+      changedKey.startsWith(`${queryStateKey}:`) ||
+      queryStateKey.startsWith(`${changedKey}:`),
+  );
+}
+
+async function fetchPollJson<T>(
+  pollUrl: string,
+  cursor: SyncCursor,
+  interval: number,
+  token?: string,
+): Promise<T> {
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), getPollAbortMs(interval))
+    : null;
+
+  // The numeric `since` remains for backward-compatible servers. The
+  // composite cursor closes the same-millisecond cross-instance gap by
+  // ordering durable rows on `(version,id)`.
+  const separator = pollUrl.includes("?") ? "&" : "?";
+  const cursorQuery = `since=${cursor.version}`;
+  const compositeCursorQuery =
+    cursor.version > 0 || cursor.id
+      ? `&cursor=${encodeURIComponent(encodeSyncCursor(cursor))}`
+      : "";
+  const tokenQuery = token ? `&token=${encodeURIComponent(token)}` : "";
+  const url = `${pollUrl}${separator}${cursorQuery}${compositeCursorQuery}${tokenQuery}`;
+
+  try {
+    const res = await fetch(
+      url,
+      controller ? { signal: controller.signal } : undefined,
+    );
+    if (!res.ok) throw new HttpStatusError(res.status);
+    // Await the json before the finally so a body-stream abort doesn't
+    // produce a dangling promise that escapes as an unhandled rejection.
+    return await res.json();
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared SSE + poll transport
+//
+// One SyncTransport per (pollUrl, sseUrl) pair is held in a module-level
+// registry. Both `useDbSync` and `useScreenRefreshKey` subscribe to it, so a
+// single browser tab opens exactly ONE SSE connection and ONE poll loop
+// regardless of how many hook instances are mounted.
+//
+// Lifecycle: the transport starts when the first subscriber joins and shuts
+// down when the last subscriber leaves. This makes it safe to SSR and to
+// mount/unmount hooks independently.
+// ---------------------------------------------------------------------------
+
+interface TransportSubscription {
+  onEvents: EventSubscriber;
+  /**
+   * Whether this subscriber wants the transport to pause when the tab is
+   * hidden. The transport pauses only when ALL subscribers request it — any
+   * subscriber with `pauseWhenHidden: false` keeps the connection alive.
+   */
+  pauseWhenHidden: boolean;
+  /**
+   * Requested poll interval in ms. The transport uses the minimum across all
+   * subscribers so the most-frequent caller is satisfied.
+   */
+  interval: number;
+  /** Requested poll interval while the tab has no active agent work. */
+  idleInterval: number;
+  /** Requested fallback interval while SSE is connected. */
+  fallbackInterval: number;
+  /**
+   * Optional: notified when the shared SSE connection opens or closes (also
+   * fired once with the current state when the subscriber joins). Lets
+   * subscribers with their own fallback loops (e.g. the collab doc poll)
+   * relax their cadence while the push path is healthy.
+   */
+  onSseStateChange?: (
+    connected: boolean,
+    capabilities?: readonly string[],
+  ) => void;
+}
+
+class SyncTransport {
+  private subscribers = new Map<symbol, TransportSubscription>();
+  private cursorRef: SyncCursor = { ...INITIAL_SYNC_CURSOR };
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private removeVisibilityListener?: () => void;
+  private stopped = false;
+  private inFlight = false;
+  private eventSource: EventSource | null = null;
+  private localReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private localReconnectAttempts = 0;
+  private sseConnected = false;
+  private authFailureUntil = 0;
+  private consecutiveFailures = 0;
+  private activeChatIds = new Map<string, number>();
+  // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
+  // flips to "local" on health-gate revert; `token` is the current subscribe
+  // token (minted from the app, rotated over the stream), never part of any
+  // registry key.
+  private mode: "hosted" | "local";
+  private token: string | null = null;
+  private tokenMintInFlight: Promise<boolean> | null = null;
+  private gatewayReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private capabilities: string[] = [];
+  // Cross-tab SSE sharing. "unknown" re-elects on the next connectEvents();
+  // "pending" means another tab holds the stream and this one is a follower
+  // until that tab releases the lock (Web Locks promotes the next waiter for
+  // us, so a closed/crashed leader needs no heartbeat or timeout here).
+  private leaderState: "unknown" | "pending" | "leader" = "unknown";
+  private releaseLeadership: (() => void) | null = null;
+  private leaderAbort: AbortController | null = null;
+  private channel: BroadcastChannel | null = null;
+
+  constructor(
+    private readonly pollUrl: string,
+    private readonly sseUrl: string | false,
+    private readonly gateway: RealtimeGatewayBinding | null = null,
+  ) {
+    this.mode = gateway ? "hosted" : "local";
+  }
+
+  /** Capabilities advertised by the gateway handshake (e.g. `no-awareness`). */
+  getCapabilities(): readonly string[] {
+    return this.capabilities;
+  }
+
+  private get activeSseUrl(): string | false {
+    if (this.mode === "hosted" && this.gateway) {
+      if (!this.token) return this.gateway.sseUrl;
+      const base = `${this.gateway.sseUrl}?token=${encodeURIComponent(this.token)}`;
+      // Cursor lets the gateway replay the reconnect gap on connect instead of
+      // deferring it to the next poll; 0 on first connect means nothing to replay.
+      return this.cursorRef.version > 0 || this.cursorRef.id
+        ? `${base}&since=${this.cursorRef.version}&cursor=${encodeURIComponent(encodeSyncCursor(this.cursorRef))}`
+        : base;
+    }
+    return this.sseUrl;
+  }
+
+  private get activePollUrl(): string {
+    return this.mode === "hosted" && this.gateway
+      ? this.gateway.pollUrl
+      : this.pollUrl;
+  }
+
+  /**
+   * Mint a subscribe token from the app's same-origin endpoint.
+   *
+   * Only TERMINAL outcomes health-gate to local: 404 (gateway not provisioned)
+   * and 401/403 (not authorized) — retrying those for this tab is pointless.
+   * TRANSIENT failures (5xx/429 from a cold Netlify function, network errors)
+   * keep the hosted intent and ride the jittered reconnect + unhealthy-threshold
+   * path, so a deploy / scale-to-zero blip doesn't permanently abandon the
+   * gateway for the tab.
+   */
+  private mintToken(): Promise<boolean> {
+    if (!this.gateway || this.mode !== "hosted") return Promise.resolve(false);
+    if (this.tokenMintInFlight) return this.tokenMintInFlight;
+    const mintUrl = this.gateway.tokenMintUrl;
+    this.tokenMintInFlight = (async () => {
+      // Bound the mint like fetchPollJson bounds polls: a black-holed request
+      // must resolve as a transient failure, not hang tokenMintInFlight forever
+      // (poll() awaits this while holding inFlight, so a hung mint would stall
+      // the whole transport with no timer pending).
+      const controller =
+        typeof AbortController === "undefined" ? null : new AbortController();
+      const timeout = controller
+        ? setTimeout(() => controller.abort(), POLL_ABORT_MIN_MS)
+        : null;
+      try {
+        const res = await fetch(mintUrl, {
+          credentials: "same-origin",
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { token?: unknown };
+          if (typeof data?.token === "string" && data.token) {
+            this.token = data.token;
+            // Deliberately NOT resetting consecutiveFailures here: minting
+            // succeeds via the app origin even when the GATEWAY is down, so a
+            // reset would let a mint-ok -> stream-fail loop run forever below
+            // the unhealthy threshold. Only real gateway connectivity (stream
+            // onopen / poll success) clears the count.
+            return true;
+          }
+          // 2xx without a token is a terminal misconfiguration.
+          this.revertToLocal();
+          return false;
+        }
+        if (res.status === 404 || res.status === 401 || res.status === 403) {
+          this.revertToLocal();
+          return false;
+        }
+        this.onGatewayTransientFailure();
+        return false;
+      } catch {
+        this.onGatewayTransientFailure();
+        return false;
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        this.tokenMintInFlight = null;
+      }
+    })();
+    return this.tokenMintInFlight;
+  }
+
+  /**
+   * A transient gateway failure (mint 5xx/429, network). Keep hosted intent but
+   * count toward the unhealthy threshold; revert to local only once it trips.
+   */
+  private onGatewayTransientFailure(): void {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= HOSTED_UNHEALTHY_THRESHOLD) {
+      this.revertToLocal();
+    }
+  }
+
+  /**
+   * Health-gate back to the app's own /poll + /events with the cursor intact
+   * (cursorRef is untouched), so delivery stays poll-equivalent - never a
+   * silent stall.
+   */
+  private revertToLocal(): void {
+    if (this.mode === "local") return;
+    this.mode = "local";
+    this.token = null;
+    // The local in-process SSE path sends no handshake, so hosted capabilities
+    // (e.g. no-awareness) must not survive the fallback — stale caps would keep
+    // collab on its fast presence cadence against the local stream. Subscribers
+    // are re-notified via the close/connect cycle below.
+    this.capabilities = [];
+    // The failure count was earned against the gateway. Carrying it over would
+    // back the local endpoint off by 2^failures (already 8min at the threshold)
+    // before its first poll, even though it just served this page.
+    this.consecutiveFailures = 0;
+    if (this.gatewayReconnectTimer) {
+      clearTimeout(this.gatewayReconnectTimer);
+      this.gatewayReconnectTimer = null;
+    }
+    this.closeEvents();
+    if (!this.stopped) {
+      this.connectEvents();
+      this.schedulePoll();
+    }
+  }
+
+  private scheduleGatewayReconnect(): void {
+    if (this.stopped || this.gatewayReconnectTimer) return;
+    this.gatewayReconnectTimer = setTimeout(() => {
+      this.gatewayReconnectTimer = null;
+      if (!this.stopped && !this.eventSource) this.connectEvents();
+    }, applyReconnectJitter(1000));
+  }
+
+  // -------------------------------------------------------------------------
+  // Subscriber management
+  // -------------------------------------------------------------------------
+
+  add(id: symbol, sub: TransportSubscription): void {
+    const wasEmpty = this.subscribers.size === 0;
+    const wasActive = this.isActive;
+    this.subscribers.set(id, sub);
+    if (wasEmpty) {
+      this.stopped = false;
+      this.start();
+    } else if (!wasActive && this.isActive) {
+      // A collab surface (or other active subscriber) just joined. Catch up
+      // immediately rather than waiting out an idle-cadence timer.
+      this.pollNow();
+    } else {
+      this.reschedule();
+    }
+    sub.onSseStateChange?.(this.sseConnected, this.capabilities);
+  }
+
+  remove(id: symbol): void {
+    this.subscribers.delete(id);
+    if (this.subscribers.size === 0) {
+      this.teardown();
+    } else {
+      // Recalculate poll interval in case the leaving subscriber was the
+      // fastest caller; reschedule with the updated cadence.
+      this.reschedule();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Derived settings (aggregate over active subscribers)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Whether this transport must do nothing at all right now. A host that has
+   * stashed the surface off screen is a stronger statement than a backgrounded
+   * browser tab, so it pauses regardless of `pauseWhenHidden` — an embedder
+   * only sets it for a surface the user genuinely cannot see.
+   */
+  private shouldStayIdle(): boolean {
+    if (isHostSurfaceHidden()) return true;
+    return this.effectivePauseWhenHidden && isDocumentHidden();
+  }
+
+  private get effectivePauseWhenHidden(): boolean {
+    // Pause only if every subscriber has opted in.
+    for (const sub of this.subscribers.values()) {
+      if (!sub.pauseWhenHidden) return false;
+    }
+    return true;
+  }
+
+  private get effectiveInterval(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.interval < min) min = sub.interval;
+    }
+    return isFinite(min) ? min : 2000;
+  }
+
+  private get effectiveIdleInterval(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.idleInterval < min) min = sub.idleInterval;
+    }
+    return isFinite(min) ? min : IDLE_POLL_INTERVAL_MS;
+  }
+
+  private get isActive(): boolean {
+    const now = Date.now();
+    for (const [id, lastSeen] of this.activeChatIds) {
+      if (now - lastSeen > ACTIVE_CHAT_TTL_MS) {
+        this.activeChatIds.delete(id);
+      }
+    }
+    return this.activeChatIds.size > 0;
+  }
+
+  private get effectiveFallbackInterval(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.fallbackInterval < min) min = sub.fallbackInterval;
+    }
+    return isFinite(min) ? min : SSE_FALLBACK_INTERVAL_MS;
+  }
+
+  // -------------------------------------------------------------------------
+  // Event fan-out
+  // -------------------------------------------------------------------------
+
+  private fan(
+    events: SyncEvent[],
+    version: number | undefined,
+    cursor: SyncCursor = this.cursorRef,
+  ): void {
+    for (const sub of this.subscribers.values()) {
+      sub.onEvents(events, version, cursor);
+    }
+  }
+
+  private setSseConnected(connected: boolean): void {
+    if (this.sseConnected === connected) return;
+    this.sseConnected = connected;
+    this.notifySseState();
+    this.broadcast({
+      type: "sse-state",
+      connected,
+      capabilities: this.capabilities,
+    });
+  }
+
+  /**
+   * Notify subscribers of the current SSE state AND the negotiated gateway
+   * capabilities. Called on connect/disconnect and again once the handshake
+   * arrives, so a consumer (e.g. collab) can decide — for instance — not to
+   * relax its presence cadence on a `no-awareness` hosted stream.
+   */
+  private notifySseState(): void {
+    for (const sub of this.subscribers.values()) {
+      sub.onSseStateChange?.(this.sseConnected, this.capabilities);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // SSE + poll loop (mirrors the original per-hook logic exactly)
+  // -------------------------------------------------------------------------
+
+  private authFailureDelayMs(): number {
+    return Math.max(0, this.authFailureUntil - Date.now());
+  }
+
+  private schedulePoll(): void {
+    if (this.stopped) return;
+    if (this.shouldStayIdle()) return;
+    if (this.timer) clearTimeout(this.timer);
+    const authDelay = this.authFailureDelayMs();
+    if (authDelay > 0) {
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        void this.poll();
+      }, authDelay);
+      return;
+    }
+    const visibleBase = this.isActive
+      ? this.effectiveInterval
+      : this.sseConnected
+        ? this.effectiveFallbackInterval
+        : this.effectiveIdleInterval;
+    const base = isDocumentHidden()
+      ? Math.max(visibleBase, HIDDEN_POLL_INTERVAL_MS)
+      : visibleBase;
+    // Exponential backoff while polls keep failing (500s during a deploy,
+    // DNS blips, a struggling DB). Auth failures have their own cooldown
+    // above; this covers everything else so a down server isn't hammered at
+    // full cadence. Resets on the first successful poll.
+    const backoff =
+      this.consecutiveFailures > 0
+        ? Math.min(base * 2 ** Math.min(this.consecutiveFailures, 5), 300_000)
+        : base;
+    // Jitter only for gateway-capable transports so reconnect/poll retries
+    // don't stampede a gateway deploy; apps with no gateway config keep the
+    // exact deterministic cadence.
+    const delay = this.gateway ? applyReconnectJitter(backoff) : backoff;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.poll();
+    }, delay);
+  }
+
+  private reschedule(): void {
+    // Only need to act if a timer is already pending; next natural tick will
+    // pick up the new effective interval otherwise.
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
+      this.timer = null;
+      this.schedulePoll();
+    }
+  }
+
+  private closeEvents(): void {
+    if (this.localReconnectTimer) {
+      clearTimeout(this.localReconnectTimer);
+      this.localReconnectTimer = null;
+    }
+    if (!this.eventSource) return;
+    this.eventSource.close();
+    this.eventSource = null;
+    this.setSseConnected(false);
+  }
+
+  // -------------------------------------------------------------------------
+  // Cross-tab SSE sharing (see SSE_LEADER_LOCK_PREFIX)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Lock/channel name. Keyed on the browser origin so apps sharing a local
+   * workspace gateway elect one stream holder, while separate ports/origins
+   * remain independent.
+   */
+  private get leaderKey(): string {
+    // Keyed on the poll URL, NOT the origin. Web Locks and BroadcastChannel are
+    // already origin-scoped, and the dev gateway serves every workspace app
+    // from one origin — so an origin key would elect a single leader across
+    // different apps. A follower applies whatever the leader sends into its own
+    // `cursorRef` (see openChannel), and that cursor is the `?since=` for its
+    // own poll, so it would skip its own app's events from then on. The poll
+    // URL is app-scoped, which is exactly the granularity a stream serves.
+    return `${SSE_LEADER_LOCK_PREFIX}${this.pollUrl}`;
+  }
+
+  /**
+   * Claim this app's single SSE slot, or fall in behind whoever holds it.
+   *
+   * Web Locks queues the request, so a follower is promoted automatically when
+   * the leader tab navigates away, closes, or crashes — there is no heartbeat
+   * to tune and no stale-leader window to recover from. Browsers without Web
+   * Locks or BroadcastChannel keep the old one-stream-per-tab behavior.
+   */
+  private electLeader(): void {
+    if (this.leaderState === "pending") return;
+    const locks =
+      typeof navigator === "undefined" ? undefined : navigator.locks;
+    if (!locks || typeof BroadcastChannel === "undefined") {
+      this.leaderState = "leader";
+      this.connectEvents();
+      return;
+    }
+
+    this.openChannel();
+    this.leaderState = "pending";
+    const abort = new AbortController();
+    this.leaderAbort = abort;
+    void locks
+      .request(
+        this.leaderKey,
+        { signal: abort.signal },
+        () =>
+          new Promise<void>((resolve) => {
+            if (this.stopped) {
+              resolve();
+              return;
+            }
+            this.releaseLeadership = resolve;
+            this.leaderState = "leader";
+            this.connectEvents();
+          }),
+      )
+      .catch(() => {
+        // Abort (teardown, or going hidden) is the only expected rejection.
+        // Anything else must not strand this tab as a follower of a leader
+        // that may not exist, so own a stream directly instead.
+        if (this.stopped || abort.signal.aborted) return;
+        this.leaderState = "leader";
+        this.connectEvents();
+      });
+  }
+
+  /** Give up the stream slot so another tab can take it; re-elects on demand. */
+  private dropLeadership(): void {
+    this.leaderAbort?.abort();
+    this.leaderAbort = null;
+    this.releaseLeadership?.();
+    this.releaseLeadership = null;
+    this.leaderState = "unknown";
+  }
+
+  private openChannel(): void {
+    if (this.channel || typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel(this.leaderKey);
+    channel.onmessage = (message: MessageEvent) => {
+      const frame = message.data as SyncBroadcast | null;
+      if (this.stopped) return;
+      if (frame?.type === "sse-state-request") {
+        if (this.leaderState === "leader") {
+          this.broadcast({
+            type: "sse-state",
+            connected: this.sseConnected,
+            capabilities: this.capabilities,
+          });
+        }
+        return;
+      }
+      // Only followers consume frames; a leader already applied them locally.
+      if (this.leaderState === "leader") return;
+      if (frame?.type === "events") {
+        this.applyVersion(
+          frame.events,
+          frame.cursor ? undefined : frame.version,
+        );
+        this.cursorRef = maxSyncCursor(this.cursorRef, frame.cursor);
+        this.fan(frame.events, frame.version, this.cursorRef);
+      } else if (frame?.type === "sse-state") {
+        this.capabilities = frame.capabilities;
+        // The leader's stream is this tab's push path too. Tracking its state
+        // lets a follower relax to the fallback cadence instead of polling at
+        // the active rate on top of a stream that is already delivering.
+        this.setSseConnected(frame.connected);
+        this.reschedule();
+      }
+    };
+    this.channel = channel;
+    channel.postMessage({ type: "sse-state-request" });
+  }
+
+  private broadcast(frame: SyncBroadcast): void {
+    if (this.leaderState !== "leader") return;
+    try {
+      this.channel?.postMessage(frame);
+      // postMessage throws only on a channel closed by tab teardown: there is
+      // no reader left to tell, and rethrowing would take the leader's own
+      // event handling down with it. Followers still have their poll.
+      // coercion-ok: no live follower can observe this failure.
+    } catch {
+      /* empty */
+    }
+  }
+
+  private closeChannel(): void {
+    this.channel?.close();
+    this.channel = null;
+  }
+
+  private scheduleLocalReconnect(): void {
+    if (this.stopped || this.localReconnectTimer) return;
+    const delay = Math.min(
+      LOCAL_SSE_RECONNECT_BASE_MS * 2 ** this.localReconnectAttempts,
+      LOCAL_SSE_RECONNECT_MAX_MS,
+    );
+    this.localReconnectAttempts += 1;
+    this.localReconnectTimer = setTimeout(() => {
+      this.localReconnectTimer = null;
+      this.connectEvents();
+    }, delay);
+  }
+
+  private connectEvents(): void {
+    if (
+      this.stopped ||
+      this.eventSource ||
+      typeof EventSource === "undefined" ||
+      this.shouldStayIdle()
+    ) {
+      return;
+    }
+
+    // One tab per origin holds the stream; the rest follow it over
+    // BroadcastChannel and keep polling as their safety net.
+    if (this.leaderState !== "leader") {
+      this.electLeader();
+      return;
+    }
+
+    // Hosted gateway needs a subscribe token before the stream can open.
+    // EventSource can't set headers, so the token rides the connect query
+    // string (see activeSseUrl). Mint first, then connect.
+    if (this.mode === "hosted" && this.gateway && !this.token) {
+      void this.mintToken().then((ok) => {
+        if (this.stopped) return;
+        if (ok && !this.eventSource) {
+          this.connectEvents();
+        } else if (!ok && this.mode === "hosted") {
+          // Transient mint failure (terminal ones already reverted to local,
+          // flipping mode). Without a retry timer nothing would ever reopen
+          // SSE — connectEvents is only reachable from focus/visibility/run
+          // events — leaving the tab poll-only at the idle cadence.
+          this.scheduleGatewayReconnect();
+        }
+      });
+      return;
+    }
+
+    const url = this.activeSseUrl;
+    if (!url) return;
+
+    const source = new EventSource(url);
+    this.eventSource = source;
+    source.onopen = () => {
+      const wasConnected = this.sseConnected;
+      this.localReconnectAttempts = 0;
+      this.setSseConnected(true);
+      // A reconnecting EventSource may emit another open event without a
+      // separate state transition. Subscribers still need that event as the
+      // signal to resync any payloads the stream does not replay.
+      if (wasConnected) this.notifySseState();
+      if (this.mode === "hosted") {
+        // A live gateway stream is the real health signal: clear failure
+        // counts accumulated by mint/stream retries. Local mode keeps main's
+        // semantics (only a successful poll resets the poll backoff).
+        this.consecutiveFailures = 0;
+      }
+      this.schedulePoll();
+    };
+    source.onerror = () => {
+      // A replaced/closed source can still fire late; ignore it so it can't
+      // flip the connected state or tear down the current stream.
+      if (this.eventSource !== source) return;
+      this.setSseConnected(false);
+      if (this.mode === "hosted" && this.gateway) {
+        // Browser auto-reconnect reuses the URL frozen at construction, so it
+        // would replay from a stale `since`. Own the reconnect so the next
+        // connect rebuilds activeSseUrl from the current cursorRef. CLOSED also
+        // refreshes the token (expired/rotated/deploy); CONNECTING keeps it. A
+        // successful reconnect resets the count in onopen; a hard-down gateway
+        // trips the threshold and health-gates to local.
+        if (source.readyState === EventSource.CLOSED) this.token = null;
+        this.closeEvents();
+        this.onGatewayTransientFailure();
+        if (this.mode === "hosted") this.scheduleGatewayReconnect();
+        return;
+      }
+      // Local mode: native EventSource reconnect is fine. Drop a CLOSED ref so a
+      // later connectEvents() (focus/visibility) can establish a fresh stream.
+      if (source.readyState === EventSource.CLOSED) {
+        source.close();
+        this.eventSource = null;
+        this.scheduleLocalReconnect();
+      }
+      this.schedulePoll();
+    };
+    source.onmessage = (message) => {
+      try {
+        const payload = JSON.parse(message.data);
+        const events = normalizeEventPayload(payload);
+        const version =
+          typeof payload?.version === "number" ? payload.version : undefined;
+        this.applyVersion(events, version);
+        this.fan(events, version, this.cursorRef);
+        const eventCursor = cursorForEvents(events);
+        this.broadcast({
+          type: "events",
+          events,
+          version,
+          // A follower may only adopt a cursor for events it received. The
+          // transport cursor can be ahead after a poll response skipped
+          // filtered/unread durable rows, which would make the follower lose
+          // those rows on its own safety poll.
+          cursor: eventCursor,
+        });
+      } catch {
+        // Ignore malformed SSE frames; polling is the safety net.
+      }
+    };
+
+    if (this.mode === "hosted" && this.gateway) {
+      // Control frames ride NAMED SSE events so they never reach onmessage /
+      // normalizeEventPayload as spurious data events.
+      source.addEventListener(REALTIME_SSE_HANDSHAKE_EVENT, (e) => {
+        const hs = parseHandshakeFrame((e as MessageEvent).data);
+        if (!hs) return;
+        if (hs.protocol !== REALTIME_PROTOCOL_VERSION) {
+          // Surface an unexpected protocol rather than silently adopting its
+          // capabilities; keep the conservative (no advertised capabilities)
+          // stance so downstream (collab) does not relax on assumptions.
+          console.warn(
+            `[agent-native] unsupported realtime protocol ${hs.protocol} (expected ${REALTIME_PROTOCOL_VERSION})`,
+          );
+          return;
+        }
+        this.capabilities = hs.capabilities;
+        // Re-notify subscribers now that capabilities are known — the initial
+        // connected notification fired before the handshake arrived.
+        this.notifySseState();
+      });
+      source.addEventListener(REALTIME_SSE_TOKEN_EVENT, (e) => {
+        const frame = parseTokenFrame((e as MessageEvent).data);
+        if (!frame?.token) return;
+        this.token = frame.token;
+        // EventSource can't change a live stream's URL, and its auto-reconnect
+        // reuses the original (old-token) URL. Close and reconnect (jittered) so
+        // the rotated token is actually used on the next connect.
+        this.closeEvents();
+        this.scheduleGatewayReconnect();
+      });
+    }
+  }
+
+  /**
+   * Advance the transport's shared version cursor. Subscribers receive the
+   * raw events and decide independently which ones are "fresh" relative to
+   * their own cursor, but the transport-level cursor ensures the poll
+   * `?since=&cursor=` parameters always advance.
+   */
+  private applyVersion(events: SyncEvent[], version: number | undefined): void {
+    if (typeof version === "number" && version > this.cursorRef.version) {
+      this.cursorRef = { version, id: "" };
+    }
+    for (const evt of events) {
+      this.cursorRef = maxSyncCursor(this.cursorRef, syncEventCursor(evt));
+    }
+  }
+
+  private async poll(): Promise<void> {
+    if (this.stopped || this.inFlight) return;
+    // Re-checked here, not only at the schedule sites: whatever path
+    // reached poll(), a host-hidden surface must not issue a request.
+    if (this.shouldStayIdle()) return;
+    this.inFlight = true;
+    try {
+      if (this.mode === "hosted" && this.gateway && !this.token) {
+        // No token yet — mint before polling the gateway. A failed mint has
+        // already reverted us to local; a scheduled poll will pick it up.
+        const ok = await this.mintToken();
+        if (!ok || this.stopped) return;
+      }
+      const data = await fetchPollJson<PollResponse>(
+        this.activePollUrl,
+        this.cursorRef,
+        this.effectiveInterval,
+        this.mode === "hosted" ? (this.token ?? undefined) : undefined,
+      );
+      if (this.stopped) return;
+      this.consecutiveFailures = 0;
+      const events = data.events ?? [];
+      const responseCursor = decodeSyncCursor(data.cursor);
+      // A paged durable response's numeric version is the high-water mark,
+      // not necessarily the last row in this page. When a composite cursor is
+      // present, advance from event ids/that cursor only - applying the high
+      // water first would skip the remainder of a same-version page.
+      this.applyVersion(events, responseCursor ? undefined : data.version);
+      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
+      this.fan(events, data.version, this.cursorRef);
+    } catch (err) {
+      if (this.stopped) return;
+      this.consecutiveFailures++;
+      if (this.mode === "hosted" && this.gateway) {
+        // Gateway auth failure → re-mint (expired/rotated token), WITHOUT
+        // tripping the poll-401 cooldown. Persistent failures of any kind
+        // health-gate back to the local app.
+        if (isAuthFailure(err)) {
+          this.token = null;
+          void this.mintToken();
+        }
+        if (this.consecutiveFailures >= HOSTED_UNHEALTHY_THRESHOLD) {
+          this.revertToLocal();
+        }
+      } else if (isAuthFailure(err)) {
+        this.authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
+        this.closeEvents();
+      }
+      // Network error — retried on the next (backed-off) interval.
+    } finally {
+      this.inFlight = false;
+      this.schedulePoll();
+    }
+  }
+
+  private pollNow(): void {
+    if (this.shouldStayIdle()) return;
+    if (this.authFailureDelayMs() > 0) {
+      this.schedulePoll();
+      return;
+    }
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.connectEvents();
+    void this.poll();
+  }
+
+  private handleVisibilityChange = (): void => {
+    if (!isSurfaceHidden()) {
+      this.connectEvents();
+      this.pollNow();
+    } else if (this.shouldStayIdle()) {
+      this.closeEvents();
+      // A hidden leader stops streaming, so it must not keep holding the
+      // origin's stream slot — that would leave every visible tab following a
+      // leader that has gone quiet.
+      this.dropLeadership();
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+    } else {
+      // Keep push connected and the polling safety net alive in backgrounded
+      // tabs, but relax an active chat's cadence so hidden work stays current
+      // without polling as aggressively as the visible surface.
+      this.reschedule();
+    }
+  };
+
+  private handleFocus = (): void => {
+    this.pollNow();
+  };
+
+  private handleChatRunning = (event: Event): void => {
+    const detail = (
+      event as CustomEvent<{
+        isRunning?: unknown;
+        running?: unknown;
+        tabId?: unknown;
+      }>
+    ).detail;
+    const running =
+      typeof detail?.isRunning === "boolean"
+        ? detail.isRunning
+        : typeof detail?.running === "boolean"
+          ? detail.running
+          : null;
+    if (running === null) return;
+
+    const id =
+      typeof detail?.tabId === "string" && detail.tabId
+        ? detail.tabId
+        : "__default__";
+    const wasActive = this.isActive;
+    if (running) {
+      // Reinsert to refresh both the TTL and insertion order for the cap.
+      this.activeChatIds.delete(id);
+      this.activeChatIds.set(id, Date.now());
+      while (this.activeChatIds.size > ACTIVE_CHAT_MAX) {
+        const oldestId = this.activeChatIds.keys().next().value;
+        if (typeof oldestId !== "string") break;
+        this.activeChatIds.delete(oldestId);
+      }
+    } else {
+      this.activeChatIds.delete(id);
+    }
+    if (wasActive === this.isActive) return;
+
+    if (this.isActive) {
+      // Run start is a high-signal indication that cross-process writes are
+      // imminent. Catch up now, then stay on the active cadence.
+      this.pollNow();
+    } else {
+      this.reschedule();
+    }
+  };
+
+  private start(): void {
+    // Universal browser-local demo-mode presentation redaction. Idempotent and
+    // a no-op until the local preference is on. Lives here because every root
+    // already mounts useDbSync, so this needs zero per-template wiring.
+    ensureEmbedAuthFetchInterceptor();
+    ensureDemoModeFetchInterceptor();
+
+    if (!this.shouldStayIdle()) {
+      this.connectEvents();
+      void this.poll();
+    }
+    window.addEventListener("focus", this.handleFocus);
+    window.addEventListener("agentNative.chatRunning", this.handleChatRunning);
+    this.removeVisibilityListener = addSurfaceVisibilityListener(
+      this.handleVisibilityChange,
+    );
+  }
+
+  private teardown(): void {
+    this.stopped = true;
+    this.activeChatIds.clear();
+    this.closeEvents();
+    // Hand this app's stream slot to a waiting tab before dropping the
+    // channel, so the next leader is elected without waiting on a poll.
+    this.dropLeadership();
+    this.closeChannel();
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.gatewayReconnectTimer) {
+      clearTimeout(this.gatewayReconnectTimer);
+      this.gatewayReconnectTimer = null;
+    }
+    if (this.localReconnectTimer) {
+      clearTimeout(this.localReconnectTimer);
+      this.localReconnectTimer = null;
+    }
+    window.removeEventListener("focus", this.handleFocus);
+    window.removeEventListener(
+      "agentNative.chatRunning",
+      this.handleChatRunning,
+    );
+    this.removeVisibilityListener?.();
+    this.removeVisibilityListener = undefined;
+  }
+}
+
+/**
+ * Registry of active transports keyed by "<pollUrl>\0<sseUrl>".
+ * Module-level singleton: survives React render cycles, shared across all
+ * hook instances in the same browser tab.
+ */
+const transportRegistry = new Map<string, SyncTransport>();
+
+function getOrCreateTransport(
+  pollUrl: string,
+  sseUrl: string | false,
+  gateway: RealtimeGatewayBinding | null = null,
+): SyncTransport {
+  // Key on the LOCAL urls only — a transport may flip hosted→local at runtime,
+  // and the token must never fragment the registry, so neither is in the key.
+  const key = `${pollUrl}\0${String(sseUrl)}`;
+  let transport = transportRegistry.get(key);
+  if (!transport) {
+    transport = new SyncTransport(pollUrl, sseUrl, gateway);
+    transportRegistry.set(key, transport);
+  }
+  return transport;
+}
+
+/** Remove a transport from the registry once torn down (last subscriber left). */
+function releaseTransport(pollUrl: string, sseUrl: string | false): void {
+  const key = `${pollUrl}\0${String(sseUrl)}`;
+  // Leave the entry in place: SSE/poll is already stopped inside the class;
+  // the next subscriber will re-start it via `add()`. Clearing the map entry
+  // prevents any dangling reference from the old SyncTransport instance.
+  transportRegistry.delete(key);
+}
+
+// ---------------------------------------------------------------------------
+// Internal test helper — reset transport registry between tests.
+// ---------------------------------------------------------------------------
+/** @internal */
+export function _resetSyncTransportRegistryForTests(): void {
+  for (const transport of transportRegistry.values()) {
+    transport["teardown"]();
+  }
+  transportRegistry.clear();
+}
+
+export interface SubscribeSyncEventsOptions {
+  /** Receives every batch of change events (SSE push or poll). */
+  onEvents: (events: SyncEvent[], version: number | undefined) => void;
+  /** Notified when the shared SSE connection opens/closes (and once on join). */
+  onSseStateChange?: (
+    connected: boolean,
+    capabilities?: readonly string[],
+  ) => void;
+  pollUrl?: string;
+  sseUrl?: string | false;
+  pauseWhenHidden?: boolean;
+  /**
+   * Poll cadence this subscriber requests from the SHARED poll loop. The
+   * transport uses the minimum across subscribers, so the defaults here are
+   * deliberately high: subscribing must not speed up the shared poll —
+   * useDbSync (mounted by every template root) already sets the pace.
+   */
+  interval?: number;
+  fallbackInterval?: number;
+}
+
+/**
+ * Subscribe to the shared SSE + poll transport without the React Query
+ * invalidation behavior of `useDbSync`. Use this instead of opening another
+ * `EventSource` to `/_agent-native/events` — a browser tab should hold ONE
+ * SSE connection no matter how many features listen to it (extra streams eat
+ * the per-origin connection budget and starve data fetches, especially on
+ * HTTP/1.1 dev servers).
+ *
+ * Returns an unsubscribe function. Safe to call only in browser contexts.
+ */
+export function subscribeSyncEvents(
+  options: SubscribeSyncEventsOptions,
+): () => void {
+  const pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll");
+  const sseUrl = resolveSseUrl(options.sseUrl);
+  const transport = getOrCreateTransport(
+    pollUrl,
+    sseUrl,
+    resolveGatewayBinding(sseUrl),
+  );
+  const id = Symbol("subscribeSyncEvents");
+  transport.add(id, {
+    onEvents: options.onEvents,
+    onSseStateChange: options.onSseStateChange,
+    pauseWhenHidden: options.pauseWhenHidden ?? false,
+    interval: options.interval ?? 60_000,
+    idleInterval: options.interval ?? 60_000,
+    fallbackInterval: options.fallbackInterval ?? 60_000,
+  });
+  return () => {
+    transport.remove(id);
+    if (!transport["subscribers"].size) {
+      releaseTransport(pollUrl, sseUrl);
+    }
+  };
+}
+
+/**
+ * Hook that listens to /_agent-native/events for DB change events and
+ * invalidates react-query caches when changes are detected. Falls back to
+ * /_agent-native/poll so cross-process/serverless writes still show up.
+ *
+ * Works in all deployment environments (serverless, edge, long-lived server).
+ * SSE is the fast path; polling is the safety net.
+ *
+ * @param options.queryClient - The react-query QueryClient instance
+ * @param options.queryKeys - **Deprecated and ignored.** The hook uses
+ *   framework-owned fixed prefixes plus per-source change counters instead of
+ *   caller-supplied key lists. Kept in the type signature for backward
+ *   compatibility — existing call sites that still pass this option keep
+ *   working but the value has no effect.
+ * @param options.pollUrl - Poll endpoint URL. Default: "/_agent-native/poll"
+ * @param options.sseUrl - SSE endpoint URL. Default: "/_agent-native/events".
+ *   Pass false to disable SSE and use polling only.
+ * @param options.onEvent - Optional callback for each change event
+ * @param options.interval - Poll interval in ms. Default: 2000
+ * @param options.fallbackInterval - Poll interval while SSE is connected.
+ *   Default: 60000
+ * @param options.pauseWhenHidden - Pause sync while the tab is hidden.
+ *   Default: false. Hidden tabs keep SSE connected and poll no faster than
+ *   every 10 seconds while active; idle polling remains at 60 seconds.
+ * @param options.ignoreSource - Skip events whose `requestSource` matches this
+ *   value. Use a per-tab ID so the UI ignores its own writes while still
+ *   picking up changes from other tabs, agents, and scripts.
+ * @param options.actionInvalidatePredicate - Optional filter for the broad
+ *   compatibility invalidate triggered by sync events. The current event batch
+ *   is provided so apps can preserve action-level targeting. Use this to keep
+ *   expensive active queries on explicit-refresh semantics while still letting
+ *   normal source-versioned queries react through `useChangeVersion`.
+ * @param options.suppressActionInvalidationFor - Action names whose sync events
+ *   should not invalidate all action queries. Use only for high-volume
+ *   background actions that perform their own narrow client invalidation.
+ */
+export function useDbSync(
+  options: {
+    queryClient?: QueryClient;
+    queryKeys?: string[];
+    pollUrl?: string;
+    sseUrl?: string | false;
+    /** @deprecated Use pollUrl instead */
+    eventsUrl?: string;
+    onEvent?: (data: any) => void;
+    interval?: number;
+    fallbackInterval?: number;
+    pauseWhenHidden?: boolean;
+    ignoreSource?: string;
+    actionInvalidatePredicate?: (
+      query: Query,
+      events: readonly SyncEvent[],
+    ) => boolean;
+    suppressActionInvalidationFor?: string[];
+  } = {},
+): void {
+  const {
+    queryClient,
+    pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
+    sseUrl = resolveSseUrl(options.sseUrl),
+    interval = 2000,
+    fallbackInterval = Math.max(
+      options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
+      interval,
+    ),
+    pauseWhenHidden = false,
+  } = options;
+  const idleInterval =
+    options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
+
+  const onEventRef = useRef(options.onEvent);
+  onEventRef.current = options.onEvent;
+
+  const ignoreSourceRef = useRef(options.ignoreSource);
+  ignoreSourceRef.current = options.ignoreSource;
+  const actionInvalidatePredicateRef = useRef(
+    options.actionInvalidatePredicate,
+  );
+  actionInvalidatePredicateRef.current = options.actionInvalidatePredicate;
+  const suppressActionInvalidationForRef = useRef(
+    options.suppressActionInvalidationFor,
+  );
+  suppressActionInvalidationForRef.current =
+    options.suppressActionInvalidationFor;
+
+  useEffect(() => {
+    const id = Symbol("useDbSync");
+    // Per-subscriber version cursor: tracks which events have already been
+    // processed by THIS subscriber so stale poll re-deliveries are ignored.
+    let subscriberVersion = 0;
+    let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
+
+    // Coalesce bursts of SSE-driven invalidation into at most one flush per
+    // INVALIDATE_COALESCE_MS. A chatty doc (many small agent edits, several
+    // peers editing at once) can otherwise deliver a handful of `action`/
+    // `collab` events within a few hundred ms, each independently calling
+    // `queryClient.invalidateQueries` and firing `onEvent` — every one of
+    // those touches whatever query subscribers are mounted (e.g. a
+    // full-page editor) even though the end state only needs to be
+    // refreshed once. Version bookkeeping stays synchronous (below) so
+    // freshness filtering for the NEXT batch is unaffected by the delay.
+    //
+    // This coalesce window is wrong for interaction-critical events (agent
+    // navigation, `set-url`, guided questions — see
+    // `isInteractionCriticalSyncEvent`): those must reach the UI immediately,
+    // not up to INVALIDATE_COALESCE_MS late. So a fresh batch containing one
+    // of those flushes synchronously (queued + new events together,
+    // canceling any pending timer) instead of joining the coalesce window.
+    // Pure invalidation bursts with no interaction-critical members keep the
+    // coalesced behavior.
+    let pendingInvalidateEvents: SyncEvent[] = [];
+    let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+    const pendingTrailingRefreshes: Array<{
+      filters: InvalidateFilters | undefined;
+      completion: Promise<unknown>;
+      predicateIdentity?: (query: Query) => boolean;
+    }> = [];
+
+    function flushInvalidateBatch() {
+      if (invalidateTimer) {
+        clearTimeout(invalidateTimer);
+        invalidateTimer = null;
+      }
+      if (pendingInvalidateEvents.length === 0) return;
+      const batch = pendingInvalidateEvents;
+      pendingInvalidateEvents = [];
+      invalidateForEvents(batch);
+    }
+
+    function queueInvalidateBatch(events: SyncEvent[]) {
+      pendingInvalidateEvents.push(...events);
+      if (events.some(isInteractionCriticalSyncEvent)) {
+        flushInvalidateBatch();
+        return;
+      }
+      if (invalidateTimer) return;
+      invalidateTimer = setTimeout(
+        flushInvalidateBatch,
+        INVALIDATE_COALESCE_MS,
+      );
+    }
+
+    function hasAppStateEvent(events: SyncEvent[], key: string): boolean {
+      return events.some(
+        (event) =>
+          event.source === "app-state" &&
+          (event.key === key ||
+            event.key === "*" ||
+            (typeof event.key === "string" && event.key.startsWith(`${key}:`))),
+      );
+    }
+
+    function invalidateForEvents(events: SyncEvent[]) {
+      const ignore = ignoreSourceRef.current;
+      const ownBrowserSource = getBrowserTabId();
+      const relevant = events.filter(
+        (event) =>
+          !(
+            event.source === "action" &&
+            event.requestSource === ownBrowserSource
+          ) &&
+          (!ignore || event.requestSource !== ignore),
+      );
+      const suppressedActions = new Set(
+        suppressActionInvalidationForRef.current ?? [],
+      );
+      const isSuppressedActionEvent = (evt: SyncEvent) =>
+        evt.source === "action" &&
+        typeof evt.key === "string" &&
+        suppressedActions.has(evt.key);
+      const nonAwareness = relevant.filter((e) => e.source !== "awareness");
+      const suppressesWholeBatch =
+        nonAwareness.length > 0 &&
+        nonAwareness.every((evt) => evt.source === "action") &&
+        nonAwareness.every(isSuppressedActionEvent);
+
+      // Bump per-source change counters. Components that read these via
+      // `useChangeVersion(source)` and fold the value into a React Query
+      // queryKey get a targeted refetch — no whole-cache invalidate, no
+      // request storm. See `use-change-version.ts` for the contract.
+      for (const evt of relevant) {
+        const src = typeof evt.source === "string" ? evt.source : "";
+        const ver = typeof evt.version === "number" ? evt.version : 0;
+        if (src && ver > 0) {
+          bumpChangeVersion(src, ver);
+          if (typeof evt.key === "string" && evt.key) {
+            bumpChangeVersion(`${src}:${evt.key}`, ver);
+          }
+        }
+      }
+
+      // Awareness (cursor/presence) events never change action/extension/
+      // app-state query results, but they arrive on every peer keystroke and
+      // carry no version (so the freshness filter always passes them). Keep
+      // them out of the invalidate block or an idle collaborative doc turns
+      // every peer's cursor move into a framework-wide refetch storm; they
+      // still reach onEvent below for callers that render presence.
+      const invalidating = relevant.filter((e) => e.source !== "awareness");
+
+      if (invalidating.length > 0 && queryClient) {
+        // Sync events describe completed writes. If a matching read is already
+        // in flight, let it finish instead of aborting and immediately
+        // launching the same request again. Repeated action events otherwise
+        // turn a slow endpoint into a cancel/restart loop that never settles.
+        const hasPendingTrailingRefresh = (
+          filters: InvalidateFilters | undefined,
+          predicateIdentity?: (query: Query) => boolean,
+        ) =>
+          pendingTrailingRefreshes.some((pending) => {
+            if (pending.filters?.dedupeKey !== filters?.dedupeKey) return false;
+            if (filters?.dedupeKey) return true;
+            const pendingKey = pending.filters?.queryKey;
+            const filterKey = filters?.queryKey;
+            if (pendingKey || filterKey) {
+              if (
+                !pendingKey ||
+                !filterKey ||
+                pendingKey.length !== filterKey.length
+              ) {
+                return false;
+              }
+              return pendingKey.every((key, index) => key === filterKey[index]);
+            }
+            return pending.predicateIdentity === predicateIdentity;
+          });
+
+        const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
+          const callerPredicate = requested?.predicate;
+          const normalizedFilters: InvalidateFilters = {
+            ...requested,
+            predicate: (query: Query) =>
+              !hasTerminalAuthFailure(query) &&
+              (callerPredicate?.(query) ?? true),
+          };
+          const needsTrailingRefresh =
+            (queryClient.isFetching?.(normalizedFilters) ?? 0) > 0;
+          const completion = queryClient.invalidateQueries(normalizedFilters, {
+            cancelRefetch: false,
+          });
+          // TanStack Query deliberately leaves an in-flight fetch alone when
+          // cancelRefetch is false. Queue one post-settlement invalidation so
+          // a write that landed after that read began cannot be cleared as
+          // fresh by the older response.
+          if (
+            !disposed &&
+            needsTrailingRefresh &&
+            completion instanceof Promise &&
+            !hasPendingTrailingRefresh(normalizedFilters, callerPredicate)
+          ) {
+            const pending = {
+              filters: normalizedFilters,
+              completion,
+              predicateIdentity: callerPredicate,
+            };
+            pendingTrailingRefreshes.push(pending);
+            void completion.then(
+              () => {
+                const index = pendingTrailingRefreshes.indexOf(pending);
+                if (index < 0) return;
+                pendingTrailingRefreshes.splice(index, 1);
+                if (!disposed) queryClient.invalidateQueries(normalizedFilters);
+              },
+              () => {
+                const index = pendingTrailingRefreshes.indexOf(pending);
+                if (index >= 0) pendingTrailingRefreshes.splice(index, 1);
+              },
+            );
+          }
+        };
+        const hasActionEvent = invalidating.some(
+          (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
+        );
+        if (hasActionEvent) {
+          // Action-backed reads share the ["action"] prefix. Keep the default
+          // refresh targeted to those queries; invalidating every active query
+          // makes one agent write fan out across unrelated provider reads,
+          // dashboards, and background status checks. Older apps that still
+          // need broad compatibility can opt in with a predicate.
+          const appPredicate = actionInvalidatePredicateRef.current;
+          const predicate = appPredicate
+            ? (query: Query) => appPredicate(query, invalidating)
+            : undefined;
+          invalidateWithoutCancel(
+            predicate ? { predicate } : { queryKey: ["action"] },
+          );
+        }
+
+        // Framework-level invalidate: a small, fixed list of query-key
+        // prefixes the framework's own hooks/components use (action results,
+        // extension state, application-state, the agent's `set-url` channel,
+        // etc.). Templates' own data queries do NOT live here — they react
+        // through `useChangeVersion(source)` in their query keys instead, so
+        // a single change event doesn't fan out into "refetch everything".
+        // Suppressed-action-only batches skip this whole list (their
+        // mutations perform their own narrow invalidation) — but events must
+        // STILL reach the onEvent forwarding below, so guard, don't return.
+        //
+        // Invalidation is scoped by source. Data-query prefixes (action,
+        // extension, tool) refetch only when the batch carries an event that
+        // can actually change action/extension-backed data — action
+        // mutations, settings, extension, collab, screen-refresh, etc.
+        // `app-state` events (agent/UI navigation, selection, and the
+        // set-url/questions command channel) drive their OWN keys below and
+        // must NEVER fan out into "refetch every action query": an active
+        // agent session mirrors navigation + selection into application_state
+        // continuously, and the serverless poll path replays those writes
+        // back to the originating tab (the DB-scan fallback cannot preserve
+        // `requestSource`, so `ignoreSource` can't filter them). Fanning each
+        // one into a full `["action"]` refetch turned a normal session into a
+        // client fetch storm that exhausted the DB connection pool — which in
+        // turn starved run heartbeat writes and surfaced as `stale_run`.
+        if (!suppressesWholeBatch) {
+          const hasDataChangingEvent = invalidating.some(
+            (evt) => evt.source !== "app-state",
+          );
+          if (hasDataChangingEvent) {
+            const hasFrameworkPrefixEvent = invalidating.some((evt) =>
+              ["extensions", "extension", "tool", "tools", "slots"].includes(
+                evt.source ?? "",
+              ),
+            );
+            // The action-specific invalidation above already refreshed
+            // ["action"]. A mixed action + extension/tool batch still needs
+            // the independent framework prefixes, while pure action batches
+            // retain their narrow storm-resistant invalidation.
+            if (!hasActionEvent) {
+              // Honour the app's predicate here too. Without it the contract was
+              // silently conditional: a batch carrying an `action` event
+              // respected the predicate (above), while a batch carrying only
+              // `db`/`collab`/`settings`/`screen-refresh` blew away every
+              // ["action"] query regardless of what the app opted out of — and
+              // an app cannot work around it, because both the prefix and this
+              // call are framework-owned.
+              const appPredicate = actionInvalidatePredicateRef.current;
+              const predicate = appPredicate
+                ? (query: Query) => appPredicate(query, invalidating)
+                : undefined;
+              invalidateWithoutCancel(
+                predicate ? { predicate } : { queryKey: ["action"] },
+              );
+            }
+            if (!hasActionEvent || hasFrameworkPrefixEvent) {
+              invalidateWithoutCancel({ queryKey: ["extension"] });
+              invalidateWithoutCancel({ queryKey: ["extensions"] });
+              invalidateWithoutCancel({ queryKey: ["extension-slots"] });
+              invalidateWithoutCancel({ queryKey: ["slot-installs"] });
+              invalidateWithoutCancel({ queryKey: ["slot-available"] });
+              invalidateWithoutCancel({ queryKey: ["tool"] });
+              invalidateWithoutCancel({ queryKey: ["tools"] });
+            }
+          }
+          const appStateKeys = invalidating
+            .filter((evt) => evt.source === "app-state")
+            .map((evt) => evt.key)
+            .map((key) => (typeof key === "string" && key ? key : "*"));
+          if (appStateKeys.length > 0) {
+            const appStateDedupeKey = Array.from(new Set(appStateKeys))
+              .sort()
+              .map((key) => `${key.length}:${key}`)
+              .join("|");
+            const needsBroadAppStateRefresh = appStateKeys.some(
+              (key) =>
+                key === "*" ||
+                isInteractionCriticalSyncEvent({
+                  source: "app-state",
+                  key,
+                }),
+            );
+            invalidateWithoutCancel(
+              needsBroadAppStateRefresh
+                ? { queryKey: ["app-state"] }
+                : {
+                    dedupeKey: `app-state:${appStateDedupeKey}`,
+                    predicate: (query) =>
+                      appStateQueryMatchesKeys(query, appStateKeys),
+                  },
+            );
+          }
+          if (hasAppStateEvent(invalidating, "navigate")) {
+            invalidateWithoutCancel({ queryKey: ["navigate-command"] });
+          }
+          if (hasAppStateEvent(invalidating, "show-questions")) {
+            invalidateWithoutCancel({ queryKey: ["show-questions"] });
+          }
+          if (hasAppStateEvent(invalidating, "__set_url__")) {
+            invalidateWithoutCancel({ queryKey: ["__set_url__"] });
+          }
+        }
+      }
+
+      // Always forward all events to onEvent — templates can layer surgical
+      // logic on top (e.g. ignore their own writes via requestSource, or
+      // invalidate inactive queries for a specific source).
+      for (const evt of events) {
+        onEventRef.current?.(evt);
+      }
+    }
+
+    function onEvents(
+      events: SyncEvent[],
+      version: number | undefined,
+      cursor: SyncCursor | undefined,
+    ): void {
+      const freshEvents = events.filter((event) => {
+        return isSyncEventAfterCursor(
+          event,
+          subscriberCursor,
+          subscriberVersion,
+        );
+      });
+
+      if (freshEvents.length > 0) {
+        queueInvalidateBatch(freshEvents);
+      }
+
+      const maxEventVersion = freshEvents.reduce(
+        (max, event) =>
+          Math.max(max, typeof event.version === "number" ? event.version : 0),
+        0,
+      );
+      subscriberVersion = Math.max(
+        subscriberVersion,
+        version ?? 0,
+        maxEventVersion,
+      );
+      for (const event of freshEvents) {
+        subscriberCursor = maxSyncCursor(
+          subscriberCursor,
+          syncEventCursor(event),
+        );
+      }
+      if (cursor) subscriberCursor = maxSyncCursor(subscriberCursor, cursor);
+    }
+
+    const transport = getOrCreateTransport(
+      pollUrl,
+      sseUrl,
+      resolveGatewayBinding(sseUrl),
+    );
+    transport.add(id, {
+      onEvents,
+      pauseWhenHidden,
+      interval,
+      idleInterval,
+      fallbackInterval,
+    });
+
+    return () => {
+      disposed = true;
+      if (invalidateTimer) {
+        clearTimeout(invalidateTimer);
+        // Flush synchronously on unmount so a pending batch isn't silently
+        // dropped (e.g. a route change right after an agent edit lands).
+        flushInvalidateBatch();
+      }
+      pendingTrailingRefreshes.length = 0;
+      transport.remove(id);
+      // If the registry still holds this transport, and the transport is now
+      // empty, evict it so the next mount gets a fresh instance rather than a
+      // stopped-but-still-registered one (the registry entry being cleared by
+      // releaseTransport is the signal to rebuild state).
+      if (!transport["subscribers"].size) {
+        releaseTransport(pollUrl, sseUrl);
+      }
+    };
+  }, [
+    pollUrl,
+    sseUrl,
+    queryClient,
+    interval,
+    idleInterval,
+    fallbackInterval,
+    pauseWhenHidden,
+  ]);
+}
+
+/** @deprecated Use useDbSync instead */
+export const useFileWatcher = useDbSync;
+
+/**
+ * Subscribe to `refresh-screen` events from the agent. Returns an integer
+ * that increments every time the agent invokes the framework's `refresh-screen`
+ * tool. Apply it as a React `key` on the main content wrapper (the part
+ * OUTSIDE the agent chat sidebar) so that region remounts and re-fetches its
+ * data while the chat, sidebar, and any other persistent chrome keep their
+ * in-flight state.
+ *
+ * Usage in a template's root:
+ *
+ *   const screenKey = useScreenRefreshKey();
+ *   return (
+ *     <AppLayout>
+ *       <div key={screenKey}>
+ *         <Outlet />
+ *       </div>
+ *     </AppLayout>
+ *   );
+ */
+export function useScreenRefreshKey(
+  options: {
+    pollUrl?: string;
+    sseUrl?: string | false;
+    interval?: number;
+    fallbackInterval?: number;
+    pauseWhenHidden?: boolean;
+  } = {},
+): number {
+  const {
+    pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll"),
+    sseUrl = resolveSseUrl(options.sseUrl),
+    interval = 2000,
+    fallbackInterval = Math.max(
+      options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
+      interval,
+    ),
+    pauseWhenHidden = false,
+  } = options;
+  const idleInterval =
+    options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
+  const [key, setKey] = useState(0);
+
+  useEffect(() => {
+    const id = Symbol("useScreenRefreshKey");
+    // Per-subscriber version cursor (same freshness logic as useDbSync).
+    let subscriberVersion = 0;
+    let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
+
+    function onEvents(
+      events: SyncEvent[],
+      version: number | undefined,
+      cursor: SyncCursor | undefined,
+    ): void {
+      const freshEvents = events.filter((event) => {
+        return isSyncEventAfterCursor(
+          event,
+          subscriberCursor,
+          subscriberVersion,
+        );
+      });
+      if (freshEvents.some((e) => e.source === "screen-refresh")) {
+        setKey((k) => k + 1);
+      }
+      const maxEventVersion = freshEvents.reduce(
+        (max, event) =>
+          Math.max(max, typeof event.version === "number" ? event.version : 0),
+        0,
+      );
+      subscriberVersion = Math.max(
+        subscriberVersion,
+        version ?? 0,
+        maxEventVersion,
+      );
+      for (const event of freshEvents) {
+        subscriberCursor = maxSyncCursor(
+          subscriberCursor,
+          syncEventCursor(event),
+        );
+      }
+      if (cursor) subscriberCursor = maxSyncCursor(subscriberCursor, cursor);
+    }
+
+    const transport = getOrCreateTransport(
+      pollUrl,
+      sseUrl,
+      resolveGatewayBinding(sseUrl),
+    );
+    transport.add(id, {
+      onEvents,
+      pauseWhenHidden,
+      interval,
+      idleInterval,
+      fallbackInterval,
+    });
+
+    return () => {
+      transport.remove(id);
+      if (!transport["subscribers"].size) {
+        releaseTransport(pollUrl, sseUrl);
+      }
+    };
+  }, [
+    pollUrl,
+    sseUrl,
+    interval,
+    idleInterval,
+    fallbackInterval,
+    pauseWhenHidden,
+  ]);
+
+  return key;
+}

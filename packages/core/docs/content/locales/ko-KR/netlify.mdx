@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "Netlify Nitro 프리셋으로 agent-native 앱을 Netlify에 배포하고, scale-to-zero 데이터베이스를 위한 keep-warm을 설정하세요."
+---
+
+# Netlify
+
+Nitro `netlify` 프리셋은 잘 작동하며, 실제로 외부 Postgres(Neon)와 통신하는 템플릿에서 Cloudflare Pages보다 훨씬 빠른 콜드 스타트(TTFB 약 200ms 대 약 9초)를 보여주었습니다. `vite.config.ts`에서 프리셋을 설정하거나:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+…또는 빌드 시점에 `NITRO_PRESET=netlify`를 설정하세요.
+
+작업 공간의 경우, 다음을 실행해 하나의 Netlify 사이트에서 모든 앱을 배포하세요:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+작업 공간 빌드는 `dist/_workspace_static/` 아래에 정적 자산을 작성하고, 강제 자산 리디렉션 없이 각 앱을 고유한 Netlify 함수로 라우팅합니다. 따라서 `/mail/assets/...` 같은 파일은 서버 함수가 앱 라우트를 처리하기 전에 정적으로 제공됩니다.
+
+## Keep-warm과 scale-to-zero 데이터베이스 {#netlify-keep-warm}
+
+활성화하면, Netlify 빌드는 **매 분마다** `/_agent-native/health`를 요청하는 예약된 함수를 생성합니다. 이는 서버 함수와 데이터베이스를 계속 warm 상태로 유지해, 유휴 기간 이후 다음 방문자가 콜드 스타트(Neon에서 1~5초)를 겪지 않도록 합니다.
+
+Keep-warm은 **기본적으로 비활성화**되어 있습니다. 분당 한 번의 깨우기가 사용량 기반 scale-to-zero 데이터베이스의 자동 일시 중단(autosuspend)을 막기 때문입니다. 무료 등급 Neon에서는 이것이 컴퓨트 할당량을 소진시킬 수 있으며, 이후 데이터베이스는 세션 도중 **모든** 읽기를 거부합니다. 증상은 느린 앱이 아니라 죽은 앱입니다. 다음 방문자의 지연 시간을 낮추는 것이 데이터베이스 활성 시간을 감수할 만한 가치가 있다면 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`을 설정하세요.
+
+keep-warm 일정과 백그라운드 함수 warm은 기본 keep-warm 플래그가 활성화된 이후에만 적용됩니다:
+
+| 변수                                        | 효과                                                                                                                                                                               |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 예약된 서버/데이터베이스 warm을 옵트인합니다. 기본적으로 설정되지 않습니다.                                                                                                        |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 설정 시 옵트인 플래그보다 우선하는 호환성 킬 스위치입니다.                                                                                                                         |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 5개 필드의 cron 표현식(예: `*/5 * * * *`)으로 주기를 재정의합니다. 활성화 시 기본 주기는 `* * * * *`입니다. 파싱할 수 없는 값은 **빌드를 실패**시킵니다.                           |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 백그라운드 함수 warm만 중단하고 서버 warm은 유지합니다. `server`를 warm하는 것은 요청 하나입니다. `-background`를 warm하는 것은 스키마를 다시 검사하는 새 컨테이너를 시작시킵니다. |
+
+무료 또는 할당량이 제한된 데이터베이스 등급을 사용 중이라면 `AGENT_NATIVE_ENABLE_KEEP_WARM`을 설정하지 않은 채로 두세요. 옵트인한다면 더 느린 주기를 사용하거나, 더 비용이 큰 백그라운드 warm을 중단하기 위해 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1`을 설정하세요.
+
+## 다음 단계
+
+- [**Deployment**](/docs/deployment) — 첫 프로덕션 배포 전에 영구 데이터베이스와 프리셋을 선택하세요
+- [**SSR Caching**](/docs/ssr-caching) — 기본 캐시 정책과 Netlify의 별도 `netlify-cdn-cache-control` 동작
+- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare), [**Other Platforms**](/docs/other-platforms) — 그 외 Nitro 프리셋들

@@ -1,0 +1,412 @@
+/**
+ * Shared provider shell for agent-native template roots.
+ *
+ * Composes the providers every template needs:
+ *   QueryClientProvider → ThemeProvider → TooltipProvider → Toaster
+ *
+ * Templates keep their own `createAgentNativeQueryClient(overrides)` call and
+ * pass the result in as `queryClient`. AppProviders never creates a client
+ * internally so each template can apply its own query defaults (e.g. calendar's
+ * `refetchOnWindowFocus: true`, mail's focus-refresh throttle).
+ *
+ * Public-path SSR pattern (calendar/clips/content):
+ *   Some templates have routes that must SSR real content for first-visit
+ *   signed-out users and crawlers, bypassing the `<ClientOnly>` gate.
+ *   Pass `isPublicPath` and `clientOnlyFallback` to activate this branch:
+ *
+ *     <AppProviders
+ *       queryClient={queryClient}
+ *       isPublicPath={isPublicBookingPath(location.pathname)}
+ *       clientOnlyFallback={<DefaultSpinner />}
+ *     >
+ *       ...
+ *     </AppProviders>
+ *
+ *   When `isPublicPath` is true the providers render without `<ClientOnly>` or
+ *   a session gate, streaming real markup to the client. When false (the
+ *   default), `<ClientOnly>` hydrates the shared SSR shell and
+ *   `<RequireSession>` redirects signed-out visitors to the framework sign-in
+ *   page before private app chrome mounts. When `clientOnlyFallback` is
+ *   omitted, `<DefaultSpinner />` is used.
+ *
+ * Customisation props:
+ *   themeAttribute           — passed to next-themes ThemeProvider `attribute`.
+ *                              Defaults to "class". Use ["class", "data-theme"]
+ *                              when CSS variables are also keyed off a data-theme
+ *                              attribute (mail template).
+ *   tooltipDelayDuration     — passed to Radix TooltipProvider `delayDuration`
+ *                              (ms). Omit to use the Radix default (700 ms).
+ *   toaster                  — custom Toaster element rendered after children.
+ *                              Pass `null` to suppress the built-in Toaster when
+ *                              children already include a styled one.
+ *                              Defaults to a rich-color bottom-left toaster raised above
+ *                              the environment badge.
+ *   disableThemeTransitions  — passed to next-themes ThemeProvider
+ *                              `disableTransitionOnChange`. Defaults to `true`
+ *                              (suppresses CSS transitions during theme switches,
+ *                              which is the shadcn recommendation and avoids
+ *                              flash artefacts). Set to `false` when the template
+ *                              intentionally animates theme changes (e.g. content).
+ */
+
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import { ThemeProvider, type Attribute, useTheme } from "next-themes";
+import React, { useEffect, useRef } from "react";
+import { useInRouterContext } from "react-router";
+
+import {
+  isHumanReadableDocumentTitle,
+  normalizeDocumentTitle,
+} from "../shared/document-title.js";
+import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
+import { agentNativePath } from "./api-path.js";
+import { ClientOnly } from "./ClientOnly.js";
+import { DefaultSpinner } from "./DefaultSpinner.js";
+import { EnvironmentBadge } from "./EnvironmentBadge.js";
+import {
+  AgentNativeI18nProvider,
+  type AgentNativeI18nProviderProps,
+} from "./i18n.js";
+import { FirstRunOnboardingStartupGate } from "./onboarding/first-run-startup-gate.js";
+import { RequireSession } from "./require-session.js";
+import { AgentNativeRouteWarmup } from "./route-warmup.js";
+import { RouteTransitionIndicator } from "./RouteTransitionIndicator.js";
+import { RuntimeConfigNotice } from "./RuntimeConfigNotice.js";
+import {
+  EMBEDDED_THEME_CHANGE_EVENT,
+  applyEmbeddedThemeUpdate,
+  parseEmbeddedThemeUpdate,
+} from "./theme.js";
+import { createAgentNativeServerActionWebMcpRegistration } from "./webmcp.js";
+
+export interface AppProvidersProps {
+  /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
+  queryClient: QueryClient;
+
+  /**
+   * Default theme passed to next-themes `ThemeProvider`.
+   * Defaults to `"system"`.  Dark-first templates (slides, macros, analytics)
+   * pass `"dark"`.
+   */
+  defaultTheme?: string;
+
+  /**
+   * Passed to next-themes ThemeProvider `attribute`.
+   * Defaults to "class". Pass ["class", "data-theme"] when your CSS variables
+   * are also keyed off a data-theme attribute (mail template).
+   */
+  themeAttribute?: Attribute | Attribute[];
+
+  /**
+   * Passed to Radix TooltipProvider `delayDuration` (ms).
+   * Omit to use the Radix default (700 ms).
+   */
+  tooltipDelayDuration?: number;
+
+  /**
+   * Custom Toaster element rendered after children inside TooltipProvider.
+   * Pass `null` to suppress the built-in Toaster when children already
+   * include a styled one.
+   * Defaults to a rich-color bottom-left toaster raised above the environment badge.
+   */
+  toaster?: React.ReactNode | null;
+
+  /**
+   * Passed to next-themes ThemeProvider `disableTransitionOnChange`.
+   * Defaults to `true` (suppresses CSS transitions on theme switch, per the
+   * shadcn recommendation). Set to `false` when the template intentionally
+   * animates theme changes (e.g. content's 3-way theme cycle).
+   */
+  disableThemeTransitions?: boolean;
+
+  /**
+   * Optional localization runtime configuration. When omitted, AppProviders
+   * still mounts the i18n provider with an English fallback so templates can
+   * call useT/useLocale before they add catalogs. Pass false to opt out.
+   */
+  i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
+
+  /**
+   * When true the providers render without a `<ClientOnly>` gate so SSR
+   * streams real markup for public/unauthenticated paths.
+   * Defaults to false (authenticated app shell, ClientOnly-gated).
+   */
+  isPublicPath?: boolean;
+
+  /**
+   * Fallback rendered by `<ClientOnly>` while JS hydrates on private paths.
+   * Defaults to `<DefaultSpinner />`.
+   */
+  clientOnlyFallback?: React.ReactNode;
+
+  /**
+   * Skip the default client-side session gate on a private path. Use only for
+   * surfaces that authenticate by another mechanism, such as an MCP embed with
+   * its own scoped token. Public/SEO routes should use `isPublicPath` instead.
+   */
+  sessionBypass?: boolean;
+
+  /** Fallback used if route metadata leaves the browser title empty or structured. */
+  documentTitleFallback?: string;
+
+  children: React.ReactNode;
+}
+
+const DEFAULT_TOASTER = (
+  <Toaster
+    richColors
+    position="bottom-left"
+    offset={{ bottom: 44, left: 32 }}
+    mobileOffset={{ bottom: 44, left: 16 }}
+  />
+);
+
+function EarlyBetaRedirectScript() {
+  return (
+    <script
+      data-agent-native-beta-redirect="1"
+      dangerouslySetInnerHTML={{
+        __html: getSsrBetaRedirectScriptBody(
+          agentNativePath("/_agent-native/auth/session"),
+        ),
+      }}
+    />
+  );
+}
+
+function RoutedAppEnhancements() {
+  const isInRouter = useInRouterContext();
+  if (!isInRouter) return null;
+
+  return (
+    <>
+      <AgentNativeRouteWarmup />
+      <RouteTransitionIndicator />
+    </>
+  );
+}
+
+export function AgentNativeWebMcpActionRegistration() {
+  useEffect(() => {
+    const registration = createAgentNativeServerActionWebMcpRegistration();
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Session expiry or a transient
+      // manifest failure must not prevent the authenticated app from loading.
+    });
+    return () => registration.stop();
+  }, []);
+  return null;
+}
+
+function readDocumentTitleFallback(): string {
+  const selectors = [
+    'meta[name="application-name"]',
+    'meta[name="apple-mobile-web-app-title"]',
+    'meta[property="og:site_name"]',
+  ];
+  const metadataTitle = selectors
+    .map(
+      (selector) =>
+        document.querySelector<HTMLMetaElement>(selector)?.content ?? "",
+    )
+    .find((title) => isHumanReadableDocumentTitle(title));
+  return normalizeDocumentTitle(metadataTitle, "Agent-Native");
+}
+
+function EmbeddedThemeSync() {
+  const { setTheme } = useTheme();
+
+  useEffect(() => {
+    const applyUpdate = (
+      update: ReturnType<typeof parseEmbeddedThemeUpdate>,
+    ) => {
+      if (!update) return;
+      applyEmbeddedThemeUpdate(document.documentElement, update);
+      setTheme(update.theme);
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (window.parent === window || event.source !== window.parent) return;
+      applyUpdate(parseEmbeddedThemeUpdate(event.data));
+    };
+
+    const onThemeChange = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      applyUpdate(parseEmbeddedThemeUpdate(event.detail));
+    };
+
+    window.addEventListener("message", onMessage);
+    window.addEventListener(EMBEDDED_THEME_CHANGE_EVENT, onThemeChange);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener(EMBEDDED_THEME_CHANGE_EVENT, onThemeChange);
+    };
+  }, [setTheme]);
+
+  return null;
+}
+
+/** Repairs route metadata that would otherwise expose a structured payload in the tab. */
+function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
+  const initialTitleRef = useRef<string | null>(null);
+  if (initialTitleRef.current === null && typeof document !== "undefined") {
+    const initialTitle = document.title.trim();
+    if (isHumanReadableDocumentTitle(initialTitle)) {
+      initialTitleRef.current = initialTitle;
+    }
+  }
+
+  useEffect(() => {
+    let lastKnownTitle = normalizeDocumentTitle(
+      initialTitleRef.current ?? fallbackTitle ?? readDocumentTitleFallback(),
+      fallbackTitle ?? "Agent-Native",
+    );
+
+    const repairTitle = () => {
+      const currentTitle = document.title.trim();
+      if (isHumanReadableDocumentTitle(currentTitle)) {
+        lastKnownTitle = currentTitle;
+        return;
+      }
+      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent-Native");
+      if (currentTitle !== nextTitle) document.title = nextTitle;
+    };
+
+    repairTitle();
+    const observer = new MutationObserver(repairTitle);
+    observer.observe(document.head, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [fallbackTitle]);
+
+  return null;
+}
+
+function ProvidersInner({
+  queryClient,
+  defaultTheme = "system",
+  themeAttribute = "class",
+  tooltipDelayDuration,
+  toaster = DEFAULT_TOASTER,
+  disableThemeTransitions = true,
+  i18n,
+  documentTitleFallback,
+  showProductionEnvironmentBadge,
+  children,
+}: {
+  queryClient: QueryClient;
+  defaultTheme?: string;
+  themeAttribute?: Attribute | Attribute[];
+  tooltipDelayDuration?: number;
+  toaster?: React.ReactNode | null;
+  disableThemeTransitions?: boolean;
+  i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
+  documentTitleFallback?: string;
+  showProductionEnvironmentBadge: boolean;
+  children: React.ReactNode;
+}) {
+  const localizedChildren =
+    i18n === false ? (
+      children
+    ) : (
+      <AgentNativeI18nProvider {...(i18n ?? {})}>
+        {children}
+      </AgentNativeI18nProvider>
+    );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider
+        attribute={themeAttribute}
+        defaultTheme={defaultTheme}
+        enableSystem
+        disableTransitionOnChange={disableThemeTransitions}
+      >
+        <EmbeddedThemeSync />
+        <TooltipProvider delayDuration={tooltipDelayDuration}>
+          {localizedChildren}
+          <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
+          <RuntimeConfigNotice />
+          <RoutedAppEnhancements />
+          <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          {toaster}
+        </TooltipProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
+}
+
+export function AppProviders({
+  queryClient,
+  isPublicPath = false,
+  clientOnlyFallback,
+  sessionBypass = false,
+  defaultTheme,
+  themeAttribute,
+  tooltipDelayDuration,
+  toaster,
+  disableThemeTransitions,
+  i18n,
+  documentTitleFallback,
+  children,
+}: AppProvidersProps) {
+  const fallback = clientOnlyFallback ?? <DefaultSpinner />;
+
+  if (isPublicPath) {
+    return (
+      <ProvidersInner
+        queryClient={queryClient}
+        defaultTheme={defaultTheme}
+        themeAttribute={themeAttribute}
+        tooltipDelayDuration={tooltipDelayDuration}
+        toaster={toaster}
+        disableThemeTransitions={disableThemeTransitions}
+        i18n={i18n}
+        documentTitleFallback={documentTitleFallback}
+        showProductionEnvironmentBadge={false}
+      >
+        {children}
+      </ProvidersInner>
+    );
+  }
+
+  // Keep the bootstrap outside ClientOnly so the HTML parser can run it before
+  // the authenticated client bundle starts.
+  return (
+    <>
+      {!sessionBypass && <EarlyBetaRedirectScript />}
+      <ClientOnly fallback={fallback}>
+        <ProvidersInner
+          queryClient={queryClient}
+          defaultTheme={defaultTheme}
+          themeAttribute={themeAttribute}
+          tooltipDelayDuration={tooltipDelayDuration}
+          toaster={toaster}
+          disableThemeTransitions={disableThemeTransitions}
+          i18n={i18n}
+          documentTitleFallback={documentTitleFallback}
+          showProductionEnvironmentBadge={!sessionBypass}
+        >
+          <RequireSession bypass={sessionBypass} fallback={fallback}>
+            {sessionBypass ? (
+              <>
+                <AgentNativeWebMcpActionRegistration />
+                {children}
+              </>
+            ) : (
+              <FirstRunOnboardingStartupGate>
+                <AgentNativeWebMcpActionRegistration />
+                {children}
+              </FirstRunOnboardingStartupGate>
+            )}
+          </RequireSession>
+        </ProvidersInner>
+      </ClientOnly>
+    </>
+  );
+}

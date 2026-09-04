@@ -1,0 +1,185 @@
+---
+title: "Chat: Seu Primeiro Recurso"
+description: "O único arquivo que renderiza a tela inicial do Chat, o que suas props reais fazem, e um passo a passo completo de como adicionar um recurso do início ao fim."
+---
+
+# Seu primeiro recurso
+
+Esta página é para desenvolvedores que estão estendendo o [template
+Chat](/docs/template-chat). Ela cobre o único arquivo que renderiza a tela de
+chat inicial e depois percorre tudo o que o agente costuma tocar quando você
+pede um recurso real.
+
+## Primeiro código a inspecionar {#first-code}
+
+- `actions/hello.ts` é o comportamento inicial que o agente pode chamar.
+  Substitua-o ou adicione actions ao lado dele.
+- `app/routes/_index.tsx` renderiza a superfície de chat em página inteira.
+  Ajuste as sugestões, o estado vazio, o composer ou o layout ao redor aqui.
+- `AGENTS.md` diz ao agente integrado como trabalhar dentro deste app.
+
+<FileTree
+  id="doc-block-chat3"
+  title="Layout do template Chat"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "a única action de exemplo; substitua-a ou adicione actions ao lado dela",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "action de contexto padrão que o agente chama primeiro",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "action de navegação padrão",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "renderiza a superfície de chat em página inteira; edite sugestões, estado vazio, composer",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "reexporta _index.tsx para que /chat/:threadId renderize a mesma superfície com um id de thread na URL",
+    },
+    {
+      path: "AGENTS.md",
+      note: "orientação centrada em chat que o agente integrado lê",
+    },
+  ]}
+/>
+
+O arquivo inicial real é mais do que um simples `<AgentChatSurface />` — ele
+conecta a sincronização da URL da thread, uma identidade de aba para
+execuções em múltiplas abas, e um layout de composer em destaque, e seu
+texto vem de chaves de i18n em vez de strings literais:
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/routes/_index.tsx (reduzido)"
+  filename="app/routes/_index.tsx"
+  language="tsx"
+  code={
+    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "19-21",
+      label: "Sincronização da URL da thread",
+      note: "`/chat/:threadId` (`chat.$threadId.tsx`) reexporta este mesmo componente. Quando a rota tem um id de thread, `threadUrlSync` mantém a URL e a thread ativa em sincronia: trocar de thread empurra `/chat/<id>`, e abrir essa URL restaura a thread.",
+    },
+    {
+      lines: "38",
+      label: "Identidade da aba",
+      note: "`TAB_ID` (`app/lib/tab-id.ts`, um id aleatório gerado uma vez por aba do navegador) permite que o runtime de chat compartilhado diferencie múltiplas abas abertas do mesmo app, de modo que uma execução iniciada em uma aba não seja confundida com uma execução em outra.",
+    },
+    {
+      lines: "39-44",
+      label: "Sugestões são chaves de i18n",
+      note: 'O texto das sugestões vem de `t("chat.suggestionCapabilities")` etc. (veja `app/i18n/en-US.ts`), não de strings literais em inglês, e `dynamicSuggestions={false}` desliga a geração automática de sugestões do runtime em favor destas três.',
+    },
+    {
+      lines: "46-47",
+      label: "Layout de composer em destaque",
+      note: '`composerLayoutVariant="hero"` mais `centerComposerWhenEmpty` centraliza o composer com um título/descrição acima dele, em vez do composer simples fixado na parte inferior que outras rotas de chat `mode="page"` usam.',
+    },
+    {
+      lines: "49-54",
+      label: "composerSlot",
+      note: 'JSX arbitrário renderizado acima do composer apenas enquanto ele está centralizado — é aqui que vive o título "Como posso ajudar?". Edite isto para mudar a proposta do estado vazio sem tocar no runtime.',
+    },
+    {
+      lines: "23-31",
+      label: "Handoff da home",
+      note: 'Quando uma execução começa nesta página, `markAgentChatHomeHandoff("chat")` registra que a superfície home é a proprietária da execução ativa, de modo que navegar para fora e voltar se reconecta a ela em vez de perdê-la.',
+    },
+  ]}
+/>
+
+## Primeiras edições {#first-edits}
+
+A maioria dos primeiros recursos segue o mesmo formato: uma tabela, uma ou
+duas actions, uma rota, uma entrada de navegação e uma atualização no
+`AGENTS.md`. Peça ao agente:
+
+> Adicione um modelo de dados para `notes`. Uma nota tem um id, título, corpo
+> e proprietário. Renderize uma página de notas em `/notes`, adicione actions
+> de criar/listar, e mantenha o chat capaz de criar notas.
+
+O Chat vem sem nenhum `server/db/schema.ts` (veja [O que vem
+incluído](/docs/template-chat#what-ships)), então a primeira mudança é um
+novo arquivo, seguindo o mesmo formato `table`/`text`/`ownableColumns` que
+todo outro template usa:
+
+<Diff
+  id="doc-block-chat5"
+  title="Uma nova tabela notes"
+  filename="server/db/schema.ts"
+  language="ts"
+  before={""}
+  after={
+    'import {\n  table,\n  text,\n  ownableColumns,\n} from "@agent-native/core/db/schema";\n\nexport const notes = table("notes", {\n  id: text("id").primaryKey(),\n  title: text("title").notNull(),\n  body: text("body").notNull(),\n  createdAt: text("created_at").notNull(),\n  updatedAt: text("updated_at").notNull(),\n  ...ownableColumns(),\n});'
+  }
+  annotations={[
+    {
+      lines: "1-5",
+      label: "Helpers de esquema compartilhados",
+      note: "`table`/`text`/`ownableColumns` vêm de `@agent-native/core/db/schema` — os mesmos helpers independentes de dialeto que todo template usa, de modo que este arquivo permaneça portável entre SQLite/Postgres.",
+    },
+    {
+      lines: "13",
+      label: "ownableColumns",
+      note: "`...ownableColumns()` adiciona as colunas de proprietário/organização que os helpers `accessFilter`/`resolveAccess` do framework esperam, de modo que as notas se encaixem no modelo padrão de compartilhamento por usuário/organização sem nenhuma configuração extra.",
+    },
+  ]}
+/>
+
+O restante do recurso segue a partir daí:
+
+- `actions/create-note.ts` — um `defineAction` com um esquema Zod (`title`,
+  `body`), no mesmo formato de `actions/hello.ts`.
+- `actions/list-notes.ts` — uma action somente leitura (`readOnly: true`,
+  como `actions/view-screen.ts`) que consulta a nova tabela através de
+  `accessFilter`.
+- `app/routes/notes.tsx` — uma nova rota; o app usa roteamento baseado em
+  sistema de arquivos (`flatRoutes()` em `app/routes.ts`), então adicionar o
+  arquivo já é suficiente para montar `/notes`.
+- Uma nova entrada no array `navItems` em
+  `app/components/layout/Sidebar.tsx` apontando para `/notes`.
+- Uma adição ao `AGENTS.md` dizendo ao agente que notas existem e quais
+  actions as gerenciam.
+
+Uma nova action fica chamável pelo chat assim que existe — todo
+`defineAction` é uma ferramenta por padrão, a menos que defina
+`agentTool: false`. Mas ela não vai necessariamente estar na primeira
+solicitação do modelo: `server/plugins/agent-chat.ts` define
+`INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]`, o que controla
+apenas quais esquemas de ferramenta são enviados no primeiro turno. Tudo o
+mais, incluindo uma `create-note` recém-criada, continua acessível via
+`tool-search` e carrega sob demanda — adicione um nome a essa lista apenas
+se você quiser que ele esteja no conjunto padrão de ferramentas do modelo
+desde a primeira mensagem.
+
+## Use seu próprio backend de agente {#own-agent-backend}
+
+O template usa o loop de app-agente integrado por padrão. Para conectar um
+backend personalizado, troque o runtime de chat por trás do plugin de chat
+do agente em vez de reescrever a UI. A rota do Chat deve permanecer um
+renderizador fino em torno da superfície de chat compartilhada; a escolha
+de backend pertence ao plugin de servidor/adaptador de runtime.
+
+Use isso quando a orquestração do seu modelo já vive em outro lugar, mas
+você ainda quer um app com autenticação, threads, actions, estado de UI e
+páginas implantáveis.
+
+## O que vem a seguir
+
+- [**Chat**](/docs/template-chat) — o que vem incluído por padrão e quando
+  escolhê-lo
+- [**Chat: Guia do desenvolvedor**](/docs/template-chat-developers) — início
+  rápido, actions, tabelas centrais, autenticação e as páginas de
+  administração
+- [**Actions**](/docs/actions-overview) — o sistema de actions que o chat e
+  a UI chamam
+- [**Native Chat UI**](/docs/native-chat-ui) — primitivas da superfície de
+  chat e opções de runtime

@@ -1,0 +1,400 @@
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+} from "@agent-native/core/db";
+import { getH3App } from "@agent-native/core/server";
+import { setResponseHeader, setResponseStatus } from "h3";
+
+// Side-effect import: ensures registerShareableResource runs on server
+// startup so the deck / design-system share actions know where to dispatch.
+import "../db/index.js";
+import * as schema from "../db/schema.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently.
+export const runSlidesMigrations = runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS decks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`,
+    },
+    {
+      version: 2,
+      sql: `CREATE TABLE IF NOT EXISTS slide_comments (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    slide_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    parent_id TEXT,
+    content TEXT NOT NULL,
+    quoted_text TEXT,
+    author_email TEXT NOT NULL,
+    author_name TEXT,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
+    // v3-v5: sharing columns for decks.
+    {
+      version: 3,
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+    },
+    {
+      version: 4,
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS org_id TEXT`,
+    },
+    {
+      version: 5,
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
+    },
+    // v6: companion shares table for per-principal grants.
+    {
+      version: 6,
+      sql: `CREATE TABLE IF NOT EXISTS deck_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
+    // v7: design systems table
+    {
+      version: 7,
+      sql: `CREATE TABLE IF NOT EXISTS design_systems (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    data TEXT NOT NULL,
+    assets TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
+    // v8: companion shares table for design systems
+    {
+      version: 8,
+      sql: `CREATE TABLE IF NOT EXISTS design_system_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
+    // v9: link decks to design systems
+    {
+      version: 9,
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
+    },
+    // v10-v15: fix boolean columns on Postgres only. The adaptSqlForPostgres
+    // rewriter turns INTEGER → BIGINT, so migrations v2 & v7 created the columns
+    // as bigint. Drizzle's integer({ mode: "boolean" }) maps to pg boolean, so
+    // inserts send a JS boolean that Postgres rejects ("column is of type bigint
+    // but expression is of type boolean"). Convert both columns to boolean.
+    // SQLite doesn't need this — its INTEGER works fine with boolean mode.
+    {
+      version: 10,
+      sql: {
+        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default DROP DEFAULT`,
+      },
+    },
+    {
+      version: 11,
+      sql: {
+        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default TYPE boolean USING is_default::int::boolean`,
+      },
+    },
+    {
+      version: 12,
+      sql: {
+        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default SET DEFAULT false`,
+      },
+    },
+    {
+      version: 13,
+      sql: {
+        postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved DROP DEFAULT`,
+      },
+    },
+    {
+      version: 14,
+      sql: {
+        postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved TYPE boolean USING resolved::int::boolean`,
+      },
+    },
+    {
+      version: 15,
+      sql: {
+        postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved SET DEFAULT false`,
+      },
+    },
+    // v16: persist public share-link snapshots to DB so they survive server
+    // restarts and work across multiple serverless instances.
+    {
+      version: 16,
+      sql: `CREATE TABLE IF NOT EXISTS deck_share_links (
+    token TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    slides TEXT NOT NULL,
+    aspect_ratio TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
+    {
+      version: 17,
+      sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS deck_versions (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    deck_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    data TEXT NOT NULL,
+    change_label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS deck_versions_deck_owner_created_idx ON deck_versions (deck_id, owner_email, created_at)`,
+    },
+    // v19: performance indexes for ownable list/access-filter hot paths.
+    // `accessFilter` scans `decks`/`design_systems` by owner + scope and runs
+    // correlated EXISTS subqueries against the shares tables; the deck list
+    // orders by updated_at; slide comments are fetched per deck. None of these
+    // had supporting indexes (deck_versions already got one in v18). Plain
+    // CREATE INDEX IF NOT EXISTS so the SQL is valid on both Postgres and
+    // SQLite (no DESC/partial/PG-only syntax).
+    {
+      version: 19,
+      sql: `CREATE INDEX IF NOT EXISTS decks_owner_org_updated_idx ON decks (owner_email, org_id, updated_at);
+  CREATE INDEX IF NOT EXISTS deck_shares_resource_principal_idx ON deck_shares (resource_id, principal_type, principal_id);
+  CREATE INDEX IF NOT EXISTS design_systems_owner_org_updated_idx ON design_systems (owner_email, org_id, updated_at);
+  CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design_system_shares (resource_id, principal_type, principal_id);
+  CREATE INDEX IF NOT EXISTS slide_comments_deck_created_idx ON slide_comments (deck_id, created_at);
+  CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx ON slide_comments (deck_id, slide_id, created_at)`,
+    },
+    // v20: index of assets uploaded through the file-upload provider chain.
+    // GET /api/assets previously always returned [] (no persisted record of
+    // uploads), so the Asset Library panel could never show or re-select a
+    // file after uploading it. This table only stores the returned URL/
+    // metadata, never the file bytes.
+    {
+      version: 20,
+      name: "slides-uploaded-assets-table",
+      sql: `CREATE TABLE IF NOT EXISTS uploaded_assets (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    url TEXT NOT NULL,
+    type TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    provider TEXT,
+    owner_email TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS uploaded_assets_owner_created_idx ON uploaded_assets (owner_email, created_at)`,
+    },
+    {
+      version: 21,
+      name: "slides-share-design-system-snapshot",
+      sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_data TEXT`,
+    },
+    // v22: durable access-request events for private deck links. The request
+    // action also sends the owner an email when outbound email is configured,
+    // but the event remains the source of truth when it is not.
+    {
+      version: 22,
+      name: "slides-deck-access-requests",
+      sql: `CREATE TABLE IF NOT EXISTS deck_events (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    payload TEXT,
+    created_by TEXT NOT NULL DEFAULT 'human',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS deck_events_deck_created_idx ON deck_events (deck_id, created_at)`,
+    },
+    {
+      version: 23,
+      name: "slides-deck-access-request-rate-limits",
+      sql: `CREATE TABLE IF NOT EXISTS deck_access_request_limits (
+    deck_id TEXT PRIMARY KEY,
+    window_started_at TEXT NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0
+  )`,
+    },
+    {
+      version: 24,
+      name: "slides-deck-shares-user-principal-unique",
+      // Reconcile legacy rows before adding the constraint. Older databases
+      // could contain case variants or concurrent duplicate user shares, and
+      // CREATE UNIQUE INDEX would otherwise fail before this migration is
+      // recorded. Keep the strongest grant; id/created_at make equal-role
+      // survivors deterministic, and lower the retained principal so the
+      // repaired row is canonical as well as uniquely indexed.
+      sql: `DELETE FROM deck_shares
+WHERE principal_type = 'user'
+  AND id NOT IN (
+    SELECT id
+    FROM (
+      SELECT id,
+        ROW_NUMBER() OVER (
+          PARTITION BY resource_id, LOWER(principal_id)
+          ORDER BY CASE LOWER(role)
+            WHEN 'owner' THEN 5
+            WHEN 'admin' THEN 4
+            WHEN 'editor' THEN 3
+            WHEN 'commenter' THEN 2
+            WHEN 'viewer' THEN 1
+            ELSE 0
+          END DESC,
+          created_at ASC,
+          id ASC
+        ) AS row_number
+      FROM deck_shares
+      WHERE principal_type = 'user'
+    ) AS ranked
+    WHERE row_number = 1
+  );
+UPDATE deck_shares
+SET principal_id = LOWER(principal_id)
+WHERE principal_type = 'user'
+  AND principal_id <> LOWER(principal_id);
+CREATE UNIQUE INDEX IF NOT EXISTS deck_shares_resource_user_principal_uidx
+ON deck_shares (resource_id, LOWER(principal_id))
+WHERE principal_type = 'user'`,
+    },
+    {
+      version: 25,
+      name: "slides-comment-canvas-anchors",
+      sql: `CREATE TABLE IF NOT EXISTS slide_comments (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    slide_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    parent_id TEXT,
+    content TEXT NOT NULL,
+    quoted_text TEXT,
+    author_email TEXT NOT NULL,
+    author_name TEXT,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS anchor TEXT`,
+    },
+    {
+      version: 26,
+      name: "slides-deck-version-chat-context",
+      sql: `ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
+    },
+    {
+      version: 27,
+      name: "slides-deck-version-change-group",
+      sql: `ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS change_group TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS deck_versions_deck_owner_change_group_uidx
+ON deck_versions (deck_id, owner_email, change_group)
+WHERE change_group IS NOT NULL`,
+    },
+  ],
+  { table: "slides_migrations" },
+);
+
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it as a
+ * belt-and-braces safety net for the failure mode where a column is added to
+ * schema.ts without a matching hand-written ALTER migration, which silently
+ * 500s every query touching a pre-existing production table. It only ever
+ * adds missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
+export default (nitroApp: any): void => {
+  const init = (async () => {
+    await runSlidesMigrations(nitroApp);
+    try {
+      const summary = await ensureAdditiveColumns({
+        db: getDbExec(),
+        tables: schemaTables,
+      });
+      if (summary.errors.length > 0) {
+        console.warn(
+          "[db] ensureAdditiveColumns completed with errors:",
+          summary.errors,
+        );
+      }
+    } catch (err) {
+      // Never fail boot over the safety net itself — the authoritative
+      // migrations above already ran.
+      console.warn(
+        "[db] ensureAdditiveColumns failed (non-fatal):",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  })();
+
+  // Nitro does not await async plugin returns. Hold the first document/API
+  // requests until migrations finish so a fresh serverless instance cannot
+  // query a schema that is still being created.
+  const ready = init.then(
+    () => null,
+    (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[db] Slides migrations failed:", message);
+      return message;
+    },
+  );
+  const waitForReady = async (event: any) => {
+    const error = await ready;
+    if (!error) return undefined;
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "retry-after", "5");
+    return { error: "Slides database is temporarily unavailable" };
+  };
+  // The CLI action/agent runner invokes this plugin with a stand-in object to
+  // get migrations only, so there is no h3 app to gate — and no HTTP traffic to
+  // gate either. Registering unconditionally broke every `pnpm action` here.
+  if (!nitroApp?.h3) return;
+  const app = getH3App(nitroApp);
+  for (const path of ["/", "/p", "/share", "/api"]) {
+    app.use(path, waitForReady);
+  }
+};

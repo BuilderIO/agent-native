@@ -1,0 +1,119 @@
+---
+title: "Capturing Everywhere: Desktop, Mobile, and Rewind"
+description: "Every way to get a recording into Clips: the desktop tray app, the mobile companion, the local-only Rewind memory, and the Chrome extension for browser logs."
+search: "Clips desktop app mobile companion Rewind memory add what happened before Screen Memory Chrome extension browser logs"
+---
+
+# Capturing everywhere
+
+Clips isn't only a browser recorder. This page covers every place you can start a capture, and who each one is for: the desktop tray app, the mobile companion app, the local-only Rewind memory, and the Chrome extension for browser logs.
+
+<Diagram id="doc-block-clips1" title="Capture surfaces" summary={"Desktop, mobile, and the Chrome extension all land in your shared Clips library. Rewind is the one exception. It never leaves your device unless you approve it."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">Desktop app</div>
+    <div class="diagram-node">Mobile app</div>
+    <div class="diagram-node">Chrome extension</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Clips library<br /><small class="diagram-muted"
+      >hosted, SQL, searchable and shareable</small
+    >
+  </div>
+</div>
+<div class="diagram-flow" style="margin-top: 14px">
+  <div class="diagram-node">Rewind</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill">Your device only</span
+    ><small class="diagram-muted"
+      >local files, off by default, shared only when you approve it</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Desktop recorder and the desktop tray app
+
+Clips ships a desktop companion built for the smoothest everyday capture path: screen and webcam recording with a draggable camera bubble, live transcription while you record, calendar meeting reminders, and Hold-Fn dictation, all without keeping a browser tab open.
+
+The first time you record your screen, your operating system will ask you to grant Screen Recording permission (on a Mac: System Settings → Privacy & Security → Screen Recording). That's an OS-level permission, not a Clips setting, and Clips can't record without it.
+
+While a meeting app like Zoom or Microsoft Teams is in the foreground, the desktop app can also offer a quick "Take notes?" prompt so you don't have to remember to start a recording yourself. See [Recording, importing, and meetings](/docs/template-clips#recording-importing-and-meetings) for what happens once you accept.
+
+## Mobile companion capture
+
+The Agent-Native mobile app (iOS/Android) brings capture to your phone: dictate, join or record a meeting, shoot a quick video, or import a clip, all from the phone's home screen or an OS quick action.
+
+A few things are different from desktop:
+
+- **Meeting audio is microphone-only.** Phones can't capture another app's call audio the way a desktop can, so mobile meeting recordings don't get the same per-attendee action-item attribution as a desktop capture with both mic and system audio. Mobile is a good fit for in-person rooms or for capturing audio playing from a separate device.
+- **Dictation is tap-to-start/stop**, not press-and-hold like the desktop Fn-hold flow.
+- **Uploads are durable.** The audio or video file saves to your phone before any network request, so a dropped connection never loses the capture. The upload resumes automatically once you're back online. You don't need to keep the app open or re-record after a failed upload.
+
+## Rewind
+
+Rewind is an optional local memory that keeps a rolling recording of your screen (and audio, if you turn it on), stored locally on your device.
+
+<Callout id="doc-block-clips2" tone="info">
+  Rewind is off by default. Nothing is captured until you turn it on in the
+  desktop tray's settings, and nothing leaves your device unless you approve it
+  (per-request review is on by default and can be turned off in Rewind's
+  settings). You can export, search, or clear the buffer yourself at any time.
+</Callout>
+
+The feature can be enabled under the Rewind tab in Settings. When enabled, you can ask the agent things like "what was I looking at 20 minutes ago?" and the agent reads the text excerpts from the local buffer of on-screen text, app and window context, and transcript snippets. The agent never receives the recordings themselves. The only exception is a request you review and approve, which turns an exact range into a private Clip (see below).
+
+### Add what happened before
+
+In the clip's editor, **Add what happened before** pulls the previous 30 seconds or 5 minutes from your local Rewind history and adds it to the start of the clip. The clip must have been recorded on this device while Rewind was on, and the moments must still be within Rewind's retained history.
+
+- The clip must be private, with no one else granted direct access. Rewind history can contain context from before you chose to record, so Clips makes the clip private first and stops if anyone else still has access.
+- The clip's media is replaced with the combined recording. The transcript, chapters, comments, and reactions shift so their timestamps still line up, and the timeline marks where the original clip started.
+- It runs once per clip and only when you ask. Nothing is added from Rewind automatically.
+
+## Browser logs with the Chrome extension
+
+Install the Clips Chrome extension when you want a recording plus the browser logs and network activity from the tab you're debugging. It's useful for reporting product bugs and browser-only repros.
+
+- It only watches the tab you're actively recording, and only while the recording is running.
+- It saves console messages and basic per-request info (method, a redacted URL, status, duration, and whether a request failed). It never saves request or response bodies, headers, or cookies.
+- Use the desktop app for the smoothest everyday recording; reach for the Chrome extension specifically when you need those browser logs attached.
+
+See [Extending Clips](/docs/template-clips-developers) for the extension's install link and how to configure it on a self-hosted deployment.
+
+## What's next
+
+- [**Clips**](/docs/template-clips) — the overview, and what happens to a recording once it's captured
+- [**Sharing, Teams, and Agent-Readable Clips**](/docs/template-clips-sharing-and-teams) — who can see a clip once it's recorded
+- [**AI Pipeline, Editing, and Insights**](/docs/template-clips-ai-and-editing) — transcription and editing once a clip lands in your library
+- [**Extending Clips**](/docs/template-clips-developers) — the recording data model and the Chrome extension's developer setup

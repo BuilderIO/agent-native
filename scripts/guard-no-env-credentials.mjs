@@ -1,0 +1,650 @@
+#!/usr/bin/env node
+/**
+ * guard-no-env-credentials.mjs
+ *
+ * Defensive CI guard: refuse to let user-credential code paths read
+ * `process.env.<KEY>` for any key other than an explicit allowlist of
+ * deployment-level (host / framework) env vars.
+ *
+ * Background (2026-04-29 incident — credential leak): `resolveCredential(key)`
+ * in `packages/core/src/credentials/index.ts` first read `process.env[key]`
+ * and then fell back to a global `settings` row. Both sources were
+ * unscoped, so every signed-in user inherited the deployment's credentials
+ * (BigQuery, Apollo, Amplitude, etc.). Steve's directive: make sure this
+ * NEVER HAPPENS AGAIN — catch it in CI before it lands.
+ *
+ * The principle: user credentials are per-user (or per-org) data. They
+ * MUST live in SQL, scoped by `userEmail` / `orgId`, never in process.env.
+ * Deploy-level env vars (DATABASE_URL, BETTER_AUTH_SECRET, etc.) are not
+ * user credentials and remain fine — the allowlist captures that
+ * distinction.
+ *
+ * This script scans the credentials / secrets / vault code paths for any
+ * `process.env.<KEY>` / `process.env["KEY"]` read whose key is NOT in
+ * the allowlist, plus any dynamic `process.env[key]` read. Dynamic reads
+ * cannot be allowlisted safely because the key is only known at runtime.
+ * Any non-allowlisted hit is a violation.
+ *
+ * Last-resort opt-out (requires reviewer approval):
+ *
+ *   process.env.SOMETHING // guard:allow-env-credential — short reason
+ *
+ * The marker may be on the same line, or on the line immediately above.
+ */
+
+import { readFileSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".nuxt",
+  ".output",
+  ".cache",
+  ".turbo",
+  ".netlify",
+  ".vercel",
+  ".wrangler",
+  ".react-router",
+  ".generated",
+  "coverage",
+]);
+
+/**
+ * Allowlist of env var names that are deployment-level config, NOT user
+ * credentials. These may continue to be read via process.env in any
+ * credential code path.
+ *
+ * Patterns: an entry is either an exact name or a prefix string ending in
+ * `_` (treated as `STARTSWITH`).
+ */
+const ALLOWLIST_EXACT = new Set([
+  // Database
+  "DATABASE_URL",
+  "DATABASE_AUTH_TOKEN",
+  // Node / CI runtime
+  "NODE_ENV",
+  "CI",
+  "DEBUG",
+  // Hosting/runtime detection flags. These are deployment metadata, not user
+  // credentials.
+  "NETLIFY",
+  "VERCEL",
+  "RENDER",
+  "FLY_APP_NAME",
+  "K_SERVICE",
+  "AWS_LAMBDA_FUNCTION_NAME",
+  // Better-auth
+  "BETTER_AUTH_SECRET",
+  "BETTER_AUTH_URL",
+  // Public deployment identity/configuration. These select the app origin and
+  // explicitly registered SSO clients; they are not user credentials.
+  "APP_URL",
+  "IDENTITY_SSO_APP_REGISTRY_JSON",
+  // Notion OAuth app configuration. These identify the app itself; unlike
+  // NOTION_API_KEY, they do not grant access to a user's workspace content.
+  "NOTION_CLIENT_ID",
+  "NOTION_CLIENT_SECRET",
+  "NOTION_STATE_SECRET",
+  // Google OAuth app configuration. Sign-in credentials should be low-scope
+  // identity-only clients; provider integrations use separate app clients.
+  "GOOGLE_SIGN_IN_CLIENT_ID",
+  "GOOGLE_SIGN_IN_CLIENT_SECRET",
+  "AUTH_SECRET",
+  // Inter-agent (A2A) HMAC handoff secret. Deploy-level framework secret used
+  // to sign/verify internal self-dispatch tokens (durable background runs,
+  // agent-teams). NOT a user credential — it lives at deployment scope.
+  "A2A_SECRET",
+  // Framework auth gate
+  "ACCESS_TOKEN",
+  // Server bind
+  "PORT",
+  "HOST",
+  // Deploy-level master key for the per-user secrets vault.
+  // NOT a user credential — it's the symmetric key the vault uses to
+  // encrypt user secrets at rest. Rotating it invalidates the entire
+  // vault, so it lives at deployment scope.
+  "SECRETS_ENCRYPTION_KEY",
+  // Dedicated workspace-vault key and its rotation overlap key. These are
+  // deploy-level encryption material, separate from user credentials and
+  // app-local OAuth ciphertext.
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
+]);
+
+const ALLOWLIST_PREFIX = [
+  "npm_",
+  "AGENT_NATIVE_",
+  "AGENT_",
+  "NETLIFY_",
+  "VERCEL_",
+  "CF_",
+];
+
+/**
+ * Dev-only paths where ANTHROPIC_API_KEY etc. may legitimately be read
+ * from env (local dev tooling, scripts, tests). The guard only honors the
+ * `// guard:allow-env-credential — dev-only` marker inside these paths.
+ */
+const DEV_ONLY_PATH_PATTERNS = [
+  /^packages\/core\/src\/dev/,
+  /\.spec\.[tj]sx?$/,
+  /\.test\.[tj]sx?$/,
+  /^scripts\//,
+];
+
+const DEV_ONLY_KEYS = new Set(["ANTHROPIC_API_KEY"]);
+
+/**
+ * Credentials that grant access to third-party customer/workspace data. These
+ * must not be introduced as deploy-level template env vars or read from
+ * process.env in user-triggered template runtime code. Store them as scoped
+ * secrets/credentials/workspace connections instead.
+ */
+const HIGH_RISK_DATA_CREDENTIAL_KEYS = new Set([
+  "AMPLITUDE_SECRET_KEY",
+  "APOLLO_API_KEY",
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+  "COMMONROOM_API_TOKEN",
+  "DATAFORSEO_PASSWORD",
+  "GONG_ACCESS_KEY",
+  "GONG_ACCESS_SECRET",
+  "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  "GITHUB_TOKEN",
+  "GRAFANA_API_TOKEN",
+  "GOOGLE_SERVICE_ACCOUNT_KEY",
+  "GRANOLA_API_KEY",
+  "HUBSPOT_ACCESS_TOKEN",
+  "HUBSPOT_PRIVATE_APP_TOKEN",
+  "JIRA_API_TOKEN",
+  "MIXPANEL_SERVICE_ACCOUNT",
+  "NOTION_API_KEY",
+  "POSTGRES_URL",
+  "PROMETHEUS_BEARER_TOKEN",
+  "PROMETHEUS_PASSWORD",
+  "SENTRY_AUTH_TOKEN",
+  "SENTRY_SERVER_TOKEN",
+  "SLACK_BOT_TOKEN",
+  "SLACK_BOT_TOKEN_2",
+  "STRIPE_SECRET_KEY",
+  "TWITTER_BEARER_TOKEN",
+]);
+
+/**
+ * Narrow exceptions for deploy-level platform adapters, not data-source reads.
+ * Mail uses the Slack bot token only to verify/answer Slack intake events and
+ * map the incoming Slack sender to an org member. It must not become a general
+ * Slack search/data-source credential. Clips uses its Slack bot token for the
+ * same platform-adapter shape: verifying Slack Events API requests and posting
+ * first-party link unfurls for already-public Clips share URLs.
+ */
+const HIGH_RISK_ENV_KEY_ALLOWLIST = new Map([
+  ["templates/mail/server/lib/env-config.ts", new Set(["SLACK_BOT_TOKEN"])],
+  [
+    "packages/dispatch/src/server/lib/env-config.ts",
+    new Set(["SLACK_BOT_TOKEN"]),
+  ],
+]);
+
+const HIGH_RISK_PROCESS_ENV_ALLOWLIST = new Map([
+  [
+    "templates/mail/server/lib/mail-integrations.ts",
+    new Set(["SLACK_BOT_TOKEN"]),
+  ],
+  [
+    "templates/clips/server/routes/api/slack/unfurl.post.ts",
+    new Set(["SLACK_BOT_TOKEN"]),
+  ],
+]);
+
+const HIGH_RISK_ENV_VARS_WRITE_ALLOWLIST = new Map([
+  [
+    "packages/dispatch/src/components/messaging-setup-panel.tsx",
+    new Set(["SLACK_BOT_TOKEN"]),
+  ],
+]);
+
+/**
+ * Globs of files / directories the guard scans. A path matches if any
+ * predicate returns true.
+ */
+const FORBIDDEN_PATH_PREDICATES = [
+  // packages/core credentials/secrets/vault subtrees
+  (rel) => /^packages\/core\/src\/credentials\//.test(rel),
+  (rel) => /^packages\/core\/src\/secrets\//.test(rel),
+  (rel) => /^packages\/core\/src\/vault\//.test(rel),
+  // packages/core agent subtree — `getOwnerActiveApiKey` resolves the
+  // current user's provider API key and historically fell back to
+  // `process.env[envVar]` (dynamic key). On a multi-tenant deploy that
+  // silently substituted the deploy-level key for every user, exactly
+  // the prior-incident pattern. The fix in production-agent.ts gates
+  // the env-fallback on `isMultiTenantDeploy()`, but the guard catches
+  // any future regression at CI time.
+  (rel) => /^packages\/core\/src\/agent\//.test(rel),
+  // template credential libs
+  (rel) => /^templates\/[^/]+\/server\/lib\/credential[^/]*\.ts$/.test(rel),
+  // Content's Notion helper is a credential-bearing integration boundary.
+  // A prior implementation read NOTION_API_KEY from process.env here and
+  // exposed that deploy-global workspace token to every signed-in user.
+  (rel) => rel === "templates/content/server/lib/notion.ts",
+  (rel) => /^templates\/content\/server\/routes\/api\/notion\//.test(rel),
+  (rel) =>
+    /^templates\/content\/server\/routes\/api\/documents\/[^/]+\/notion/.test(
+      rel,
+    ),
+  // template credential routes (single + plural)
+  (rel) =>
+    /^templates\/[^/]+\/server\/routes\/api\/credential[^/]*$/.test(rel) ||
+    /^templates\/[^/]+\/server\/routes\/api\/credential[^/]*\.[tj]sx?$/.test(
+      rel,
+    ),
+  (rel) =>
+    /^templates\/[^/]+\/server\/routes\/api\/credentials[^/]*$/.test(rel) ||
+    /^templates\/[^/]+\/server\/routes\/api\/credentials[^/]*\.[tj]sx?$/.test(
+      rel,
+    ),
+];
+
+const OPT_OUT_MARKER = /\/\/\s*guard:allow-env-credential\b[^\n]*/;
+const OPT_OUT_REQUIRES_REASON = /\/\/\s*guard:allow-env-credential\s*[—-]\s*\S/;
+
+// process.env.FOO  or  process.env["FOO"]  or  process.env['FOO']
+// Captures the upper-cased key. We deliberately ignore lowercase / mixed
+// case names — env vars are conventionally upper case and the credential
+// keys we care about (BIGQUERY_*, AMPLITUDE_*, ANTHROPIC_API_KEY, etc.)
+// are all upper case.
+const ENV_READ_REGEX =
+  /process\.env(?:\.([A-Z][A-Z0-9_]*)|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])/g;
+
+// process.env[key] or process.env?.[key]
+// Dynamic keys were the original leak shape (`process.env[key]` inside
+// resolveCredential), and literal-only regexes miss them entirely.
+const ENV_DYNAMIC_READ_REGEX =
+  /process\.env(?:\?\.)?\s*\[\s*(?!["'])([^\]\n]+?)\s*\]/g;
+
+function isAllowlistedKey(key) {
+  if (ALLOWLIST_EXACT.has(key)) return true;
+  for (const prefix of ALLOWLIST_PREFIX) {
+    if (key.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function isDevOnlyPath(rel) {
+  return DEV_ONLY_PATH_PATTERNS.some((re) => re.test(rel));
+}
+
+async function* walk(dir) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      yield* walk(full);
+    } else if (entry.isFile()) {
+      yield full;
+    }
+  }
+}
+
+function pathIsForbidden(rel) {
+  return FORBIDDEN_PATH_PREDICATES.some((p) => p(rel));
+}
+
+function pathIsUserFacingTemplateRuntime(rel) {
+  if (/\.(spec|test)\.[tj]sx?$/.test(rel)) return false;
+  return (
+    /^templates\/[^/]+\/actions\//.test(rel) ||
+    /^templates\/[^/]+\/server\/(?:lib|handlers|routes)\//.test(rel)
+  );
+}
+
+function pathCanWriteEnvVars(rel) {
+  return (
+    /^templates\//.test(rel) ||
+    /^packages\/dispatch\//.test(rel) ||
+    /^packages\/core\/src\/client\/onboarding\//.test(rel)
+  );
+}
+
+function isHighRiskEnvKeyAllowed(rel, key) {
+  return HIGH_RISK_ENV_KEY_ALLOWLIST.get(rel)?.has(key) ?? false;
+}
+
+function isHighRiskProcessEnvAllowed(rel, key) {
+  return HIGH_RISK_PROCESS_ENV_ALLOWLIST.get(rel)?.has(key) ?? false;
+}
+
+function isHighRiskEnvVarsWriteAllowed(rel, key) {
+  return HIGH_RISK_ENV_VARS_WRITE_ALLOWLIST.get(rel)?.has(key) ?? false;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function lineColForOffset(contents, offset) {
+  let line = 1;
+  let lineStart = 0;
+  for (let i = 0; i < offset; i++) {
+    if (contents.charCodeAt(i) === 10) {
+      line++;
+      lineStart = i + 1;
+    }
+  }
+  return { line, col: offset - lineStart + 1 };
+}
+
+function hasOptOutOnLine(lines, lineIdx) {
+  const cur = lines[lineIdx] ?? "";
+  if (OPT_OUT_MARKER.test(cur)) return true;
+  const prev = lines[lineIdx - 1] ?? "";
+  // Opt-out is only valid on the same line OR the line immediately above
+  // (and the line above must be a comment).
+  if (/^\s*\/\//.test(prev) && OPT_OUT_MARKER.test(prev)) return true;
+  return false;
+}
+
+function optOutOnLineIsValid(lines, lineIdx, key, rel) {
+  const cur = lines[lineIdx] ?? "";
+  const prev = lines[lineIdx - 1] ?? "";
+  const candidate = OPT_OUT_REQUIRES_REASON.test(cur)
+    ? cur
+    : OPT_OUT_REQUIRES_REASON.test(prev)
+      ? prev
+      : null;
+  if (!candidate) return { ok: false, why: "missing or empty reason" };
+
+  // Dev-only opt-out: only valid in DEV_ONLY_PATH_PATTERNS for DEV_ONLY_KEYS.
+  if (/dev-only\b/i.test(candidate)) {
+    if (!DEV_ONLY_KEYS.has(key)) {
+      return {
+        ok: false,
+        why: `key "${key}" is not in the dev-only credential allowlist`,
+      };
+    }
+    if (!isDevOnlyPath(rel)) {
+      return {
+        ok: false,
+        why: "dev-only opt-out used outside dev / scripts / test paths",
+      };
+    }
+  }
+  return { ok: true };
+}
+
+async function scan() {
+  const violations = [];
+  for await (const file of walk(REPO_ROOT)) {
+    if (!/\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(file)) continue;
+    if (file.endsWith(".d.ts")) continue;
+    const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
+    const scanForbiddenPath = pathIsForbidden(rel);
+    const scanEnvConfig =
+      /^templates\/[^/]+\/server\/lib\/env-config\.ts$/.test(rel) ||
+      /^templates\/[^/]+\/server\/plugins\/core-routes\.ts$/.test(rel) ||
+      rel === "packages/dispatch/src/server/lib/env-config.ts" ||
+      rel === "packages/dispatch/src/server/plugins/core-routes.ts";
+    const scanHighRiskTemplateRuntime = pathIsUserFacingTemplateRuntime(rel);
+    const scanEnvVarsWrite = pathCanWriteEnvVars(rel);
+    if (
+      !scanForbiddenPath &&
+      !scanEnvConfig &&
+      !scanHighRiskTemplateRuntime &&
+      !scanEnvVarsWrite
+    ) {
+      continue;
+    }
+
+    let contents;
+    try {
+      contents = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    const lines = contents.split("\n");
+
+    if (scanEnvConfig) {
+      for (const key of HIGH_RISK_DATA_CREDENTIAL_KEYS) {
+        if (isHighRiskEnvKeyAllowed(rel, key)) continue;
+        const re = new RegExp(
+          `\\bkey\\s*:\\s*["']${escapeRegExp(key)}["']`,
+          "g",
+        );
+        let m;
+        while ((m = re.exec(contents)) !== null) {
+          const { line, col } = lineColForOffset(contents, m.index);
+          const lineText = lines[line - 1] ?? "";
+          const trimmedLine = lineText.trimStart();
+          if (
+            trimmedLine.startsWith("*") ||
+            trimmedLine.startsWith("//") ||
+            trimmedLine.startsWith("/*")
+          ) {
+            continue;
+          }
+          violations.push({
+            file: rel,
+            line,
+            col,
+            key,
+            reason:
+              "high-risk data credential registered as a deploy-level env var",
+            snippet: lineText.trim(),
+          });
+        }
+      }
+    }
+
+    if (
+      scanEnvVarsWrite &&
+      /\/_agent-native\/env-vars|_agent-native\/env-vars/.test(contents)
+    ) {
+      for (const key of HIGH_RISK_DATA_CREDENTIAL_KEYS) {
+        if (isHighRiskEnvVarsWriteAllowed(rel, key)) continue;
+        const re = new RegExp(`["']${escapeRegExp(key)}["']`, "g");
+        let m;
+        while ((m = re.exec(contents)) !== null) {
+          const { line, col } = lineColForOffset(contents, m.index);
+          const lineText = lines[line - 1] ?? "";
+          const trimmedLine = lineText.trimStart();
+          if (
+            trimmedLine.startsWith("*") ||
+            trimmedLine.startsWith("//") ||
+            trimmedLine.startsWith("/*")
+          ) {
+            continue;
+          }
+          violations.push({
+            file: rel,
+            line,
+            col,
+            key,
+            reason:
+              "high-risk data credential written to deployment env-vars endpoint",
+            snippet: lineText.trim(),
+          });
+        }
+      }
+    }
+
+    if (!contents.includes("process.env")) continue;
+
+    ENV_READ_REGEX.lastIndex = 0;
+    let m;
+    while ((m = ENV_READ_REGEX.exec(contents)) !== null) {
+      const key = m[1] ?? m[2];
+      if (!key) continue;
+      const { line, col } = lineColForOffset(contents, m.index);
+      const lineIdx = line - 1;
+      // Skip matches inside comment lines so docstrings explaining a
+      // dangerous pattern (e.g. "do NOT do `process.env.X`") don't
+      // trip the guard. Same posture the dynamic-regex pass below uses.
+      const lineText = lines[lineIdx] ?? "";
+      const trimmedLine = lineText.trimStart();
+      if (
+        trimmedLine.startsWith("*") ||
+        trimmedLine.startsWith("//") ||
+        trimmedLine.startsWith("/*")
+      ) {
+        continue;
+      }
+      if (
+        scanHighRiskTemplateRuntime &&
+        HIGH_RISK_DATA_CREDENTIAL_KEYS.has(key) &&
+        !isHighRiskProcessEnvAllowed(rel, key)
+      ) {
+        violations.push({
+          file: rel,
+          line,
+          col,
+          key,
+          reason:
+            "high-risk data credential read from process.env in user-facing template runtime",
+          snippet: lines[lineIdx]?.trim() ?? "",
+        });
+        continue;
+      }
+      if (!scanForbiddenPath) continue;
+      if (isAllowlistedKey(key)) continue;
+      if (hasOptOutOnLine(lines, lineIdx)) {
+        const verdict = optOutOnLineIsValid(lines, lineIdx, key, rel);
+        if (verdict.ok) continue;
+        violations.push({
+          file: rel,
+          line,
+          col,
+          key,
+          reason: `opt-out invalid: ${verdict.why}`,
+          snippet: lines[lineIdx]?.trim() ?? "",
+        });
+        continue;
+      }
+      violations.push({
+        file: rel,
+        line,
+        col,
+        key,
+        reason: "not in allowlist",
+        snippet: lines[lineIdx]?.trim() ?? "",
+      });
+    }
+
+    ENV_DYNAMIC_READ_REGEX.lastIndex = 0;
+    while ((m = ENV_DYNAMIC_READ_REGEX.exec(contents)) !== null) {
+      if (!scanForbiddenPath) continue;
+      const { line, col } = lineColForOffset(contents, m.index);
+      const lineIdx = line - 1;
+      const lineText = lines[lineIdx] ?? "";
+      const trimmed = lineText.trimStart();
+      if (
+        trimmed.startsWith("*") ||
+        trimmed.startsWith("//") ||
+        trimmed.startsWith("/*")
+      ) {
+        continue;
+      }
+      if (hasOptOutOnLine(lines, lineIdx)) {
+        const verdict = optOutOnLineIsValid(lines, lineIdx, "<dynamic>", rel);
+        if (verdict.ok) continue;
+        violations.push({
+          file: rel,
+          line,
+          col,
+          key: "<dynamic>",
+          reason: `opt-out invalid: ${verdict.why}`,
+          snippet: lineText.trim(),
+        });
+        continue;
+      }
+      violations.push({
+        file: rel,
+        line,
+        col,
+        key: "<dynamic>",
+        reason: "dynamic process.env key in credential path",
+        snippet: lineText.trim(),
+      });
+    }
+  }
+  return violations;
+}
+
+const violations = await scan();
+
+if (violations.length > 0) {
+  const bar = "=".repeat(72);
+  console.error(`\n${bar}`);
+  console.error(
+    "ERROR: forbidden process.env.<KEY> read in a credential code path.",
+  );
+  console.error(bar);
+  console.error("");
+  console.error(
+    "User credentials must NEVER come from process.env in production.",
+  );
+  console.error(
+    "On 2026-04-29, `resolveCredential(key)` read `process.env[key]`",
+  );
+  console.error(
+    "unscoped, leaking the deployment's API keys to every signed-in",
+  );
+  console.error("user. User credentials live in SQL, scoped per-user");
+  console.error("(`u:<email>:credential:KEY`) or per-org");
+  console.error("(`o:<orgId>:credential:KEY`).");
+  console.error("");
+  for (const v of violations) {
+    console.error(
+      `  ${v.file}:${v.line}:${v.col}  process.env.${v.key} — reason: ${v.reason}`,
+    );
+    if (v.snippet) console.error(`    ${v.snippet}`);
+  }
+  console.error("");
+  console.error(bar);
+  console.error("Fix:");
+  console.error("");
+  console.error(
+    "  - Read credentials via `resolveCredential(key, { userEmail, orgId })`",
+  );
+  console.error("    from `@agent-native/core/credentials`.");
+  console.error(
+    "  - If a value is genuinely deploy-level config (host secret,",
+  );
+  console.error("    framework token, CI flag), it does not belong in the");
+  console.error(
+    "    credentials/secrets/vault paths — move the read elsewhere.",
+  );
+  console.error("");
+  console.error("  Allowlisted env keys (still ok to read here):");
+  console.error(
+    `    ${[...ALLOWLIST_EXACT].sort().join(", ")}, ` +
+      `${ALLOWLIST_PREFIX.map((p) => p + "*").join(", ")}`,
+  );
+  console.error("");
+  console.error("  Last-resort opt-out (requires reviewer approval):");
+  console.error(
+    "    process.env.X // guard:allow-env-credential — explain why",
+  );
+  console.error(`${bar}\n`);
+  process.exit(1);
+}
+
+console.log(
+  "guard-no-env-credentials: clean (no forbidden process.env reads in credential paths).",
+);

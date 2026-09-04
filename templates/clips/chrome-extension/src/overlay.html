@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- A declared color-scheme always makes Chrome paint an OPAQUE iframe canvas
+         (white for light, dark for dark) — it can't be made transparent. The
+         overlay is dark-themed, so we use "dark" to keep that canvas dark rather
+         than a jarring white. The shaped parts (bubble/toolbar/saving) clip their
+         iframe to the content shape so the canvas never shows; only the
+         full-screen countdown relies on this dark value. -->
+    <meta name="color-scheme" content="dark" />
+    <title>Clips overlay</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./overlay.ts"></script>
+  </body>
+</html>

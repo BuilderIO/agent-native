@@ -1,0 +1,402 @@
+import { defineAction, embedApp } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import {
+  recordGenerationCreativeContext,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextElementProvenance } from "@agent-native/creative-context/types";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { getDb, schema } from "../server/db/index.js";
+import { notifyClients } from "../server/handlers/decks.js";
+import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
+import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import {
+  assertHumanReadableDeckTitle,
+  repairGeneratedDeckTitle,
+} from "../shared/deck-title.js";
+import {
+  ensureUniqueSlideIds,
+  rebindCreativeContextSlideLabels,
+} from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
+import { writeAppStateForCurrentTab } from "./_tab-state.js";
+
+const ReuseLabelSchema = z
+  .object({
+    itemId: z.string().min(1).optional(),
+    itemVersionId: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    label: z.string().min(1),
+    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+    elementId: z.string().min(1).optional(),
+    influence: z
+      .enum(["reused", "adapted", "reference-conditioned", "generated"])
+      .optional(),
+  })
+  .superRefine((label, context) => {
+    const influence = label.influence ?? "reference-conditioned";
+    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
+      context.addIssue({
+        code: "custom",
+        message: "itemId and itemVersionId must be provided together",
+      });
+    }
+    if (influence !== "generated" && !label.itemId) {
+      context.addIssue({
+        code: "custom",
+        message: "Only generated labels may omit context item ids",
+      });
+    }
+  });
+
+const SlideSchema = z.object({
+  id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
+  content: z.string().describe("Full HTML content of the slide"),
+  layout: z
+    .enum([
+      "title",
+      "section",
+      "content",
+      "two-column",
+      "image",
+      "statement",
+      "full-image",
+      "blank",
+    ])
+    .optional()
+    .describe("Layout type hint"),
+  notes: z.string().optional().describe("Speaker notes for this slide"),
+  creativeContextReuseLabels: z
+    .array(ReuseLabelSchema)
+    .optional()
+    .describe("Exact context item versions that influenced this slide"),
+});
+
+// Accept either a parsed array (HTTP/agent) or a JSON string (CLI)
+const SlidesSchema = z.preprocess(
+  (v) => (v === undefined ? [] : typeof v === "string" ? JSON.parse(v) : v),
+  z.array(SlideSchema),
+);
+
+function deckDeepLink(deckId: string): string {
+  return buildDeepLink({
+    app: "slides",
+    view: "editor",
+    params: { deckId },
+  });
+}
+
+function deckNavigationCommand(deckId: string): Record<string, string> {
+  return {
+    view: "editor",
+    deckId,
+    _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  };
+}
+
+export default defineAction({
+  title: "Create Slides deck",
+  description:
+    "Create the real editable Agent-Native Slides deck, optionally already populated with slides, or atomically replace all slides in an existing deck. This is the primary Slides MCP write action: use it instead of creating or publishing a standalone HTML artifact with the host's file tools. Put slide markup in `slides[].content`; this action persists it and returns an Open in Slides link. " +
+    "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
+    "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live; the new deck is also opened in the connected Slides UI. " +
+    "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
+    "Pass deckId to replace an existing deck. " +
+    "Returns the deck id, title, and slide count.",
+  schema: z.object({
+    title: z.string().describe("Deck title"),
+    slides: SlidesSchema.describe(
+      "Array of slides with id, content (HTML), optional layout, and presenter-only notes",
+    ),
+    deckId: z
+      .string()
+      .optional()
+      .describe(
+        "If provided, update this existing deck instead of creating a new one",
+      ),
+    aspectRatio: z
+      .enum(ASPECT_RATIO_VALUES)
+      .optional()
+      .describe(
+        "Slide aspect ratio for the deck (defaults to 16:9 when omitted)",
+      ),
+    designSystemId: z
+      .string()
+      .optional()
+      .describe("Optional design system ID to link to the deck"),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe("Immutable pack returned by pre-generation context search"),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this deck generation only without changing the saved preference.",
+      ),
+    reuseLabels: z
+      .array(ReuseLabelSchema)
+      .optional()
+      .default([])
+      .describe("Deck-wide exact context item versions used"),
+  }),
+  mcpApp: {
+    compactCatalog: true,
+    resource: embedApp({
+      title: "Deck preview",
+      description: "Open the generated deck in the real Slides editor.",
+      iframeTitle: "Agent-Native Slides",
+      openLabel: "Open deck",
+      height: 680,
+    }),
+  },
+  http: { method: "POST" },
+  run: async ({
+    title,
+    slides: rawSlides,
+    deckId,
+    aspectRatio,
+    designSystemId,
+    contextPackId,
+    contextModeOverride,
+    reuseLabels,
+  }) => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const normalizedSlides = ensureUniqueSlideIds(
+      rawSlides.map((s) => ({
+        ...s,
+        content: normalizeSlidePadding(s.content),
+      })),
+    );
+    const slides = rebindCreativeContextSlideLabels(
+      normalizedSlides.slides,
+      normalizedSlides.originalIds,
+    );
+    const validatedCreativeContext = await validateGenerationCreativeContext({
+      contextPackId,
+      contextModeOverride,
+      reuseLabels: Array.from(
+        new Map(
+          [
+            ...reuseLabels,
+            ...slides.flatMap(
+              (slide) => slide.creativeContextReuseLabels ?? [],
+            ),
+          ].map((label) => [`${label.itemId}:${label.itemVersionId}`, label]),
+        ).values(),
+      ),
+    });
+    const creativeContextProvenance = {
+      contextMode: validatedCreativeContext.contextMode,
+      contextPackId: validatedCreativeContext.contextPackId,
+      reuseLabels: validatedCreativeContext.reuseLabels,
+    };
+    const elementProvenance: CreativeContextElementProvenance[] = [
+      ...reuseLabels.map((label) => ({
+        elementId: label.elementId ?? "deck",
+        influence: label.influence ?? ("reference-conditioned" as const),
+        ...(label.itemId ? { itemId: label.itemId } : {}),
+        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+        label: label.label,
+      })),
+      ...slides.flatMap((slide) => {
+        const labels = slide.creativeContextReuseLabels ?? [];
+        return labels.length
+          ? labels.map((label) => ({
+              elementId: label.elementId ?? slide.id,
+              influence: label.influence ?? ("reference-conditioned" as const),
+              ...(label.itemId ? { itemId: label.itemId } : {}),
+              ...(label.itemVersionId
+                ? { itemVersionId: label.itemVersionId }
+                : {}),
+              label: label.label,
+            }))
+          : [
+              {
+                elementId: slide.id,
+                influence: "generated" as const,
+                label: "Net-new slide",
+              },
+            ];
+      }),
+      ...(reuseLabels.length === 0 && slides.length === 0
+        ? [
+            {
+              elementId: "deck",
+              influence: "generated" as const,
+              label: "Net-new deck",
+            },
+          ]
+        : []),
+    ];
+
+    const firstSlideContent = slides[0]?.content;
+    const resolvedTitle =
+      repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
+
+    if (deckId) {
+      if (designSystemId) {
+        await assertAccess("design-system", designSystemId, "viewer");
+      }
+      // Update existing deck — requires editor access.
+      await assertAccess("deck", deckId, "editor");
+      const existing = await db
+        .select()
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId))
+        .limit(1);
+      if (!existing[0]) {
+        throw new Error(`Deck not found: ${deckId}`);
+      }
+      const existingDeckTitle =
+        repairGeneratedDeckTitle(title, firstSlideContent, existing[0].title) ??
+        resolvedTitle;
+      assertHumanReadableDeckTitle(existingDeckTitle);
+      const writeNow = nextDeckRevision(existing[0].updatedAt);
+      const prevData = JSON.parse(existing[0].data);
+      const data = {
+        ...prevData,
+        title: existingDeckTitle,
+        slides,
+        updatedAt: writeNow,
+        aspectRatio: aspectRatio ?? prevData.aspectRatio,
+        designSystemId: designSystemId ?? prevData.designSystemId,
+        creativeContext: creativeContextProvenance,
+      };
+      await db.transaction(async (tx: any) => {
+        await createDeckVersionSnapshot(
+          {
+            id: existing[0].id,
+            title: existing[0].title,
+            data: existing[0].data,
+            ownerEmail: existing[0].ownerEmail,
+          },
+          { force: true, label: "Before bulk replace", db: tx },
+        );
+        const updateResult = await tx
+          .update(schema.decks)
+          .set({
+            title: existingDeckTitle,
+            data: JSON.stringify(data),
+            designSystemId:
+              designSystemId ?? existing[0].designSystemId ?? null,
+            updatedAt: writeNow,
+          })
+          .where(
+            deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+          );
+        assertDeckWriteApplied(updateResult, deckId, "deck replacement");
+      });
+      // Broadcast to open editors (in-process SSE) + application-state
+      // refresh signal (cross-process polling fallback for serverless).
+      notifyClients(deckId);
+      await writeAppStateForCurrentTab(
+        "navigate",
+        deckNavigationCommand(deckId),
+      );
+      await writeAppState("refresh-signal", {
+        ts: writeNow,
+        source: "create-deck",
+      });
+      await recordGenerationCreativeContext({
+        appId: "slides",
+        artifactType: "deck",
+        artifactId: deckId,
+        ...creativeContextProvenance,
+        ...(elementProvenance.length ? { elementProvenance } : {}),
+      });
+      return {
+        id: deckId,
+        title: existingDeckTitle,
+        slideCount: slides.length,
+        url: getDeckUrl(deckId),
+        appUrl: getDeckUrl(deckId),
+        deepLink: deckDeepLink(deckId),
+        slides,
+        ...creativeContextProvenance,
+      };
+    }
+
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+    assertHumanReadableDeckTitle(resolvedTitle);
+
+    let resolvedDesignSystemId = designSystemId;
+    if (resolvedDesignSystemId) {
+      await assertAccess("design-system", resolvedDesignSystemId, "viewer");
+    } else {
+      resolvedDesignSystemId =
+        (await resolveDefaultDesignSystemId(ownerEmail)) ?? undefined;
+    }
+
+    const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const data: Record<string, unknown> = {
+      title: resolvedTitle,
+      slides,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (aspectRatio) data.aspectRatio = aspectRatio;
+    if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
+    data.creativeContext = creativeContextProvenance;
+    await db.insert(schema.decks).values({
+      id,
+      title: resolvedTitle,
+      data: JSON.stringify(data),
+      designSystemId: resolvedDesignSystemId ?? null,
+      ownerEmail,
+      orgId: getRequestOrgId(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    notifyClients(id);
+    await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
+    await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
+    await recordGenerationCreativeContext({
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: id,
+      ...creativeContextProvenance,
+      ...(elementProvenance.length ? { elementProvenance } : {}),
+    });
+    return {
+      id,
+      title: resolvedTitle,
+      slideCount: slides.length,
+      url: getDeckUrl(id),
+      appUrl: getDeckUrl(id),
+      deepLink: deckDeepLink(id),
+      slides,
+      ...creativeContextProvenance,
+    };
+  },
+  link: ({ result }) => {
+    const id =
+      result && typeof result === "object"
+        ? (result as { id?: string }).id
+        : undefined;
+    if (!id) return null;
+    return {
+      url: deckDeepLink(id),
+      label: "Open deck in Slides",
+      view: "editor",
+    };
+  },
+});

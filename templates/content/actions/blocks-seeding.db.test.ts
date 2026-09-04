@@ -1,0 +1,1520 @@
+// Integration tests for the DB-enforced single-primary Blocks invariant and the
+// independent block-field content store. Boots a real libsql (SQLite) database
+// in-memory, runs the actual versioned migrations, then drives the store-layer
+// functions directly — the seam where review findings 1, 4, 5, and 7 live.
+
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import {
+  countWords,
+  formatWordCount,
+  isPrimaryBlocksField,
+} from "../shared/properties.js";
+
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
+
+// A unique on-disk SQLite file in the OS temp dir, removed after the run. Kept
+// out of the repo working tree and isolated from the process-wide getDbExec
+// singleton other test files share.
+const TEST_DB_PATH = join(
+  tmpdir(),
+  `blocks-seeding-test-${process.pid}-${Date.now()}.sqlite`,
+);
+
+type Schema = typeof import("../server/db/schema.js");
+let getDb: () => any;
+let schema: Schema;
+let propertyUtils: typeof import("./_property-utils.js");
+let identityUtils: typeof import("./_blocks-field-identity.js");
+let databaseUtils: typeof import("./_database-utils.js");
+let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
+let updateDocumentAction: typeof import("./update-document.js").default;
+let editDocumentAction: typeof import("./edit-document.js").default;
+let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
+let createContentDatabaseAction: typeof import("./create-content-database.js").default;
+let createContentDatabaseModule: typeof import("./create-content-database.js");
+let getContentDatabaseAction: typeof import("./get-content-database.js").default;
+let getDocumentAction: typeof import("./get-document.js").default;
+let configureDocumentPropertyAction: typeof import("./configure-document-property.js").default;
+let addDatabaseItemAction: typeof import("./add-database-item.js").default;
+let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
+let deleteDocumentPropertyAction: typeof import("./delete-document-property.js").default;
+
+const OWNER = "owner@example.com";
+
+beforeAll(async () => {
+  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  const dbModule = await import("../server/db/index.js");
+  getDb = dbModule.getDb;
+  schema = dbModule.schema;
+  propertyUtils = await import("./_property-utils.js");
+  identityUtils = await import("./_blocks-field-identity.js");
+  databaseUtils = await import("./_database-utils.js");
+  createInlineContentDatabaseAction = (
+    await import("./create-inline-content-database.js")
+  ).default;
+  updateDocumentAction = (await import("./update-document.js")).default;
+  editDocumentAction = (await import("./edit-document.js")).default;
+  setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
+  createContentDatabaseModule = await import("./create-content-database.js");
+  createContentDatabaseAction = createContentDatabaseModule.default;
+  getContentDatabaseAction = (await import("./get-content-database.js"))
+    .default;
+  getDocumentAction = (await import("./get-document.js")).default;
+  configureDocumentPropertyAction = (
+    await import("./configure-document-property.js")
+  ).default;
+  addDatabaseItemAction = (await import("./add-database-item.js")).default;
+  removeDatabaseItemsAction = (await import("./remove-database-items.js"))
+    .default;
+  deleteDocumentPropertyAction = (await import("./delete-document-property.js"))
+    .default;
+  const plugin = (await import("../server/plugins/db.js")).default;
+  await plugin(undefined as any);
+}, 60000); // cold-import of the db module + migrations exceeds the default 10s hook timeout
+
+afterAll(() => {
+  for (const suffix of ["", "-shm", "-wal"]) {
+    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  }
+});
+
+let counter = 0;
+async function createDatabaseRow(opts: { seeded?: boolean } = {}) {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const id = `db_${++counter}_${Math.random().toString(36).slice(2, 8)}`;
+  const documentId = `doc_${id}`;
+  await db.insert(schema.documents).values({
+    id: documentId,
+    ownerEmail: OWNER,
+    title: "Untitled",
+    content: "body text",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id,
+    ownerEmail: OWNER,
+    documentId,
+    title: "Test DB",
+    blocksSeeded: opts.seeded ? 1 : 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { databaseId: id, documentId };
+}
+
+async function blocksDefinitions(databaseId: string) {
+  const db = getDb();
+  return db
+    .select()
+    .from(schema.documentPropertyDefinitions)
+    .where(
+      and(
+        eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+        eq(schema.documentPropertyDefinitions.type, "blocks"),
+      ),
+    );
+}
+
+describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", () => {
+  it("revalidates space access through the database transaction", async () => {
+    let transactionDb: any;
+    let resolvedSpaceAccess: any;
+    const resolveInsideTransaction = vi.fn(
+      async (_spaceId: string, _role: string, options?: { db?: any }) => {
+        expect(options?.db).toBe(transactionDb);
+        return resolvedSpaceAccess;
+      },
+    );
+
+    const databaseId = await runWithRequestContext(
+      { userEmail: OWNER },
+      async () => {
+        const db = getDb();
+        const args = { title: "Hosted transaction boundary" };
+        const spaceId =
+          await createContentDatabaseModule.resolveContentDatabaseSpace(
+            args,
+            db,
+          );
+        resolvedSpaceAccess = await (
+          await import("./_content-space-access.js")
+        ).resolveContentSpaceAccess(spaceId, "editor");
+        let createdId: string | null = null;
+        await db.transaction(async (tx: any) => {
+          transactionDb = tx;
+          createdId =
+            await createContentDatabaseModule.createContentDatabaseRecord(
+              args,
+              {
+                db: tx,
+                spaceId,
+                resolveSpaceAccess: resolveInsideTransaction,
+              },
+            );
+        });
+        return createdId;
+      },
+    );
+
+    expect(databaseId).toEqual(expect.any(String));
+    expect(resolveInsideTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("rejects document access revoked after preflight", async () => {
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const db = getDb();
+      const spaceId =
+        await createContentDatabaseModule.resolveContentDatabaseSpace({}, db);
+      const now = new Date().toISOString();
+      const documentId = `revoked_${Math.random().toString(36).slice(2, 10)}`;
+      const shareId = `share_${Math.random().toString(36).slice(2, 10)}`;
+
+      await db.insert(schema.documents).values({
+        id: documentId,
+        spaceId,
+        ownerEmail: "other-owner@example.com",
+        title: "Revoked document",
+        content: "",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.documentShares).values({
+        id: shareId,
+        resourceId: documentId,
+        principalType: "user",
+        principalId: OWNER,
+        role: "editor",
+        createdBy: "other-owner@example.com",
+        createdAt: now,
+      });
+
+      await expect(
+        createContentDatabaseModule.resolveContentDatabaseSpace(
+          { documentId },
+          db,
+        ),
+      ).resolves.toBe(spaceId);
+
+      await db
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, shareId));
+
+      await expect(
+        db.transaction((tx: any) =>
+          createContentDatabaseModule.createContentDatabaseRecord(
+            { documentId },
+            { db: tx, spaceId },
+          ),
+        ),
+      ).rejects.toThrow(`No editor access to document ${documentId}`);
+
+      const databases = await db
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.documentId, documentId));
+      expect(databases).toEqual([]);
+    });
+  });
+  it("round-trips owned descriptions and returns one live root-to-database row context path", async () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const rootId = `root_${suffix}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: rootId,
+        ownerEmail: OWNER,
+        title: `Root ${suffix}`,
+        description: "Root guidance",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      });
+    const result = await runWithRequestContext(
+      { userEmail: OWNER },
+      async () => {
+        await updateDocumentAction.run({
+          id: rootId,
+          description: "Updated root guidance",
+        });
+        const database = await createContentDatabaseAction.run({
+          parentId: rootId,
+          title: `Tasks ${suffix}`,
+          description: "Only actionable tasks belong here",
+        });
+        const propertyResult = await configureDocumentPropertyAction.run({
+          documentId: database.database.documentId,
+          databaseId: database.database.id,
+          name: "Status",
+          description: "The current workflow state",
+          type: "status",
+          options: {
+            options: [
+              {
+                id: "doing",
+                name: "Doing",
+                color: "blue",
+                description: "Choose while active work is underway",
+              },
+            ],
+          },
+        });
+        const mutationRead = await getContentDatabaseAction.run({
+          databaseId: database.database.id,
+        });
+        if (!("database" in mutationRead) || !mutationRead.mutationContract)
+          throw new Error("Fixture database has no mutation contract.");
+        const row = await addDatabaseItemAction.run({
+          target: mutationRead.mutationContract.target,
+          expectedSchemaRevision: mutationRead.mutationContract.schemaRevision,
+          idempotencyKey: `blocks-seeding-${suffix}`,
+          title: `Row ${suffix}`,
+        });
+        const page = await getDocumentAction.run({ id: rootId });
+        const databasePage = await getDocumentAction.run({
+          id: database.database.documentId,
+        });
+        const databaseRead = await getContentDatabaseAction.run({
+          databaseId: database.database.id,
+        });
+        const databaseHelperRead =
+          await databaseUtils.getContentDatabaseResponse(database.database.id);
+        const rowPage = await getDocumentAction.run({
+          id: row.receipt.row.documentId,
+        });
+        return {
+          page,
+          databasePage,
+          databaseRead,
+          databaseHelperRead,
+          rowPage,
+          propertyResult,
+        };
+      },
+    );
+
+    expect(result.page.description).toBe("Updated root guidance");
+    expect(result.databasePage.description).toBe(
+      "Only actionable tasks belong here",
+    );
+    expect(result.databasePage.database?.description).toBe(
+      "Only actionable tasks belong here",
+    );
+    expect(result.databaseRead.database.description).toBe(
+      "Only actionable tasks belong here",
+    );
+    expect(result.databaseHelperRead.contextPath).toEqual([
+      expect.objectContaining({
+        title: expect.stringMatching(/^Root /),
+        kind: "page",
+      }),
+    ]);
+    const status = result.databaseRead.properties.find(
+      (property) => property.definition.name === "Status",
+    );
+    expect(status?.definition.description).toBe("The current workflow state");
+    expect(status?.definition.options.options?.[0]?.description).toBe(
+      "Choose while active work is underway",
+    );
+    expect(result.rowPage.contextPath).toEqual([
+      expect.objectContaining({
+        title: expect.stringMatching(/^Root /),
+        kind: "page",
+      }),
+      expect.objectContaining({
+        title: expect.stringMatching(/^Tasks /),
+        kind: "database",
+      }),
+    ]);
+    expect(
+      result.rowPage.contextPath?.filter((entry) => entry.kind === "database"),
+    ).toHaveLength(1);
+  });
+  it("seeds exactly one primary and is idempotent on repeat calls", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+
+    const id1 = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const id2 = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+
+    expect(id1).toBe(id2);
+    expect(await blocksDefinitions(databaseId)).toHaveLength(1);
+
+    const db = getDb();
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    expect(database.primaryBlocksPropertyId).toBe(id1);
+    expect(database.blocksSeeded).toBe(1);
+  });
+
+  it("creates ONLY ONE primary under concurrent seeding (no aliasing)", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+
+    const ids = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        propertyUtils.seedDefaultBlocksField({
+          databaseId,
+          ownerEmail: OWNER,
+          orgId: null,
+          now,
+        }),
+      ),
+    );
+
+    // Every concurrent caller resolves to the SAME primary id...
+    expect(new Set(ids).size).toBe(1);
+    // ...and there is exactly one primary Blocks definition in the DB.
+    const defs = await blocksDefinitions(databaseId);
+    expect(defs).toHaveLength(1);
+    expect(propertyUtils).toBeDefined();
+  });
+});
+
+describe("create-inline-content-database", () => {
+  it("creates a child database and stamps inline ownership metadata", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const hostDocumentId = `host_inline_${++counter}`;
+    await db.insert(schema.documents).values({
+      id: hostDocumentId,
+      ownerEmail: OWNER,
+      title: "Host page",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createInlineContentDatabaseAction.run({
+        hostDocumentId,
+        title: "Inline tasks",
+      }),
+    );
+
+    expect(result.database.title).toBe("Inline tasks");
+    expect(result.block.databaseId).toBe(result.database.id);
+    expect(result.block.databaseDocumentId).toBe(result.database.documentId);
+    expect(result.block.ownerBlockId).toMatch(/^inline-database-/);
+
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, result.database.id));
+    expect(database.ownerDocumentId).toBe(hostDocumentId);
+    expect(database.ownerBlockId).toBe(result.block.ownerBlockId);
+
+    const [databaseDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.database.documentId));
+    expect(databaseDocument.parentId).toBe(hostDocumentId);
+  });
+});
+
+describe("read paths do not mutate (finding 2)", () => {
+  it("getContentDatabaseResponse does not seed an unseeded database", async () => {
+    const { databaseId } = await createDatabaseRow();
+
+    await databaseUtils.getContentDatabaseResponse(databaseId);
+
+    const db = getDb();
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    // Pure read: never flips blocksSeeded or creates a primary.
+    expect(database.blocksSeeded).toBe(0);
+    expect(database.primaryBlocksPropertyId).toBeNull();
+    expect(await blocksDefinitions(databaseId)).toHaveLength(0);
+  });
+
+  it("getContentDatabaseResponse omits row document bodies from table payloads", async () => {
+    const { databaseId, documentId: databaseDocumentId } =
+      await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = `row_doc_${databaseId}`;
+    const largeBody = "Builder body paragraph. ".repeat(1_000);
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Hydrated Builder row",
+      content: largeBody,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      bodyHydrationStatus: "hydrated",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await databaseUtils.getContentDatabaseResponse(databaseId);
+
+    expect(response.items).toHaveLength(1);
+    expect(response.items[0].document.title).toBe("Hydrated Builder row");
+    expect(response.items[0].document.content).toBe("");
+    const [stored] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    expect(stored.content).toBe(largeBody);
+  });
+
+  it("listPropertiesForDocument does not seed when opening a row", async () => {
+    const { databaseId, documentId } = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+
+    await propertyUtils.listPropertiesForDocument(document);
+
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    expect(database.blocksSeeded).toBe(0);
+    expect(await blocksDefinitions(databaseId)).toHaveLength(0);
+  });
+});
+
+describe("repairUnseededBlocksFields — one-time startup repair (finding 2)", () => {
+  it("seeds an unseeded legacy database exactly once", async () => {
+    const { databaseId } = await createDatabaseRow();
+
+    const firstRun = await propertyUtils.repairUnseededBlocksFields();
+    expect(firstRun).toBeGreaterThanOrEqual(1);
+    expect(await blocksDefinitions(databaseId)).toHaveLength(1);
+
+    // Re-running is a no-op for this already-seeded database.
+    await propertyUtils.repairUnseededBlocksFields();
+    expect(await blocksDefinitions(databaseId)).toHaveLength(1);
+  });
+});
+
+describe("legacy adoption — existing primary is not duplicated (findings 1, 2)", () => {
+  it("adopts a legacy primary definition instead of creating a second one", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    // Simulate a database seeded by the OLD read-path safety net: a primary
+    // "Content" definition exists but the new column is still NULL and
+    // blocks_seeded is 0 (the v52 backfill "didn't run" for it).
+    const legacyId = `legacy_primary_${databaseId}`;
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: legacyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      visibility: "always_show",
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const adopted = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+
+    expect(adopted).toBe(legacyId);
+    // No duplicate primary was created.
+    expect(await blocksDefinitions(databaseId)).toHaveLength(1);
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    expect(database.primaryBlocksPropertyId).toBe(legacyId);
+    expect(database.blocksSeeded).toBe(1);
+  });
+});
+
+describe("intentionally-deleted primary is never reseeded (finding 5)", () => {
+  it("seedDefaultBlocksField does not recreate a deleted primary", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    const primaryId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+
+    const db = getDb();
+    // Simulate delete-document-property removing the only primary:
+    await db
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, primaryId));
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: null })
+      .where(eq(schema.contentDatabases.id, databaseId));
+
+    // Neither a re-seed nor the startup repair recreates it (blocks_seeded
+    // stays 1, so the row genuinely has ZERO Blocks fields).
+    const reseededId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    await propertyUtils.repairUnseededBlocksFields();
+
+    expect(await blocksDefinitions(databaseId)).toHaveLength(0);
+    expect(reseededId).toBeNull();
+  });
+});
+
+describe("writeBlockFieldContent — upsert race (finding 4)", () => {
+  it("concurrent first-saves both succeed via onConflictDoUpdate", async () => {
+    const { documentId } = await createDatabaseRow();
+    const propertyId = `prop_${documentId}`;
+    const now = new Date().toISOString();
+
+    const results = await Promise.allSettled([
+      propertyUtils.writeBlockFieldContent({
+        documentId,
+        propertyId,
+        ownerEmail: OWNER,
+        content: "first",
+        now,
+      }),
+      propertyUtils.writeBlockFieldContent({
+        documentId,
+        propertyId,
+        ownerEmail: OWNER,
+        content: "second",
+        now,
+      }),
+    ]);
+
+    // No duplicate-key throw — both writes resolve.
+    expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(schema.documentBlockFieldContents.documentId, documentId),
+          eq(schema.documentBlockFieldContents.propertyId, propertyId),
+        ),
+      );
+    // Exactly one row (the unique index held); content is one of the two.
+    expect(rows).toHaveLength(1);
+    expect(["first", "second"]).toContain(rows[0].content);
+  });
+
+  it("a later write updates the existing row in place", async () => {
+    const { documentId } = await createDatabaseRow();
+    const propertyId = `prop2_${documentId}`;
+    const now = new Date().toISOString();
+    await propertyUtils.writeBlockFieldContent({
+      documentId,
+      propertyId,
+      ownerEmail: OWNER,
+      content: "v1",
+      now,
+    });
+    await propertyUtils.writeBlockFieldContent({
+      documentId,
+      propertyId,
+      ownerEmail: OWNER,
+      content: "v2",
+      now,
+    });
+    expect(
+      await propertyUtils.readBlockFieldContent(documentId, propertyId),
+    ).toBe("v2");
+  });
+});
+
+describe("database Blocks field identity sidecar", () => {
+  it("preserves ordered IDs, independent revisions, and bounded recovery", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const primaryPropertyId = `primary_${documentId}`;
+    const additionalPropertyId = `additional_${documentId}`;
+
+    async function save(args: {
+      propertyId: string;
+      previousMarkdown: string;
+      markdown: string;
+      expectedRevision: number;
+    }) {
+      const now = new Date().toISOString();
+      return db.transaction(async (tx: any) => {
+        const state = await identityUtils.persistBlocksFieldIdentity({
+          db: tx,
+          ownerEmail: OWNER,
+          documentId,
+          propertyId: args.propertyId,
+          previousMarkdown: args.previousMarkdown,
+          markdown: args.markdown,
+          expectedRevision: args.expectedRevision,
+          now,
+        });
+        if (args.propertyId === primaryPropertyId) {
+          await tx
+            .update(schema.documents)
+            .set({ content: args.markdown, updatedAt: now })
+            .where(eq(schema.documents.id, documentId));
+        }
+        return state;
+      });
+    }
+
+    const edited = await save({
+      propertyId: primaryPropertyId,
+      previousMarkdown: "body text",
+      markdown: "Alpha\nBeta",
+      expectedRevision: 0,
+    });
+    const [alphaId, betaId] = edited.blocks
+      .filter((block) => block.state === "live")
+      .map((block) => block.id);
+    expect(edited.revision).toBe(1);
+
+    const reordered = await save({
+      propertyId: primaryPropertyId,
+      previousMarkdown: "Alpha\nBeta",
+      markdown: "Beta\nAlpha edited",
+      expectedRevision: 1,
+    });
+    expect(
+      reordered.blocks
+        .filter((block) => block.state === "live")
+        .map((block) => block.id),
+    ).toEqual([betaId, alphaId]);
+
+    const deleted = await save({
+      propertyId: primaryPropertyId,
+      previousMarkdown: "Beta\nAlpha edited",
+      markdown: "Alpha edited",
+      expectedRevision: 2,
+    });
+    expect(deleted.blocks.find((block) => block.id === betaId)).toEqual(
+      expect.objectContaining({ state: "deleted", deletedAtRevision: 3 }),
+    );
+
+    const recovered = await save({
+      propertyId: primaryPropertyId,
+      previousMarkdown: "Alpha edited",
+      markdown: "Alpha edited\nBeta",
+      expectedRevision: 3,
+    });
+    expect(
+      recovered.blocks
+        .filter((block) => block.state === "live")
+        .map((block) => block.id),
+    ).toContain(betaId);
+
+    const additional = await save({
+      propertyId: additionalPropertyId,
+      previousMarkdown: "",
+      markdown: "Alpha edited\nBeta",
+      expectedRevision: 0,
+    });
+    expect(additional.fieldId).not.toBe(recovered.fieldId);
+    expect(additional.revision).toBe(1);
+    expect(additional.blocks.map((block) => block.id)).not.toEqual(
+      recovered.blocks.map((block) => block.id),
+    );
+
+    const reloaded = await identityUtils.readBlocksFieldIdentity({
+      documentId,
+      propertyId: primaryPropertyId,
+      markdown: "Alpha edited\nBeta",
+    });
+    expect(reloaded.revision).toBe(4);
+    expect(reloaded.identityStatus).toBe("materialized");
+    expect(reloaded.blocks.map((block) => block.id)).toEqual(
+      recovered.blocks
+        .filter((block) => block.state === "live")
+        .map((block) => block.id),
+    );
+  });
+
+  it("rejects a stale field revision without changing canonical Markdown", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const propertyId = `conflict_${documentId}`;
+    const now = new Date().toISOString();
+    await identityUtils.persistBlocksFieldIdentity({
+      db,
+      ownerEmail: OWNER,
+      documentId,
+      propertyId,
+      previousMarkdown: "body text",
+      markdown: "Current",
+      expectedRevision: 0,
+      now,
+    });
+    await db
+      .update(schema.documents)
+      .set({ content: "Current", updatedAt: now })
+      .where(eq(schema.documents.id, documentId));
+
+    await expect(
+      db.transaction(async (tx: any) => {
+        await tx
+          .update(schema.documents)
+          .set({ content: "Stale overwrite" })
+          .where(eq(schema.documents.id, documentId));
+        await identityUtils.persistBlocksFieldIdentity({
+          db: tx,
+          ownerEmail: OWNER,
+          documentId,
+          propertyId,
+          previousMarkdown: "Current",
+          markdown: "Stale overwrite",
+          expectedRevision: 0,
+          now: new Date().toISOString(),
+        });
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("Blocks field revision conflict"),
+      statusCode: 409,
+    });
+
+    const [document] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document.content).toBe("Current");
+  });
+
+  it("allows only one concurrent first materialization", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const propertyId = `first_${documentId}`;
+    const attempts = await Promise.allSettled(
+      ["First", "Second"].map((markdown) =>
+        db.transaction((tx: any) =>
+          identityUtils.persistBlocksFieldIdentity({
+            db: tx,
+            ownerEmail: OWNER,
+            documentId,
+            propertyId,
+            previousMarkdown: "body text",
+            markdown,
+            expectedRevision: 0,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+
+    expect(
+      attempts.filter((attempt) => attempt.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      attempts.filter((attempt) => attempt.status === "rejected"),
+    ).toHaveLength(1);
+    const [field] = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.propertyId, propertyId));
+    expect(field.revision).toBe(1);
+  });
+
+  it("allows concurrent first materialization of distinct fields with the same preferred ID", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const markdown = '<registry-block blockId="shared-preferred-id" />';
+    const attempts = await Promise.all(
+      ["first", "second"].map((suffix) =>
+        db.transaction((tx: any) =>
+          identityUtils.persistBlocksFieldIdentity({
+            db: tx,
+            ownerEmail: OWNER,
+            documentId,
+            propertyId: `${suffix}_${documentId}`,
+            previousMarkdown: "",
+            markdown,
+            expectedRevision: 0,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]?.blocks[0]?.id).not.toBe(attempts[1]?.blocks[0]?.id);
+  });
+
+  it("revisions every primary membership and cleans up only the removed database", async () => {
+    const first = await createDatabaseRow();
+    const second = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const firstPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: first.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const secondPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: second.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const rowDocumentId = `multi_membership_${counter}`;
+    const firstItemId = `item_first_${counter}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Shared row",
+      content: "Before",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: firstItemId,
+        ownerEmail: OWNER,
+        databaseId: first.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `item_second_${counter}`,
+        ownerEmail: OWNER,
+        databaseId: second.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: rowDocumentId, content: "After" }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: rowDocumentId,
+        find: "After",
+        replace: "After edited",
+      }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId: first.databaseId,
+        propertyId: firstPropertyId,
+        value: "After set through one membership",
+        expectedBlocksFieldRevision: 2,
+      }),
+    );
+    const beforeRemoval = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
+    expect(
+      new Map(
+        beforeRemoval.map((field: any) => [field.propertyId, field.revision]),
+      ),
+    ).toEqual(
+      new Map([
+        [firstPropertyId, 3],
+        [secondPropertyId, 3],
+      ]),
+    );
+
+    const [rowDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const exportedProperties = await runWithRequestContext(
+      { userEmail: OWNER },
+      () => propertyUtils.listPropertiesForAllDocumentDatabases(rowDocument),
+    );
+    expect(
+      new Set(
+        exportedProperties
+          .filter((property) =>
+            isPrimaryBlocksField(property.definition.options),
+          )
+          .map((property) => property.definition.databaseId),
+      ),
+    ).toEqual(new Set([first.databaseId, second.databaseId]));
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      removeDatabaseItemsAction.run({
+        databaseId: first.databaseId,
+        itemIds: [firstItemId],
+      }),
+    );
+    const afterRemoval = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
+    expect(afterRemoval).toEqual([
+      expect.objectContaining({ propertyId: secondPropertyId, revision: 3 }),
+    ]);
+  });
+
+  it("preserves a shared body and surviving identity when one primary property is deleted", async () => {
+    const first = await createDatabaseRow();
+    const second = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const firstPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: first.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const secondPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: second.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const rowDocumentId = `delete_shared_primary_${counter}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Shared row",
+      content: "Before",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: `delete_first_${counter}`,
+        ownerEmail: OWNER,
+        databaseId: first.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `delete_second_${counter}`,
+        ownerEmail: OWNER,
+        databaseId: second.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: rowDocumentId, content: "Shared body" }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId: first.databaseId,
+        propertyId: firstPropertyId,
+      }),
+    );
+
+    const [rowDocument] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    expect(rowDocument?.content).toBe("Shared body");
+    const identities = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
+    expect(identities).toEqual([
+      expect.objectContaining({ propertyId: secondPropertyId, revision: 1 }),
+    ]);
+    const surviving = await identityUtils.readBlocksFieldIdentity({
+      documentId: rowDocumentId,
+      propertyId: secondPropertyId,
+      markdown: "Shared body",
+    });
+    expect(surviving.identityStatus).toBe("materialized");
+  });
+});
+
+describe("cascade cleanup of block-field content on delete (finding 7)", () => {
+  it("deletes block-field rows by document id when a row document is deleted", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    // A ROW document (a database item), distinct from the database PAGE doc —
+    // this is the path delete-document deletes through.
+    const rowDocumentId = `rowdoc_${databaseId}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Row",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_cascade_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await propertyUtils.writeBlockFieldContent({
+      documentId: rowDocumentId,
+      propertyId: `prop_cascade_${rowDocumentId}`,
+      ownerEmail: OWNER,
+      content: "orphan-me",
+      now,
+    });
+
+    await databaseUtils.deleteDatabaseDataForDocument(rowDocumentId, OWNER);
+
+    const remaining = await db
+      .select()
+      .from(schema.documentBlockFieldContents)
+      .where(eq(schema.documentBlockFieldContents.documentId, rowDocumentId));
+    expect(remaining).toHaveLength(0);
+  });
+
+  it("deletes block-field rows by property id when a database is deleted", async () => {
+    const { databaseId, documentId } = await createDatabaseRow();
+    const survivorDatabase = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const propertyId = `def_${databaseId}`;
+    const survivorDocumentId = `survivor_${databaseId}`;
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Notes",
+      type: "blocks",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await propertyUtils.writeBlockFieldContent({
+      documentId,
+      propertyId,
+      ownerEmail: OWNER,
+      content: "orphan-me",
+      now,
+    });
+    await db.insert(schema.documents).values({
+      id: survivorDocumentId,
+      ownerEmail: OWNER,
+      title: "Surviving row",
+      content: "survives",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `survivor_item_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId: survivorDatabase.databaseId,
+      documentId: survivorDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await identityUtils.persistBlocksFieldIdentity({
+      db,
+      ownerEmail: OWNER,
+      documentId: survivorDocumentId,
+      propertyId,
+      previousMarkdown: "",
+      markdown: "historical field",
+      now,
+    });
+
+    // documentId is the database PAGE document → hits the database-delete branch.
+    await databaseUtils.deleteDatabaseDataForDocument(documentId, OWNER);
+
+    const remaining = await db
+      .select()
+      .from(schema.documentBlockFieldContents)
+      .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
+    expect(remaining).toHaveLength(0);
+    const [survivor] = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, survivorDocumentId));
+    expect(survivor?.id).toBe(survivorDocumentId);
+    const remainingIdentity = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.propertyId, propertyId));
+    expect(remainingIdentity).toHaveLength(0);
+  });
+});
+
+describe("primary Blocks value reflects the body, never the title (finding: word count)", () => {
+  it("a row with a title but empty body resolves the primary Blocks value to '' (0 words / Empty)", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+
+    // A brand-new row page: has a TITLE but an EMPTY body. The primary "Content"
+    // Blocks field is backed by documents.content — it must NOT leak the title.
+    const db = getDb();
+    const rowDocumentId = `rowdoc_wc_${databaseId}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      parentId: `doc_${databaseId}`,
+      title: "Test page",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_wc_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const [rowDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const properties = await propertyUtils.listPropertiesForDatabase(
+      databaseId,
+      rowDocument,
+    );
+    const primary = properties.find(
+      (p: any) =>
+        p.definition.type === "blocks" &&
+        isPrimaryBlocksField(p.definition.options),
+    );
+
+    // The primary Blocks value is the (empty) body, never the "Test page" title.
+    expect(primary?.value).toBe("");
+    expect(countWords(primary?.value)).toBe(0);
+    expect(formatWordCount(primary?.value)).toBe("Empty");
+    expect(primary?.value).not.toContain("Test");
+  });
+
+  it("typing N words in the body surfaces N words — still excluding the title", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    const primaryId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+
+    const db = getDb();
+    const rowDocumentId = `rowdoc_wc2_${databaseId}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      parentId: `doc_${databaseId}`,
+      title: "Five word title goes here",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `item_wc2_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Write three words to the body (primary → document body).
+    // writePrimaryBlocksContent now asserts editor access on the document, so
+    // run it in the owner's request context (assertAccess reads currentAccess()).
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await propertyUtils.writePrimaryBlocksContent({
+        documentId: rowDocumentId,
+        content: "one two three",
+        now,
+      });
+    });
+
+    const [rowDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const properties = await propertyUtils.listPropertiesForDatabase(
+      databaseId,
+      rowDocument,
+    );
+    const primary = properties.find((p: any) => p.definition.id === primaryId);
+
+    // Word count reflects ONLY the 3 body words — not the 5-word title.
+    expect(primary?.value).toBe("one two three");
+    expect(countWords(primary?.value)).toBe(3);
+    expect(formatWordCount(primary?.value)).toBe("3 words");
+  });
+});
+
+describe("rollups resolve Blocks fields from their backing stores", () => {
+  it("rolls up primary Blocks values from linked document bodies", async () => {
+    const { databaseId, documentId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    const primaryId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const db = getDb();
+    const sourceDocumentId = `source_rollup_${databaseId}`;
+    const targetDocumentId = `target_rollup_${databaseId}`;
+    const relationPropertyId = `relation_${databaseId}`;
+    const rollupPropertyId = `rollup_${databaseId}`;
+
+    await db.insert(schema.documents).values([
+      {
+        id: sourceDocumentId,
+        ownerEmail: OWNER,
+        parentId: documentId,
+        title: "Source",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: targetDocumentId,
+        ownerEmail: OWNER,
+        parentId: documentId,
+        title: "Target",
+        content: "target body",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: relationPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related",
+        type: "relation",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ relation: { databaseId } }),
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: rollupPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related body",
+        type: "rollup",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          rollup: {
+            relationPropertyId,
+            targetPropertyId: primaryId,
+            aggregation: "count_values",
+          },
+        }),
+        position: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyValues).values({
+      id: `value_${sourceDocumentId}`,
+      ownerEmail: OWNER,
+      documentId: sourceDocumentId,
+      propertyId: relationPropertyId,
+      valueJson: JSON.stringify([targetDocumentId]),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const [sourceDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, sourceDocumentId));
+    const properties = await runWithRequestContext({ userEmail: OWNER }, () =>
+      propertyUtils.listPropertiesForDatabase(databaseId, sourceDocument),
+    );
+
+    expect(
+      properties.find(
+        (property: any) => property.definition.id === rollupPropertyId,
+      )?.value,
+    ).toBe(1);
+  });
+
+  it("rolls up additional Blocks values from document_block_field_contents", async () => {
+    const { databaseId, documentId } = await createDatabaseRow();
+    const now = new Date().toISOString();
+    const db = getDb();
+    const sourceDocumentId = `source_extra_rollup_${databaseId}`;
+    const targetDocumentId = `target_extra_rollup_${databaseId}`;
+    const relationPropertyId = `relation_extra_${databaseId}`;
+    const blocksPropertyId = `blocks_extra_${databaseId}`;
+    const rollupPropertyId = `rollup_extra_${databaseId}`;
+
+    await db.insert(schema.documents).values([
+      {
+        id: sourceDocumentId,
+        ownerEmail: OWNER,
+        parentId: documentId,
+        title: "Source",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: targetDocumentId,
+        ownerEmail: OWNER,
+        parentId: documentId,
+        title: "Target",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: relationPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related",
+        type: "relation",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ relation: { databaseId } }),
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: blocksPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ blocks: { primary: false } }),
+        position: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: rollupPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Related notes",
+        type: "rollup",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({
+          rollup: {
+            relationPropertyId,
+            targetPropertyId: blocksPropertyId,
+            aggregation: "count_values",
+          },
+        }),
+        position: 3,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyValues).values({
+      id: `value_${sourceDocumentId}`,
+      ownerEmail: OWNER,
+      documentId: sourceDocumentId,
+      propertyId: relationPropertyId,
+      valueJson: JSON.stringify([targetDocumentId]),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await propertyUtils.writeBlockFieldContent({
+      documentId: targetDocumentId,
+      propertyId: blocksPropertyId,
+      ownerEmail: OWNER,
+      content: "additional body",
+      now,
+    });
+
+    const [sourceDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, sourceDocumentId));
+    const properties = await runWithRequestContext({ userEmail: OWNER }, () =>
+      propertyUtils.listPropertiesForDatabase(databaseId, sourceDocument),
+    );
+
+    expect(
+      properties.find(
+        (property: any) => property.definition.id === rollupPropertyId,
+      )?.value,
+    ).toBe(1);
+  });
+});

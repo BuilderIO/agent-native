@@ -1,0 +1,56 @@
+---
+title: "Node.js"
+description: "Deploy an Agent-Native app with Nitro's default Node.js server preset."
+search: "Node.js deployment Nitro node server preset production"
+---
+
+# Node.js
+
+Node.js is the default Nitro target. Use it when you want to run the generated
+server yourself on a VM, a managed Node host, or your own infrastructure.
+
+<Steps>
+
+### Build the app
+
+Build the client and server output:
+
+```bash
+npx @agent-native/core@latest build
+```
+
+You can make the target explicit in a build environment:
+
+```bash
+NITRO_PRESET=node npx @agent-native/core@latest build
+```
+
+### Start the server
+
+Run the generated server with a supported Node.js LTS release:
+
+```bash
+node .output/server/index.mjs
+```
+
+The server listens on port `3000` by default. Set `PORT` when your host assigns
+a different port.
+
+### Configure production
+
+Use a persistent SQL database and set `DATABASE_URL` before the first
+production start. Add a stable `BETTER_AUTH_SECRET` and the provider variables
+your app uses. The [deployment environment reference](/docs/deployment-environment-variables)
+covers the full production configuration.
+
+</Steps>
+
+Node.js is a runtime choice, not a requirement to use Docker. If you want a
+container image, use the separate [Docker guide](/docs/docker).
+
+## What's next
+
+- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
+- [**Workspace Deployment**](/docs/workspace-deployment) - one origin for many apps
+- [**Docker**](/docs/docker) - package this Node.js server in a container
+- [**Deployment**](/docs/deployment) - compare targets and prerequisites

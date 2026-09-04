@@ -1,0 +1,112 @@
+---
+title: "¿Qué es Agent-Native?"
+description: "Qué es Agent-Native, cómo funciona su arquitectura de acciones compartidas y cuándo crear una aplicación de esta forma."
+---
+
+# ¿Qué es Agent-Native?
+
+Agent-Native es un framework TypeScript de código abierto para crear agentes
+autónomos con interfaces intuitivas. Defines cada capacidad una sola vez como
+una [acción](/docs/actions-overview): una función tipada que el agente usa como
+herramienta y que la UI llama desde el código.
+
+## Por qué crear agentes con UI
+
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>Agente con solo un cuadro de texto</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>Agente</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>¿Qué puede hacer esto?</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>Agente con una UI</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Presentación de lanzamiento</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Esquema</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Diapositivas</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Revisión</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Lanzamiento del producto del T3</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Agente</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>Agente y UI en un mismo espacio de trabajo</span></section></div>"
+    }
+  />
+</WireframeBlock>
+
+Los agentes de programación pueden hacer que un cuadro de texto parezca
+suficiente. Pero el cuadro de texto es solo una parte de su entorno de trabajo.
+El código fuente aporta contexto, las herramientas les ofrecen formas claras de
+actuar, y los archivos, las pruebas y las vistas previas hacen visibles los
+resultados.
+
+La mayor parte del trabajo del conocimiento no cuenta con esa estructura. Ante
+un cuadro de texto vacío, las personas tienen que adivinar qué puede hacer el
+agente, qué contexto tiene y qué deberían pedirle.
+
+Una UI aporta lo que le falta al cuadro de texto. Hace visibles las capacidades
+del agente, incorpora el contexto y los flujos de trabajo a la experiencia, y
+permite que las personas vean y den forma al trabajo mientras se desarrolla.
+
+Agent-Native te permite crear agentes de esta forma. La UI ofrece puntos de
+partida claros sin reducir al agente a un flujo de trabajo fijo. Como el agente
+y la UI usan las mismas capacidades, las personas pueden delegar trabajo al
+agente, inspeccionarlo o cambiarlo en la UI y pasar de uno a otro sin perder el
+progreso.
+
+## Cómo funciona Agent-Native
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="Una comparación entre una persona que usa una aplicación directamente y el trabajo mediante un agente de IA en la misma aplicación."
+  align="full"
+  caption="Ve una introducción de cuatro minutos a la arquitectura de Agent-Native."
+/>
+
+Agent-Native conecta el agente y la UI mediante tres bases compartidas:
+
+- **[Acciones compartidas](/docs/actions-overview).** Cada capacidad se define
+  una vez. El agente la llama como herramienta y la UI la llama desde el código.
+  Ambas vías usan la misma validación, permisos e implementación.
+- **[Datos compartidos](/docs/server-database).** Las acciones leen y actualizan
+  los mismos datos, por lo que el trabajo del agente aparece en la UI y el
+  trabajo realizado en la UI queda disponible para el agente.
+- **[Estado compartido de la aplicación](/docs/context-awareness).** El estado
+  de la aplicación describe lo que ocurre en la UI, como la página actual, el
+  registro seleccionado o la vista activa. Agent-Native proporciona al agente
+  el estado relevante como contexto para que entienda en qué está trabajando la
+  persona.
+
+El agente no hace clic por la UI. Trabaja mediante la misma capa de acciones que
+la UI.
+
+Por ejemplo, una persona puede asignar un ticket de soporte desde la UI o pedirle
+al agente que lo haga. Ambas vías ejecutan la misma acción y actualizan el mismo
+ticket. La persona puede inspeccionar o cambiar el resultado en la UI y dejar
+que el agente continúe desde ahí.
+
+## ¿Cuándo deberías usar Agent-Native?
+
+Agent-Native es adecuado cuando:
+
+- el agente debe hacer trabajo real, no solo responder preguntas;
+- las personas necesitan una UI para ver qué puede hacer el agente y para
+  inspeccionar, editar, aprobar o compartir su trabajo;
+- las personas deben poder pasar entre el agente y la UI sin perder progreso ni
+  contexto.
+
+Si solo necesitas una única respuesta generada, llama a un modelo directamente.
+Si el trabajo sigue una secuencia fija y predecible, la lógica de aplicación o
+la automatización habituales son más simples. Usa Agent-Native cuando tanto el
+agente como la UI deban desempeñar un papel continuo en el mismo trabajo.
+
+## Próximos pasos
+
+<Cards>
+
+### [Primeros pasos](/docs/getting-started)
+
+Crea una aplicación y llama a la misma acción desde el agente y la UI.
+
+### [Conceptos clave](/docs/key-concepts)
+
+Aprende cómo encajan las acciones, los datos SQL, el contexto de la aplicación,
+el acceso y la sincronización en tiempo real.
+
+### [Superficies de agente](/docs/agent-surfaces)
+
+Descubre cómo el mismo modelo admite aplicaciones lideradas por una UI, chat,
+automatización u otro agente.
+
+### [Plantillas](/docs/cloneable-saas)
+
+Empieza desde un producto SaaS completo en lugar de construirlo partiendo de Chat.
+
+</Cards>

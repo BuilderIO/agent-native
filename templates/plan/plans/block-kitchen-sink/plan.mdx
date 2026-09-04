@@ -1,0 +1,128 @@
+---
+title: "Block Kitchen Sink"
+brief: "A playground plan that exercises every editable block type, edited as one Notion-style document."
+version: 2
+planId: "plan_kitchensinkfbd54d62"
+source: "agent-native-plan"
+---
+
+<RichText id="rt-intro">
+
+## URL Shortener — Overview
+
+A tiny service that turns long URLs into short `/s/<code>` links and tracks clicks.
+
+### Why it exists
+
+Sharing raw tracking URLs is ugly and **unmemorable**. We want _short, branded_ links.
+
+Core capabilities:
+
+- Create a short code for any URL
+- Redirect `/s/<code>` to the original target
+- Count clicks per link
+
+</RichText>
+
+<Callout id="callout-decision" tone="info">
+
+Keep codes short and collision-safe — base62 over an auto-increment id beats random retries.
+
+</Callout>
+
+<Checklist
+  id="check-accept"
+  items={[
+    {
+      id: "i1",
+      label: "Schema designed",
+      checked: true,
+    },
+    {
+      id: "i2",
+      label: "Create endpoint stubbed",
+      checked: true,
+    },
+    {
+      id: "i3",
+      label: "Redirect handler wired",
+      checked: false,
+    },
+    {
+      id: "i4",
+      label: "Click analytics surfaced",
+      checked: false,
+    },
+  ]}
+/>
+
+<Table
+  id="table-api"
+  columns={["Method", "Path", "Purpose"]}
+  rows={[
+    ["POST", "/api/links", "Create a short link from a target URL"],
+    ["GET", "/s/:code", "Redirect to the target and count a click"],
+    ["GET", "/api/links/:code", "Fetch a link with its click total"],
+  ]}
+/>
+
+<CodeTabs
+  id="code-impl"
+  tabs={[
+    {
+      id: "t-schema",
+      label: "schema.ts",
+      language: "ts",
+      code: 'import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";\n\nexport const links = sqliteTable("links", {\n  code: text("code").primaryKey(),\n  targetUrl: text("target_url").notNull(),\n  clicks: integer("clicks").notNull().default(0),\n});',
+      caption: "Drizzle table for short links.",
+    },
+    {
+      id: "t-redirect",
+      label: "redirect.ts",
+      language: "ts",
+      code: "export async function redirect(code: string) {\n  const row = await db.query.links.findFirst({ where: eq(links.code, code) });\n  if (!row) return null;\n  return row.targetUrl;\n}",
+    },
+  ]}
+/>
+
+<HtmlBlock
+  id="custom-html-card"
+  title="Success card"
+  html={
+    '<div style="padding:20px;border-radius:12px;background:#fff;color:#111;max-width:360px"><span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600">Live</span><h3 style="margin:10px 0 4px">Short link created</h3><p style="color:#555;font-size:14px">Your link <code>/s/a9Qf</code> now points to the campaign landing page.</p></div>'
+  }
+/>
+
+<Decision
+  id="decision-codes"
+  title={"How should we generate short codes?"}
+  question={"How should we generate short codes?"}
+  options={[
+    {
+      id: "o1",
+      label: "Base62 of the row id",
+      detail:
+        "Deterministic, collision-free, shortest possible codes. No retry loop.",
+      recommended: true,
+    },
+    {
+      id: "o2",
+      label: "Random 6-char string",
+      detail:
+        "Simple but needs uniqueness checks and retries under contention.",
+    },
+    {
+      id: "o3",
+      label: "Hash of the target URL",
+      detail: "Dedupes identical URLs but leaks that two links share a target.",
+    },
+  ]}
+/>
+
+<RichText id="rt-wrap">
+
+### Wrap-up
+
+Everything above is one editable document — type anywhere, drag blocks, and use `/` to insert more.
+
+</RichText>

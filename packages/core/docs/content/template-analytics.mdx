@@ -1,0 +1,134 @@
+---
+title: "Analytics"
+description: "Ask analytics questions in plain English and get charts, dashboards, and alerts back — an open-source alternative to Amplitude, Mixpanel, and Looker that also covers uptime monitoring, error tracking, and session replay, all on your own data."
+---
+
+# Analytics
+
+Ask analytics questions in plain English, get charts and dashboards back. The agent picks the right data source, writes and validates the query, and renders the answer as a chart, table, or saved dashboard panel. Analytics also covers uptime monitoring, error tracking, and session replay — the surfaces a team would otherwise split across three or four separate tools.
+
+<WireframeBlock id="doc-block-s1fqmy">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native Templates</h1><p class='wf-muted' style='margin:0'>Adoption and engagement across the last 12 weeks.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Weekly active users</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>New signups</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Revenue MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Weekly active users</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenue over time</strong><div style='flex:1;position:relative;background:linear-gradient(115deg,var(--wf-accent-soft) 0%,transparent 60%);border-radius:6px'><div style='position:absolute;inset:0;display:flex;align-items:end;gap:10px;padding:0 6px 6px'><span style='width:7px;height:7px;border-radius:50%;background:var(--wf-accent);margin-bottom:14%'></span><span style='width:7px;height:7px;border-radius:50%;background:var(--wf-accent);margin-bottom:30%'></span><span style='width:7px;height:7px;border-radius:50%;background:var(--wf-accent);margin-bottom:48%'></span><span style='width:7px;height:7px;border-radius:50%;background:var(--wf-accent);margin-bottom:72%'></span></div></div></div></div><div class='wf-card'><strong>Signups by source</strong><div style='display:flex;flex-direction:column;gap:6px;margin-top:10px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-muted' style='width:60px;font-size:11px'>Organic</span><div class='wf-box' style='height:12px;width:70%;padding:0'></div></div><div style='display:flex;align-items:center;gap:8px'><span class='wf-muted' style='width:60px;font-size:11px'>Referral</span><div class='wf-box' style='height:12px;width:45%;padding:0'></div></div><div style='display:flex;align-items:center;gap:8px'><span class='wf-muted' style='width:60px;font-size:11px'>Paid ads</span><div class='wf-box' style='height:12px;width:28%;padding:0'></div></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+It's an open-source replacement for Amplitude, Mixpanel, and Looker — for teams that want to own the code, the queries, and the data.
+
+<Diagram id="doc-block-9n9ub7" title="Question to chart" summary="The agent consults the data dictionary, writes SQL, validates it against the warehouse, then renders a chart or saves a panel.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">Plain-English<br />question</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">reads data dictionary</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>Writes SQL</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">Dry-run validate</div>
+    <small class="diagram-muted">BigQuery / source</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Chart, table, or<br />saved panel</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## What you can do with it
+
+- **Ask data questions in plain English.** "What percent of signups last month converted to paid?" or "Show me weekly active users for the past 6 months." The agent picks the right source, writes the SQL, and renders the chart.
+- **Build reusable dashboards** — either SQL dashboards the agent writes, or point-and-click Explorer dashboards over your BigQuery schema — with filters, saved views, and sections.
+- **Run ad-hoc analyses** that cross-reference multiple data sources — saved as re-runnable investigations with the original question, instructions, and findings.
+- **Maintain a living data dictionary** of metrics, tables, and SQL recipes so the agent uses the right column names every time (no more guessed `is_closed` when it's actually `hs_is_closed`).
+- **Watch uptime and triage errors.** Add an HTTP uptime check with alerting, publish a public status page, and triage browser exceptions grouped into issues — see [Monitoring, Errors, and Session Replay](/docs/template-analytics-monitoring-and-sessions).
+- **Watch a real session play back.** Every recorded session captures the page, console, and network activity, replayable frame by frame with a Chrome-style Dev Tools panel.
+- **Share dashboards** with your team — private by default, shareable per-user or per-org with viewer / editor / admin roles.
+- **Connect your stack.** BigQuery, GA4, Amplitude, Mixpanel, PostHog, HubSpot, Stripe, Slack, Prometheus, Grafana, and a dozen more — see the full catalog in [Connecting and Extending Data Sources](/docs/template-analytics-connectors).
+
+## Getting started
+
+Live demo: [analytics.agent-native.com](https://analytics.agent-native.com).
+
+When you first open the app:
+
+1. Sign in with Google. A demo dashboard installs automatically so there's something to look at right away.
+2. Open the **Data Sources** page from the sidebar.
+3. Each source has a walkthrough — connect the ones you need (start with one, like BigQuery, GA4, Amplitude, or first-party tracking).
+4. Open a new chat with the agent and ask a question: "How many signups did we get last week?"
+
+The first question is enough to confirm the connection works. From there, ask the agent to "save this as a dashboard" or "build a 4-panel overview dashboard for our key metrics."
+
+### Useful prompts
+
+- "Build a dashboard showing weekly active users for the past 6 months."
+- "What percent of signups last month converted to paid?"
+- "Add a chart comparing revenue by plan to this dashboard."
+- "Reorder the panels on this dashboard so the MRR metric comes first."
+- "Analyze our closed-lost deals from Q1 and save the analysis."
+- "Document this metric in the data dictionary."
+- "Add an uptime check for our production API and alert Slack if it goes down."
+- "Show me today's open error issues, worst first."
+
+The agent always knows what you're looking at — current dashboard, filters, view — so you can say "this dashboard" or "that panel" without being explicit.
+
+## Surfaces at a glance
+
+Analytics is more than dashboards and the dictionary — here's everywhere you'll spend time:
+
+- **[Dashboards, analyses, and the data dictionary](/docs/template-analytics-dashboards)** — reusable SQL/Explorer dashboards, one-off investigations, the shared metric vocabulary, plus scheduled email reports and alert rules.
+- **[Monitoring, errors, and session replay](/docs/template-analytics-monitoring-and-sessions)** — uptime checks with a public status page, Sentry-style error triage, full session recordings with a Dev Tools panel, and traffic/SEO reporting.
+- **[Data sources](/docs/template-analytics-connectors)** — every connected provider, reusable workspace integrations, and the escape hatches for anything a canned action doesn't cover.
+- **Admin home (`/agents`)** — a fleet feature-flag control plane, a dashboard usage audit, and connected-app database admin for organization owners — see [Extending Analytics](/docs/template-analytics-developers).
+
+## For developers
+
+Create an Analytics app from the template via the CLI:
+
+```bash
+npx @agent-native/core@latest create my-analytics --standalone --template analytics
+```
+
+See [Getting Started](/docs/getting-started) for the rest of the setup (installing dependencies, running the dev server, environment variables), and [Extending Analytics](/docs/template-analytics-developers) for the data model, action reference, and customization points.
+
+## What's next
+
+- [**Dashboards, Analyses, and the Data Dictionary**](/docs/template-analytics-dashboards) — the day-to-day surfaces
+- [**Monitoring, Errors, and Session Replay**](/docs/template-analytics-monitoring-and-sessions) — uptime, error triage, and replay
+- [**Connecting and Extending Data Sources**](/docs/template-analytics-connectors) — the full connector catalog and the escape hatches
+- [**Extending Analytics**](/docs/template-analytics-developers) — data model, actions, and customizing the template
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Sharing**](/docs/sharing) — the share-grant model dashboards and analyses build on

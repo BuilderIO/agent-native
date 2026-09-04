@@ -1,0 +1,72 @@
+---
+title: "Sources de dossiers locaux"
+description: "Connectez des dossiers Markdown et MDX aux espaces Content, tous stockés en base de données."
+---
+
+# Sources de dossiers locaux
+
+Content utilise désormais un seul modèle de données : chaque page est stockée
+en SQL, appartient à un **espace** et figure dans la base système **Files** de
+cet espace. Un dossier local est une source connectée à Files, pas un second
+mode d'application. Il n'existe plus de commutateur `AGENT_NATIVE_MODE`.
+
+Chaque utilisateur possède un espace personnel, chaque organisation accessible
+possède son espace, et le catalogue personnel **Workspaces** détermine les
+espaces affichés. Files est une base Content normale : ses propriétés, filtres,
+tris, groupes et vues enregistrées peuvent aussi rendre la barre latérale.
+
+## Connecter un dossier
+
+Choisissez un dossier via le navigateur ou Agent-Native Desktop, puis rattachez-
+le à un espace existant ou créez un espace privé associé au dossier. SQL ne
+conserve que l'identifiant opaque de connexion, les chemins relatifs, les
+empreintes et les métadonnées de source — jamais le chemin absolu, le handle du
+navigateur ou le corps brut des fichiers.
+
+Les stratégies disponibles sont `database_primary`, `source_primary` et
+`reviewed_bidirectional`. La synchronisation matérialise les fichiers comme des
+pages SQL ordinaires. En cas de modifications concurrentes, elle crée un
+changement à examiner au lieu d'écraser un côté. La déconnexion conserve les
+pages et les fichiers locaux.
+
+## Démarrer depuis un dépôt
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+La commande démarre l'application Content normale, enregistre le dossier comme
+source et ouvre l'écran de connexion. Elle ne définit aucune variable de mode.
+
+## Configuration
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions"
+    }
+  }
+}
+```
+
+Pour migrer, supprimez `mode: "local-files"` et
+`AGENT_NATIVE_MODE=local-files`, conservez les racines et ajoutez la section
+`source`. Les identifiants de frontmatter préservent l'identité d'une page lors
+d'un renommage ou déplacement. Les composants et extensions locaux continuent
+de passer par le pont local de confiance.

@@ -1,0 +1,1058 @@
+import type {
+  ContentDatabaseResponse,
+  ContentDatabaseSourceFieldPropertyResponse,
+} from "@shared/api";
+import { QueryClient } from "@tanstack/react-query";
+import { describe, expect, it } from "vitest";
+
+import {
+  applyDocumentPropertiesToDatabaseResponse,
+  applyDocumentPropertyValueToDatabaseResponse,
+  applyBuilderAttachCompletion,
+  applyOptimisticItemToContentDatabase,
+  applyOptimisticBuilderWriteMode,
+  applyOptimisticSourceFieldPropertyToDatabaseResponse,
+  applySourceFieldPropertyToDatabaseResponse,
+  clearDeletedContentDatabaseFromCache,
+  contentDatabaseResponseCanSeedQuery,
+  contentDatabaseItemsPageQueryKey,
+  contentDatabaseQueryKey,
+  fetchCompleteContentDatabaseList,
+  invalidateBuilderBodyHydrationQueries,
+  invalidateContentDatabaseSourceRefreshQueries,
+  isContentDatabaseByIdQueryEnabled,
+  moveOptimisticContentDatabaseItem,
+  preserveScopedDatabasePlaceholder,
+  readCachedContentDatabaseResponse,
+  removeDocumentPropertyFromDatabaseResponse,
+  removeOptimisticItemFromContentDatabase,
+  writeContentDatabaseResponseToCache,
+  writeBuilderAttachPreviewToCache,
+} from "./use-content-database";
+
+const createdAt = "2026-06-15T12:00:00.000Z";
+
+describe("complete Content database discovery", () => {
+  it("exhausts every bounded page before returning source-picker options", async () => {
+    const databases = Array.from({ length: 101 }, (_, index) => ({
+      databaseId: `database-${index}`,
+      documentId: `document-${index}`,
+      spaceId: null,
+      title: `Database ${index}`,
+      description: "",
+    }));
+    const offsets: number[] = [];
+
+    const result = await fetchCompleteContentDatabaseList(
+      async (offset, limit) => {
+        offsets.push(offset);
+        const page = databases.slice(offset, offset + limit);
+        const nextOffset = offset + page.length;
+        return {
+          databases: page,
+          pagination: {
+            offset,
+            limit,
+            totalItems: databases.length,
+            returnedItems: page.length,
+            hasMore: nextOffset < databases.length,
+            nextOffset: nextOffset < databases.length ? nextOffset : null,
+          },
+        };
+      },
+    );
+
+    expect(offsets).toEqual([0, 50, 100]);
+    expect(result.map((database) => database.databaseId)).toEqual(
+      databases.map((database) => database.databaseId),
+    );
+  });
+
+  it("rejects a non-advancing continuation instead of clipping silently", async () => {
+    await expect(
+      fetchCompleteContentDatabaseList(async (_offset, limit) => ({
+        databases: [],
+        pagination: {
+          offset: 0,
+          limit,
+          totalItems: 1,
+          returnedItems: 0,
+          hasMore: true,
+          nextOffset: 0,
+        },
+      })),
+    ).rejects.toThrow("non-advancing continuation");
+  });
+});
+
+describe("preserveScopedDatabasePlaceholder", () => {
+  const previous = { database: "organization-files" };
+
+  it("preserves data while only pagination changes within one database", () => {
+    expect(
+      preserveScopedDatabasePlaceholder(
+        previous,
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { documentId: "organization-files", limit: 50 },
+          ],
+        },
+        { documentId: "organization-files" },
+      ),
+    ).toBe(previous);
+  });
+
+  it("never carries database rows across workspace database ids", () => {
+    expect(
+      preserveScopedDatabasePlaceholder(
+        previous,
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { databaseId: "organization-files" },
+          ],
+        },
+        { databaseId: "personal-files" },
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("isContentDatabaseByIdQueryEnabled", () => {
+  it("fetches when a databaseId is present and the caller doesn't pause it", () => {
+    expect(isContentDatabaseByIdQueryEnabled("files-db")).toBe(true);
+  });
+
+  it("stays disabled when there is no databaseId to query", () => {
+    expect(isContentDatabaseByIdQueryEnabled(null)).toBe(false);
+    expect(isContentDatabaseByIdQueryEnabled(null, { enabled: true })).toBe(
+      false,
+    );
+  });
+
+  it("pauses fetching for a still-known databaseId instead of requiring the caller to null it out", () => {
+    // A caller that wants to briefly hold off refetching (e.g. a deferred
+    // sidebar read) must be able to do so by passing `enabled: false` while
+    // keeping the same databaseId — nulling databaseId out instead would move
+    // the query to its disabled, uncached key and read as empty rather than
+    // paused. See DocumentSidebar.tsx's useDeferredFilesDatabaseId.
+    expect(
+      isContentDatabaseByIdQueryEnabled("files-db", { enabled: false }),
+    ).toBe(false);
+  });
+});
+
+describe("optimistic Content database items", () => {
+  it("shows the durable Builder row count before the authoritative readback", () => {
+    const completed = applyBuilderAttachCompletion(
+      {
+        ...databaseResponse(),
+        pagination: {
+          offset: 0,
+          limit: 100,
+          totalItems: 100,
+          returnedItems: 100,
+          hasMore: false,
+        },
+      },
+      {
+        responseProjection: "ack",
+        databaseId: "database",
+        documentId: "database-page",
+        sourceId: "builder-source",
+        sourceType: "builder-cms",
+        sourceTable: "agent-native-blog-article-test",
+        importedItemCount: 584,
+        fetchedAt: createdAt,
+      },
+    );
+
+    expect(completed?.pagination).toMatchObject({
+      totalItems: 584,
+      hasMore: true,
+    });
+    expect(completed?.attachPreview).toEqual({
+      sourceTable: "agent-native-blog-article-test",
+      fetchedAt: createdAt,
+      importedItemCount: 584,
+      complete: true,
+    });
+  });
+
+  it("shows stable read-only Builder rows while attachment is pending", () => {
+    const queryClient = new QueryClient();
+    const queryKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ] as const;
+    queryClient.setQueryData(queryKey, databaseResponse());
+    const previewItem = {
+      ...databaseResponse().items[0]!,
+      id: "builder-item_stable",
+      document: {
+        ...databaseResponse().items[0]!.document,
+        id: "builder-doc_stable",
+        title: "Real Builder row",
+        accessRole: "viewer" as const,
+        canEdit: false,
+        canManage: false,
+      },
+    };
+
+    writeBuilderAttachPreviewToCache(queryClient, "database-page", {
+      databaseId: "database",
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      base: databaseResponse(),
+      items: [previewItem],
+      fetchedAt: createdAt,
+      hasMore: true,
+    });
+
+    const preview =
+      queryClient.getQueryData<ContentDatabaseResponse>(queryKey)!;
+    expect(preview.items).toEqual([previewItem]);
+    expect(preview.attachPreview).toEqual({
+      sourceTable: "agent-native-blog-article-test",
+      fetchedAt: createdAt,
+    });
+    expect(preview.pagination).toMatchObject({
+      returnedItems: 1,
+      hasMore: true,
+    });
+  });
+
+  it("seeds the optimistic Builder preview while the database query has no data", () => {
+    const queryClient = new QueryClient();
+    const queryKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ] as const;
+    queryClient.getQueryCache().build(queryClient, {
+      queryKey,
+      queryFn: async () => databaseResponse(),
+    });
+    const previewItem = {
+      ...databaseResponse().items[0]!,
+      id: "builder-item_fresh",
+      document: {
+        ...databaseResponse().items[0]!.document,
+        id: "builder-doc_fresh",
+        title: "Fresh Builder row",
+      },
+    };
+
+    writeBuilderAttachPreviewToCache(queryClient, "database-page", {
+      databaseId: "database",
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      base: databaseResponse(),
+      items: [previewItem],
+      fetchedAt: createdAt,
+      hasMore: true,
+    });
+
+    expect(
+      queryClient.getQueryData<ContentDatabaseResponse>(queryKey)?.items,
+    ).toEqual([previewItem]);
+  });
+
+  it("adds a new page immediately and rolls it back by document id", () => {
+    const current = {
+      ...databaseResponse(),
+      items: [],
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 0,
+        returnedItems: 0,
+        hasMore: false,
+      },
+    };
+    const optimisticItem = {
+      id: "optimistic-new-page",
+      databaseId: "database",
+      document: databaseResponse().items[0]!.document,
+      position: 9999,
+      properties: [],
+    };
+
+    const added = applyOptimisticItemToContentDatabase(current, optimisticItem);
+
+    expect(added?.items).toEqual([optimisticItem]);
+    expect(added?.pagination).toMatchObject({
+      totalItems: 1,
+      returnedItems: 1,
+    });
+    expect(applyOptimisticItemToContentDatabase(added, optimisticItem)).toBe(
+      added,
+    );
+
+    const rolledBack = removeOptimisticItemFromContentDatabase(
+      added,
+      optimisticItem.document.id,
+    );
+    expect(rolledBack?.items).toEqual([]);
+    expect(rolledBack?.pagination).toMatchObject({
+      totalItems: 0,
+      returnedItems: 0,
+    });
+  });
+
+  it("moves one exact membership immediately and keeps positions gapless", () => {
+    const current = {
+      ...databaseResponse(),
+      items: databaseResponse().items.slice(0, 3),
+    };
+
+    const moved = moveOptimisticContentDatabaseItem(
+      current,
+      current.items[2]!.id,
+      0,
+    );
+
+    expect(moved?.items.map((item) => item.id)).toEqual([
+      current.items[2]!.id,
+      current.items[0]!.id,
+      current.items[1]!.id,
+    ]);
+    expect(moved?.items.map((item) => item.position)).toEqual([0, 1, 2]);
+    expect(
+      moveOptimisticContentDatabaseItem(current, "another-membership", 0),
+    ).toBe(current);
+  });
+});
+
+function databaseResponse(): ContentDatabaseResponse {
+  return {
+    database: {
+      id: "database",
+      documentId: "database-page",
+      title: "Content",
+      viewConfig: {
+        activeViewId: "default",
+        views: [],
+        sorts: [],
+        filters: [],
+        columnWidths: {},
+      },
+      createdAt,
+      updatedAt: createdAt,
+    },
+    properties: [
+      {
+        definition: {
+          id: "status",
+          databaseId: "database",
+          name: "Status",
+          type: "text",
+          visibility: "always_show",
+          options: {},
+          position: 0,
+          createdAt,
+          updatedAt: createdAt,
+        },
+        value: null,
+        editable: true,
+      },
+    ],
+    items: Array.from({ length: 500 }, (_, index) => ({
+      id: `item-${index}`,
+      databaseId: "database",
+      document: {
+        id: `document-${index}`,
+        parentId: "database-page",
+        title: `Article ${index}`,
+        content: "",
+        icon: null,
+        position: index,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+        accessRole: "owner",
+        canEdit: true,
+        canManage: true,
+        createdAt,
+        updatedAt: createdAt,
+      },
+      position: index,
+      properties: [],
+    })),
+    source: {
+      id: "source",
+      databaseId: "database",
+      sourceType: "builder-cms",
+      sourceName: "Builder CMS",
+      sourceTable: "blog-article",
+      syncState: "idle",
+      freshness: "fresh",
+      lastRefreshedAt: createdAt,
+      lastSourceUpdatedAt: createdAt,
+      lastError: null,
+      capabilities: {
+        canRefresh: true,
+        canCreateChangeSets: true,
+        canWriteFields: true,
+        canWriteBody: true,
+        canPush: true,
+        canPull: true,
+        canPublish: true,
+        canDelete: false,
+        canStageLocalRevision: true,
+        liveWritesEnabled: false,
+        readOnlyRefresh: true,
+      },
+      metadata: {
+        primaryKey: "id",
+        titleField: "title",
+        naturalKeyField: null,
+        pushMode: "none",
+        pushModeLabel: null,
+        pushModeDescription: null,
+        notes: null,
+        readMode: "builder-api",
+        liveReadConfigured: true,
+      },
+      fields: [
+        {
+          id: "field-handle",
+          propertyId: null,
+          propertyName: null,
+          localFieldKey: "data.handle",
+          sourceFieldKey: "data.handle",
+          sourceFieldLabel: "Handle",
+          sourceFieldType: "text",
+          mappingType: "property",
+          writeOwner: "source",
+          readOnly: false,
+          provenance: "Builder model field",
+          freshness: "fresh",
+          lastSyncedAt: createdAt,
+        },
+      ],
+      rows: [],
+      changeSets: [],
+    },
+  };
+}
+
+describe("applyOptimisticBuilderWriteMode", () => {
+  it("updates the active Builder policy without replacing database rows", () => {
+    const current = databaseResponse();
+    current.sources = [current.source!];
+
+    const updated = applyOptimisticBuilderWriteMode(current, {
+      documentId: "database-page",
+      sourceId: "source",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+
+    expect(updated?.items).toBe(current.items);
+    expect(updated?.source).toMatchObject({
+      capabilities: { liveWritesEnabled: true },
+      metadata: {
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+        allowedWriteModes: ["autosave", "publish"],
+        allowPublishWrites: true,
+        pushMode: "publish",
+      },
+    });
+    expect(updated?.sources?.[0]).toMatchObject(updated?.source ?? {});
+  });
+
+  it("optimistically disables publication transitions for read-only mode", () => {
+    const current = applyOptimisticBuilderWriteMode(databaseResponse(), {
+      sourceId: "source",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+
+    const updated = applyOptimisticBuilderWriteMode(current, {
+      sourceId: "source",
+      writeMode: "read_only",
+      allowPublicationTransitions: true,
+    });
+
+    expect(updated?.source).toMatchObject({
+      capabilities: { liveWritesEnabled: false },
+      metadata: {
+        writeMode: "read_only",
+        allowPublicationTransitions: false,
+        allowedWriteModes: [],
+        allowPublishWrites: false,
+        pushMode: "none",
+      },
+    });
+  });
+});
+
+function sourceFieldPatch(): ContentDatabaseSourceFieldPropertyResponse {
+  return {
+    databaseId: "database",
+    documentId: "database-page",
+    property: {
+      definition: {
+        id: "property-handle",
+        databaseId: "database",
+        name: "Handle",
+        type: "text",
+        visibility: "always_show",
+        options: {},
+        position: 1,
+        createdAt,
+        updatedAt: createdAt,
+      },
+      value: null,
+      editable: true,
+    },
+    sourceField: {
+      id: "field-handle",
+      propertyId: "property-handle",
+      propertyName: "Handle",
+      localFieldKey: "property-handle",
+      sourceFieldKey: "data.handle",
+      sourceFieldLabel: "Handle",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      readOnly: false,
+      provenance: "Builder model field",
+      freshness: "fresh",
+      lastSyncedAt: createdAt,
+    },
+    itemValues: [
+      {
+        itemId: "item-0",
+        documentId: "document-0",
+        value: "welcome-to-builder",
+      },
+      {
+        itemId: "item-1",
+        documentId: "document-1",
+        value: "second-post",
+      },
+    ],
+  };
+}
+
+describe("applySourceFieldPropertyToDatabaseResponse", () => {
+  it("patches a high-volume database cache without replacing rows", () => {
+    const current = databaseResponse();
+    const firstItem = current.items[0];
+    const updated = applySourceFieldPropertyToDatabaseResponse(
+      current,
+      sourceFieldPatch(),
+    );
+
+    expect(
+      updated?.properties.map((property) => property.definition.id),
+    ).toEqual(["status", "property-handle"]);
+    expect(updated?.items).toHaveLength(500);
+    expect(updated?.items[0]).not.toBe(firstItem);
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "property-handle", name: "Handle" },
+      value: "welcome-to-builder",
+    });
+    expect(updated?.items[1]?.properties[0]).toMatchObject({
+      definition: { id: "property-handle", name: "Handle" },
+      value: "second-post",
+    });
+    expect(updated?.items[2]?.properties[0]).toMatchObject({
+      definition: { id: "property-handle", name: "Handle" },
+      value: null,
+    });
+    expect(updated?.source?.fields[0]).toMatchObject({
+      id: "field-handle",
+      propertyId: "property-handle",
+      localFieldKey: "property-handle",
+    });
+  });
+
+  it("mirrors source field patches into the multi-source cache", () => {
+    const current = databaseResponse();
+    current.sources = [current.source!];
+
+    const updated = applySourceFieldPropertyToDatabaseResponse(
+      current,
+      sourceFieldPatch(),
+    );
+
+    expect(updated?.sources?.[0]?.fields[0]).toMatchObject({
+      id: "field-handle",
+      propertyId: "property-handle",
+      localFieldKey: "property-handle",
+    });
+  });
+
+  it("optimistically inserts a pending source-field column with placeholder values", () => {
+    const current = databaseResponse();
+
+    const updated = applyOptimisticSourceFieldPropertyToDatabaseResponse(
+      current,
+      {
+        documentId: "database-page",
+        sourceFieldId: "field-handle",
+      },
+    );
+
+    expect(
+      updated?.properties.map((property) => property.definition.name),
+    ).toEqual(["Status", "Handle"]);
+    expect(updated?.properties[1]).toMatchObject({
+      definition: {
+        id: "optimistic-source-field-property:field-handle",
+        name: "Handle",
+        type: "text",
+      },
+      value: null,
+      editable: false,
+    });
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "optimistic-source-field-property:field-handle" },
+      value: null,
+      editable: false,
+    });
+    expect(updated?.source?.fields[0]).toMatchObject({
+      id: "field-handle",
+      propertyId: "optimistic-source-field-property:field-handle",
+      propertyName: "Handle",
+      freshness: "unknown",
+    });
+  });
+
+  it("ignores patches for a different database", () => {
+    const current = databaseResponse();
+    const patch = { ...sourceFieldPatch(), databaseId: "other-database" };
+
+    expect(applySourceFieldPropertyToDatabaseResponse(current, patch)).toBe(
+      current,
+    );
+  });
+});
+
+describe("applyDocumentPropertyValueToDatabaseResponse", () => {
+  it("updates a row property in the cached database response", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+
+    const updated = applyDocumentPropertyValueToDatabaseResponse(current, {
+      documentId: "document-0",
+      propertyId: "status",
+      value: "Published",
+    });
+
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status" },
+      value: "Published",
+    });
+    expect(updated?.items[1]).toBe(current.items[1]);
+  });
+
+  it("inserts a visible row property when the row was falling back to the database property", () => {
+    const current = databaseResponse();
+
+    const updated = applyDocumentPropertyValueToDatabaseResponse(current, {
+      documentId: "document-0",
+      propertyId: "status",
+      value: "Agent-Native",
+    });
+
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status", name: "Status" },
+      value: "Agent-Native",
+      editable: true,
+    });
+  });
+});
+
+describe("applyDocumentPropertiesToDatabaseResponse", () => {
+  it("updates definitions while preserving each row's stored value", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+    const renamed = {
+      ...current.properties[0]!,
+      definition: {
+        ...current.properties[0]!.definition,
+        name: "Workflow",
+      },
+    };
+
+    const updated = applyDocumentPropertiesToDatabaseResponse(current, {
+      databaseId: "database",
+      properties: [renamed],
+    });
+
+    expect(updated?.properties[0]?.definition.name).toBe("Workflow");
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status", name: "Workflow" },
+      value: "Draft",
+    });
+  });
+
+  it("does not patch a cache entry for another database", () => {
+    const current = databaseResponse();
+
+    expect(
+      applyDocumentPropertiesToDatabaseResponse(current, {
+        databaseId: "other-database",
+        properties: [],
+      }),
+    ).toBe(current);
+  });
+});
+
+describe("removeDocumentPropertyFromDatabaseResponse", () => {
+  it("removes a property from the schema and every cached row", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+
+    const updated = removeDocumentPropertyFromDatabaseResponse(
+      current,
+      "status",
+    );
+
+    expect(updated?.properties).toEqual([]);
+    expect(updated?.items[0]?.properties).toEqual([]);
+  });
+});
+
+describe("invalidateContentDatabaseSourceRefreshQueries", () => {
+  it("keeps continuation invalidations linear and narrowly targeted", () => {
+    const invalidations: Array<{ queryKey: readonly unknown[] }> = [];
+    const queryClient = {
+      invalidateQueries: (filters: { queryKey: readonly unknown[] }) => {
+        invalidations.push(filters);
+      },
+    };
+
+    for (let page = 0; page < 5; page++) {
+      invalidateContentDatabaseSourceRefreshQueries(
+        queryClient,
+        "database-page",
+      );
+    }
+
+    expect(invalidations).toHaveLength(15);
+    expect(
+      invalidations.filter(
+        (filters) =>
+          filters.queryKey.length === 1 && filters.queryKey[0] === "action",
+      ),
+    ).toHaveLength(0);
+    expect(invalidations).toEqual(
+      Array.from({ length: 5 }).flatMap(() => [
+        { queryKey: contentDatabaseQueryKey("database-page") },
+        { queryKey: contentDatabaseItemsPageQueryKey },
+        {
+          queryKey: [
+            "action",
+            "get-content-database-source",
+            { documentId: "database-page" },
+          ],
+        },
+      ]),
+    );
+  });
+});
+
+describe("clearDeletedContentDatabaseFromCache", () => {
+  it("removes stale deleted database page data and invalidates source pickers", () => {
+    const queryClient = new QueryClient();
+    const database = databaseResponse();
+    queryClient.setQueryData(
+      contentDatabaseQueryKey("database-page"),
+      database,
+    );
+    queryClient.setQueryData(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      database,
+    );
+    queryClient.setQueryData(
+      ["action", "get-document", { id: "database-page" }],
+      database.items[0]?.document,
+    );
+    queryClient.setQueryData(["action", "list-content-databases"], {
+      databases: [
+        {
+          databaseId: "database",
+          documentId: "database-page",
+          title: "Content",
+        },
+      ],
+    });
+
+    clearDeletedContentDatabaseFromCache(queryClient, "database-page");
+
+    expect(
+      queryClient.getQueryData(contentDatabaseQueryKey("database-page")),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData([
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ]),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData([
+        "action",
+        "get-document",
+        { id: "database-page" },
+      ]),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryState(["action", "list-content-databases"])
+        ?.isInvalidated,
+    ).toBe(true);
+  });
+});
+
+describe("writeContentDatabaseResponseToCache", () => {
+  it("stores the attach-source response immediately for the active database", () => {
+    const attached = databaseResponse();
+    const queryClient = new QueryClient();
+
+    writeContentDatabaseResponseToCache(queryClient, "database-page", attached);
+
+    const cached = queryClient.getQueryData<ContentDatabaseResponse>(
+      contentDatabaseQueryKey("database-page"),
+    );
+    expect(cached).toBe(attached);
+    expect(cached?.source?.sourceTable).toBe("blog-article");
+  });
+
+  it("updates active paginated database reads after a Builder source attach", () => {
+    const beforeAttach = {
+      ...databaseResponse(),
+      items: [],
+      source: null,
+    };
+    const attached = {
+      ...databaseResponse(),
+      items: databaseResponse().items.slice(0, 100),
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 500,
+        returnedItems: 100,
+        hasMore: true,
+      },
+    };
+    const queryClient = new QueryClient();
+    const visibleQueryKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ] as const;
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      visibleQueryKey,
+      beforeAttach,
+    );
+
+    writeContentDatabaseResponseToCache(queryClient, "database-page", attached);
+
+    const visibleCache =
+      queryClient.getQueryData<ContentDatabaseResponse>(visibleQueryKey);
+    expect(visibleCache?.source?.sourceTable).toBe("blog-article");
+    expect(visibleCache?.items).toHaveLength(100);
+  });
+
+  it("does not overwrite a constrained cache with an unconstrained response", () => {
+    const response = {
+      ...databaseResponse(),
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 500,
+        returnedItems: 100,
+        hasMore: true,
+      },
+    };
+    expect(
+      contentDatabaseResponseCanSeedQuery(
+        [
+          "action",
+          "get-content-database",
+          {
+            documentId: "database-page",
+            limit: 100,
+            tableQuery: {
+              search: "alpha",
+              filters: [],
+              sorts: [],
+              filterMode: "and",
+            },
+          },
+        ],
+        "database-page",
+        response,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("readCachedContentDatabaseResponse", () => {
+  it("reads a cached paginated response for the same database document", () => {
+    const response = databaseResponse();
+    const queryClient = new QueryClient();
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      response,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(response);
+  });
+
+  it("prefers the exact unpaginated cache entry when present", () => {
+    const paginated = databaseResponse();
+    const exact = { ...databaseResponse(), items: [] };
+    const queryClient = new QueryClient();
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      paginated,
+    );
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      contentDatabaseQueryKey("database-page"),
+      exact,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(exact);
+  });
+
+  it("never seeds an unavailable (deleted database) payload", () => {
+    const unavailable = {
+      available: false,
+      reason: "deleted",
+      databaseId: "database",
+      documentId: "database-page",
+      message: 'Database "database" has been deleted',
+    };
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      contentDatabaseQueryKey("database-page"),
+      unavailable,
+    );
+    queryClient.setQueryData(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      unavailable,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(undefined);
+  });
+});
+
+describe("invalidateBuilderBodyHydrationQueries", () => {
+  it("keeps a 300-row Builder hydration to a per-page invalidation budget", () => {
+    const calls: Array<{ queryKey?: readonly unknown[] }> = [];
+    const queryClient = {
+      invalidateQueries: (options: { queryKey?: readonly unknown[] }) => {
+        calls.push(options);
+      },
+    };
+
+    for (let page = 0; page < 6; page++) {
+      invalidateBuilderBodyHydrationQueries(queryClient, "database-page", {
+        documentId: undefined,
+      });
+    }
+
+    expect(calls).toHaveLength(18);
+    expect(calls).toEqual(
+      Array.from({ length: 6 }).flatMap(() => [
+        { queryKey: contentDatabaseQueryKey("database-page") },
+        { queryKey: contentDatabaseItemsPageQueryKey },
+        {
+          queryKey: [
+            "action",
+            "get-content-database-source",
+            { documentId: "database-page" },
+          ],
+        },
+      ]),
+    );
+    expect(calls.some((call) => call.queryKey?.[1] === "list-documents")).toBe(
+      false,
+    );
+  });
+
+  it("invalidates the opened row document only for priority hydration", () => {
+    const calls: Array<{
+      queryKey?: readonly unknown[];
+      predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+    }> = [];
+    const queryClient = {
+      invalidateQueries: (options: {
+        queryKey?: readonly unknown[];
+        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+      }) => {
+        calls.push(options);
+      },
+    };
+
+    invalidateBuilderBodyHydrationQueries(queryClient, "database-page", {
+      documentId: "row-page",
+    });
+
+    expect(calls).toEqual([
+      { queryKey: contentDatabaseQueryKey("database-page") },
+      { queryKey: contentDatabaseItemsPageQueryKey },
+      {
+        queryKey: [
+          "action",
+          "get-content-database-source",
+          { documentId: "database-page" },
+        ],
+      },
+      {
+        queryKey: ["action", "get-document"],
+        predicate: expect.any(Function),
+      },
+    ]);
+    const documentFilter = calls[calls.length - 1]?.predicate;
+    expect(
+      documentFilter?.({
+        queryKey: ["action", "get-document", { id: "row-page" }],
+      }),
+    ).toBe(true);
+    expect(
+      documentFilter?.({
+        queryKey: ["action", "get-document", { id: "other-page" }],
+      }),
+    ).toBe(false);
+  });
+});

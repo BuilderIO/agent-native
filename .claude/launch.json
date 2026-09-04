@@ -1,0 +1,669 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "docs",
+        "--dir",
+        "packages/docs",
+        "--",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "plan",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "plan",
+        "--dir",
+        "templates/plan",
+        "--",
+        "dev",
+        "--port",
+        "3100"
+      ],
+      "port": 3100
+    },
+    {
+      "name": "design",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3101"
+      ],
+      "port": 3101
+    },
+    {
+      "name": "analytics",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "analytics",
+        "--dir",
+        "templates/analytics",
+        "--",
+        "dev",
+        "--port",
+        "3105"
+      ],
+      "port": 3105
+    },
+    {
+      "name": "dispatch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "dispatch",
+        "--dir",
+        "templates/dispatch",
+        "--",
+        "dev",
+        "--port",
+        "3103"
+      ],
+      "port": 3103
+    },
+    {
+      "name": "clips",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "clips",
+        "--dir",
+        "templates/clips",
+        "--",
+        "dev",
+        "--port",
+        "3102"
+      ],
+      "port": 3102
+    },
+    {
+      "name": "clips-desktop-overlays",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "clips-desktop-overlays",
+        "--dir",
+        "templates/clips/desktop",
+        "--",
+        "vite:dev",
+        "--port",
+        "1425"
+      ],
+      "port": 1425
+    },
+    {
+      "name": "calendar",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "calendar",
+        "--dir",
+        "templates/calendar",
+        "--",
+        "dev",
+        "--port",
+        "3104"
+      ],
+      "port": 3104
+    },
+    {
+      "name": "slides",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3106"
+      ],
+      "port": 3106
+    },
+    {
+      "name": "mail",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "mail",
+        "--dir",
+        "templates/mail",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3107"
+      ],
+      "port": 3107
+    },
+    {
+      "name": "crm",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "crm",
+        "--dir",
+        "templates/crm",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "8107"
+      ],
+      "port": 8107
+    },
+    {
+      "name": "design-w1",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-w1",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "9317"
+      ],
+      "port": 9317
+    },
+    {
+      "name": "design-dragdrop",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-dragdrop",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "9319"
+      ],
+      "port": 9319
+    },
+    {
+      "name": "design-w3",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-w3",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "APP_NAME=design-w3",
+        "--env",
+        "APP_URL=http://localhost:9320",
+        "--",
+        "dev",
+        "--port",
+        "9320"
+      ],
+      "port": 9320
+    },
+    {
+      "name": "design-w5",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-w5",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "APP_NAME=design-w5",
+        "--env",
+        "APP_URL=http://localhost:9322",
+        "--",
+        "dev",
+        "--port",
+        "9322"
+      ],
+      "port": 9322
+    },
+    {
+      "name": "clips-views",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "clips-views",
+        "--dir",
+        "templates/clips",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "APP_URL=http://localhost:3212",
+        "--",
+        "dev",
+        "--port",
+        "3212"
+      ],
+      "port": 3212
+    },
+    {
+      "name": "slides-modelpicker",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides-modelpicker",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "APP_URL=http://localhost:3219",
+        "--",
+        "dev",
+        "--port",
+        "3219"
+      ],
+      "port": 3219
+    },
+    {
+      "name": "slides-modelpicker-keyed",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides-modelpicker-keyed",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "APP_URL=http://localhost:3220",
+        "--env",
+        "OPENAI_API_KEY=local-test-placeholder",
+        "--",
+        "dev",
+        "--port",
+        "3220"
+      ],
+      "port": 3220
+    },
+    {
+      "name": "slides-feelcheck",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides-feelcheck",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3206"
+      ],
+      "port": 3206
+    },
+    {
+      "name": "analytics-feelcheck",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "analytics-feelcheck",
+        "--dir",
+        "templates/analytics",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3205"
+      ],
+      "port": 3205
+    },
+    {
+      "name": "mail-feelcheck",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "mail-feelcheck",
+        "--dir",
+        "templates/mail",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3204"
+      ],
+      "port": 3204
+    },
+    {
+      "name": "mail-agentpage",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "mail-agentpage",
+        "--dir",
+        "templates/mail",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3208"
+      ],
+      "port": 3208
+    },
+    {
+      "name": "design-feelcheck",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-feelcheck",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3207"
+      ],
+      "port": 3207
+    },
+    {
+      "name": "design-chat-e2e",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-chat-e2e",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "AUTH_DISABLED=true",
+        "--env",
+        "APP_URL=http://localhost:3216",
+        "--",
+        "dev",
+        "--port",
+        "3216"
+      ],
+      "port": 3216
+    },
+    {
+      "name": "crm-board-geom",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "crm-board-geom",
+        "--dir",
+        "templates/crm",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "APP_URL=http://localhost:8127",
+        "--",
+        "dev",
+        "--port",
+        "8127"
+      ],
+      "port": 8127
+    },
+    {
+      "name": "design-528-verify",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "design-528-verify",
+        "--dir",
+        "templates/design",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "AUTH_DISABLED=true",
+        "--env",
+        "APP_URL=http://localhost:9330",
+        "--",
+        "dev",
+        "--port",
+        "9330"
+      ],
+      "port": 9330
+    },
+    {
+      "name": "crm-verify-529",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "crm-verify-529",
+        "--dir",
+        "templates/crm",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "APP_URL=http://localhost:8117",
+        "--",
+        "dev",
+        "--port",
+        "8117"
+      ],
+      "port": 8117
+    },
+    {
+      "name": "analytics-watchdog",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "analytics-watchdog",
+        "--dir",
+        "templates/analytics",
+        "--env",
+        "AUTH_MODE=local",
+        "--",
+        "dev",
+        "--port",
+        "3209"
+      ],
+      "port": 3209
+    },
+    {
+      "name": "slides-keysearch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides-keysearch",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "AUTH_DISABLED=true",
+        "--env",
+        "APP_URL=http://localhost:3224",
+        "--",
+        "dev",
+        "--port",
+        "3224"
+      ],
+      "port": 3224
+    },
+    {
+      "name": "slides-presenter",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides-presenter",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "AUTH_DISABLED=true",
+        "--env",
+        "APP_URL=http://localhost:3221",
+        "--",
+        "dev",
+        "--port",
+        "3221"
+      ],
+      "port": 3221
+    },
+    {
+      "name": "slides-watchdog-verify",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "slides-watchdog-verify",
+        "--dir",
+        "templates/slides",
+        "--env",
+        "AUTH_MODE=local",
+        "--env",
+        "AUTH_DISABLED=true",
+        "--env",
+        "APP_URL=http://localhost:3231",
+        "--",
+        "dev",
+        "--port",
+        "3231"
+      ],
+      "port": 3231
+    },
+    {
+      "name": "ssr-watchdog-chat",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "ssr-watchdog-chat",
+        "--dir",
+        "/Users/steve/.codex/worktrees/58cf/framework/templates/chat",
+        "--env",
+        "APP_URL=http://localhost:3241",
+        "--",
+        "dev",
+        "--port",
+        "3241"
+      ],
+      "port": 3241
+    }
+  ]
+}

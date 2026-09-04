@@ -1,0 +1,529 @@
+import { defineAction, fail } from "@agent-native/core/action";
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import {
+  getGenerationCreativeContext,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  readLiveSourceFile,
+  SourceWorkspaceEditConflictError,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
+import {
+  applyOneEdit,
+  type ApplyEditsResult,
+  type DesignEdit,
+} from "../shared/apply-edits.js";
+import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+
+const editBlocksSchema = z.preprocess(
+  (v) => {
+    if (typeof v !== "string") return v;
+    // Don't let malformed JSON throw an uncaught SyntaxError — return the
+    // raw value so Zod produces a clean validation error instead.
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v;
+    }
+  },
+  z
+    .array(
+      z.object({
+        search: z
+          .string()
+          .min(1)
+          .describe(
+            "Exact text to find, with enough surrounding context to be unique",
+          ),
+        replace: z.string().describe("Replacement text"),
+      }),
+    )
+    .min(1),
+);
+
+const reuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
+
+function stripStableNodeIdAttributes(value: string): {
+  content: string;
+  indexMap: number[];
+} {
+  const stableIdPattern =
+    /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
+  let content = "";
+  const indexMap: number[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = stableIdPattern.exec(value))) {
+    const chunk = value.slice(cursor, match.index);
+    for (let i = 0; i < chunk.length; i += 1) {
+      content += chunk[i];
+      indexMap.push(cursor + i);
+    }
+    cursor = match.index + match[0].length;
+  }
+  const tail = value.slice(cursor);
+  for (let i = 0; i < tail.length; i += 1) {
+    content += tail[i];
+    indexMap.push(cursor + i);
+  }
+  indexMap.push(value.length);
+  return { content, indexMap };
+}
+
+function findUniqueStableIdAgnosticSpan(
+  content: string,
+  search: string,
+): { start: number; end: number } | null {
+  const strippedContent = stripStableNodeIdAttributes(content);
+  const strippedSearch = stripStableNodeIdAttributes(search).content;
+  if (!strippedSearch) return null;
+
+  let count = 0;
+  let onlyIndex = -1;
+  let index = strippedContent.content.indexOf(strippedSearch);
+  while (index !== -1) {
+    count += 1;
+    onlyIndex = index;
+    if (count > 1) return null;
+    index = strippedContent.content.indexOf(strippedSearch, index + 1);
+  }
+  if (count !== 1) return null;
+
+  // Anchor `end` to one byte past the LAST matched stripped character rather than
+  // the mapped index of the NEXT character. Mapping the next index can land before
+  // a stripped node-id attribute that sits right after the match, so the splice
+  // would cross it and corrupt the file (e.g. duplicate/mangled tags).
+  const lastMatched = onlyIndex + strippedSearch.length - 1;
+  return {
+    start: strippedContent.indexMap[onlyIndex] ?? 0,
+    end: (strippedContent.indexMap[lastMatched] ?? content.length - 1) + 1,
+  };
+}
+
+function applyOneEditWithStableIdFallback(
+  content: string,
+  edit: DesignEdit,
+  index: number,
+): string {
+  try {
+    return applyOneEdit(content, edit, index);
+  } catch (error) {
+    const span = findUniqueStableIdAgnosticSpan(content, edit.search);
+    if (!span) throw error;
+    return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+  }
+}
+
+export function applySearchReplaceEdits(
+  content: string,
+  edits: DesignEdit[],
+): ApplyEditsResult {
+  let next = content;
+  edits.forEach((edit, index) => {
+    next = applyOneEditWithStableIdFallback(next, edit, index);
+  });
+  return { content: next, applied: edits.length };
+}
+
+export default defineAction({
+  description:
+    "Edit ONE file in a design after reading it with get-design-snapshot. " +
+    "For small localized refinements, apply surgical search/replace edits — the " +
+    "preferred way to refine an existing design without regenerating the whole " +
+    "file (cheaper, faster, and it preserves everything you don't touch). Each " +
+    "edit's `search` must match the current file exactly and uniquely, so " +
+    "include enough surrounding context. Read the file first with " +
+    "`get-design-snapshot`. Wrapping an element is just a search/replace whose " +
+    "`replace` adds the wrapper around the original text. For broad copy-only " +
+    'changes such as translating all visible text, use `mode: "replace-file"` ' +
+    "with `replacementContent`: the complete updated file content copied from " +
+    "the snapshot with only the requested copy changed. After a variant pick " +
+    "or any other selected-screen follow-up, pass the exact `fileId` from " +
+    '`get-design-snapshot` and use `mode: "replace-file"` when replacing ' +
+    "the representative placeholder with a complete but compact UI in the chosen " +
+    "direction; prioritize the primary workflow and render secondary details " +
+    "as visible controls, states, or affordances when needed. Use `generate-design` " +
+    "instead only for brand-new files.",
+  schema: z
+    .object({
+      designId: z.string().describe("Design project ID"),
+      fileId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional exact design file ID to edit. Use this after a variant pick or selected-screen snapshot; when provided, it wins over filename.",
+        ),
+      filename: z
+        .string()
+        .optional()
+        .describe(
+          "File to edit (e.g. 'index.html'). Defaults to index.html only when fileId is omitted.",
+        ),
+      mode: z
+        .enum(["search-replace", "replace-file"])
+        .optional()
+        .describe(
+          "Defaults to search-replace. Use replace-file for selected variant expansion or broad copy-only edits after reading get-design-snapshot.",
+        ),
+      edits: editBlocksSchema
+        .optional()
+        .describe(
+          "Search/replace blocks, applied in order. Use for small localized edits.",
+        ),
+      replacementContent: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot. For selected variants, keep the replacement complete but compact instead of expanding secondary details into an oversized payload.",
+        ),
+      contextPackId: z
+        .string()
+        .optional()
+        .describe("Exact Creative Context pack used for this file edit."),
+      contextModeOverride: z
+        .literal("off")
+        .optional()
+        .describe(
+          "Disable Creative Context for this edit only without changing the saved preference.",
+        ),
+      reuseLabels: z
+        .array(reuseLabelSchema)
+        .optional()
+        .default([])
+        .describe("Exact item versions that influenced this file edit."),
+    })
+    .superRefine((value, ctx) => {
+      const mode =
+        value.mode ??
+        (value.replacementContent !== undefined
+          ? "replace-file"
+          : "search-replace");
+
+      if (value.edits && value.replacementContent !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Use either edits or replacementContent in one edit-design call, not both.",
+          path: ["replacementContent"],
+        });
+      }
+
+      if (mode === "search-replace" && !value.edits) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "search-replace mode requires at least one edit block in edits.",
+          path: ["edits"],
+        });
+      }
+
+      if (mode === "replace-file" && value.replacementContent === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "replace-file mode requires replacementContent with the complete updated file.",
+          path: ["replacementContent"],
+        });
+      }
+    }),
+  run: async (
+    {
+      designId,
+      fileId,
+      filename,
+      edits,
+      mode,
+      replacementContent,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    context,
+  ) => {
+    await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
+
+    const db = getDb();
+    const requestedFileId = fileId?.trim();
+    const targetFilename = requestedFileId
+      ? undefined
+      : filename?.trim() || "index.html";
+    const targetCondition = requestedFileId
+      ? eq(schema.designFiles.id, requestedFileId)
+      : eq(schema.designFiles.filename, targetFilename!);
+
+    // Resolve the target file (access-scoped) by design + fileId or filename.
+    const [file] = await db
+      .select({
+        id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
+        content: schema.designFiles.content,
+      })
+      .from(schema.designFiles)
+      .innerJoin(
+        schema.designs,
+        eq(schema.designFiles.designId, schema.designs.id),
+      )
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          targetCondition,
+          accessFilter(schema.designs, schema.designShares),
+        ),
+      )
+      .limit(1);
+
+    if (!file) {
+      fail(
+        requestedFileId
+          ? `File id "${requestedFileId}" not found in design ${designId}`
+          : `File "${targetFilename}" not found in design ${designId}`,
+        { errorCode: "design_file_not_found", statusCode: 404 },
+      );
+    }
+
+    const resolvedMode =
+      mode ??
+      (replacementContent !== undefined ? "replace-file" : "search-replace");
+
+    // A concurrent human/agent write can land between reading the live file
+    // and persisting this edit (writeInlineSourceFile throws
+    // SourceWorkspaceEditConflictError when that happens — see its own
+    // comment for the CAS/collab details). search-replace edits are anchored
+    // to specific text rather than a stale full snapshot, so on conflict we
+    // can just re-read the fresh content and reapply the SAME edits against
+    // it instead of forcing the agent to make a separate get-design-snapshot
+    // round trip and guess again. replace-file sends a full document computed
+    // from a point-in-time snapshot — retrying that blind could silently
+    // clobber whatever the concurrent writer did, so it still fails closed on
+    // the first conflict.
+    const MAX_EDIT_CONFLICT_RETRIES = 2;
+
+    let live: Awaited<ReturnType<typeof readLiveSourceFile>>;
+    let base = "";
+    let nextContent = "";
+    let applied = 0;
+    let changed = false;
+    let creativeContext:
+      | {
+          contextMode: "off" | "auto" | "pinned";
+          contextPackId: string | null;
+          reuseLabels: CreativeContextReuseLabel[];
+          elementProvenance: Array<{
+            elementId: string;
+            influence:
+              | "reused"
+              | "adapted"
+              | "reference-conditioned"
+              | "generated";
+            itemId?: string;
+            itemVersionId?: string;
+            label?: string;
+          }>;
+        }
+      | undefined;
+
+    for (let attempt = 0; ; attempt += 1) {
+      // Refetch the SQL content on retries — readLiveSourceFile only falls
+      // back to this when no collab doc exists yet, so a conflict caused by
+      // a plain SQL writer (no live collab session) needs a fresh row here
+      // or every retry would recompute the exact same stale versionHash.
+      const currentContent =
+        attempt === 0
+          ? file.content
+          : (
+              await db
+                .select({ content: schema.designFiles.content })
+                .from(schema.designFiles)
+                .where(eq(schema.designFiles.id, file.id))
+                .limit(1)
+            )[0]?.content;
+
+      const workspaceFile: SourceWorkspaceFile = {
+        id: file.id,
+        designId: file.designId,
+        filename: file.filename ?? "",
+        fileType: file.fileType ?? "html",
+        content: currentContent,
+        createdAt: null,
+        updatedAt: null,
+      };
+      live = await readLiveSourceFile(workspaceFile);
+      base = live.content;
+
+      ({ content: nextContent, applied } =
+        resolvedMode === "replace-file"
+          ? { content: replacementContent ?? "", applied: 0 }
+          : applySearchReplaceEdits(base, edits ?? []));
+      changed = nextContent !== base;
+      creativeContext = undefined;
+
+      if (!changed) break;
+
+      const hasCreativeContextRequest =
+        contextPackId !== undefined ||
+        contextModeOverride !== undefined ||
+        reuseLabels.length > 0;
+      // Unscoped deterministic edits are independent of the optional context
+      // service; only an explicit context request needs a prior scope lookup.
+      const previous =
+        hasCreativeContextRequest && contextModeOverride !== "off"
+          ? await getGenerationCreativeContext({
+              appId: "design",
+              artifactType: "design",
+              artifactId: designId,
+            })
+          : null;
+      if (hasCreativeContextRequest) {
+        if (
+          contextPackId !== undefined &&
+          previous?.contextPackId &&
+          contextPackId !== previous.contextPackId
+        ) {
+          fail(
+            "The design edit must preserve the design's creative-context pack",
+            { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
+          );
+        }
+        const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
+          ? reuseLabels
+          : [
+              {
+                kind: "design-file",
+                label: "Net-new design edit",
+                dataRole: "untrusted-reference",
+                elementId: file.id,
+                influence: "generated",
+              },
+            ];
+        const validated = await validateGenerationCreativeContext({
+          contextPackId: contextPackId ?? previous?.contextPackId,
+          contextPackSource:
+            contextPackId === undefined ? "inherited" : "explicit",
+          contextModeOverride,
+          reuseLabels: requestedLabels,
+          reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+        });
+        const elementProvenance = validated.reuseLabels.map((label) => ({
+          elementId: file.id,
+          influence: label.influence ?? ("reference-conditioned" as const),
+          ...(label.itemId ? { itemId: label.itemId } : {}),
+          ...(label.itemVersionId
+            ? { itemVersionId: label.itemVersionId }
+            : {}),
+          label: label.label,
+        }));
+        const contextMode =
+          validated.contextMode === "off"
+            ? "off"
+            : (previous?.contextMode ?? validated.contextMode);
+        creativeContext = {
+          contextMode,
+          contextPackId: validated.contextPackId,
+          reuseLabels: validated.reuseLabels,
+          elementProvenance:
+            contextMode === "off"
+              ? elementProvenance
+              : replaceCreativeContextElementProvenance(
+                  previous?.elementProvenance ?? [],
+                  elementProvenance,
+                ),
+        };
+      }
+      assertLockedLayersPreserved(base, nextContent);
+
+      // Mark agent presence + selection so live viewers can see where the
+      // agent is working before the update arrives via collab.
+      //
+      // No resolvable DOM selector is available here (search-replace targets
+      // source text, not a stamped node), so we publish `selection: null`
+      // rather than a fabricated `[data-edit-target=...]` selector that could
+      // never resolve against the rendered iframe. Region attribution instead
+      // rides on the `{ kind: "text", quote }` recentEdits descriptor that
+      // `applyText(..., "agent")` auto-publishes from the content diff inside
+      // writeInlineSourceFile below — clients render a lingering highlight
+      // over the changed text.
+      agentEnterDocument(file.id);
+      agentUpdateSelection(file.id, {
+        selection: null,
+        editingFile: file.filename,
+        designId,
+      });
+
+      try {
+        await writeInlineSourceFile({
+          designId: file.designId,
+          file: workspaceFile,
+          content: nextContent,
+          expectedVersionHash: live.versionHash,
+        });
+      } catch (error) {
+        if (
+          error instanceof SourceWorkspaceEditConflictError &&
+          resolvedMode === "search-replace" &&
+          attempt < MAX_EDIT_CONFLICT_RETRIES
+        ) {
+          continue;
+        }
+        throw error;
+      } finally {
+        agentLeaveDocument(file.id);
+      }
+      if (creativeContext) {
+        await recordGenerationCreativeContext({
+          appId: "design",
+          artifactType: "design",
+          artifactId: designId,
+          ...creativeContext,
+        });
+      }
+      break;
+    }
+
+    return {
+      designId,
+      filename: file.filename,
+      fileId: file.id,
+      mode: resolvedMode,
+      editsApplied: applied,
+      changed,
+      bytesBefore: base.length,
+      bytesAfter: nextContent.length,
+      ...(creativeContext
+        ? {
+            contextMode: creativeContext.contextMode,
+            contextPackId: creativeContext.contextPackId,
+            reuseLabels: creativeContext.reuseLabels,
+          }
+        : {}),
+    };
+  },
+});

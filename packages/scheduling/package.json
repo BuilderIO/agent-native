@@ -1,0 +1,99 @@
+{
+  "name": "@agent-native/scheduling",
+  "version": "0.1.57",
+  "description": "Scheduling primitives for agent-native apps — event types, availability, bookings, team scheduling, workflows, and routing forms.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/scheduling"
+  },
+  "files": [
+    "agent-native.package.json",
+    "agent-native.eject.json",
+    "dist",
+    "docs",
+    "src",
+    "tsconfig.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./schema": "./dist/schema/index.js",
+    "./schema/event-types": "./dist/schema/event-types.js",
+    "./schema/schedules": "./dist/schema/schedules.js",
+    "./schema/bookings": "./dist/schema/bookings.js",
+    "./schema/teams": "./dist/schema/teams.js",
+    "./schema/credentials": "./dist/schema/credentials.js",
+    "./schema/calendar-cache": "./dist/schema/calendar-cache.js",
+    "./schema/workflows": "./dist/schema/workflows.js",
+    "./schema/routing-forms": "./dist/schema/routing-forms.js",
+    "./core": "./dist/core/index.js",
+    "./server": "./dist/server/index.js",
+    "./server/providers": "./dist/server/providers/index.js",
+    "./actions/*": "./dist/actions/*.js",
+    "./react": "./dist/react/index.js",
+    "./react/components": "./dist/react/components/index.js",
+    "./shared": "./dist/shared/index.js",
+    "./manifest": "./dist/manifest.js",
+    "./docs/llms.txt": "./docs/llms.txt",
+    "./docs/llms-full.txt": "./docs/llms-full.txt",
+    "./docs/*": "./docs/*",
+    "./skills/*": "./docs/skills/*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc && node scripts/build-llms-full.mjs",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@agent-native/toolkit": "workspace:^",
+    "@date-fns/tz": "^1.2.0",
+    "date-fns": "^4.1.0",
+    "nanoid": "^5.1.9",
+    "rrule": "^2.8.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@libsql/client": "^0.15.8",
+    "@tabler/icons-react": "catalog:",
+    "@types/node": "^24.2.1",
+    "@types/react": "^19.2.14",
+    "drizzle-orm": "^0.45.2",
+    "react": "^19.2.5",
+    "typescript-7": "catalog:",
+    "vitest": "^4.1.5"
+  },
+  "peerDependencies": {
+    "@agent-native/core": ">=0.8.0",
+    "@tabler/icons-react": "^3.41.1",
+    "drizzle-orm": ">=0.45",
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "@tabler/icons-react": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "agentNativeEjectManifest": "agent-native.eject.json",
+  "agentNativeManifest": "agent-native.package.json"
+}

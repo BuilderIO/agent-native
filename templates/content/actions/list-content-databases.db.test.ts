@@ -1,0 +1,723 @@
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+const TEST_DB_PATH = join(
+  tmpdir(),
+  `content-list-databases-${process.pid}-${Date.now()}.sqlite`,
+);
+
+type Schema = typeof import("../server/db/schema.js");
+let getDb: () => any;
+let schema: Schema;
+let listContentDatabasesAction: typeof import("./list-content-databases.js").default;
+let describeContentDatabaseAction: typeof import("./describe-content-database.js").default;
+
+const OWNER = "owner@example.com";
+
+beforeAll(async () => {
+  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  const dbModule = await import("../server/db/index.js");
+  getDb = dbModule.getDb;
+  schema = dbModule.schema;
+  listContentDatabasesAction = (await import("./list-content-databases.js"))
+    .default;
+  describeContentDatabaseAction = (
+    await import("./describe-content-database.js")
+  ).default;
+  const plugin = (await import("../server/plugins/db.js")).default;
+  await plugin(undefined as any);
+}, 60000);
+
+afterAll(() => {
+  for (const suffix of ["", "-shm", "-wal"]) {
+    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  }
+});
+
+async function createDatabaseDocument(args: {
+  documentId: string;
+  databaseId: string;
+  title: string;
+  description?: string;
+  spaceId?: string;
+  systemRole?: string;
+  hideFromSearch?: boolean;
+  ownerEmail?: string;
+}) {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const ownerEmail = args.ownerEmail ?? OWNER;
+  await db.insert(schema.documents).values({
+    id: args.documentId,
+    ownerEmail,
+    spaceId: args.spaceId,
+    parentId: null,
+    title: args.title,
+    content: "",
+    description: args.description ?? "",
+    hideFromSearch: args.hideFromSearch ? 1 : 0,
+    position: 1,
+    visibility: "private",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: args.databaseId,
+    ownerEmail,
+    spaceId: args.spaceId,
+    documentId: args.documentId,
+    title: args.title,
+    systemRole: args.systemRole,
+  });
+}
+
+async function createPersonalSpace(args: {
+  id: string;
+  name: string;
+  filesDatabaseId: string;
+  ownerEmail?: string;
+}) {
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.contentSpaces)
+    .values({
+      id: args.id,
+      name: args.name,
+      kind: "personal",
+      ownerEmail: args.ownerEmail ?? OWNER,
+      orgId: null,
+      filesDatabaseId: args.filesDatabaseId,
+      createdBy: args.ownerEmail ?? OWNER,
+      createdAt: now,
+      updatedAt: now,
+    });
+}
+
+describe("list-content-databases", () => {
+  it("matches database document titles case-insensitively", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-cmdk",
+      databaseId: "db-cmdk",
+      title: "CmdK Database TestDB",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ query: "cmdk", limit: 6 }),
+      ).resolves.toEqual({
+        databases: [
+          {
+            databaseId: "db-cmdk",
+            documentId: "db-doc-cmdk",
+            spaceId: null,
+            title: "CmdK Database TestDB",
+            description: "",
+          },
+        ],
+        pagination: {
+          offset: 0,
+          limit: 6,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
+      });
+    });
+  });
+
+  it("searches user-authored descriptions and returns live identity metadata", async () => {
+    await createPersonalSpace({
+      id: "space-creative",
+      name: "Creative",
+      filesDatabaseId: "space-creative-files",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-described",
+      databaseId: "db-described",
+      title: "Intake Queue",
+      description: "Collects requests for editorial design review",
+      spaceId: "space-creative",
+    });
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ title: "Stale database title" })
+      .where(eq(schema.contentDatabases.id, "db-described"));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ query: "EDITORIAL DESIGN" }),
+      ).resolves.toEqual({
+        databases: [
+          {
+            databaseId: "db-described",
+            documentId: "db-doc-described",
+            spaceId: "space-creative",
+            title: "Intake Queue",
+            description: "Collects requests for editorial design review",
+          },
+        ],
+        pagination: {
+          offset: 0,
+          limit: 50,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
+      });
+    });
+  });
+
+  it("resolves exact IDs and titles within an exact space", async () => {
+    await createPersonalSpace({
+      id: "space-product",
+      name: "Product",
+      filesDatabaseId: "space-product-files",
+    });
+    await createPersonalSpace({
+      id: "space-other",
+      name: "Other",
+      filesDatabaseId: "space-other-files",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-exact",
+      databaseId: "db-exact",
+      title: "Product Feedback",
+      description: "Captures product feedback",
+      spaceId: "space-product",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-exact-other-space",
+      databaseId: "db-exact-other-space",
+      title: "Product Feedback",
+      spaceId: "space-other",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const expected = {
+        databases: [
+          {
+            databaseId: "db-exact",
+            documentId: "db-doc-exact",
+            spaceId: "space-product",
+            title: "Product Feedback",
+            description: "Captures product feedback",
+          },
+        ],
+        pagination: {
+          offset: 0,
+          limit: 50,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
+      };
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-exact" }),
+      ).resolves.toEqual(expected);
+      await expect(
+        listContentDatabasesAction.run({ documentId: "db-doc-exact" }),
+      ).resolves.toEqual(expected);
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId: "space-product",
+          title: "product feedback",
+        }),
+      ).resolves.toEqual(expected);
+
+      const description = await describeContentDatabaseAction.run({
+        databaseId: "db-exact",
+      });
+      expect(description).toMatchObject({
+        database: {
+          id: "db-exact",
+          documentId: "db-doc-exact",
+          title: "Product Feedback",
+          description: "Captures product feedback",
+        },
+        properties: [],
+      });
+      expect(description).not.toHaveProperty("items");
+    });
+  });
+
+  it("fails closed when exact title resolution is missing or ambiguous", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-ambiguous-a",
+      databaseId: "db-ambiguous-a",
+      title: "Shared Intake",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-ambiguous-b",
+      databaseId: "db-ambiguous-b",
+      title: "Shared Intake",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ title: "Missing Intake" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        listContentDatabasesAction.run({ title: "Shared Intake", limit: 1 }),
+      ).rejects.toThrow(
+        /ambiguous across multiple accessible Content databases/,
+      );
+      await expect(
+        listContentDatabasesAction.run({ title: "   " }),
+      ).rejects.toThrow();
+    });
+  });
+
+  it("bounds ordinary discovery results", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-bounded-a",
+      databaseId: "db-bounded-a",
+      title: "Bounded Intake A",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-bounded-b",
+      databaseId: "db-bounded-b",
+      title: "Bounded Intake B",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ query: "Bounded Intake", limit: 1 }),
+      ).resolves.toMatchObject({ databases: [{ databaseId: "db-bounded-a" }] });
+    });
+  });
+
+  it("applies a default bound to ordinary discovery", async () => {
+    for (let index = 0; index < 51; index += 1) {
+      await createDatabaseDocument({
+        documentId: `db-doc-default-bound-${index}`,
+        databaseId: `db-default-bound-${index}`,
+        title: `Default Bound ${index}`,
+      });
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        query: "Default Bound",
+      });
+      expect(result.databases).toHaveLength(50);
+      expect(result.pagination).toMatchObject({
+        offset: 0,
+        limit: 50,
+        returnedItems: 50,
+        hasMore: true,
+        nextOffset: 50,
+      });
+
+      const continuation = await listContentDatabasesAction.run({
+        query: "Default Bound",
+        offset: 50,
+      });
+      expect(continuation.databases).toHaveLength(1);
+      expect(continuation.pagination).toMatchObject({
+        offset: 50,
+        limit: 50,
+        returnedItems: 1,
+        hasMore: false,
+        nextOffset: null,
+      });
+    });
+  });
+
+  it("fills a bounded page after applying source-chain exclusions", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-root",
+      databaseId: "db-fill-root",
+      title: "Fill Page Root",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-a-child",
+      databaseId: "db-fill-a-child",
+      title: "Fill Page Child",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-b-other",
+      databaseId: "db-fill-b-other",
+      title: "Fill Page Other",
+    });
+    const now = new Date().toISOString();
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: "src-fill-child-root",
+      ownerEmail: OWNER,
+      databaseId: "db-fill-a-child",
+      sourceType: "local-table",
+      sourceName: "Root",
+      sourceTable: "db-fill-root",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        excludeDatabaseIds: ["db-fill-root"],
+        query: "Fill Page",
+        limit: 1,
+      });
+
+      expect(result).toMatchObject({
+        databases: [{ databaseId: "db-fill-b-other" }],
+        pagination: {
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+        },
+      });
+    });
+  });
+
+  it("does not disclose system or inaccessible databases", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-system",
+      databaseId: "db-system",
+      title: "System Files",
+      systemRole: "files",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-private-other",
+      databaseId: "db-private-other",
+      title: "Private Other",
+      ownerEmail: "other@example.com",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-hidden",
+      databaseId: "db-hidden",
+      title: "Hidden Intake",
+      hideFromSearch: true,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-system" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-private-other" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-hidden" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        describeContentDatabaseAction.run({ databaseId: "db-system" }),
+      ).rejects.toThrow("Content database not found.");
+
+      let inaccessibleError: unknown;
+      try {
+        await describeContentDatabaseAction.run({
+          documentId: "db-doc-private-other",
+        });
+      } catch (error) {
+        inaccessibleError = error;
+      }
+      expect(inaccessibleError).toBeInstanceOf(Error);
+      expect((inaccessibleError as Error).message).toBe(
+        "Content database not found.",
+      );
+      expect((inaccessibleError as Error).message).not.toContain(
+        "db-private-other",
+      );
+    });
+  });
+
+  it("does not discover a shared document from another Personal space", async () => {
+    const otherOwner = "other@example.com";
+    const spaceId = "space-private-other";
+    const documentId = "db-doc-shared-cross-space";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Other Personal",
+      filesDatabaseId: "other-files-database",
+      ownerEmail: otherOwner,
+    });
+    await createDatabaseDocument({
+      documentId,
+      databaseId: "db-shared-cross-space",
+      title: "Shared document, private space",
+      spaceId,
+      ownerEmail: otherOwner,
+    });
+    await getDb().insert(schema.documentShares).values({
+      id: "share-cross-space-document",
+      resourceId: documentId,
+      principalType: "user",
+      principalId: OWNER,
+      role: "viewer",
+      createdBy: otherOwner,
+      createdAt: new Date().toISOString(),
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const inventory = await listContentDatabasesAction.run({
+        query: "Shared document, private space",
+      });
+      expect(inventory.databases).toEqual([]);
+      expect(inventory.pagination.totalItems).toBe(0);
+    });
+  });
+
+  it("preserves unexpected database discovery failures", async () => {
+    const discovery = vi
+      .spyOn(listContentDatabasesAction, "run")
+      .mockRejectedValueOnce(new Error("database unavailable"));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        describeContentDatabaseAction.run({ databaseId: "db-exact" }),
+      ).rejects.toThrow("database unavailable");
+    });
+    discovery.mockRestore();
+  });
+
+  it("excludes a database when its document id is passed (no source attached yet)", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-self",
+      databaseId: "db-self",
+      title: "Self",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-other",
+      databaseId: "db-other",
+      title: "Other",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        excludeDatabaseIds: ["db-doc-self"],
+        query: "Other",
+      });
+
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-self");
+      expect(result.databases.map((database) => database.databaseId)).toContain(
+        "db-other",
+      );
+    });
+  });
+
+  it("excludes databases whose local-table source chain points back to the configured database", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-root",
+      databaseId: "db-root",
+      title: "Root",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-child",
+      databaseId: "db-child",
+      title: "Child",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-grandchild",
+      databaseId: "db-grandchild",
+      title: "Grandchild",
+    });
+    const now = new Date().toISOString();
+    const db = getDb();
+    await db.insert(schema.contentDatabaseSources).values([
+      {
+        id: "src-child-root",
+        ownerEmail: OWNER,
+        databaseId: "db-child",
+        sourceType: "local-table",
+        sourceName: "Root",
+        sourceTable: "db-root",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "src-grandchild-child",
+        ownerEmail: OWNER,
+        databaseId: "db-grandchild",
+        sourceType: "local-table",
+        sourceName: "Child",
+        sourceTable: "db-child",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        excludeDatabaseIds: ["db-root"],
+      });
+
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-root");
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-child");
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-grandchild");
+    });
+  });
+
+  it("finds an exact Personal database and classifies system collections without title or count assumptions", async () => {
+    const spaceId = "content_space_personal_dd0c011c68137c2ae7baa4d672932070";
+    const feedbackDatabaseId = "7uLr3ect3IIm";
+    const feedbackDocumentId = "FJk2OZ1SWcZ9";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Personal",
+      filesDatabaseId: "system-files-exact",
+    });
+    await createDatabaseDocument({
+      documentId: feedbackDocumentId,
+      databaseId: feedbackDatabaseId,
+      title: "Feedback",
+      spaceId,
+    });
+    await createDatabaseDocument({
+      documentId: "feedback-document-same-name",
+      databaseId: "feedback-database-same-name",
+      title: "Feedback",
+      spaceId,
+    });
+    for (const systemRole of ["files", "favorites", "workspaces"]) {
+      await createDatabaseDocument({
+        documentId: `system-${systemRole}-document-exact`,
+        databaseId: `system-${systemRole}-exact`,
+        title: systemRole === "files" ? "Personal" : systemRole,
+        spaceId,
+        systemRole,
+        hideFromSearch: true,
+      });
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const inventory = await listContentDatabasesAction.run({
+        spaceId,
+        includeSystemCollections: true,
+      });
+      expect(inventory.databases).toContainEqual({
+        databaseId: feedbackDatabaseId,
+        documentId: feedbackDocumentId,
+        title: "Feedback",
+        spaceId,
+        description: "",
+      });
+      expect(
+        new Set(
+          inventory.systemCollections?.map(
+            (collection) => collection.systemRole,
+          ),
+        ),
+      ).toEqual(new Set(["files", "favorites", "workspaces"]));
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          databaseId: feedbackDatabaseId,
+        }),
+      ).resolves.toEqual({
+        databases: [
+          {
+            databaseId: feedbackDatabaseId,
+            documentId: feedbackDocumentId,
+            title: "Feedback",
+            spaceId,
+            description: "",
+          },
+        ],
+        pagination: {
+          offset: 0,
+          limit: 50,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
+      });
+    });
+
+    await runWithRequestContext(
+      { userEmail: "managed-channel@integration.local" },
+      async () => {
+        await expect(
+          listContentDatabasesAction.run({
+            spaceId,
+            databaseId: feedbackDatabaseId,
+          }),
+        ).rejects.toThrow(/Not authorized for Content space/);
+        await expect(
+          listContentDatabasesAction.run({
+            spaceId,
+            includeSystemCollections: true,
+          }),
+        ).rejects.toThrow(/Not authorized for Content space/);
+      },
+    );
+  });
+
+  it("does not inventory system collections from an archived space", async () => {
+    const spaceId = "content-space-archived-system-inventory";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Archived Personal",
+      filesDatabaseId: "archived-files-database",
+    });
+    await createDatabaseDocument({
+      documentId: "archived-files-document",
+      databaseId: "archived-files-database",
+      title: "Archived Personal",
+      spaceId,
+      systemRole: "files",
+      hideFromSearch: true,
+    });
+    await createDatabaseDocument({
+      documentId: "archived-ordinary-document",
+      databaseId: "archived-ordinary-database",
+      title: "Archived ordinary database",
+      spaceId,
+    });
+    await getDb()
+      .update(schema.contentSpaces)
+      .set({ archivedAt: new Date().toISOString() })
+      .where(eq(schema.contentSpaces.id, spaceId));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          includeSystemCollections: true,
+        }),
+      ).rejects.toThrow(/not found/);
+    });
+  });
+
+  it("does not inventory databases whose referenced space is missing", async () => {
+    const spaceId = "missing-space";
+    await createDatabaseDocument({
+      documentId: "orphaned-ordinary-document",
+      databaseId: "orphaned-ordinary-database",
+      title: "Orphaned ordinary database",
+      spaceId,
+    });
+    await createDatabaseDocument({
+      documentId: "orphaned-system-document",
+      databaseId: "orphaned-system-database",
+      title: "Orphaned files",
+      spaceId,
+      systemRole: "files",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          includeSystemCollections: true,
+        }),
+      ).rejects.toThrow(/not found/);
+    });
+  });
+});

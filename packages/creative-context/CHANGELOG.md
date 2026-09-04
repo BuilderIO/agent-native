@@ -1,0 +1,310 @@
+# @agent-native/creative-context
+
+## 0.7.20
+
+### Patch Changes
+
+- 345fcd7: Allow signed Creative Context background processors to bypass session auth and
+  cover both processor HMAC routes.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.19
+
+### Patch Changes
+
+- 56404c7: Restore Creative context as a Share tab and compact its submission controls.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.16
+
+### Patch Changes
+
+- 1f8e13c: Route managed Google OAuth through the provider-aware root callback on standalone apps.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.14
+
+### Patch Changes
+
+- 4776e61: Reduce CI lint warnings across publishable packages.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.12
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.3
+
+### Patch Changes
+
+- baedb60: Fetch the headless browser at launch instead of embedding it in every serverless function. `@agent-native/creative-context` now depends on `@sparticuz/chromium-min` (46KB) rather than `@sparticuz/chromium` (66.4MB), and passes a version-pinned pack URL to `executablePath()`. The hosted Builder Browser path is unchanged and still preferred; this only affects the local-launch fallback, which now downloads the pack once per container. Set `AGENT_NATIVE_CHROMIUM_PACK_URL` to serve the pack from your own mirror. Measured on slides: server function 126.0MB → 59.6MB, total upload 243.8MB → 111.0MB.
+
+## 0.7.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.1
+
+### Patch Changes
+
+- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
+  imports from its layout, transactional email pages, and MCP gateway;
+  creative-context drops unused type imports and an unread `headingStyle`;
+  recap-cli drops the `node:os` import and two unread locals; skills drops the
+  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
+  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
+  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
+  blocks new ones.
+
+## 0.7.0
+
+### Minor Changes
+
+- 39383b5: designs can be generated using creative context
+
+## 0.6.6
+
+### Patch Changes
+
+- 4c7c289: Keep browser-rendered website style extraction working when the shared evaluator
+  is bundled before it is serialized into Chromium.
+
+## 0.6.5
+
+### Patch Changes
+
+- b3b4580: Normalize commenter access to the read-only creative-context role contract.
+
+## 0.6.4
+
+### Patch Changes
+
+- 9204f85: Fix the Context tab's dropdown in the Share dialog rendering invisibly behind the host popover and dismissing the whole dialog on interaction. The select now matches the popover's nested-overlay z-index and is marked so `ShareButton` doesn't treat clicks inside it as outside clicks.
+
+## 0.6.3
+
+### Patch Changes
+
+- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
+
+## 0.6.2
+
+### Patch Changes
+
+- e177059: Restore the serverless Playwright fallback so production URL extraction can use packaged Chromium.
+
+## 0.6.1
+
+### Patch Changes
+
+- aa24c7e: Use the declared optional Playwright runtime through a literal import so Cloudflare deployments can apply their fail-closed browser stub.
+- 9d8ae68: Run website brand extraction in an isolated real browser through the SSRF-safe network proxy, with serverless Chromium support and an explicit static fallback.
+
+## 0.6.0
+
+### Minor Changes
+
+- abb0cf5: Add a shared browser-rendered website design-system extraction surface with computed visual tokens, component evidence, and bounded design.md summaries.
+
+## 0.5.12
+
+### Patch Changes
+
+- 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
+
+## 0.5.11
+
+### Patch Changes
+
+- c71d383: Include the shared creative-context and toolkit updates in the next package release.
+
+## 0.5.10
+
+### Patch Changes
+
+- d6e7c5c: Stop a second Chromium from being downloaded alongside the one already on disk.
+
+  First-party workspace packages now take Playwright from an exact catalog pin, so
+  a caret cannot resolve forward to a release tied to a different Chromium
+  revision. The two packages that declare Playwright as a published optional
+  dependency — `@agent-native/creative-context` and `@agent-native/recap-cli` —
+  deliberately keep a caret range instead: an exact range in a library stops a
+  consumer who already has a different Playwright from deduping, which forces a
+  nested copy and downloads exactly the second browser this change exists to
+  avoid.
+
+## 0.5.9
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
+## 0.5.8
+
+### Patch Changes
+
+- c8a0bcf: Declare `@tanstack/react-query` as a peer/dev dependency so `tsc` can name its types under pnpm's isolated layout. Without it the package fails to build with TS2883 in a generated workspace, which breaks the root `postinstall` and therefore `pnpm install`.
+
+## 0.5.7
+
+### Patch Changes
+
+- 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
+
+## 0.5.6
+
+### Patch Changes
+
+- e53a34e: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
+  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
+
+## 0.5.5
+
+### Patch Changes
+
+- 6acaad0: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
+  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
+
+## 0.5.4
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+
+## 0.5.3
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+
+## 0.5.2
+
+### Patch Changes
+
+- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
+
+## 0.5.1
+
+### Patch Changes
+
+- 8e0afec: Improve Creative Context sharing and connection-chip interactions.
+
+## 0.5.0
+
+### Minor Changes
+
+- 149c0ee: Add bounded, app-owned native resource update checks and Library update submission controls.
+
+### Patch Changes
+
+- 149c0ee: Add governed creative-context sharing, host-backed native clone actions, and a reusable organization-admin permission helper.
+
+## 0.4.0
+
+### Minor Changes
+
+- a485fbe: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
+
+  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
+
+  Includes bounded image-region cropping for durable localized creative-context fallbacks.
+
+## 0.3.0
+
+### Minor Changes
+
+- 9f2f7a7: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
+
+  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
+
+  Includes bounded image-region cropping for durable localized creative-context fallbacks.
+
+## 0.2.0
+
+### Minor Changes
+
+- 2625de5: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
+
+  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
+
+  Includes bounded image-region cropping for durable localized creative-context fallbacks.

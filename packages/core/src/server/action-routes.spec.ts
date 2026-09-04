@@ -1,0 +1,2838 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { ActionEntry } from "../agent/production-agent.js";
+
+const mockNotifyActionChange = vi.hoisted(() => vi.fn());
+const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
+const mockResolveOrgByDomain = vi.hoisted(() => vi.fn());
+const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
+const mockGetOrgContext = vi.hoisted(() =>
+  vi.fn(async () => ({ orgId: undefined })),
+);
+const mockVerifyA2ATokenWithClaims = vi.hoisted(() => vi.fn());
+const mockConsumeOneTimeJti = vi.hoisted(() => vi.fn(async () => false));
+const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
+const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
+
+function fakeUnsignedJwt(payload: Record<string, string>): string {
+  const encode = (value: Record<string, string>) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "none" })}.${encode(payload)}.not-a-real-signature`;
+}
+
+vi.mock("h3", () => ({
+  createError: (opts: any) =>
+    Object.assign(new Error(opts?.statusMessage), opts),
+  defineEventHandler: (handler: any) => handler,
+  getMethod: (event: any) => event._method ?? "GET",
+  getQuery: (event: any) => event._query ?? {},
+  readBody: async (event: any) => event._body,
+  getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
+  getRequestHeader: (event: any, name: string) =>
+    event._headers?.[name.toLowerCase()],
+  getRequestURL: (event: any) =>
+    new URL(event.req?.url ?? "http://localhost/_agent-native/actions/test"),
+  setResponseStatus: (event: any, status: number) => {
+    event._status = status;
+  },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    event._responseHeaders = {
+      ...(event._responseHeaders ?? {}),
+      [name.toLowerCase()]: value,
+    };
+  },
+}));
+
+vi.mock("./framework-request-handler.js", () => ({
+  getH3App: (app: any) => app,
+}));
+
+vi.mock("./action-change.js", () => ({
+  actionCallIsReadOnly: (
+    entry: { readOnly?: boolean },
+    _params: unknown,
+    fallback: boolean,
+  ) => entry.readOnly ?? fallback,
+  notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
+}));
+
+// The adapter path in mountActionRoutes derives org from the verified caller
+// via resolveOrgIdForEmail. Mocked here so the owner-based lookup is
+// deterministic without a live DB/session.
+vi.mock("../org/context.js", () => ({
+  resolveOrgIdForEmail: (...args: unknown[]) =>
+    mockResolveOrgIdForEmail(...args),
+  getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
+  resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
+}));
+
+vi.mock("./auth.js", () => ({
+  getSession: (...args: unknown[]) => mockGetSession(...args),
+  registerAuthPublicPaths: (...args: unknown[]) =>
+    mockRegisterAuthPublicPaths(...args),
+  // Captured into the request context so code below the HTTP layer can tell a
+  // local-dev caller from a remote one. Mocked false: these specs assert
+  // ordinary remote-request behavior.
+  isLoopbackRequest: () => false,
+}));
+vi.mock("./embed-session.js", () => ({
+  resolveEmbedSessionFromRequest: (...args: unknown[]) =>
+    mockResolveEmbedSessionFromRequest(...args),
+  resolvedEmbedCapabilityScope: (session: { scope?: string } | null) =>
+    session?.scope?.startsWith("capability:") ? session.scope : undefined,
+}));
+vi.mock("../a2a-claims.js", () => ({
+  verifyA2ATokenWithClaims: (...args: unknown[]) =>
+    mockVerifyA2ATokenWithClaims(...args),
+}));
+vi.mock("./identity-sso-store.js", () => ({
+  consumeOneTimeJti: (...args: unknown[]) => mockConsumeOneTimeJti(...args),
+}));
+
+describe("mountActionRoutes", () => {
+  afterEach(() => {
+    delete process.env.AGENT_USER_EMAIL;
+    delete process.env.AGENT_ORG_ID;
+    delete process.env.AGENT_USER_TIMEZONE;
+    delete process.env.AGENT_NATIVE_BUILD_ID;
+    delete process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
+    mockNotifyActionChange.mockReset();
+    mockResolveOrgIdForEmail.mockReset();
+    mockResolveOrgByDomain.mockReset();
+    mockResolveOrgByDomain.mockResolvedValue({
+      orgId: "receiver-org",
+      orgName: "Builder.io",
+    });
+    mockGetSession.mockReset();
+    mockGetSession.mockResolvedValue(null);
+    mockGetOrgContext.mockReset();
+    mockGetOrgContext.mockResolvedValue({ orgId: undefined });
+    mockVerifyA2ATokenWithClaims.mockReset();
+    mockConsumeOneTimeJti.mockReset();
+    mockConsumeOneTimeJti.mockResolvedValue(false);
+    mockResolveEmbedSessionFromRequest.mockReset();
+    mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+    vi.restoreAllMocks();
+  });
+
+  it("rejects cached frontend clients before an action can read or write", async () => {
+    process.env.AGENT_NATIVE_BUILD_ID = "server-build";
+    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "spaces-v1";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(nitroApp, { test: { run } as any });
+    const event = {
+      _method: "POST",
+      _headers: {
+        origin: "https://embedded.example.com",
+        "x-agent-native-frontend": "1",
+      },
+      req: { json: vi.fn(async () => ({})) },
+    };
+
+    await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
+      code: "client_build_mismatch",
+      serverBuildId: "server-build",
+      requiredCompatibility: "spaces-v1",
+    });
+    expect(event).toMatchObject({
+      _status: 409,
+      _responseHeaders: {
+        "cache-control": "no-store",
+        "access-control-expose-headers":
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+        "x-agent-native-client-mismatch": "1",
+      },
+    });
+    expect(event.req.json).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("allows matching frontend clients and leaves non-frontend callers unaffected", async () => {
+    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "spaces-v1";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      { test: { run } as any },
+      {
+        getOwnerFromEvent: async () => "owner@example.com",
+      },
+    );
+    const matchingFrontend = {
+      _method: "POST",
+      _headers: {
+        "x-agent-native-frontend": "1",
+        "x-agent-native-client-compatibility": "spaces-v1",
+      },
+      req: { json: async () => ({}) },
+    };
+    const agentCaller = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+
+    await expect(mounted[0]!.handler(matchingFrontend)).resolves.toBeTruthy();
+    await expect(mounted[0]!.handler(agentCaller)).resolves.toBeTruthy();
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["PUT", "DELETE"] as const)(
+    "accepts frontend mutation RPCs for actions exposed as %s",
+    async (method) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async (params, ctx) => ({
+        ok: true,
+        params,
+        caller: ctx?.caller,
+      }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+
+      mountActionRoutes(nitroApp, {
+        "delete-item": {
+          http: { method },
+          run,
+        } as any,
+      });
+
+      const frontendPost = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/delete-item",
+          json: vi.fn(async () => ({ id: "item-1" })),
+        },
+      };
+      await expect(mounted[0]!.handler(frontendPost)).resolves.toEqual({
+        ok: true,
+        params: { id: "item-1" },
+        caller: "frontend",
+      });
+      expect(run).toHaveBeenCalledOnce();
+
+      const directPost = {
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: "http://app.test/_agent-native/actions/delete-item",
+          json: vi.fn(async () => ({ id: "item-2" })),
+        },
+      };
+      await expect(mounted[0]!.handler(directPost)).resolves.toEqual({
+        error: `Method not allowed. Use ${method}.`,
+      });
+      expect(directPost).toMatchObject({ _status: 405 });
+      expect(directPost.req.json).not.toHaveBeenCalled();
+      expect(run).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["GET", "HEAD", "OPTIONS"] as const)(
+    "does not treat a frontend POST as a %s action call",
+    async (method) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+
+      mountActionRoutes(nitroApp, {
+        "get-item": {
+          http: { method },
+          run,
+        } as any,
+      });
+      const event = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-item",
+          json: vi.fn(async () => ({})),
+        },
+      };
+
+      await expect(mounted[0]!.handler(event)).resolves.toEqual({
+        error: `Method not allowed. Use ${method}.`,
+      });
+      expect(event).toMatchObject({ _status: 405 });
+      expect(event.req.json).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
+  it("mounts package actions registered through another core module instance", async () => {
+    const packageCore = await import("./action-discovery.js");
+    const packageRun = vi.fn(async () => ({ source: "package" }));
+    packageCore.registerPackageActions({
+      "cross-instance-package-action": {
+        tool: { description: "Package action", parameters: {} },
+        http: { method: "GET" },
+        readOnly: true,
+        requiresAuth: false,
+        run: packageRun,
+      } as ActionEntry,
+    });
+
+    vi.resetModules();
+    const hostCore = await import("./action-discovery.js");
+    expect(hostCore).not.toBe(packageCore);
+
+    const actions: Record<string, ActionEntry> = {};
+    hostCore.mergePackageActions(actions);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mountActionRoutes(nitroApp, actions);
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      req: {
+        url: "http://app.test/_agent-native/actions/cross-instance-package-action",
+      },
+    });
+
+    expect(result).toEqual({ source: "package" });
+    expect(packageRun).toHaveBeenCalledOnce();
+  });
+
+  it("uses action error statusCode for HTTP responses", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const err = Object.assign(new Error("Forbidden"), { statusCode: 403 });
+    const actions: Record<string, ActionEntry> = {
+      "share-resource": {
+        run: vi.fn(async () => {
+          throw err;
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ error: "Forbidden" });
+    expect(event._status).toBe(403);
+  });
+
+  it("preserves typed action contract conflicts without exposing arbitrary errors", async () => {
+    const { ActionContractError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const conflict = new ActionContractError("Stale schema", {
+      errorCode: "SCHEMA_REVISION_CONFLICT",
+      details: { expected: "before", actual: "after" },
+    });
+    const actions = {
+      updateItem: {
+        run: vi.fn().mockRejectedValue(conflict),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(409);
+    expect(result).toEqual({
+      error: "Stale schema",
+      errorCode: "SCHEMA_REVISION_CONFLICT",
+      details: { expected: "before", actual: "after" },
+    });
+  });
+
+  it("reports an unreadable action body as a contract error", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn();
+    const actions = {
+      updateItem: {
+        run,
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = {
+      _method: "POST",
+      req: { json: async () => Promise.reject(new SyntaxError("bad json")) },
+    };
+
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(400);
+    expect(result).toEqual({
+      error: "Request body must be a valid JSON object.",
+      errorCode: "invalid_action_request_body",
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicit null body on the H3 fallback", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn();
+    const actions = {
+      updateItem: {
+        run,
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", _body: null, req: {} };
+
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(400);
+    expect(result).toEqual({
+      error: "Request body must be a valid JSON object.",
+      errorCode: "invalid_action_request_body",
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("echoes a fail() message instead of a generic 500", async () => {
+    const { fail } = await import("../scripts/utils.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      getMeeting: {
+        run: vi.fn(async () => {
+          fail("No such meeting", { errorCode: "not_found", statusCode: 404 });
+        }),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(404);
+    expect(result).toEqual({
+      error: "No such meeting",
+      errorCode: "not_found",
+    });
+  });
+
+  it("keeps a bare thrown Error as a generic 500", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      getMeeting: {
+        run: vi
+          .fn()
+          .mockRejectedValue(new Error('relation "meetings" does not exist')),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(500);
+    expect(result).toEqual({ error: "Internal server error" });
+  });
+
+  it("preserves safe action contract metadata for retryable server failures", async () => {
+    const { ActionContractError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const unavailable = new ActionContractError("Directory unavailable", {
+      errorCode: "workspace_feature_flag_directory",
+      details: { phase: "directory" },
+      statusCode: 503,
+    });
+    const actions = {
+      updateItem: {
+        run: vi.fn().mockRejectedValue(unavailable),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(503);
+    expect(result).toEqual({
+      error: "Directory unavailable",
+      errorCode: "workspace_feature_flag_directory",
+      details: { phase: "directory" },
+    });
+  });
+
+  it("preserves safe stopped-action metadata without exposing its tool result", async () => {
+    const { AgentActionStopError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const stopped = new AgentActionStopError("Verification timed out", {
+      errorCode: "workspace_feature_flag_verification_timeout",
+      details: { phase: "verification-timeout" },
+      toolResult: "private agent-only context",
+    });
+    const actions = {
+      updateItem: {
+        run: vi.fn().mockRejectedValue(stopped),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(500);
+    expect(result).toEqual({
+      error: "Verification timed out",
+      errorCode: "workspace_feature_flag_verification_timeout",
+      details: { phase: "verification-timeout" },
+    });
+    expect(JSON.stringify(result)).not.toContain("private agent-only context");
+  });
+
+  it("captures uncategorized action failures with low-cardinality context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const error = new Error("upstream failed");
+    const provider = vi.fn(() => "evt_action_failure");
+    const unregister = registerErrorCaptureProvider(
+      "action-routes-test",
+      provider,
+    );
+    const actions: Record<string, ActionEntry> = {
+      "resolve-notion-sync-conflict": {
+        run: vi.fn(async () => {
+          throw error;
+        }),
+      } as any,
+    };
+
+    try {
+      mountActionRoutes(nitroApp, actions);
+
+      const event = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/resolve-notion-sync-conflict",
+          json: async () => ({}),
+        },
+      };
+      const result = await mounted[0].handler(event);
+
+      expect(result).toEqual({ error: "Internal server error" });
+      expect(event._status).toBe(500);
+      expect(provider).toHaveBeenCalledWith(error, {
+        route: "/_agent-native/actions/resolve-notion-sync-conflict",
+        method: "POST",
+        tags: {
+          action: "resolve-notion-sync-conflict",
+          caller: "frontend",
+          status_code: "500",
+        },
+      });
+    } finally {
+      unregister();
+    }
+  });
+
+  it("serializes plain string action results as JSON strings", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "archive-email": {
+        run: vi.fn(async () => "Archived 1 email(s) successfully"),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._responseHeaders["content-type"]).toBe("application/json");
+    expect(JSON.parse(result)).toBe("Archived 1 email(s) successfully");
+  });
+
+  it("isolates request context without mutating process.env", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId, getRequestTimezone, getRequestUserEmail } =
+      await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    process.env.AGENT_USER_EMAIL = "stale@example.com";
+    process.env.AGENT_ORG_ID = "stale-org";
+    process.env.AGENT_USER_TIMEZONE = "UTC";
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId(),
+          timezone: getRequestTimezone(),
+          envUserEmail: process.env.AGENT_USER_EMAIL,
+          envOrgId: process.env.AGENT_ORG_ID,
+          envTimezone: process.env.AGENT_USER_TIMEZONE,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async (event) => event._owner,
+      resolveOrgId: async (event) => event._orgId ?? null,
+    });
+
+    const first = {
+      _method: "POST",
+      _owner: "alice@example.com",
+      _orgId: "org-a",
+      _headers: { "x-user-timezone": "America/New_York" },
+      req: { json: async () => ({}) },
+    };
+    const second = {
+      _method: "POST",
+      _owner: undefined,
+      _orgId: undefined,
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+
+    await mounted[0].handler(first);
+    const result = await mounted[0].handler(second);
+
+    expect(result).toEqual({
+      userEmail: undefined,
+      orgId: undefined,
+      timezone: undefined,
+      envUserEmail: "stale@example.com",
+      envOrgId: "stale-org",
+      envTimezone: "UTC",
+    });
+    expect(process.env.AGENT_USER_EMAIL).toBe("stale@example.com");
+    expect(process.env.AGENT_ORG_ID).toBe("stale-org");
+    expect(process.env.AGENT_USER_TIMEZONE).toBe("UTC");
+  });
+
+  it("carries the browser session id header into request context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          browserSessionId: getRequestContext()?.browserSessionId,
+          clientPlatform: getRequestContext()?.clientPlatform,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const withSession = {
+      _method: "POST",
+      _headers: {
+        "x-agent-native-session-id": "pinned-session-1",
+        "x-agent-native-client-platform": "mobile",
+      },
+      req: { json: async () => ({}) },
+    };
+    const withoutSession = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+
+    expect(await mounted[0].handler(withSession)).toEqual({
+      browserSessionId: "pinned-session-1",
+      clientPlatform: "mobile",
+    });
+    expect(await mounted[0].handler(withoutSession)).toEqual({
+      browserSessionId: undefined,
+      clientPlatform: undefined,
+    });
+  });
+
+  it("uses the forwarded gateway origin for request context behind a dev proxy", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          requestOrigin: getRequestContext()?.requestOrigin,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const proxied = {
+      _method: "POST",
+      _headers: {
+        host: "127.0.0.1:8092",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      },
+      req: {
+        url: "http://127.0.0.1:8092/dispatch/_agent-native/actions/ping",
+        json: async () => ({}),
+      },
+    };
+
+    expect(await mounted[0].handler(proxied)).toEqual({
+      requestOrigin: "http://127.0.0.1:8080",
+    });
+  });
+
+  it("keeps the forwarded gateway origin when workspace OAuth relay is configured", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("APP_URL", "https://dispatch.agent-native.com");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const { getOrigin } = await import("./google-oauth.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          requestOrigin: getRequestContext()?.requestOrigin,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const proxied = {
+      _method: "POST",
+      _headers: {
+        host: "127.0.0.1:8092",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      },
+      req: {
+        url: "http://127.0.0.1:8092/dispatch/_agent-native/actions/ping",
+        json: async () => ({}),
+      },
+    };
+
+    expect(getOrigin(proxied as any)).toBe("https://dispatch.agent-native.com");
+    expect(await mounted[0].handler(proxied)).toEqual({
+      requestOrigin: "http://127.0.0.1:8080",
+    });
+  });
+
+  it("runs optional-auth actions with an anonymous request context when auth resolution returns 401", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestUserEmail } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "public-metadata": {
+        http: { method: "GET" },
+        readOnly: true,
+        requiresAuth: false,
+        run: vi.fn(async (_args, ctx) => ({
+          ctxUserEmail: ctx?.userEmail,
+          requestUserEmail: getRequestUserEmail(),
+        })),
+      } as any,
+    };
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => {
+        throw unauthenticated;
+      },
+    });
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      req: {
+        url: "http://app.test/_agent-native/actions/public-metadata?id=plan_1",
+      },
+    });
+
+    expect(result).toEqual({
+      ctxUserEmail: undefined,
+      requestUserEmail: undefined,
+    });
+  });
+
+  it("propagates a verified capability to a public action without impersonating its owner", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestAuthCapability, getRequestUserEmail } =
+      await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-design": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: false,
+          run: vi.fn(async (_args, ctx) => ({
+            ctxUserEmail: ctx?.userEmail,
+            requestUserEmail: getRequestUserEmail(),
+            authCapability: getRequestAuthCapability(),
+          })),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        req: {
+          url: "http://app.test/_agent-native/actions/get-design?id=design_1",
+        },
+      }),
+    ).resolves.toEqual({
+      ctxUserEmail: undefined,
+      requestUserEmail: undefined,
+      authCapability: "capability:visual-edit:design:design_1",
+    });
+  });
+
+  it("does not let a capability satisfy account-backed write action auth", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "update-design": {
+          http: { method: "POST" },
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        req: {
+          url: "http://app.test/_agent-native/actions/update-design",
+          json: async () => ({ id: "design_1" }),
+        },
+      }),
+    ).rejects.toBe(unauthenticated);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("allows HEAD for GET actions", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "list-things": {
+        http: { method: "GET" },
+        readOnly: true,
+        run: vi.fn(async (params) => ({ ok: true, params })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "HEAD",
+      req: { url: "http://app.test/_agent-native/actions/list-things?q=hello" },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true, params: { q: "hello" } });
+    expect(actions["list-things"].run).toHaveBeenCalledWith(
+      { q: "hello" },
+      {
+        userEmail: undefined,
+        orgId: null,
+        caller: "http",
+        actionName: "list-things",
+      },
+    );
+    expect(mockNotifyActionChange).not.toHaveBeenCalled();
+  });
+
+  it("passes a run ctx with resolved identity and caller=http", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+      resolveOrgId: async () => "org-a",
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(received).toEqual({
+      userEmail: "alice@example.com",
+      orgId: "org-a",
+      caller: "http",
+      actionName: "do-thing",
+    });
+    // No SSE sender on the HTTP surface.
+    expect(received.send).toBeUndefined();
+  });
+
+  it("tags browser-originated calls (x-agent-native-frontend) as caller=frontend", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received).toEqual({
+      userEmail: "alice@example.com",
+      orgId: null,
+      caller: "frontend",
+      actionName: "do-thing",
+    });
+  });
+
+  it("parses bracketed and repeated GET params as arrays", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "list-assets": {
+        http: { method: "GET" },
+        readOnly: true,
+        run: vi.fn(async (params) => ({ params })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      req: {
+        url: "http://app.test/_agent-native/actions/list-assets?candidateRunIds[]=run-1&candidateRunIds[]=run-2&libraryIds[]=lib-1&tag=hero&tag=logo&search=logos",
+      },
+    });
+
+    expect(result).toEqual({
+      params: {
+        candidateRunIds: ["run-1", "run-2"],
+        libraryIds: ["lib-1"],
+        tag: ["hero", "logo"],
+        search: "logos",
+      },
+    });
+  });
+
+  it("parses bracketed GET params as arrays through the getQuery fallback", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "list-assets": {
+        http: { method: "GET" },
+        readOnly: true,
+        run: vi.fn(async (params) => ({ params })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      _query: {
+        "candidateRunIds[]": ["run-1", "run-2"],
+        "libraryIds[]": "lib-1",
+        tag: ["hero", "logo"],
+        search: "logos",
+      },
+    });
+
+    expect(result).toEqual({
+      params: {
+        candidateRunIds: ["run-1", "run-2"],
+        libraryIds: ["lib-1"],
+        tag: ["hero", "logo"],
+        search: "logos",
+      },
+    });
+  });
+
+  it("coerces boolean and number GET params to their schema types (useActionQuery round-trip)", async () => {
+    // `useActionQuery` serializes every param into the query string, so a
+    // boolean `true` arrives at the server as the string "true" and a number
+    // as "5" (URLSearchParams stringifies everything). A schema-validated GET
+    // action expects real boolean/number, so without coercion Zod rejects them
+    // with "expected boolean, received string". This exercises the full route
+    // path (parse query → validating run) to prove the values round-trip to
+    // native types. Regression guard for the `instrument-overview` report.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    const overview = defineAction({
+      description: "instrument overview",
+      http: { method: "GET" },
+      schema: z.object({
+        portfolioId: z.string(),
+        isin: z.string(),
+        baseCurrency: z.string().optional(),
+        includeSeries: z.boolean().optional(),
+        limit: z.number().optional(),
+        tableQuery: z
+          .object({
+            filters: z.array(
+              z.object({
+                propertyId: z.string(),
+                operator: z.string(),
+                value: z.string(),
+              }),
+            ),
+            sorts: z.array(
+              z.object({
+                propertyId: z.string(),
+                direction: z.enum(["asc", "desc"]),
+              }),
+            ),
+          })
+          .optional(),
+      }),
+      run: async (params: any) => ({ params }),
+    });
+
+    const actions: Record<string, ActionEntry> = {
+      "instrument-overview": overview as unknown as ActionEntry,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      req: {
+        url: `http://app.test/_agent-native/actions/instrument-overview?${new URLSearchParams(
+          {
+            portfolioId: "p1",
+            isin: "US67066G1040",
+            includeSeries: "true",
+            limit: "5",
+            tableQuery: JSON.stringify({
+              filters: [
+                {
+                  propertyId: "status",
+                  operator: "equals",
+                  value: "published",
+                },
+              ],
+              sorts: [{ propertyId: "date", direction: "desc" }],
+            }),
+          },
+        )}`,
+      },
+    });
+
+    expect(result).toEqual({
+      params: {
+        portfolioId: "p1",
+        isin: "US67066G1040",
+        includeSeries: true,
+        limit: 5,
+        tableQuery: {
+          filters: [
+            {
+              propertyId: "status",
+              operator: "equals",
+              value: "published",
+            },
+          ],
+          sorts: [{ propertyId: "date", direction: "desc" }],
+        },
+      },
+    });
+  });
+
+  it("short-circuits OPTIONS without resolving auth context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      mutate: {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, { getOwnerFromEvent });
+
+    const event = { _method: "OPTIONS" };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toBe("");
+    expect(event._status).toBe(204);
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions.mutate.run).not.toHaveBeenCalled();
+  });
+
+  it("rejects OPTIONS from disallowed cross-origin callers", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      mutate: {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, { getOwnerFromEvent });
+
+    const event = {
+      _method: "OPTIONS",
+      _headers: { origin: "https://evil.example" },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toBe("");
+    expect(event._status).toBe(403);
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions.mutate.run).not.toHaveBeenCalled();
+  });
+
+  it("allows Claude MCP app embed action preflights without credentials", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      mutate: {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, { getOwnerFromEvent });
+
+    const event = {
+      _method: "OPTIONS",
+      _headers: {
+        origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toBe("");
+    expect(event._status).toBe(204);
+    expect(event._responseHeaders["access-control-allow-origin"]).toBe(
+      "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+    );
+    expect(
+      event._responseHeaders["access-control-allow-credentials"],
+    ).toBeUndefined();
+    const allowHeaders =
+      event._responseHeaders["access-control-allow-headers"].toLowerCase();
+    expect(allowHeaders).toContain("x-agent-native-embed-target");
+    expect(allowHeaders).toContain("x-request-source");
+    expect(allowHeaders).toContain("x-user-timezone");
+    expect(allowHeaders).toContain("x-agent-native-session-id");
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions.mutate.run).not.toHaveBeenCalled();
+  });
+
+  it("emits refresh events for mutating GET actions with readOnly false", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "mutating-read": {
+        http: { method: "GET" },
+        readOnly: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    await mounted[0].handler({
+      _method: "GET",
+      _headers: { "x-request-source": "browser-tab-1" },
+      req: { url: "http://app.test/_agent-native/actions/mutating-read" },
+    });
+
+    expect(mockNotifyActionChange).toHaveBeenCalledWith({
+      actionName: "mutating-read",
+      requestSource: "browser-tab-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Tools-bridge gating (audit H5)
+  // ---------------------------------------------------------------------
+
+  it("refuses extension tools-bridge calls to provider-api-request", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "provider-api-request": {
+        toolCallable: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "x-agent-native-tool-bridge": "1" },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(403);
+    expect(result).toEqual({
+      error: "Action 'provider-api-request' is not callable from tools.",
+    });
+    expect(actions["provider-api-request"].run).not.toHaveBeenCalled();
+  });
+
+  it("allows tools-bridge calls when toolCallable === true", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "list-things": {
+        toolCallable: true,
+        http: { method: "GET" },
+        readOnly: true,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "GET",
+      _headers: { "x-agent-native-tool-bridge": "1" },
+      req: { url: "http://app.test/_agent-native/actions/list-things" },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("allows tools-bridge calls when toolCallable is undefined (default-allow)", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "legacy-action": {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "x-agent-native-tool-bridge": "1" },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(actions["legacy-action"].run).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ok: true });
+  });
+
+  // ---------------------------------------------------------------------
+  // Per-action body-size guard (maxBodyBytes)
+  // ---------------------------------------------------------------------
+
+  it("rejects oversize POST bodies with 413 before parsing when maxBodyBytes is set", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const json = vi.fn(async () => ({}));
+    const actions: Record<string, ActionEntry> = {
+      "validate-local-plan-source": {
+        maxBodyBytes: 1024,
+        requiresAuth: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "content-length": String(2048) },
+      req: { json },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(413);
+    expect(result).toEqual({
+      error: "Request body too large (max 1024 bytes)",
+    });
+    // The body is never parsed and the action never runs.
+    expect(json).not.toHaveBeenCalled();
+    expect(actions["validate-local-plan-source"].run).not.toHaveBeenCalled();
+  });
+
+  it("allows POST bodies within maxBodyBytes", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "validate-local-plan-source": {
+        maxBodyBytes: 1024,
+        requiresAuth: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "content-length": String(512) },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+    expect(actions["validate-local-plan-source"].run).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not gate actions without maxBodyBytes on Content-Length", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "content-length": String(50 * 1024 * 1024) },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+    expect(actions["do-thing"].run).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not gate non-bridge calls (header absent) on toolCallable", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "share-resource": {
+        toolCallable: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    // No X-Agent-Native-Tool-Bridge header — this is a regular UI/agent call.
+    const event = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+    expect(actions["share-resource"].run).toHaveBeenCalledTimes(1);
+  });
+
+  // ---------------------------------------------------------------------
+  // actionRouteAuth adapter (runs before getOwnerFromEvent / getSession)
+  // ---------------------------------------------------------------------
+
+  it("accepts built-in feature flag delegation without template adapter", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "org-1",
+      orgDomain: "builder.io",
+      jti: "request-1",
+      issuer: "https://analytics.example",
+      scope: ["flags:read"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "request-1",
+      scope: "flags:read",
+    });
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "admin@example.com",
+      orgId: "receiver-org",
+      networkProtocol: "a2a",
+      networkId: "request-1",
+      networkPeer: "https://analytics.example",
+    });
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(mockResolveOrgByDomain).toHaveBeenCalledWith("builder.io");
+  });
+
+  it("recognizes a scope-only delegation in a space-separated scope claim", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "org-1",
+      orgDomain: "builder.io",
+      jti: "request-scope-only",
+      scope: ["other:read", "flags:read"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({ scope: "other:read flags:read" });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "admin@example.com",
+      orgId: "receiver-org",
+    });
+    expect(mockVerifyA2ATokenWithClaims).toHaveBeenCalledOnce();
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("leaves ordinary bearer auth to legacy owner resolution", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "legacy@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: "Bearer opaque-legacy-token" },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "http",
+      userEmail: "legacy@example.com",
+    });
+    expect(context.networkProtocol).toBeUndefined();
+    expect(context.networkId).toBeUndefined();
+    expect(context.networkPeer).toBeUndefined();
+    expect(mockVerifyA2ATokenWithClaims).not.toHaveBeenCalled();
+  });
+
+  it("leaves ordinary JWTs with common identity claims to legacy auth", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "session@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "ordinary-session-token",
+      scope: "openid profile",
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(context).toMatchObject({
+      caller: "http",
+      userEmail: "session@example.com",
+    });
+    expect(mockVerifyA2ATokenWithClaims).not.toHaveBeenCalled();
+  });
+
+  it("falls back to built-in delegation after a custom adapter returns null", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "writer@example.com",
+      orgId: "org-2",
+      orgDomain: "builder.io",
+      jti: "request-2",
+      scope: ["flags:write"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "set-feature-flag": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { actionRouteAuth: { resolveCaller: async () => null } },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-2",
+      jti: "request-2",
+      scope: "flags:write",
+    });
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "writer@example.com",
+      orgId: "receiver-org",
+    });
+    expect(mockConsumeOneTimeJti).toHaveBeenCalledWith("request-2");
+  });
+
+  it("rejects a replayed built-in feature flag mutation", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "writer@example.com",
+      orgId: "org-2",
+      orgDomain: "builder.io",
+      jti: "replayed-request",
+      scope: ["flags:write"],
+    });
+    mockConsumeOneTimeJti.mockResolvedValue(true);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      { "set-feature-flag": { run } as any },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-2",
+      jti: "replayed-request",
+      scope: "flags:write",
+    });
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("hard-rejects an invalid declared feature flag delegation", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": { run: async () => ({ ok: true }) } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "request-3",
+      scope: "flags:read",
+    });
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("hard-rejects a verified delegation whose domain has no local organization", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "sender-org",
+      orgDomain: "outside.example",
+      jti: "request-unknown-domain",
+      scope: ["flags:read"],
+    });
+    mockResolveOrgByDomain.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      { "list-feature-flags": { run: vi.fn() } as any },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: {
+          authorization: `Bearer ${fakeUnsignedJwt({ scope: "flags:read" })}`,
+        },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mockResolveOrgByDomain).toHaveBeenCalledWith("outside.example");
+  });
+
+  it("allows allowlisted no-org list and set delegations without active-org fallback", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS = "admin@example.com";
+    mockResolveOrgByDomain.mockResolvedValue(null);
+    mockResolveOrgIdForEmail.mockResolvedValue("unrelated-active-org");
+
+    for (const [actionName, scope] of [
+      ["list-feature-flags", "flags:read"],
+      ["set-feature-flag", "flags:write"],
+    ] as const) {
+      mockVerifyA2ATokenWithClaims.mockResolvedValue({
+        email: "ADMIN@example.com",
+        orgId: "sender-org",
+        orgDomain: "outside.example",
+        jti: `${actionName}-no-org`,
+        issuer: "https://analytics.example",
+        scope: [scope],
+      });
+      const mounted: Array<{ path: string; handler: any }> = [];
+      let context: any;
+      mountActionRoutes(
+        {
+          use: (path: string, handler: any) => mounted.push({ path, handler }),
+        },
+        {
+          [actionName]: {
+            run: async (_params: unknown, ctx: any) => {
+              context = ctx;
+              return { ok: true };
+            },
+          },
+        } as any,
+      );
+
+      await mounted[0].handler({
+        _method: "POST",
+        _headers: {
+          authorization: `Bearer ${fakeUnsignedJwt({ scope })}`,
+        },
+        context: {},
+        req: { json: async () => ({}) },
+      });
+
+      expect(context).toMatchObject({
+        caller: "a2a",
+        userEmail: "ADMIN@example.com",
+        orgId: null,
+      });
+    }
+
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
+  it("runs the action scoped to actionRouteAuth.resolveCaller and skips getOwnerFromEvent", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { AGENT_RUN_OWNER_CONTEXT_KEY } =
+      await import("./agent-run-context.js");
+    const { getRequestUserEmail, getRequestUserName } =
+      await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = {
+            ctx,
+            requestUserEmail: getRequestUserEmail(),
+            requestUserName: getRequestUserName(),
+          };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent,
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+          name: "A2A Caller",
+        }),
+      },
+    });
+
+    const event = {
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+    expect(received.ctx.userEmail).toBe("a2a-caller@example.com");
+    expect(received.requestUserEmail).toBe("a2a-caller@example.com");
+    expect(received.requestUserName).toBe("A2A Caller");
+    // The framework session chain is never consulted when the adapter resolves.
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    // The resolved caller is seeded so nested agent runs see the same identity.
+    expect(event.context[AGENT_RUN_OWNER_CONTEXT_KEY]).toEqual({
+      owner: "a2a-caller@example.com",
+      anonymous: false,
+      name: "A2A Caller",
+    });
+  });
+
+  it("passes the original mounted pathname to action auth adapters", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const resolveCaller = vi.fn(async (event: any) => {
+      expect(event.path).toBe("/");
+      expect(event.context._mountedPathname).toBe(
+        "/_agent-native/actions/do-thing",
+      );
+      return {
+        owner: "a2a-caller@example.com",
+        anonymous: false,
+        orgId: "org-builder",
+      };
+    });
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      { actionRouteAuth: { resolveCaller } },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        _headers: {},
+        path: "/",
+        context: {
+          _mountedPathname: "/_agent-native/actions/do-thing",
+        },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(resolveCaller).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("falls through to getOwnerFromEvent when resolveCaller returns null", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent,
+      actionRouteAuth: { resolveCaller: async () => null },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
+    expect(received.userEmail).toBe("session-user@example.com");
+  });
+
+  it("hard-rejects with 401 when resolveCaller throws (session chain not consulted)", async () => {
+    // Contract: a throw means "the credential is mine but invalid". It must NOT
+    // fall through to getOwnerFromEvent/getSession — otherwise a forged A2A
+    // bearer plus a live same-origin cookie would run as the session user.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent,
+      actionRouteAuth: {
+        resolveCaller: async () => {
+          throw new Error("verifier exploded");
+        },
+      },
+    });
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: {},
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions["do-thing"].run).not.toHaveBeenCalled();
+  });
+
+  it("scopes the adapter-resolved caller to an owner-derived orgId", async () => {
+    // The app's resolveOrgId is session-backed and yields null for an A2A
+    // caller. The adapter path must still land the correct org by reusing
+    // core's owner-based fallback (resolveOrgIdForEmail) so org-scoped writes
+    // don't persist with org_id NULL.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue("org-owner-derived");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "session-user@example.com",
+      // Session-backed org resolution returns null for an A2A caller.
+      resolveOrgId: async () => null,
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+        }),
+      },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    });
+
+    expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith(
+      "a2a-caller@example.com",
+    );
+    expect(received.ctx.orgId).toBe("org-owner-derived");
+    expect(received.requestOrgId).toBe("org-owner-derived");
+  });
+
+  it("falls back to the stored active org for a cookie session that resolved none", async () => {
+    // A session minted before org selection — or one whose membership read
+    // failed — yields no org, and an undefined org narrows every scoped read
+    // to rows with a null org_id, hiding the user's own org-scoped data.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue("org-stored-active");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "steve@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith("steve@example.com");
+    expect(received.ctx.orgId).toBe("org-stored-active");
+    expect(received.requestOrgId).toBe("org-stored-active");
+  });
+
+  it("keeps an explicit Personal selection personal", async () => {
+    // resolveOrgIdForEmail returns null for an explicit Personal choice, so
+    // the fallback must not promote the user into their oldest membership.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "steve@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.orgId).toBeNull();
+  });
+
+  it.each([
+    "no such table: org_members",
+    'relation "org_members" does not exist',
+  ])(
+    "suppresses the verified first-boot missing org table error: %s",
+    async (message) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      mockResolveOrgIdForEmail.mockRejectedValue(new Error(message));
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      let received: any;
+      mountActionRoutes(
+        nitroApp,
+        {
+          "do-thing": {
+            run: vi.fn(async (_params, ctx) => {
+              received = ctx;
+              return { ok: true };
+            }),
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => "steve@example.com",
+          resolveOrgId: async () => null,
+        },
+      );
+
+      await expect(
+        mounted[0].handler({
+          _method: "POST",
+          _headers: { "x-agent-native-frontend": "1" },
+          req: { json: async () => ({}) },
+        }),
+      ).resolves.toEqual({ ok: true });
+      expect(received.orgId).toBeNull();
+    },
+  );
+
+  it("propagates persistent org-resolution failures", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const error = new Error("permission denied for table org_members");
+    mockResolveOrgIdForEmail.mockRejectedValue(error);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toBe(error);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("preserves transient org-resolution failures", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const error = Object.assign(new Error("db query timed out"), {
+      code: "57014",
+    });
+    mockResolveOrgIdForEmail.mockRejectedValue(error);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toBe(error);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("never lets the ambient session org override the adapter caller's org", async () => {
+    // A request can carry BOTH a valid A2A bearer and an unrelated same-origin
+    // browser cookie. The identity comes from the token, so the org must too:
+    // the session-backed resolveOrgId (and getSession/getOrgContext) must not
+    // be consulted, or the token caller would execute under the cookie user's
+    // org — a cross-org confusion.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue("org-of-a2a-caller");
+    mockGetSession.mockResolvedValue({
+      email: "cookie-user@example.com",
+      orgId: "org-of-cookie-user",
+    } as any);
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-of-cookie-user" });
+    const resolveOrgId = vi.fn(async () => "org-of-cookie-user");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "cookie-user@example.com",
+      resolveOrgId,
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+        }),
+      },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBe("org-of-a2a-caller");
+    expect(received.requestOrgId).toBe("org-of-a2a-caller");
+    expect(resolveOrgId).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockGetOrgContext).not.toHaveBeenCalled();
+  });
+
+  it("uses the adapter-asserted orgId verbatim, skipping the owner lookup", async () => {
+    // When the adapter verified an org from the credential itself (e.g. the
+    // A2A token's org claim), that org wins and no membership lookup runs.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      resolveOrgId: async () => "org-of-cookie-user",
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+          orgId: "org-from-token",
+        }),
+      },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBe("org-from-token");
+    expect(received.requestOrgId).toBe("org-from-token");
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not seed the adapter's orgId into the owner context", async () => {
+    // seedAgentRunOwnerContext carries identity only; org is request-context
+    // state. Downstream consumers of the seeded owner context must not see
+    // adapter-specific fields.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { AGENT_RUN_OWNER_CONTEXT_KEY } =
+      await import("./agent-run-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": { run: vi.fn(async () => ({ ok: true })) } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+          name: "A2A Caller",
+          orgId: "org-from-token",
+        }),
+      },
+    });
+
+    const event = {
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    };
+    await mounted[0].handler(event);
+
+    expect(event.context[AGENT_RUN_OWNER_CONTEXT_KEY]).toEqual({
+      owner: "a2a-caller@example.com",
+      anonymous: false,
+      name: "A2A Caller",
+    });
+  });
+});
+
+describe("mountWebMcpActionRoutes", () => {
+  it("projects eligible actions, including http:false, through the shared dispatcher", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({ caller: context.caller }));
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const resolveCaller = vi.fn(async () => ({
+      owner: "delegated@example.com",
+      anonymous: false,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        eligible: {
+          tool: { description: "Eligible", parameters: { type: "object" } },
+          run,
+          http: false,
+          readOnly: true,
+        } as any,
+        hidden: {
+          tool: { description: "Hidden", parameters: { type: "object" } },
+          run: vi.fn(),
+          agentTool: false,
+        } as any,
+        approval: {
+          tool: { description: "Approval", parameters: { type: "object" } },
+          run: vi.fn(),
+          needsApproval: true,
+        } as any,
+        "invalid name": {
+          tool: { description: "Invalid", parameters: { type: "object" } },
+          run: vi.fn(),
+        } as any,
+      },
+      {
+        getOwnerFromEvent,
+        actionRouteAuth: { resolveCaller },
+        manifest: {
+          name: "Clips",
+          description: "Read clips",
+          instructions: "Call view-screen before editing.",
+          websiteUrl: "https://clips.example.com",
+        },
+      },
+    );
+
+    const compatibilityRoute = mounted.find(
+      ({ path }) => path === "/.well-known/mcp.json",
+    );
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
+    );
+    const compatibilityInvocationRoute = mounted.find(
+      ({ path }) => path === "/mcp/tool/eligible",
+    );
+
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      [
+        "/_agent-native/webmcp/manifest",
+        "/_agent-native/webmcp/actions/eligible",
+        "/mcp/tool/eligible",
+      ],
+      nitroApp,
+    );
+
+    const compatibilityManifest = await compatibilityRoute?.handler({
+      _method: "GET",
+      _headers: {
+        host: "clips.example.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(compatibilityManifest).toMatchObject({
+      schema_version: "v1",
+      protocol: "WebMCP",
+      name: "Clips",
+      description: "Read clips",
+      instructions: expect.stringContaining("Call view-screen before editing."),
+      website_url: "https://clips.example.com",
+      endpoints: {
+        mcp: "https://clips.example.com/mcp",
+        httpTools: "https://clips.example.com/mcp/tool",
+        authenticatedWebMcp:
+          "https://clips.example.com/_agent-native/webmcp/manifest",
+        a2a: "https://clips.example.com/.well-known/agent-card.json",
+      },
+      webmcp: { scope: "page-local", browserRequired: true },
+      tools: [
+        {
+          name: "eligible",
+          title: "Eligible",
+          description: "Eligible",
+          parameters: { type: "object" },
+          inputSchema: { type: "object" },
+          endpoint: "https://clips.example.com/mcp/tool/eligible",
+          method: "POST",
+          readOnly: true,
+          requiresAuth: true,
+        },
+      ],
+    });
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "eligible",
+        title: "Eligible",
+        description: "Eligible",
+        inputSchema: { type: "object" },
+        readOnly: true,
+      },
+    ]);
+    expect(getOwnerFromEvent).toHaveBeenCalled();
+
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ caller: "webmcp" });
+    expect(run).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ caller: "webmcp", actionName: "eligible" }),
+    );
+    expect(resolveCaller).not.toHaveBeenCalled();
+
+    await expect(
+      compatibilityInvocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ caller: "webmcp" });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("serves only explicitly public read-only actions to anonymous pages", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const privateRun = vi.fn();
+    const getOwnerFromEvent = vi.fn(async () => {
+      throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: {
+            description: "Search public docs",
+            parameters: { type: "object" },
+          },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "private-docs": {
+          tool: {
+            description: "Read private docs",
+            parameters: { type: "object" },
+          },
+          run: privateRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+        } as any,
+        "vetoed-docs": {
+          tool: {
+            description: "Never expose these docs",
+            parameters: { type: "object" },
+          },
+          run: vi.fn(),
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          agentTool: true,
+          mcpTool: false,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/search-docs",
+    );
+    const guessedPrivateRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/private-docs",
+    );
+    const vetoedRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/vetoed-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: { type: "object" },
+        readOnly: true,
+        title: "Search docs",
+      },
+    ]);
+    expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
+    expect(vetoedRoute).toBeUndefined();
+
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ userEmail: undefined });
+    expect(publicRun).toHaveBeenCalledTimes(1);
+    await expect(
+      guessedPrivateRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(privateRun).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a synthetic anonymous owner as authenticated", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const mutationRun = vi.fn();
+    const getOwnerContextFromEvent = vi.fn(async () => ({
+      owner: "public-owner",
+      anonymous: true,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: { description: "Search public docs", parameters: {} },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "mutate-docs": {
+          tool: { description: "Mutate docs", parameters: {} },
+          run: mutationRun,
+          http: false,
+          readOnly: false,
+        } as any,
+      },
+      { getOwnerContextFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const mutationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/mutate-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: {},
+        readOnly: true,
+        title: "Search docs",
+      },
+    ]);
+    await expect(
+      mutationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mutationRun).not.toHaveBeenCalled();
+  });
+});

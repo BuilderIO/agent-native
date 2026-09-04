@@ -1,0 +1,49 @@
+---
+title: "部署"
+description: "使用持久 SQL 数据库将 Agent-Native 应用或工作区部署到兼容 Nitro 的平台。"
+---
+
+<!-- i18n-docs-ignore -->
+
+# 部署
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+Agent-Native 应用运行在 Nitro 上。请选择适合你要发布内容的路径：
+
+<Cards columns={2}>
+
+### [部署应用](/docs/deploy-an-app)
+
+构建一个应用并在自己的域名上运行。
+
+### [部署工作区](/docs/workspace-deployment)
+
+在一个来源下运行多个应用，并共享登录状态。
+
+</Cards>
+
+## 部署前：选择持久数据库 {#persistent-database}
+
+每个已部署应用都需要持久 SQL 数据库。在首次生产部署前，将 `DATABASE_URL` 设置到部署环境中。如果数据库提供商需要单独的令牌，也要设置 `DATABASE_AUTH_TOKEN`。
+
+独立应用需要稳定的 `BETTER_AUTH_SECRET`。使用签名跨应用请求的工作区需要 `A2A_SECRET`。
+
+## 邮件发送是可选的，但建议配置 {#email-provider}
+
+电子邮件提供商不是邮箱和密码身份验证的必需项。没有提供商时，已部署的应用会使用邮箱和密码注册及登录，跳过注册时的邮箱验证，也不会提供魔法链接身份验证。
+
+如果需要魔法链接、邮箱验证、密码重置、邀请或共享通知，请在部署前连接 Resend 或 SendGrid。在部署环境中设置 `RESEND_API_KEY` 或 `SENDGRID_API_KEY`；SendGrid 还需要 `EMAIL_FROM`。有关身份验证模式，请参阅[身份验证](/docs/authentication)。
+
+## 支持的部署目标
+
+Agent-Native 支持 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。
+
+有关高级设置、密钥和生产值，请参阅[部署环境变量参考](/docs/deployment-environment-variables)。
+
+## 下一步
+
+- [部署应用](/docs/deploy-an-app)
+- [部署工作区](/docs/workspace-deployment)
+- [数据库](/docs/server-database#production)
