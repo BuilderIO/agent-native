@@ -130,7 +130,8 @@ function FromAccountSelector({
       : accounts[0]?.email) ||
     "";
   const selectedAccount =
-    accounts.find((account) => account.email === resolvedValue) ?? accounts[0];
+    accounts.find((account) => account.email === resolvedValue) ??
+    (resolvedValue ? { email: resolvedValue } : accounts[0]);
 
   // Sync the sticky default into the draft if it wasn't set
   useEffect(() => {
