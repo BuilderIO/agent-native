@@ -1223,14 +1223,15 @@
       animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
     }
   }
+}
 
-  /* Search inputs that render their own clear button must hide the
-     browser's native WebKit cancel icon, or two clear controls stack on
-     top of each other. Scoped to inputs that opt in via this class, since
-     other type="search" inputs rely on the native control as their only
-     clear affordance. */
-  input.agent-native-search-input::-webkit-search-cancel-button {
-    -webkit-appearance: none;
-    appearance: none;
-  }
+/* Search inputs that render their own clear button must hide the
+   browser's native WebKit cancel icon, or two clear controls stack on
+   top of each other. Scoped to inputs that opt in via this class, since
+   other type="search" inputs rely on the native control as their only
+   clear affordance. Not motion-related, so it must not live inside the
+   surrounding `prefers-reduced-motion: no-preference` block above. */
+input.agent-native-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
 }
