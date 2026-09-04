@@ -83,6 +83,12 @@ export interface ChangeEvent {
   [k: string]: unknown;
 }
 
+export interface TransactionalChange {
+  persist(transaction: DbExec): Promise<ChangeEvent>;
+  isPersisted(): boolean;
+  publish(): ChangeEvent;
+}
+
 // In-memory ring buffer of recent changes. Kept small since clients
 // poll frequently (every 2-3s) and only need events since their last poll.
 const MAX_BUFFER = 200;
@@ -1215,6 +1221,96 @@ export class AppSyncState {
     );
   }
 
+  /**
+   * Prepare a durable change whose row must commit with a caller-owned
+   * transaction. Persistence and in-process publication are deliberately
+   * separate: callers persist through the transaction, then publish only
+   * after that transaction resolves successfully.
+   */
+  async prepareTransactionalChange(event: {
+    source: string;
+    type: string;
+    key?: string;
+    [k: string]: unknown;
+  }): Promise<TransactionalChange> {
+    if (!(await this.ensureSyncEventsTable())) {
+      throw new Error(
+        "Transactional change delivery requires durable sync events",
+      );
+    }
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    let persisted: ChangeEvent | null = null;
+    return {
+      persist: async (transaction) => {
+        if (persisted) return persisted;
+        let version: number;
+        if (this.dbAssignedVersions && this.isPg()) {
+          const result = await transaction.execute({
+            sql: ALLOCATING_INSERT_SQL,
+            args: [
+              this.version + 1,
+              id,
+              JSON.stringify({ ...event, cursorId: id })
+                .split("\\u0000")
+                .join(""),
+              event.source,
+              event.type,
+              event.key ?? null,
+              (event.owner as string | undefined) ?? null,
+              (event.orgId as string | undefined) ?? null,
+              (event.resourceType as string | undefined) ?? null,
+              (event.resourceId as string | undefined) ?? null,
+              Date.now(),
+            ],
+          });
+          version = timestampValue(result.rows[0]?.version);
+          if (version <= 0) {
+            throw new Error("Durable sync version allocation failed");
+          }
+        } else {
+          version = Math.max(this.version + 1, Date.now());
+          const entry = { ...event, version, cursorId: id } as ChangeEvent;
+          const result = await transaction.execute({
+            sql: this.isPg()
+              ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`
+              : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+              id,
+              version,
+              JSON.stringify(entry),
+              entry.source,
+              entry.type,
+              entry.key ?? null,
+              entry.owner ?? null,
+              entry.orgId ?? null,
+              entry.resourceType ?? null,
+              entry.resourceId ?? null,
+              Date.now(),
+            ],
+          });
+          if (result.rowsAffected !== 1) {
+            throw new Error("Durable sync event was not persisted");
+          }
+        }
+        persisted = { ...event, version, cursorId: id } as ChangeEvent;
+        return persisted;
+      },
+      isPersisted: () => persisted !== null,
+      publish: () => {
+        if (!persisted) {
+          throw new Error(
+            "Transactional change cannot publish before persistence commits",
+          );
+        }
+        this.version = Math.max(this.version, persisted.version);
+        this.commitEntryForChain(persisted);
+        return persisted;
+      },
+    };
+  }
+
   /** Buffer + emit. Shared by both version-allocation modes. */
   private commitEntry(entry: ChangeEvent): void {
     this.buffer.push(entry);
@@ -2182,6 +2278,15 @@ export function recordChange(event: {
   [k: string]: unknown;
 }): void {
   getDefaultAppSyncState().recordChange(event);
+}
+
+export function prepareTransactionalChange(event: {
+  source: string;
+  type: string;
+  key?: string;
+  [k: string]: unknown;
+}): Promise<TransactionalChange> {
+  return getDefaultAppSyncState().prepareTransactionalChange(event);
 }
 
 setActionChangeFastPath((target) => {

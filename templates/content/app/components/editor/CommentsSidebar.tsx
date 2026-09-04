@@ -5,6 +5,11 @@ import {
   InlineMarkdown,
   type InlineMarkdownProtectedSpan,
 } from "@agent-native/core/client/markdown";
+import { ReviewThreadPanel } from "@agent-native/core/client/review";
+import type {
+  ResourceSuggestion,
+  SuggestionDecision,
+} from "@agent-native/core/review";
 import {
   IconCheck,
   IconMessageCircle,
@@ -53,6 +58,7 @@ import {
   useMentionMembers,
   type MentionMember,
 } from "@/hooks/use-mention-members";
+import { cn } from "@/lib/utils";
 
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
@@ -72,6 +78,10 @@ function commentMentionSpans(
     label: `@${label}`,
     className: "comment-mention",
   }));
+}
+
+function renderSuggestionText(content: string) {
+  return <InlineMarkdown content={content} inline />;
 }
 
 function renderCommentBody(content: string, mentions: CommentMention[]) {
@@ -357,6 +367,9 @@ interface CommentsSidebarProps {
   activeThreadId?: string | null;
   selectedThreadId?: string | null;
   onActivateThread?: (id: string) => void;
+  activeSuggestionId?: string | null;
+  anchoredSuggestionIds?: string[] | null;
+  onActivateSuggestion?: (id: string) => void;
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
@@ -364,6 +377,13 @@ interface CommentsSidebarProps {
   canResolve?: boolean;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
+  suggestions?: ResourceSuggestion[];
+  canDecideSuggestions?: boolean;
+  decidingSuggestion?: boolean;
+  onDecideSuggestion?: (
+    suggestion: ResourceSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
 }
@@ -378,6 +398,9 @@ export function CommentsSidebar({
   activeThreadId,
   selectedThreadId,
   onActivateThread,
+  activeSuggestionId,
+  anchoredSuggestionIds,
+  onActivateSuggestion,
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
@@ -385,6 +408,10 @@ export function CommentsSidebar({
   canResolve = false,
   alignToAnchors = true,
   forceVisible = false,
+  suggestions = [],
+  canDecideSuggestions = false,
+  decidingSuggestion = false,
+  onDecideSuggestion,
   visibleThreadId,
   presentation = "inline",
 }: CommentsSidebarProps) {
@@ -398,8 +425,13 @@ export function CommentsSidebar({
   const [pendingText, setPendingText] = useState("");
   const [pendingMentions, setPendingMentions] = useState<MentionEntry[]>([]);
   const [historyStatus, setHistoryStatus] = useState<
-    "all" | "open" | "resolved"
+    "all" | "open" | "resolved" | "pending" | "accepted" | "rejected"
   >("all");
+  const [historyKind, setHistoryKind] = useState<
+    "all" | "comments" | "suggestions"
+  >("all");
+  const [historyPortalContainer, setHistoryPortalContainer] =
+    useState<HTMLDivElement | null>(null);
   const [historyAuthor, setHistoryAuthor] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
@@ -425,6 +457,14 @@ export function CommentsSidebar({
   }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
   const historyAuthors = useMemo(() => {
     const authors = new Map<string, string>();
+    for (const suggestion of suggestions) {
+      if (suggestion.authorEmail) {
+        authors.set(
+          suggestion.authorEmail,
+          suggestion.authorEmail.split("@")[0],
+        );
+      }
+    }
     for (const thread of threads) {
       for (const comment of thread.comments) {
         authors.set(
@@ -436,9 +476,31 @@ export function CommentsSidebar({
     return [...authors.entries()].sort((left, right) =>
       left[1].localeCompare(right[1]),
     );
-  }, [threads]);
+  }, [suggestions, threads]);
+  const historySuggestions = useMemo(() => {
+    if (historyKind === "comments") return [];
+    return suggestions.filter((suggestion) => {
+      if (historyStatus === "open" && suggestion.status !== "pending") {
+        return false;
+      }
+      if (historyStatus === "resolved" && suggestion.status === "pending") {
+        return false;
+      }
+      if (
+        ["pending", "accepted", "rejected"].includes(historyStatus) &&
+        suggestion.status !== historyStatus
+      ) {
+        return false;
+      }
+      return !historyAuthor || suggestion.authorEmail === historyAuthor;
+    });
+  }, [historyAuthor, historyKind, historyStatus, suggestions]);
   const historyThreads = useMemo(() => {
+    if (historyKind === "suggestions") return [];
     return threads.filter((thread) => {
+      if (["pending", "accepted", "rejected"].includes(historyStatus)) {
+        return false;
+      }
       if (historyStatus === "open" && thread.resolved) return false;
       if (historyStatus === "resolved" && !thread.resolved) return false;
       if (
@@ -451,7 +513,7 @@ export function CommentsSidebar({
       }
       return true;
     });
-  }, [historyAuthor, historyStatus, threads]);
+  }, [historyAuthor, historyKind, historyStatus, threads]);
 
   useEffect(() => {
     if (pendingComment) {
@@ -668,8 +730,8 @@ export function CommentsSidebar({
 
   const hasContent =
     presentation === "history"
-      ? threads.length > 0
-      : openThreads.length > 0 || !!pendingComment;
+      ? threads.length > 0 || suggestions.length > 0
+      : suggestions.length > 0 || openThreads.length > 0 || !!pendingComment;
   if (!hasContent && !isLoading && !forceVisible) return null;
 
   const items = layoutCommentThreads(
@@ -703,10 +765,154 @@ export function CommentsSidebar({
     });
   };
 
+  const renderSuggestionCards = (
+    displayedSuggestions: ResourceSuggestion[] = suggestions,
+  ) => {
+    const visibleSuggestions =
+      presentation === "inline" && activeSuggestionId
+        ? displayedSuggestions.filter(
+            (suggestion) => suggestion.id === activeSuggestionId,
+          )
+        : displayedSuggestions;
+    return visibleSuggestions.length > 0 ? (
+      <div className="mx-2 mt-3 space-y-2" data-suggestion-threads>
+        {[...visibleSuggestions]
+          .sort((left, right) =>
+            left.id === activeSuggestionId
+              ? -1
+              : right.id === activeSuggestionId
+                ? 1
+                : 0,
+          )
+          .map((suggestion) => {
+            const anchorUnavailable =
+              suggestion.status === "pending" &&
+              anchoredSuggestionIds !== null &&
+              !anchoredSuggestionIds?.includes(suggestion.id);
+            const operation = suggestion.operations[0];
+            const before = operation?.before as
+              | { changedText?: string }
+              | undefined;
+            const after = operation?.after as
+              | { changedText?: string }
+              | undefined;
+            return (
+              <article
+                key={suggestion.id}
+                className={cn(
+                  "rounded-lg bg-popover p-3 shadow-sm ring-1 ring-border/50",
+                  activeSuggestionId === suggestion.id && "ring-2 ring-primary",
+                )}
+                data-suggestion-id={suggestion.id}
+                tabIndex={0}
+                onClick={() => onActivateSuggestion?.(suggestion.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onActivateSuggestion?.(suggestion.id);
+                  }
+                }}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {operation?.kind.split("_").join(" ")} ·{" "}
+                    {suggestion.authorEmail ?? suggestion.actorKind}
+                  </span>
+                  <span>{suggestion.status}</span>
+                </div>
+                {anchorUnavailable ? (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    {t("comments.unanchored")}
+                  </p>
+                ) : null}
+                <p className="break-words text-sm">
+                  {before?.changedText ? (
+                    <del className="text-muted-foreground">
+                      {renderSuggestionText(before.changedText)}
+                    </del>
+                  ) : null}
+                  {before?.changedText && after?.changedText ? " → " : null}
+                  {after?.changedText ? (
+                    <ins>{renderSuggestionText(after.changedText)}</ins>
+                  ) : null}
+                </p>
+                {canDecideSuggestions && suggestion.status === "pending" ? (
+                  <div className="mt-3 flex justify-end gap-1">
+                    <button
+                      type="button"
+                      className="rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent"
+                      disabled={decidingSuggestion}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDecideSuggestion?.(suggestion, "rejected");
+                      }}
+                    >
+                      {t("editor.rejectSuggestion")}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
+                      disabled={decidingSuggestion}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDecideSuggestion?.(suggestion, "accepted");
+                      }}
+                    >
+                      {t("editor.acceptSuggestion")}
+                    </button>
+                  </div>
+                ) : null}
+                <ReviewThreadPanel
+                  resourceType="document"
+                  resourceId={documentId}
+                  targetId={suggestion.id}
+                  showHeader={false}
+                  showComposer={canComment}
+                  variant="plain"
+                  className="mt-2"
+                  canReply={canComment}
+                  canResolve={false}
+                  placeholder={t("comments.add")}
+                  emptyState={t("comments.empty")}
+                  replyPlaceholder={t("comments.reply")}
+                  resolveLabel={t("comments.resolve")}
+                />
+              </article>
+            );
+          })}
+      </div>
+    ) : null;
+  };
+
   if (presentation === "history") {
     return (
-      <div className="min-h-full w-full bg-background" data-comments-history>
+      <div
+        ref={setHistoryPortalContainer}
+        className="min-h-full w-full bg-background"
+        data-comments-history
+      >
         <div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-3 py-2">
+          <div className="flex items-center rounded-md bg-muted p-0.5">
+            {(["all", "comments", "suggestions"] as const).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                className={cn(
+                  "rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground",
+                  historyKind === kind &&
+                    "bg-background text-foreground shadow-sm",
+                )}
+                aria-pressed={historyKind === kind}
+                onClick={() => setHistoryKind(kind)}
+              >
+                {kind === "all"
+                  ? t("comments.allStatuses")
+                  : kind === "comments"
+                    ? t("comments.title")
+                    : t("comments.suggestions")}
+              </button>
+            ))}
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -717,25 +923,47 @@ export function CommentsSidebar({
                 {t("comments.filter")}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuContent
+              align="start"
+              className="w-56"
+              container={historyPortalContainer}
+            >
               <DropdownMenuLabel>
                 {t("comments.statusFilter")}
               </DropdownMenuLabel>
               <DropdownMenuGroup>
-                {(["all", "open", "resolved"] as const).map((status) => (
+                {(
+                  [
+                    "all",
+                    "open",
+                    "resolved",
+                    "pending",
+                    "accepted",
+                    "rejected",
+                  ] as const
+                ).map((status) => (
                   <DropdownMenuCheckboxItem
                     key={status}
                     checked={historyStatus === status}
                     onCheckedChange={(checked) =>
                       checked && setHistoryStatus(status)
                     }
-                    onSelect={(event) => event.preventDefault()}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
                   >
                     {status === "all"
                       ? t("comments.allStatuses")
                       : status === "open"
                         ? t("comments.open")
-                        : t("comments.resolvedStatus")}
+                        : status === "resolved"
+                          ? t("comments.resolvedStatus")
+                          : status === "pending"
+                            ? t("comments.pending")
+                            : status === "accepted"
+                              ? t("comments.accepted")
+                              : t("comments.rejected")}
                   </DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuGroup>
@@ -749,7 +977,10 @@ export function CommentsSidebar({
                   onCheckedChange={(checked) =>
                     checked && setHistoryAuthor(null)
                   }
-                  onSelect={(event) => event.preventDefault()}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
                 >
                   {t("comments.allAuthors")}
                 </DropdownMenuCheckboxItem>
@@ -760,7 +991,10 @@ export function CommentsSidebar({
                     onCheckedChange={(checked) =>
                       checked && setHistoryAuthor(email)
                     }
-                    onSelect={(event) => event.preventDefault()}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
                   >
                     {name}
                   </DropdownMenuCheckboxItem>
@@ -769,6 +1003,7 @@ export function CommentsSidebar({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        {renderSuggestionCards(historySuggestions)}
         <div className="grid gap-2 p-3">
           {isLoading ? (
             [0, 1, 2].map((item) => (
@@ -778,7 +1013,7 @@ export function CommentsSidebar({
                 aria-hidden="true"
               />
             ))
-          ) : historyThreads.length === 0 ? (
+          ) : historyThreads.length === 0 && historySuggestions.length === 0 ? (
             <div className="px-2 py-10 text-center text-sm text-muted-foreground">
               {t("comments.noFilteredComments")}
             </div>
@@ -827,6 +1062,7 @@ export function CommentsSidebar({
           ))}
         </div>
       ) : null}
+      {renderSuggestionCards()}
       {/* Pending new comment — positioned at the selection Y offset */}
       {pendingComment && (
         <div

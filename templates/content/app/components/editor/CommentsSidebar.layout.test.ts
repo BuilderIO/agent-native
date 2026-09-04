@@ -246,21 +246,40 @@ describe("comments sidebar layout", () => {
     );
   });
 
-  it("combines supported comment history filters into one persistent checkbox menu", () => {
+  it("combines content controls with status and author filters", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",
     });
 
     expect(source.match(/<DropdownMenu>/g)).toHaveLength(1);
     expect(source).toContain("DropdownMenuCheckboxItem");
-    expect(source).not.toContain('t("comments.typeFilter")');
-    expect(source).not.toContain('historyType === "suggestions"');
+    expect(source).toContain('"all" | "comments" | "suggestions"');
+    expect(source).toContain('historyKind === "comments"');
+    expect(source).toContain('historyKind === "suggestions"');
+    expect(source).toContain("aria-pressed={historyKind === kind}");
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
     expect(source).toContain("event.preventDefault()");
     expect(source).toContain(
+      '"pending",\n                    "accepted",\n                    "rejected"',
+    );
+    expect(source).toContain("renderSuggestionCards(historySuggestions)");
+    expect(source).toContain("renderSuggestionCards()");
+    expect(source).toContain("renderSuggestionText(before.changedText)");
+    expect(source).toContain("<InlineMarkdown content={content} inline />");
+    expect(source).toContain(
       'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
     );
+  });
+
+  it("labels pending suggestions whose page anchor cannot be resolved", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('suggestion.status === "pending"');
+    expect(source).toContain("!anchoredSuggestionIds?.includes(suggestion.id)");
+    expect(source).toContain('t("comments.unanchored")');
   });
 
   it("captures inline comment activation at the document state boundary", () => {

@@ -326,6 +326,13 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-review-feedback": "review",
   "set-review-status": "review",
   "send-review-thread-to-agent": "review",
+  "react-to-review-comment": "review",
+  "set-review-thread-unread": "review",
+  "set-review-thread-muted": "review",
+  "create-resource-suggestion": "review",
+  "list-resource-suggestions": "review",
+  "get-resource-suggestion": "review",
+  "decide-resource-suggestion": "review",
 };
 
 /** Structural view of the one field these helpers read, so tagging utilities

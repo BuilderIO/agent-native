@@ -44,6 +44,20 @@ export {
   routeReviewThread,
   sendReviewThreadToAgent,
 } from "./store.js";
+export * from "./suggestions/types.js";
+export {
+  registerSuggestionAdapter,
+  getSuggestionAdapter,
+  listSuggestionAdapters,
+  __resetSuggestionAdaptersForTests,
+} from "./suggestions/registry.js";
+export {
+  ensureSuggestionTables,
+  getDecision,
+  getSuggestion,
+  listSuggestions,
+  __resetSuggestionTablesForTests,
+} from "./suggestions/store.js";
 export type {
   GetReviewThreadSummaryInput,
   ReviewThreadSummary,

@@ -568,7 +568,7 @@ describe("document editor layout", () => {
       'collabInitialization.status === "ready"',
     );
     expect(documentEditorSource).toContain(
-      "ydoc={collabEditorEnabled ? ydoc : null}",
+      "suggestionEditorIsolation.bindCanonicalYDoc",
     );
     expect(documentEditorSource).toContain(
       "awareness={collabEditorEnabled ? awareness : null}",
@@ -753,7 +753,74 @@ describe("document editor layout", () => {
     expect(source).toContain("!collabInitializationFailed");
     expect(source).toContain("data-collab-initialization-error");
     expect(source).toContain("onRetry={() => globalThis.location.reload()}");
-    expect(source).toContain("ydoc={collabEditorEnabled ? ydoc : null}");
+    expect(source).toContain("suggestionEditorIsolation.bindCanonicalYDoc");
+  });
+
+  it("binds suggestion operations to the body and revision captured at mode entry", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("suggestionBaseRef.current = {");
+    expect(source).toContain(
+      "markdownSuggestionOperations(\n          base.content",
+    );
+    expect(source).toContain("for (const operation of operations)");
+    expect(source).toContain("operations: [operation]");
+    expect(source).toContain("createdSuggestionOperationsRef.current.get");
+    expect(source).toContain("createdSuggestionOperationsRef.current.set");
+    expect(
+      source.indexOf("createdSuggestionOperationsRef.current.set"),
+    ).toBeLessThan(
+      source.indexOf("const created = await createSuggestion.mutateAsync"),
+    );
+    expect(source).toContain(
+      "idempotencyKey,\n            operations: [operation]",
+    );
+    expect(source).toContain("baseRevision: base.updatedAt");
+    expect(source).not.toContain("baseRevision: document.updatedAt");
+  });
+
+  it("freezes the suggestion editor while mode exit persists proposals", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("if (isSubmittingSuggestions) return");
+    expect(source).toContain("setIsSubmittingSuggestions(true)");
+    expect(source).toContain(
+      "suggestionEditorIsolation.editable &&\n                              !isSubmittingSuggestions",
+    );
+    expect(source).toContain("setIsSubmittingSuggestions(false)");
+  });
+
+  it("does not classify canonical suggestion anchors from a draft-only editor", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "anchoredSuggestionIds={isSuggesting ? null : anchoredSuggestionIds}",
+    );
+  });
+
+  it("opens comments for deep links without coupling mode exit to navigation", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(
+      source.match(
+        /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
+      ),
+    ).toHaveLength(1);
+    expect(source).not.toMatch(
+      /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
+    );
   });
 
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {

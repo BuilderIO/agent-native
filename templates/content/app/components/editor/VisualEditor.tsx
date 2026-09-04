@@ -60,7 +60,11 @@ import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
-import { resolveAnchor, type CommentTextAnchor } from "./comment-anchors";
+import {
+  resolveAnchor,
+  resolveAnchorPoint,
+  type CommentTextAnchor,
+} from "./comment-anchors";
 import { AudioNode } from "./extensions/AudioNode";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
@@ -87,6 +91,11 @@ import {
   LockedSourceComponentBlocks,
   RegistryBlockNode,
 } from "./extensions/registryBlocks";
+import {
+  SuggestionHighlight,
+  setSuggestionHighlights,
+  type SuggestionHighlightSpec,
+} from "./extensions/SuggestionHighlight";
 import { VideoNode } from "./extensions/VideoNode";
 import {
   getImageFiles,
@@ -722,6 +731,88 @@ const NormalizeTableHeaders = Extension.create({
   },
 });
 
+export interface VisualEditorSuggestion {
+  id: string;
+  kind:
+    | "insert_text"
+    | "delete_text"
+    | "replace_text"
+    | "add_text_block"
+    | "set_inline_mark";
+  beforeText: string;
+  afterText: string;
+  anchor: { from: number; prefix: string; suffix: string };
+  /** Draft documents already contain the proposed result; canonical ones do not. */
+  presentation: "draft" | "canonical";
+}
+
+function suggestionAnchorRange(
+  doc: ProseMirrorNode,
+  suggestion: VisualEditorSuggestion,
+): { from: number; to: number } | null {
+  const quote =
+    suggestion.presentation === "draft"
+      ? suggestion.afterText
+      : suggestion.beforeText;
+  if (quote) {
+    return resolveAnchor(doc, {
+      quotedText: quote,
+      prefix: suggestion.anchor.prefix,
+      suffix: suggestion.anchor.suffix,
+      startOffset: suggestion.anchor.from,
+    });
+  }
+
+  const position = resolveAnchorPoint(doc, {
+    prefix: suggestion.anchor.prefix,
+    suffix: suggestion.anchor.suffix,
+    startOffset: suggestion.anchor.from,
+  });
+  if (position == null) return null;
+  return { from: position, to: position };
+}
+
+function suggestionHighlightSpec(
+  doc: ProseMirrorNode,
+  suggestion: VisualEditorSuggestion,
+): SuggestionHighlightSpec | null {
+  const range = suggestionAnchorRange(doc, suggestion);
+  if (!range) return null;
+  if (suggestion.presentation === "draft") {
+    if (!suggestion.afterText) {
+      return {
+        suggestionId: suggestion.id,
+        kind: "delete",
+        from: range.from,
+        to: range.to,
+        deletedText: suggestion.beforeText,
+      };
+    }
+    return {
+      suggestionId: suggestion.id,
+      kind: "mark",
+      from: range.from,
+      to: range.to,
+    };
+  }
+  return {
+    suggestionId: suggestion.id,
+    kind:
+      suggestion.kind === "delete_text"
+        ? "delete"
+        : suggestion.kind === "replace_text"
+          ? "replace"
+          : suggestion.kind === "set_inline_mark"
+            ? "mark"
+            : suggestion.kind === "add_text_block"
+              ? "add_block"
+              : "insert",
+    from: range.from,
+    to: range.to,
+    insertedText: suggestion.afterText,
+  };
+}
+
 interface VisualEditorProps {
   documentId?: string;
   content: string;
@@ -772,6 +863,10 @@ interface VisualEditorProps {
   pendingHighlight?: { from: number; to: number } | null;
   /** Called when the user clicks an inline highlight in the document. */
   onActivateThread?: (threadId: string) => void;
+  suggestions?: VisualEditorSuggestion[];
+  activeSuggestionId?: string | null;
+  onActivateSuggestion?: (suggestionId: string) => void;
+  onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
@@ -1726,6 +1821,7 @@ export function createVisualEditorExtensions({
       }),
       LocalMdxComponentNode,
       CommentHighlight,
+      SuggestionHighlight,
       DragHandle,
       TypographyReplacements,
       NotionMarkdownShortcuts,
@@ -2101,6 +2197,10 @@ export function VisualEditor({
   activeThreadId,
   pendingHighlight,
   onActivateThread,
+  suggestions = [],
+  activeSuggestionId,
+  onActivateSuggestion,
+  onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
   notionPageLinks = [],
@@ -2118,6 +2218,10 @@ export function VisualEditor({
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
+  const onActivateThreadRef = useRef(onActivateThread);
+  onActivateThreadRef.current = onActivateThread;
+  const onActivateSuggestionRef = useRef(onActivateSuggestion);
+  onActivateSuggestionRef.current = onActivateSuggestion;
   const onHistoryStateChangeRef = useRef(onHistoryStateChange);
   onHistoryStateChangeRef.current = onHistoryStateChange;
   const historyStateNotificationRef = useRef<VisualEditorHistoryState | null>(
@@ -2910,6 +3014,69 @@ export function VisualEditor({
   useEffect(() => {
     scheduleApply(true);
   }, [editor, scheduleApply, content, contentUpdatedAt]);
+
+  const suggestionsSignature = useMemo(
+    () =>
+      suggestions
+        .map(
+          (suggestion) =>
+            `${suggestion.id}:${suggestion.kind}:${suggestion.beforeText}:${suggestion.afterText}:${suggestion.presentation}`,
+        )
+        .join("|"),
+    [suggestions],
+  );
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const specs = suggestions
+      .map((suggestion) =>
+        suggestionHighlightSpec(editor.state.doc, suggestion),
+      )
+      .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
+    onSuggestionAnchorsChange?.(
+      Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+    );
+    setSuggestionHighlights(editor.view, {
+      specs,
+      activeId: activeSuggestionId ?? null,
+    });
+  }, [
+    activeSuggestionId,
+    editor,
+    onSuggestionAnchorsChange,
+    suggestions,
+    suggestionsSignature,
+  ]);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const suggestion = target?.closest<HTMLElement>("[data-suggestion-id]");
+      if (suggestion?.dataset.suggestionId) {
+        onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
+        return;
+      }
+      const comment = target?.closest<HTMLElement>("[data-comment-thread]");
+      if (comment?.dataset.commentThread) {
+        onActivateThreadRef.current?.(comment.dataset.commentThread);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const target = event.target instanceof Element ? event.target : null;
+      const suggestion = target?.closest<HTMLElement>("[data-suggestion-id]");
+      if (!suggestion?.dataset.suggestionId) return;
+      event.preventDefault();
+      onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
+    };
+    editor.view.dom.addEventListener("click", handleClick, true);
+    editor.view.dom.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      editor.view.dom.removeEventListener("click", handleClick, true);
+      editor.view.dom.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [editor]);
 
   if (!editor) {
     return (
