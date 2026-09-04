@@ -32,15 +32,7 @@
         },
         "sizes": {
           "description": "Optional array of strings that specify sizes at which the icon can be used. Each string should be in WxH format (e.g., '48x48', '96x96') or 'any' for scalable formats like SVG. If not provided, the client should assume that the icon can be used at any size.",
-          "examples": [
-            [
-              "48x48",
-              "96x96"
-            ],
-            [
-              "any"
-            ]
-          ],
+          "examples": [["48x48", "96x96"], ["any"]],
           "items": {
             "pattern": "^(\\d+x\\d+|any)$",
             "type": "string"
@@ -56,16 +48,11 @@
         },
         "theme": {
           "description": "Optional specifier for the theme this icon is designed for. 'light' indicates the icon is designed to be used with a light background, and 'dark' indicates the icon is designed to be used with a dark background. If not provided, the client should assume the icon can be used with any theme.",
-          "enum": [
-            "light",
-            "dark"
-          ],
+          "enum": ["light", "dark"],
           "type": "string"
         }
       },
-      "required": [
-        "src"
-      ],
+      "required": ["src"],
       "type": "object"
     },
     "Input": {
@@ -89,12 +76,7 @@
         "format": {
           "default": "string",
           "description": "Specifies the input format. Supported values include `filepath`, which should be interpreted as a file on the user's filesystem.\n\nWhen the input is converted to a string, booleans should be represented by the strings \"true\" and \"false\", and numbers should be represented as decimal values.",
-          "enum": [
-            "string",
-            "number",
-            "boolean",
-            "filepath"
-          ],
+          "enum": ["string", "number", "boolean", "filepath"],
           "type": "string"
         },
         "isRequired": {
@@ -149,9 +131,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "name"
-          ],
+          "required": ["name"],
           "type": "object"
         }
       ]
@@ -188,17 +168,12 @@
               "type": "string"
             },
             "type": {
-              "enum": [
-                "named"
-              ],
+              "enum": ["named"],
               "example": "named",
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "name"
-          ],
+          "required": ["type", "name"],
           "type": "object"
         }
       ],
@@ -249,13 +224,7 @@
         },
         "registryType": {
           "description": "Registry type indicating how to download packages (e.g., 'npm', 'pypi', 'oci', 'nuget', 'mcpb')",
-          "examples": [
-            "npm",
-            "pypi",
-            "oci",
-            "nuget",
-            "mcpb"
-          ],
+          "examples": ["npm", "pypi", "oci", "nuget", "mcpb"],
           "type": "string"
         },
         "runtimeArguments": {
@@ -267,12 +236,7 @@
         },
         "runtimeHint": {
           "description": "A hint to help clients determine the appropriate runtime for the package. This field should be provided when `runtimeArguments` are present.",
-          "examples": [
-            "npx",
-            "uvx",
-            "docker",
-            "dnx"
-          ],
+          "examples": ["npx", "uvx", "docker", "dnx"],
           "type": "string"
         },
         "transport": {
@@ -289,11 +253,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "registryType",
-        "identifier",
-        "transport"
-      ],
+      "required": ["registryType", "identifier", "transport"],
       "type": "object"
     },
     "PositionalArgument": {
@@ -304,14 +264,10 @@
         {
           "anyOf": [
             {
-              "required": [
-                "valueHint"
-              ]
+              "required": ["valueHint"]
             },
             {
-              "required": [
-                "value"
-              ]
+              "required": ["value"]
             }
           ],
           "properties": {
@@ -321,9 +277,7 @@
               "type": "boolean"
             },
             "type": {
-              "enum": [
-                "positional"
-              ],
+              "enum": ["positional"],
               "example": "positional",
               "type": "string"
             },
@@ -333,9 +287,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type"
-          ],
+          "required": ["type"],
           "type": "object"
         }
       ],
@@ -393,10 +345,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "url",
-        "source"
-      ],
+      "required": ["url", "source"],
       "type": "object"
     },
     "ServerDetail": {
@@ -486,11 +435,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "name",
-        "description",
-        "version"
-      ],
+      "required": ["name", "description", "version"],
       "type": "object"
     },
     "SseTransport": {
@@ -504,9 +449,7 @@
         },
         "type": {
           "description": "Transport type",
-          "enum": [
-            "sse"
-          ],
+          "enum": ["sse"],
           "example": "sse",
           "type": "string"
         },
@@ -517,26 +460,19 @@
           "type": "string"
         }
       },
-      "required": [
-        "type",
-        "url"
-      ],
+      "required": ["type", "url"],
       "type": "object"
     },
     "StdioTransport": {
       "properties": {
         "type": {
           "description": "Transport type",
-          "enum": [
-            "stdio"
-          ],
+          "enum": ["stdio"],
           "example": "stdio",
           "type": "string"
         }
       },
-      "required": [
-        "type"
-      ],
+      "required": ["type"],
       "type": "object"
     },
     "StreamableHttpTransport": {
@@ -550,9 +486,7 @@
         },
         "type": {
           "description": "Transport type",
-          "enum": [
-            "streamable-http"
-          ],
+          "enum": ["streamable-http"],
           "example": "streamable-http",
           "type": "string"
         },
@@ -563,10 +497,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "type",
-        "url"
-      ],
+      "required": ["type", "url"],
       "type": "object"
     }
   },
