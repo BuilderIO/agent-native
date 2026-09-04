@@ -23,6 +23,7 @@ import { gmailGetThread } from "../server/lib/google-api.js";
 import {
   isConnected,
   getClients,
+  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
@@ -39,6 +40,18 @@ import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 // Keep automatic screen context within the page-tool budget; list-emails is
 // the full inventory path when the agent needs more than this preview.
 const SCREEN_EMAIL_LIMIT = 10;
+
+type EmailPreviewResult = {
+  emails: any[];
+  truncated: boolean;
+};
+
+function boundEmailPreview(emails: any[]): EmailPreviewResult {
+  return {
+    emails: emails.slice(0, SCREEN_EMAIL_LIMIT + 1),
+    truncated: emails.length > SCREEN_EMAIL_LIMIT,
+  };
+}
 
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<string, any>();
@@ -64,7 +77,7 @@ async function fetchEmailList(
   activeInboxTab?: string,
   activeAccounts?: string[],
   filterId?: string,
-): Promise<any[]> {
+): Promise<EmailPreviewResult> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -170,7 +183,7 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
-      return filterSelectedAccounts(emails).slice(0, SCREEN_EMAIL_LIMIT + 1);
+      return boundEmailPreview(filterSelectedAccounts(emails));
     }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
@@ -180,8 +193,9 @@ async function fetchEmailList(
             try {
               const map = await fetchGmailLabelMap(accessToken);
               for (const [id, name] of map) labelMap.set(id, name);
+            } catch {
               // coercion-ok: Label metadata is optional; Gmail messages remain usable without it.
-            } catch {}
+            }
           }),
         );
       }
@@ -194,32 +208,55 @@ async function fetchEmailList(
         effectiveView === "all" && !effectiveSearch
           ? ""
           : gmailQuery || "in:inbox";
-      const { messages } = await listGmailMessages(
-        effectiveQuery,
-        SCREEN_EMAIL_LIMIT + 1,
-        ownerEmail,
-        undefined,
-        {
-          mode: "threads",
-          // Metadata responses omit MIME parts. Saved-filter partitioning
-          // needs attachment filenames for has:attachment/filename queries.
-          threadFormat: needsSavedFilterParts ? "full" : "metadata",
-          accountEmails:
-            selectedAccountEmails.length > 0
-              ? selectedAccountEmails
-              : undefined,
-          threadCandidateLimit: effectiveSearch ? 500 : undefined,
-          threadRecentMessageCandidateLimit: undefined,
-        },
-      );
+      const listOptions = {
+        mode: "threads" as const,
+        // Metadata responses omit MIME parts. Saved-filter partitioning
+        // needs attachment filenames for has:attachment/filename queries.
+        threadFormat: needsSavedFilterParts
+          ? ("full" as const)
+          : ("metadata" as const),
+        threadCandidateLimit: effectiveSearch ? 500 : undefined,
+        threadRecentMessageCandidateLimit:
+          !effectiveSearch &&
+          (effectiveView === "inbox" || effectiveView === "unread")
+            ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
+            : undefined,
+      };
+      let pageTokens: Record<string, string> | undefined;
+      let pageAccountEmails =
+        selectedAccountEmails.length > 0 ? selectedAccountEmails : undefined;
+      let messages: any[] = [];
+      let filteredMessages: any[] = [];
+      let hasMore = false;
 
-      const preparedMessages = messages.map((m: any) =>
-        gmailToEmailMessage(m, m._accountEmail, labelMap),
-      );
-      return latestPerThread(applyActiveInboxTab(preparedMessages)).slice(
-        0,
-        SCREEN_EMAIL_LIMIT + 1,
-      );
+      for (;;) {
+        const page = await listGmailMessages(
+          effectiveQuery,
+          SCREEN_EMAIL_LIMIT + 1,
+          ownerEmail,
+          pageTokens,
+          {
+            ...listOptions,
+            accountEmails: pageAccountEmails,
+          },
+        );
+        messages = messages.concat(page.messages);
+        const preparedMessages = messages.map((m: any) =>
+          gmailToEmailMessage(m, m._accountEmail, labelMap),
+        );
+        filteredMessages = latestPerThread(
+          applyActiveInboxTab(preparedMessages),
+        );
+        pageTokens = page.nextPageTokens;
+        hasMore = Boolean(pageTokens && Object.keys(pageTokens).length > 0);
+        if (!hasMore || filteredMessages.length > SCREEN_EMAIL_LIMIT) break;
+        pageAccountEmails = Object.keys(pageTokens!);
+      }
+
+      return {
+        emails: filteredMessages.slice(0, SCREEN_EMAIL_LIMIT + 1),
+        truncated: hasMore || filteredMessages.length > SCREEN_EMAIL_LIMIT,
+      };
     }
 
     // Fallback: local store
@@ -264,11 +301,11 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
-      return applyActiveInboxTab(emails).slice(0, SCREEN_EMAIL_LIMIT + 1);
+      return boundEmailPreview(applyActiveInboxTab(emails));
     }
-    return [];
+    return boundEmailPreview([]);
   } catch {
-    return [];
+    return boundEmailPreview([]);
   }
 }
 
@@ -383,7 +420,7 @@ export default defineAction({
         };
       }
     } else if (nav?.view) {
-      const emails = await fetchEmailList(
+      const { emails, truncated } = await fetchEmailList(
         nav.view,
         nav.search,
         nav.label,
@@ -420,7 +457,7 @@ export default defineAction({
         search: nav.search ?? null,
         selectedThreadIds: Array.from(selectedThreadIds),
         count: compact.length,
-        truncated: emails.length > compact.length,
+        truncated,
         emails: compact,
       };
     }
