@@ -4268,12 +4268,11 @@ function createAgentNativeConfig(
     optimizeDeps: {
       ...userOptimizeDeps,
       // AgentKit's CommonJS compatibility seams are enumerated below. Keep
-      // discovery off for source checkouts so HMR does not scan every route;
-      // standalone consumers use their explicit app entries (or HTML entry)
-      // to prebundle the framework graph before the first browser navigation.
+      // discovery off once the explicit app entries have been scanned: a
+      // second discovery pass during a live Chat run can invalidate the
+      // browser module graph and reload the active document mid-response.
       noDiscovery: usesAgentKit
-        ? (userConfig.optimizeDeps?.noDiscovery ??
-          (findCoreSrcDir(cwd) === null ? false : true))
+        ? (userConfig.optimizeDeps?.noDiscovery ?? true)
         : userConfig.optimizeDeps?.noDiscovery,
       include: [
         ...(usesAgentKit
