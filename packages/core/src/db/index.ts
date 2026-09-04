@@ -36,3 +36,4 @@ export {
   type EnsureAdditiveColumnsResult,
   type EnsureAdditiveColumnsLogger,
 } from "./ensure-additive-columns.js";
+export { widenIntColumnsToBigInt } from "./widen-columns.js";

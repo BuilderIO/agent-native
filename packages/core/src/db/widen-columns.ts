@@ -21,10 +21,9 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  *   `value "1782269273204" is out of range for type integer`
  * The CREATE TABLE source was later switched to `BIGINT`,
  * but `CREATE TABLE IF NOT EXISTS` cannot re-type a column that already
- * exists, so long-lived Neon databases keep the int4 column and every write
- * into it fails. (Migrations don't hit this — the migration runner rewrites
- * `INTEGER` → `BIGINT` for Postgres; only raw `ensureTable()` CREATE strings
- * that predate `BIGINT` are affected.)
+ * exists, so long-lived databases keep the int4 column and every write
+ * into it fails. Migrations now use `BIGINT` directly; this helper covers
+ * tables created by older raw `ensureTable()` definitions.
  *
  * This widens such columns once, then no-ops: it only ALTERs columns whose
  * current type is `integer`, so already-bigint tables are never rewritten.

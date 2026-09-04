@@ -169,7 +169,7 @@ export interface MigrationEntry {
   sql: MigrationSql;
   /** Generated entries keep their stable name without advancing the legacy gate. */
   name?: string;
-  run?: () => Promise<MigrationRunResult>;
+  run?: (exec: DbExec) => Promise<MigrationRunResult>;
 }
 
 export type MigrationSource =
@@ -373,7 +373,9 @@ export function runMigrations(
             });
           }
 
-          const runResult = migration.run ? await migration.run() : undefined;
+          const runResult = migration.run
+            ? await migration.run(exec)
+            : undefined;
           if (runResult === MIGRATION_DEFERRED) {
             console.info(
               `[db] Deferred migration ${label}; it remains pending for a later boot`,

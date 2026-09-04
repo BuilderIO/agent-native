@@ -1,4 +1,7 @@
-import type { MigrationEntry } from "@agent-native/core/db";
+import {
+  widenIntColumnsToBigInt,
+  type MigrationEntry,
+} from "@agent-native/core/db";
 
 export const dispatchMigrations: MigrationEntry[] = [
   {
@@ -14,8 +17,8 @@ export const dispatchMigrations: MigrationEntry[] = [
         thread_ref TEXT,
         notes TEXT,
         created_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_identity_links (
@@ -26,8 +29,8 @@ export const dispatchMigrations: MigrationEntry[] = [
         external_user_id TEXT NOT NULL,
         external_user_name TEXT,
         linked_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_link_tokens (
@@ -37,12 +40,12 @@ export const dispatchMigrations: MigrationEntry[] = [
         org_id TEXT,
         platform TEXT NOT NULL,
         created_by TEXT NOT NULL,
-        expires_at INTEGER NOT NULL,
-        claimed_at INTEGER,
+        expires_at BIGINT NOT NULL,
+        claimed_at BIGINT,
         claimed_by_external_user_id TEXT,
         claimed_by_external_user_name TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_approval_requests (
@@ -59,9 +62,9 @@ export const dispatchMigrations: MigrationEntry[] = [
         after_value TEXT,
         requested_by TEXT NOT NULL,
         reviewed_by TEXT,
-        reviewed_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        reviewed_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_audit_events (
@@ -74,7 +77,7 @@ export const dispatchMigrations: MigrationEntry[] = [
         target_id TEXT,
         summary TEXT NOT NULL,
         metadata TEXT,
-        created_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL
       );
     `,
   },
@@ -91,8 +94,8 @@ export const dispatchMigrations: MigrationEntry[] = [
         provider TEXT,
         description TEXT,
         created_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS vault_grants (
@@ -103,9 +106,9 @@ export const dispatchMigrations: MigrationEntry[] = [
         app_id TEXT NOT NULL,
         granted_by TEXT NOT NULL,
         status TEXT NOT NULL,
-        synced_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        synced_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS vault_requests (
@@ -118,9 +121,9 @@ export const dispatchMigrations: MigrationEntry[] = [
         requested_by TEXT NOT NULL,
         status TEXT NOT NULL,
         reviewed_by TEXT,
-        reviewed_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        reviewed_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS vault_audit_log (
@@ -133,7 +136,7 @@ export const dispatchMigrations: MigrationEntry[] = [
         actor TEXT NOT NULL,
         summary TEXT NOT NULL,
         metadata TEXT,
-        created_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS workspace_resources (
@@ -147,8 +150,8 @@ export const dispatchMigrations: MigrationEntry[] = [
         content TEXT NOT NULL,
         scope TEXT NOT NULL,
         created_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS workspace_resource_grants (
@@ -158,9 +161,9 @@ export const dispatchMigrations: MigrationEntry[] = [
         resource_id TEXT NOT NULL,
         app_id TEXT NOT NULL,
         status TEXT NOT NULL,
-        synced_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        synced_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
     `,
   },
@@ -181,10 +184,10 @@ export const dispatchMigrations: MigrationEntry[] = [
         inspected_thread_count INTEGER NOT NULL,
         created_by TEXT NOT NULL,
         error TEXT,
-        started_at INTEGER NOT NULL,
-        completed_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        started_at BIGINT NOT NULL,
+        completed_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS dispatch_dream_proposals (
@@ -203,11 +206,11 @@ export const dispatchMigrations: MigrationEntry[] = [
         risk TEXT NOT NULL,
         status TEXT NOT NULL,
         applied_by TEXT,
-        applied_at INTEGER,
+        applied_at BIGINT,
         rejected_by TEXT,
-        rejected_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        rejected_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS dispatch_dreams_owner_updated_idx
@@ -239,13 +242,59 @@ export const dispatchMigrations: MigrationEntry[] = [
         name TEXT,
         org_domain TEXT,
         jti TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL,
-        consumed_at INTEGER
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        consumed_at BIGINT
       );
 
       CREATE INDEX IF NOT EXISTS identity_sso_authorization_code_expires_idx
         ON identity_sso_authorization_code (expires_at);
     `,
+  },
+  {
+    version: 6,
+    name: "dispatch-millisecond-timestamps-bigint",
+    sql: {},
+    run: async (exec) => {
+      const timestampColumns: Record<string, string[]> = {
+        dispatch_destinations: ["created_at", "updated_at"],
+        dispatch_identity_links: ["created_at", "updated_at"],
+        dispatch_link_tokens: [
+          "expires_at",
+          "claimed_at",
+          "created_at",
+          "updated_at",
+        ],
+        dispatch_approval_requests: ["reviewed_at", "created_at", "updated_at"],
+        dispatch_audit_events: ["created_at"],
+        dispatch_dreams: [
+          "started_at",
+          "completed_at",
+          "created_at",
+          "updated_at",
+        ],
+        dispatch_dream_proposals: [
+          "applied_at",
+          "rejected_at",
+          "created_at",
+          "updated_at",
+        ],
+        vault_secrets: ["created_at", "updated_at"],
+        vault_grants: ["synced_at", "created_at", "updated_at"],
+        vault_requests: ["reviewed_at", "created_at", "updated_at"],
+        vault_audit_log: ["created_at"],
+        workspace_resources: ["created_at", "updated_at"],
+        workspace_resource_grants: ["synced_at", "created_at", "updated_at"],
+        identity_sso_authorization_code: [
+          "created_at",
+          "expires_at",
+          "consumed_at",
+        ],
+      };
+
+      for (const [table, columns] of Object.entries(timestampColumns)) {
+        await widenIntColumnsToBigInt(table, columns, exec);
+      }
+    },
   },
 ];

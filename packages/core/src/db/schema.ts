@@ -3,6 +3,7 @@
 import { sql } from "drizzle-orm";
 import {
   alias,
+  bigint,
   boolean,
   doublePrecision,
   index,
@@ -14,6 +15,7 @@ import {
 
 export {
   alias,
+  bigint,
   boolean,
   doublePrecision,
   index,

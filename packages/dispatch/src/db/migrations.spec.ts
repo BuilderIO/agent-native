@@ -75,7 +75,7 @@ describe("dispatch migrations", () => {
     const { rows } = await freshExec.execute(
       "SELECT MAX(version) as version FROM dispatch_migrations",
     );
-    expect(rows[0]?.version).toBe(5);
+    expect(rows[0]?.version).toBe(6);
     const { rows: identityRows } = await freshExec.execute({
       sql: `SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = ?`,
