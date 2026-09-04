@@ -41,7 +41,10 @@ export function LogoContextMenu({
   }
 
   return (
-    <ContextMenu>
+    // Non-modal so Radix skips its scroll lock: the page scroller here is a
+    // core sidebar wrapper, not <body>, so locking removes the scrollbar
+    // without Radix's padding compensation and the whole layout jumps.
+    <ContextMenu modal={false}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => void copyLogoSvg()}>
