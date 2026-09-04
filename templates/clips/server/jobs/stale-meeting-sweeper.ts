@@ -7,8 +7,9 @@
  * meeting teardown). Without this, such a row keeps a permanent Live badge,
  * the detail page polls get-meeting every 2s forever, the linked recording
  * stays "uploading", and notes never generate. It is also the only server
- * backstop for the native end-of-call detector (mic release / calendar end /
- * 15-min silence, macOS only) missing a real hangup.
+ * backstop for the native end-of-call detector missing a real hangup — the
+ * calendar-end and 15-min silence watchers are cross-platform, only the mic-
+ * release and sleep watchers are macOS-only.
  *
  * Three independent staleness predicates close out a live meeting — any one
  * is sufficient:
@@ -38,7 +39,8 @@
  * All three predicates only apply once actualStart IS NOT NULL AND actualEnd
  * IS NULL AND trashedAt IS NULL — never end a meeting still genuinely live.
  * If scheduledEnd is still in the future, skip: the user may have simply
- * paused.
+ * paused, and an hour without a transcript line inside the scheduled block
+ * is not proof the call ended (transcription can fail while a call runs).
  *
  * Mirrors what `actions/stop-meeting-recording.ts` does when a user
  * manually stops (kept as a small duplicated helper here rather than
@@ -57,7 +59,7 @@
  */
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { and, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 
 import finalizeMeeting from "../../actions/finalize-meeting.js";
 import { getDb, schema } from "../db/index.js";
@@ -100,6 +102,10 @@ export async function closeOutStaleMeeting(args: {
    * available so actualEnd reflects when activity actually stopped, not
    * "now" (which could be hours after the crash). */
   endedAtIso?: string;
+  /** Which predicate closed this meeting, e.g. "sweeper:no-activity". Omit
+   * to leave end_reason untouched (delete-meeting's reuse of this helper
+   * isn't a sweeper predicate, so it has no reason to stamp). */
+  endReason?: string;
 }): Promise<{ hasTranscript: boolean }> {
   const db = getDb();
   const nowIso = new Date().toISOString();
@@ -130,6 +136,13 @@ export async function closeOutStaleMeeting(args: {
       actualEnd: args.endedAtIso ?? nowIso,
       updatedAt: nowIso,
       transcriptStatus: hasTranscript ? "ready" : "failed",
+      // First writer wins: a second closer (delete-meeting reuses this
+      // helper) must not overwrite the recorded cause.
+      ...(args.endReason
+        ? {
+            endReason: sql`coalesce(${schema.meetings.endReason}, ${args.endReason})`,
+          }
+        : {}),
     })
     .where(and(eq(schema.meetings.id, args.meetingId), meetingOwnershipScope));
 
@@ -306,6 +319,7 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
             ownerEmail: meeting.ownerEmail,
             orgId: meeting.orgId,
             endedAtIso: lastActivityIso || nowIso,
+            endReason: `sweeper:${reason}`,
           });
           if (closed.hasTranscript) {
             try {

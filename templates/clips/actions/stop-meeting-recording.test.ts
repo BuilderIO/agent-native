@@ -41,6 +41,7 @@ vi.mock("../server/db/index.js", () => ({
     meetings: {
       id: "meetings.id",
       actualEnd: "meetings.actualEnd",
+      endReason: "meetings.endReason",
       updatedAt: "meetings.updatedAt",
       transcriptStatus: "meetings.transcriptStatus",
       meetingId: "meetings.id",
@@ -177,5 +178,60 @@ describe("stop-meeting-recording participant access", () => {
     await action.run({ meetingId: "meeting-1" });
 
     expect(mocks.shareResource).not.toHaveBeenCalled();
+  });
+});
+
+describe("stop-meeting-recording endReason", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.assertAccess.mockResolvedValue({ role: "owner" });
+    mocks.shareResource.mockResolvedValue({ id: "share-1" });
+    mocks.writeAppState.mockResolvedValue(undefined);
+  });
+
+  it("stamps endReason alongside actualEnd on first stop", async () => {
+    const db = createDb([
+      [meeting({ visibility: "org" })],
+      [{ fullText: "Welcome to the call." }],
+      [{ visibility: "org" }],
+    ]);
+    mocks.getDb.mockReturnValue(db);
+
+    await action.run({ meetingId: "meeting-1", reason: "manual" });
+
+    const meetingUpdate = (db.update as ReturnType<typeof vi.fn>).mock
+      .results[0].value.set.mock.calls[0][0];
+    expect(meetingUpdate.endReason).toBe("manual");
+  });
+
+  it("leaves endReason untouched when no reason is given", async () => {
+    const db = createDb([
+      [meeting({ visibility: "org" })],
+      [{ fullText: "Welcome to the call." }],
+      [{ visibility: "org" }],
+    ]);
+    mocks.getDb.mockReturnValue(db);
+
+    await action.run({ meetingId: "meeting-1" });
+
+    const meetingUpdate = (db.update as ReturnType<typeof vi.fn>).mock
+      .results[0].value.set.mock.calls[0][0];
+    expect(meetingUpdate).not.toHaveProperty("endReason");
+  });
+
+  it("does not overwrite endReason on a second stop of an already-ended meeting", async () => {
+    const db = createDb([
+      [meeting({ visibility: "org", actualEnd: "2026-01-01T00:00:00.000Z" })],
+      [{ fullText: "Welcome to the call." }],
+      [{ visibility: "org" }],
+    ]);
+    mocks.getDb.mockReturnValue(db);
+
+    await action.run({ meetingId: "meeting-1", reason: "manual" });
+
+    const meetingUpdate = (db.update as ReturnType<typeof vi.fn>).mock
+      .results[0].value.set.mock.calls[0][0];
+    expect(meetingUpdate.actualEnd).toBe("2026-01-01T00:00:00.000Z");
+    expect(meetingUpdate).not.toHaveProperty("endReason");
   });
 });

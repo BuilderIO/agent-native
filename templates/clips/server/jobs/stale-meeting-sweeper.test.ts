@@ -30,6 +30,10 @@ vi.mock("drizzle-orm", () => ({
   isNull: vi.fn((column: unknown) => ({ column, op: "isNull" })),
   lt: vi.fn((column: unknown, value: unknown) => ({ column, value, op: "lt" })),
   or: vi.fn((...args: unknown[]) => args),
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sql: strings.join("?"),
+    values,
+  })),
 }));
 
 vi.mock("../../actions/finalize-meeting.js", () => ({
@@ -239,6 +243,36 @@ describe("stale-meeting-sweeper", () => {
     await runStaleMeetingSweepOnce();
 
     expect(state.updateSets).toEqual([]);
+  });
+
+  it("only considers meetings whose scheduledEnd has passed or is unset", async () => {
+    // The gate lives in the candidate query, which this mock does not
+    // evaluate — assert the query shape instead of the outcome.
+    const { or } = await import("drizzle-orm");
+    const { runStaleMeetingSweepOnce } =
+      await import("./stale-meeting-sweeper.js");
+
+    await runStaleMeetingSweepOnce();
+
+    expect(vi.mocked(or)).toHaveBeenCalledWith(
+      { column: "meetings.scheduledEnd", op: "isNull" },
+      expect.objectContaining({ column: "meetings.scheduledEnd", op: "lt" }),
+    );
+  });
+
+  it("stamps a first-write-wins end reason when closing a stale meeting", async () => {
+    const { runStaleMeetingSweepOnce } =
+      await import("./stale-meeting-sweeper.js");
+
+    await runStaleMeetingSweepOnce();
+
+    const closing = state.updateSets.find((set) => "endReason" in set) as
+      | { endReason: { sql: string; values: unknown[] } }
+      | undefined;
+    expect(closing?.endReason.sql).toContain("coalesce(");
+    expect(closing?.endReason.values).toContain(
+      "sweeper:no-transcript-activity",
+    );
   });
 
   it("(d) closes a 13-hour-old ad-hoc meeting via the hard cap even with activity 1 min ago", async () => {

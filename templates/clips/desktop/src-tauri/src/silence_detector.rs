@@ -13,7 +13,12 @@
 //!    Emits `meetings:sleep-stop`.
 //!  * **Call-end heuristic** — when a known conferencing app releases its
 //!    microphone after using it for the active meeting, emit
-//!    `meetings:call-ended` after a short system-audio confirmation. A
+//!    `meetings:call-ended`. Release is corroborated by two independent
+//!    sources — CoreAudio's per-process running-input state
+//!    (`call_activity`, macOS 14+ only) and Control Center's mic-attribution
+//!    log (`mic_attribution`, macOS 12+) — so either one reporting "released"
+//!    is enough; both reporting "unknown" is not. The event fires after the
+//!    release has held for `CALL_MIC_RELEASE_CONFIRM` (15s). A
 //!    foreground-to-background transition is deliberately not an end signal:
 //!    people switch apps while calls are still live.
 //!  * **Calendar end** — when the scheduled meeting end has passed and system
@@ -36,9 +41,12 @@
 //! We keep a per-source `last_loud_at: Instant`. On every level event:
 //!   - if `level >= silence_threshold` -> reset `last_loud_at = now()`.
 //!
-//! A two-second supervisor task ticks. Call-end and calendar signals use system
-//! audio only, because a user's local mic can stay noisy after a call ends.
-//! The all-source silence stop remains the long safety backstop.
+//! A two-second supervisor task ticks. The calendar signal still requires quiet
+//! system audio, because a user's local mic can stay noisy after a call ends.
+//! Call-end instead corroborates CoreAudio against mic attribution (see
+//! `mic_attribution`) — system audio is not a signal there, since playing
+//! music or a video after a call keeps it loud indefinitely. The all-source
+//! silence stop remains the long safety backstop.
 //!
 //! Defaults: silence_threshold = 0.05, silence_duration = 15 minutes.
 //! No raw "sliding window of samples" is needed — the `last_loud_at` Instant
@@ -360,10 +368,55 @@ fn install_sleep_watcher(_app: &AppHandle) {}
 
 // --- call-ended heuristic --------------------------------------------------
 
-const CALL_END_AUDIO_CONFIRM: Duration = Duration::from_secs(5);
-const CALL_MIC_RELEASE_CONFIRM: Duration = Duration::from_secs(5);
+/// How long a release must hold, corroborated by CoreAudio and/or mic
+/// attribution, before firing. screenpipe uses a 20s ending grace and
+/// pasrom/meeting-transcriber 15s; this replaces the old 5s-plus-quiet-system-
+/// audio gate, which never fired while music or a video played after a call.
+const CALL_MIC_RELEASE_CONFIRM: Duration = Duration::from_secs(15);
 #[cfg(target_os = "macos")]
 const CALL_END_POLL: Duration = Duration::from_secs(2);
+
+/// Tracks the call-ended release window across ticks. `ever_in_use` gates
+/// firing on an actual observed call (never on two sources that are merely
+/// unknown), and `released_since` is the in-progress confirmation timer.
+#[derive(Default)]
+struct CallEndTracker {
+    ever_in_use: bool,
+    released_since: Option<Instant>,
+}
+
+/// One decision step of the call-ended heuristic, given this tick's CoreAudio
+/// and mic-attribution readings. Pure and side-effect-free so the release
+/// logic is unit-testable without a real CoreAudio/log-stream backend;
+/// mutates `tracker` in place and returns whether the release has now been
+/// confirmed for `release_confirm`.
+///
+/// Either source reporting `Some(true)` means in use; with neither in use, at
+/// least one source must positively report `Some(false)` to count as
+/// released — two `None`s (unknown) hold the tracker's current state rather
+/// than starting or resetting the timer, since neither says a call ended.
+fn call_end_step(
+    tracker: &mut CallEndTracker,
+    coreaudio: Option<bool>,
+    attribution: Option<bool>,
+    now: Instant,
+    release_confirm: Duration,
+) -> bool {
+    let in_use = coreaudio == Some(true) || attribution == Some(true);
+    let released = !in_use && (coreaudio == Some(false) || attribution == Some(false));
+
+    if in_use {
+        tracker.ever_in_use = true;
+        tracker.released_since = None;
+    } else if released && tracker.ever_in_use {
+        tracker.released_since.get_or_insert(now);
+    }
+
+    tracker
+        .released_since
+        .map(|since| now.duration_since(since) >= release_confirm)
+        .unwrap_or(false)
+}
 
 #[cfg(target_os = "macos")]
 fn install_call_ended_watcher(app: &AppHandle) {
@@ -371,9 +424,10 @@ fn install_call_ended_watcher(app: &AppHandle) {
     let app = app.clone();
     INSTALLED.get_or_init(|| {
         std::thread::spawn(move || {
-            let mut call_app_used_microphone = false;
-            let mut microphone_released_at: Option<Instant> = None;
+            let mut tracker = CallEndTracker::default();
             let mut generation: Option<u64> = None;
+            let mut attribution_watcher: Option<crate::mic_attribution::MicAttributionWatcher> =
+                None;
             loop {
                 std::thread::sleep(CALL_END_POLL);
                 let state = app.state::<DetectorState>();
@@ -395,14 +449,19 @@ fn install_call_ended_watcher(app: &AppHandle) {
                         })
                         .unwrap_or((false, 0, Vec::new(), false, true));
                 if !active || !watch_call_ended {
-                    call_app_used_microphone = false;
-                    microphone_released_at = None;
+                    // Drops the prior generation's watcher, stopping its
+                    // `/usr/bin/log stream` child.
+                    attribution_watcher = None;
+                    tracker = CallEndTracker::default();
+                    generation = None;
                     continue;
                 }
                 if generation != Some(active_generation) {
-                    call_app_used_microphone = false;
-                    microphone_released_at = None;
+                    tracker = CallEndTracker::default();
                     generation = Some(active_generation);
+                    // Replacing drops (and stops) any watcher from a
+                    // superseded generation first.
+                    attribution_watcher = Some(crate::mic_attribution::MicAttributionWatcher::start());
                 }
                 if fired {
                     continue;
@@ -413,39 +472,38 @@ fn install_call_ended_watcher(app: &AppHandle) {
                     configured_bundle_ids
                 };
 
-                // CoreAudio reports whether the provider still has an active
-                // microphone stream. Only accept a true -> false transition
-                // that stays stable for a few seconds; this tolerates device
-                // handoffs without waiting minutes after a real call ends.
-                match crate::call_activity::call_app_uses_microphone(&call_app_bundle_ids) {
-                    Some(true) => {
-                        call_app_used_microphone = true;
-                        microphone_released_at = None;
-                    }
-                    Some(false) if call_app_used_microphone => {
-                        microphone_released_at.get_or_insert_with(Instant::now);
-                    }
-                    None => {
-                        // CoreAudio could not confirm the provider state, so
-                        // a release window must start over on the next known
-                        // false result.
-                        microphone_released_at = None;
-                    }
-                    _ => {}
+                let coreaudio = crate::call_activity::call_app_uses_microphone(&call_app_bundle_ids);
+                let attribution = attribution_watcher
+                    .as_ref()
+                    .and_then(|watcher| watcher.mic_in_use_by(&call_app_bundle_ids));
+
+                let now = Instant::now();
+                let was_ever_in_use = tracker.ever_in_use;
+                let was_released_since = tracker.released_since;
+                let release_confirmed = call_end_step(
+                    &mut tracker,
+                    coreaudio,
+                    attribution,
+                    now,
+                    CALL_MIC_RELEASE_CONFIRM,
+                );
+
+                if tracker.ever_in_use && !was_ever_in_use {
+                    let source = match (coreaudio, attribution) {
+                        (Some(true), _) => "coreaudio",
+                        (_, Some(true)) => "attribution",
+                        _ => "unknown",
+                    };
+                    eprintln!("[call-ended] mic in use (source: {source})");
+                }
+                if tracker.released_since.is_some() && was_released_since.is_none() {
+                    eprintln!(
+                        "[call-ended] mic released, {CALL_MIC_RELEASE_CONFIRM:?} confirm timer started"
+                    );
                 }
 
-                // Local mic noise is expected after a meeting ends, so only
-                // system audio corroborates a released call input. If system
-                // capture is unavailable, the stable provider transition is
-                // still the best native end signal we have.
-                let audio_quiet = audio_recently_silent(&state, CALL_END_AUDIO_CONFIRM);
-
-                let microphone_released = microphone_release_stop_ready(
-                    call_app_used_microphone,
-                    microphone_released_at.map(|at| Instant::now().duration_since(at)),
-                ) && audio_quiet;
-
-                if microphone_released && claim_auto_stop(&state.inner, active_generation) {
+                if release_confirmed && claim_auto_stop(&state.inner, active_generation) {
+                    eprintln!("[call-ended] release confirmed, firing meetings:call-ended");
                     let _ = app.emit("meetings:call-ended", ());
                 }
             }
@@ -455,16 +513,6 @@ fn install_call_ended_watcher(app: &AppHandle) {
 
 #[cfg(not(target_os = "macos"))]
 fn install_call_ended_watcher(_app: &AppHandle) {}
-
-fn microphone_release_stop_ready(
-    app_used_microphone: bool,
-    released_for: Option<Duration>,
-) -> bool {
-    app_used_microphone
-        && released_for
-            .map(|elapsed| elapsed >= CALL_MIC_RELEASE_CONFIRM)
-            .unwrap_or(false)
-}
 
 fn scheduled_end_reached(scheduled_end_ms: Option<u64>, now_ms: u64) -> bool {
     scheduled_end_ms
@@ -480,12 +528,6 @@ fn source_quiet_for(source: Option<&SourceState>, now: Instant, window: Duration
     source
         .map(|state| state.seen_audio && now.duration_since(state.last_loud_at) >= window)
         .unwrap_or(false)
-}
-
-fn call_end_audio_quiet_for(source: Option<&SourceState>, now: Instant, window: Duration) -> bool {
-    source
-        .map(|state| !state.seen_audio || source_quiet_for(Some(state), now, window))
-        .unwrap_or(true)
 }
 
 fn claim_auto_stop(inner: &Arc<Mutex<DetectorInner>>, generation: u64) -> bool {
@@ -506,28 +548,16 @@ fn unix_now_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// Corroboration check for the call-ended signal. The provider's mic transition
-/// is the primary signal, so only system audio needs to be quiet here. Local
-/// mic noise is not evidence that a call is still live.
-#[cfg(target_os = "macos")]
-fn audio_recently_silent(state: &tauri::State<'_, DetectorState>, window: Duration) -> bool {
-    let Ok(g) = state.inner.lock() else {
-        return false;
-    };
-    let now = Instant::now();
-    call_end_audio_quiet_for(g.system.as_ref(), now, window)
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use super::{
-        calendar_end_stop_ready, call_end_audio_quiet_for, claim_auto_stop,
-        microphone_release_stop_ready, scheduled_end_reached, source_quiet_for, DetectorInner,
-        SourceState,
+        calendar_end_stop_ready, call_end_step, claim_auto_stop, scheduled_end_reached,
+        source_quiet_for, CallEndTracker, DetectorInner, SourceState,
     };
     use std::sync::{Arc, Mutex};
+    use std::time::Instant;
 
     #[test]
     fn calendar_end_requires_a_known_end_and_allows_the_exact_boundary() {
@@ -545,25 +575,8 @@ mod tests {
     }
 
     #[test]
-    fn microphone_release_only_stops_after_an_observed_call_input_ends() {
-        assert!(!microphone_release_stop_ready(
-            false,
-            Some(Duration::from_secs(60))
-        ));
-        assert!(!microphone_release_stop_ready(true, None));
-        assert!(!microphone_release_stop_ready(
-            true,
-            Some(Duration::from_secs(4))
-        ));
-        assert!(microphone_release_stop_ready(
-            true,
-            Some(Duration::from_secs(5))
-        ));
-    }
-
-    #[test]
-    fn call_end_audio_confirmation_ignores_local_mic_noise() {
-        let now = std::time::Instant::now();
+    fn calendar_end_quiet_check_ignores_local_mic_noise() {
+        let now = Instant::now();
         let system_quiet = SourceState {
             last_loud_at: now - Duration::from_secs(6),
             seen_audio: true,
@@ -588,12 +601,164 @@ mod tests {
             now,
             Duration::from_secs(5)
         ));
-        assert!(call_end_audio_quiet_for(
-            Some(&SourceState::fresh()),
-            now,
-            Duration::from_secs(5)
+    }
+
+    #[test]
+    fn call_end_step_fires_after_in_use_then_released_for_the_full_window() {
+        let mut tracker = CallEndTracker::default();
+        let t0 = Instant::now();
+        let confirm = Duration::from_secs(15);
+
+        assert!(!call_end_step(&mut tracker, Some(true), None, t0, confirm));
+        assert!(!call_end_step(
+            &mut tracker,
+            Some(false),
+            None,
+            t0 + Duration::from_secs(10),
+            confirm
         ));
-        assert!(call_end_audio_quiet_for(None, now, Duration::from_secs(5)));
+        assert!(call_end_step(
+            &mut tracker,
+            Some(false),
+            None,
+            t0 + Duration::from_secs(25),
+            confirm
+        ));
+    }
+
+    #[test]
+    fn call_end_step_back_in_use_cancels_and_needs_a_fresh_window() {
+        let mut tracker = CallEndTracker::default();
+        let t0 = Instant::now();
+        let confirm = Duration::from_secs(15);
+
+        call_end_step(&mut tracker, Some(true), None, t0, confirm);
+        // Released for 8s...
+        call_end_step(
+            &mut tracker,
+            Some(false),
+            None,
+            t0 + Duration::from_secs(8),
+            confirm,
+        );
+        // ...then in use again cancels the timer.
+        call_end_step(
+            &mut tracker,
+            Some(true),
+            None,
+            t0 + Duration::from_secs(9),
+            confirm,
+        );
+        assert!(tracker.released_since.is_none());
+
+        // Released again — the old 8s doesn't carry over, needs a fresh 15s.
+        call_end_step(
+            &mut tracker,
+            Some(false),
+            None,
+            t0 + Duration::from_secs(10),
+            confirm,
+        );
+        assert!(!call_end_step(
+            &mut tracker,
+            Some(false),
+            None,
+            t0 + Duration::from_secs(24),
+            confirm,
+        ));
+        assert!(call_end_step(
+            &mut tracker,
+            Some(false),
+            None,
+            t0 + Duration::from_secs(25),
+            confirm,
+        ));
+    }
+
+    #[test]
+    fn call_end_step_one_source_unknown_still_confirms_a_release() {
+        let mut tracker = CallEndTracker::default();
+        let t0 = Instant::now();
+        let confirm = Duration::from_secs(15);
+
+        // In use via CoreAudio.
+        call_end_step(&mut tracker, Some(true), None, t0, confirm);
+        // CoreAudio goes unreadable, but attribution alone positively reports
+        // released — that's enough to start the timer.
+        assert!(!call_end_step(
+            &mut tracker,
+            None,
+            Some(false),
+            t0 + Duration::from_secs(1),
+            confirm,
+        ));
+        assert!(tracker.released_since.is_some());
+        // ...and it still fires once that release has held for the full
+        // window, with CoreAudio unknown the whole time.
+        assert!(call_end_step(
+            &mut tracker,
+            None,
+            Some(false),
+            t0 + Duration::from_secs(16),
+            confirm,
+        ));
+    }
+
+    #[test]
+    fn call_end_step_two_unknowns_never_start_the_timer() {
+        let mut tracker = CallEndTracker::default();
+        let t0 = Instant::now();
+        let confirm = Duration::from_secs(15);
+
+        call_end_step(&mut tracker, Some(true), None, t0, confirm);
+        assert!(!call_end_step(
+            &mut tracker,
+            None,
+            None,
+            t0 + Duration::from_secs(20),
+            confirm,
+        ));
+        assert!(tracker.released_since.is_none());
+    }
+
+    #[test]
+    fn call_end_step_attribution_alone_still_counts_as_in_use() {
+        let mut tracker = CallEndTracker::default();
+        let t0 = Instant::now();
+        let confirm = Duration::from_secs(15);
+
+        assert!(!call_end_step(
+            &mut tracker,
+            Some(false),
+            Some(true),
+            t0,
+            confirm
+        ));
+        assert!(tracker.ever_in_use);
+        assert!(tracker.released_since.is_none());
+    }
+
+    #[test]
+    fn call_end_step_never_in_use_never_fires() {
+        let mut tracker = CallEndTracker::default();
+        let t0 = Instant::now();
+        let confirm = Duration::from_secs(15);
+
+        assert!(!call_end_step(
+            &mut tracker,
+            Some(false),
+            Some(false),
+            t0,
+            confirm
+        ));
+        assert!(!call_end_step(
+            &mut tracker,
+            None,
+            Some(false),
+            t0 + Duration::from_secs(60),
+            confirm,
+        ));
+        assert!(!tracker.ever_in_use);
     }
 
     #[test]

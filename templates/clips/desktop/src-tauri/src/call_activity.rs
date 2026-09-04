@@ -2,7 +2,10 @@
 //!
 //! Both meeting watchers read this, from opposite ends of a call: the ad-hoc
 //! detector treats a running input as corroboration that a call actually
-//! started, and the silence detector treats its release as evidence one ended.
+//! started, and the silence detector treats its release as evidence one
+//! ended. The silence detector's `mic_attribution` watcher also reuses
+//! `bundle_id_matches` to compare Control Center's mic attribution against
+//! the same candidate bundle ids, independent of CoreAudio.
 
 #[cfg(target_os = "macos")]
 pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
@@ -17,18 +20,28 @@ pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
     .collect()
 }
 
-fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
-    bundle_id == candidate
-        || !matches!(
-            candidate,
-            "com.google.chrome"
-                | "company.thebrowser.browser"
-                | "com.apple.safari"
-                | "org.mozilla.firefox"
-        ) && bundle_id
-            .strip_prefix(candidate)
-            .map(|suffix| suffix.starts_with('.'))
-            .unwrap_or(false)
+pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
+    if bundle_id == candidate {
+        return true;
+    }
+    if candidate == "us.zoom.xos" {
+        // Zoom's in-call helpers (CptHost, caphost, aomhost, airhost,
+        // zCCIMeetingHost, ...) run as separate CoreAudio process objects
+        // under their own "us.zoom.*" bundle ids inside zoom.us.app, not as
+        // dotted children of us.zoom.xos, so the generic suffix rule below
+        // can't see them.
+        return bundle_id.starts_with("us.zoom.");
+    }
+    !matches!(
+        candidate,
+        "com.google.chrome"
+            | "company.thebrowser.browser"
+            | "com.apple.safari"
+            | "org.mozilla.firefox"
+    ) && bundle_id
+        .strip_prefix(candidate)
+        .map(|suffix| suffix.starts_with('.'))
+        .unwrap_or(false)
 }
 
 /// Returns whether one of the target conferencing apps currently has a live
@@ -179,6 +192,26 @@ mod tests {
             "com.google.chromium",
             "com.google.chrome"
         ));
+        assert!(!bundle_id_matches(
+            "com.microsoft.teams2",
+            "com.microsoft.teams"
+        ));
+    }
+
+    #[test]
+    fn zoom_in_call_helpers_match_by_bundle_prefix() {
+        // Real in-call helper bundle ids observed on this machine: Zoom runs
+        // them as separate CoreAudio process objects, not as children of
+        // us.zoom.xos.
+        assert!(bundle_id_matches("us.zoom.cpthost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.caphost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.aomhost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.airhost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.zccimeetinghost", "us.zoom.xos"));
+        // Not a helper of us.zoom.xos, but still a "us.zoom.*" bundle — the
+        // broad prefix is intentional here, see the doc comment above.
+        assert!(bundle_id_matches("us.zoom.zoomclips", "us.zoom.xos"));
+        // Unrelated apps still need an exact or dotted-child match.
         assert!(!bundle_id_matches(
             "com.microsoft.teams2",
             "com.microsoft.teams"
