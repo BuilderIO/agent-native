@@ -48,7 +48,24 @@ type EmailPreviewResult = {
   truncated: boolean;
   coverageComplete: boolean;
   failedAccounts: string[];
+  error?: string;
 };
+
+function formatPreviewError(error: unknown): string {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : "Unable to read Mail preview";
+  return (
+    message
+      .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+      .replace(
+        /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,
+        "$1=[redacted]",
+      )
+      .slice(0, 240) || "Unable to read Mail preview"
+  );
+}
 
 function boundEmailPreview(
   emails: any[],
@@ -197,14 +214,16 @@ async function fetchEmailList(
     }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
+      const failedAccounts = new Set<string>();
       if (needsLabelMap) {
         await Promise.all(
-          clients.map(async ({ accessToken }) => {
+          clients.map(async ({ email, accessToken }) => {
             try {
               const map = await fetchGmailLabelMap(accessToken);
               for (const [id, name] of map) labelMap.set(id, name);
             } catch {
               // coercion-ok: Label metadata is optional; Gmail messages remain usable without it.
+              failedAccounts.add(email);
             }
           }),
         );
@@ -239,7 +258,6 @@ async function fetchEmailList(
       let filteredMessages: any[] = [];
       let hasMore = false;
       let pagesRead = 0;
-      const failedAccounts = new Set<string>();
 
       for (;;) {
         const page = await listGmailMessages(
@@ -328,8 +346,12 @@ async function fetchEmailList(
       return boundEmailPreview(applyActiveInboxTab(emails));
     }
     return boundEmailPreview([]);
-  } catch {
-    return boundEmailPreview([], [], false);
+  } catch (error) {
+    return {
+      ...boundEmailPreview([]),
+      coverageComplete: false,
+      error: formatPreviewError(error),
+    };
   }
 }
 
@@ -444,7 +466,7 @@ export default defineAction({
         };
       }
     } else if (nav?.view) {
-      const { emails, truncated, coverageComplete, failedAccounts } =
+      const { emails, truncated, coverageComplete, failedAccounts, error } =
         await fetchEmailList(
           nav.view,
           nav.search,
@@ -486,6 +508,7 @@ export default defineAction({
         coverage: {
           complete: coverageComplete,
           failedAccounts,
+          ...(error ? { error } : {}),
         },
         emails: compact,
       };

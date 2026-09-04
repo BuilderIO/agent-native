@@ -179,6 +179,45 @@ describe("view-screen Mail preview", () => {
     expect(result.emailList.truncated).toBe(false);
   });
 
+  it("reports label-map failures as partial account coverage", async () => {
+    mocks.readAppState.mockResolvedValue({
+      view: "inbox",
+      label: "important",
+    });
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [],
+      pinnedLabels: ["important"],
+    });
+    mocks.fetchGmailLabelMap.mockRejectedValue(
+      new Error("label request failed"),
+    );
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [email("message")],
+      errors: [],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.emailList.coverage).toEqual({
+      complete: false,
+      failedAccounts: [OWNER],
+    });
+  });
+
+  it("returns sanitized context for unexpected preview failures", async () => {
+    mocks.readSettings.mockRejectedValue(
+      new Error("Bearer secret-token request failed"),
+    );
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.emailList.coverage).toEqual({
+      complete: false,
+      failedAccounts: [],
+      error: "Bearer [redacted] request failed",
+    });
+  });
+
   it("caps refill work for a sparse filtered partition", async () => {
     mocks.readAppState.mockResolvedValue({
       view: "inbox",
