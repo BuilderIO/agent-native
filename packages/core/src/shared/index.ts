@@ -187,6 +187,7 @@ export {
   type TargetedAmbiguousMatch,
   type TargetedCandidate,
   type TargetedMatch,
+  type TargetedMatchFailure,
   type TargetedMatchesResult,
   type TargetedReplaceResult,
   type TargetedTextEditOptions,

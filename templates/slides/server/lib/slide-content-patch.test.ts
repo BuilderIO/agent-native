@@ -116,4 +116,34 @@ describe("applySlideContentEdits", () => {
 
     expect(result.content).toBe("<p>Same</p><p>Different</p>");
   });
+
+  it("treats expectedMatches: 0 as a no-op when the target is absent", async () => {
+    const result = await applySlideContentEdits("<div>One</div>", [
+      { find: "Missing", replace: "Never written", expectedMatches: 0 },
+    ]);
+
+    expect(result.content).toBe("<div>One</div>");
+    expect(result.applied).toEqual(["replace:0"]);
+  });
+
+  it("reports ambiguity for an insert marker that appears more than once with no occurrence given", async () => {
+    await expect(
+      applySlideContentEdits("<p>Item</p><p>Item</p>", [
+        { op: "insert-after", marker: "<p>Item</p>", content: "<hr>" },
+      ]),
+    ).rejects.toThrow("matched 2 places; pass occurrence");
+  });
+
+  it.each([0, 0.5])(
+    "rejects an invalid occurrence (%s) and leaves the content untouched",
+    async (occurrence) => {
+      await expect(
+        applySlideContentEdits("<div>One</div>", [
+          { find: "One", replace: "Two", occurrence },
+        ]),
+      ).rejects.toThrow(
+        `occurrence must be a positive integer, got ${occurrence}`,
+      );
+    },
+  );
 });

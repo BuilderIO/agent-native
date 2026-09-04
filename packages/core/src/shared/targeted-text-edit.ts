@@ -18,7 +18,8 @@
  *
  * Never throws: every outcome is a discriminated result. Callers decide what
  * "not found" or "ambiguous" should mean for their op (fail loudly, no-op,
- * etc).
+ * etc). An `occurrence` that isn't a positive integer is reported as
+ * "invalid_occurrence" rather than silently coerced to 1.
  */
 
 export interface TargetedTextEditOptions {
@@ -51,10 +52,14 @@ export interface TargetedAmbiguousMatch {
   snippet: string;
 }
 
+export type TargetedMatchFailure =
+  | { ok: false; reason: "not_found"; candidates: TargetedCandidate[] }
+  | { ok: false; reason: "ambiguous"; matches: TargetedAmbiguousMatch[] }
+  | { ok: false; reason: "invalid_occurrence"; occurrence: number };
+
 export type TargetedMatchesResult =
   | { ok: true; matches: TargetedMatch[] }
-  | { ok: false; reason: "not_found"; candidates: TargetedCandidate[] }
-  | { ok: false; reason: "ambiguous"; matches: TargetedAmbiguousMatch[] };
+  | TargetedMatchFailure;
 
 export type TargetedReplaceResult =
   | {
@@ -64,8 +69,7 @@ export type TargetedReplaceResult =
       index: number;
       matchCount: number;
     }
-  | { ok: false; reason: "not_found"; candidates: TargetedCandidate[] }
-  | { ok: false; reason: "ambiguous"; matches: TargetedAmbiguousMatch[] };
+  | TargetedMatchFailure;
 
 const MAX_CANDIDATES = 3;
 const SNIPPET_MAX_CHARS = 160;
@@ -76,6 +80,13 @@ export function findTargetedMatches(
   opts: TargetedTextEditOptions = {},
 ): TargetedMatchesResult {
   if (!find) return { ok: false, reason: "not_found", candidates: [] };
+  if (opts.occurrence !== undefined && !isPositiveInteger(opts.occurrence)) {
+    return {
+      ok: false,
+      reason: "invalid_occurrence",
+      occurrence: opts.occurrence,
+    };
+  }
 
   let raw = scanExactMatches(content, find);
   if (raw.length === 0) raw = scanFlexibleMatches(content, find);
@@ -132,7 +143,9 @@ export function applyTargetedReplace(
     };
   }
 
-  const occurrence = normalizeOccurrence(opts.occurrence);
+  // opts.occurrence, if given, was already validated by findTargetedMatches
+  // above (an invalid value returns "invalid_occurrence" before we get here).
+  const occurrence = opts.occurrence ?? 1;
   const match = matches[occurrence - 1];
   if (!match) {
     // The requested occurrence doesn't exist. Report the ones that do (as
@@ -160,10 +173,8 @@ export function applyTargetedReplace(
   };
 }
 
-function normalizeOccurrence(occurrence: number | undefined): number {
-  if (occurrence === undefined) return 1;
-  if (!Number.isInteger(occurrence) || occurrence < 1) return 1;
-  return occurrence;
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value >= 1;
 }
 
 interface RawMatch {

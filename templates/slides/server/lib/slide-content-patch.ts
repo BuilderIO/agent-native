@@ -176,11 +176,7 @@ function applyLiteralReplace(
   });
 
   if (!result.ok) {
-    if (
-      result.reason === "not_found" &&
-      edit.expectedMatches === undefined &&
-      edit.required === false
-    ) {
+    if (result.reason === "not_found" && isCountedNoOp(edit)) {
       return { content, summary: "replace:0" };
     }
     throwLiteralMatchFailure("replace", result, edit.expectedMatches);
@@ -212,15 +208,15 @@ function applyInsert(
     throw new SlideContentEditError("Patch find/marker text cannot be empty");
   }
 
-  const occurrence = edit.occurrence ?? 1;
-  const result = findTargetedMatches(content, edit.marker, { occurrence });
+  // Only pass occurrence when the caller actually gave one — defaulting it
+  // here would suppress the helper's ambiguity check for a repeated marker
+  // and silently insert at the first hit.
+  const result = findTargetedMatches(content, edit.marker, {
+    occurrence: edit.occurrence,
+  });
 
   if (!result.ok) {
-    if (
-      result.reason === "not_found" &&
-      edit.expectedMatches === undefined &&
-      edit.required === false
-    ) {
+    if (result.reason === "not_found" && isCountedNoOp(edit)) {
       return { content, summary: `${edit.op}:0` };
     }
     throwLiteralMatchFailure(edit.op, result, edit.expectedMatches);
@@ -236,6 +232,7 @@ function applyInsert(
     );
   }
 
+  const occurrence = edit.occurrence ?? 1;
   const match = matches[occurrence - 1];
   if (!match) {
     throw new SlideContentEditError(
@@ -250,10 +247,24 @@ function applyInsert(
   };
 }
 
+/** A literal-find edit is a no-op (not an error) on zero matches when the
+ * caller either asserted `expectedMatches: 0` or opted out with
+ * `required: false` and didn't assert a count at all. */
+function isCountedNoOp(edit: {
+  expectedMatches?: number;
+  required?: boolean;
+}): boolean {
+  return (
+    edit.expectedMatches === 0 ||
+    (edit.expectedMatches === undefined && edit.required === false)
+  );
+}
+
 /**
- * Shared not-found / ambiguous reporting for the literal-find ops (replace,
- * insert-before, insert-after). Always throws — callers check the
- * `required`/`expectedMatches` no-op case themselves before reaching here.
+ * Shared not-found / ambiguous / invalid-occurrence reporting for the
+ * literal-find ops (replace, insert-before, insert-after). Always throws —
+ * callers check the `required`/`expectedMatches` no-op case themselves before
+ * reaching here.
  */
 function throwLiteralMatchFailure(
   op: string,
@@ -263,6 +274,11 @@ function throwLiteralMatchFailure(
   if (result.reason === "ambiguous") {
     throw new SlideContentEditError(
       `${op} ${formatAmbiguousMatches(result.matches)}`,
+    );
+  }
+  if (result.reason === "invalid_occurrence") {
+    throw new SlideContentEditError(
+      `${op} occurrence must be a positive integer, got ${result.occurrence}`,
     );
   }
   const expected =

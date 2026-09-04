@@ -86,6 +86,24 @@ describe("findTargetedMatches", () => {
     const result = findTargetedMatches("anything", "");
     expect(result).toEqual({ ok: false, reason: "not_found", candidates: [] });
   });
+
+  it.each([0, 0.5, -1, NaN])(
+    "reports an invalid occurrence (%s) instead of silently coercing to 1",
+    (occurrence) => {
+      const result = findTargetedMatches(
+        "<p>Same</p><p>Same</p>",
+        "<p>Same</p>",
+        {
+          occurrence,
+        },
+      );
+      expect(result).toEqual({
+        ok: false,
+        reason: "invalid_occurrence",
+        occurrence,
+      });
+    },
+  );
 });
 
 describe("applyTargetedReplace", () => {
@@ -177,4 +195,22 @@ describe("applyTargetedReplace", () => {
     expect(result.reason).toBe("not_found");
     expect(result.candidates).toHaveLength(1);
   });
+
+  it.each([0, 0.5, -1, NaN])(
+    "rejects an invalid occurrence (%s) instead of silently coercing to 1",
+    (occurrence) => {
+      const content = "<p>Same</p><p>Same</p>";
+      const result = applyTargetedReplace(
+        content,
+        "<p>Same</p>",
+        "<p>Different</p>",
+        { occurrence },
+      );
+      expect(result).toEqual({
+        ok: false,
+        reason: "invalid_occurrence",
+        occurrence,
+      });
+    },
+  );
 });
