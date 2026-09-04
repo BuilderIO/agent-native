@@ -1687,17 +1687,18 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
   };
 }
 
-async function fillAndSubmitComposer(
-  page: Page,
-  text: string,
-  options: { expectUserMessage?: boolean } = {},
-): Promise<void> {
+async function fillAndSubmitComposer(page: Page, text: string): Promise<void> {
   await waitForStableChatSurface(page);
   const editor = page.locator('[data-agent-composer-slot="editor-input"]');
-  await retryAfterNavigation("prepare composer", async () => {
-    await editor.fill(text);
+  await retryAfterNavigation("prepare composer", () => editor.fill(text));
+  try {
     await editor.press("Enter");
-  });
+  } catch (error) {
+    if (!isNavigationContextError(error)) throw error;
+    log(
+      "composer submission dispatched before a route navigation interrupted Enter; waiting for the existing submission to settle",
+    );
+  }
   await retryAfterNavigation("confirm composer submission", () =>
     page.waitForFunction(() => {
       const editor = document.querySelector(
@@ -1706,9 +1707,6 @@ async function fillAndSubmitComposer(
       return (editor?.textContent ?? "").trim() === "";
     }),
   );
-  if (options.expectUserMessage !== false) {
-    await waitForChatText(page, text);
-  }
 }
 
 async function assertComposerFocused(page: Page): Promise<void> {
@@ -2154,6 +2152,7 @@ async function assertAgentKitChatAcceptance(
   await waitForChatText(page, "Loopback complete", 30_000, {
     recoverDurableRoute: true,
   });
+  await waitForChatText(page, helloPrompt);
   await waitForChatText(page, "Hello, AgentKit Browser!");
   assert.equal(
     await page
@@ -2287,9 +2286,7 @@ async function assertAgentKitChatAcceptance(
   await assertViewportContract(page, "narrow dark approval", { dark: true });
   await assertComposerFocused(page);
 
-  await fillAndSubmitComposer(page, queuedPrompt, {
-    expectUserMessage: false,
-  });
+  await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
   await queue.waitFor({ state: "visible" });
   await queue.getByText(queuedPrompt, { exact: true }).waitFor({
@@ -2331,9 +2328,7 @@ async function assertAgentKitChatAcceptance(
   await page
     .getByText("This partial response must not survive retry", { exact: false })
     .waitFor({ state: "visible" });
-  await fillAndSubmitComposer(page, rejectedSteerPrompt, {
-    expectUserMessage: false,
-  });
+  await fillAndSubmitComposer(page, rejectedSteerPrompt);
   await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
     state: "visible",
   });
