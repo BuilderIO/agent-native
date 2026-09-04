@@ -1139,7 +1139,7 @@ function findUrlForText(text: string): URL | null {
 }
 
 const MCP_RESOURCE_INTENT_PATTERN =
-  /\b(?:action|add|access|board|check|connect|connected|connection|create|decision|design|document|doc|do|extract|fetch|file|find|follow[- ]?ups?|get|import|integration|integrate|issue|link|list|meeting|message|notes?|open|page|populate|project|pull|read|recordings?|review|search|see|summary|summarize|sync|task|ticket|todo|transcripts?|turn|use|workspace)\b/i;
+  /\b(?:action|add|access|analyze|analysis|board|check|connect|connected|connection|create|dashboard|dashboards|decision|design|document|doc|do|explore|exploration|extract|fetch|file|find|follow[- ]?ups?|get|import|integration|integrate|issue|link|list|meeting|message|notes?|open|page|populate|project|pull|read|recordings?|review|search|see|summary|summarize|sync|task|ticket|todo|transcripts?|turn|use|workbook|workbooks|workspace)\b/i;
 
 function textContainsTerm(text: string, term: string): boolean {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

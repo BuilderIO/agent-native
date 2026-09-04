@@ -152,6 +152,15 @@ describe("MCP integration catalog", () => {
     expect(findMcpIntegrationForText("Connect Sigma dashboard")?.id).toBe(
       "sigma",
     );
+    expect(findMcpIntegrationForText("Show me Sigma dashboards")?.id).toBe(
+      "sigma",
+    );
+    expect(findMcpIntegrationForText("Analyze my Sigma dashboard")?.id).toBe(
+      "sigma",
+    );
+    expect(findMcpIntegrationForText("Explore Sigma workbooks")?.id).toBe(
+      "sigma",
+    );
     expect(
       findMcpIntegrationForText("Find the sigma of this distribution"),
     ).toBe(null);
