@@ -1671,7 +1671,7 @@ export async function resourceDeleteIfCurrent(
   // the full mutable row snapshot so same-ms or clock-skewed writes cannot be
   // deleted by a stale caller.
   const result = await client.execute({
-    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND (thread_id = ? OR (thread_id IS NULL AND ? IS NULL)) AND (run_id = ? OR (run_id IS NULL AND ? IS NULL)) AND (expires_at = ? OR (expires_at IS NULL AND ? IS NULL)) AND (metadata = ? OR (metadata IS NULL AND ? IS NULL))`,
+    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
     args: [
       resource.owner,
       resource.path,
@@ -1684,12 +1684,8 @@ export async function resourceDeleteIfCurrent(
       resource.createdBy,
       resource.visibility,
       resource.threadId,
-      resource.threadId,
-      resource.runId,
       resource.runId,
       resource.expiresAt,
-      resource.expiresAt,
-      resource.metadata,
       resource.metadata,
     ],
   });
