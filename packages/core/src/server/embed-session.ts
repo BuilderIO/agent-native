@@ -10,7 +10,7 @@ import {
 } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
@@ -173,9 +173,6 @@ export function resolvedEmbedCapabilityScope(
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      // Build the CREATE SQL here (not at module scope) so intType() runs at
-      // RUNTIME, not import time — a module-scope call breaks any consumer whose
-      // db/client mock doesn't stub intType (e.g. db-admin specs).
       const embedTicketsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
           ticket_hash TEXT PRIMARY KEY,
@@ -183,9 +180,9 @@ export async function ensureTable(): Promise<void> {
           org_id TEXT,
           target_path TEXT NOT NULL,
           scope TEXT,
-          created_at ${intType()} NOT NULL,
-          expires_at ${intType()} NOT NULL,
-          consumed_at ${intType()}
+          created_at BIGINT NOT NULL,
+          expires_at BIGINT NOT NULL,
+          consumed_at BIGINT
         )
       `;
       await ensureTableExists(

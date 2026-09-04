@@ -23,7 +23,6 @@ export {
   assertSchemaMutationAllowed,
   isSchemaMutationStatement,
   isProductionServerlessFunctionRuntime,
-  intType,
   closeDbExec,
   type DbExec,
   type DbExecConfig,

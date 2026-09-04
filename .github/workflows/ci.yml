@@ -502,7 +502,7 @@ jobs:
         run: >-
           npm install --ignore-scripts --no-save
           --prefix "$RUNNER_TEMP/s2573-pglite"
-          @electric-sql/pglite@0.5.4
+          @electric-sql/pglite@0.5.8
 
       - name: Run PGlite lock and migration action semantics tests
         run: node scripts/test-content-database-lock-pglite.mjs

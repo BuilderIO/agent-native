@@ -116,25 +116,27 @@ _計画中 (まだ利用できません):_ Builder.io に接続すると、ア�
 スキーマ ヘルパーは `@agent-native/core/db/schema` からインポートしてください。フレームワークのヘルパーは PostgreSQL と PGlite 用の定義を生成します。
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | ヘルパー  | 目的                                                                                |
 | --------- | ----------------------------------------------------------------------------------- |
-| `table`   | テーブルを定義します。PostgreSQL ヘルパーを使用します                               |
+| `pgTable` | PostgreSQL テーブルを定義します                                           |
 | `text`    | テキスト列。`{ enum: [...] }` をサポートします                                      |
-| `integer` | 整数列。`{ mode: "boolean" }` は Postgres のブール値にマップされます                |
-| `real`    | 浮動小数点列。PGlite では `real`、Postgres では `double precision` にマップされます |
-| `now`     | `.default(now())` 用に現在のタイムスタンプを設定します                              |
+| `integer` | 整数列                                                                       |
+| `boolean` | ブール列                                                                     |
+| `doublePrecision` | 倍精度浮動小数点列                                                   |
+| `sql` | `now()` などの SQL 式                                                        |
 
 <DataModel
   id="doc-block-3hbven"
@@ -167,7 +169,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (boolean mode)",
+          type: "boolean",
           nullable: false,
           note: "default false; maps to a Postgres boolean",
         },

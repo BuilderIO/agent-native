@@ -9,7 +9,6 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  intType: () => "BIGINT",
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({

@@ -7,7 +7,7 @@
  * scratch files.
  */
 
-import { getDbExec, intType, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
 export type ProviderCorpusJobStatus =
@@ -81,7 +81,7 @@ export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const db = getDbExec();
-      const integerType = intType();
+      const integerType = "BIGINT";
       const createJobsSql = `
         CREATE TABLE IF NOT EXISTS provider_corpus_jobs (
           id TEXT NOT NULL,

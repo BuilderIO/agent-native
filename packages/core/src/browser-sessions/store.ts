@@ -1,5 +1,5 @@
 import type { AgentNativeWebMcpTool } from "../client/webmcp.js";
-import { getDbExec, intType, safeJsonParse } from "../db/client.js";
+import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type {
   AgentNativeBrowserSession,
@@ -44,9 +44,9 @@ export async function ensureTables(): Promise<void> {
             session_json TEXT NOT NULL,
             context_json TEXT,
             actions_json TEXT,
-            connected_at ${intType()} NOT NULL,
-            last_seen_at ${intType()} NOT NULL,
-            expires_at ${intType()} NOT NULL,
+            connected_at BIGINT NOT NULL,
+            last_seen_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
             PRIMARY KEY (owner_email, session_id)
           )
         `;
@@ -60,10 +60,10 @@ export async function ensureTables(): Promise<void> {
             command TEXT,
             payload_json TEXT,
             status TEXT NOT NULL,
-            created_at ${intType()} NOT NULL,
-            claimed_at ${intType()},
-            completed_at ${intType()},
-            expires_at ${intType()} NOT NULL,
+            created_at BIGINT NOT NULL,
+            claimed_at BIGINT,
+            completed_at BIGINT,
+            expires_at BIGINT NOT NULL,
             result_json TEXT,
             error TEXT,
             PRIMARY KEY (owner_email, request_id)

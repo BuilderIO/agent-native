@@ -41,7 +41,6 @@ function makeClient(
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
-  intType: () => "BIGINT",
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));

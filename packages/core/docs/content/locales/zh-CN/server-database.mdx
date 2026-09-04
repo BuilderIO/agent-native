@@ -116,25 +116,27 @@ _计划中（尚未提供）：_ 连接到 Builder.io 后，你的应用将能�
 从 `@agent-native/core/db/schema` 导入 schema 助手。框架助手会生成适用于 PostgreSQL 和 PGlite 的定义。
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | 助手      | 用途                                                                         |
 | --------- | ---------------------------------------------------------------------------- |
-| `table`   | 定义一个表，使用 PostgreSQL 助手                                             |
+| `pgTable` | 定义一个 PostgreSQL 表                                                    |
 | `text`    | 文本列，支持 `{ enum: [...] }`                                               |
-| `integer` | 整数列，`{ mode: "boolean" }` 会映射到 Postgres 的布尔类型                   |
-| `real`    | 浮点数列。在 PGlite 上映射为 `real`，在 Postgres 上映射为 `double precision` |
-| `now`     | 为 `.default(now())` 设置当前时间戳                                          |
+| `integer` | 整数列                                                                   |
+| `boolean` | 布尔列                                                                   |
+| `doublePrecision` | 双精度浮点列                                                       |
+| `sql` | `now()` 等 SQL 表达式                                                       |
 
 <DataModel
   id="doc-block-3hbven"
@@ -165,7 +167,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (boolean mode)",
+          type: "boolean",
           nullable: false,
           note: "默认值为 false；映射到 Postgres 的布尔类型",
         },

@@ -119,7 +119,6 @@ const queueDb = {
 };
 vi.mock("../db/client.js", () => ({
   getDbExec: () => queueDb,
-  intType: () => "BIGINT",
   retryOnDdlRace: (fn: () => unknown) => fn(),
 }));
 

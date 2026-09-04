@@ -1,6 +1,6 @@
 import type { EventEmitter } from "node:events";
 
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -78,7 +78,7 @@ export async function ensureTable(): Promise<void> {
         CREATE TABLE IF NOT EXISTS ${table} (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL,
-          updated_at ${intType()} NOT NULL
+          updated_at BIGINT NOT NULL
         )
       `;
 

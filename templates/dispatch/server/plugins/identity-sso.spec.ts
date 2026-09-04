@@ -102,7 +102,6 @@ vi.mock("@agent-native/core/db", () => ({
       throw new Error(`unexpected SQL in test: ${sql}`);
     },
   }),
-  intType: () => "INTEGER",
   isProductionServerlessFunctionRuntime: () => false,
 }));
 vi.mock("h3", () => ({

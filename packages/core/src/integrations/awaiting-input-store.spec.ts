@@ -31,7 +31,6 @@ const db = { execute: vi.fn(executePglite) };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => db,
-  intType: () => "BIGINT",
   isProductionServerlessFunctionRuntime: () => false,
 }));
 

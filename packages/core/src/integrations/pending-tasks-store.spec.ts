@@ -5,7 +5,6 @@ const executeMock = vi.hoisted(() => vi.fn());
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
   isProductionServerlessFunctionRuntime: () => false,
-  intType: () => "BIGINT",
 }));
 
 async function loadStore() {

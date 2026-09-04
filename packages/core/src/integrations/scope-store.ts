@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -103,13 +103,13 @@ export async function ensureTable(): Promise<void> {
         installation_id TEXT,
         service_owner_email TEXT NOT NULL,
         default_model TEXT,
-        require_mention ${intType()} NOT NULL DEFAULT 1,
-        allow_direct_messages ${intType()} NOT NULL DEFAULT 0,
-        allow_guests ${intType()} NOT NULL DEFAULT 0,
-        allow_external_shared ${intType()} NOT NULL DEFAULT 0,
-        allow_unknown_trust ${intType()} NOT NULL DEFAULT 0,
-        created_at ${intType()} NOT NULL,
-        updated_at ${intType()} NOT NULL
+        require_mention BIGINT NOT NULL DEFAULT 1,
+        allow_direct_messages BIGINT NOT NULL DEFAULT 0,
+        allow_guests BIGINT NOT NULL DEFAULT 0,
+        allow_external_shared BIGINT NOT NULL DEFAULT 0,
+        allow_unknown_trust BIGINT NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       )`;
       const uniqueIndexSql =
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_scope_external_key ON integration_conversation_scopes(platform, tenant_id, conversation_id)";

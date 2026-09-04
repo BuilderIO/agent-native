@@ -168,7 +168,6 @@ async function execute(input: string | { sql: string; args?: unknown[] }) {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
-  intType: () => "BIGINT",
   isUniqueViolation: (error: unknown) => {
     const value = error as { code?: string; message?: string } | null;
     return (

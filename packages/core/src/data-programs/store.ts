@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 
 import { and, eq, isNull } from "drizzle-orm";
 
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureTableExists,
@@ -57,7 +57,7 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureDataProgramTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const integerType = intType();
+      const integerType = "BIGINT";
       const runsCreateSql = dataProgramRunsCreateSql(integerType);
 
       // Probe before DDL so normal initialization stays a read-only path.

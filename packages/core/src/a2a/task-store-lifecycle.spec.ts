@@ -29,7 +29,6 @@ const dbExec: DbExec = {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => dbExec,
   isProductionServerlessFunctionRuntime: () => false,
-  intType: () => "BIGINT",
 }));
 
 function makeMessage(text: string, role: "user" | "agent" = "user"): Message {

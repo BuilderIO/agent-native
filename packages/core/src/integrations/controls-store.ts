@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -46,9 +46,9 @@ export async function ensureTable(): Promise<void> {
         approval_key TEXT,
         incoming_json TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
-        expires_at ${intType()} NOT NULL,
-        created_at ${intType()} NOT NULL,
-        claimed_at ${intType()}
+        expires_at BIGINT NOT NULL,
+        created_at BIGINT NOT NULL,
+        claimed_at BIGINT
       )`;
       {
         await ensureTableExists("integration_controls", sql);

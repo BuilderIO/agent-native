@@ -13,6 +13,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const bookings = table("bookings", {
   id: text("id").primaryKey(),
@@ -60,12 +61,10 @@ export const bookings = table("bookings", {
   recurringEventId: text("recurring_event_id"),
 
   /** Payment state (Tier 2) */
-  paid: integer("paid", { mode: "boolean" }).notNull().default(false),
+  paid: boolean("paid").notNull().default(false),
 
   /** Whether the host marked themselves a no-show */
-  noShowHost: integer("no_show_host", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  noShowHost: boolean("no_show_host").notNull().default(false),
 
   metadata: text("metadata"),
   createdAt: text("created_at").notNull(),
@@ -82,7 +81,7 @@ export const bookingAttendees = table("booking_attendees", {
   name: text("name").notNull(),
   timezone: text("timezone"),
   locale: text("locale"),
-  noShow: integer("no_show", { mode: "boolean" }).notNull().default(false),
+  noShow: boolean("no_show").notNull().default(false),
   createdAt: text("created_at").notNull(),
 });
 

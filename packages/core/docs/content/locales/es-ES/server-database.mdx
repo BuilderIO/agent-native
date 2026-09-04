@@ -116,25 +116,27 @@ Una aplicación que usa la base de datos necesita tres archivos:
 Importe los ayudantes de esquema desde `@agent-native/core/db/schema`. Los ayudantes del marco producen definiciones específicas para PostgreSQL y PGlite.
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | Ayudante  | Propósito                                                                         |
 | --------- | --------------------------------------------------------------------------------- |
-| `table`   | Define una tabla con los ayudantes de PostgreSQL                                  |
+| `pgTable` | Define una tabla con PostgreSQL                                                     |
 | `text`    | Columna de texto, admite `{ enum: [...] }`                                        |
-| `integer` | Columna entera; `{ mode: "boolean" }` se asigna al booleano de Postgres           |
-| `real`    | Columna flotante. Se asigna a `real` en PGlite y a `double precision` en Postgres |
-| `now`     | Marca la hora actual para `.default(now())`                                       |
+| `integer` | Columna entera                                                                    |
+| `boolean` | Columna booleana                                                                  |
+| `doublePrecision` | Columna de punto flotante de doble precisión                              |
+| `sql` | Expresión SQL como `now()`                                                         |
 
 <DataModel
   id="doc-block-3hbven"
@@ -167,7 +169,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (modo booleano)",
+          type: "boolean",
           nullable: false,
           note: "valor predeterminado false; se asigna a un booleano de Postgres",
         },

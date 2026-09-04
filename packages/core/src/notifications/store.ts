@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, safeJsonParse } from "../db/client.js";
+import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
@@ -28,8 +28,8 @@ export async function ensureTable(): Promise<void> {
             body TEXT,
             metadata TEXT,
             delivered_channels TEXT NOT NULL DEFAULT '[]',
-            created_at ${intType()} NOT NULL,
-            read_at ${intType()}
+            created_at BIGINT NOT NULL,
+            read_at BIGINT
           )
         `;
 

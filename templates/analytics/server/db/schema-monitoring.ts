@@ -22,6 +22,7 @@ import {
   table,
   text,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 /**
  * A single uptime check ("monitor"). Pings `url` on `intervalSeconds` and
@@ -59,9 +60,7 @@ export const monitors = table("monitors", {
    *     "value": string | number, "header"?: string }
    */
   assertions: text("assertions").notNull().default("[]"),
-  followRedirects: integer("follow_redirects", { mode: "boolean" })
-    .notNull()
-    .default(true),
+  followRedirects: boolean("follow_redirects").notNull().default(true),
   /** Alert severity when the monitor fails. */
   severity: text("severity", { enum: ["warning", "critical"] })
     .notNull()
@@ -76,7 +75,7 @@ export const monitors = table("monitors", {
   webhookUrl: text("webhook_url"),
   /** Minutes to suppress repeat alerts while an incident is ongoing. */
   cooldownMinutes: integer("cooldown_minutes").notNull().default(15),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  enabled: boolean("enabled").notNull().default(true),
 
   // ---- Mutable status fields (updated by the runner) ----
   /** up | down | degraded | error | unknown | running */
@@ -101,7 +100,7 @@ export const monitorCheckResults = table("monitor_check_results", {
   id: text("id").primaryKey(),
   monitorId: text("monitor_id").notNull(),
   checkedAt: text("checked_at").notNull(),
-  ok: integer("ok", { mode: "boolean" }).notNull(),
+  ok: boolean("ok").notNull(),
   /** Classification for this probe: up | down | degraded | error. */
   status: text("status").notNull().default("up"),
   statusCode: integer("status_code"),
@@ -131,7 +130,7 @@ export const monitorIncidents = table("monitor_incidents", {
   cause: text("cause").notNull().default(""),
   lastError: text("last_error"),
   notificationId: text("notification_id"),
-  notificationDelivered: integer("notification_delivered", { mode: "boolean" })
+  notificationDelivered: boolean("notification_delivered")
     .notNull()
     .default(false),
   checksFailed: integer("checks_failed").notNull().default(1),
@@ -161,17 +160,11 @@ export const statusPages = table("status_pages", {
   title: text("title").notNull(),
   description: text("description"),
   /** Only published pages are readable by the unauthenticated public route. */
-  published: integer("published", { mode: "boolean" }).notNull().default(false),
+  published: boolean("published").notNull().default(false),
   // ---- Layout options ----
-  showUptimeBars: integer("show_uptime_bars", { mode: "boolean" })
-    .notNull()
-    .default(true),
-  showOverallUptime: integer("show_overall_uptime", { mode: "boolean" })
-    .notNull()
-    .default(true),
-  showResponseTime: integer("show_response_time", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  showUptimeBars: boolean("show_uptime_bars").notNull().default(true),
+  showOverallUptime: boolean("show_overall_uptime").notNull().default(true),
+  showResponseTime: boolean("show_response_time").notNull().default(false),
   density: text("density", { enum: ["comfortable", "compact"] })
     .notNull()
     .default("comfortable"),

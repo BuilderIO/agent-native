@@ -20,7 +20,6 @@ const _executedSql: string[] = [];
 
 vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
-  intType: () => "BIGINT",
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {
       const rawSql = typeof sql === "string" ? sql : sql.sql;

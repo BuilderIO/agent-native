@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const cooldownRows = new Map<string, Record<string, unknown>>();
 
 vi.mock("../db/client.js", () => ({
-  intType: () => "BIGINT",
   getDbExec: () => ({
     execute: async (input: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof input === "string" ? input : input.sql;

@@ -16,7 +16,6 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
   isProductionServerlessFunctionRuntime,
 } from "@agent-native/core/db";
 import {
@@ -310,9 +309,9 @@ function buildCodeTableSql(): string {
       name TEXT,
       org_domain TEXT,
       jti TEXT NOT NULL,
-      created_at ${intType()} NOT NULL,
-      expires_at ${intType()} NOT NULL,
-      consumed_at ${intType()}
+      created_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL,
+      consumed_at BIGINT
     )
   `;
 }

@@ -9,6 +9,7 @@ import {
   uniqueIndex,
   index,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 // -----------------------------------------------------------------------------
 // Organizations.
@@ -98,9 +99,7 @@ export const spaces = table("spaces", {
   name: text("name").notNull(),
   color: text("color").notNull().default("#18181B"),
   iconEmoji: text("icon_emoji"),
-  isAllCompany: integer("is_all_company", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isAllCompany: boolean("is_all_company").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
 });
 
@@ -172,10 +171,8 @@ export const recordings = table("recordings", {
   videoSizeBytes: integer("video_size_bytes").notNull().default(0),
   width: integer("width").notNull().default(0),
   height: integer("height").notNull().default(0),
-  hasAudio: integer("has_audio", { mode: "boolean" }).notNull().default(true),
-  hasCamera: integer("has_camera", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  hasAudio: boolean("has_audio").notNull().default(true),
+  hasCamera: boolean("has_camera").notNull().default(false),
 
   status: text("status", {
     enum: ["uploading", "processing", "ready", "failed"],
@@ -206,19 +203,11 @@ export const recordings = table("recordings", {
   password: text("password"),
   expiresAt: text("expires_at"),
 
-  enableComments: integer("enable_comments", { mode: "boolean" })
-    .notNull()
-    .default(true),
-  enableReactions: integer("enable_reactions", { mode: "boolean" })
-    .notNull()
-    .default(true),
-  enableDownloads: integer("enable_downloads", { mode: "boolean" })
-    .notNull()
-    .default(true),
+  enableComments: boolean("enable_comments").notNull().default(true),
+  enableReactions: boolean("enable_reactions").notNull().default(true),
+  enableDownloads: boolean("enable_downloads").notNull().default(true),
   defaultSpeed: text("default_speed").notNull().default("1.2"),
-  animatedThumbnailEnabled: integer("animated_thumbnail_enabled", {
-    mode: "boolean",
-  })
+  animatedThumbnailEnabled: boolean("animated_thumbnail_enabled")
     .notNull()
     .default(true),
 
@@ -353,7 +342,7 @@ export const recordingComments = table("recording_comments", {
   videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
   // JSON map of emoji -> [emails]
   emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
-  resolved: integer("resolved", { mode: "boolean" }).notNull().default(false),
+  resolved: boolean("resolved").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -387,12 +376,8 @@ export const recordingViewers = table(
     totalWatchMs: integer("total_watch_ms").notNull().default(0),
     completedPct: integer("completed_pct").notNull().default(0),
     // True once they meet the 5s / 75% / end-scrub rule.
-    countedView: integer("counted_view", { mode: "boolean" })
-      .notNull()
-      .default(false),
-    ctaClicked: integer("cta_clicked", { mode: "boolean" })
-      .notNull()
-      .default(false),
+    countedView: boolean("counted_view").notNull().default(false),
+    ctaClicked: boolean("cta_clicked").notNull().default(false),
   },
   (viewer) => ({
     recordingViewerKeyUnique: uniqueIndex(
@@ -511,9 +496,7 @@ export const meetings = table("clips_meetings", {
   })
     .notNull()
     .default("idle"),
-  shareTranscript: integer("share_transcript", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  shareTranscript: boolean("share_transcript").notNull().default(false),
   summaryMd: text("summary_md").notNull().default(""),
   // JSON array of `{ text }` bullets.
   bulletsJson: text("bullets_json").notNull().default("[]"),
@@ -541,9 +524,7 @@ export const meetingParticipants = table("meeting_participants", {
   meetingId: text("meeting_id").notNull(),
   email: text("email").notNull(),
   name: text("name"),
-  isOrganizer: integer("is_organizer", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isOrganizer: boolean("is_organizer").notNull().default(false),
   // ISO timestamp of when the participant actually attended (joined the
   // recording / spoke). Null until detected.
   attendedAt: text("attended_at"),

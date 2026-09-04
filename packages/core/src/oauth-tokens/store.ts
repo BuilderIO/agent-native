@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
@@ -61,8 +61,8 @@ export async function ensureTable(): Promise<void> {
           account_id TEXT NOT NULL,
           owner TEXT,
           tokens TEXT NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          revision ${intType()} NOT NULL,
+          updated_at BIGINT NOT NULL,
+          revision BIGINT NOT NULL,
           PRIMARY KEY (provider, account_id)
         )
       `;

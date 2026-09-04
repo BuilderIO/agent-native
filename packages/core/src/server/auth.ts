@@ -74,7 +74,7 @@ function toWebRequest(event: H3Event): Request {
 }
 
 type H3App = H3AppShim;
-import { getDbExec, intType, describeDbError } from "../db/client.js";
+import { getDbExec, describeDbError } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -1575,7 +1575,7 @@ export async function ensureSessionTable(): Promise<void> {
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             email TEXT,
-            created_at ${intType()} NOT NULL
+            created_at BIGINT NOT NULL
           )
         `;
 

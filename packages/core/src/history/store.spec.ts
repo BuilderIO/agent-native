@@ -22,7 +22,6 @@ const rawClient = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "BIGINT",
   isProductionServerlessFunctionRuntime: () => false,
   isUniqueViolation: (error: unknown) => {
     const message = String((error as { message?: unknown })?.message ?? error);

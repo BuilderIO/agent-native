@@ -32,10 +32,9 @@ describe("db/client Postgres URL handling", () => {
     vi.resetModules();
   });
 
-  it("uses BIGINT schema types for the PGlite runtime", async () => {
+  it("recognizes the PGlite runtime", async () => {
     vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
-    const { intType, isLocalDatabase } = await import("./client.js");
-    expect(intType()).toBe("BIGINT");
+    const { isLocalDatabase } = await import("./client.js");
     expect(isLocalDatabase()).toBe(true);
   });
 

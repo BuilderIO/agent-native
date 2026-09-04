@@ -194,12 +194,14 @@ async function createRowThroughMutationContract(
   title: string,
   idempotencyKey: string,
 ) {
+  console.error("DBG read start", idempotencyKey);
   const discovered = await runWithRequestContext({ userEmail: OWNER }, () =>
     getContentDatabaseAction.run({ databaseId }),
   );
+  console.error("DBG read done", idempotencyKey);
   if (!("database" in discovered) || !discovered.mutationContract)
     throw new Error("Fixture database has no mutation contract.");
-  return runWithRequestContext({ userEmail: OWNER }, () =>
+  const result = await runWithRequestContext({ userEmail: OWNER }, () =>
     addDatabaseItemAction.run({
       target: discovered.mutationContract!.target,
       expectedSchemaRevision: discovered.mutationContract!.schemaRevision,
@@ -207,6 +209,8 @@ async function createRowThroughMutationContract(
       title,
     }),
   );
+  console.error("DBG add done", idempotencyKey);
+  return result;
 }
 
 describe("database row batch actions", () => {

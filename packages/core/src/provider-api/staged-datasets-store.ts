@@ -12,7 +12,7 @@
  * different users never share or cross-read each other's scratch data.
  */
 
-import { getDbExec, intType, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ export async function ensureTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const db = getDbExec();
-      const integerType = intType();
+      const integerType = "BIGINT";
       const createDatasetsSql = `
         CREATE TABLE IF NOT EXISTS staged_datasets (
           id TEXT NOT NULL,

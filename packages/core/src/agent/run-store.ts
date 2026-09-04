@@ -12,7 +12,7 @@ import {
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
@@ -366,10 +366,10 @@ export async function ensureRunTables(): Promise<void> {
           thread_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'running',
           abort_reason TEXT,
-          started_at ${intType()} NOT NULL,
-          completed_at ${intType()},
-          heartbeat_at ${intType()},
-          last_progress_at ${intType()},
+          started_at BIGINT NOT NULL,
+          completed_at BIGINT,
+          heartbeat_at BIGINT,
+          last_progress_at BIGINT,
           turn_id TEXT,
           error_code TEXT,
           error_detail TEXT,
@@ -377,14 +377,14 @@ export async function ensureRunTables(): Promise<void> {
           dispatch_mode TEXT,
           diag_stage TEXT,
           dispatch_payload TEXT,
-          peak_rss_mb ${intType()}
+          peak_rss_mb BIGINT
         )
       `;
       const agentRunEventsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
-          seq ${intType()} NOT NULL,
-          event_at ${intType()},
+          seq BIGINT NOT NULL,
+          event_at BIGINT,
           event_data TEXT NOT NULL,
           PRIMARY KEY (run_id, seq)
         )
@@ -401,7 +401,7 @@ export async function ensureRunTables(): Promise<void> {
           day TEXT NOT NULL,
           status TEXT NOT NULL,
           terminal_reason TEXT NOT NULL DEFAULT '',
-          run_count ${intType()} NOT NULL DEFAULT 0,
+          run_count BIGINT NOT NULL DEFAULT 0,
           PRIMARY KEY (day, status, terminal_reason)
         )
       `;
@@ -416,7 +416,7 @@ export async function ensureRunTables(): Promise<void> {
           tool_key TEXT NOT NULL,
           result_summary TEXT NOT NULL,
           artifacts_json TEXT,
-          completed_at ${intType()} NOT NULL,
+          completed_at BIGINT NOT NULL,
           PRIMARY KEY (thread_id, tool_key)
         )
       `;
@@ -443,9 +443,9 @@ export async function ensureRunTables(): Promise<void> {
       // last_progress_at = "the agent is actually emitting events" (bumped on
       // each emit). The gap between them is the stuck-detector signal.
       for (const [col, colType] of [
-        ["heartbeat_at", intType()],
+        ["heartbeat_at", "BIGINT"],
         ["abort_reason", "TEXT"],
-        ["last_progress_at", intType()],
+        ["last_progress_at", "BIGINT"],
         // Backfill turn_id / error_code / error_detail.
         //   turn_id    = stable identity for one logical assistant turn that may
         //                span several continuation runs, so the durable record
@@ -477,7 +477,7 @@ export async function ensureRunTables(): Promise<void> {
         // the fact is a memory trace that climbs to a ceiling and stops.
         // Assets background workers die ~10s into a 780s budget with this
         // signature and Netlify's function logs are not retrievable.
-        ["peak_rss_mb", intType()],
+        ["peak_rss_mb", "BIGINT"],
         // dispatch_payload holds the JSON request body for a background
         // dispatch so the self-POST to the Netlify background function can
         // stay tiny (Netlify caps background-function request bodies at
@@ -492,7 +492,7 @@ export async function ensureRunTables(): Promise<void> {
         // demonstrably-alive run even when the SAME-isolate heartbeat write
         // has failed. See `IN_FLIGHT_RUN_STALE_GRACE_MS` and
         // `setRunInFlightMarker`.
-        ["in_flight_since", intType()],
+        ["in_flight_since", "BIGINT"],
       ] as const) {
         await ensureColumnExists(
           "agent_runs",
@@ -504,7 +504,7 @@ export async function ensureRunTables(): Promise<void> {
       await ensureColumnExists(
         "agent_run_events",
         "event_at",
-        `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at ${intType()}`,
+        `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at BIGINT`,
       );
       await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
       await ensureColumnExists(

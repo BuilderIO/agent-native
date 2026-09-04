@@ -5,7 +5,7 @@ import {
   normalizeThreadRepository,
   normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
@@ -76,14 +76,14 @@ async function ensureTable(): Promise<void> {
           title TEXT NOT NULL DEFAULT '',
           preview TEXT NOT NULL DEFAULT '',
           thread_data TEXT NOT NULL DEFAULT '{}',
-          message_count ${intType()} NOT NULL DEFAULT 0,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
+          message_count BIGINT NOT NULL DEFAULT 0,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
           scope_type TEXT,
           scope_id TEXT,
           scope_label TEXT,
-          pinned_at ${intType()},
-          archived_at ${intType()},
+          pinned_at BIGINT,
+          archived_at BIGINT,
           share_token_hash TEXT,
           source_platform TEXT,
           source_app_id TEXT,
@@ -113,8 +113,8 @@ async function ensureTable(): Promise<void> {
           ["scope_type", "TEXT"],
           ["scope_id", "TEXT"],
           ["scope_label", "TEXT"],
-          ["pinned_at", intType()],
-          ["archived_at", intType()],
+          ["pinned_at", "BIGINT"],
+          ["archived_at", "BIGINT"],
           ["share_token_hash", "TEXT"],
           ["source_platform", "TEXT"],
           ["source_app_id", "TEXT"],

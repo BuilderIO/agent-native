@@ -14,7 +14,7 @@
  * for UI/status; this table only drives dispatch, idempotent claiming, and
  * cross-invocation continuation.
  */
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 /** Max cross-invocation continuations for one sub-agent run. Each continuation
@@ -91,10 +91,10 @@ export async function ensureTable(): Promise<void> {
             owner_email TEXT,
             org_id TEXT,
             payload TEXT NOT NULL,
-            continuation_count ${intType()} NOT NULL DEFAULT 0,
-            attempts ${intType()} NOT NULL DEFAULT 0,
-            created_at ${intType()} NOT NULL,
-            updated_at ${intType()} NOT NULL
+            continuation_count BIGINT NOT NULL DEFAULT 0,
+            attempts BIGINT NOT NULL DEFAULT 0,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
           )
         `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`;

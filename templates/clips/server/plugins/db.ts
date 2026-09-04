@@ -42,9 +42,8 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
  * to boolean.
  *
  * The early table-create migrations (v4–v14 below) used `INTEGER`, but the
- * Drizzle schema declares these
- * columns as `integer(..., { mode: "boolean" })` — which on Postgres maps
- * to the `boolean` type. Drizzle then sends `true`/`false` at insert, which
+ * current Drizzle schema declares these columns as native `boolean` values.
+ * Drizzle sends `true`/`false` at insert, which
  * Postgres rejects against a bigint column (`invalid input syntax for type
  * bigint: "true"`).
  *

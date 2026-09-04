@@ -1,5 +1,5 @@
 import type { A2AArtifactIdentity } from "../a2a/artifact-response.js";
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
@@ -14,7 +14,7 @@ const TERMINAL_HISTORY_FINALIZATION_LEASE_MS = 60 * 1000;
 const MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS = 16_000;
 const MAX_TERMINAL_HISTORY_PAYLOAD_CHARS = 64_000;
 
-// Build the CREATE SQL lazily so intType() is resolved at runtime.
+// Build the CREATE SQL lazily so "BIGINT" is resolved at runtime.
 function buildCreateSql(): string {
   return `
   CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
@@ -25,7 +25,7 @@ function buildCreateSql(): string {
     incoming_payload TEXT NOT NULL,
     placeholder_ref TEXT,
     progress_ref TEXT,
-    progress_ref_claimed ${intType()} NOT NULL DEFAULT 0,
+    progress_ref_claimed BIGINT NOT NULL DEFAULT 0,
     owner_email TEXT NOT NULL,
     org_id TEXT,
     agent_name TEXT NOT NULL,
@@ -35,15 +35,15 @@ function buildCreateSql(): string {
     a2a_auth_token TEXT,
     verified_artifact_checkpoint TEXT,
     terminal_delivery_kind TEXT,
-    terminal_delivery_confirmed_at ${intType()},
+    terminal_delivery_confirmed_at BIGINT,
     terminal_history_payload TEXT,
     status TEXT NOT NULL,
-    attempts ${intType()} NOT NULL DEFAULT 0,
-    next_check_at ${intType()} NOT NULL,
+    attempts BIGINT NOT NULL DEFAULT 0,
+    next_check_at BIGINT NOT NULL,
     error_message TEXT,
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL,
-    completed_at ${intType()}
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    completed_at BIGINT
   )
 `;
 }
@@ -84,7 +84,7 @@ export async function ensureTable(): Promise<void> {
       await ensureColumnExists(
         "integration_a2a_continuations",
         "progress_ref_claimed",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed ${intType()} NOT NULL DEFAULT 0`,
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed BIGINT NOT NULL DEFAULT 0`,
       );
       await ensureColumnExists(
         "integration_a2a_continuations",
@@ -99,7 +99,7 @@ export async function ensureTable(): Promise<void> {
       await ensureColumnExists(
         "integration_a2a_continuations",
         "terminal_delivery_confirmed_at",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at ${intType()}`,
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at BIGINT`,
       );
       await ensureColumnExists(
         "integration_a2a_continuations",

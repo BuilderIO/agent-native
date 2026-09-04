@@ -12,43 +12,44 @@ metadata:
 
 ## Rule
 
-Templates use local PGlite and hosted Postgres. Keep database access behind the framework helpers and compatible with both environments.
+Templates use one PostgreSQL schema and query contract. Local PGlite and hosted
+PostgreSQL share the same SQL semantics.
 
 ## Database
 
-Use the Postgres schema helpers from `@agent-native/core/db/schema` for schemas and Drizzle's query builder for reads/writes:
+Use Drizzle's PostgreSQL exports directly for schemas and its query builder for reads/writes:
 
 ```ts
+import { sql } from "drizzle-orm";
 import {
-  table,
-  text,
+  boolean,
+  doublePrecision,
   integer,
-  real,
-  now,
-  sql,
-} from "@agent-native/core/db/schema";
+  pgTable,
+  text,
+} from "drizzle-orm/pg-core";
 
-export const meals = table("meals", {
+export const meals = pgTable("meals", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   calories: integer("calories").notNull(),
-  weight: real("weight"),
-  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
-  createdAt: text("created_at").notNull().default(now()),
+  weight: doublePrecision("weight"),
+  archived: boolean("archived").notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
-| Helper    | Purpose                                                                                   |
-| --------- | ----------------------------------------------------------------------------------------- |
-| `table`   | Defines a Postgres table                                       |
-| `text`    | Defines a text column, with optional enum values              |
-| `integer` | Defines an integer column; `{ mode: "boolean" }` uses BOOLEAN |
-| `real`    | Defines a double-precision column                              |
-| `now`     | Returns the current timestamp for `.default(now())`           |
-| `sql`     | Re-exported from `drizzle-orm` for SQL expressions             |
+| Export            | Purpose                                      |
+| ----------------- | -------------------------------------------- |
+| `pgTable`         | Defines a PostgreSQL table                   |
+| `text`            | Defines a text column, with optional enum values |
+| `integer`         | Defines an integer column                    |
+| `boolean`         | Defines a boolean column                     |
+| `doublePrecision` | Defines a double-precision column            |
+| `sql`             | Builds SQL expressions such as `now()`       |
 
-Always use `@agent-native/core/db/schema` in template code so all schemas share
-the framework's Postgres definitions.
+Use `@agent-native/core/db/schema` only for framework-owned sharing helpers such
+as `ownableColumns()` and `createSharesTable()`.
 
 Use Drizzle's PostgreSQL query builder for app code:
 
@@ -67,7 +68,7 @@ Avoid `db.execute(...)`, `getDbExec()`, and handwritten SQL in actions, handlers
 ### Raw SQL helpers
 
 - `getDbExec()` — executes parameterized PostgreSQL SQL
-- `intType()` — returns `BIGINT` for millisecond timestamps and counters
+- Use PostgreSQL types such as `BIGINT` directly in raw SQL.
 
 ### Never
 

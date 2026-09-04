@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -88,13 +88,13 @@ export async function ensureHealthTable(): Promise<void> {
           id TEXT PRIMARY KEY,
           app_id TEXT NOT NULL DEFAULT 'default',
           org_id TEXT,
-          last_checked_at ${intType()},
-          last_dispatched_at ${intType()},
+          last_checked_at BIGINT,
+          last_dispatched_at BIGINT,
           last_error TEXT,
           runtime TEXT,
-          updated_at ${intType()} NOT NULL,
+          updated_at BIGINT NOT NULL,
           lease_owner TEXT,
-          lease_expires_at ${intType()}
+          lease_expires_at BIGINT
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
@@ -113,12 +113,12 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "last_checked_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_checked_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_checked_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
           "last_dispatched_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_dispatched_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_dispatched_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
@@ -133,7 +133,7 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "updated_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS updated_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS updated_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
@@ -143,7 +143,7 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "lease_expires_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at BIGINT`,
         );
         await ensureIndexExists(`idx_${TABLE}_updated`, indexSql);
         return;

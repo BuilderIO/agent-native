@@ -329,7 +329,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -444,7 +443,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -550,7 +548,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -618,7 +615,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -726,7 +722,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -862,7 +857,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("../org/context.js", () => ({
@@ -1212,7 +1206,6 @@ describe("server/auth", () => {
           execute: vi.fn(async () => ({ rows: [] })),
         }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -1399,7 +1392,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -1479,7 +1471,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -1539,7 +1530,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -1763,7 +1753,6 @@ describe("server/auth", () => {
           execute: vi.fn(async () => ({ rows: [] })),
         }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -3737,7 +3726,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -3823,7 +3811,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4139,7 +4126,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4209,7 +4195,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4256,7 +4241,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4356,7 +4340,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4407,7 +4390,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4467,7 +4449,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4541,7 +4522,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -4627,7 +4607,6 @@ describe("server/auth", () => {
           }),
         }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
       }));
@@ -4678,7 +4657,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4784,7 +4762,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4884,7 +4861,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -4957,7 +4933,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -5014,7 +4989,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -5072,7 +5046,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -5358,7 +5331,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -5425,7 +5397,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       const captureAuthError = vi.fn();
@@ -5749,7 +5720,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5862,7 +5832,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -5955,7 +5924,6 @@ describe("server/auth", () => {
       );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -6071,7 +6039,6 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -6157,7 +6124,6 @@ describe("server/auth", () => {
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -6251,7 +6217,6 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
       }));
@@ -6582,7 +6547,6 @@ describe("server/auth", () => {
           execute: vi.fn(async () => ({ rows: [] })),
         }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6606,7 +6570,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6631,7 +6594,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6656,7 +6618,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6685,7 +6646,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6825,7 +6785,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6869,7 +6828,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -6902,7 +6860,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       // Keep the real auth secret resolver; just take Better Auth out of the
@@ -6953,7 +6910,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -6998,7 +6954,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -7052,7 +7007,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7090,7 +7044,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7139,7 +7092,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -7182,7 +7134,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -7226,7 +7177,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7269,7 +7219,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7312,7 +7261,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7377,7 +7325,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7420,7 +7367,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7904,7 +7850,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7934,7 +7879,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -7972,7 +7916,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -8044,7 +7987,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -8109,7 +8051,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -8148,7 +8089,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 
@@ -8919,7 +8859,6 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
-        intType: () => "BIGINT",
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
 

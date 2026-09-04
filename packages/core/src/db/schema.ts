@@ -1,9 +1,4 @@
-/**
- * Shared Postgres schema helpers for templates and framework stores.
- *
- * The small `integer` compatibility wrapper keeps existing template schemas
- * readable while mapping boolean columns to Postgres BOOLEAN columns.
- */
+/** Shared Postgres schema exports for templates and framework stores. */
 
 import { sql } from "drizzle-orm";
 import {
@@ -11,22 +6,23 @@ import {
   boolean,
   doublePrecision,
   index,
-  integer as pgInteger,
+  integer,
   pgTable,
   text,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-export { alias, index, pgTable as table, text, uniqueIndex };
-
-export function integer(
-  name: string,
-  config?: { mode?: "boolean" | "number" },
-): any {
-  return config?.mode === "boolean" ? boolean(name) : pgInteger(name);
-}
-
-export const real = doublePrecision;
+export {
+  alias,
+  boolean,
+  doublePrecision,
+  index,
+  integer,
+  pgTable as table,
+  text,
+  uniqueIndex,
+};
+export { doublePrecision as real };
 
 export function now() {
   return sql`now()`;

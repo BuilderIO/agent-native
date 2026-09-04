@@ -5,6 +5,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const bookings = table("bookings", {
   id: text("id").primaryKey(),
@@ -50,7 +51,7 @@ export const bookingLinks = table("booking_links", {
   /** JSON conferencing config (type + optional URL) */
   conferencing: text("conferencing"),
   color: text("color"),
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   ...ownableColumns(),

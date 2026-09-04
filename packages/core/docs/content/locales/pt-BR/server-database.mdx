@@ -116,25 +116,27 @@ Um aplicativo que usa o banco de dados precisa de três arquivos:
 Importe os auxiliares de esquema de `@agent-native/core/db/schema`. Os auxiliares da estrutura produzem definições específicas para PostgreSQL e PGlite.
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | Auxiliar  | Finalidade                                                                     |
 | --------- | ------------------------------------------------------------------------------ |
-| `table`   | Define uma tabela com os auxiliares do PostgreSQL                              |
+| `pgTable` | Define uma tabela PostgreSQL                                             |
 | `text`    | Coluna de texto, compatível com `{ enum: [...] }`                              |
-| `integer` | Coluna inteira, `{ mode: "boolean" }` mapeia para booleano no Postgres         |
-| `real`    | Coluna flutuante. Mapeia para `real` no PGlite, `double precision` no Postgres |
-| `now`     | Marca o horário atual para `.default(now())`                                   |
+| `integer` | Coluna inteira                                                          |
+| `boolean` | Coluna booleana                                                        |
+| `doublePrecision` | Coluna de ponto flutuante de dupla precisão                    |
+| `sql` | Expressão SQL como `now()`                                               |
 
 <DataModel
   id="doc-block-3hbven"
@@ -167,7 +169,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (boolean mode)",
+          type: "boolean",
           nullable: false,
           note: "default false; maps to a Postgres boolean",
         },

@@ -110,10 +110,9 @@ export const runDesignMigrations = runMigrations(
     created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
-    // v7-v9: fix boolean columns on Postgres only. The adaptSqlForPostgres
-    // rewriter turns INTEGER -> BIGINT, so migration v3 created is_default
-    // as bigint. Drizzle's integer({ mode: "boolean" }) maps to pg boolean,
-    // so inserts send a JS boolean that Postgres rejects. Convert to boolean.
+    // v7-v9: fix a legacy boolean column on Postgres. The migration rewriter
+    // turned INTEGER into BIGINT, so migration v3 created is_default as
+    // bigint. The current schema uses native BOOLEAN values, so convert it.
     {
       version: 7,
       sql: {

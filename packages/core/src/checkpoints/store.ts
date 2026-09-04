@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -13,7 +13,7 @@ export async function ensureCheckpointTable(): Promise<void> {
           run_id TEXT,
           commit_sha TEXT NOT NULL,
           message TEXT NOT NULL DEFAULT '',
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
       // Hot read paths: getCheckpointsByThread filters on thread_id and

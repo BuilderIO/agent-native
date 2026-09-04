@@ -18,7 +18,7 @@
  */
 import { randomBytes } from "node:crypto";
 
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
 /** Maximum stored image size (~5 MB of raw PNG bytes). */
@@ -44,18 +44,15 @@ const TOKEN_PATTERN = /^[0-9a-f]{32,128}$/;
 
 let _initPromise: Promise<void> | undefined;
 
-// Build the CREATE SQL lazily (not at module scope) so intType() runs at
-// RUNTIME, not import time — a module-scope call breaks any consumer whose
-// db/client mock doesn't stub intType (e.g. db-admin specs).
 function buildRecapImagesCreateSql(): string {
   return `
         CREATE TABLE IF NOT EXISTS recap_images (
           token TEXT PRIMARY KEY,
           png_base64 TEXT NOT NULL,
           content_type TEXT NOT NULL DEFAULT '${RECAP_IMAGE_CONTENT_TYPE}',
-          byte_length ${intType()} NOT NULL DEFAULT 0,
+          byte_length BIGINT NOT NULL DEFAULT 0,
           owner_email TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 }

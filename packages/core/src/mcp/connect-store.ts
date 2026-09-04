@@ -19,7 +19,7 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
+import { getDbExec, isConnectionError } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -69,9 +69,9 @@ export async function ensureTable(): Promise<void> {
           kind TEXT NOT NULL DEFAULT 'personal',
           service_name TEXT,
           created_by TEXT,
-          created_at ${intType()},
-          last_used_at ${intType()},
-          revoked_at ${intType()}
+          created_at BIGINT,
+          last_used_at BIGINT,
+          revoked_at BIGINT
         )
       `;
       const createDeviceCodesSql = `
@@ -82,9 +82,9 @@ export async function ensureTable(): Promise<void> {
           org_id TEXT,
           status TEXT NOT NULL DEFAULT 'pending',
           token_jti TEXT,
-          created_at ${intType()},
-          expires_at ${intType()},
-          consumed_at ${intType()}
+          created_at BIGINT,
+          expires_at BIGINT,
+          consumed_at BIGINT
         )
       `;
 

@@ -38,7 +38,6 @@ const dbMockState = vi.hoisted(() => ({
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "BIGINT",
   isConnectionError: (error: { code?: string }) => error?.code === "ECONNRESET",
   isLocalDatabase: () => dbMockState.localDatabase,
   isProductionServerlessFunctionRuntime: () => false,

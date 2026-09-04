@@ -116,25 +116,27 @@ Eine App, die die Datenbank verwendet, benötigt drei Dateien:
 Importieren Sie Schema-Helfer aus `@agent-native/core/db/schema`. Die Framework-Helfer erzeugen Definitionen für PostgreSQL und PGlite.
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | Helfer    | Zweck                                                                                 |
 | --------- | ------------------------------------------------------------------------------------- |
-| `table`   | Definiert eine Tabelle mit PostgreSQL-Helfern                                         |
+| `pgTable` | Definiert eine Tabelle mit PostgreSQL-Helfern                                         |
 | `text`    | Textspalte, unterstützt `{ enum: [...] }`                                             |
-| `integer` | Integer-Spalte, `{ mode: "boolean" }` wird dem booleschen Wert in Postgres zugeordnet |
-| `real`    | Float-Spalte. Wird auf PGlite zu `real`, auf Postgres zu `double precision`           |
-| `now`     | Setzt den aktuellen Zeitstempel für `.default(now())`                                 |
+| `integer` | Integer-Spalte                                                                           |
+| `boolean` | Boolean-Spalte                                                                           |
+| `doublePrecision` | Gleitkommaspalte mit doppelter Genauigkeit                                      |
+| `sql` | SQL-Ausdruck wie `now()`                                                                 |
 
 <DataModel
   id="doc-block-3hbven"
@@ -167,7 +169,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (boolean mode)",
+          type: "boolean",
           nullable: false,
           note: "default false; maps to a Postgres boolean",
         },

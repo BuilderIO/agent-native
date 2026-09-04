@@ -999,9 +999,9 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_blocks_parent_idx
         ON document_blocks (parent_id)`,
     },
-    // The schema helper maps integer({ mode: "boolean" }) to BOOLEAN on
-    // Postgres, while the legacy INTEGER migration above is stored as BIGINT.
-    // Convert the stored column before Drizzle sends boolean values.
+    // The current schema uses BOOLEAN while the legacy INTEGER migration above
+    // is stored as BIGINT. Convert the stored column before Drizzle sends
+    // boolean values.
     {
       version: 83,
       name: "content-block-addressable-postgres-boolean",

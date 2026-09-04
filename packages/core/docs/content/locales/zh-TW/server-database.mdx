@@ -116,25 +116,27 @@ DATABASE_URL=pglite:./data/pglite
 從 `@agent-native/core/db/schema` 匯入架構幫手。框架幫手會產生適用於 PostgreSQL 和 PGlite 的定義。
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | 幫手      | 目的                                                                   |
 | --------- | ---------------------------------------------------------------------- |
-| `table`   | 定義一個資料表，使用 PostgreSQL 幫手                                   |
+| `pgTable` | 定義一個 PostgreSQL 資料表                                         |
 | `text`    | 文字欄，支援 `{ enum: [...] }`                                         |
-| `integer` | 整數欄，`{ mode: "boolean" }` 對應到 Postgres 的布林值                 |
-| `real`    | 浮點欄。在 PGlite 上對應 `real`，在 Postgres 上對應 `double precision` |
-| `now`     | 為 `.default(now())` 設定目前時間戳                                    |
+| `integer` | 整數欄                                                               |
+| `boolean` | 布林欄                                                               |
+| `doublePrecision` | 雙精度浮點欄                                                   |
+| `sql` | `now()` 等 SQL 運算式                                                  |
 
 <DataModel
   id="doc-block-3hbven"
@@ -165,7 +167,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer（boolean 模式）",
+          type: "boolean",
           nullable: false,
           note: "預設為 false；對應到 Postgres 的布林值",
         },

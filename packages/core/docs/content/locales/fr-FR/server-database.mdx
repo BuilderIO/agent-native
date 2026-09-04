@@ -116,25 +116,27 @@ Une application qui utilise la base de données a besoin de trois fichiers :
 Importez les assistants de schéma depuis `@agent-native/core/db/schema`. Les assistants du framework produisent des définitions spécifiques à PostgreSQL et PGlite.
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | Aide      | Objectif                                                                           |
 | --------- | ---------------------------------------------------------------------------------- |
-| `table`   | Définit une table avec les assistants PostgreSQL                                   |
+| `pgTable` | Définit une table PostgreSQL                                                       |
 | `text`    | Colonne de texte, prend en charge `{ enum: [...] }`                                |
-| `integer` | Colonne entière, `{ mode: "boolean" }` correspond au booléen Postgres              |
-| `real`    | Colonne flottante. Correspond à `real` sur PGlite, `double precision` sur Postgres |
-| `now`     | Définit l'horodatage actuel pour `.default(now())`                                 |
+| `integer` | Colonne entière                                                                    |
+| `boolean` | Colonne booléenne                                                                  |
+| `doublePrecision` | Colonne flottante en double précision                                      |
+| `sql` | Expression SQL telle que `now()`                                                   |
 
 <DataModel
   id="doc-block-3hbven"
@@ -167,7 +169,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (boolean mode)",
+          type: "boolean",
           nullable: false,
           note: "default false; maps to a Postgres boolean",
         },

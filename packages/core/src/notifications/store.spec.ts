@@ -27,7 +27,6 @@ const recordChange = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "BIGINT",
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   safeJsonParse: (value: unknown, fallback: unknown) => {

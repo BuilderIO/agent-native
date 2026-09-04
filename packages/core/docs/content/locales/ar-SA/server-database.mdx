@@ -116,25 +116,27 @@ _مخطط له (غير متاح بعد):_ عند الاتصال بـ Builder.io�
 استورد مساعدات المخطط من `@agent-native/core/db/schema`. تنتج مساعدات الإطار تعريفات خاصة بـ PostgreSQL وPGlite.
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | المساعد   | الغرض                                                                    |
 | --------- | ------------------------------------------------------------------------ |
-| `table`   | تحديد جدول؛ يستخدم مساعد PostgreSQL                                      |
+| `pgTable` | تحديد جدول؛ يستخدم مساعد PostgreSQL                                      |
 | `text`    | عمود نصي، يدعم `{ enum: [...] }`                                         |
-| `integer` | عمود صحيح، `{ mode: "boolean" }` يُعيَّن إلى قيمة منطقية في Postgres     |
-| `real`    | عمود عائم. يُعيَّن إلى `real` في PGlite، و`double precision` في Postgres |
-| `now`     | يضع الطابع الزمني الحالي لاستخدامه مع `.default(now())`                  |
+| `integer` | عمود صحيح                                                              |
+| `boolean` | عمود منطقي                                                             |
+| `doublePrecision` | عمود عائم مزدوج الدقة                                               |
+| `sql` | تعبير SQL مثل `now()`                                                    |
 
 <DataModel
   id="doc-block-3hbven"
@@ -167,7 +169,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (boolean mode)",
+          type: "boolean",
           nullable: false,
           note: "القيمة الافتراضية false؛ تُعيَّن إلى قيمة منطقية في Postgres",
         },

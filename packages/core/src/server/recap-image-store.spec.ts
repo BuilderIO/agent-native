@@ -56,7 +56,6 @@ const mockDb = createMemoryDb();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "BIGINT",
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 

@@ -1,4 +1,4 @@
-import { getDbExec, intType, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   getIntegrationScope,
@@ -97,39 +97,39 @@ export async function ensureTables(): Promise<void> {
         subject_type TEXT NOT NULL,
         subject_id TEXT NOT NULL,
         period TEXT NOT NULL,
-        limit_micros ${intType()} NOT NULL,
-        threshold_bps ${intType()} NOT NULL DEFAULT 8000,
+        limit_micros BIGINT NOT NULL,
+        threshold_bps BIGINT NOT NULL DEFAULT 8000,
         owner_email TEXT NOT NULL,
         org_id TEXT,
-        created_at ${intType()} NOT NULL,
-        updated_at ${intType()} NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       )`;
       const windowsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budget_windows (
         budget_id TEXT NOT NULL,
-        window_start ${intType()} NOT NULL,
-        used_micros ${intType()} NOT NULL DEFAULT 0,
-        reserved_micros ${intType()} NOT NULL DEFAULT 0,
-        updated_at ${intType()} NOT NULL,
+        window_start BIGINT NOT NULL,
+        used_micros BIGINT NOT NULL DEFAULT 0,
+        reserved_micros BIGINT NOT NULL DEFAULT 0,
+        updated_at BIGINT NOT NULL,
         PRIMARY KEY (budget_id, window_start)
       )`;
       const reservationsSql = `CREATE TABLE IF NOT EXISTS integration_usage_reservations (
         id TEXT PRIMARY KEY,
         reservation_key TEXT NOT NULL,
         budget_id TEXT NOT NULL,
-        window_start ${intType()} NOT NULL,
-        estimated_cost_micros ${intType()} NOT NULL,
-        settled_cost_micros ${intType()},
+        window_start BIGINT NOT NULL,
+        estimated_cost_micros BIGINT NOT NULL,
+        settled_cost_micros BIGINT,
         status TEXT NOT NULL,
-        created_at ${intType()} NOT NULL,
-        updated_at ${intType()} NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       )`;
       const eventsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budget_events (
         id TEXT PRIMARY KEY,
         budget_id TEXT NOT NULL,
-        window_start ${intType()} NOT NULL,
-        threshold_bps ${intType()} NOT NULL,
-        observed_micros ${intType()} NOT NULL,
-        created_at ${intType()} NOT NULL
+        window_start BIGINT NOT NULL,
+        threshold_bps BIGINT NOT NULL,
+        observed_micros BIGINT NOT NULL,
+        created_at BIGINT NOT NULL
       )`;
       const indexes = [
         {

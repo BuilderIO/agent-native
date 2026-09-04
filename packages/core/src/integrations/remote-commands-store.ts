@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureTableExists,
@@ -59,19 +59,19 @@ export async function ensureTable(): Promise<void> {
   external_thread_id TEXT,
   computer_task_id TEXT,
   computer_run_id TEXT,
-  computer_sequence ${intType()},
+  computer_sequence BIGINT,
   idempotency_key TEXT,
   operation_class TEXT,
   approval_scope TEXT,
   action_hash TEXT,
-  lease_expires_at ${intType()},
-  attempts ${intType()} NOT NULL DEFAULT 0,
-  next_check_at ${intType()} NOT NULL,
-  claimed_at ${intType()},
-  completed_at ${intType()},
+  lease_expires_at BIGINT,
+  attempts BIGINT NOT NULL DEFAULT 0,
+  next_check_at BIGINT NOT NULL,
+  claimed_at BIGINT,
+  completed_at BIGINT,
   error_message TEXT,
-  created_at ${intType()} NOT NULL,
-  updated_at ${intType()} NOT NULL
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
 )`;
 
       {
@@ -131,12 +131,12 @@ async function ensureComputerCommandColumns(): Promise<void> {
   const columns: Array<[string, string]> = [
     ["computer_task_id", "TEXT"],
     ["computer_run_id", "TEXT"],
-    ["computer_sequence", intType()],
+    ["computer_sequence", "BIGINT"],
     ["idempotency_key", "TEXT"],
     ["operation_class", "TEXT"],
     ["approval_scope", "TEXT"],
     ["action_hash", "TEXT"],
-    ["lease_expires_at", intType()],
+    ["lease_expires_at", "BIGINT"],
   ];
   for (const [name, definition] of columns) {
     const sql = `ALTER TABLE integration_remote_commands ADD COLUMN${" IF NOT EXISTS"} ${name} ${definition}`;

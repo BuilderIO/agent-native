@@ -23,7 +23,6 @@ const rawClient = {
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
-  intType: () => "BIGINT",
 }));
 
 const createReviewCommentAction = (await import("./create-review-comment.js"))

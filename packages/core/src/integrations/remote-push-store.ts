@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -12,9 +12,6 @@ import type {
 
 let _initPromise: Promise<void> | undefined;
 
-// Build the CREATE SQL lazily (not at module scope) so intType() runs at
-// RUNTIME, not import time — a module-scope call breaks any consumer whose
-// db/client mock doesn't stub intType (e.g. db-admin specs).
 function buildCreateRegistrationsSql(): string {
   return `
   CREATE TABLE IF NOT EXISTS integration_remote_push_registrations (
@@ -28,9 +25,9 @@ function buildCreateRegistrationsSql(): string {
     token TEXT NOT NULL,
     token_hash TEXT NOT NULL,
     status TEXT NOT NULL,
-    last_seen_at ${intType()},
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL
+    last_seen_at BIGINT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
   )
 `;
 }
@@ -44,13 +41,13 @@ function buildCreateNotificationsSql(): string {
     registration_id TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     status TEXT NOT NULL,
-    attempts ${intType()} NOT NULL DEFAULT 0,
+    attempts BIGINT NOT NULL DEFAULT 0,
     provider_ticket_id TEXT,
-    next_attempt_at ${intType()} NOT NULL DEFAULT 0,
+    next_attempt_at BIGINT NOT NULL DEFAULT 0,
     last_error TEXT,
-    delivered_at ${intType()},
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL
+    delivered_at BIGINT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
   )
 `;
 }
@@ -88,7 +85,7 @@ export async function ensureTables(): Promise<void> {
       await ensureColumnExists(
         "integration_remote_push_notifications",
         "next_attempt_at",
-        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS next_attempt_at ${intType()} NOT NULL DEFAULT 0`,
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS next_attempt_at BIGINT NOT NULL DEFAULT 0`,
       );
       await ensureColumnExists(
         "integration_remote_push_notifications",
@@ -98,7 +95,7 @@ export async function ensureTables(): Promise<void> {
       await ensureColumnExists(
         "integration_remote_push_notifications",
         "delivered_at",
-        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS delivered_at ${intType()}`,
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS delivered_at BIGINT`,
       );
       await ensureIndexExists(
         "idx_remote_push_notifications_delivery",

@@ -1,9 +1,4 @@
-import {
-  getDbExec,
-  intType,
-  type DbExec,
-  type DbExecStatement,
-} from "../db/client.js";
+import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 let initPromise: Promise<void> | undefined;
@@ -52,17 +47,17 @@ function buildCreateSql(): string {
     thread_id TEXT NOT NULL,
     turn_id TEXT NOT NULL,
     status TEXT NOT NULL,
-    chunk_count ${intType()} NOT NULL DEFAULT 0,
+    chunk_count BIGINT NOT NULL DEFAULT 0,
     current_run_id TEXT,
     lease_token TEXT,
-    lease_expires_at ${intType()},
-    next_run_at ${intType()} NOT NULL,
+    lease_expires_at BIGINT,
+    next_run_at BIGINT NOT NULL,
     progress_ref TEXT,
     checkpoint TEXT,
     error_message TEXT,
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL,
-    completed_at ${intType()}
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    completed_at BIGINT
   )`;
 }
 

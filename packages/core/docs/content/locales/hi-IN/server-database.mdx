@@ -116,25 +116,27 @@ _योजनाबद्ध (अभी तक उपलब्ध नहीं):
 `@agent-native/core/db/schema` से स्कीमा हेल्पर्स इम्पोर्ट करें। फ्रेमवर्क हेल्पर्स PostgreSQL और PGlite के लिए विशिष्ट परिभाषाएँ बनाते हैं।
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
 | हेल्पर    | उद्देश्य                                                                    |
 | --------- | --------------------------------------------------------------------------- |
-| `table`   | एक तालिका परिभाषित करता है; PostgreSQL हेल्पर्स का उपयोग करता है            |
+| `pgTable` | एक PostgreSQL तालिका परिभाषित करता है                                  |
 | `text`    | टेक्स्ट कॉलम, `{ enum: [...] }` का समर्थन करता है                           |
-| `integer` | पूर्णांक कॉलम, `{ mode: "boolean" }` Postgres बूलियन से मैप होता है         |
-| `real`    | फ्लोट कॉलम। PGlite पर `real`, Postgres पर `double precision` से मैप होता है |
-| `now`     | `.default(now())` के लिए वर्तमान टाइमस्टैम्प सेट करता है                    |
+| `integer` | पूर्णांक कॉलम                                                        |
+| `boolean` | बूलियन कॉलम                                                          |
+| `doublePrecision` | डबल-प्रिसीजन फ्लोट कॉलम                                      |
+| `sql` | `now()` जैसे SQL एक्सप्रेशन                                             |
 
 <DataModel
   id="doc-block-3hbven"
@@ -167,7 +169,7 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (boolean mode)",
+          type: "boolean",
           nullable: false,
           note: "default false; maps to a Postgres boolean",
         },

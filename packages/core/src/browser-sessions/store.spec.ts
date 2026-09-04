@@ -16,7 +16,6 @@ vi.mock("../db/client.js", async (importOriginal) => {
     ...actual,
     getDbExec: () => sharedClient,
     isProductionServerlessFunctionRuntime: () => false,
-    intType: () => "BIGINT",
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });

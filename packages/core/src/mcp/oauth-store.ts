@@ -8,7 +8,7 @@
 
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
+import { getDbExec, isConnectionError } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { applicationTypeForRedirectUris } from "./oauth-client-metadata.js";
 
@@ -89,7 +89,7 @@ export async function ensureTable(): Promise<void> {
           response_types TEXT,
           token_endpoint_auth_method TEXT,
           application_type TEXT,
-          created_at ${intType()}
+          created_at BIGINT
         )
       `;
       const createCodesSql = `
@@ -104,9 +104,9 @@ export async function ensureTable(): Promise<void> {
           org_domain TEXT,
           scope TEXT NOT NULL,
           resource TEXT NOT NULL,
-          created_at ${intType()},
-          expires_at ${intType()},
-          consumed_at ${intType()}
+          created_at BIGINT,
+          expires_at BIGINT,
+          consumed_at BIGINT
         )
       `;
       const createRefreshTokensSql = `
@@ -119,10 +119,10 @@ export async function ensureTable(): Promise<void> {
           org_domain TEXT,
           scope TEXT NOT NULL,
           resource TEXT NOT NULL,
-          created_at ${intType()},
-          expires_at ${intType()},
-          last_used_at ${intType()},
-          revoked_at ${intType()},
+          created_at BIGINT,
+          expires_at BIGINT,
+          last_used_at BIGINT,
+          revoked_at BIGINT,
           replaced_by_hash TEXT
         )
       `;

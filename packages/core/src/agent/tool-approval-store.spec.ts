@@ -6,7 +6,6 @@ const dbMocks = vi.hoisted(() => ({
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: dbMocks.execute }),
-  intType: () => "BIGINT",
   retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
 }));
 

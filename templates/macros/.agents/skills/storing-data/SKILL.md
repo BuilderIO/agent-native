@@ -48,26 +48,24 @@ Existing unnamed migrations don't need to be renamed retroactively (the two gati
 
 ### Domain Data (per-template)
 
-In a managed Drizzle scaffold, define the PostgreSQL schema in `drizzle/schema.ts`. Otherwise, define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
+In a managed Drizzle scaffold, define the PostgreSQL schema in `drizzle/schema.ts`. Otherwise, define schema with Drizzle's PostgreSQL exports in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
 
 ```ts
-import { eq } from "drizzle-orm";
-import { table, text, integer, now } from "@agent-native/core/db/schema";
+import { eq, sql } from "drizzle-orm";
+import { boolean, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  completed: integer("completed", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  createdAt: text("created_at").notNull().default(now()),
+  completed: boolean("completed").notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 
 const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 ```
 
-Outside a managed Drizzle scaffold, use `@agent-native/core/db/schema` so app
-templates share the framework's Postgres definitions.
+Outside a managed Drizzle scaffold, use `drizzle-orm/pg-core` so app schemas
+state their PostgreSQL types directly.
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |

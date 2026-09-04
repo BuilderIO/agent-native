@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
@@ -29,8 +29,8 @@ export async function ensureTable(): Promise<void> {
           owner_email TEXT,
           owner_scope TEXT NOT NULL DEFAULT '',
           idempotency_key TEXT,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
         )
       `;
       const createIdempotencyIndexSql =
@@ -48,9 +48,9 @@ export async function ensureTable(): Promise<void> {
           call_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'pending',
           result TEXT,
-          expires_at ${intType()} NOT NULL,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL
+          expires_at BIGINT NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
         )
       `;
 

@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -11,7 +11,7 @@ export async function ensureTable(): Promise<void> {
   config_key TEXT NOT NULL,
   config_data TEXT NOT NULL,
   owner TEXT,
-  updated_at ${intType()} NOT NULL,
+  updated_at BIGINT NOT NULL,
   PRIMARY KEY (platform, config_key)
 )`;
 

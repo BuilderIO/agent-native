@@ -475,7 +475,7 @@ describe("embedded Agent-Native host fixture", () => {
 
     await getDbExec().execute({
       sql: `INSERT INTO tool_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at)
-        VALUES (?, ?, 'user', ?, 'editor', ?, datetime('now'))`,
+        VALUES (?, ?, 'user', ?, 'editor', ?, now())`,
       args: [
         "embedded-extension-editor-share",
         extensionId,
@@ -531,7 +531,7 @@ describe("embedded Agent-Native host fixture", () => {
 
     await getDbExec().execute({
       sql: `INSERT INTO tool_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at)
-        VALUES (?, ?, 'user', ?, 'admin', ?, datetime('now'))`,
+        VALUES (?, ?, 'user', ?, 'admin', ?, now())`,
       args: [
         "embedded-extension-admin-share",
         extensionId,

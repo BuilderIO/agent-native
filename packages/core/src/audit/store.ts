@@ -2,12 +2,12 @@
  * SQL persistence for the framework audit log.
  *
  * Follows the same raw-SQL, provider-agnostic pattern as observability/store.ts
- * and usage/store.ts — framework tables use `getDbExec()` + `intType()` rather
+ * and usage/store.ts — framework tables use `getDbExec()` + `"BIGINT"` rather
  * than Drizzle ORM (which is for template-level schemas). One append-only table
  * `agent_audit_log`; reads are scoped to the caller's identity in SQL (no
  * shares table — audit rows are never individually shared).
  */
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureTableExists,
@@ -27,7 +27,7 @@ export async function ensureAuditTables(): Promise<void> {
       const createSql = `
         CREATE TABLE IF NOT EXISTS agent_audit_log (
           id TEXT PRIMARY KEY,
-          created_at ${intType()} NOT NULL,
+          created_at BIGINT NOT NULL,
           action TEXT NOT NULL,
           caller TEXT NOT NULL,
           actor_kind TEXT NOT NULL,

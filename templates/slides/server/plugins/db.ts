@@ -123,11 +123,10 @@ export const runSlidesMigrations = runMigrations(
       version: 9,
       sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
     },
-    // v10-v15: fix boolean columns on Postgres only. The adaptSqlForPostgres
-    // rewriter turns INTEGER → BIGINT, so migrations v2 & v7 created the columns
-    // as bigint. Drizzle's integer({ mode: "boolean" }) maps to pg boolean, so
-    // inserts send a JS boolean that Postgres rejects ("column is of type bigint
-    // but expression is of type boolean"). Convert both columns to boolean.
+    // v10-v15: fix legacy boolean columns on Postgres. The migration rewriter
+    // turns INTEGER into BIGINT, so migrations v2 and v7 created the columns as
+    // bigint. The current schema uses native BOOLEAN values, so convert both
+    // columns before Drizzle inserts JS booleans.
     {
       version: 10,
       sql: {

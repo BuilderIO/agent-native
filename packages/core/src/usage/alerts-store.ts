@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -200,20 +200,20 @@ export async function ensureTables(): Promise<void> {
         app_id TEXT,
         unit TEXT NOT NULL,
         period TEXT NOT NULL,
-        limit_value ${intType()} NOT NULL,
+        limit_value BIGINT NOT NULL,
         channels TEXT NOT NULL,
-        enabled ${intType()} NOT NULL DEFAULT 1,
-        is_default ${intType()} NOT NULL DEFAULT 0,
-        dismissed_window_start ${intType()},
-        created_at ${intType()} NOT NULL,
-        updated_at ${intType()} NOT NULL
+        enabled BIGINT NOT NULL DEFAULT 1,
+        is_default BIGINT NOT NULL DEFAULT 0,
+        dismissed_window_start BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       )`;
       const eventsSql = `CREATE TABLE IF NOT EXISTS usage_alert_events (
         id TEXT PRIMARY KEY,
         rule_id TEXT NOT NULL,
-        window_start ${intType()} NOT NULL,
+        window_start BIGINT NOT NULL,
         notification_id TEXT,
-        created_at ${intType()} NOT NULL
+        created_at BIGINT NOT NULL
       )`;
       const indexes = [
         {
@@ -231,7 +231,7 @@ export async function ensureTables(): Promise<void> {
         await ensureColumnExists(
           "usage_alert_rules",
           "is_default",
-          `ALTER TABLE usage_alert_rules ADD COLUMN IF NOT EXISTS is_default ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE usage_alert_rules ADD COLUMN IF NOT EXISTS is_default BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "usage_alert_events",

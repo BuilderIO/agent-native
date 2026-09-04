@@ -1,11 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isUniqueViolation,
-  safeJsonParse,
-} from "../db/client.js";
+import { getDbExec, isUniqueViolation, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { recordChange } from "../server/poll.js";
 import type {
@@ -47,12 +42,12 @@ export async function ensureTable(): Promise<void> {
           owner TEXT NOT NULL,
           title TEXT NOT NULL,
           step TEXT,
-          percent ${intType()},
+          percent BIGINT,
           status TEXT NOT NULL DEFAULT 'running',
           metadata TEXT,
-          started_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          completed_at ${intType()}
+          started_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          completed_at BIGINT
         )
       `;
 

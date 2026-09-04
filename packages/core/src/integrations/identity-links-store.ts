@@ -5,12 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isUniqueViolation,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 const TABLE = "integration_identity_links";
@@ -28,7 +23,7 @@ export interface IntegrationIdentityLink {
 }
 
 function createSql(): string {
-  const integer = intType();
+  const integer = "BIGINT";
   return `CREATE TABLE IF NOT EXISTS ${TABLE} (
     id TEXT PRIMARY KEY,
     platform TEXT NOT NULL,

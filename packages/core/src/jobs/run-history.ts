@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -188,12 +188,12 @@ export async function ensureTable(): Promise<void> {
             run_id TEXT,
           thread_id TEXT,
           status TEXT NOT NULL DEFAULT 'running',
-          started_at ${intType()} NOT NULL,
-          finished_at ${intType()},
+          started_at BIGINT NOT NULL,
+          finished_at BIGINT,
           error TEXT,
           error_code TEXT,
-          claimed_at ${intType()},
-          dispatch_pending ${intType()} NOT NULL DEFAULT 0
+          claimed_at BIGINT,
+          dispatch_pending BIGINT NOT NULL DEFAULT 0
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation ON ${TABLE} (owner, automation, started_at)`;
@@ -203,12 +203,12 @@ export async function ensureTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "claimed_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS claimed_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS claimed_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
           "dispatch_pending",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS dispatch_pending ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS dispatch_pending BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           TABLE,

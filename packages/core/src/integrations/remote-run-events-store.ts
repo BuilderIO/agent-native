@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 import { serializeBoundedRemoteJson } from "./remote-json-safety.js";
 import type { RemoteLiveViewEvent, RemoteRunEvent } from "./remote-types.js";
@@ -8,17 +8,14 @@ const MAX_EVENT_BATCH_JSON_BYTES = 1_000_000;
 
 let _initPromise: Promise<void> | undefined;
 
-// Build the CREATE SQL lazily (not at module scope) so intType() runs at
-// RUNTIME, not import time — a module-scope call breaks any consumer whose
-// db/client mock doesn't stub intType (e.g. db-admin specs).
 function buildCreateSql(): string {
   return `
   CREATE TABLE IF NOT EXISTS integration_remote_run_events (
     device_id TEXT NOT NULL,
     remote_run_id TEXT NOT NULL,
-    seq ${intType()} NOT NULL,
+    seq BIGINT NOT NULL,
     event_json TEXT NOT NULL,
-    created_at ${intType()} NOT NULL
+    created_at BIGINT NOT NULL
   )
 `;
 }

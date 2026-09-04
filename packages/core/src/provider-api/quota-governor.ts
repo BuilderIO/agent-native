@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { CredentialContext } from "../credentials/index.js";
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 import { parseRetryAfterMs } from "../shared/retry-after.js";
 
@@ -374,7 +374,7 @@ export async function ensureCooldownTable(): Promise<void> {
   if (persistenceTemporarilyUnavailable()) return;
   if (!state.initPromise) {
     state.initPromise = (async () => {
-      const integerType = intType();
+      const integerType = "BIGINT";
       const createSql = `
         CREATE TABLE IF NOT EXISTS provider_api_cooldowns (
           quota_key TEXT NOT NULL,

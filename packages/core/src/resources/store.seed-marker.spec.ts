@@ -5,7 +5,6 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
-  intType: () => "BIGINT",
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 

@@ -79,7 +79,6 @@ function mockEmptyDb() {
   vi.doMock("../db/client.js", () => ({
     getDbExec: () => ({ execute }),
     isLocalDatabase: () => true,
-    intType: () => "BIGINT",
     retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
   }));
 }

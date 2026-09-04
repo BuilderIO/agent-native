@@ -36,7 +36,6 @@ const client = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => client,
-  intType: () => "BIGINT",
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));

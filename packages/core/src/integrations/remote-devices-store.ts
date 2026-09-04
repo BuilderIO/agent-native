@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -29,11 +29,11 @@ export async function ensureTable(): Promise<void> {
           host_name TEXT,
           metadata_json TEXT,
           device_token_hash TEXT NOT NULL,
-          last_seen_at ${intType()},
+          last_seen_at BIGINT,
           status TEXT NOT NULL,
-          revoked_at ${intType()},
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL
+          revoked_at BIGINT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
         )
       `;
 
@@ -61,7 +61,7 @@ export async function ensureTable(): Promise<void> {
       await ensureColumnExists(
         "integration_remote_devices",
         "revoked_at",
-        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at ${intType()}`,
+        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at BIGINT`,
       );
       await ensureIndexExists(
         "idx_remote_devices_token_hash",

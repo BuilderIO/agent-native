@@ -1,4 +1,4 @@
-import { getDbExec, intType, isUniqueViolation } from "../db/client.js";
+import { getDbExec, isUniqueViolation } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
@@ -41,7 +41,7 @@ export async function ensureResourceVersionsTable(): Promise<void> {
       id TEXT PRIMARY KEY,
       resource_type TEXT NOT NULL,
       resource_id TEXT NOT NULL,
-      version_number ${intType()} NOT NULL,
+      version_number BIGINT NOT NULL,
       created_at TEXT NOT NULL,
       created_by TEXT,
       actor_kind TEXT NOT NULL DEFAULT 'human',

@@ -220,7 +220,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
   isConnectionError: () => false,
-  intType: () => "BIGINT",
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({

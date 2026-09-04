@@ -10,7 +10,7 @@
  * then dispatch a fresh HTTP POST to a separate processor endpoint. Each
  * invocation gets its own fresh function timeout budget.
  */
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
@@ -31,15 +31,15 @@ async function ensureTable(): Promise<void> {
   owner_email TEXT NOT NULL,
   org_id TEXT,
   status TEXT NOT NULL,
-  attempts ${intType()} NOT NULL DEFAULT 0,
-  dispatch_attempts ${intType()} NOT NULL DEFAULT 0,
-  last_dispatch_at ${intType()},
+  attempts BIGINT NOT NULL DEFAULT 0,
+  dispatch_attempts BIGINT NOT NULL DEFAULT 0,
+  last_dispatch_at BIGINT,
   last_dispatch_outcome TEXT,
   dispatch_scope TEXT,
   error_message TEXT,
-  created_at ${intType()} NOT NULL,
-  updated_at ${intType()} NOT NULL,
-  completed_at ${intType()}
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  completed_at BIGINT
 )`;
 
       {
@@ -53,12 +53,12 @@ async function ensureTable(): Promise<void> {
         await ensureColumnExists(
           "integration_pending_tasks",
           "dispatch_attempts",
-          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS dispatch_attempts ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS dispatch_attempts BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "integration_pending_tasks",
           "last_dispatch_at",
-          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS last_dispatch_at ${intType()}`,
+          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS last_dispatch_at BIGINT`,
         );
         await ensureColumnExists(
           "integration_pending_tasks",

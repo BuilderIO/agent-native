@@ -8,6 +8,7 @@ import {
   createSharesTable,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 // Feature-owned schema modules. Re-exported so their tables join this app's
 // Drizzle schema namespace (schema.<table>). Each file is owned by a single
@@ -135,7 +136,7 @@ export const dashboardReportSubscriptions = table(
       .default("daily"),
     timeOfDay: text("time_of_day").notNull().default("09:00"),
     timezone: text("timezone").notNull().default("UTC"),
-    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    enabled: boolean("enabled").notNull().default(true),
     nextRunAt: text("next_run_at"),
     lastRunAt: text("last_run_at"),
     lastStatus: text("last_status", {
@@ -392,7 +393,7 @@ export const analyticsAlertRules = table("analytics_alert_rules", {
   slackWebhookUrl: text("slack_webhook_url"),
   /** Optional per-rule generic webhook URL (overrides workspace env). */
   webhookUrl: text("webhook_url"),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  enabled: boolean("enabled").notNull().default(true),
   lastEvaluatedAt: text("last_evaluated_at"),
   lastTriggeredAt: text("last_triggered_at"),
   lastStatus: text("last_status", {

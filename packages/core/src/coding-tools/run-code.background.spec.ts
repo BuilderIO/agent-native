@@ -30,7 +30,6 @@ const rawClient = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "BIGINT",
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
   isServerlessRuntime: () => serverless,

@@ -8,7 +8,6 @@ import {
 } from "../connections/catalog.js";
 import {
   getDbExec,
-  intType,
   isUniqueViolation,
   safeJsonParse,
   type DbExec,
@@ -354,10 +353,10 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             credential_refs_json TEXT NOT NULL DEFAULT '[]',
             owner_email TEXT NOT NULL DEFAULT '',
             org_id TEXT,
-            created_at ${intType()} NOT NULL DEFAULT 0,
-            updated_at ${intType()} NOT NULL DEFAULT 0,
-            last_used_at ${intType()},
-            last_checked_at ${intType()},
+            created_at BIGINT NOT NULL DEFAULT 0,
+            updated_at BIGINT NOT NULL DEFAULT 0,
+            last_used_at BIGINT,
+            last_checked_at BIGINT,
             last_error TEXT
           )
         `;
@@ -373,9 +372,9 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             granted_by_email TEXT NOT NULL DEFAULT '',
             owner_email TEXT NOT NULL DEFAULT '',
             org_id TEXT,
-            created_at ${intType()} NOT NULL DEFAULT 0,
-            updated_at ${intType()} NOT NULL DEFAULT 0,
-            last_used_at ${intType()}
+            created_at BIGINT NOT NULL DEFAULT 0,
+            updated_at BIGINT NOT NULL DEFAULT 0,
+            last_used_at BIGINT
           )
         `;
 
@@ -456,22 +455,22 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         await ensureColumnExists(
           "workspace_connections",
           "created_at",
-          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS created_at ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "workspace_connections",
           "updated_at",
-          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS updated_at ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "workspace_connections",
           "last_checked_at",
-          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_checked_at ${intType()}`,
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_checked_at BIGINT`,
         );
         await ensureColumnExists(
           "workspace_connections",
           "last_used_at",
-          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_used_at ${intType()}`,
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_used_at BIGINT`,
         );
         await ensureColumnExists(
           "workspace_connections",
@@ -537,17 +536,17 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         await ensureColumnExists(
           "workspace_connection_grants",
           "created_at",
-          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS created_at ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "workspace_connection_grants",
           "updated_at",
-          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS updated_at ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "workspace_connection_grants",
           "last_used_at",
-          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS last_used_at ${intType()}`,
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS last_used_at BIGINT`,
         );
         await ensureIndexExists(
           "idx_workspace_connection_grants_connection_app",

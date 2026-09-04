@@ -129,7 +129,6 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "BIGINT",
   retryOnDdlRace: (fn: () => unknown) => fn(),
 }));
 

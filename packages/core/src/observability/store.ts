@@ -6,7 +6,7 @@
  * run-store.ts and usage/store.ts — framework tables use getDbExec()
  * rather than Drizzle ORM (which is for template-level schemas).
  */
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
@@ -76,16 +76,16 @@ export async function ensureObservabilityTables(): Promise<void> {
           parent_span_id TEXT,
           span_type TEXT NOT NULL,
           name TEXT NOT NULL,
-          input_tokens ${intType()} NOT NULL DEFAULT 0,
-          output_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_read_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_write_tokens ${intType()} NOT NULL DEFAULT 0,
-          cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
-          duration_ms ${intType()} NOT NULL DEFAULT 0,
+          input_tokens BIGINT NOT NULL DEFAULT 0,
+          output_tokens BIGINT NOT NULL DEFAULT 0,
+          cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+          cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+          cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+          duration_ms BIGINT NOT NULL DEFAULT 0,
           status TEXT NOT NULL DEFAULT 'success',
           error_message TEXT,
           metadata TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
@@ -94,17 +94,17 @@ export async function ensureObservabilityTables(): Promise<void> {
           run_id TEXT PRIMARY KEY,
           thread_id TEXT,
           user_id TEXT,
-          total_spans ${intType()} NOT NULL DEFAULT 0,
-          llm_calls ${intType()} NOT NULL DEFAULT 0,
-          tool_calls ${intType()} NOT NULL DEFAULT 0,
-          successful_tools ${intType()} NOT NULL DEFAULT 0,
-          failed_tools ${intType()} NOT NULL DEFAULT 0,
-          total_duration_ms ${intType()} NOT NULL DEFAULT 0,
-          total_cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
-          total_input_tokens ${intType()} NOT NULL DEFAULT 0,
-          total_output_tokens ${intType()} NOT NULL DEFAULT 0,
+          total_spans BIGINT NOT NULL DEFAULT 0,
+          llm_calls BIGINT NOT NULL DEFAULT 0,
+          tool_calls BIGINT NOT NULL DEFAULT 0,
+          successful_tools BIGINT NOT NULL DEFAULT 0,
+          failed_tools BIGINT NOT NULL DEFAULT 0,
+          total_duration_ms BIGINT NOT NULL DEFAULT 0,
+          total_cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+          total_input_tokens BIGINT NOT NULL DEFAULT 0,
+          total_output_tokens BIGINT NOT NULL DEFAULT 0,
           model TEXT NOT NULL DEFAULT '',
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
@@ -113,12 +113,12 @@ export async function ensureObservabilityTables(): Promise<void> {
           id TEXT PRIMARY KEY,
           run_id TEXT,
           thread_id TEXT,
-          message_seq ${intType()},
+          message_seq BIGINT,
           feedback_type TEXT NOT NULL,
           value TEXT NOT NULL DEFAULT '',
           idempotency_key TEXT,
           user_id TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
@@ -132,7 +132,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           abandonment_score REAL NOT NULL DEFAULT 0,
           sentiment_score REAL NOT NULL DEFAULT 0,
           length_trend_score REAL NOT NULL DEFAULT 0,
-          computed_at ${intType()} NOT NULL
+          computed_at BIGINT NOT NULL
         )
       `;
 
@@ -147,7 +147,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           score REAL NOT NULL DEFAULT 0,
           reasoning TEXT,
           metadata TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
@@ -157,8 +157,8 @@ export async function ensureObservabilityTables(): Promise<void> {
           name TEXT NOT NULL,
           description TEXT NOT NULL DEFAULT '',
           entries TEXT NOT NULL DEFAULT '[]',
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
         )
       `;
 
@@ -170,9 +170,9 @@ export async function ensureObservabilityTables(): Promise<void> {
           variants TEXT NOT NULL DEFAULT '[]',
           metrics TEXT NOT NULL DEFAULT '[]',
           assignment_level TEXT NOT NULL DEFAULT 'user',
-          started_at ${intType()},
-          ended_at ${intType()},
-          created_at ${intType()} NOT NULL,
+          started_at BIGINT,
+          ended_at BIGINT,
+          created_at BIGINT NOT NULL,
           owner_email TEXT
         )
       `;
@@ -182,7 +182,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           experiment_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
           variant_id TEXT NOT NULL,
-          assigned_at ${intType()} NOT NULL,
+          assigned_at BIGINT NOT NULL,
           PRIMARY KEY (experiment_id, user_id)
         )
       `;
@@ -194,10 +194,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           variant_id TEXT NOT NULL,
           metric TEXT NOT NULL,
           value REAL NOT NULL DEFAULT 0,
-          sample_size ${intType()} NOT NULL DEFAULT 0,
+          sample_size BIGINT NOT NULL DEFAULT 0,
           confidence_low REAL NOT NULL DEFAULT 0,
           confidence_high REAL NOT NULL DEFAULT 0,
-          computed_at ${intType()} NOT NULL
+          computed_at BIGINT NOT NULL
         )
       `;
 

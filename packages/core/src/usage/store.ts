@@ -7,7 +7,7 @@
  *
  * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
  */
-import { getDbExec, intType } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -231,13 +231,13 @@ export async function ensureUsageTable(): Promise<void> {
     _initPromise = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS token_usage (
-          id ${intType()} PRIMARY KEY,
+          id BIGINT PRIMARY KEY,
           owner_email TEXT NOT NULL,
-          input_tokens ${intType()} NOT NULL DEFAULT 0,
-          output_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_read_tokens ${intType()} NOT NULL DEFAULT 0,
-          cache_write_tokens ${intType()} NOT NULL DEFAULT 0,
-          cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
+          input_tokens BIGINT NOT NULL DEFAULT 0,
+          output_tokens BIGINT NOT NULL DEFAULT 0,
+          cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+          cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+          cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
           cost_source TEXT NOT NULL DEFAULT 'estimated',
           model TEXT NOT NULL DEFAULT '',
           label TEXT NOT NULL DEFAULT 'chat',
@@ -250,14 +250,14 @@ export async function ensureUsageTable(): Promise<void> {
           integration_scope_id TEXT,
           source_platform TEXT,
           source_id TEXT,
-          created_at ${intType()} NOT NULL
+          created_at BIGINT NOT NULL
         )
       `;
 
       // Additive columns for older deployments that pre-date the label/cache fields.
       const additions: Array<[string, string]> = [
-        ["cache_read_tokens", `${intType()} NOT NULL DEFAULT 0`],
-        ["cache_write_tokens", `${intType()} NOT NULL DEFAULT 0`],
+        ["cache_read_tokens", `BIGINT NOT NULL DEFAULT 0`],
+        ["cache_write_tokens", `BIGINT NOT NULL DEFAULT 0`],
         ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
         ["label", `TEXT NOT NULL DEFAULT 'chat'`],
         ["app", `TEXT NOT NULL DEFAULT ''`],

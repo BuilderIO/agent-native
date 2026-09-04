@@ -25,18 +25,18 @@ let tableReady: Promise<void> | null = null;
 export async function ensureTable(): Promise<void> {
   if (tableReady) return tableReady;
   tableReady = (async () => {
-    const intType = "BIGINT";
+    const integerType = "BIGINT";
     const createSql = `CREATE TABLE IF NOT EXISTS observational_memory (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL,
         tier TEXT NOT NULL,
         text TEXT NOT NULL,
-        token_estimate ${intType} NOT NULL DEFAULT 0,
-        source_start_index ${intType},
-        source_end_index ${intType},
-        source_message_count ${intType} NOT NULL DEFAULT 0,
-        created_at ${intType} NOT NULL,
-        updated_at ${intType} NOT NULL,
+        token_estimate ${integerType} NOT NULL DEFAULT 0,
+        source_start_index ${integerType},
+        source_end_index ${integerType},
+        source_message_count ${integerType} NOT NULL DEFAULT 0,
+        created_at ${integerType} NOT NULL,
+        updated_at ${integerType} NOT NULL,
         owner_email TEXT NOT NULL,
         org_id TEXT,
         visibility TEXT NOT NULL DEFAULT 'private'

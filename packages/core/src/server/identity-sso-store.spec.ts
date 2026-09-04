@@ -97,7 +97,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
-  intType: () => "BIGINT",
   isConnectionError: () => false,
   isProductionServerlessFunctionRuntime: () => false,
 }));

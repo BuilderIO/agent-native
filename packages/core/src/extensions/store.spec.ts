@@ -19,7 +19,6 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -74,7 +73,6 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -114,7 +112,6 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -155,7 +152,6 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -219,7 +215,6 @@ describe("extensions/store", () => {
     }));
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -313,7 +308,6 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -375,7 +369,6 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -441,7 +434,6 @@ describe("extensions/store", () => {
     }));
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -499,7 +491,6 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
@@ -533,7 +524,6 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      intType: () => "BIGINT",
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,

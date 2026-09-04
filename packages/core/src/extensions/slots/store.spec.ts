@@ -46,7 +46,6 @@ const rawClient = {
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
-  intType: () => "BIGINT",
 }));
 
 vi.mock("../../db/create-get-db.js", () => ({

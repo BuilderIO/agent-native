@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
   retryOnDdlRace,
   safeJsonParse,
   type DbExec,
@@ -137,8 +136,8 @@ async function ensureWorkspaceUserGroupColumns(
     ["name", "TEXT NOT NULL DEFAULT ''"],
     ["member_emails_json", "TEXT NOT NULL DEFAULT '[]'"],
     ["created_by_email", "TEXT NOT NULL DEFAULT ''"],
-    ["created_at", `${intType()} NOT NULL DEFAULT 0`],
-    ["updated_at", `${intType()} NOT NULL DEFAULT 0`],
+    ["created_at", `BIGINT NOT NULL DEFAULT 0`],
+    ["updated_at", `BIGINT NOT NULL DEFAULT 0`],
   ] as const;
   for (const [name, definition] of columns) {
     try {
@@ -167,8 +166,8 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
           name TEXT NOT NULL DEFAULT '',
           member_emails_json TEXT NOT NULL DEFAULT '[]',
           created_by_email TEXT NOT NULL DEFAULT '',
-          created_at ${intType()} NOT NULL DEFAULT 0,
-          updated_at ${intType()} NOT NULL DEFAULT 0
+          created_at BIGINT NOT NULL DEFAULT 0,
+          updated_at BIGINT NOT NULL DEFAULT 0
         )
       `;
 

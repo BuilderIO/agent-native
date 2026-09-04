@@ -112,34 +112,36 @@ An app that uses the database needs three files:
 
 ### 1. Define your schema {#schema}
 
-Import schema helpers from `@agent-native/core/db/schema`. The framework helpers produce PostgreSQL definitions.
+Define schemas with Drizzle's PostgreSQL exports directly. Use framework-owned
+sharing helpers from `@agent-native/core/db/schema` only when a table needs them.
 
 ```ts filename="server/db/schema.ts"
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   priority: integer("priority").notNull().default(0),
-  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 ```
 
-| Helper    | Purpose                                                        |
-| --------- | -------------------------------------------------------------- |
-| `table`   | Define a PostgreSQL table                                      |
-| `text`    | Text column, supports `{ enum: [...] }`                        |
-| `integer` | Integer column, `{ mode: "boolean" }` maps to Postgres boolean |
-| `real`    | Floating-point column                                          |
-| `now`     | Current timestamp for `.default(now())`                        |
+| Export    | Purpose                                      |
+| --------- | -------------------------------------------- |
+| `pgTable` | Define a PostgreSQL table                   |
+| `text`    | Text column, supports `{ enum: [...] }`      |
+| `integer` | Integer column                               |
+| `boolean` | Boolean column                               |
+| `sql`     | SQL expression such as `now()`              |
 
 <DataModel
   id="doc-block-3hbven"
   title="The tasks table"
   summary={
-    "Defined once with the framework helpers for PostgreSQL and local PGlite."
+    "Defined once with Drizzle's PostgreSQL schema."
   }
   entities={[
     {
@@ -166,9 +168,9 @@ export const tasks = table("tasks", {
         },
         {
           name: "done",
-          type: "integer (boolean mode)",
+          type: "boolean",
           nullable: false,
-          note: "default false; maps to a Postgres boolean",
+          note: "default false",
         },
         {
           name: "owner_email",

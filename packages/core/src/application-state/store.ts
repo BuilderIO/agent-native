@@ -1,9 +1,4 @@
-import {
-  getDbExec,
-  isLocalDatabase,
-  intType,
-  type DbExec,
-} from "../db/client.js";
+import { getDbExec, isLocalDatabase, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
@@ -32,7 +27,7 @@ export async function ensureTable(): Promise<void> {
           session_id TEXT NOT NULL,
           key TEXT NOT NULL,
           value TEXT NOT NULL,
-          updated_at ${intType()} NOT NULL,
+          updated_at BIGINT NOT NULL,
           PRIMARY KEY (session_id, key)
         )
       `;

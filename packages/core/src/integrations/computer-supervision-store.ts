@@ -1,5 +1,5 @@
 import type { DbExec } from "../db/client.js";
-import { getDbExec, intType, retryOnDdlRace } from "../db/client.js";
+import { getDbExec, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   assertValidComputerCommandEnvelope,
@@ -59,11 +59,11 @@ export async function ensureComputerApprovalStore(): Promise<void> {
   status TEXT NOT NULL,
   decision_result_json TEXT,
   decided_by TEXT,
-  decided_at ${intType()},
-  expires_at ${intType()} NOT NULL,
-  consumed_at ${intType()},
-  created_at ${intType()} NOT NULL,
-  updated_at ${intType()} NOT NULL
+  decided_at BIGINT,
+  expires_at BIGINT NOT NULL,
+  consumed_at BIGINT,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
 )`;
       {
         await ensureTableExists("integration_computer_approvals", createSql);

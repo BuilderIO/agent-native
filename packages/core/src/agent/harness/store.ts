@@ -1,4 +1,4 @@
-import { getDbExec, intType } from "../../db/client.js";
+import { getDbExec } from "../../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -89,10 +89,10 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
           resolved_approval_ids TEXT,
           owner_email TEXT,
           org_id TEXT,
-          generation ${intType()} NOT NULL DEFAULT 0,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          stopped_at ${intType()}
+          generation BIGINT NOT NULL DEFAULT 0,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          stopped_at BIGINT
         )
       `;
 
@@ -119,12 +119,12 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
         await ensureColumnExists(
           "agent_harness_sessions",
           "stopped_at",
-          `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS stopped_at ${intType()}`,
+          `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS stopped_at BIGINT`,
         );
         await ensureColumnExists(
           "agent_harness_sessions",
           "generation",
-          `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS generation ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureIndexExists(
           "idx_agent_harness_sessions_thread",

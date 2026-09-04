@@ -149,7 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope
 ```
 
 The store layer creates this lazily on first use via `ensureTable()` and uses
-`intType()` from `db/client.ts` for millisecond timestamps and counters.
+PostgreSQL `BIGINT` columns for millisecond timestamps and counters.
 
 `claimPendingTask` is the critical concurrency primitive: it atomically flips
 `pending` → `processing` and increments `attempts`, returning `null` if another

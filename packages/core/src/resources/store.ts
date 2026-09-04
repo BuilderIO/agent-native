@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-import { getDbExec, intType, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -921,14 +921,14 @@ async function _doEnsureTable(): Promise<void> {
       owner TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
       mime_type TEXT NOT NULL DEFAULT 'text/markdown',
-      size ${intType()} NOT NULL DEFAULT 0,
-      created_at ${intType()} NOT NULL,
-      updated_at ${intType()} NOT NULL,
+      size BIGINT NOT NULL DEFAULT 0,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
       created_by TEXT NOT NULL DEFAULT 'user',
       visibility TEXT NOT NULL DEFAULT 'workspace',
       thread_id TEXT,
       run_id TEXT,
-      expires_at ${intType()},
+      expires_at BIGINT,
       metadata TEXT,
       UNIQUE(path, owner)
     )
@@ -952,7 +952,7 @@ async function _doEnsureTable(): Promise<void> {
       ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
       ["thread_id", "TEXT"],
       ["run_id", "TEXT"],
-      ["expires_at", intType()],
+      ["expires_at", "BIGINT"],
       ["metadata", "TEXT"],
     ];
     for (const [col, def] of pgColumns) {

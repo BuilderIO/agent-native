@@ -19,12 +19,12 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * `INTEGER`. On Postgres that is int4 (max 2,147,483,647), so a millisecond
  * epoch such as 1782269273204 overflows with:
  *   `value "1782269273204" is out of range for type integer`
- * The CREATE TABLE source was later switched to `intType()` (BIGINT on PG),
+ * The CREATE TABLE source was later switched to `BIGINT`,
  * but `CREATE TABLE IF NOT EXISTS` cannot re-type a column that already
  * exists, so long-lived Neon databases keep the int4 column and every write
  * into it fails. (Migrations don't hit this — the migration runner rewrites
  * `INTEGER` → `BIGINT` for Postgres; only raw `ensureTable()` CREATE strings
- * that predate `intType()` are affected.)
+ * that predate `BIGINT` are affected.)
  *
  * This widens such columns once, then no-ops: it only ALTERs columns whose
  * current type is `integer`, so already-bigint tables are never rewritten.
