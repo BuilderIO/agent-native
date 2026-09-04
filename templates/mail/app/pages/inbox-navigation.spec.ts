@@ -82,7 +82,7 @@ describe("Inbox navigation commands", () => {
       "const clientSliceTab =\n    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
     );
     expect(source).toContain(
-      'const emailView = activeSavedFilter\n    ? "all"',
+      'const emailView = activeSavedFilter\n    ? "inbox"',
     );
     expect(source).toContain(
       "useEmails(emailView, searchQuery, effectiveLabel)",
