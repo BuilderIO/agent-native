@@ -315,6 +315,7 @@ const INTERACTION_CRITICAL_APP_STATE_KEYS = [
   "show-questions",
   "__set_url__",
 ];
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
 /**
  * True for sync events that drive immediate, agent-initiated UI navigation
@@ -1576,6 +1577,27 @@ export function useDbSync(
       );
     }
 
+    function appStateEventTabIds(events: SyncEvent[], key: string): string[] {
+      const prefix = `${key}:`;
+      return Array.from(
+        new Set(
+          events.flatMap((event) => {
+            if (
+              event.source !== "app-state" ||
+              typeof event.key !== "string" ||
+              !event.key.startsWith(prefix)
+            ) {
+              return [];
+            }
+            const browserTabId = event.key.slice(prefix.length);
+            return SAFE_BROWSER_TAB_ID_RE.test(browserTabId)
+              ? [browserTabId]
+              : [];
+          }),
+        ),
+      );
+    }
+
     function invalidateForEvents(events: SyncEvent[]) {
       const ignore = ignoreSourceRef.current;
       const ownBrowserSource = getBrowserTabId();
@@ -1803,13 +1825,43 @@ export function useDbSync(
             );
           }
           if (hasAppStateEvent(invalidating, "navigate")) {
-            invalidateWithoutCancel({ queryKey: ["navigate-command"] });
+            for (const browserTabId of appStateEventTabIds(
+              invalidating,
+              "navigate",
+            )) {
+              invalidateWithoutCancel({
+                queryKey: ["navigate-command", browserTabId],
+              });
+            }
+            const hasUnscopedNavigateEvent = invalidating.some(
+              (event) =>
+                event.source === "app-state" &&
+                (event.key === "navigate" || event.key === "*"),
+            );
+            if (hasUnscopedNavigateEvent) {
+              invalidateWithoutCancel({ queryKey: ["navigate-command"] });
+            }
           }
           if (hasAppStateEvent(invalidating, "show-questions")) {
             invalidateWithoutCancel({ queryKey: ["show-questions"] });
           }
           if (hasAppStateEvent(invalidating, "__set_url__")) {
-            invalidateWithoutCancel({ queryKey: ["__set_url__"] });
+            for (const browserTabId of appStateEventTabIds(
+              invalidating,
+              "__set_url__",
+            )) {
+              invalidateWithoutCancel({
+                queryKey: ["__set_url__", browserTabId],
+              });
+            }
+            const hasUnscopedSetUrlEvent = invalidating.some(
+              (event) =>
+                event.source === "app-state" &&
+                (event.key === "__set_url__" || event.key === "*"),
+            );
+            if (hasUnscopedSetUrlEvent) {
+              invalidateWithoutCancel({ queryKey: ["__set_url__"] });
+            }
           }
         }
       }

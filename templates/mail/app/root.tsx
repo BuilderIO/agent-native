@@ -403,9 +403,6 @@ function DbSyncSetup() {
           void qc.invalidateQueries({ queryKey: ["email"] });
           void qc.invalidateQueries({ queryKey: ["labels"] });
         }
-        if (!isOwnEvent) {
-          void qc.invalidateQueries({ queryKey: ["navigate-command"] });
-        }
       } else if (data.source === "settings") {
         if (!isOwnEvent) {
           void qc.invalidateQueries({ queryKey: ["settings"] });
