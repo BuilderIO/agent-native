@@ -1478,24 +1478,25 @@ describe("AgentEngine registry", () => {
         "BUILDER_GATEWAY_TOKEN",
         rejectedToken,
       );
-      vi.doMock("../../settings/store.js", () => ({
-        getSetting: vi.fn(async (key: string) =>
-          key === `provider-auth-failure:${fingerprint}`
-            ? {
-                fingerprint,
-                key: "BUILDER_GATEWAY_TOKEN",
-                message: "401 status code (no body)",
-                status: 401,
-                at: Date.now(),
-              }
-            : null,
-        ),
-        deleteSetting: vi.fn(),
-      }));
-      // The enclosing beforeEach already registered an always-null
-      // settings/store factory and imported through it. `doMock` only governs
-      // the NEXT import, so without this reset the module instance built there
-      // keeps answering and this failure marker is never seen.
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal()),
+          getProviderCredentialAuthFailure: vi.fn(
+            async (options: { key?: string | null; value?: string | null }) =>
+              options.key === "BUILDER_GATEWAY_TOKEN" &&
+              options.value === rejectedToken
+                ? {
+                    fingerprint,
+                    key: "BUILDER_GATEWAY_TOKEN",
+                    message: "401 status code (no body)",
+                    status: 401,
+                    at: Date.now(),
+                  }
+                : null,
+          ),
+        }),
+      );
       vi.resetModules();
 
       const { registerAgentEngine, detectEngineFromEnvForRequest } =
