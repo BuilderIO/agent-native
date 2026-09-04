@@ -152,7 +152,9 @@ export function contentForSlideTextContainer(
 export function restoreSlideTextContainerContent(
   element: HTMLElement,
   html: string,
+  legacySourceHtml?: string,
 ): HTMLElement {
+  html = restoreLegacyBulletRows(legacySourceHtml, html);
   if (!isSlideTextContainerTag(element.tagName)) {
     element.innerHTML = html;
     return element;
@@ -478,6 +480,132 @@ function isRemovedLegacyBulletText(root: HTMLElement, node: Text): boolean {
     element = element.parentElement;
   }
   return false;
+}
+
+const LEGACY_ROW_TEXT_STYLE_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-align",
+  "text-decoration",
+];
+
+function listItemContent(item: HTMLElement): string {
+  const firstChild = item.firstElementChild;
+  return item.children.length === 1 && firstChild?.tagName === "P"
+    ? firstChild.innerHTML
+    : item.innerHTML;
+}
+
+function restoreLegacyBulletRow(
+  template: HTMLElement,
+  item: HTMLElement,
+): HTMLElement {
+  const row = template.cloneNode(true) as HTMLElement;
+  const marker = row.firstElementChild;
+  if (!marker) return row;
+
+  while (marker.nextSibling) marker.nextSibling.remove();
+
+  const textTemplate = template.children[1];
+  const content = listItemContent(item);
+  if (textTemplate) {
+    const text = textTemplate.cloneNode(false) as HTMLElement;
+    text.innerHTML = content;
+    row.appendChild(text);
+  } else {
+    row.insertAdjacentHTML("beforeend", content);
+  }
+
+  for (const attribute of Array.from(item.attributes)) {
+    if (attribute.name !== "style") {
+      row.setAttribute(attribute.name, attribute.value);
+    }
+  }
+  for (const property of LEGACY_ROW_TEXT_STYLE_PROPERTIES) {
+    row.style.removeProperty(property);
+  }
+  copyRowTextStyles(item, row);
+  return row;
+}
+
+function restoreLegacyBulletRowsInContainer(
+  source: Element,
+  current: Element,
+): void {
+  const sourceChildren = Array.from(source.children);
+  let currentIndex = 0;
+
+  for (let sourceIndex = 0; sourceIndex < sourceChildren.length; ) {
+    const sourceChild = sourceChildren[sourceIndex];
+    if (isLegacyBulletRow(sourceChild)) {
+      const templates: HTMLElement[] = [];
+      while (
+        sourceIndex < sourceChildren.length &&
+        isLegacyBulletRow(sourceChildren[sourceIndex])
+      ) {
+        templates.push(sourceChildren[sourceIndex] as HTMLElement);
+        sourceIndex += 1;
+      }
+
+      const currentChild = current.children[currentIndex];
+      if (currentChild?.tagName === "UL") {
+        const items = Array.from(currentChild.children).filter(
+          (child): child is HTMLElement => child.tagName === "LI",
+        );
+        const hasNestedList = items.some((item) =>
+          Array.from(item.children).some(
+            (child) => child.tagName === "UL" || child.tagName === "OL",
+          ),
+        );
+        if (!hasNestedList && items.length > 0) {
+          const rows = items.map((item, index) =>
+            restoreLegacyBulletRow(
+              templates[Math.min(index, templates.length - 1)],
+              item,
+            ),
+          );
+          currentChild.replaceWith(...rows);
+          currentIndex += rows.length;
+          continue;
+        }
+      }
+      currentIndex += 1;
+      continue;
+    }
+
+    const currentChild = current.children[currentIndex];
+    if (currentChild && currentChild.tagName === sourceChild.tagName) {
+      restoreLegacyBulletRowsInContainer(sourceChild, currentChild);
+    }
+    sourceIndex += 1;
+    currentIndex += 1;
+  }
+}
+
+function restoreLegacyBulletRows(
+  sourceHtml: string | undefined,
+  html: string,
+): string {
+  if (
+    !sourceHtml ||
+    !html ||
+    typeof DOMParser === "undefined" ||
+    !sourceHtml.includes("<")
+  ) {
+    return html;
+  }
+  const sourceDocument = new DOMParser().parseFromString(
+    sourceHtml,
+    "text/html",
+  );
+  const currentDocument = new DOMParser().parseFromString(html, "text/html");
+  restoreLegacyBulletRowsInContainer(sourceDocument.body, currentDocument.body);
+  return currentDocument.body.innerHTML;
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {

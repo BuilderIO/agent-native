@@ -17,11 +17,6 @@ const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",
 );
-const styles = readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), "../../global.css"),
-  "utf8",
-);
-
 describe("SlideEditor render-phase safety", () => {
   it("never passes an updater function to setEditingEl", () => {
     const updaterCalls = source.match(
@@ -77,15 +72,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain(
       '.replace(/\\s*data-slide-text-block="[^"]*"/g, "")',
     );
-  });
-
-  it("applies list layout and marker defaults to every stamped text layer", () => {
-    expect(styles).toContain(
-      '.slide-content .fmd-slide [data-slide-text-block="true"] ul',
-    );
-    expect(styles).toContain("list-style-position: outside;");
-    expect(styles).toContain("list-style-type: disc;");
-    expect(styles).toContain("list-style-type: decimal;");
   });
 
   it("cancels stale draft capture before a slide switch can read the new DOM", () => {

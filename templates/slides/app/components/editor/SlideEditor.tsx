@@ -251,6 +251,7 @@ type RichTextEditorSession = {
   host: HTMLDivElement;
   root: Root;
   apiRef: { current: SlideRichTextEditorHandle | null };
+  originalContent: string;
   originalContentEditable: string | null;
   originalEditingBlock: string | null;
   latestHtml: string;
@@ -1848,6 +1849,7 @@ export default function SlideEditor({
       sourceContent: string,
       activePath: number[] | null = null,
       activeHtml: string | null = null,
+      activeSourceContent: string | null = null,
     ) => {
       // SlideRenderer swaps each `<div class="mermaid">` for a
       // `data-mermaid-index` placeholder and renders the diagram as SVG via
@@ -1861,7 +1863,11 @@ export default function SlideEditor({
       if (activeHtml !== null && activePath) {
         const activeClone = resolveElementPath(clone, activePath);
         if (activeClone) {
-          restoreSlideTextContainerContent(activeClone, activeHtml);
+          restoreSlideTextContainerContent(
+            activeClone,
+            activeHtml,
+            activeSourceContent ?? undefined,
+          );
         }
       }
       const placeholders = clone.querySelectorAll("[data-mermaid-index]");
@@ -1908,11 +1914,13 @@ export default function SlideEditor({
       ".slide-content",
     ) as HTMLElement | null;
     if (!slideContent) return null;
+    const session = richTextEditorSessionRef.current;
     return serializeSlideContentHtml(
       slideContent,
       slide.content,
       activeRichTextPathRef.current,
       activeRichTextHtmlRef.current,
+      session?.slideId === slide.id ? session.originalContent : null,
     );
   }, [serializeSlideContentHtml, slide.content]);
 
@@ -1990,6 +1998,7 @@ export default function SlideEditor({
               session.sourceContent,
               session.path,
               latest,
+              session.originalContent,
             );
       if (draftContent !== null) {
         inlineEditDraftRef.current = {
@@ -2004,6 +2013,7 @@ export default function SlideEditor({
         restoredElement = restoreSlideTextContainerContent(
           session.element,
           latest,
+          session.originalContent,
         );
         session.element = restoredElement;
         if (session.originalContentEditable === null) {
@@ -2466,6 +2476,7 @@ export default function SlideEditor({
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
       const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
+      const originalContent = el.innerHTML;
 
       const host = document.createElement("div");
       host.className = "slide-rich-editor-host";
@@ -2481,6 +2492,7 @@ export default function SlideEditor({
         host,
         root: createRoot(host),
         apiRef,
+        originalContent,
         originalContentEditable: el.getAttribute("contenteditable"),
         originalEditingBlock: el.getAttribute("data-editing-block"),
         latestHtml: initialHtml,

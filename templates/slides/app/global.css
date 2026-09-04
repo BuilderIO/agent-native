@@ -1069,9 +1069,7 @@ button[title="Open agent sidebar"] {
 
 /* Prevent slide-content defaults from overriding FMD styles */
 .slide-content .fmd-slide p,
-.slide-content .fmd-slide li,
-.slide-content .fmd-slide ul,
-.slide-content .fmd-slide ol {
+.slide-content .fmd-slide li {
   margin: 0;
   padding: 0;
   font-size: inherit;
@@ -1079,26 +1077,28 @@ button[title="Open agent sidebar"] {
   color: inherit;
 }
 
-.slide-content .fmd-slide [data-slide-text-block="true"]:is(ul, ol),
-.slide-content .fmd-slide [data-slide-text-block="true"] ul,
-.slide-content .fmd-slide [data-slide-text-block="true"] ol {
+.slide-content .fmd-slide ul,
+.slide-content .fmd-slide ol {
+  margin: 0;
   padding-left: 1.5em;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
   list-style-position: outside;
 }
 
-.slide-content .fmd-slide [data-slide-text-block="true"]:is(ul),
-.slide-content .fmd-slide [data-slide-text-block="true"] ul {
+.slide-content .fmd-slide ul {
   list-style-type: disc;
 }
 
-.slide-content .fmd-slide [data-slide-text-block="true"]:is(ol),
-.slide-content .fmd-slide [data-slide-text-block="true"] ol {
+.slide-content .fmd-slide ol {
   list-style-type: decimal;
 }
 
 .slide-content .fmd-slide h1,
 .slide-content .fmd-slide h2,
-.slide-content .fmd-slide h3 {
+.slide-content .fmd-slide h3,
+.slide-content .fmd-slide h4 {
   margin: 0;
   padding: 0;
   font-size: inherit;
