@@ -603,7 +603,15 @@ const HELPER_SUMMARY_DESCRIPTION_CHARS = 240;
 // Native Chrome, the Codex page adapter, and @mcp-b/webmcp-polyfill each word
 // a dead descriptor differently ("Tool not found: <name>" is the polyfill's).
 const STALE_DESCRIPTOR_RE =
-  /RegisteredTool must be an object|not found in registry|Tool not found|Tool unregistered|no longer available|not returned by a live listing/i;
+  /RegisteredTool must be an object|not found in registry|^Tool not found|^Tool unregistered|no longer available|not returned by a live listing/i;
+// The polyfill wraps an error thrown by the action itself behind this prefix
+// while keeping its message, so an action that fails with "not found" text
+// must not be replayed as if its descriptor had died.
+const ACTION_FAILURE_RE = /Tool was executed|invocation failed/i;
+
+function isStaleDescriptorError(message: string): boolean {
+  return !ACTION_FAILURE_RE.test(message) && STALE_DESCRIPTOR_RE.test(message);
+}
 
 export interface AgentNativeWebMcpToolSummary {
   name: string;
@@ -612,6 +620,8 @@ export interface AgentNativeWebMcpToolSummary {
   description: string;
   required: string[];
   readOnly: boolean;
+  /** Present when the registry reports it; needed to pick between origins. */
+  origin?: string;
 }
 
 export type AgentNativeWebMcpCallFailureCode =
@@ -660,7 +670,10 @@ export interface AgentNativeWebMcpPageHelper {
   ready(options?: { waitMs?: number }): Promise<AgentNativeWebMcpStatus>;
   /** Compact listing; `filter` matches name, title, or description. */
   tools(filter?: string | RegExp): Promise<AgentNativeWebMcpToolSummary[]>;
-  describe(name: string): Promise<AgentNativeWebMcpTool | undefined>;
+  describe(
+    name: string,
+    origin?: string,
+  ): Promise<AgentNativeWebMcpTool | undefined>;
   /**
    * Executes a tool by name. Returns `pending` with an id when the call has
    * not settled within `waitMs`; the call keeps running in the page and
@@ -719,6 +732,7 @@ function summarizeTool(
       ? required.filter((key): key is string => typeof key === "string")
       : [],
     readOnly: tool.annotations?.readOnlyHint === true,
+    ...(tool.origin ? { origin: tool.origin } : {}),
   };
 }
 
@@ -763,22 +777,38 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   // wake-up per listing. Reuse the last listing until the registry says it
   // changed; hosts without toolchange events always list fresh.
   let listing: AgentNativeWebMcpTool[] | undefined;
+  let inflight: Promise<AgentNativeWebMcpTool[]> | undefined;
   let listingGeneration = 0;
   const cacheable = typeof client.onToolChange === "function";
   const invalidateListing = () => {
     listing = undefined;
+    inflight = undefined;
     listingGeneration += 1;
   };
   if (cacheable) client.onToolChange?.(invalidateListing);
-  async function list(): Promise<AgentNativeWebMcpTool[]> {
+  async function list(origin?: string): Promise<AgentNativeWebMcpTool[]> {
+    // Discovery defaults to the page's own origin; an explicit origin needs
+    // its own allow-listed listing, which is never cached.
+    if (origin) return client.listTools({ fromOrigins: [origin] });
     if (!cacheable) return client.listTools();
     if (listing) return listing;
+    if (inflight) return inflight;
     // A toolchange during the await outdates this listing before it lands;
-    // the generation check keeps a stale result out of the cache.
+    // the generation check keeps a stale result out of the cache. Callers that
+    // arrive mid-flight share the request instead of paying another wake-up.
     const generation = listingGeneration;
-    const tools = await client.listTools();
-    if (generation === listingGeneration) listing = tools;
-    return tools;
+    const request = client.listTools().then((tools) => {
+      if (generation === listingGeneration) {
+        listing = tools;
+        inflight = undefined;
+      }
+      return tools;
+    });
+    request.catch(() => {
+      if (inflight === request) inflight = undefined;
+    });
+    inflight = request;
+    return request;
   }
   function remember(id: string, outcome: AgentNativeWebMcpCallOutcome): void {
     outcomes.set(id, outcome);
@@ -832,7 +862,7 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     for (; attempts < HELPER_MAX_ATTEMPTS; attempts += 1) {
       let tools: AgentNativeWebMcpTool[];
       try {
-        tools = await list();
+        tools = await list(origin);
       } catch (error) {
         return {
           id,
@@ -897,7 +927,7 @@ export function createAgentNativeWebMcpPageHelper(options?: {
         lastError = error instanceof Error ? error.message : String(error);
         // A descriptor from an earlier listing dies when the registry
         // restarts under it; the next listing is live again, so retry now.
-        if (STALE_DESCRIPTOR_RE.test(lastError)) {
+        if (isStaleDescriptorError(lastError)) {
           invalidateListing();
           continue;
         }
@@ -927,10 +957,12 @@ export function createAgentNativeWebMcpPageHelper(options?: {
         .filter((tool) => toolMatches(tool, filter))
         .map(summarizeTool);
     },
-    async describe(name) {
+    async describe(name, origin) {
       if (!client.supported) return undefined;
-      const listed = await list();
-      return listed.find((tool) => tool.name === name);
+      const listed = await list(origin);
+      return listed.find(
+        (tool) => tool.name === name && (!origin || tool.origin === origin),
+      );
     },
     async call(name, args = {}, callOptions) {
       const id = `webmcp-call-${++sequence}`;

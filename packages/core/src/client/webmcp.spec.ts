@@ -836,12 +836,14 @@ describe("WebMCP page helper", () => {
       description: `${"x".repeat(239)}…`,
       required: ["id"],
       readOnly: true,
+      origin: "https://shop.example",
     });
     expect(all[1]).toEqual({
       name: "delete-order",
       description: "Remove an order forever",
       required: [],
       readOnly: false,
+      origin: "https://shop.example",
     });
 
     await expect(helper.tools("GET ORDER")).resolves.toEqual([
@@ -1329,5 +1331,115 @@ describe("WebMCP page helper", () => {
     );
     expect(scoped).toMatchObject({ ok: true, result: "shipped" });
     expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+  });
+  it("does not replay an action failure worded like a stale descriptor", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "order-1",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const getTools = vi.fn(async () => [registeredTool]);
+    const executeTool = vi.fn(async () => {
+      throw new Error(
+        "Tool was executed but the invocation failed. For example, the script function threw an error: Tool not found: order-1",
+      );
+    });
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool,
+      }),
+    });
+
+    const outcome = await helper.call("order-1");
+    expect(outcome).toMatchObject({
+      ok: false,
+      code: "execution-failed",
+      attempts: 1,
+    });
+    expect(getTools).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes describe() and call() to fromOrigins when an origin is given", async () => {
+    readyStatus(2);
+    const toolA = {
+      name: "get-order",
+      description: "Read an order (a)",
+      window,
+      origin: "https://a.example",
+    };
+    const toolB = {
+      name: "get-order",
+      description: "Read an order (b)",
+      window,
+      origin: "https://b.example",
+    };
+    const getTools = vi.fn(async () => [toolA, toolB]);
+    const executeTool = vi.fn(async () => "shipped");
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool,
+      }),
+    });
+
+    const described = await helper.describe("get-order", "https://b.example");
+    expect(described).toMatchObject({
+      origin: "https://b.example",
+      description: "Read an order (b)",
+    });
+    expect(getTools).toHaveBeenCalledWith({
+      fromOrigins: ["https://b.example"],
+    });
+
+    const outcome = await helper.call(
+      "get-order",
+      {},
+      { origin: "https://b.example" },
+    );
+    expect(outcome).toMatchObject({ ok: true, result: "shipped" });
+    expect(getTools).toHaveBeenLastCalledWith({
+      fromOrigins: ["https://b.example"],
+    });
+    expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+  });
+
+  it("shares one in-flight listing across concurrent tools() and describe() calls", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    let resolveList!: (tools: unknown[]) => void;
+    const getTools = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool: vi.fn(async () => ""),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    });
+
+    const toolsCall = helper.tools();
+    const describeCall = helper.describe("get-order");
+    resolveList([registeredTool]);
+
+    const [summaries, described] = await Promise.all([toolsCall, describeCall]);
+    expect(getTools).toHaveBeenCalledTimes(1);
+    expect(summaries.map((tool) => tool.name)).toEqual(["get-order"]);
+    expect(described?.name).toBe("get-order");
   });
 });
