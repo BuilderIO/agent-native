@@ -37,8 +37,11 @@ export const AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL =
 
 const WIDTH = AGENT_NATIVE_OG_IMAGE_WIDTH;
 const HEIGHT = AGENT_NATIVE_OG_IMAGE_HEIGHT;
+// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const BG = "#0A0A0A";
+// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const FG = "#FAF9F5";
+// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const ACCENT_FG = "#9A9997";
 const DEFAULT_FONT_FAMILY = `${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
 const ARABIC_FONT_FAMILY = `${OG_ARABIC_FONT_FAMILY}, ${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
