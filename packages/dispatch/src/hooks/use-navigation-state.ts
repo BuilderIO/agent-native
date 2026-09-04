@@ -8,6 +8,7 @@ import {
   appPath,
 } from "@agent-native/core/client/api-path";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -45,7 +46,10 @@ export interface NavigationState {
   automationId?: string;
 }
 
-export function useNavigationState(extensions?: DispatchExtensionConfig) {
+export function useNavigationState(
+  extensions?: DispatchExtensionConfig,
+  browserTabId = getBrowserTabId(),
+) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -59,20 +63,23 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
       extensions,
     );
 
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+    fetch(dispatchApplicationStatePath("navigation", browserTabId), {
       method: "PUT",
       keepalive: true,
-      headers: { "Content-Type": "application/json" },
+      headers: dispatchApplicationStateHeaders(browserTabId, {
+        "Content-Type": "application/json",
+      }),
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [extensions, location.pathname, location.search]);
+  }, [browserTabId, extensions, location.pathname, location.search]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
+    queryKey: ["navigate-command", browserTabId],
     queryFn: async () => {
       const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
+        dispatchApplicationStatePath("navigate", browserTabId),
+        { headers: dispatchApplicationStateHeaders(browserTabId) },
       );
       if (!res.ok) return null;
       const data = await res.json();
@@ -88,9 +95,11 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
   useEffect(() => {
     if (!navCommand) return;
     // Delete the one-shot command AFTER reading it
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+    fetch(dispatchApplicationStatePath("navigate", browserTabId), {
       method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
+      headers: dispatchApplicationStateHeaders(browserTabId, {
+        "X-Agent-Native-CSRF": "1",
+      }),
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
 
@@ -112,7 +121,23 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
     }
     void navigate(nextPath);
     qc.setQueryData(["navigate-command"], null);
-  }, [extensions, location.pathname, navCommand, navigate, qc]);
+  }, [browserTabId, extensions, location.pathname, navCommand, navigate, qc]);
+}
+
+export function dispatchApplicationStatePath(
+  key: string,
+  browserTabId: string,
+): string {
+  return agentNativePath(
+    `/_agent-native/application-state/${key}:${browserTabId}`,
+  );
+}
+
+function dispatchApplicationStateHeaders(
+  browserTabId: string,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return { "X-Request-Source": browserTabId, ...extra };
 }
 
 function pathnameFromPath(path: string): string {
