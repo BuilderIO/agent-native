@@ -73,8 +73,8 @@ const chatRouteViolations = [
   !chatHomeRoute.includes('markAgentChatHomeHandoff("chat")') ||
   !chatHomeRoute.includes("getChatHomeThreadId") ||
   !chatHomeRoute.includes("useNavigate") ||
-  !chatHomeRoute.includes(
-    "navigate(`/chat/${encodeURIComponent(threadId)}`, { replace: true })",
+  !/navigate\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`,\s*\{\s*replace:\s*true,?\s*\}\s*\)/s.test(
+    chatHomeRoute,
   ) ||
   !chatHomeRoute.includes("return null;")
     ? "Chat /home must route a pending thread to the shared durable Chat surface"

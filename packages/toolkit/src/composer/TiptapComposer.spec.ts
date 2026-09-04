@@ -993,8 +993,9 @@ describe("createTiptapComposerExtensions", () => {
       },
     ];
     expect(shouldRenderModelSelector(unconfigured, () => {})).toBe(true);
-    // Genuinely nothing to show: no engines, or no way to change the model.
-    expect(shouldRenderModelSelector([], () => {})).toBe(false);
+    // An empty list is the initial discovery/setup state. Keep the button so
+    // the picker can show loading or provider setup rather than disappearing.
+    expect(shouldRenderModelSelector([], () => {})).toBe(true);
     expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
   });

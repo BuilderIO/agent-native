@@ -48,5 +48,5 @@ export default function ChatRoute() {
     }
   }, [navigate, threadId]);
 
-  return <div aria-busy="true" className="h-full min-h-0 bg-background" />;
+  return null;
 }

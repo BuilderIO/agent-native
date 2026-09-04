@@ -83,8 +83,8 @@ describe("page-chat handoff defaults", () => {
     expect(route).toContain('markAgentChatHomeHandoff("chat")');
     expect(route).toContain("getChatHomeThreadId");
     expect(route).toContain("useNavigate");
-    expect(route).toContain(
-      "navigate(`/chat/${encodeURIComponent(threadId)}`, { replace: true })",
+    expect(route).toMatch(
+      /navigate\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`,\s*\{\s*replace:\s*true,?\s*\}\s*\)/s,
     );
     expect(route).toContain("return null;");
     expect(route).toContain("useState(");
