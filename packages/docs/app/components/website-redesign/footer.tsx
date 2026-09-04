@@ -47,6 +47,7 @@ function footerColumns(
       title: t("homepage.footer.ecosystem"),
       links: [
         { label: t("homepage.footer.apps"), href: localizedPath("/apps") },
+        { label: t("footer.brand"), href: localizedPath("/brand") },
         {
           label: "GitHub",
           href: "https://github.com/BuilderIO/agent-native",
