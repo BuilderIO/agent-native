@@ -539,7 +539,6 @@ const enUS = {
       stepOneTitle: "Create a Builder account",
       stepOneBody:
         "Use your Builder account to build in the browser. Free to start, and no API keys to bring.",
-      signUp: "Launch Builder",
       stepTwoTitle: "Prompt away",
       stepTwoBody:
         "Describe what you want to build in plain language and the agent will create it for you.",
@@ -625,15 +624,8 @@ const enUS = {
     buildOnline: "Build online",
     popoverTitle: "Build in the browser",
     popoverBody:
-      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
-    emailLabel: "Email",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "Join waitlist",
-    joining: "Joining…",
-    joined:
-      "You're on the waitlist. We'll email you when build-online access opens.",
-    invalidEmail: "Enter a valid email address.",
-    submitError: "Couldn't join the waitlist. Please try again.",
+      "Rapidly generate agent-native apps in the cloud with Builder.io.",
+    launchBuilder: "Launch Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",

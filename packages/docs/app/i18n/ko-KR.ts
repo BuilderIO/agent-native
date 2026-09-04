@@ -539,7 +539,6 @@ const koKR = {
       stepOneTitle: "Builder 계정 만들기",
       stepOneBody:
         "Builder 계정으로 브라우저에서 빌드합니다. API 키를 직접 준비하지 않아도 무료로 시작할 수 있습니다.",
-      signUp: "Builder 실행",
       stepTwoTitle: "프롬프트해 보세요",
       stepTwoBody:
         "만들고 싶은 것을 자연어로 설명하면 에이전트가 대신 만들어 줍니다.",
@@ -625,15 +624,8 @@ const koKR = {
     buildOnline: "온라인에서 빌드",
     popoverTitle: "브라우저에서 빌드",
     popoverBody:
-      "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
-    emailLabel: "이메일",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "대기자 명단 참여",
-    joining: "참여 중…",
-    joined:
-      "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
-    invalidEmail: "유효한 이메일 주소를 입력하세요.",
-    submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
+      "Builder.io를 사용해 클라우드에서 agent-native 앱을 빠르게 생성하세요.",
+    launchBuilder: "Builder 실행",
   },
   templateCard: {
     pasteIntoTerminal: "터미널에 붙여넣으세요.",

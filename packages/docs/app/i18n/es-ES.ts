@@ -540,7 +540,6 @@ const esES = {
       stepOneTitle: "Crea una cuenta de Builder",
       stepOneBody:
         "Usa tu cuenta de Builder para crear en el navegador. Empieza gratis y sin aportar claves de API.",
-      signUp: "Abrir Builder",
       stepTwoTitle: "Escribe tu prompt",
       stepTwoBody:
         "Describe en lenguaje sencillo lo que quieres crear y el agente lo hará por ti.",
@@ -631,15 +630,8 @@ const esES = {
     buildOnline: "Crear en línea",
     popoverTitle: "Crear en el navegador",
     popoverBody:
-      "Builder.io puede crear y personalizar una app agent-native en la nube: acciones, autenticación, estado SQL y chat del agente incluidos. Únete a la lista de espera para acceso anticipado.",
-    emailLabel: "Correo electrónico",
-    emailPlaceholder: "tu@empresa.com",
-    joinWaitlist: "Unirse a la lista de espera",
-    joining: "Uniéndose…",
-    joined:
-      "Ya estás en la lista de espera. Te enviaremos un correo cuando se abra el acceso para crear en línea.",
-    invalidEmail: "Introduce un correo electrónico válido.",
-    submitError: "No se pudo unir a la lista de espera. Inténtalo de nuevo.",
+      "Genera rápidamente apps agent-native en la nube con Builder.io.",
+    launchBuilder: "Abrir Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Pega en tu terminal.",

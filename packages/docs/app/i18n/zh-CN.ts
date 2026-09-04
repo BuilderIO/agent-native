@@ -531,7 +531,6 @@ const zhCN = {
       stepOneTitle: "创建 Builder 账号",
       stepOneBody:
         "使用 Builder 账号在浏览器中构建。免费开始，无需自带 API 密钥。",
-      signUp: "启动 Builder",
       stepTwoTitle: "开始输入提示",
       stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
       stepThreeTitle: "部署",
@@ -609,15 +608,8 @@ const zhCN = {
     readDocs: "阅读文档",
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
-    popoverBody:
-      "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
-    emailLabel: "邮箱",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "加入候补名单",
-    joining: "正在加入…",
-    joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
-    invalidEmail: "请输入有效的邮箱地址。",
-    submitError: "无法加入候补名单。请重试。",
+    popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    launchBuilder: "启动 Builder",
   },
   templateCard: {
     pasteIntoTerminal: "粘贴到您的终端中。",

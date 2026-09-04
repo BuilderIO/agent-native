@@ -1,13 +1,7 @@
 // @vitest-environment jsdom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -55,6 +49,15 @@ describe("docs popover controls", () => {
       .closest("[role=dialog]");
     expect(content).not.toBeNull();
     expectAnimatedPopover(content as HTMLElement);
+    expect(
+      screen.getByText(
+        "Rapidly generate agent-native apps in the cloud with Builder.io.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Launch Builder" }).getAttribute("href"),
+    ).toBe("https://builder.io/signup");
+    expect(screen.queryByRole("textbox", { name: "Email" })).toBeNull();
   });
 
   it("keeps Customize It modes inside the shared animated popover", () => {
@@ -91,34 +94,14 @@ describe("docs popover controls", () => {
     expect(url.searchParams.get("utm_campaign")).toBe("launch");
   });
 
-  it("submits the selected template with customization waitlist requests", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    });
-    vi.stubGlobal("fetch", fetchMock);
+  it("shows the Builder launch link for online customization", () => {
     renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
     fireEvent.click(screen.getByRole("button", { name: /^Online/ }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
-      target: { value: "reader@example.com" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
 
-    const waitlistRequests = () =>
-      fetchMock.mock.calls.filter(([url]) =>
-        String(url).includes("/_agent-native/builder/branch-waitlist"),
-      );
-    await waitFor(() => expect(waitlistRequests()).toHaveLength(1));
-    const request = waitlistRequests()[0]?.[1] as RequestInit;
     expect(
-      JSON.parse(typeof request.body === "string" ? request.body : "{}"),
-    ).toMatchObject({
-      email: "reader@example.com",
-      source: "docs_template_customize",
-      template: templates[0].slug,
-      useCase: "docs_edit_online_waitlist",
-    });
+      screen.getByRole("link", { name: "Launch Builder" }).getAttribute("href"),
+    ).toBe("https://builder.io/signup");
   });
 });

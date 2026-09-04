@@ -539,7 +539,6 @@ const jaJP = {
       stepOneTitle: "Builderアカウントを作成",
       stepOneBody:
         "Builderアカウントを使ってブラウザで構築します。APIキーを用意せず、無料で始められます。",
-      signUp: "Builderを起動",
       stepTwoTitle: "プロンプトを入力",
       stepTwoBody:
         "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
@@ -627,15 +626,8 @@ const jaJP = {
     buildOnline: "オンラインで構築",
     popoverTitle: "ブラウザで構築",
     popoverBody:
-      "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
-    emailLabel: "メール",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "待機リストに参加",
-    joining: "参加中…",
-    joined:
-      "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
-    invalidEmail: "有効なメールアドレスを入力してください。",
-    submitError: "待機リストに参加できませんでした。もう一度お試しください。",
+      "Builder.io を使って、クラウドで agent-native アプリをすばやく生成できます。",
+    launchBuilder: "Builderを起動",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",

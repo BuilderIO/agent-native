@@ -529,7 +529,6 @@ const messages = {
       stepOneTitle: "建立 Builder 帳號",
       stepOneBody:
         "使用 Builder 帳號在瀏覽器中建置。免費開始，不必自備 API 金鑰。",
-      signUp: "啟動 Builder",
       stepTwoTitle: "開始輸入提示",
       stepTwoBody: "用自然語言描述您想建立的內容，代理會為您建立。",
       stepThreeTitle: "部署",
@@ -608,15 +607,8 @@ const messages = {
     readDocs: "閱讀文件",
     buildOnline: "線上建置",
     popoverTitle: "在瀏覽器中建置",
-    popoverBody:
-      "Builder.io 可以在雲端啟動並自訂 agent-native app — 包含 actions、auth、SQL 狀態與 agent chat。加入等候名單以取得早期存取權。",
-    emailLabel: "電子郵件",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "加入等候名單",
-    joining: "正在加入…",
-    joined: "你已在等候名單中。線上建置存取開放時，我們會寄信通知你。",
-    invalidEmail: "請輸入有效的電子郵件地址。",
-    submitError: "無法加入等候名單。請再試一次。",
+    popoverBody: "使用 Builder.io 在雲端快速產生 agent-native 應用程式。",
+    launchBuilder: "啟動 Builder",
   },
   templateCard: {
     pasteIntoTerminal: "貼上到您的終端中。",

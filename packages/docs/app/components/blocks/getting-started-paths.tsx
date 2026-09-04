@@ -1,10 +1,9 @@
 import { defineBlock, type BlockReadProps } from "@agent-native/core/blocks";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconExternalLink } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
-import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
+import { BuilderLaunchLink } from "../BuilderWaitlistPopover";
 import { sitePathForLocale, type DocsLocale } from "../docs-locale";
 import {
   gettingStartedPathsMdx,
@@ -127,15 +126,9 @@ export function GettingStartedCloudContent() {
             </h2>
             <p>{step.body}</p>
             {step.number === 1 ? (
-              <BuildOnlinePopover
-                location="getting_started"
-                onOpen={() => choosePath("build_cloud")}
-                trigger={
-                  <button type="button" className="getting-started-cloud-cta">
-                    <span>{t("gettingStarted.cloud.signUp")}</span>
-                    <IconExternalLink size={16} aria-hidden="true" />
-                  </button>
-                }
+              <BuilderLaunchLink
+                className="getting-started-cloud-cta"
+                onClick={() => choosePath("build_cloud")}
               />
             ) : null}
           </li>

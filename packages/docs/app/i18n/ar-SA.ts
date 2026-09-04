@@ -537,7 +537,6 @@ const arSA = {
       stepOneTitle: "أنشئ حسابًا في Builder",
       stepOneBody:
         "استخدم حساب Builder الخاص بك للبناء في المتصفح. ابدأ مجانًا من دون إحضار مفاتيح API.",
-      signUp: "شغّل Builder",
       stepTwoTitle: "ابدأ بكتابة طلبك",
       stepTwoBody: "صِف ما تريد بناءه بلغة واضحة وسيُنشئه الوكيل لك.",
       stepThreeTitle: "النشر",
@@ -619,16 +618,8 @@ const arSA = {
     readDocs: "اقرأ المستندات",
     buildOnline: "ابنِ عبر الإنترنت",
     popoverTitle: "أنشئ في المتصفح",
-    popoverBody:
-      "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
-    emailLabel: "البريد الإلكتروني",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "انضم إلى قائمة الانتظار",
-    joining: "جارٍ الانضمام…",
-    joined:
-      "أنت على قائمة الانتظار. سنرسل لك بريدًا عندما يتوفر الوصول للبناء عبر الإنترنت.",
-    invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا.",
-    submitError: "تعذر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
+    popoverBody: "أنشئ تطبيقات agent-native بسرعة في السحابة مع Builder.io.",
+    launchBuilder: "شغّل Builder",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",

@@ -537,7 +537,6 @@ const hiIN = {
       stepOneTitle: "Builder अकाउंट बनाएं",
       stepOneBody:
         "ब्राउज़र में बनाने के लिए अपने Builder खाते का उपयोग करें। बिना API keys लाए मुफ्त में शुरू करें।",
-      signUp: "Builder लॉन्च करें",
       stepTwoTitle: "प्रॉम्प्ट करें",
       stepTwoBody:
         "आप जो बनाना चाहते हैं उसे साधारण भाषा में बताएं और एजेंट उसे आपके लिए बना देगा।",
@@ -620,15 +619,8 @@ const hiIN = {
     readDocs: "डॉक्स पढ़ें",
     buildOnline: "ऑनलाइन बनाएँ",
     popoverTitle: "Browser में बनाएँ",
-    popoverBody:
-      "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
-    emailLabel: "ईमेल",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "Waitlist में शामिल हों",
-    joining: "शामिल हो रहे हैं…",
-    joined: "आप waitlist में हैं. build-online access खुलने पर हम आपको ईमेल करेंगे.",
-    invalidEmail: "एक मान्य ईमेल पता दर्ज करें.",
-    submitError: "Waitlist में शामिल नहीं हो सके. कृपया फिर से कोशिश करें.",
+    popoverBody: "Builder.io के साथ क्लाउड में agent-native ऐप तेज़ी से बनाएं.",
+    launchBuilder: "Builder लॉन्च करें",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",
