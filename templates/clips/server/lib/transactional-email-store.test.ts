@@ -9,26 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let db: ReturnType<typeof drizzle>;
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
-type SqlStatement = string | { sql: string; args?: unknown[] };
-
-function postgresSql(sql: string): string {
-  let index = 0;
-  return sql.replace(/\?/g, () => "$" + ++index);
-}
-
-async function execute(statement: SqlStatement) {
-  if (typeof statement === "string") {
-    const results = [];
-    for (const sql of statement
-      .split(";")
-      .map((value) => value.trim())
-      .filter(Boolean))
-      results.push(await client.query(postgresSql(sql)));
-    return results[results.length - 1];
-  }
-  return client.query(postgresSql(statement.sql), statement.args ?? []);
-}
-
 let client: PGliteClient;
 
 vi.mock("../db/index.js", async () => {

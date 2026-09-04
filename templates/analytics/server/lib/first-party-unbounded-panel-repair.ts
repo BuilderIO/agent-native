@@ -1,8 +1,5 @@
 import type { DashboardPanelLike } from "./dashboard-time-scope.js";
 
-const POSTGRES_DATE_BOUND =
-  "to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
-
 /**
  * Fixes for first-party dashboard panels found, via a full-org audit
  * (2026-07-25), reading `analytics_events` with no date bound at all in some

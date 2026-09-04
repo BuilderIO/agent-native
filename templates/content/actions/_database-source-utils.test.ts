@@ -35,7 +35,6 @@ import {
   builderBodyBaselineHasSameVersionConflict,
   builderAuthoritativeRawBodyHash,
   builderBodyHydrationBulkChunkLimit,
-  bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,

@@ -38,7 +38,6 @@ import {
   delimitUntrustedReference,
   UNTRUSTED_REFERENCE_ROLE,
 } from "../untrusted-reference.js";
-import { PGVECTOR_REQUIRED_MESSAGE } from "../vector/pgvector.js";
 import { getCreativeContext } from "./context.js";
 
 export interface CreativeContextSearchInput {

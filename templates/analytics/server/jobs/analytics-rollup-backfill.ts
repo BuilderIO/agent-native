@@ -94,38 +94,6 @@ function ensureStateSql(): string {
        ON CONFLICT (id) DO NOTHING`;
 }
 
-function createBackfillLeaseToken(): string {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
-  }
-  return `analytics-rollup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function claimStateSql(): string {
-  return `UPDATE analytics_rollup_backfill_state
-          SET status = 'running', lease_token = $1,
-              lease_expires_at = now() + INTERVAL '${BACKFILL_LEASE_MINUTES} minutes',
-              updated_at = now()
-        WHERE id = $2
-          AND (
-            status = 'pending'
-            OR (
-              status = 'running'
-              AND (
-                lease_expires_at IS NULL
-                OR lease_expires_at <= now()
-              )
-            )
-          )`;
-}
-
-function releaseStateLeaseSql(): string {
-  return `UPDATE analytics_rollup_backfill_state
-             SET status = 'pending', lease_token = NULL,
-                 lease_expires_at = NULL, updated_at = now()
-           WHERE id = $1 AND lease_token = $2`;
-}
-
 async function stateStatus(db: {
   execute: (query: { sql: string; args: unknown[] }) => Promise<{
     rows: any[];
