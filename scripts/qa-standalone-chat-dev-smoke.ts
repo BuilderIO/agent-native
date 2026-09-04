@@ -1723,11 +1723,9 @@ async function waitForChatText(
   page: Page,
   expected: string,
   timeoutMs = 30_000,
-  options: { recoverDurableRoute?: boolean } = {},
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError = "";
-  let durableRouteRecoveryAttempts = 0;
   while (Date.now() < deadline) {
     let rendered = false;
     try {
@@ -1740,39 +1738,6 @@ async function waitForChatText(
       lastError = err instanceof Error ? err.message : String(err);
     }
     if (rendered) return;
-
-    // A Vite reload or the Chat home handoff can destroy the current execution
-    // context after the provider has already completed a stream. A blank
-    // durable document is the same recoverable state even when the read itself
-    // does not throw a navigation error.
-    if (options.recoverDurableRoute && durableRouteRecoveryAttempts < 3) {
-      try {
-        const surface = await readChatSurfaceState(page);
-        if (
-          durableChatPathPattern.test(surface.pathname) &&
-          !surface.chatRendered
-        ) {
-          const currentUrl = page.url();
-          durableRouteRecoveryAttempts += 1;
-          log(
-            `recovering blank durable Chat route (attempt ${durableRouteRecoveryAttempts}/3) before waiting for ${JSON.stringify(expected)}`,
-          );
-          await gotoCommitted(page, currentUrl, "domcontentloaded");
-          await waitForStableChatSurface(
-            page,
-            Math.min(10_000, Math.max(1_000, deadline - Date.now())),
-          );
-          continue;
-        }
-      } catch (recoveryError) {
-        if (!isNavigationContextError(recoveryError)) {
-          lastError =
-            recoveryError instanceof Error
-              ? recoveryError.message
-              : String(recoveryError);
-        }
-      }
-    }
     await sleep(250);
   }
   let currentUrl = "";
@@ -2137,9 +2102,7 @@ async function assertAgentKitChatAcceptance(
   await waitForStableChatSurface(page);
   const threadUrl = page.url();
   const threadPath = new URL(threadUrl).pathname;
-  await waitForChatText(page, "Loopback complete", 30_000, {
-    recoverDurableRoute: true,
-  });
+  await waitForChatText(page, "Loopback complete");
   await waitForChatText(page, helloPrompt);
   await waitForChatText(page, "Hello, AgentKit Browser!");
   assert.equal(
