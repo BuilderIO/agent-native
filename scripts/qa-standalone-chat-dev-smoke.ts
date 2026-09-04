@@ -2085,7 +2085,7 @@ async function assertAgentKitChatAcceptance(
     (url) =>
       durableChatPathPattern.test(url.pathname) &&
       url.pathname !== previousThreadPath,
-    { timeout: 60_000 },
+    { timeout: 60_000, waitUntil: "commit" },
   );
   await waitForStableChatSurface(page);
   const threadUrl = page.url();
