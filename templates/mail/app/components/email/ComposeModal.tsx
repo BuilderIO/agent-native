@@ -802,6 +802,8 @@ export function ComposeModal({
               trailing={
                 <button
                   type="button"
+                  aria-label={`${t("mail.draftQueue.cc")} / ${t("mail.draftQueue.bcc")}`}
+                  aria-expanded={showCcBcc}
                   onClick={() => {
                     const next = !showCcBcc;
                     setShowCcBcc(next);
