@@ -10,6 +10,7 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import {
+  deletePrivateBlob,
   putPrivateBlob,
   readPrivateBlob,
   type PrivateBlobHandle,
@@ -588,6 +589,7 @@ async function captureDesignVersion(
     capturedAt: createdAt,
     ...(options.chatContext ? { chatContext: options.chatContext } : {}),
   });
+  let uploadedBlob: PrivateBlobHandle | null = null;
   let storedSnapshot = snapshot;
   if (Buffer.byteLength(snapshot, "utf8") > MAX_INLINE_DESIGN_VERSION_BYTES) {
     const blob = await putPrivateBlob({
@@ -608,6 +610,7 @@ async function captureDesignVersion(
         "Private blob storage is required for design checkpoints larger than 256 KiB.",
       );
     }
+    uploadedBlob = blob;
     storedSnapshot = JSON.stringify({
       schemaVersion: 2,
       snapshotKind: "design-history-blob",
@@ -619,7 +622,7 @@ async function captureDesignVersion(
     });
   }
 
-  await db
+  const [inserted] = await db
     .insert(schema.designVersions)
     .values({
       id,
@@ -632,7 +635,21 @@ async function captureDesignVersion(
       fileCount: liveSnapshot.files.length,
       createdAt,
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ id: schema.designVersions.id });
+  if (!inserted && uploadedBlob) {
+    const cleanup = await deletePrivateBlob(uploadedBlob).catch((error) => ({
+      deleted: false,
+      reason: error instanceof Error ? error.message : String(error),
+    }));
+    if (!cleanup.deleted) {
+      console.warn("[design-version] duplicate blob cleanup incomplete", {
+        designId,
+        versionId: id,
+        reason: cleanup.reason,
+      });
+    }
+  }
   const [stored] = await db
     .select({
       id: schema.designVersions.id,

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const readPrivateBlob = vi.hoisted(() => vi.fn());
+const deletePrivateBlob = vi.hoisted(() => vi.fn());
+const putPrivateBlob = vi.hoisted(() => vi.fn());
 const captureMocks = vi.hoisted(() => ({
   revisions: [] as Array<Record<string, unknown>>,
   design: {
@@ -25,13 +27,15 @@ const captureMocks = vi.hoisted(() => ({
     appliedTweaks: {},
     resolvedCssVars: {},
   },
+  forceInsertConflict: false,
   assertAccess: vi.fn(),
   buildDesignSnapshot: vi.fn(),
   nanoid: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/private-blob", () => ({
-  putPrivateBlob: vi.fn(),
+  deletePrivateBlob,
+  putPrivateBlob,
   readPrivateBlob,
 }));
 
@@ -105,15 +109,22 @@ vi.mock("../db/index.js", () => {
           query.value = value;
           return query;
         },
-        onConflictDoNothing: async () => {
+        onConflictDoNothing: () => {
+          query.conflicted = captureMocks.forceInsertConflict;
           if (
             table === schema.designVersions &&
-            !captureMocks.revisions.some(
-              (revision) => revision.id === query.value.id,
-            )
+            (captureMocks.forceInsertConflict ||
+              !captureMocks.revisions.some(
+                (revision) => revision.id === query.value.id,
+              ))
           ) {
             captureMocks.revisions.push(query.value);
           }
+          captureMocks.forceInsertConflict = false;
+          return query;
+        },
+        returning: async () => {
+          return query.conflicted ? [] : [{ id: query.value.id }];
         },
       };
       return query;
@@ -130,6 +141,7 @@ import {
 
 beforeEach(() => {
   captureMocks.revisions = [];
+  captureMocks.forceInsertConflict = false;
   captureMocks.assertAccess.mockReset();
   captureMocks.assertAccess.mockImplementation(async () => ({
     resource: { ...captureMocks.design },
@@ -156,6 +168,8 @@ beforeEach(() => {
     appliedTweaks: {},
     resolvedCssVars: {},
   };
+  putPrivateBlob.mockReset();
+  deletePrivateBlob.mockReset();
 });
 
 describe("parseDesignVersionSnapshot", () => {
@@ -314,5 +328,45 @@ describe("createDesignVersionSnapshot", () => {
 
     expect(changed.id).not.toBe(first.id);
     expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("cleans up a large blob when a duplicate insert loses the race", async () => {
+    const blob = {
+      id: "blob-1",
+      provider: "test",
+      opaque: true as const,
+      encrypted: true,
+    };
+    putPrivateBlob.mockResolvedValue(blob);
+    deletePrivateBlob.mockResolvedValue({ deleted: true, provider: "test" });
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "y".repeat(300 * 1024),
+        },
+      ],
+    };
+    captureMocks.forceInsertConflict = true;
+
+    await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    expect(deletePrivateBlob).toHaveBeenCalledWith(blob);
   });
 });
