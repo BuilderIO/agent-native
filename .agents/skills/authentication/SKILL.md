@@ -168,10 +168,11 @@ Set `A2A_SECRET` (same value) on all apps that must verify each other's identity
 
 Each hosted `*.agent-native.com` app has its **own user store**, so "sign in once" is identity federation, not a shared cookie. **Dispatch is the identity authority.**
 
-- **Opt-in per app via one env var:** set `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com` and the app shows a "Sign in with Agent-Native" option. **Unset = zero behavior change** — the whole path is dormant. Reversible at any time.
+- **Canonical hosted apps:** exact registered `*.agent-native.com` clients can show "Sign in with Agent-Native" and silently probe for an existing Dispatch session. The silent browser handoff is controlled by Dispatch's default-off `browser.identity-sso` feature flag. Self-hosted apps opt in with `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com`; unset means zero behavior change.
 - **Flow:** the app creates a bound state and PKCE verifier, then opens `GET <hub>/_agent-native/identity/authorize?response_type=code&app=&client_id=&redirect_uri=&state=&code_challenge=`. Dispatch authenticates the human and redirects back with only a short-lived, one-time authorization code. The app keeps the verifier in a callback-scoped HttpOnly cookie and redeems the code server-to-server at `/_agent-native/identity/token`; only that response contains the short-lived `A2A_SECRET`-signed identity assertion. No bearer token or JWT is placed in a browser URL. Canonical clients require an exact registered app ID, client ID, origin, and callback path; localhost remains available for development. The app verifies the assertion, **JIT-links strictly by verified email** (existing same-email user → reused unchanged; new email → created), then mints a normal local session.
+- **Silent browser handoff:** canonical auth pages may pass `prompt=none`. Dispatch returns `login_required` when no Dispatch session exists instead of showing another login page; the app then leaves the local sign-in form available. It never reveals whether a particular email or account exists. The feature flag is evaluated only at Dispatch, and unreadable or off rollout state fails closed.
 - **Invariant (do not break):** identity rows are only ever **added** — never modified, renamed, or deleted. Enabling SSO logs users out, but they always log back into the **same email-matched account with data intact**. Email is the only thing that crosses the trust boundary; the app never trusts a user id, role, or org from the wire.
-- **Canary rollout:** deploy with the env unset everywhere (no-op) → set it on **one** app (mail) only → verify (logout → SSO → Dispatch → back to the same pre-existing account, data intact, direct logins still work) → expand app-by-app → rollback = unset the env on that app's deploy (instant, no data change).
+- **Canary rollout:** ship with `browser.identity-sso` Off → verify canonical pages keep direct sign-in available and a silent probe falls back locally → enable the flag for one test email in Analytics → verify (logout → silent SSO → back to the same pre-existing account, data intact, direct logins still work) → expand targeting gradually. Self-hosted apps still roll out one `AGENT_NATIVE_IDENTITY_HUB_URL` deployment at a time; rollback is disabling the flag or removing that env (instant, no data change).
 
 ### Packaged Desktop workspace sign-in
 
@@ -194,8 +195,7 @@ origin is exact HTTPS, and Dispatch has an exact registration in
 `IDENTITY_SSO_APP_REGISTRY_JSON` with its app ID, client ID, callback path, and
 `identity-sso` capability. The custom app also needs
 `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com` and the shared
-`A2A_SECRET`. Ordinary browsers and self-hosted apps still require the explicit
-hub configuration.
+`A2A_SECRET`. Self-hosted apps still require the explicit hub configuration.
 Every Desktop build may initialize the broker when the per-device
 `desktopSsoEnabled` preference is true (the default); an explicit persisted
 `false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
