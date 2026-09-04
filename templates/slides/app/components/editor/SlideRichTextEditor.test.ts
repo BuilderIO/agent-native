@@ -174,6 +174,7 @@ describe("slide rich text normalization", () => {
     const itemEditorContent = contentForSlideTextContainer(
       item.tagName,
       item.outerHTML,
+      "UL",
     );
     const itemSeed = document.createElement("div");
     itemSeed.innerHTML = itemEditorContent;
@@ -197,6 +198,13 @@ describe("slide rich text normalization", () => {
     expect(restoredItem.querySelector(":scope > ul li")?.textContent).toBe(
       "Nested",
     );
+
+    const orderedRoot = document.createElement("div");
+    orderedRoot.innerHTML = "<ol><li>Ordered item</li></ol>";
+    const orderedItem = orderedRoot.querySelector("li") as HTMLElement;
+    expect(
+      contentForSlideTextContainer("LI", orderedItem.outerHTML, "OL"),
+    ).toBe("<ol><li>Ordered item</li></ol>");
   });
 
   it("clears removed heading formatting without clearing its position", () => {
@@ -346,6 +354,42 @@ describe("slide rich text normalization", () => {
     expect(restored.querySelector(":scope > ul li")?.textContent).toBe(
       "Nested updated",
     );
+  });
+
+  it("keeps newly created list items as siblings", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<ul><li>First</li></ul>";
+    const item = root.querySelector("li") as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      item,
+      "<ul><li>First</li><li>Second</li></ul>",
+    );
+
+    expect(restored).toBe(item);
+    expect(item.parentElement?.tagName).toBe("UL");
+    expect(
+      Array.from(item.parentElement!.children).map(
+        (child) => child.textContent,
+      ),
+    ).toEqual(["First", "Second"]);
+  });
+
+  it("converts the actual parent list when editing an item", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<ul data-builder-id="list"><li>First</li><li>Second</li></ul>';
+    const item = root.querySelector("li") as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      item,
+      "<ol><li>First</li></ol>",
+    );
+
+    expect(restored).toBe(item);
+    expect(item.parentElement?.tagName).toBe("OL");
+    expect(item.parentElement?.getAttribute("data-builder-id")).toBe("list");
+    expect(item.parentElement?.children).toHaveLength(2);
   });
 
   it("promotes semantic containers to one wrapper for structural edits", () => {

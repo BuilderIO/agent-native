@@ -97,6 +97,7 @@ export function isSlideTextContainerTag(tagName: string): boolean {
 export function contentForSlideTextContainer(
   tagName: string,
   html: string,
+  listTagName?: "OL" | "UL",
 ): string {
   if (
     !html ||
@@ -131,7 +132,7 @@ export function contentForSlideTextContainer(
     return paragraph.outerHTML;
   }
   if (tagName.toUpperCase() === "LI") {
-    const list = doc.createElement("ul");
+    const list = doc.createElement(listTagName === "OL" ? "ol" : "ul");
     const item = doc.createElement("li");
     syncSlideEditorBlockFormatting(first as HTMLElement, item);
     item.innerHTML = first.innerHTML;
@@ -170,6 +171,34 @@ export function restoreSlideTextContainerContent(
     return element;
   }
 
+  const nextListRoot =
+    nextRoot && (nextRoot.tagName === "OL" || nextRoot.tagName === "UL")
+      ? nextRoot
+      : null;
+  let parentList =
+    element.tagName === "LI" &&
+    (element.parentElement?.tagName === "OL" ||
+      element.parentElement?.tagName === "UL")
+      ? element.parentElement
+      : null;
+  if (
+    parentList &&
+    nextListRoot &&
+    parentList.tagName !== nextListRoot.tagName
+  ) {
+    const replacement = element.ownerDocument.createElement(
+      nextListRoot.tagName.toLowerCase(),
+    );
+    for (const attribute of Array.from(parentList.attributes)) {
+      replacement.setAttribute(attribute.name, attribute.value);
+    }
+    while (parentList.firstChild) {
+      replacement.appendChild(parentList.firstChild);
+    }
+    parentList.replaceWith(replacement);
+    parentList = replacement;
+  }
+
   const content = contentForSlideTextContainer(element.tagName, html);
   if (content !== html) {
     element.innerHTML = content;
@@ -178,13 +207,19 @@ export function restoreSlideTextContainerContent(
 
   const nextListItemRoot =
     element.tagName === "LI" &&
-    (nextRoot?.tagName === "OL" || nextRoot?.tagName === "UL") &&
-    nextRoot.children.length === 1 &&
-    nextRoot.firstElementChild?.tagName === "LI"
-      ? (nextRoot.firstElementChild as HTMLElement)
+    nextListRoot !== null &&
+    nextListRoot.children.length === 1 &&
+    nextListRoot.firstElementChild?.tagName === "LI"
+      ? (nextListRoot.firstElementChild as HTMLElement)
       : null;
+  const hasMultipleListItems =
+    element.tagName === "LI" &&
+    nextListRoot !== null &&
+    nextListRoot.children.length > 1 &&
+    Array.from(nextListRoot.children).every((child) => child.tagName === "LI");
   const preservesListItemRoot =
     element.tagName === "LI" &&
+    !hasMultipleListItems &&
     (nextListItemRoot !== null ||
       (nextChildren.length > 0 &&
         nextChildren.every((child) =>
@@ -232,6 +267,17 @@ export function restoreSlideTextContainerContent(
       return element;
     }
     element.innerHTML = html;
+    return element;
+  }
+
+  if (hasMultipleListItems && parentList && nextListRoot) {
+    const firstItem = nextListRoot.firstElementChild as HTMLElement;
+    syncSlideEditorBlockFormatting(firstItem, element, true);
+    element.innerHTML = firstItem.innerHTML;
+    const insertBefore = element.nextSibling;
+    for (const item of Array.from(nextListRoot.children).slice(1)) {
+      parentList.insertBefore(item.cloneNode(true), insertBefore);
+    }
     return element;
   }
 

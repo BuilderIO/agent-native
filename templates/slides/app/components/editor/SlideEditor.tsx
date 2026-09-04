@@ -1820,7 +1820,16 @@ export default function SlideEditor({
   const inlineEditDraftCaptureTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+  const currentSlideIdRef = useRef(slide.id);
   const [richTextEditorRevision, setRichTextEditorRevision] = useState(0);
+
+  useLayoutEffect(() => {
+    currentSlideIdRef.current = slide.id;
+    if (inlineEditDraftCaptureTimerRef.current !== null) {
+      clearTimeout(inlineEditDraftCaptureTimerRef.current);
+      inlineEditDraftCaptureTimerRef.current = null;
+    }
+  }, [slide.id]);
 
   const serializeSlideContentHtml = useCallback(
     (
@@ -1936,6 +1945,13 @@ export default function SlideEditor({
       }
       inlineEditDraftCaptureTimerRef.current = setTimeout(() => {
         inlineEditDraftCaptureTimerRef.current = null;
+        const session = richTextEditorSessionRef.current;
+        if (
+          currentSlideIdRef.current !== slideId ||
+          session?.slideId !== slideId
+        ) {
+          return;
+        }
         captureInlineEditDraft(slideId);
       }, 250);
     },
@@ -2426,7 +2442,15 @@ export default function SlideEditor({
           ? selectionOffsetsWithin(el, nativeRange)
           : null;
       const initialHtml = isSlideTextContainerTag(el.tagName)
-        ? contentForSlideTextContainer(el.tagName, el.outerHTML)
+        ? contentForSlideTextContainer(
+            el.tagName,
+            el.outerHTML,
+            el.tagName === "LI" &&
+              (el.parentElement?.tagName === "OL" ||
+                el.parentElement?.tagName === "UL")
+              ? (el.parentElement.tagName as "OL" | "UL")
+              : undefined,
+          )
         : el.innerHTML;
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
