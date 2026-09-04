@@ -85,10 +85,9 @@ const chatRouteViolations = [
     ) ||
     chatThreadRoute.includes('import("@/components/chat/ChatRouteContent")')
   ) ||
-  !chatThreadRoute.includes("useEffect") ||
   !chatRoot.includes("<AppProviders") ||
   !chatRoot.includes("isPublicPath={isMarketingPath}")
-    ? "Chat /chat/:threadId must defer the interactive Chat surface until client hydration"
+    ? "Chat /chat/:threadId must render the shared Chat surface behind the root client boundary"
     : null,
   !chatSurface.includes("AgentKitRoot") || !chatSurface.includes("AgentKitChat")
     ? "Chat /chat/:threadId must render the shared AgentKit Chat surface"
