@@ -501,7 +501,10 @@ import type {
 } from "./design-editor/command-types";
 import { runAddAutoLayout } from "./design-editor/commands/add-auto-layout";
 import { runAddScreen } from "./design-editor/commands/add-screen";
-import { runAlignSelection } from "./design-editor/commands/align-selection";
+import {
+  alignSelectionAvailability,
+  runAlignSelection,
+} from "./design-editor/commands/align-selection";
 import { runApplyDesignEditorCommand } from "./design-editor/commands/apply-design-editor-command";
 import { runApplyFileContentUpdate } from "./design-editor/commands/apply-file-content-update";
 import { runApplyLayoutFlow } from "./design-editor/commands/apply-layout-flow";
@@ -724,6 +727,7 @@ import {
 } from "./design-editor/layer-state-scope";
 import {
   type AlignableRect,
+  authoredPxLength,
   computeOverlapReflowGeometry,
   mergeAuthoredAndLiveRect,
   type ReflowCandidate,
@@ -11462,68 +11466,104 @@ function DesignEditor() {
   );
 
   // ── Layout geometry: align, distribute, tidy, auto-layout ──────────────────
-  // Selection alignment (item 3) + distribute/tidy (item 4) + Shift+A add
-  // auto layout (item 5) share the same in-screen-layer building block: read
-  // each selected DOM node's authored geometry straight from its inline
-  // style (this codebase's code-layer substrate is static-HTML analysis, not
-  // a live rendered DOM). When a node's inline style omits left/top/width/
-  // height (e.g. a flex child, or anything positioned by class/transform
-  // rather than inline style), the authored-style read alone resolves to a
-  // degenerate 0,0,0,0 box — every rect looks "already aligned" and the
-  // whole operation silently no-ops. rectLiveFallbackForNode below recovers
-  // real geometry from the rendered single-screen preview iframe (same-origin
-  // for inline designs) for exactly that case.
-  const rectLiveFallbackForNode = useCallback(
-    (
-      nodeId: string,
-    ): { x: number; y: number; width: number; height: number } | null => {
+  // Address the live element by the node's own CSS selectors: `node.id` is a
+  // projection hash (`html:…`) and the stamped `data-agent-native-node-id`
+  // attribute is an `an-…` hash, so a DOM query by node id never matches.
+  const liveElementForNode = useCallback(
+    (node: CodeLayerNode): HTMLElement | null => {
       const iframe = document.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
       );
       const doc = iframe?.contentDocument;
       if (!doc) return null;
-      const el = doc.querySelector<HTMLElement>(
-        `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
-      );
-      if (!el) return null;
-      const elRect = el.getBoundingClientRect();
-      // Use the immediate parent element (the containing block for the align
-      // math's purposes — matches how a subsequent left/top commit is read
-      // back by the same parent-relative authored-style convention) rather
-      // than offsetParent, since offsetParent skips non-positioned ancestors
-      // and would disagree with how children of a plain (static) parent are
-      // authored here.
-      const parentRect = el.parentElement?.getBoundingClientRect();
-      return {
-        x: elRect.x - (parentRect?.x ?? 0),
-        y: elRect.y - (parentRect?.y ?? 0),
-        width: elRect.width,
-        height: elRect.height,
-      };
+      const stableId = node.dataAttributes["data-agent-native-node-id"];
+      const selectors = [
+        ...(stableId
+          ? [`[data-agent-native-node-id="${CSS.escape(stableId)}"]`]
+          : []),
+        ...node.selectors,
+        node.selector,
+      ];
+      for (const selector of selectors) {
+        if (!selector) continue;
+        try {
+          const found = doc.querySelector<HTMLElement>(selector);
+          if (found) return found;
+        } catch {
+          // coercion-ok: a projection selector may not be valid CSS
+        }
+      }
+      return null;
     },
     [],
   );
 
-  const liveComputedLayoutForNode = useCallback((nodeId: string) => {
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    );
-    const doc = iframe?.contentDocument;
-    if (!doc) return null;
-    const element = doc.querySelector<HTMLElement>(
-      `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
-    );
-    if (!element) return null;
-    const computed =
-      element.ownerDocument.defaultView?.getComputedStyle(element);
-    if (!computed) return null;
-    return {
-      display: computed.display,
-      transform: computed.transform,
-      rotate: computed.rotate,
-      scale: computed.scale,
-    };
-  }, []);
+  const liveBoxesForNode = useCallback(
+    (
+      node: CodeLayerNode,
+    ): {
+      self: { x: number; y: number; width: number; height: number };
+      parent: { width: number; height: number } | null;
+    } | null => {
+      const el = liveElementForNode(node);
+      if (!el) return null;
+      const elRect = el.getBoundingClientRect();
+      // The immediate parent, not offsetParent: offsetParent skips
+      // non-positioned ancestors and would disagree with the parent-relative
+      // authored-style convention a left/top commit is read back through.
+      const parentRect = el.parentElement?.getBoundingClientRect();
+      return {
+        self: {
+          x: elRect.x - (parentRect?.x ?? 0),
+          y: elRect.y - (parentRect?.y ?? 0),
+          width: elRect.width,
+          height: elRect.height,
+        },
+        parent:
+          parentRect && parentRect.width > 0 && parentRect.height > 0
+            ? { width: parentRect.width, height: parentRect.height }
+            : null,
+      };
+    },
+    [liveElementForNode],
+  );
+
+  const rectLiveFallbackForNode = useCallback(
+    (node: CodeLayerNode) => liveBoxesForNode(node)?.self ?? null,
+    [liveBoxesForNode],
+  );
+
+  // Align bounds for a single selection. The live parent leads: a parent sized
+  // by class, percentage, or flex has no authored px box, and authored
+  // `width:100%` parses to a 100px bounds that lands every edge wrong.
+  const measureAlignParentBox = useCallback(
+    (node: CodeLayerNode, parentNode: CodeLayerNode) => {
+      const live = liveBoxesForNode(node)?.parent;
+      if (live) return live;
+      const width = authoredPxLength(parentNode.style.width);
+      const height = authoredPxLength(parentNode.style.height);
+      if (width === null || height === null) return null;
+      return width > 0 && height > 0 ? { width, height } : null;
+    },
+    [liveBoxesForNode],
+  );
+
+  const liveComputedLayoutForNode = useCallback(
+    (node: CodeLayerNode) => {
+      const element = liveElementForNode(node);
+      if (!element) return null;
+      const computed =
+        element.ownerDocument.defaultView?.getComputedStyle(element);
+      if (!computed) return null;
+      return {
+        display: computed.display,
+        transform: computed.transform,
+        rotate: computed.rotate,
+        scale: computed.scale,
+      };
+    },
+    [liveElementForNode],
+  );
 
   const rectFromCodeLayerNode = useCallback(
     (node: CodeLayerNode): AlignableRect => {
@@ -11537,7 +11577,7 @@ function DesignEditor() {
         Number.isFinite(authoredWidth) &&
         Number.isFinite(authoredHeight)
           ? null
-          : rectLiveFallbackForNode(node.id);
+          : rectLiveFallbackForNode(node);
       return mergeAuthoredAndLiveRect({
         id: node.id,
         authored: {
@@ -11727,6 +11767,7 @@ function DesignEditor() {
           getActiveFileSelectedNodeIds,
           getFreshActiveContent,
           handleGeometryCommit,
+          measureAlignParentBox,
           overviewScreens,
           overviewSelectedScreenIds,
           rectFromCodeLayerNode,
@@ -11745,10 +11786,39 @@ function DesignEditor() {
       getActiveFileSelectedNodeIds,
       getFreshActiveContent,
       handleGeometryCommit,
+      measureAlignParentBox,
       overviewScreens,
       overviewSelectedScreenIds,
       selectedLayerIdsState,
       rectFromCodeLayerNode,
+    ],
+  );
+
+  // The inspector's six alignment buttons disable on the same verdict
+  // runAlignSelection refuses on, so the row is never an affordance that
+  // no-ops or aligns a lone top-level frame against nothing.
+  const alignAvailability = useMemo(
+    () =>
+      alignSelectionAvailability({
+        canEditDesign,
+        fileIds: files.map((file) => file.id),
+        overviewSelectedScreenIds,
+        resolveNodesById: () =>
+          new Map(
+            activeCodeLayerProjection.nodes.map((node) => [node.id, node]),
+          ),
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+        viewMode,
+      }),
+    [
+      activeCodeLayerProjection,
+      canEditDesign,
+      files,
+      overviewSelectedScreenIds,
+      selectedElement,
+      selectedLayerIdsState,
+      viewMode,
     ],
   );
 
@@ -11941,7 +12011,7 @@ function DesignEditor() {
       (node) => node.id === selectedIds[0],
     );
     const computedLayout = container
-      ? liveComputedLayoutForNode(container.id)
+      ? liveComputedLayoutForNode(container)
       : null;
     return Boolean(
       container &&
@@ -19687,6 +19757,7 @@ function DesignEditor() {
     reviewCommentsPanelProps,
     reviewCommentsCount: reviewOpenCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
+    alignSelectionDisabled: !alignAvailability.canAlign,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
     onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,

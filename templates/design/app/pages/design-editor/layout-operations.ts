@@ -35,6 +35,20 @@ export function mergeAuthoredAndLiveRect(args: {
   };
 }
 
+/**
+ * Authored length in CSS px, or null for anything that is not px.
+ * `Number.parseFloat` turns `width:100%` into 100 — a 100px align bounds for
+ * a full-width parent, which lands every edge in the wrong place.
+ */
+export function authoredPxLength(value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  if (!/^-?(?:\d+\.?\d*|\.\d+)(?:px)?$/i.test(trimmed)) return null;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function computeAlignedPositions(
   rects: readonly AlignableRect[],
   bounds: { x: number; y: number; width: number; height: number },

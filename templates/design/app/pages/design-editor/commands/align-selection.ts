@@ -19,6 +19,74 @@ import { computeAlignedPositions } from "@/pages/design-editor/layout-operations
 import { overviewSelectionTargetsElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+/**
+ * Why an alignment click would do nothing. The inspector disables its six
+ * buttons on the same verdict `runAlignSelection` refuses on, so the row is
+ * never an affordance that silently no-ops (or, when the bounds could not be
+ * measured, moves the selection to the wrong edge).
+ */
+export type AlignSelectionBlocker =
+  | "read-only"
+  | "no-selection"
+  | "overview-needs-two-screens"
+  | "no-alignable-parent";
+
+export interface AlignSelectionAvailabilityArgs {
+  canEditDesign: boolean;
+  fileIds: string[];
+  overviewSelectedScreenIds: string[];
+  /** Active-file projection nodes, resolved only when the verdict needs them. */
+  resolveNodesById: () => ReadonlyMap<string, CodeLayerNode>;
+  selectedElement: ElementInfo | null;
+  selectedLayerIds: string[];
+  viewMode: "single" | "overview";
+}
+
+export type AlignSelectionAvailability =
+  | { canAlign: true }
+  | { canAlign: false; blocker: AlignSelectionBlocker };
+
+/** A frame at the top of the document has nothing to align against. */
+function isDocumentRootNode(node: CodeLayerNode | undefined): boolean {
+  const tag = node?.tag.toLowerCase();
+  return tag === "body" || tag === "html";
+}
+
+export function alignSelectionAvailability(
+  args: AlignSelectionAvailabilityArgs,
+): AlignSelectionAvailability {
+  if (!args.canEditDesign) return { canAlign: false, blocker: "read-only" };
+  if (
+    args.viewMode === "overview" &&
+    !overviewSelectionTargetsElement({
+      selectedElement: args.selectedElement,
+      selectedLayerIds: args.selectedLayerIds,
+      fileIds: args.fileIds,
+    })
+  ) {
+    return args.overviewSelectedScreenIds.length >= 2
+      ? { canAlign: true }
+      : { canAlign: false, blocker: "overview-needs-two-screens" };
+  }
+  const nodesById = args.resolveNodesById();
+  const fileIdSet = new Set(args.fileIds);
+  const nodeIds = args.selectedLayerIds.filter(
+    (layerId) =>
+      !layerId.startsWith("__") &&
+      !fileIdSet.has(layerId) &&
+      nodesById.has(layerId),
+  );
+  if (nodeIds.length === 0) return { canAlign: false, blocker: "no-selection" };
+  // 2+ objects align to their own combined bounding box, so they never need a
+  // parent — a pair of top-level frames is alignable where one is not.
+  if (nodeIds.length >= 2) return { canAlign: true };
+  const parentId = nodesById.get(nodeIds[0]!)?.parentId;
+  const parentNode = parentId ? nodesById.get(parentId) : undefined;
+  return parentNode && !isDocumentRootNode(parentNode)
+    ? { canAlign: true }
+    : { canAlign: false, blocker: "no-alignable-parent" };
+}
+
 export interface AlignSelectionArgs {
   activeFile: DesignFile;
   boardFileId: string | undefined;
@@ -37,6 +105,16 @@ export interface AlignSelectionArgs {
     after: CanvasFrameGeometryById,
     options?: { source?: "pointer" | "keyboard" },
   ) => void;
+  /**
+   * The box a single selection aligns inside, in the same parent-relative
+   * space `rectFromCodeLayerNode` reports the child in. Null means unmeasured,
+   * not empty: a zero box puts every edge at the parent's origin, which reads
+   * as the buttons moving the selection the wrong way.
+   */
+  measureAlignParentBox: (
+    node: CodeLayerNode,
+    parentNode: CodeLayerNode,
+  ) => { width: number; height: number } | null;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   rectFromCodeLayerNode: (node: CodeLayerNode) => AlignableRect;
@@ -57,6 +135,7 @@ export function runAlignSelection(
     getActiveFileSelectedNodeIds,
     getFreshActiveContent,
     handleGeometryCommit,
+    measureAlignParentBox,
     overviewScreens,
     overviewSelectedScreenIds,
     rectFromCodeLayerNode,
@@ -70,12 +149,36 @@ export function runAlignSelection(
     trace("structure", "align-abandoned", { reason, edge, ...data });
   };
   trace("structure", "align", { layers: selectedLayerIdsState.length });
-  if (!canEditDesign) return abandon("read-only");
 
-  // Overview, 2+ selected SCREENS: align each screen's frame geometry to
-  // the selection's combined bounding box through the same
-  // handleGeometryCommit path drags/nudges use — one undo step for the
-  // whole align. A layer selection must fall through to the element path
+  // One projection for both the verdict below and the layer paths further
+  // down, built on demand so aligning overview screens never pays for it.
+  const baseContent = activeFile ? getFreshActiveContent() : "";
+  let projectionNodesById: ReadonlyMap<string, CodeLayerNode> | null = null;
+  const resolveNodesById = () => {
+    if (!projectionNodesById) {
+      projectionNodesById = new Map(
+        buildCodeLayerProjection(baseContent).nodes.map((node) => [
+          node.id,
+          node,
+        ]),
+      );
+    }
+    return projectionNodesById;
+  };
+
+  const availability = alignSelectionAvailability({
+    canEditDesign,
+    fileIds: files.map((file) => file.id),
+    overviewSelectedScreenIds,
+    resolveNodesById,
+    selectedElement,
+    selectedLayerIds: selectedLayerIdsState,
+    viewMode: viewModeRef.current ?? "single",
+  });
+  if (!availability.canAlign) return abandon(availability.blocker);
+
+  // Selected SCREENS go through handleGeometryCommit, so the whole align is
+  // one undo step. A layer selection must fall through to the element path
   // below instead, as Figma aligns whatever is selected.
   if (
     viewModeRef.current === "overview" &&
@@ -85,11 +188,6 @@ export function runAlignSelection(
       fileIds: files.map((file) => file.id),
     })
   ) {
-    if (overviewSelectedScreenIds.length < 2) {
-      return abandon("overview: needs 2+ screens", {
-        selected: overviewSelectedScreenIds.length,
-      });
-    }
     const before = getCanvasFrameGeometry(designDataJsonRef.current);
     const screenRects: AlignableRect[] = [];
     overviewSelectedScreenIds.forEach((screenId) => {
@@ -150,15 +248,8 @@ export function runAlignSelection(
 
   // Single-screen mode: in-screen DOM-node layers.
   if (!activeFile) return abandon("no active file");
-  const baseContent = getFreshActiveContent();
   const nodeIds = getActiveFileSelectedNodeIds(baseContent);
-  if (nodeIds.length === 0) {
-    return abandon("selection has no nodes in the active file", {
-      selectedLayerIds: selectedLayerIdsState.length,
-    });
-  }
-  const projection = buildCodeLayerProjection(baseContent);
-  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  const nodesById = resolveNodesById();
   const selectedNodes = nodeIds
     .map((nodeId) => nodesById.get(nodeId))
     .filter((node): node is CodeLayerNode => Boolean(node));
@@ -188,22 +279,18 @@ export function runAlignSelection(
     return;
   }
 
-  // Single selection: align relative to the parent's content box. A
-  // single top-level screen (no code-layer parent) is a no-op, matching
-  // Figma (there's nothing to align a lone top-level frame against).
+  // Single selection: align relative to the parent's content box.
   const soleNode = selectedNodes[0]!;
   const parentId = soleNode.parentId;
-  if (!parentId) {
-    return abandon("single selection has no parent to align against", {
-      nodeId: soleNode.id,
-    });
-  }
-  const parentNode = nodesById.get(parentId);
+  const parentNode = parentId ? nodesById.get(parentId) : undefined;
   if (!parentNode) return abandon("parent id not in projection", { parentId });
-  const parentRect = rectFromCodeLayerNode(parentNode);
+  const parentBox = measureAlignParentBox(soleNode, parentNode);
+  if (!parentBox) {
+    return abandon("parent box could not be measured", { parentId });
+  }
   const positions = computeAlignedPositions(
     [selectedRects[0]!],
-    { x: 0, y: 0, width: parentRect.width, height: parentRect.height },
+    { x: 0, y: 0, width: parentBox.width, height: parentBox.height },
     edge,
   );
   if (positions.size === 0) {

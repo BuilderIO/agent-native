@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  authoredPxLength,
   computeAlignedPositions,
   computeDistributedPositions,
   computeTidyPositions,
@@ -18,6 +19,29 @@ import {
   mergeAuthoredAndLiveRect,
   type AlignableRect,
 } from "./design-editor/layout-operations";
+
+describe("authoredPxLength", () => {
+  it("reads px and unitless lengths", () => {
+    expect(authoredPxLength("800px")).toBe(800);
+    expect(authoredPxLength(" 12.5px ")).toBe(12.5);
+    expect(authoredPxLength("0")).toBe(0);
+    expect(authoredPxLength("-4px")).toBe(-4);
+  });
+
+  it("rejects every non-px length instead of parsing its number", () => {
+    for (const value of [
+      "100%",
+      "50vw",
+      "4rem",
+      "auto",
+      "calc(100% - 10px)",
+      "",
+      undefined,
+    ]) {
+      expect(authoredPxLength(value)).toBeNull();
+    }
+  });
+});
 
 describe("computeAlignedPositions", () => {
   const bounds = { x: 0, y: 0, width: 200, height: 100 };
