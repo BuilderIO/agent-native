@@ -167,8 +167,11 @@ export default defineAction({
     '`get-design-snapshot` and use `mode: "replace-file"` when replacing ' +
     "the representative placeholder with a complete but compact UI in the chosen " +
     "direction; prioritize the primary workflow and render secondary details " +
-    "as visible controls, states, or affordances when needed. Use `generate-design` " +
-    "instead only for brand-new files.",
+    "as visible controls, states, or affordances when needed. For a style change " +
+    "(colors, fonts, spacing, dark mode), call `index-design-tokens` first and " +
+    "reuse the design's existing tokens so the edited screen matches its " +
+    "siblings; introduce values the design does not already use only when asked. " +
+    "Use `generate-design` instead only for brand-new files.",
   schema: z
     .object({
       designId: z.string().describe("Design project ID"),

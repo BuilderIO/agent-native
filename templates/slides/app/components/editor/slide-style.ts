@@ -174,20 +174,7 @@ export function tokenPalette(
   ];
 }
 
-// `slide.background` holds either a raw CSS value or a Tailwind arbitrary
-// class (`bg-[...]`), which SlideRenderer applies as a class rather than
-// an inline style. The picker only speaks CSS colors, so unwrap the arbitrary
-// form and report anything else (named utilities, gradients) as unreadable
-// rather than guessing a hex the slide is not actually using.
-export function backgroundCssValue(
-  background: string | undefined,
-): string | null {
-  // guard:allow-raw-color — mirrors SlideRenderer's own default slide fill
-  if (!background) return "#000000";
-  const arbitrary = background.match(/^bg-\[(.+)\]$/);
-  if (arbitrary) return arbitrary[1].replace(/_/g, " ");
-  return background.startsWith("bg-") ? null : background;
-}
+export { backgroundCssValue } from "@shared/slide-background";
 
 export function formatValue(value: number) {
   return Number.isInteger(value)
