@@ -802,6 +802,11 @@ function isNavigationContextError(err: unknown): boolean {
   );
 }
 
+function isPlaywrightTimeoutError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("Timeout") && message.includes("exceeded");
+}
+
 function isTransientDevServerError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return (
@@ -1744,15 +1749,15 @@ async function waitForChatText(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError = "";
+  const body = page.locator("body");
   while (Date.now() < deadline) {
     let rendered = false;
     try {
-      rendered = await page.evaluate(
-        (value) => document.body?.innerText.includes(value) ?? false,
-        expected,
-      );
+      rendered = (await body.innerText({ timeout: 1_000 })).includes(expected);
     } catch (err) {
-      if (!isNavigationContextError(err)) throw err;
+      if (!isNavigationContextError(err) && !isPlaywrightTimeoutError(err)) {
+        throw err;
+      }
       lastError = err instanceof Error ? err.message : String(err);
     }
     if (rendered) return;
