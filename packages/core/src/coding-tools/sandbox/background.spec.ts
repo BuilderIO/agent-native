@@ -110,6 +110,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.unstubAllEnvs();
   resetSandboxAdapterForTests();
+  await pglite.close();
 });
 
 describe("queued adapter selection", () => {
@@ -386,11 +387,11 @@ describe("enqueueSandboxExecution", () => {
 describe("drainDueSandboxExecutions", () => {
   it("is a zero-footprint no-op when the table does not exist", async () => {
     expect(await drainDueSandboxExecutions()).toBe(0);
-    const tables = pglite
+    const tables = (await pglite
       .prepare(
         `SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'`,
       )
-      .all() as Array<{ name: string }>;
+      .all()) as Array<{ name: string }>;
     expect(tables.map((t) => t.name)).not.toContain("sandbox_executions");
   });
 

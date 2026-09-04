@@ -37,7 +37,7 @@ async function createPgliteExec() {
           return { rows: [], rowsAffected: 0 };
         }
         const trimmed = sql.trim().toUpperCase();
-        if (trimmed.startsWith("SELECT")) {
+        if (trimmed.startsWith("SELECT") || /\bRETURNING\b/i.test(sql)) {
           const rows = await pglite.prepare(sql).all(...args);
           return { rows, rowsAffected: 0 };
         }
@@ -233,9 +233,9 @@ describe("secrets storage CRUD (real pglite)", () => {
     await mod.writeAppSecret({ ...userRef, value: "sk-live-abc12345" });
 
     // The raw column never contains the plaintext — it is v1:-tagged ciphertext.
-    const row = pglite
+    const row = (await pglite
       .prepare(`SELECT encrypted_value FROM app_secrets`)
-      .get() as { encrypted_value: string };
+      .get()) as { encrypted_value: string };
     expect(row.encrypted_value).toMatch(/^v1:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
     expect(row.encrypted_value).not.toContain("sk-live-abc12345");
 
@@ -373,11 +373,11 @@ describe("secrets storage CRUD (real pglite)", () => {
         key: "BUILDER_PRIVATE_KEY",
         value: "builder-private-example",
       });
-      const before = pglite
+      const before = (await pglite
         .prepare(
           `SELECT shared_encrypted_value, updated_at FROM app_secrets LIMIT 1`,
         )
-        .get() as {
+        .get()) as {
         shared_encrypted_value: string;
         updated_at: number;
       };
@@ -392,11 +392,11 @@ describe("secrets storage CRUD (real pglite)", () => {
         }),
       ).resolves.toMatchObject({ value: "builder-private-example" });
 
-      const after = pglite
+      const after = (await pglite
         .prepare(
           `SELECT shared_encrypted_value, updated_at FROM app_secrets LIMIT 1`,
         )
-        .get() as {
+        .get()) as {
         shared_encrypted_value: string;
         updated_at: number;
       };
@@ -461,11 +461,11 @@ describe("secrets storage CRUD (real pglite)", () => {
 
       // Existing rows remain readable after the deployment adds the preferred
       // workspace key; the storage read path falls back to the old app key.
-      const beforeMigration = pglite
+      const beforeMigration = (await pglite
         .prepare(
           `SELECT encrypted_value, shared_encrypted_value, updated_at FROM app_secrets`,
         )
-        .get() as {
+        .get()) as {
         encrypted_value: string;
         shared_encrypted_value: string | null;
         updated_at: number;
@@ -475,11 +475,11 @@ describe("secrets storage CRUD (real pglite)", () => {
       await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
         value: "legacy-deployment-secret",
       });
-      const afterMigration = pglite
+      const afterMigration = (await pglite
         .prepare(
           `SELECT encrypted_value, shared_encrypted_value, updated_at FROM app_secrets`,
         )
-        .get() as {
+        .get()) as {
         encrypted_value: string;
         shared_encrypted_value: string | null;
         updated_at: number;
@@ -504,9 +504,9 @@ describe("secrets storage CRUD (real pglite)", () => {
         ...userRef,
         value: "updated-by-legacy-app",
       });
-      const afterLegacyWrite = pglite
+      const afterLegacyWrite = (await pglite
         .prepare(`SELECT shared_encrypted_value FROM app_secrets`)
-        .get() as { shared_encrypted_value: string | null };
+        .get()) as { shared_encrypted_value: string | null };
       expect(afterLegacyWrite.shared_encrypted_value).toBeNull();
     } finally {
       if (originalAppName === undefined)
@@ -547,9 +547,9 @@ describe("secrets storage CRUD (real pglite)", () => {
       // populates shared_encrypted_value alongside the legacy column.
       process.env.SECRETS_ENCRYPTION_KEY = "rotation-shared-material";
       await mod.writeAppSecret({ ...userRef, value: "original-secret-value" });
-      const original = pglite
+      const original = (await pglite
         .prepare(`SELECT shared_encrypted_value FROM app_secrets`)
-        .get() as { shared_encrypted_value: string | null };
+        .get()) as { shared_encrypted_value: string | null };
       expect(original.shared_encrypted_value).not.toBeNull();
 
       // 2. A writer without shared key material updates the value (e.g. an
@@ -560,9 +560,9 @@ describe("secrets storage CRUD (real pglite)", () => {
       delete process.env.SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
       await mod.writeAppSecret({ ...userRef, value: "rotated-secret-value" });
-      const afterRotationWrite = pglite
+      const afterRotationWrite = (await pglite
         .prepare(`SELECT shared_encrypted_value FROM app_secrets`)
-        .get() as { shared_encrypted_value: string | null };
+        .get()) as { shared_encrypted_value: string | null };
       expect(afterRotationWrite.shared_encrypted_value).toBeNull();
 
       // 3. Shared material comes back (e.g. the deployment finishes rolling
@@ -636,9 +636,9 @@ describe("secrets storage CRUD (real pglite)", () => {
       }),
     ).rejects.toThrow(/all required/);
 
-    const { count } = pglite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(0);
   });
 
@@ -658,9 +658,9 @@ describe("secrets storage CRUD (real pglite)", () => {
     // Reference stability: overwriting a key must not mint a new id.
     expect(secondId).toBe(firstId);
 
-    const { count } = pglite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(1);
 
     const read = await mod.readAppSecret(userRef);
@@ -684,9 +684,9 @@ describe("secrets storage CRUD (real pglite)", () => {
     ]);
     expect(firstId).toBe(secondId);
 
-    const { count } = pglite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(1);
 
     const read = await mod.readAppSecret(userRef);

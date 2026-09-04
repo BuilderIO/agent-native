@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
@@ -17,6 +17,10 @@ import { createTestPglite } from "../a2a/test-pglite.js";
  */
 
 const pglite = await createTestPglite();
+
+afterAll(async () => {
+  await pglite.close();
+});
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
@@ -49,10 +53,10 @@ function nextRunId(): string {
   return `run-fallback-${seq}`;
 }
 
-function dispatchModeOf(runId: string): string | null {
-  const row = pglite
+async function dispatchModeOf(runId: string): Promise<string | null> {
+  const row = (await pglite
     .prepare(`SELECT dispatch_mode FROM agent_runs WHERE id = ?`)
-    .get(runId) as { dispatch_mode: string | null } | undefined;
+    .get(runId)) as { dispatch_mode: string | null } | undefined;
   return row?.dispatch_mode ?? null;
 }
 
@@ -65,7 +69,7 @@ describe("durable-background inline fallback — claimBackgroundRun exclusivity"
     expect(await claimBackgroundRun(runId)).toBe(true);
 
     // The row is now owned (background-processing), still running.
-    expect(dispatchModeOf(runId)).toBe("background-processing");
+    await expect(dispatchModeOf(runId)).resolves.toBe("background-processing");
     expect((await getRunById(runId))?.status).toBe("running");
   });
 

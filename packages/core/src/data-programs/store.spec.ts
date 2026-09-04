@@ -77,21 +77,21 @@ describe("data-programs/store", () => {
       const { ensureDataProgramTables } = await loadStore();
       await ensureDataProgramTables();
 
-      const tables = pglite
+      const tables = (await pglite
         .prepare(
           `SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'`,
         )
-        .all() as Array<{ name: string }>;
+        .all()) as Array<{ name: string }>;
       const names = tables.map((t) => t.name);
       expect(names).toContain("data_programs");
       expect(names).toContain("data_program_shares");
       expect(names).toContain("data_program_runs");
 
-      const runColumns = pglite
+      const runColumns = (await pglite
         .prepare(
           `SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'data_program_runs'`,
         )
-        .all() as Array<{ name: string }>;
+        .all()) as Array<{ name: string }>;
       expect(runColumns.map((c) => c.name)).toContain("truncated");
     });
 

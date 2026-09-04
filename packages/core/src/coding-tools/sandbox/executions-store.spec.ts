@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
 
@@ -62,6 +62,10 @@ function baseInput(overrides: Record<string, unknown> = {}) {
 beforeEach(async () => {
   pglite = await createTestPglite();
   resetSandboxExecutionsStoreForTests();
+});
+
+afterEach(async () => {
+  await pglite.close();
 });
 
 describe("sandbox executions store", () => {

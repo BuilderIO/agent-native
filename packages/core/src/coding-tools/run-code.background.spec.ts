@@ -89,6 +89,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   resetSandboxAdapterForTests();
   resetSandboxBackgroundForTests();
+  await pglite.close();
 });
 
 describe("run-code background param", () => {

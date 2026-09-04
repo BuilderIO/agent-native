@@ -168,9 +168,9 @@ describe("allowPublic: false", () => {
     });
 
     // The DB column should still be private — the action must not have run.
-    const rows = pglite
+    const rows = (await pglite
       .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
-      .all("doc-1") as Array<{ visibility: string }>;
+      .all("doc-1")) as Array<{ visibility: string }>;
     expect(rows[0]?.visibility).toBe("private");
   });
 
@@ -256,7 +256,7 @@ describe("requireOrgMemberForUserShares: true", () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
-    const shares = pglite
+    const shares = await pglite
       .prepare("SELECT * FROM restricted_doc_shares WHERE resource_id = ?")
       .all("doc-3");
     expect(shares).toEqual([]);

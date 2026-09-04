@@ -293,9 +293,9 @@ describe("recordUsage", () => {
       taskId: "task-42",
       orgId: "org-7",
     });
-    const row = pglite
+    const row = (await pglite
       .prepare(`SELECT run_id, thread_id, task_id, org_id FROM token_usage`)
-      .get() as Record<string, string | null>;
+      .get()) as Record<string, string | null>;
     expect(row).toEqual({
       run_id: "run-abc",
       thread_id: "thread-xyz",
@@ -331,9 +331,9 @@ describe("recordUsage", () => {
       outputTokens: 50,
       model: "claude-sonnet-4-5",
     });
-    const row = pglite
+    const row = (await pglite
       .prepare(`SELECT run_id, thread_id, task_id FROM token_usage`)
-      .get() as Record<string, string | null>;
+      .get()) as Record<string, string | null>;
     expect(row).toEqual({ run_id: null, thread_id: null, task_id: null });
   });
 });
@@ -558,11 +558,11 @@ describe("recordUsage refId + cost override", () => {
       label: "visual-recap",
       refId: "recap-1",
     });
-    const rows = pglite
+    const rows = (await pglite
       .prepare(
         "SELECT input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'recap-1'",
       )
-      .all() as Array<{ input_tokens: number }>;
+      .all()) as Array<{ input_tokens: number }>;
     expect(rows).toHaveLength(1);
     expect(rows[0].input_tokens).toBe(200);
   });
@@ -593,11 +593,11 @@ describe("recordUsage refId + cost override", () => {
         }),
     );
 
-    const rows = pglite
+    const rows = (await pglite
       .prepare(
         "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'shared-recap' ORDER BY org_id",
       )
-      .all() as Array<{ org_id: string; input_tokens: number }>;
+      .all()) as Array<{ org_id: string; input_tokens: number }>;
     expect(rows).toEqual([
       { org_id: "org-a", input_tokens: 100 },
       { org_id: "org-b", input_tokens: 200 },
@@ -626,11 +626,11 @@ describe("recordUsage refId + cost override", () => {
         }),
     );
 
-    const rows = pglite
+    const rows = (await pglite
       .prepare(
         "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'legacy-recap'",
       )
-      .all() as Array<{ org_id: string | null; input_tokens: number }>;
+      .all()) as Array<{ org_id: string | null; input_tokens: number }>;
     expect(rows).toEqual([{ org_id: "org-a", input_tokens: 200 }]);
   });
 
@@ -644,11 +644,11 @@ describe("recordUsage refId + cost override", () => {
       refId: "recap-2",
       costCentsX100: 4242,
     });
-    const row = pglite
+    const row = (await pglite
       .prepare(
         "SELECT cost_cents_x100 AS c FROM token_usage WHERE ref_id = 'recap-2'",
       )
-      .get() as { c: number };
+      .get()) as { c: number };
     // Derived cost would be 50000 centicents ($5/1M); the override wins.
     expect(row.c).toBe(4242);
   });
@@ -663,11 +663,11 @@ describe("recordUsage refId + cost override", () => {
       refId: "recap-compatible",
       costSource: "unavailable",
     });
-    const row = pglite
+    const row = (await pglite
       .prepare(
         "SELECT cost_cents_x100 AS cost, cost_source AS source FROM token_usage WHERE ref_id = 'recap-compatible'",
       )
-      .get() as { cost: number; source: string };
+      .get()) as { cost: number; source: string };
 
     expect(row).toEqual({ cost: 0, source: "unavailable" });
   });
@@ -687,7 +687,7 @@ describe("recordUsage refId + cost override", () => {
       model: "m",
       label: "chat",
     });
-    const rows = pglite
+    const rows = await pglite
       .prepare("SELECT id FROM token_usage WHERE label = 'chat'")
       .all();
     expect(rows).toHaveLength(2);
