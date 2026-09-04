@@ -92,7 +92,7 @@ export function isShareableContentPath(pathname: string): boolean {
 export function isBareContentPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
   return (
-    BARE_ROUTES.has(pathname) ||
+    BARE_ROUTES.has(normalizedPath) ||
     BARE_PREFIXES.some((p) => pathname.startsWith(p)) ||
     normalizedPath.endsWith("/present")
   );

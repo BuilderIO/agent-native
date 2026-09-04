@@ -13,6 +13,7 @@ import {
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_CACHE_ENV_VAR,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
   PASSWORD_MAX_LENGTH,
@@ -3234,6 +3235,9 @@ describe("server/auth", () => {
       );
 
       expect(result).toBeInstanceOf(Response);
+      expect((result as Response).headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe(
+        "query",
+      );
       expect(
         readAuthPageData(await (result as Response).text()).initialView,
       ).toBe("login");

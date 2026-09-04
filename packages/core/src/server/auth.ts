@@ -95,7 +95,10 @@ import {
 } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
+import {
+  resolveSsrCacheHeaders,
+  SSR_QUERY_CACHE_KEY_HEADER,
+} from "../shared/cache-control.js";
 import {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
@@ -3336,6 +3339,7 @@ function loginHtmlResponse(
     requestIndependent?: boolean;
   } = {},
 ): Response {
+  const { search } = getRequestPathAndSearch(event);
   const appOriginConfigScript = getAppOriginClientConfigScript();
   let html = loginHtml;
   if (
@@ -3368,6 +3372,9 @@ function loginHtmlResponse(
       // analytics script is public build configuration, not user/session
       // state. Never vary this per request by cookie or session.
       ...resolveSsrCacheHeaders(),
+      ...(!options.requestIndependent && search
+        ? { [SSR_QUERY_CACHE_KEY_HEADER]: "query" }
+        : {}),
       "X-Robots-Tag": "noindex, nofollow",
     },
   });

@@ -21,6 +21,7 @@ describe("isShareableContentPath", () => {
 
   it("classifies the agent-embed slide preview as shareable content", () => {
     expect(isShareableContentPath("/slide")).toBe(true);
+    expect(isBareContentPath("/slide/")).toBe(true);
   });
 
   it("still classifies the existing bare prefixes as shareable content", () => {
