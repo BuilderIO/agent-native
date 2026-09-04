@@ -30,6 +30,19 @@ describe("app layout", () => {
     expect(source).not.toContain("md:hidden");
   });
 
+  it("persists the desktop sidebar collapse preference through the shared app shell", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("usePersistentSidebarCollapsed");
+    expect(source).toContain("storageKey: SIDEBAR_COLLAPSED_KEY");
+    expect(source).toContain('"content.sidebar.collapsed"');
+    expect(source).toContain("defaultCollapsed: false");
+    expect(source).toContain("collapsed={false}");
+    expect(source).toContain(
+      "onToggleCollapsed={() => setMobileSidebarOpen(false)}",
+    );
+  });
+
   it("uses pending document navigation for immediate sidebar and editor feedback", () => {
     const source = readLayoutSource();
 

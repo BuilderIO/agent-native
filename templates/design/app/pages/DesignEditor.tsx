@@ -92,7 +92,6 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   buildCodeLayerTree,
-  ensureCodeLayerNodeIdsInHtml,
   removeCodeLayerNodeFromHtml,
   type CodeLayerNode,
   type CodeLayerProjection,
@@ -128,6 +127,7 @@ import {
 } from "@shared/responsive-classes";
 import { createElementReviewAnchor } from "@shared/review-anchor";
 import { readDesignReviewSummary } from "@shared/review-summary";
+import { normalizeScreenHtml } from "@shared/screen-annotation";
 import {
   isRunningAppSourceType,
   normalizeDesignSourceType,
@@ -15323,7 +15323,7 @@ function DesignEditor() {
   useEffect(() => {
     if (viewMode === "overview" && !motionDockOpen) return;
     if (!activeFile || !activeContent.trim()) return;
-    const stamped = ensureCodeLayerNodeIdsInHtml(activeContent, {
+    const stamped = normalizeScreenHtml(activeContent, {
       source: {
         kind: "design-file",
         designId: id,

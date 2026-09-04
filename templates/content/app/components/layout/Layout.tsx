@@ -8,7 +8,10 @@ import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
-import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import {
+  HeaderActionsProvider,
+  usePersistentSidebarCollapsed,
+} from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
@@ -28,6 +31,7 @@ import { useCreatePage } from "@/hooks/use-create-page";
 import { Header } from "./Header";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
+const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
 const DEFAULT_SIDEBAR_WIDTH = 240;
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
@@ -124,7 +128,11 @@ export function Layout({ children }: LayoutProps) {
     };
   }, [documentScope]);
   const isCompactLayout = useIsCompactLayout();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
+    usePersistentSidebarCollapsed({
+      storageKey: SIDEBAR_COLLAPSED_KEY,
+      defaultCollapsed: false,
+    });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 

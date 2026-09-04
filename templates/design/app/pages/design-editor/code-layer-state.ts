@@ -1,5 +1,6 @@
 import {
   buildCodeLayerProjection,
+  componentIdentityHint,
   type CodeLayerNode,
   type CodeLayerProjection,
   type CodeLayerTreeNode,
@@ -24,6 +25,7 @@ import { queryUniqueSelector } from "./dom-utils";
 export function layerTypeForCodeLayer(
   node: CodeLayerTreeNode,
 ): LayersPanelNode["type"] {
+  if (node.type === "frame") return "frame";
   if (node.type === "group") return "group";
   if (node.type === "component") return "component";
   if (node.type === "ellipse") return "ellipse";
@@ -52,10 +54,8 @@ export function codeLayerNodeLooksLikeComponent(
   ) {
     return true;
   }
-  if (/component|card|button|control/i.test(node.layerName)) return true;
-  return node.classes.some((item) =>
-    /component|card|button|control/i.test(item),
-  );
+  if (componentIdentityHint(node.layerName)) return true;
+  return node.classes.some(componentIdentityHint);
 }
 
 export function preferredCodeLayerSelector(node: CodeLayerNode): string {
@@ -292,6 +292,7 @@ export function codeLayerTreeToPanelNodes(
       id: node.id,
       name: resolvedLayerName(node),
       type: layerTypeForCodeLayer(node),
+      isComponent: node.isComponent,
       tagName: node.tag,
       layout: node.layout,
       detail: node.detail,
