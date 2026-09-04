@@ -367,6 +367,13 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
       true,
     );
     expect(draftClaimsAnalyticsMetrics("Revenue is down.")).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Signups up 12% this week.")).toBe(true);
+  });
+
+  it("does not treat a chart position edit as an up/down trend claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics("I moved the sessions chart up 2 rows."),
+    ).toBe(false);
   });
 
   it("treats a metric stated before its figure as a claim", () => {

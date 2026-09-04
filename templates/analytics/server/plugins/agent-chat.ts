@@ -477,7 +477,9 @@ function priorTurnEvidence(
     const message = messages[i] as { role?: string; content?: unknown };
     if (isRealUserTextMessage(message)) {
       turnBoundariesCrossed += 1;
-      if (turnBoundariesCrossed > 2) break;
+      // The second boundary is the start of the second prior turn; nothing
+      // before it is in the window.
+      if (turnBoundariesCrossed >= 2) break;
       continue;
     }
     if (!Array.isArray(message?.content)) continue;

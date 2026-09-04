@@ -1331,6 +1331,39 @@ describe("realDataFinalGuard", () => {
     expect(result?.exhaustedDraftPrefix).toMatch(/^Unverified/);
   });
 
+  it("does not let a figure from three turns back ground a current answer", () => {
+    const followUp = "So signups were 532 last week, right?";
+    const result = realDataFinalGuard({
+      messages: [
+        ...groundedPriorTurnMessages("Thanks!"),
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "You're welcome." }],
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Which dashboard should I use for this?" },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Try the Growth dashboard." }],
+        },
+        { role: "user", content: [{ type: "text", text: followUp }] },
+      ],
+      requestText: followUp,
+      assistantContent: [],
+      text: "Yes — signups were 532 last week.",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    });
+
+    expect(result?.retryMessage).toMatch(/no real source query ran/);
+  });
+
   it("does not let an earlier turn's figure be re-attributed to a metric that turn never queried", () => {
     const followUp = "And how many paying customers this month?";
     const result = realDataFinalGuard({
