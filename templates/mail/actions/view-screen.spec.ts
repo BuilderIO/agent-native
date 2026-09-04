@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   getSetting: vi.fn(),
   readSettings: vi.fn(),
   isConnected: vi.fn(),
-  getClients: vi.fn(),
+  getClientsWithErrors: vi.fn(),
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT: 100,
   fetchGmailLabelMap: vi.fn(),
   listGmailMessages: vi.fn(),
@@ -32,7 +32,7 @@ vi.mock("../server/lib/mail-settings.js", () => ({
 
 vi.mock("../server/lib/google-auth.js", () => ({
   isConnected: mocks.isConnected,
-  getClients: mocks.getClients,
+  getClientsWithErrors: mocks.getClientsWithErrors,
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT:
     mocks.DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   fetchGmailLabelMap: mocks.fetchGmailLabelMap,
@@ -84,9 +84,10 @@ beforeEach(() => {
   mocks.getSetting.mockResolvedValue(null);
   mocks.readSettings.mockResolvedValue({ savedFilters: [], pinnedLabels: [] });
   mocks.isConnected.mockResolvedValue(true);
-  mocks.getClients.mockResolvedValue([
-    { email: OWNER, accessToken: "access-token", refreshToken: "" },
-  ]);
+  mocks.getClientsWithErrors.mockResolvedValue({
+    clients: [{ email: OWNER, accessToken: "access-token", refreshToken: "" }],
+    errors: [],
+  });
   mocks.fetchGmailLabelMap.mockResolvedValue(new Map());
   mocks.getSyntheticEmailsForView.mockResolvedValue([]);
   mocks.gmailToEmailMessage.mockImplementation((raw: any) => raw);
@@ -205,7 +206,6 @@ describe("view-screen Mail preview", () => {
   });
 
   it("limits label-map reads to the active account selection", async () => {
-    const otherAccount = "other@example.com";
     mocks.readAppState.mockResolvedValue({
       view: "inbox",
       label: "important",
@@ -215,10 +215,10 @@ describe("view-screen Mail preview", () => {
       savedFilters: [],
       pinnedLabels: ["important"],
     });
-    mocks.getClients.mockResolvedValue([
-      { email: OWNER, accessToken: "owner-token", refreshToken: "" },
-      { email: otherAccount, accessToken: "other-token", refreshToken: "" },
-    ]);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [{ email: OWNER, accessToken: "owner-token", refreshToken: "" }],
+      errors: [],
+    });
     mocks.listGmailMessages.mockResolvedValue({
       messages: [email("message")],
       errors: [],
@@ -226,8 +226,24 @@ describe("view-screen Mail preview", () => {
 
     await action.run({});
 
+    expect(mocks.getClientsWithErrors).toHaveBeenCalledWith(OWNER, [OWNER]);
     expect(mocks.fetchGmailLabelMap).toHaveBeenCalledOnce();
     expect(mocks.fetchGmailLabelMap).toHaveBeenCalledWith("owner-token");
+  });
+
+  it("reports OAuth refresh failures as partial account coverage", async () => {
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [{ email: OWNER, error: "refresh failed" }],
+    });
+    mocks.listGmailMessages.mockResolvedValue({ messages: [], errors: [] });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.emailList.coverage).toEqual({
+      complete: false,
+      failedAccounts: [OWNER],
+    });
   });
 
   it("does not read label maps for saved filters outside Inbox", async () => {

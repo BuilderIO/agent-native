@@ -22,7 +22,7 @@ import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import {
   isConnected,
-  getClients,
+  getClientsWithErrors,
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
@@ -172,7 +172,12 @@ async function fetchEmailList(
         !label &&
         savedFilterQueries.length > 0);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
-    const clients = googleConnected ? await getClients(ownerEmail) : [];
+    const { clients, errors: clientErrors } = googleConnected
+      ? await getClientsWithErrors(
+          ownerEmail,
+          selectedAccountEmails.length > 0 ? selectedAccountEmails : undefined,
+        )
+      : { clients: [], errors: [] };
     const connectedEmails = new Set(
       clients.map(({ email }) => email.toLowerCase()),
     );
@@ -217,16 +222,10 @@ async function fetchEmailList(
     }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
-      const failedAccounts = new Set<string>();
+      const failedAccounts = new Set(clientErrors.map(({ email }) => email));
       if (needsLabelMap) {
-        const labelMapClients =
-          selectedAccountEmails.length > 0
-            ? clients.filter(({ email }) =>
-                selectedAccountSet.has(email.toLowerCase()),
-              )
-            : clients;
         await Promise.all(
-          labelMapClients.map(async ({ email, accessToken }) => {
+          clients.map(async ({ email, accessToken }) => {
             try {
               const map = await fetchGmailLabelMap(accessToken);
               for (const [id, name] of map) labelMap.set(id, name);
