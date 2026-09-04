@@ -2087,6 +2087,7 @@ async function assertAgentKitChatAcceptance(
       url.pathname !== previousThreadPath,
     { timeout: 60_000 },
   );
+  await waitForStableChatSurface(page);
   const threadUrl = page.url();
   const threadPath = new URL(threadUrl).pathname;
   await waitForLoopbackState(
