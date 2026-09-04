@@ -11511,17 +11511,29 @@ function DesignEditor() {
       // The immediate parent, not offsetParent: offsetParent skips
       // non-positioned ancestors and would disagree with the parent-relative
       // authored-style convention a left/top commit is read back through.
-      const parentRect = el.parentElement?.getBoundingClientRect();
+      const parent = el.parentElement;
+      const parentRect = parent?.getBoundingClientRect();
+      // `left`/`top` resolve against the containing block's PADDING box, and
+      // client*/offset* are layout values no author transform scales —
+      // getBoundingClientRect alone folds border and scale into the bounds.
+      const scale =
+        parentRect && parent?.offsetWidth
+          ? parentRect.width / parent.offsetWidth
+          : 1;
+      const unscale = (value: number) => (scale > 0 ? value / scale : value);
       return {
         self: {
-          x: elRect.x - (parentRect?.x ?? 0),
-          y: elRect.y - (parentRect?.y ?? 0),
-          width: elRect.width,
-          height: elRect.height,
+          x:
+            unscale(elRect.x - (parentRect?.x ?? 0)) -
+            (parent?.clientLeft ?? 0),
+          y:
+            unscale(elRect.y - (parentRect?.y ?? 0)) - (parent?.clientTop ?? 0),
+          width: unscale(elRect.width),
+          height: unscale(elRect.height),
         },
         parent:
-          parentRect && parentRect.width > 0 && parentRect.height > 0
-            ? { width: parentRect.width, height: parentRect.height }
+          parent && parent.clientWidth > 0 && parent.clientHeight > 0
+            ? { width: parent.clientWidth, height: parent.clientHeight }
             : null,
       };
     },
@@ -11567,24 +11579,27 @@ function DesignEditor() {
 
   const rectFromCodeLayerNode = useCallback(
     (node: CodeLayerNode): AlignableRect => {
-      const authoredX = Number.parseFloat(node.style.left ?? "");
-      const authoredY = Number.parseFloat(node.style.top ?? "");
-      const authoredWidth = Number.parseFloat(node.style.width ?? "");
-      const authoredHeight = Number.parseFloat(node.style.height ?? "");
+      // Only px is authored geometry. `left:50%` parsed as 50px reads as a
+      // near-origin child and suppresses the live measurement that would have
+      // placed it correctly.
+      const authoredX = authoredPxLength(node.style.left);
+      const authoredY = authoredPxLength(node.style.top);
+      const authoredWidth = authoredPxLength(node.style.width);
+      const authoredHeight = authoredPxLength(node.style.height);
       const live =
-        Number.isFinite(authoredX) &&
-        Number.isFinite(authoredY) &&
-        Number.isFinite(authoredWidth) &&
-        Number.isFinite(authoredHeight)
+        authoredX !== null &&
+        authoredY !== null &&
+        authoredWidth !== null &&
+        authoredHeight !== null
           ? null
           : rectLiveFallbackForNode(node);
       return mergeAuthoredAndLiveRect({
         id: node.id,
         authored: {
-          x: authoredX,
-          y: authoredY,
-          width: authoredWidth,
-          height: authoredHeight,
+          x: authoredX ?? undefined,
+          y: authoredY ?? undefined,
+          width: authoredWidth ?? undefined,
+          height: authoredHeight ?? undefined,
         },
         live,
       });
@@ -11802,6 +11817,7 @@ function DesignEditor() {
       alignSelectionAvailability({
         canEditDesign,
         fileIds: files.map((file) => file.id),
+        measureAlignParentBox,
         overviewSelectedScreenIds,
         resolveNodesById: () =>
           new Map(
@@ -11815,6 +11831,7 @@ function DesignEditor() {
       activeCodeLayerProjection,
       canEditDesign,
       files,
+      measureAlignParentBox,
       overviewSelectedScreenIds,
       selectedElement,
       selectedLayerIdsState,

@@ -58,6 +58,7 @@ function availabilityArgs(
   return {
     canEditDesign: true,
     fileIds: ["file-1"],
+    measureAlignParentBox: () => ({ width: 800, height: 600 }),
     overviewSelectedScreenIds: [],
     resolveNodesById: () => fixture.all,
     selectedElement: null as ElementInfo | null,
@@ -127,6 +128,17 @@ describe("alignSelectionAvailability", () => {
         availabilityArgs([fixture.frame.id, fixture.unsizedParent.id]),
       ),
     ).toEqual({ canAlign: true });
+  });
+
+  it("refuses a parent whose box cannot be measured, matching the command", () => {
+    const fixture = nodes();
+    expect(
+      alignSelectionAvailability(
+        availabilityArgs([fixture.absChild.id], {
+          measureAlignParentBox: () => null,
+        }),
+      ),
+    ).toEqual({ canAlign: false, blocker: "parent-not-measurable" });
   });
 
   it("refuses an empty selection and a read-only design", () => {

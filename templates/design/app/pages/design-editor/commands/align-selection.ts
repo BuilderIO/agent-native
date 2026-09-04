@@ -29,11 +29,13 @@ export type AlignSelectionBlocker =
   | "read-only"
   | "no-selection"
   | "overview-needs-two-screens"
-  | "no-alignable-parent";
+  | "no-alignable-parent"
+  | "parent-not-measurable";
 
 export interface AlignSelectionAvailabilityArgs {
   canEditDesign: boolean;
   fileIds: string[];
+  measureAlignParentBox: MeasureAlignParentBox;
   overviewSelectedScreenIds: string[];
   /** Active-file projection nodes, resolved only when the verdict needs them. */
   resolveNodesById: () => ReadonlyMap<string, CodeLayerNode>;
@@ -41,6 +43,17 @@ export interface AlignSelectionAvailabilityArgs {
   selectedLayerIds: string[];
   viewMode: "single" | "overview";
 }
+
+/**
+ * The box a single selection aligns inside, in the same parent-relative space
+ * `rectFromCodeLayerNode` reports the child in. Null means unmeasured, not
+ * empty: a zero box puts every edge at the parent's origin, which reads as the
+ * buttons moving the selection the wrong way.
+ */
+export type MeasureAlignParentBox = (
+  node: CodeLayerNode,
+  parentNode: CodeLayerNode,
+) => { width: number; height: number } | null;
 
 export type AlignSelectionAvailability =
   | { canAlign: true }
@@ -80,11 +93,15 @@ export function alignSelectionAvailability(
   // 2+ objects align to their own combined bounding box, so they never need a
   // parent — a pair of top-level frames is alignable where one is not.
   if (nodeIds.length >= 2) return { canAlign: true };
-  const parentId = nodesById.get(nodeIds[0]!)?.parentId;
+  const soleNode = nodesById.get(nodeIds[0]!)!;
+  const parentId = soleNode.parentId;
   const parentNode = parentId ? nodesById.get(parentId) : undefined;
-  return parentNode && !isDocumentRootNode(parentNode)
+  if (!parentNode || isDocumentRootNode(parentNode)) {
+    return { canAlign: false, blocker: "no-alignable-parent" };
+  }
+  return args.measureAlignParentBox(soleNode, parentNode)
     ? { canAlign: true }
-    : { canAlign: false, blocker: "no-alignable-parent" };
+    : { canAlign: false, blocker: "parent-not-measurable" };
 }
 
 export interface AlignSelectionArgs {
@@ -105,16 +122,7 @@ export interface AlignSelectionArgs {
     after: CanvasFrameGeometryById,
     options?: { source?: "pointer" | "keyboard" },
   ) => void;
-  /**
-   * The box a single selection aligns inside, in the same parent-relative
-   * space `rectFromCodeLayerNode` reports the child in. Null means unmeasured,
-   * not empty: a zero box puts every edge at the parent's origin, which reads
-   * as the buttons moving the selection the wrong way.
-   */
-  measureAlignParentBox: (
-    node: CodeLayerNode,
-    parentNode: CodeLayerNode,
-  ) => { width: number; height: number } | null;
+  measureAlignParentBox: MeasureAlignParentBox;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   rectFromCodeLayerNode: (node: CodeLayerNode) => AlignableRect;
@@ -169,6 +177,7 @@ export function runAlignSelection(
   const availability = alignSelectionAvailability({
     canEditDesign,
     fileIds: files.map((file) => file.id),
+    measureAlignParentBox,
     overviewSelectedScreenIds,
     resolveNodesById,
     selectedElement,

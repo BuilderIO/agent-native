@@ -7,8 +7,9 @@ import {
 
 import { designFrame, enterDirectMode, gotoEditor } from "./helpers";
 
-/** Board is sized in percentages: its authored box parses to 100px, so the
- *  alignment bounds must come from the live parent, not the inline style. */
+/** Board is percentage-sized with a border and padding: its authored box
+ *  parses to 100px and its border box overshoots the padding box that
+ *  `left`/`top` actually resolve against. Both must be measured, not parsed. */
 const ALIGN_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Alignment fixture</title></head>
@@ -21,20 +22,27 @@ const ALIGN_HTML = `<!doctype html>
       <div
         data-agent-native-node-id="align-frame"
         data-agent-native-layer-name="Board"
-        style="position:relative;width:100%;height:100%;background:#eeeeee"
+        style="position:relative;box-sizing:border-box;width:100%;height:100%;border:10px solid #999999;padding:20px;background:#eeeeee"
       >
         <div
           data-agent-native-node-id="align-chip"
           data-agent-native-layer-name="Chip"
           style="position:absolute;left:300px;top:250px;width:120px;height:60px;background:#fca5a5"
         >Chip</div>
+        <div
+          data-agent-native-node-id="align-percent-chip"
+          data-agent-native-layer-name="Percent"
+          style="position:absolute;left:50%;top:100px;width:120px;height:60px;background:#93c5fd"
+        >Percent</div>
       </div>
     </div>
   </body>
 </html>`;
 
-const FRAME_WIDTH = 800;
-const FRAME_HEIGHT = 600;
+// Board is 800x600 border-box with a 10px border, so the padding box that
+// `left`/`top` resolve against is 780x580.
+const BOUNDS_WIDTH = 780;
+const BOUNDS_HEIGHT = 580;
 const CHIP_WIDTH = 120;
 const CHIP_HEIGHT = 60;
 
@@ -109,25 +117,28 @@ async function selectLayer(page: Page, layerName: string) {
   ).toContainText(layerName);
 }
 
-async function chipOffset(page: Page) {
+/** Offset from the parent's padding box — the space `left`/`top` write into. */
+async function layerOffset(page: Page, layerName: string) {
   return designFrame(page)
-    .locator('[data-agent-native-layer-name="Chip"]')
+    .locator(`[data-agent-native-layer-name="${layerName}"]`)
     .evaluate((element) => {
+      const parent = element.parentElement!;
       const child = element.getBoundingClientRect();
-      const parent = element.parentElement!.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
       return {
-        left: Math.round(child.left - parent.left),
-        top: Math.round(child.top - parent.top),
+        left: Math.round(child.left - parentRect.left - parent.clientLeft),
+        top: Math.round(child.top - parentRect.top - parent.clientTop),
       };
     });
 }
 
-async function expectChipOffset(
+async function expectOffset(
   page: Page,
+  layerName: string,
   expected: { left: number; top: number },
 ) {
   await expect
-    .poll(() => chipOffset(page), { timeout: 10_000 })
+    .poll(() => layerOffset(page, layerName), { timeout: 10_000 })
     .toEqual(expected);
 }
 
@@ -155,22 +166,39 @@ test("each alignment button moves the object to the edge it names", async ({
   const designId = await seedDesign(request);
   await openEditPanel(page, designId);
   await selectLayer(page, "Chip");
-  await expectChipOffset(page, { left: 300, top: 250 });
+  await expectOffset(page, "Chip", { left: 300, top: 250 });
 
   await alignButton(page, "Align right").click();
-  await expectChipOffset(page, {
-    left: FRAME_WIDTH - CHIP_WIDTH,
+  await expectOffset(page, "Chip", {
+    left: BOUNDS_WIDTH - CHIP_WIDTH,
     top: 250,
   });
 
   await alignButton(page, "Align left").click();
-  await expectChipOffset(page, { left: 0, top: 250 });
+  await expectOffset(page, "Chip", { left: 0, top: 250 });
 
   await alignButton(page, "Align bottom").click();
-  await expectChipOffset(page, { left: 0, top: FRAME_HEIGHT - CHIP_HEIGHT });
+  await expectOffset(page, "Chip", {
+    left: 0,
+    top: BOUNDS_HEIGHT - CHIP_HEIGHT,
+  });
 
   await alignButton(page, "Align top").click();
-  await expectChipOffset(page, { left: 0, top: 0 });
+  await expectOffset(page, "Chip", { left: 0, top: 0 });
+});
+
+test("aligning one axis leaves a percentage offset on the other axis put", async ({
+  page,
+  request,
+}) => {
+  const designId = await seedDesign(request);
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Percent");
+  const half = BOUNDS_WIDTH / 2;
+  await expectOffset(page, "Percent", { left: half, top: 100 });
+
+  await alignButton(page, "Align top").click();
+  await expectOffset(page, "Percent", { left: half, top: 0 });
 });
 
 test("a lone top-level frame has nothing to align against", async ({
