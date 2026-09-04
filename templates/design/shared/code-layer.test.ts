@@ -2867,16 +2867,22 @@ describe("wrapBareTextLeavesInHtml", () => {
 
   it("is idempotent", () => {
     const html = `<div><button class="px-6 py-3 bg-blue-600">Save</button></div>`;
-    const once = wrapBareTextLeavesInHtml(html).content;
-    const twice = wrapBareTextLeavesInHtml(once);
+    const once = wrapBareTextLeavesInHtml(html);
+    expect(once.changed).toBe(true);
+    expect(once.wrapped).toBe(1);
+    const twice = wrapBareTextLeavesInHtml(once.content);
     expect(twice.changed).toBe(false);
-    expect(twice.content).toBe(once);
+    expect(twice.content).toBe(once.content);
   });
 
   it("leaves unpainted text and mixed content alone", () => {
     const result = wrapBareTextLeavesInHtml(
-      `<div><h1 class="text-4xl">Title</h1><p class="p-4 bg-muted">Hi <b>there</b></p></div>`,
+      `<div><h1 class="text-4xl">Title</h1><p class="p-4 bg-muted">Hi <b>there</b></p><button class="px-4 py-2 bg-blue-600">Save</button></div>`,
     );
-    expect(result.changed).toBe(false);
+    expect(result.wrapped).toBe(1);
+    expect(result.content).toContain(`<h1 class="text-4xl">Title</h1>`);
+    expect(result.content).toContain(
+      `<p class="p-4 bg-muted">Hi <b>there</b></p>`,
+    );
   });
 });
