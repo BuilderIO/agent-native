@@ -152,6 +152,7 @@ import {
   IconClipboard,
   IconFileExport,
   IconFileStack,
+  IconLayoutSidebar,
   IconPlayerPlay,
   IconDeviceFloppy,
   IconRocket,
@@ -1453,7 +1454,6 @@ function DesignEditor() {
   // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
   const [uiHidden, setUiHidden] = useState(false);
   const [minimalUi, setMinimalUi] = useState(false);
-  const [minimalLeftSidebarOpen, setMinimalLeftSidebarOpen] = useState(false);
   const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] = useState(false);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -12142,17 +12142,8 @@ function DesignEditor() {
   const handleToggleMinimalUi = useCallback(() => {
     setMinimalUi((current) => !current);
     setUiHidden(false);
-    setMinimalLeftSidebarOpen(false);
     setMinimalRightSidebarOpen(false);
   }, []);
-
-  const handleToggleMinimalLeftSidebar = useCallback(() => {
-    if (uiHidden) {
-      setUiHidden(false);
-      return;
-    }
-    setMinimalLeftSidebarOpen((current) => !current);
-  }, [uiHidden]);
 
   const handleToggleMinimalRightSidebar = useCallback(() => {
     if (uiHidden) {
@@ -19122,7 +19113,7 @@ function DesignEditor() {
       </span>
     );
 
-  const minimalLeftSidebarToggle = (
+  const minimalUiToggle = (
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
@@ -19130,27 +19121,23 @@ function DesignEditor() {
           variant="ghost"
           size="icon"
           className="size-8 shrink-0 rounded-md"
-          aria-expanded={minimalLeftSidebarOpen && !uiHidden}
           aria-label={
-            minimalLeftSidebarOpen && !uiHidden
-              ? "Hide layers panel" /* i18n-ignore minimal UI chrome */
-              : "Show layers panel" /* i18n-ignore minimal UI chrome */
+            minimalUi
+              ? "Exit minimal UI" /* i18n-ignore minimal UI chrome */
+              : "Minimize UI" /* i18n-ignore minimal UI chrome */
           }
-          data-design-minimal-toggle="left"
-          onClick={handleToggleMinimalLeftSidebar}
+          aria-pressed={minimalUi}
+          data-design-minimal-toggle="ui"
+          onClick={handleToggleMinimalUi}
         >
-          {minimalLeftSidebarOpen && !uiHidden ? (
-            <IconChevronLeft className="size-4" />
-          ) : (
-            <IconChevronRight className="size-4" />
-          )}
+          <IconLayoutSidebar className="size-4" />
         </Button>
       </TooltipTrigger>
       <TooltipContent>
         {
-          minimalLeftSidebarOpen && !uiHidden
-            ? "Hide layers panel" /* i18n-ignore minimal UI chrome */
-            : "Show layers panel" /* i18n-ignore minimal UI chrome */
+          minimalUi
+            ? "Exit minimal UI" /* i18n-ignore minimal UI chrome */
+            : "Minimize UI" /* i18n-ignore minimal UI chrome */
         }
       </TooltipContent>
     </Tooltip>
@@ -19728,8 +19715,7 @@ function DesignEditor() {
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
       : Math.max(Math.min(leftSidebarWidth, 420), 220);
-  const leftSidebarVisible =
-    !hostOwnsChrome && !uiHidden && (!minimalUi || minimalLeftSidebarOpen);
+  const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   const rightSidebarVisible =
     !hostOwnsChrome &&
     !uiHidden &&
@@ -19911,7 +19897,7 @@ function DesignEditor() {
                   className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
                 >
                   {projectTitleControl}
-                  {minimalUi ? minimalLeftSidebarToggle : null}
+                  {minimalUiToggle}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel
@@ -21183,34 +21169,14 @@ function DesignEditor() {
             data-design-minimal-ui
             className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
           >
-            {!minimalLeftSidebarOpen || uiHidden ? (
-              <div
-                data-design-minimal-bar="left"
-                className="pointer-events-auto absolute left-3 top-3 flex h-10 min-w-0 max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
-              >
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0 rounded-md"
-                      aria-label={
-                        "Exit minimal UI" /* i18n-ignore minimal UI chrome */
-                      }
-                      onClick={handleToggleMinimalUi}
-                    >
-                      <AgentNativeMenuMark className="size-5 text-foreground dark:text-white" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {"Exit minimal UI" /* i18n-ignore minimal UI chrome */}
-                  </TooltipContent>
-                </Tooltip>
-                <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
-                {minimalLeftSidebarToggle}
-              </div>
-            ) : null}
+            <div
+              data-design-minimal-bar="left"
+              className="pointer-events-auto absolute left-3 top-3 flex h-10 min-w-0 max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
+            >
+              <AgentNativeMenuMark className="mx-1 size-5 shrink-0 text-foreground dark:text-white" />
+              <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
+              {minimalUiToggle}
+            </div>
 
             {!minimalRightSidebarOpen || uiHidden ? (
               <div
