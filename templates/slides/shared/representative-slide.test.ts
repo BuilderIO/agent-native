@@ -57,6 +57,13 @@ describe("pickRepresentativeSlide", () => {
         background: "bg-[#0a0a0a]",
       }),
     ).toBe('<div style="background: #0a0a0a"><p>b</p></div>');
+    expect(
+      slideStyleFragment({
+        id: "c",
+        content: "<p>c</p>",
+        background: "bg-black",
+      }),
+    ).toBe("<p>c</p>");
   });
 
   it("reads the fill from slide.background when the HTML has none", () => {

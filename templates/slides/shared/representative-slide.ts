@@ -11,14 +11,14 @@ export interface StyledSlide {
 
 /**
  * The HTML the style tally should see for a slide. An explicit `slide.background`
- * is rendered as a class outside the HTML, so it is folded in as a wrapper the
- * tally can read. An unset one is left out: the renderer's default canvas fill
- * sits behind the slide's own markup and is not part of the visible palette.
+ * is rendered as a class outside the HTML, so its CSS value is folded in as a
+ * wrapper the tally can read. An unset one is left out: the renderer's default
+ * canvas fill sits behind the slide's own markup and is not part of the visible
+ * palette. A named utility such as `bg-black` has no CSS value here and is left
+ * out too, rather than tallied as a guessed color.
  */
 export function slideStyleFragment(slide: StyledSlide): string {
-  const fill = slide.background
-    ? (backgroundCssValue(slide.background) ?? slide.background)
-    : "";
+  const fill = slide.background ? backgroundCssValue(slide.background) : null;
   const html = typeof slide.content === "string" ? slide.content : "";
   return fill ? `<div style="background: ${fill}">${html}</div>` : html;
 }

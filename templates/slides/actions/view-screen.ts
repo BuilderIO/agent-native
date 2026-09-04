@@ -238,13 +238,14 @@ export default defineAction({
         ),
         { noun: "slide" },
       );
-      if (deckStyle.length > 0) {
+      // Counts show the palette, not the composition; one real sibling
+      // shows spacing, element order, and sizes to mirror. A class-styled
+      // deck tallies nothing, and still has a sibling worth reading.
+      const representative = pickRepresentativeSlide(slides, slideIndex);
+      if (deckStyle.length > 0 || representative !== null) {
         lines.push(``);
         lines.push(`### Deck style (shared across slides)`);
         lines.push(...deckStyle);
-        // Counts show the palette, not the composition; one real sibling
-        // shows spacing, element order, and sizes to mirror.
-        const representative = pickRepresentativeSlide(slides, slideIndex);
         if (representative !== null) {
           const sibling = slides[representative]!;
           lines.push(
