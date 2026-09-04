@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.23",
+    "@radix-ui/react-dropdown-menu": "catalog:",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-select": "^2.2.5",
     "@radix-ui/react-slot": "^1.2.3",

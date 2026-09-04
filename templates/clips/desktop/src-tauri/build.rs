@@ -3,30 +3,9 @@ use std::process::Command;
 
 fn main() {
     emit_sentry_env_reruns();
-    embed_macos_dev_info_plist();
     compile_screen_memory_ocr_helper();
     add_swift_runtime_rpaths();
     tauri_build::build()
-}
-
-/// `tauri dev` runs the macOS executable directly instead of inside the app
-/// bundle, so the bundle's `Info.plist` is not available to TCC. Embed the
-/// same plist in the dev binary or privacy-sensitive APIs can terminate it
-/// before the tray icon becomes visible.
-fn embed_macos_dev_info_plist() {
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
-        return;
-    }
-
-    let info_plist = Path::new("Info.plist");
-    println!("cargo:rerun-if-changed={}", info_plist.display());
-    let info_plist = info_plist
-        .canonicalize()
-        .expect("macOS Info.plist must exist for the desktop binary");
-    println!(
-        "cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{}",
-        info_plist.display()
-    );
 }
 
 /// Build the tiny, macOS-only AVFoundation/Vision bridge used by local Screen

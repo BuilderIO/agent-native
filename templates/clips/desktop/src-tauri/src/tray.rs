@@ -58,6 +58,22 @@ fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
     tauri::image::Image::new_owned(rgba, w, h)
 }
 
+/// macOS template images should contain only black and clear pixels. Keep the
+/// source asset's alpha edge while normalizing its brand-colored RGB channels
+/// before handing it to AppKit.
+fn template_tray_icon() -> Result<tauri::image::Image<'static>, Box<dyn std::error::Error>> {
+    let base = tauri::image::Image::from_bytes(TRAY_PNG)?;
+    let mut rgba = base.rgba().to_vec();
+    for pixel in rgba.chunks_exact_mut(4) {
+        pixel[..3].fill(0);
+    }
+    Ok(tauri::image::Image::new_owned(
+        rgba,
+        base.width(),
+        base.height(),
+    ))
+}
+
 /// Whether the status item is in recording mode (stop square + timer).
 /// Written ONLY by `tray_recording_status` — the pill is the single owner of
 /// this state — plus the window-destroyed backstop in lib.rs.
@@ -113,7 +129,7 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
     let applied_icon_mode =
         tray_icon_mode(TRAY_ICON_MODE.load(std::sync::atomic::Ordering::SeqCst));
     if tray_icon_needs_write(applied_icon_mode, active) {
-        if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
+        if let Ok(base) = template_tray_icon() {
             let icon = if active {
                 stop_square_icon(base.width(), base.height())
             } else {
@@ -367,7 +383,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let menu = build_menu_with_meetings(app.handle(), Vec::new())?;
 
     // Load the tray icon from embedded bytes so the binary is self-contained.
-    let tray_icon = tauri::image::Image::from_bytes(TRAY_PNG)?;
+    let tray_icon = template_tray_icon()?;
 
     eprintln!(
         "[clips-tray] building tray icon from {} bytes",

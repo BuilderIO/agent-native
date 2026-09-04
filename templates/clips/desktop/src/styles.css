@@ -141,7 +141,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .app-settings {
   gap: 0;
   padding: 0;
-  overflow-y: auto;
+  max-height: none;
+  overflow: hidden;
 }
 
 /* Recorder Home keeps its navigation present even when active-recording
@@ -151,6 +152,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   position: relative;
   gap: 0;
   padding: 0;
+  width: 320px;
+  max-width: 320px;
   overflow: hidden;
 }
 
@@ -160,7 +163,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -173,7 +176,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--bg);
 }
 
-/* Header — logo + mode toggle + close */
+/* Header — centered capture-mode toggle */
 
 .header {
   display: grid;
@@ -183,41 +186,19 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0 2px;
 }
 
-/* Mode toggle lives in the first column — center it horizontally so the
-   close button on the right doesn't make the layout look lopsided. */
+/* Center the mode toggle independently of the popover's content width. */
 .header .mode-toggle {
   justify-self: center;
 }
 
-/* Variant: truly-centered mode-toggle with an absolutely positioned close X.
-   Using a grid column for the close button nudges the mode tabs left by the
-   close button's width, which read as "off center" in Steve's screenshot.
-   Absolute positioning keeps the X in the top-right corner while the tabs
-   occupy the visual center of the popover. */
+/* Keep the capture modes visually centered inside the popover. Dismissal is
+   owned by the menubar toggle rather than a second close affordance. */
 .header.header-centered {
   position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 28px;
-}
-
-.header.header-centered .header-close {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.header.header-centered .header-feedback {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: auto;
-  padding: 0 9px;
-  font-size: 12px;
-  font-weight: 500;
+  min-height: 36px;
 }
 
 .logo {
@@ -249,18 +230,17 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  min-width: 34px;
+  width: 64px;
+  min-width: 64px;
   height: 28px;
   border: none;
   background: transparent;
   color: var(--fg-muted);
   border-radius: var(--radius-pill);
   cursor: pointer;
-  transition:
-    background 120ms,
-    color 120ms,
-    box-shadow 120ms;
+  transition-property: background-color, color, box-shadow, transform;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .mode-toggle button:hover {
@@ -271,6 +251,15 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--bg);
   color: var(--brand);
   box-shadow: var(--shadow-sm);
+}
+
+.mode-toggle button:focus-visible {
+  outline: 2px solid hsl(var(--ui-ring));
+  outline-offset: 1px;
+}
+
+.mode-toggle button:active {
+  transform: scale(0.96);
 }
 
 .mode-tooltip {
@@ -509,7 +498,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .row {
@@ -517,18 +506,22 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  min-height: 30px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
   cursor: default;
-  transition:
-    background 120ms,
-    border-color 120ms;
+  transition: background 120ms;
 }
 
-.row-off {
-  opacity: 0.6;
+.row:hover {
+  background: hsl(var(--ui-muted) / 0.55);
+}
+
+.row-off .row-icon,
+.row-label-muted {
+  color: var(--fg-subtle);
 }
 
 .row-icon {
@@ -541,13 +534,30 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-shrink: 0;
 }
 
+.media-device-row .row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 36px;
+}
+
+.row-main {
+  min-width: 0;
+}
+
+.row-trailing-control {
+  display: flex;
+  width: 36px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .row-on .row-icon {
   color: var(--fg);
 }
 
-/* Custom device picker — button + popover menu (replaces native <select>). */
+/* Radix device picker trigger — the menu owns keyboard and focus behavior. */
 .row-button {
-  flex: 1;
+  width: 100%;
+  min-width: 0;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -556,22 +566,20 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: transparent;
   color: var(--fg);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   padding: 0;
   margin: 0;
   cursor: pointer;
-  outline: none;
   text-align: left;
-}
-
-.row-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+  transition-property: color, background-color;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .row-button:focus-visible {
-  box-shadow: 0 0 0 2px var(--brand-ring);
   border-radius: 4px;
+  outline: 2px solid hsl(var(--ui-ring));
+  outline-offset: 2px;
 }
 
 .row-label {
@@ -585,6 +593,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   white-space: nowrap;
 }
 
+.row-button-placeholder {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
 /* Flexible filler between the label and the chevron when there's no meter
    (camera rows / mic off) — keeps the chevron pinned to the right. */
 .row-flex {
@@ -593,74 +607,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .row-chev {
   display: inline-flex;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   flex-shrink: 0;
-}
-
-/* Popover menu rendered below a device row. */
-.media-device-picker {
-  position: relative;
-}
-
-.row-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
-  padding: 4px;
-  z-index: 10;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.row-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: transparent;
-  border: none;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.row-menu-item:hover {
-  background: var(--surface-hover);
-}
-
-.row-menu-item.selected {
-  color: var(--fg);
-  font-weight: 600;
-  background: var(--surface-hover);
-}
-
-.row-menu-trigger {
-  display: inline-flex;
-  align-items: center;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-
-.row-menu-trigger:focus-visible {
-  box-shadow: 0 0 0 2px var(--brand-ring);
-  border-radius: 4px;
-}
-
-.row-menu-divider {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--border);
 }
 
 .row-menu-setting {
@@ -676,113 +624,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex: 1;
   min-width: 0;
   font-weight: 500;
-}
-
-.row-menu-check {
-  width: 16px;
-  display: inline-flex;
-  justify-content: center;
-  color: var(--fg);
-  flex-shrink: 0;
-}
-
-.row-menu-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-menu-empty {
-  padding: 10px 12px;
-  color: var(--fg-muted);
-  font-size: 13px;
-}
-
-/* Toggle chip — mirrors Loom's On/Off pill. Green when on, subtle when off. */
-.toggle {
-  border: none;
-  border-radius: var(--radius-pill);
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  line-height: 1;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  transition:
-    background 120ms,
-    color 120ms;
-}
-
-.toggle-on {
-  background: #16a34a;
-  color: white;
-}
-
-.toggle-on:hover {
-  background: #15803d;
-}
-
-.toggle-off {
-  background: var(--surface-strong);
-  color: var(--fg-muted);
-}
-
-.toggle-off:hover {
-  color: var(--fg);
-}
-
-/* Shadcn-style switch — slim track + sliding thumb. Used in Settings for the
-   Voice dictation enable/disable toggle. */
-.switch {
-  position: relative;
-  display: inline-flex;
-  width: 32px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  border-radius: 9999px;
-  cursor: pointer;
-  transition: background 120ms;
-  flex-shrink: 0;
-}
-
-.switch:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--brand-ring);
-}
-
-.switch:disabled {
-  opacity: 0.42;
-  filter: grayscale(0.55);
-  cursor: not-allowed;
-}
-
-.switch-on {
-  background: #16a34a;
-}
-
-.switch-off {
-  background: var(--surface-strong);
-}
-
-.switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: white;
-  transition: transform 120ms;
-  pointer-events: none;
-}
-
-.switch-on .switch-thumb {
-  transform: translateX(14px);
 }
 
 /* Live mic level meter — a single wave line driven by real audio, sitting
@@ -1322,25 +1163,26 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 /* ------------------------------------------------------------------------- */
 
 .bottom-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .bottom-btn {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
+  gap: 10px;
+  min-height: 30px;
+  padding: 5px 8px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
-  color: var(--fg-muted);
+  color: var(--fg);
   cursor: pointer;
-  transition:
-    background 120ms,
-    color 120ms;
+  text-align: left;
+  transition-property: background-color, color, transform;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .bottom-btn:hover {
@@ -1349,20 +1191,81 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .bottom-icon {
-  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--fg-muted);
+  width: 20px;
+  flex-shrink: 0;
 }
 
 .bottom-btn:hover .bottom-icon {
   color: var(--fg);
 }
 
+.bottom-btn:active {
+  transform: scale(0.96);
+}
+
 .bottom-label {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.bottom-shortcut {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--fg-subtle);
   font-size: 11px;
-  font-weight: 500;
+}
+
+.bottom-shortcut-separator {
+  margin-inline: 2px;
+  color: var(--fg-subtle);
+}
+
+.bottom-external {
+  margin-inline-start: auto;
+  color: var(--fg-subtle);
+}
+
+.imminent-meeting {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid hsl(var(--ui-success) / 0.2);
+  border-radius: 8px;
+  background: hsl(var(--ui-success) / 0.08);
+  color: hsl(var(--ui-success));
+}
+
+.imminent-meeting-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.imminent-meeting-copy strong,
+.imminent-meeting-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imminent-meeting-copy strong {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.imminent-meeting-copy span {
+  color: hsl(var(--ui-success) / 0.85);
+  font-size: 11px;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1765,17 +1668,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: 0 0 0 2px var(--bg);
 }
 
-.bottom-dot {
-  position: absolute;
-  top: -2px;
-  right: -3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: hsl(var(--ui-info));
-  box-shadow: 0 0 0 2px var(--bg);
-}
-
 /* ------------------------------------------------------------------------- */
 /* Recent list (collapsible)                                                  */
 /* ------------------------------------------------------------------------- */
@@ -2007,7 +1899,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .tooltip-content {
   z-index: 60;
-  max-width: 260px;
+  max-width: min(260px, calc(100vw - 16px));
   /* No border: shadcn's tooltip is borderless (solid bg + shadow). A border
      would also detach visually from the Radix arrow, whose flush base can't
      carry a matching CSS border. Shadow alone gives separation in both
@@ -2020,6 +1912,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
+  overflow-wrap: anywhere;
   user-select: none;
   transform-origin: var(--radix-tooltip-content-transform-origin);
 }
@@ -2767,60 +2660,56 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow-wrap: anywhere;
 }
 
-.permission-banner {
+.recovery-alert {
   display: flex;
-  flex-direction: column;
+  align-items: start;
   gap: 8px;
-}
-
-.permission-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  line-height: 1.35;
-  min-width: 0;
-}
-
-.permission-title {
-  color: #991b1b;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
-  font-weight: 700;
+  line-height: 1.35;
+}
+
+.recovery-alert-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.recovery-alert-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recovery-alert-copy > h5 {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.recovery-alert-description {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .permission-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
-.permission-actions button {
-  border: 1px solid #fecaca;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.65);
-  color: #991b1b;
-  cursor: pointer;
+.permission-actions .permission-action {
+  min-height: 28px;
+  height: 28px;
+  padding-inline: 8px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: 600;
-  padding: 5px 8px;
-  transition:
-    background 120ms,
-    border-color 120ms;
-}
-
-.permission-actions button:hover {
-  background: white;
-  border-color: #fca5a5;
-}
-
-.permission-actions .permission-retry {
-  background: #991b1b;
-  border-color: #991b1b;
-  color: white;
-}
-
-.permission-actions .permission-retry:hover {
-  background: #7f1d1d;
-  border-color: #7f1d1d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -2896,32 +2785,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     background: rgba(185, 28, 28, 0.14);
     border-color: rgba(239, 68, 68, 0.5);
     color: #fca5a5;
-  }
-
-  .permission-title {
-    color: #fecaca;
-  }
-
-  .permission-actions button {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.4);
-    color: #fecaca;
-  }
-
-  .permission-actions button:hover {
-    background: rgba(239, 68, 68, 0.18);
-    border-color: rgba(248, 113, 113, 0.6);
-  }
-
-  .permission-actions .permission-retry {
-    background: #fecaca;
-    border-color: #fecaca;
-    color: #7f1d1d;
-  }
-
-  .permission-actions .permission-retry:hover {
-    background: white;
-    border-color: white;
   }
 }
 
@@ -3743,92 +3606,71 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   align-items: center;
   gap: 8px;
   margin: 0;
+  min-height: 42px;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.3;
 }
 
+.update-banner-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.update-banner-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.update-banner-copy > h5 {
+  margin: 0;
+  line-height: 1.2;
+}
+
+.update-banner-description {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .update-banner--pending {
-  background: var(--surface);
-  color: var(--fg-muted);
-  border: 1px solid var(--border);
+  border-color: hsl(var(--ui-info) / 0.3);
+  background: hsl(var(--ui-info) / 0.07);
+  color: hsl(var(--ui-info));
 }
 
 .update-banner--ready {
-  background: var(--surface-strong);
-  color: var(--fg);
-  border: 1px solid var(--border-strong, var(--border));
-  flex-wrap: nowrap;
+  border-color: hsl(var(--ui-success) / 0.3);
+  background: hsl(var(--ui-success) / 0.07);
+  color: hsl(var(--ui-success));
 }
 
 .update-banner--error {
-  background: color-mix(in srgb, var(--error, #dc2626) 10%, transparent);
-  color: var(--error, #dc2626);
-  border: 1px solid color-mix(in srgb, var(--error, #dc2626) 40%, transparent);
-  flex-wrap: wrap;
-}
-
-.update-banner-text {
-  flex: 1;
-  min-width: 0;
+  border-color: hsl(var(--ui-destructive) / 0.35);
+  background: hsl(var(--ui-destructive) / 0.07);
 }
 
 .update-banner-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-left: auto;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin-inline-start: 2px;
 }
 
-.update-banner-btn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
+.update-banner--error {
+  align-items: flex-start;
 }
 
-.update-banner-btn--ghost {
-  background: transparent;
-  color: var(--fg-muted);
-  border-color: var(--border);
-}
-
-.update-banner-btn--ghost:hover {
-  background: var(--surface-hover, var(--surface));
-  color: var(--fg);
-}
-
-.update-banner-btn--dismiss {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: transparent;
-  color: var(--fg-muted);
-}
-
-.update-banner-btn--dismiss:hover {
-  background: var(--surface-hover, var(--surface));
-  color: var(--fg);
-}
-
-.update-banner-btn--dismiss:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--brand-ring);
-}
-
-.update-banner-btn--primary {
-  background: var(--brand);
-  color: var(--bg);
-}
-
-.update-banner-btn--primary:hover {
-  background: var(--brand-hover, var(--brand));
+.update-banner--error .update-banner-actions {
+  align-self: center;
 }
 
 .update-spinner {
@@ -3841,6 +3683,22 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-toggle button,
+  .bottom-btn {
+    transition: none;
+  }
+
+  .mode-toggle button:active,
+  .bottom-btn:active {
+    transform: none;
+  }
+
+  .update-banner .animate-spin {
+    animation: none;
   }
 }
 

@@ -91,6 +91,7 @@
     border-color: hsl(var(--ui-border));
   }
 
+  [data-tw-surface]:is(button, input, optgroup, select, textarea),
   [data-tw-surface] :is(button, input, optgroup, select, textarea) {
     appearance: none;
     margin: 0;
@@ -103,14 +104,17 @@
     letter-spacing: inherit;
   }
 
+  [data-tw-surface]:is(button, [role="button"]),
   [data-tw-surface] :is(button, [role="button"]) {
     cursor: pointer;
   }
 
+  [data-tw-surface]:is(button, input, select, textarea):disabled,
   [data-tw-surface] :is(button, input, select, textarea):disabled {
     cursor: not-allowed;
   }
 
+  [data-tw-surface]:is(input, textarea)::placeholder,
   [data-tw-surface] :is(input, textarea)::placeholder {
     color: hsl(var(--ui-muted-foreground));
     opacity: 1;
@@ -236,7 +240,7 @@
   --ui-ring: 0 0% 40%;
   /* macOS convention for an engaged switch, and the one accent the tray uses. */
   --ui-success: 142 71% 45%;
-  /* Reserved for "there is something new here" — the Settings dot, nothing else. */
+  /* Reserved for explicit "there is something new here" alerts and notices. */
   --ui-info: 217 91% 55%;
 }
 

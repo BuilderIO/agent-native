@@ -1,51 +1,67 @@
-import { IconX } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconDownload,
+  IconLoader2,
+  IconRefresh,
+} from "@tabler/icons-react";
 import { useState } from "react";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+
 import {
-  useUpdateStatus,
   installAndRestart,
   retryUpdateCheck,
+  useUpdateStatus,
 } from "../lib/updater";
-import { DownloadIcon, SpinnerIcon } from "./Icons";
 
 /**
- * Compact banner that slots into the top of the popover whenever an update
- * is in flight or ready. Kept tight so it doesn't push the recording
- * controls off-screen. Hidden in idle / checking / not-available states.
+ * An explicit shadcn alert keeps update state discoverable in the compact
+ * popover. Settings no longer carries a detached dot that users have to infer.
  */
 export function UpdateBanner() {
   const status = useUpdateStatus();
-  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
-  // Dismissal is scoped to the specific error message so a new,
-  // different failure still surfaces. Users shouldn't have to see the
-  // same message twice, but they should hear about a new kind of
-  // failure.
   const [dismissedErrorMessage, setDismissedErrorMessage] = useState<
     string | null
   >(null);
 
-  if (status.state === "idle") return null;
-  if (status.state === "checking") return null;
-  if (status.state === "not-available") return null;
+  if (
+    status.state === "idle" ||
+    status.state === "checking" ||
+    status.state === "not-available"
+  ) {
+    return null;
+  }
 
   if (status.state === "error") {
     if (status.message === dismissedErrorMessage) return null;
     return (
-      <div className="update-banner update-banner--error">
-        <span className="update-banner-text">
-          Update check failed: {status.message}
+      <Alert
+        variant="destructive"
+        className="update-banner update-banner--error p-2 text-xs"
+      >
+        <span className="update-banner-icon" aria-hidden>
+          <IconRefresh size={16} stroke={1.8} />
         </span>
+        <div className="update-banner-copy">
+          <AlertTitle className="mb-0">Update check failed</AlertTitle>
+          <AlertDescription className="update-banner-description text-[11px] leading-tight">
+            {status.message}
+          </AlertDescription>
+        </div>
         <div className="update-banner-actions">
-          <button
+          <Button
             type="button"
-            className="update-banner-btn update-banner-btn--ghost"
+            variant="ghost"
+            size="sm"
             onClick={() => setDismissedErrorMessage(status.message)}
           >
             Dismiss
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="update-banner-btn update-banner-btn--primary"
+            variant="outline"
+            size="sm"
             onClick={() => {
               retryUpdateCheck().catch((err) => {
                 console.error("[clips-updater] retry failed:", err);
@@ -53,72 +69,69 @@ export function UpdateBanner() {
             }}
           >
             Retry
-          </button>
+          </Button>
         </div>
-      </div>
+      </Alert>
     );
-  }
-
-  // User dismissed for this version — don't keep nagging.
-  if (
-    (status.state === "available" ||
-      status.state === "downloading" ||
-      status.state === "downloaded") &&
-    status.version === dismissedVersion
-  ) {
-    return null;
   }
 
   if (status.state === "available") {
     return (
-      <div className="update-banner update-banner--pending">
-        <DownloadIcon />
-        <span className="update-banner-text">
-          Update available — downloading…
+      <Alert className="update-banner update-banner--pending p-2 text-xs">
+        <span className="update-banner-icon" aria-hidden>
+          <IconDownload size={16} stroke={1.8} />
         </span>
-      </div>
+        <div className="update-banner-copy">
+          <AlertTitle className="mb-0">Update available</AlertTitle>
+          <AlertDescription className="update-banner-description text-[11px] leading-tight">
+            Downloading the latest version…
+          </AlertDescription>
+        </div>
+      </Alert>
     );
   }
 
   if (status.state === "downloading") {
     return (
-      <div className="update-banner update-banner--pending">
-        <SpinnerIcon />
-        <span className="update-banner-text">
-          Downloading update… {status.percent}%
+      <Alert className="update-banner update-banner--pending p-2 text-xs">
+        <span className="update-banner-icon" aria-hidden>
+          <IconLoader2 size={16} stroke={1.8} className="animate-spin" />
         </span>
-      </div>
+        <div className="update-banner-copy">
+          <AlertTitle className="mb-0">Downloading update</AlertTitle>
+          <AlertDescription className="update-banner-description text-[11px] leading-tight">
+            {status.percent}% complete
+          </AlertDescription>
+        </div>
+      </Alert>
     );
   }
 
-  // downloaded → actionable restart
   return (
-    <div className="update-banner update-banner--ready">
-      <span className="update-banner-text">
-        Update ready — restart to install
+    <Alert className="update-banner update-banner--ready p-2 text-xs">
+      <span className="update-banner-icon" aria-hidden>
+        <IconCheck size={16} stroke={1.9} />
       </span>
+      <div className="update-banner-copy">
+        <AlertTitle className="mb-0">Update ready</AlertTitle>
+        <AlertDescription className="update-banner-description text-[11px] leading-tight">
+          Restart Clips to install it.
+        </AlertDescription>
+      </div>
       <div className="update-banner-actions">
-        <button
+        <Button
           type="button"
-          className="update-banner-btn update-banner-btn--dismiss"
-          onClick={() => setDismissedVersion(status.version)}
-          aria-label="Dismiss update"
-          title="Dismiss update"
-        >
-          <IconX size={15} strokeWidth={1.8} aria-hidden />
-        </button>
-        <button
-          type="button"
-          className="update-banner-btn update-banner-btn--primary"
+          size="sm"
+          className="h-8 px-2.5 text-xs"
           onClick={() => {
             installAndRestart().catch((err) => {
               console.error("[clips-updater] relaunch failed:", err);
             });
           }}
         >
-          Restart
-        </button>
+          Update
+        </Button>
       </div>
-    </div>
+    </Alert>
   );
 }

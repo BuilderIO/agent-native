@@ -30,6 +30,7 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
   type ReactNode,
   type RefObject,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -47,6 +48,7 @@ import {
   SettingsSelect,
   SettingsValueTrigger,
 } from "@/components/settings/settings-ui";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 // Aliased `Ui*` for symmetry with `UiSwitch`: the tray historically had a
 // plain-CSS AlertDialog adapter under the bare names.
 import {
@@ -73,10 +75,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-import { FeedbackButton } from "./components/FeedbackButton";
 import {
   CamIcon,
-  CloseIcon,
   GoogleIcon,
   LibraryIcon,
   ScreenCamIcon,
@@ -85,7 +85,7 @@ import {
 } from "./components/Icons";
 import { MediaDeviceRow } from "./components/MediaDeviceRow";
 import { MicOffConfirmation } from "./components/MicOffConfirmation";
-import { ReadinessPanel } from "./components/ReadinessPanel";
+import { ShortcutKeycaps } from "./components/ShortcutKeycaps";
 import { SourceRow, type CaptureSource } from "./components/SourceRow";
 import { Switch } from "./components/Switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
@@ -101,6 +101,11 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
+import {
+  captureSetupForCamera,
+  captureSetupForMode,
+  normalizeCaptureSetup,
+} from "./lib/capture-mode";
 import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
@@ -130,6 +135,7 @@ import {
   startRecording,
   type LocalExportedFile,
   type PendingBrowserRecordingUpload,
+  type CaptureMode,
   type RecorderHandle,
   type RecorderStopResult,
   type RestartHandoff,
@@ -374,7 +380,6 @@ interface RewindAgentConnectionStatus {
 
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
-type CaptureMode = "screen" | "screen-camera" | "camera";
 type VideoStorageStatus = "checking" | "configured" | "missing";
 
 const STORAGE_SETUP_HELP_TEXT =
@@ -416,7 +421,6 @@ const SOURCE_KEY = "clips:last-source";
 const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
-const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
 const VIDEO_STORAGE_CONFIGURED_KEY = "clips:video-storage-configured";
 // The docs section for the tray's rolling buffer, published under the same
 // Rewind name the settings tab uses.
@@ -814,13 +818,16 @@ function formatMeetingWhen(meeting: PopoverMeeting): string {
   })} ${time}`;
 }
 
+const MEETING_IMMINENT_WINDOW_MS = 10 * 60 * 1000;
+
 function meetingCanStartNotes(meeting: PopoverMeeting): boolean {
   const startMs = Date.parse(meeting.scheduledStart ?? "");
   if (Number.isNaN(startMs)) return false;
   const endMs = Date.parse(meeting.scheduledEnd ?? "");
   const now = Date.now();
   return (
-    startMs <= now + 10 * 60 * 1000 && (Number.isNaN(endMs) || endMs >= now)
+    startMs <= now + MEETING_IMMINENT_WINDOW_MS &&
+    (Number.isNaN(endMs) || endMs >= now)
   );
 }
 
@@ -890,7 +897,7 @@ function SettingsSwitch({
       onCheckedChange={onCheckedChange}
       disabled={disabled}
       aria-label={label}
-      className="h-5 w-9 data-[state=checked]:bg-success [&>span]:size-4 [&>span]:data-[state=checked]:translate-x-4"
+      className="data-[state=checked]:border-success data-[state=checked]:bg-success data-[state=unchecked]:border-border"
     />
   );
 }
@@ -939,6 +946,8 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
+
+const POPOVER_RESIZE_OVERLAY_SELECTOR = '[data-popover-resize-overlay="true"]';
 
 function measurePopoverHeight(el: HTMLElement): number {
   const rect = el.getBoundingClientRect();
@@ -1004,6 +1013,24 @@ function measurePopoverHeight(el: HTMLElement): number {
   }
   candidates.push(lowestBottom - rect.top);
 
+  // Recorder menus are portaled to `body`, outside `.app`, so ordinary shell
+  // measurement cannot see them. Include their complete natural height so the
+  // native tray window grows around the menu instead of forcing menu scroll.
+  for (const overlay of Array.from(
+    document.querySelectorAll<HTMLElement>(POPOVER_RESIZE_OVERLAY_SELECTOR),
+  )) {
+    const overlayRect = overlay.getBoundingClientRect();
+    const overlayStyle = window.getComputedStyle(overlay);
+    const overlayBorderY =
+      Number.parseFloat(overlayStyle.borderTopWidth || "0") +
+      Number.parseFloat(overlayStyle.borderBottomWidth || "0");
+    const overlayHeight = Math.max(
+      overlayRect.height,
+      overlay.scrollHeight + overlayBorderY,
+    );
+    candidates.push(overlayRect.top - rect.top + overlayHeight + 8);
+  }
+
   return Math.ceil(Math.max(...candidates));
 }
 
@@ -1050,6 +1077,11 @@ function usePopoverAutoSize(
       for (const child of Array.from(el.querySelectorAll<HTMLElement>("*"))) {
         resizeObserver.observe(child);
       }
+      for (const overlay of Array.from(
+        document.querySelectorAll<HTMLElement>(POPOVER_RESIZE_OVERLAY_SELECTOR),
+      )) {
+        resizeObserver.observe(overlay);
+      }
     };
 
     const mutationObserver = new MutationObserver(() => {
@@ -1064,6 +1096,14 @@ function usePopoverAutoSize(
       childList: true,
       subtree: true,
     });
+    const portalObserver = new MutationObserver(() => {
+      observeTree();
+      schedule();
+    });
+    portalObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
     schedule();
 
     if (document.fonts) {
@@ -1074,6 +1114,7 @@ function usePopoverAutoSize(
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
       window.clearTimeout(settleTimer);
       mutationObserver.disconnect();
+      portalObserver.disconnect();
       resizeObserver.disconnect();
     };
   }, [disabled, ref, width]);
@@ -1091,14 +1132,18 @@ export function App({
   const [serverUrl, setServerUrl] = useState<string>(() =>
     loadString(STORAGE_KEY, DEFAULT_URL).replace(/\/+$/, ""),
   );
-  const [mode, setMode] = useState<CaptureMode>(
-    () => loadString(MODE_KEY, "screen-camera") as CaptureMode,
+  const [initialCaptureSetup] = useState(() =>
+    normalizeCaptureSetup(
+      loadString(MODE_KEY, "screen-camera"),
+      loadBool(CAM_ON_KEY, true),
+    ),
   );
+  const [mode, setMode] = useState<CaptureMode>(initialCaptureSetup.mode);
   const [source, setSource] = useState<CaptureSource>(() =>
     normalizeCaptureSource(loadString(SOURCE_KEY, "full-screen")),
   );
-  const [cameraOn, setCameraOn] = useState<boolean>(() =>
-    loadBool(CAM_ON_KEY, false),
+  const [cameraOn, setCameraOn] = useState<boolean>(
+    initialCaptureSetup.cameraOn,
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [micOffConfirmOpen, setMicOffConfirmOpen] = useState(false);
@@ -1191,13 +1236,21 @@ export function App({
   const [initialSettingsTab, setInitialSettingsTab] = useState<SettingsTabId>(
     initialSettingsTabProp ?? "general",
   );
-  // A staged update is announced by a dot on Settings, not by a banner that
-  // pushes the recording controls down.
-  const updateReadyToInstall = useUpdateStatus().state === "downloaded";
-
   function openSettings(tab: SettingsTabId = "general") {
     setInitialSettingsTab(tab);
     setPopoverView("settings");
+  }
+
+  function selectCaptureMode(nextMode: CaptureMode) {
+    const nextSetup = captureSetupForMode(nextMode);
+    setMode(nextSetup.mode);
+    setCameraOn(nextSetup.cameraOn);
+  }
+
+  function toggleCamera(nextOn: boolean) {
+    const nextSetup = captureSetupForCamera(mode, nextOn);
+    setMode(nextSetup.mode);
+    setCameraOn(nextSetup.cameraOn);
   }
 
   const [rewindAgentPromptCopied, setRewindAgentPromptCopied] = useState(false);
@@ -1223,9 +1276,6 @@ export function App({
     setRewindMeetingHistoryAvailability,
   ] = useState<Record<string, RewindMeetingHistoryAvailability>>({});
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
-  const [readinessOpen, setReadinessOpen] = useState<boolean>(
-    () => !loadBool(READINESS_REVIEWED_KEY, false),
-  );
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const recordingStartAbortRef = useRef<AbortController | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
@@ -2672,7 +2722,9 @@ export function App({
           "[clips-popover] bubble-closed received — stopping camera + clearing cameraOn",
         );
         bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
-        setCameraOn(false);
+        const nextSetup = captureSetupForMode("screen");
+        setMode(nextSetup.mode);
+        setCameraOn(nextSetup.cameraOn);
       }),
     );
     // Query the CURRENT visibility on mount in case the event already
@@ -2697,21 +2749,6 @@ export function App({
       unlistens.length = 0;
     };
   }, []);
-
-  const speechPermissionChecked = useRef(false);
-  useEffect(() => {
-    if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
-    speechPermissionChecked.current = true;
-    invoke<boolean>("native_speech_request_permission").catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn("[clips-popover] speech permission preflight failed:", err);
-      setRecError(
-        /speech recognition|speech/i.test(message)
-          ? MACOS_SPEECH_PERMISSION_MESSAGE
-          : `Speech recognition unavailable: ${message}`,
-      );
-    });
-  }, [micOn, popoverVisible]);
 
   // ---- camera bubble session ---------------------------------------------
   // The bubble overlay (small circular PiP in the bottom-left of the screen
@@ -3138,7 +3175,10 @@ export function App({
   }, [loadPendingUploads]);
 
   useEffect(() => {
-    if (popoverView === "meetings" && popoverVisible) {
+    if (
+      popoverVisible &&
+      (popoverView === "meetings" || popoverView === "recorder")
+    ) {
       void fetchUpcomingMeetings();
     }
   }, [fetchUpcomingMeetings, popoverView, popoverVisible]);
@@ -3542,14 +3582,12 @@ export function App({
         );
         if (!granted) {
           await releaseRecordingFlowGate();
-          setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
         await releaseRecordingFlowGate();
-        setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
       }
@@ -3933,11 +3971,6 @@ export function App({
     };
   }, []);
 
-  function updateReadinessOpen(next: boolean) {
-    setReadinessOpen(next);
-    if (!next) saveBool(READINESS_REVIEWED_KEY, true);
-  }
-
   function retryCameraPreview() {
     setCameraError(null);
     if (!cameraOn) {
@@ -4158,13 +4191,22 @@ export function App({
 
   // Auto-hide on blur is handled on the Rust side (tauri::WindowEvent::Focused).
 
-  const showCameraRow = mode !== "screen"; // screen-only has no camera
+  // The camera switch is always reversible from the same place. Capture-mode
+  // changes update its state, but never remove the control that changes it.
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
+  const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
   const recordingReadinessPending =
     localRecordingMode === "off" &&
     (authStatus !== "authed" || videoStorageStatus === "checking");
   const startButtonLoading =
     recordingReadinessPending && !recordingStopFinalizing;
+  const startButtonLabel = recordingStopFinalizing
+    ? "Finishing last recording…"
+    : mode === "camera"
+      ? "Start camera recording"
+      : localRecordingMode === "off"
+        ? "Start recording"
+        : "Start local recording";
 
   const pendingUploadBanner =
     authStatus === "authed" ? (
@@ -4493,17 +4535,7 @@ export function App({
         {/* Signed out, the only job on this screen is signing in. Capture
             modes, Feedback, and Settings all act on an account that does not
             exist yet, so they appear after auth rather than competing with it.
-            Only the window's own close control stays. */}
-        <div className="header header-centered">
-          <button
-            className="icon-button header-close"
-            onClick={hidePopover}
-            aria-label="Close"
-            title="Close"
-          >
-            <CloseIcon />
-          </button>
-        </div>
+            The menubar toggle remains the single way to dismiss the popover. */}
         {pendingUploadBanner}
         {signInPending === "google" ? (
           /* `data-tw-surface` marks only this subtree: the sign-in form beside
@@ -4597,12 +4629,15 @@ export function App({
         hidden={micOffConfirmOpen}
         aria-hidden={micOffConfirmOpen}
       >
-        <Header
-          mode={mode}
-          onModeChange={setMode}
-          submitterEmail={signedInAs}
-        />
+        <Header mode={mode} onModeChange={selectCaptureMode} />
         <UpdateBanner />
+
+        {imminentMeeting ? (
+          <ImminentMeetingRow
+            meeting={imminentMeeting}
+            onStartNotes={() => startMeetingNotes(imminentMeeting)}
+          />
+        ) : null}
 
         {pendingUploadBanner}
 
@@ -4650,21 +4685,19 @@ export function App({
             />
           ) : null}
 
-          {showCameraRow ? (
-            <MediaDeviceRow
-              kind="camera"
-              devices={cameraDevices}
-              selectedId={cameraId}
-              selectedLabel={cameraLabel}
-              onSelect={(id, label) => {
-                setCameraId(id);
-                setCameraLabel(label);
-              }}
-              onRefresh={() => requestDeviceAccess("camera")}
-              on={cameraOn}
-              onToggle={setCameraOn}
-            />
-          ) : null}
+          <MediaDeviceRow
+            kind="camera"
+            devices={cameraDevices}
+            selectedId={cameraId}
+            selectedLabel={cameraLabel}
+            onSelect={(id, label) => {
+              setCameraId(id);
+              setCameraLabel(label);
+            }}
+            onRefresh={() => requestDeviceAccess("camera")}
+            on={cameraOn}
+            onToggle={toggleCamera}
+          />
 
           <MediaDeviceRow
             kind="mic"
@@ -4684,19 +4717,6 @@ export function App({
           />
         </div>
 
-        <div className="recorder-disclosures">
-          <ReadinessPanel
-            mode={mode}
-            cameraOn={cameraOn}
-            micOn={micOn}
-            includeVoicePaste={voiceDictationEnabled}
-            includeFnMonitoring={fnShortcutEnabled}
-            open={readinessOpen}
-            onOpenChange={updateReadinessOpen}
-            onOpenPermission={openPrivacySettings}
-          />
-        </div>
-
         {!isRecording ? (
           <button
             className={cn(
@@ -4706,21 +4726,13 @@ export function App({
             disabled={recordingReadinessPending || recordingStopFinalizing}
             aria-busy={recordingReadinessPending || recordingStopFinalizing}
             aria-label={
-              recordingStopFinalizing
-                ? "Finishing last recording..."
-                : recordingReadinessPending
-                  ? "Start recording"
-                  : undefined
+              recordingStopFinalizing || recordingReadinessPending
+                ? startButtonLabel
+                : undefined
             }
             onClick={() => beginRecording()}
           >
-            <span className="start-label">
-              {recordingStopFinalizing
-                ? "Finishing last recording..."
-                : localRecordingMode === "off"
-                  ? "Start recording"
-                  : "Start local recording"}
-            </span>
+            <span className="start-label">{startButtonLabel}</span>
             {startButtonLoading ? (
               <span
                 aria-hidden="true"
@@ -4782,25 +4794,23 @@ export function App({
 
       <div className="bottom-row">
         <BottomButton
-          icon="library"
-          label="Library"
-          onClick={() => openInBrowser("/")}
-        />
-        <BottomButton
-          icon="meetings"
-          label="Meetings"
-          onClick={() => setPopoverView("meetings")}
-        />
-        <BottomButton
           icon="dictation"
           label="Dictate"
-          badge={undefined}
+          shortcut={compactVoiceShortcutLabel(
+            voiceShortcut,
+            voiceCustomShortcut,
+          )}
           onClick={() => setPopoverView("dictation")}
+        />
+        <BottomButton
+          icon="library"
+          label="Library"
+          external
+          onClick={() => openInBrowser("/")}
         />
         <BottomButton
           icon="settings"
           label="Settings"
-          alert={updateReadyToInstall}
           onClick={() => openSettings()}
         />
       </div>
@@ -4863,52 +4873,73 @@ function PermissionRecoveryBanner({
   const canOpenPrivacySettings = isMacPlatform() || isWindowsPlatform();
 
   return (
-    <div className="error-banner permission-banner">
-      <div className="permission-copy">
-        <div className="permission-title">{title}</div>
-        <div>{message}</div>
+    <Alert variant="destructive" className="recovery-alert p-2 text-xs">
+      <span className="recovery-alert-icon" aria-hidden>
+        <IconAlertTriangle size={16} stroke={1.8} />
+      </span>
+      <div className="recovery-alert-copy">
+        <AlertTitle className="mb-0">{title}</AlertTitle>
+        <AlertDescription className="recovery-alert-description text-[11px] leading-tight">
+          {message}
+        </AlertDescription>
+        <div className="permission-actions" aria-label="Permission recovery">
+          {canOpenPrivacySettings
+            ? uniquePanes.map((pane) => (
+                <Button
+                  type="button"
+                  key={pane}
+                  variant="outline"
+                  size="sm"
+                  className="permission-action h-7 px-2 text-xs"
+                  onClick={() => openPrivacySettings(pane)}
+                >
+                  {permissionPaneLabel(pane)}
+                </Button>
+              ))
+            : null}
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="permission-action permission-retry h-7 px-2 text-xs"
+            onClick={onRetry}
+          >
+            Try again
+          </Button>
+        </div>
       </div>
-      <div className="permission-actions" aria-label="Permission recovery">
-        {canOpenPrivacySettings
-          ? uniquePanes.map((pane) => (
-              <button
-                type="button"
-                key={pane}
-                onClick={() => openPrivacySettings(pane)}
-              >
-                {permissionPaneLabel(pane)}
-              </button>
-            ))
-          : null}
-        <button type="button" className="permission-retry" onClick={onRetry}>
-          Try again
-        </button>
-      </div>
-    </div>
+    </Alert>
   );
 }
 
 function UpdateRestartBanner({ message }: { message: string }) {
   return (
-    <div className="error-banner permission-banner">
-      <div className="permission-copy">
-        <div className="permission-title">Restart to finish updating</div>
-        <div>{message}</div>
+    <Alert variant="destructive" className="recovery-alert p-2 text-xs">
+      <span className="recovery-alert-icon" aria-hidden>
+        <IconAlertTriangle size={16} stroke={1.8} />
+      </span>
+      <div className="recovery-alert-copy">
+        <AlertTitle className="mb-0">Restart to finish updating</AlertTitle>
+        <AlertDescription className="recovery-alert-description text-[11px] leading-tight">
+          {message}
+        </AlertDescription>
+        <div className="permission-actions">
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="permission-action permission-retry h-7 px-2 text-xs"
+            onClick={() => {
+              installAndRestart().catch((err) => {
+                console.error("[clips-updater] relaunch failed:", err);
+              });
+            }}
+          >
+            Restart Clips
+          </Button>
+        </div>
       </div>
-      <div className="permission-actions">
-        <button
-          type="button"
-          className="permission-retry"
-          onClick={() => {
-            installAndRestart().catch((err) => {
-              console.error("[clips-updater] relaunch failed:", err);
-            });
-          }}
-        >
-          Restart Clips
-        </button>
-      </div>
-    </div>
+    </Alert>
   );
 }
 
@@ -4938,37 +4969,55 @@ function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
 
 function SessionExpiredBanner({ onReconnect }: { onReconnect: () => void }) {
   return (
-    <div className="error-banner permission-banner">
-      <div className="permission-copy">
-        <div className="permission-title">Session expired</div>
-        <div>Your Clips session expired. Sign in again to start recording.</div>
+    <Alert variant="destructive" className="recovery-alert p-2 text-xs">
+      <span className="recovery-alert-icon" aria-hidden>
+        <IconAlertTriangle size={16} stroke={1.8} />
+      </span>
+      <div className="recovery-alert-copy">
+        <AlertTitle className="mb-0">Session expired</AlertTitle>
+        <AlertDescription className="recovery-alert-description text-[11px] leading-tight">
+          Sign in again to start recording.
+        </AlertDescription>
+        <div className="permission-actions" aria-label="Session recovery">
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="permission-action permission-retry h-7 px-2 text-xs"
+            onClick={onReconnect}
+          >
+            Sign in again
+          </Button>
+        </div>
       </div>
-      <div className="permission-actions" aria-label="Session recovery">
-        <button
-          type="button"
-          className="permission-retry"
-          onClick={onReconnect}
-        >
-          Sign in again
-        </button>
-      </div>
-    </div>
+    </Alert>
   );
 }
 
 function ServerUnavailableBanner({ onRetry }: { onRetry: () => void }) {
   return (
-    <div className="error-banner permission-banner">
-      <div className="permission-copy">
-        <div className="permission-title">Clips server unavailable</div>
-        <div>Check your connection, then try starting the recording again.</div>
+    <Alert variant="destructive" className="recovery-alert p-2 text-xs">
+      <span className="recovery-alert-icon" aria-hidden>
+        <IconAlertTriangle size={16} stroke={1.8} />
+      </span>
+      <div className="recovery-alert-copy">
+        <AlertTitle className="mb-0">Clips server unavailable</AlertTitle>
+        <AlertDescription className="recovery-alert-description text-[11px] leading-tight">
+          Check your connection, then try starting the recording again.
+        </AlertDescription>
+        <div className="permission-actions" aria-label="Server recovery">
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="permission-action permission-retry h-7 px-2 text-xs"
+            onClick={onRetry}
+          >
+            Try again
+          </Button>
+        </div>
       </div>
-      <div className="permission-actions" aria-label="Server recovery">
-        <button type="button" className="permission-retry" onClick={onRetry}>
-          Try again
-        </button>
-      </div>
-    </div>
+    </Alert>
   );
 }
 
@@ -5257,159 +5306,150 @@ function ShareLinkBanner({
   );
 }
 
+function ImminentMeetingRow({
+  meeting,
+  onStartNotes,
+}: {
+  meeting: PopoverMeeting;
+  onStartNotes: () => void;
+}) {
+  const startMs = Date.parse(meeting.scheduledStart ?? "");
+  const endMs = Date.parse(meeting.scheduledEnd ?? "");
+  const durationMinutes =
+    !Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs > startMs
+      ? Math.max(1, Math.round((endMs - startMs) / 60000))
+      : null;
+
+  return (
+    <section className="imminent-meeting" aria-label="Upcoming meeting">
+      <IconCalendarEvent size={20} stroke={1.8} aria-hidden />
+      <div className="imminent-meeting-copy">
+        <strong>
+          {meeting.title}
+          {durationMinutes ? ` · ${durationMinutes} min` : ""}
+        </strong>
+        <span>
+          {meeting.platform || "Calendar"} · {formatMeetingWhen(meeting)}
+        </span>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="imminent-meeting-action"
+        onClick={onStartNotes}
+      >
+        Start notes
+      </Button>
+    </section>
+  );
+}
+
 function Header({
   mode,
   onModeChange,
-  submitterEmail,
 }: {
   mode: CaptureMode;
   onModeChange: (m: CaptureMode) => void;
-  submitterEmail?: string | null;
 }) {
-  const [tooltipMode, setTooltipMode] = useState<CaptureMode | null>(null);
-  const tooltipReadyAtRef = useRef(Date.now() + 600);
-  const tooltipTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(
-    null,
-  );
-  const suppressTooltipRef = useRef(false);
+  const modeOrder: CaptureMode[] = ["screen", "screen-camera", "camera"];
+  const modeButtonRefs = useRef<
+    Partial<Record<CaptureMode, HTMLButtonElement | null>>
+  >({});
 
-  const clearModeTooltip = useCallback(() => {
-    if (tooltipTimerRef.current) {
-      window.clearTimeout(tooltipTimerRef.current);
-      tooltipTimerRef.current = null;
+  function moveMode(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    currentMode: CaptureMode,
+  ) {
+    const currentIndex = modeOrder.indexOf(currentMode);
+    let nextIndex = currentIndex;
+
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % modeOrder.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + modeOrder.length) % modeOrder.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = modeOrder.length - 1;
+    } else {
+      return;
     }
-    setTooltipMode(null);
-  }, []);
 
-  const queueModeTooltip = useCallback(
-    (nextMode: CaptureMode) => {
-      if (
-        suppressTooltipRef.current ||
-        Date.now() < tooltipReadyAtRef.current ||
-        tooltipMode === nextMode ||
-        tooltipTimerRef.current
-      ) {
-        return;
-      }
-      tooltipTimerRef.current = window.setTimeout(() => {
-        tooltipTimerRef.current = null;
-        if (!suppressTooltipRef.current) {
-          setTooltipMode(nextMode);
-        }
-      }, 350);
-    },
-    [tooltipMode],
-  );
+    event.preventDefault();
+    const nextMode = modeOrder[nextIndex];
+    onModeChange(nextMode);
+    requestAnimationFrame(() => modeButtonRefs.current[nextMode]?.focus());
+  }
 
-  const leaveModeButton = useCallback(() => {
-    suppressTooltipRef.current = false;
-    clearModeTooltip();
-  }, [clearModeTooltip]);
-
-  const pressModeButton = useCallback(() => {
-    suppressTooltipRef.current = true;
-    clearModeTooltip();
-  }, [clearModeTooltip]);
-
-  useEffect(
-    () => () => {
-      if (tooltipTimerRef.current) {
-        window.clearTimeout(tooltipTimerRef.current);
-        tooltipTimerRef.current = null;
-      }
-    },
-    [],
-  );
-
-  // Mode-toggle is absolutely centered (visual center of the popover) and the
-  // close button lives top-right as an absolute-positioned sibling, so the
-  // tabs aren't offset by the close button's width.
   return (
     <div className="header header-centered">
-      <FeedbackButton submitterEmail={submitterEmail} />
       <div
         className="mode-toggle"
         role="radiogroup"
         aria-label="Recording mode"
       >
-        <button
-          className={mode === "screen" ? "active" : ""}
-          onPointerEnter={() => {
-            suppressTooltipRef.current = false;
-          }}
-          onPointerMove={() => queueModeTooltip("screen")}
-          onPointerLeave={leaveModeButton}
-          onPointerDown={pressModeButton}
-          onClick={(event) => {
-            suppressTooltipRef.current = true;
-            clearModeTooltip();
-            event.currentTarget.blur();
-            onModeChange("screen");
-          }}
-          aria-label="Screen only"
-        >
-          <ScreenIcon />
-          {tooltipMode === "screen" ? (
-            <span className="mode-tooltip" role="tooltip">
-              Screen
-            </span>
-          ) : null}
-        </button>
-        <button
-          className={mode === "screen-camera" ? "active" : ""}
-          onPointerEnter={() => {
-            suppressTooltipRef.current = false;
-          }}
-          onPointerMove={() => queueModeTooltip("screen-camera")}
-          onPointerLeave={leaveModeButton}
-          onPointerDown={pressModeButton}
-          onClick={(event) => {
-            suppressTooltipRef.current = true;
-            clearModeTooltip();
-            event.currentTarget.blur();
-            onModeChange("screen-camera");
-          }}
-          aria-label="Screen + Camera"
-        >
-          <ScreenCamIcon />
-          {tooltipMode === "screen-camera" ? (
-            <span className="mode-tooltip" role="tooltip">
-              Screen + cam
-            </span>
-          ) : null}
-        </button>
-        <button
-          className={mode === "camera" ? "active" : ""}
-          onPointerEnter={() => {
-            suppressTooltipRef.current = false;
-          }}
-          onPointerMove={() => queueModeTooltip("camera")}
-          onPointerLeave={leaveModeButton}
-          onPointerDown={pressModeButton}
-          onClick={(event) => {
-            suppressTooltipRef.current = true;
-            clearModeTooltip();
-            event.currentTarget.blur();
-            onModeChange("camera");
-          }}
-          aria-label="Camera only"
-        >
-          <CamIcon />
-          {tooltipMode === "camera" ? (
-            <span className="mode-tooltip" role="tooltip">
-              Camera
-            </span>
-          ) : null}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={mode === "screen" ? "active" : ""}
+              role="radio"
+              aria-checked={mode === "screen"}
+              tabIndex={mode === "screen" ? 0 : -1}
+              aria-label="Screen"
+              ref={(button) => {
+                modeButtonRefs.current.screen = button;
+              }}
+              onKeyDown={(event) => moveMode(event, "screen")}
+              onClick={() => onModeChange("screen")}
+            >
+              <ScreenIcon />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Screen</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={mode === "screen-camera" ? "active" : ""}
+              role="radio"
+              aria-checked={mode === "screen-camera"}
+              tabIndex={mode === "screen-camera" ? 0 : -1}
+              aria-label="Screen and camera"
+              ref={(button) => {
+                modeButtonRefs.current["screen-camera"] = button;
+              }}
+              onKeyDown={(event) => moveMode(event, "screen-camera")}
+              onClick={() => onModeChange("screen-camera")}
+            >
+              <ScreenCamIcon />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Screen and camera</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={mode === "camera" ? "active" : ""}
+              role="radio"
+              aria-checked={mode === "camera"}
+              tabIndex={mode === "camera" ? 0 : -1}
+              aria-label="Camera"
+              ref={(button) => {
+                modeButtonRefs.current.camera = button;
+              }}
+              onKeyDown={(event) => moveMode(event, "camera")}
+              onClick={() => onModeChange("camera")}
+            >
+              <CamIcon />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Camera</TooltipContent>
+        </Tooltip>
       </div>
-      <button
-        className="icon-button header-close"
-        onClick={hidePopover}
-        aria-label="Close"
-        title="Close"
-      >
-        <CloseIcon />
-      </button>
     </div>
   );
 }
@@ -6004,35 +6044,50 @@ function DictationPopoverView({
 function BottomButton({
   icon,
   label,
-  badge,
-  alert = false,
+  shortcut,
+  external = false,
   onClick,
 }: {
-  icon: "library" | "settings" | "meetings" | "dictation";
+  icon: "library" | "settings" | "dictation";
   label: string;
-  badge?: string;
-  alert?: boolean;
+  shortcut?: string;
+  external?: boolean;
   onClick: () => void;
 }) {
+  const tooltipLabel =
+    icon === "dictation"
+      ? "Open dictation"
+      : icon === "library"
+        ? "Open library"
+        : "Open settings";
+
   return (
-    <button className="bottom-btn" onClick={onClick}>
-      <span className="bottom-icon">
-        {icon === "library" ? (
-          <LibraryIcon />
-        ) : icon === "settings" ? (
-          <SettingsIcon />
-        ) : icon === "meetings" ? (
-          <IconCalendarEvent size={18} stroke={1.75} />
-        ) : (
-          <IconMicrophone2 size={18} stroke={1.75} />
-        )}
-        {badge ? <span className="badge">{badge}</span> : null}
-        {alert && !badge ? (
-          <span className="bottom-dot" role="img" aria-label="Update ready" />
-        ) : null}
-      </span>
-      <span className="bottom-label">{label}</span>
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" className="bottom-btn" onClick={onClick}>
+          <span className="bottom-icon" aria-hidden="true">
+            {icon === "library" ? (
+              <LibraryIcon />
+            ) : icon === "settings" ? (
+              <SettingsIcon />
+            ) : (
+              <IconMicrophone2 size={18} stroke={1.75} />
+            )}
+          </span>
+          <span className="bottom-label">{label}</span>
+          {shortcut ? <ShortcutKeycaps shortcut={shortcut} /> : null}
+          {external ? (
+            <IconExternalLink
+              className="bottom-external"
+              size={16}
+              stroke={1.75}
+              aria-hidden
+            />
+          ) : null}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="left">{tooltipLabel}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -8239,7 +8294,6 @@ function Setup({
     id: SettingsTabId;
     label: string;
     icon: ReactNode;
-    alert?: boolean;
   }> = [
     {
       id: "general",
@@ -8247,7 +8301,6 @@ function Setup({
       icon: (
         <IconAdjustmentsHorizontal size={16} stroke={1.7} aria-hidden="true" />
       ),
-      alert: updateReady,
     },
     {
       id: "recording",
@@ -8304,10 +8357,10 @@ function Setup({
   return (
     <div
       data-tw-surface
-      /* A fixed height, not content-driven: the tray window resizes itself to
-         match rendered content, so a taller tab would otherwise grow the window
-         out from under the user. Tabs scroll inside this frame instead. */
-      className="flex h-[560px] max-h-screen w-full flex-col overflow-hidden rounded-[14px] bg-background text-foreground"
+      /* Do not cap this to the current viewport: Settings opens from the
+         shorter recorder window and must measure at its requested height so
+         the native popover can grow around it. */
+      className="flex h-[560px] w-full flex-col overflow-hidden rounded-[14px] bg-background text-foreground"
     >
       <div className="grid min-h-0 flex-1 grid-cols-[176px_minmax(0,1fr)]">
         <nav
@@ -8345,13 +8398,6 @@ function Setup({
             >
               {tab.icon}
               <span className="flex-1 truncate">{tab.label}</span>
-              {tab.alert ? (
-                <span
-                  className="size-1.5 shrink-0 rounded-full bg-info"
-                  role="img"
-                  aria-label="Update ready"
-                />
-              ) : null}
             </button>
           ))}
         </nav>
