@@ -98,6 +98,7 @@ afterEach(() => {
 function renderProviders(props: {
   isPublicPath?: boolean;
   sessionBypass?: boolean;
+  disableWebMcp?: boolean;
 }) {
   act(() => {
     root.render(
@@ -111,6 +112,35 @@ function renderProviders(props: {
       </AppProviders>,
     );
   });
+}
+
+function setupWebMcpManifest() {
+  const modelContext = {
+    registerTool: vi.fn(async () => {}),
+    getTools: vi.fn(async () => []),
+    executeTool: vi.fn(async () => ""),
+  };
+  Object.defineProperty(document, "modelContext", {
+    configurable: true,
+    value: modelContext,
+  });
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          name: "view-screen",
+          description: "Read the current screen",
+          inputSchema: { type: "object" },
+        },
+      ]),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ),
+  );
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: fetchMock,
+  });
+  return { fetchMock, modelContext };
 }
 
 // `RequireSession` branches on `useSession().status`, not just `isLoading` —
@@ -184,6 +214,36 @@ describe("AppProviders session gate", () => {
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
+  it("registers WebMCP actions on public paths by default", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/_agent-native/webmcp/manifest",
+        expect.objectContaining({ credentials: "same-origin" }),
+      );
+      expect(modelContext.registerTool).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "view-screen" }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("allows template roots to disable automatic WebMCP registration", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const { fetchMock } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true, disableWebMcp: true });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+  });
+
   it("gates private paths and redirects signed-out visitors after hydration", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
@@ -217,31 +277,7 @@ describe("AppProviders session gate", () => {
 
   it("registers WebMCP actions on token-authenticated private surfaces", async () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
-    const modelContext = {
-      registerTool: vi.fn(async () => {}),
-      getTools: vi.fn(async () => []),
-      executeTool: vi.fn(async () => ""),
-    };
-    Object.defineProperty(document, "modelContext", {
-      configurable: true,
-      value: modelContext,
-    });
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            name: "view-screen",
-            description: "Read the current screen",
-            inputSchema: { type: "object" },
-          },
-        ]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
-    Object.defineProperty(window, "fetch", {
-      configurable: true,
-      value: fetchMock,
-    });
+    const { fetchMock, modelContext } = setupWebMcpManifest();
 
     renderProviders({ sessionBypass: true });
 

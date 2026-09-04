@@ -35,6 +35,13 @@ export {
   normalizeDocumentTitle,
 } from "./document-title.js";
 export { injectDocumentMarkup } from "./html-document.js";
+export {
+  formatHtmlStyleSummary,
+  summarizeHtmlStyles,
+  type HtmlStyleFragment,
+  type HtmlStyleSummary,
+  type HtmlStyleValue,
+} from "./html-style-summary.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   BETA_FORCE_QUERY_PARAM,

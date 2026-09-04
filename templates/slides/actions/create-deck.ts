@@ -117,7 +117,7 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live; the new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, and slide count.",
+    "Returns the deck id, title, effective designSystemId, and slide count.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
@@ -325,6 +325,7 @@ export default defineAction({
         id: deckId,
         title: existingDeckTitle,
         slideCount: slides.length,
+        designSystemId: designSystemId ?? existing[0].designSystemId ?? null,
         url: getDeckUrl(deckId),
         appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
@@ -380,6 +381,7 @@ export default defineAction({
       id,
       title: resolvedTitle,
       slideCount: slides.length,
+      designSystemId: resolvedDesignSystemId ?? null,
       url: getDeckUrl(id),
       appUrl: getDeckUrl(id),
       deepLink: deckDeepLink(id),
