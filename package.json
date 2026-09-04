@@ -37,7 +37,7 @@
     "test:ci-change-scope": "tsx --test scripts/ci-change-scope.test.ts",
     "test:netlify-prebuilt-workflow": "tsx --test scripts/guard-netlify-prebuilt-workflow.test.ts",
     "test:function-size-baseline": "tsx --test scripts/check-function-size-baseline.test.ts",
-    "test:package-release-workflow": "tsx --test scripts/package-release-workflow.test.ts scripts/create-release-changeset.test.ts scripts/release-everything-workflow.test.ts",
+    "test:package-release-workflow": "tsx --test scripts/package-release-workflow.test.ts scripts/create-release-changeset.test.ts scripts/release-everything-workflow.test.ts scripts/prepare-dev-snapshot.test.ts",
     "test:oauth-postgres": "pnpm --filter @agent-native/core exec vitest --run src/oauth-tokens/lifecycle.postgres.integration.spec.ts --config vitest.config.ts",
     "test:plan-e2e": "pnpm --filter plan exec vitest --run actions/create-visual-recap.e2e.spec.ts --passWithNoTests",
     "test:trusted-acceptance": "tsx --test scripts/trusted-acceptance.spec.ts scripts/guard-trusted-acceptance-workflow.spec.ts scripts/trusted-acceptance/*.spec.ts",
