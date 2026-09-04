@@ -279,7 +279,8 @@ function validateRegistryServer(server: RegistryServer, appName: string): void {
       `MCP Registry version for ${appName} is not SemVer: ${server.version}.`,
     );
   }
-  if (new URL(server.websiteUrl).protocol !== "https:") {
+  const websiteUrl = new URL(server.websiteUrl);
+  if (websiteUrl.protocol !== "https:" || !websiteUrl.hostname) {
     throw new Error(`MCP Registry website for ${appName} must use HTTPS.`);
   }
   const [remote] = server.remotes;
