@@ -11,6 +11,7 @@ describe("isShareableContentPath", () => {
   it("classifies the full-screen presentation route as shareable content", () => {
     expect(isShareableContentPath("/deck/abc123/present")).toBe(true);
     expect(isDeckEditorPath("/deck/abc123/present")).toBe(false);
+    expect(isDeckEditorPath("/deck/abc123/present/")).toBe(false);
   });
 
   it("classifies the agent-embed slide preview as shareable content", () => {

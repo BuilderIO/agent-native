@@ -95,7 +95,8 @@ export function isShareableContentPath(pathname: string): boolean {
 }
 
 export function isDeckEditorPath(pathname: string): boolean {
-  return pathname.startsWith("/deck/") && !pathname.endsWith("/present");
+  const normalizedPath = pathname.replace(/\/+$/, "");
+  return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
 }
 
 export const links: LinksFunction = () => [
