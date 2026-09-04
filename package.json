@@ -122,6 +122,7 @@
     "guard:persistent-compositing": "node scripts/guard-persistent-compositing.mjs",
     "guard:help-icon-scale": "node scripts/guard-help-icon-scale.mjs",
     "guard:no-default-chrome": "node scripts/guard-no-default-chrome.mjs",
+    "guard:single-search-clear": "node scripts/guard-single-search-clear.mjs",
     "guard:no-boot-data-work": "node scripts/guard-no-boot-data-work.mjs",
     "guard:no-untracked-imports": "node scripts/guard-no-untracked-imports.mjs",
     "check:production-cache-contract": "node scripts/check-production-cache-contract.mjs",
