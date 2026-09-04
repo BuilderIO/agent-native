@@ -274,7 +274,7 @@ describe("board surface pointer capture", () => {
 
     expect(content).toContain("transform:scale(0.03125)!important");
     expect(content).toContain("translate:65536px 65536px!important");
-    expect(content).toContain("background:hsl(0, 0%, 10%)!important");
+    expect(content).toContain("background:transparent!important");
     expect(content).toContain('data-agent-native-node-id="left"');
     expect(content).toContain('data-agent-native-node-id="right"');
     expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
@@ -2030,25 +2030,21 @@ describe("getOutsideFrameDraftFallback", () => {
   });
 });
 
-describe("board surface background follows the editor theme", () => {
-  const preview = (background?: string) =>
+describe("board surface preview paints no colour of its own", () => {
+  const preview = () =>
     getBoardSurfaceStaticPreviewContent({
       html: `<!doctype html><html><head></head><body><div data-agent-native-node-id="a" style="position:absolute;left:0;top:0;width:10px;height:10px"></div></body></html>`,
       logicalGeometry: { x: 0, y: 0, width: 1000, height: 1000 },
       viewport: { width: 500, height: 500 },
-      background,
     });
 
-  it("paints the themed canvas colour when one is supplied", () => {
-    // The board is its own iframe and cannot read the host's CSS vars, so a
-    // hardcoded dark fill made the canvas black in the light theme.
-    const content = preview("hsl(0 0% 92%)");
-    expect(content).toContain("hsl(0 0% 92%)");
+  it("stays transparent so the host layer's canvas colour shows through", () => {
+    // A colour baked into this document is a second canvas colour: it cannot
+    // read the host's CSS var, so it goes stale the moment the theme or the
+    // design's stored colour changes.
+    const content = preview();
+    expect(content).toContain("html,body{background:transparent!important");
     expect(content).not.toContain("hsl(0, 0%, 10%)");
-  });
-
-  it("falls back to the dark default when no theme colour is resolved", () => {
-    expect(preview()).toContain("hsl(0, 0%, 10%)");
-    expect(preview("   ")).toContain("hsl(0, 0%, 10%)");
+    expect(content).not.toContain("hsl(0 0% 92%)");
   });
 });

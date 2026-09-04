@@ -9,19 +9,15 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
-const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-render>html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
-// The comma syntax also works in the lightweight DOM used by canvas tests.
-export const BOARD_SURFACE_BACKGROUND = "hsl(0, 0%, 10%)";
-
-export function resolveBoardSurfaceBackground(
-  canvasBackground?: string | null,
-  themedFallback?: string | null,
-): string {
-  return (
-    canvasBackground?.trim() ||
-    themedFallback?.trim() ||
-    BOARD_SURFACE_BACKGROUND
-  );
+/**
+ * `color-scheme` is load-bearing, not cosmetic. Chrome paints an opaque base
+ * behind a frame whose scheme disagrees with its embedder, and that base sits
+ * between this transparent document and the canvas colour on the host layer —
+ * white in a dark editor. Matching the editor is what keeps the frame see-through.
+ */
+function boardSurfaceRenderStyle(darkScheme: boolean) {
+  const scheme = darkScheme ? "html{color-scheme:dark!important;}" : "";
+  return `<style data-agent-native-board-surface-render>${scheme}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
 }
 
 const BOARD_SURFACE_BACKDROP_MIN_EDGE_PX = 2400;
@@ -267,12 +263,13 @@ function getCurrentLayerParentNodeId(
   return "body";
 }
 
-export function getBoardSurfaceRenderContent(html: string) {
+export function getBoardSurfaceRenderContent(html: string, darkScheme = false) {
   if (!html) return html;
   const renderHtml = markAccidentalBoardBackdropCandidates(html);
   if (renderHtml.includes("data-agent-native-board-surface-render")) {
     return renderHtml;
   }
+  const BOARD_SURFACE_RENDER_STYLE = boardSurfaceRenderStyle(darkScheme);
   if (/<\/head>/i.test(html)) {
     return renderHtml.replace(
       /<\/head>/i,
@@ -321,24 +318,22 @@ function stripExecutableStaticPreviewContent(html: string) {
  * logical board paintable without allocating or scrolling a 131k iframe.
  */
 export function getBoardSurfaceStaticPreviewContent(args: {
-  /** Themed canvas colour; falls back to the dark default when unresolved. */
-  background?: string;
+  darkScheme?: boolean;
   html: string;
   logicalGeometry: FrameGeometry;
   viewport: { width: number; height: number };
 }) {
   const renderHtml = stripExecutableStaticPreviewContent(
-    getBoardSurfaceRenderContent(args.html),
+    getBoardSurfaceRenderContent(args.html, args.darkScheme),
   );
   const width = Math.max(1, args.logicalGeometry.width);
   const height = Math.max(1, args.logicalGeometry.height);
   const viewportWidth = Math.max(1, args.viewport.width);
   const viewportHeight = Math.max(1, args.viewport.height);
-  const background = args.background?.trim() || BOARD_SURFACE_BACKGROUND;
   const scale = Math.min(viewportWidth / width, viewportHeight / height);
   const offsetX = -args.logicalGeometry.x;
   const offsetY = -args.logicalGeometry.y;
-  const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}html,body{background:${background}!important;background-color:${background}!important;background-image:none!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:scale(${scale})!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
+  const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:scale(${scale})!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
   if (/<\/head\s*>/i.test(renderHtml)) {
     return injectDocumentMarkup(renderHtml, style, { target: "head" });
   }

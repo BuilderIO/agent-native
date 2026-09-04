@@ -112,7 +112,9 @@ interface DesignListResult {
   designs: Design[];
 }
 
-const DESIGN_PAGE_SIZE = 12;
+// The New Design card shares the grid, so a full page is pageSize + 1 tiles;
+// 12 is what divides evenly into every breakpoint's column count.
+const DESIGN_PAGE_SIZE = 11;
 
 export default function Index() {
   const t = useT();
@@ -1201,9 +1203,14 @@ export default function Index() {
                             aria-label={t("home.actionsForDesign", {
                               title: design.title,
                             })}
-                            className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                            // A scrim over the user's thumbnail, which is
+                            // their content: a theme-following chip vanishes
+                            // on a thumbnail that happens to match it.
+                            // guard:allow-raw-color — scrim over user content
+                            className="h-7 w-7 bg-black/60 hover:bg-black/75 cursor-pointer"
                           >
-                            <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                            {/* guard:allow-raw-color — scrim over user content */}
+                            <IconDots className="w-3.5 h-3.5 text-white" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">

@@ -1360,8 +1360,10 @@ describe("canvas iframe identity", () => {
       // The board colour is painted on the layer, not baked into the srcdoc:
       // inside the document it would be part of the iframe's identity, so every
       // colour-picker tick would rebuild the frame and drop in-iframe state.
-      expect(boardLayer!.style.background).toContain("hsl(0, 0%, 10%)");
-      expect(iframe!.srcdoc).not.toContain("background:hsl(0, 0%, 10%)");
+      expect(boardLayer!.style.background).toBe(
+        "var(--design-editor-canvas-bg)",
+      );
+      expect(iframe!.srcdoc).not.toContain("background:hsl(");
       expect(iframe!.getAttribute("data-screen-iframe-id")).toBeNull();
     } finally {
       await act(async () => root.unmount());
@@ -1524,8 +1526,12 @@ describe("canvas iframe identity", () => {
       );
       expect(staticIframe!.srcdoc).toContain("left-edge");
       expect(staticIframe!.srcdoc).toContain("right-edge");
-      expect(staticIframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
-      expect(staticIframe!.style.background).toBe("hsl(0, 0%, 10%)");
+      expect(staticIframe!.srcdoc).toContain(
+        "html,body{background:transparent!important",
+      );
+      expect(staticIframe!.style.background).toBe(
+        "var(--design-editor-canvas-bg)",
+      );
       expect(staticIframe!.srcdoc).not.toContain("<script");
 
       const initialActiveIframe = activeIframe!;

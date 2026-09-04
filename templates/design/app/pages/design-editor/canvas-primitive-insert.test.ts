@@ -487,9 +487,28 @@ describe("text takes its colour from what it lands on", () => {
           geometry: { x: 10, y: 10, width: 120, height: 24 },
           text: "on the board",
         },
-        { isBoardTarget: true },
+        { isBoardTarget: true, boardBackground: "hsl(0 0% 10%)" },
       ) ?? "";
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("inherits instead of going white on a light canvas", () => {
+    // The board document is transparent, so its colour can only arrive from
+    // the host — without it the light canvas reads as the old dark board and
+    // the text lands white-on-light.
+    const html =
+      appendCanvasPrimitiveToHtml(
+        blankScreenHtml("S"),
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 10, y: 10, width: 120, height: 24 },
+          text: "on a light canvas",
+        },
+        { isBoardTarget: true, boardBackground: "rgb(235, 235, 235)" },
+      ) ?? "";
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
   });
 });
 

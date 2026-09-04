@@ -15,6 +15,7 @@ import {
 import {
   BOARD_TEXT_AUTO_COLOR_MARKER,
   destinationBackgroundLightness,
+  resolveDestinationBackgroundLightnessOrNull,
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
@@ -281,7 +282,13 @@ function deepestFrameContaining(
 export function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
-  options?: { preserveNegativePosition?: boolean; isBoardTarget?: boolean },
+  options?: {
+    preserveNegativePosition?: boolean;
+    isBoardTarget?: boolean;
+    /** The canvas colour behind the board. The board document is transparent
+     *  by design, so its surface can only be measured from the host. */
+    boardBackground?: string | null;
+  },
 ): string | null {
   if (typeof window === "undefined") return null;
   // A live/localhost screen stores its route URL here, not a document.
@@ -520,18 +527,20 @@ export function appendCanvasPrimitiveToHtml(
         element.style.alignItems = "flex-start";
       }
       // "currentColor" inherits the unstyled document's black body text, so
-      // it is invisible on any dark surface — the always-dark board, and
-      // equally a screen whose own background is dark. Light screens keep
-      // "currentColor" so text still inherits their theme.
-      // Measure the frame the text actually lands in: a dark frame on a light
-      // page would otherwise keep currentColor and render invisible.
-      // isBoardTarget only says which surface is behind the text, and the
-      // board is not always dark — a measured background always wins.
-      const measuredLightness = destinationBackgroundLightness(hostOrBody);
+      // it is invisible on any dark surface. Measure the frame the text lands
+      // in; the board's own document is transparent, so its colour arrives
+      // from the host instead of a measurement.
+      const surfaceIsLight =
+        destinationBackgroundLightness(hostOrBody) ??
+        (options?.isBoardTarget
+          ? resolveDestinationBackgroundLightnessOrNull([
+              { color: options.boardBackground ?? null },
+            ])
+          : null);
       const autoTextNeedsLightFill =
-        measuredLightness === null
+        surfaceIsLight === null
           ? options?.isBoardTarget === true
-          : !measuredLightness;
+          : !surfaceIsLight;
       const resolvedTextColor =
         primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
       element.style.color = resolvedTextColor;

@@ -162,6 +162,7 @@ import {
   IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import {
   useState,
   useEffect,
@@ -5601,6 +5602,10 @@ function DesignEditor() {
   // layer (see beginRename in LayersPanel.tsx).
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  /** Read by primitive creation, which runs far above where the colour is
+   *  derived. */
+  const canvasBackgroundRef = useRef<string | null>(null);
+  const { resolvedTheme } = useTheme();
   const activeEditorDragRef = useRef(false);
 
   // Live handle to the active DesignCanvas preview iframe. DesignCanvas owns the
@@ -8114,6 +8119,7 @@ function DesignEditor() {
           activeFile,
           applyLocalContentUpdate,
           boardFileId,
+          canvasBackground: canvasBackgroundRef.current,
           canEditDesign,
           collabContentFileIdRef,
           collabContentRef,
@@ -15753,7 +15759,9 @@ function DesignEditor() {
   );
   const handleComposerDesignSystem = useCallback(
     (designSystemId: string | null) => {
-      setPromptDesignSystemId(designSystemId ?? undefined);
+      // null is the user picking "No design system"; only undefined means
+      // nothing has been chosen yet, which re-resolves the default.
+      setPromptDesignSystemId(designSystemId);
       persistPromptDesignSystem(designSystemId);
     },
     [persistPromptDesignSystem],
@@ -16265,6 +16273,29 @@ function DesignEditor() {
     string | null
   >(null);
   const canvasBackground = canvasBackgroundDraft ?? persistedCanvasBackground;
+  /** The inspector must show a colour, not "none", for a canvas the user has
+   *  not set — and the only honest source for that is what the container is
+   *  currently painted with, which follows the editor theme. */
+  const [themedCanvasBackground, setThemedCanvasBackground] = useState<
+    string | null
+  >(null);
+  canvasBackgroundRef.current = canvasBackground ?? themedCanvasBackground;
+  useEffect(() => {
+    if (canvasBackground) return;
+    // A throwaway element, not the raw token: the token is space-separated
+    // HSL, which the colour parser rejects. After a frame, because next-themes
+    // sets the `dark` class in an ancestor effect React runs after this one.
+    const frame = requestAnimationFrame(() => {
+      const probe = document.createElement("span");
+      probe.style.cssText =
+        "position:absolute;visibility:hidden;background-color:var(--design-editor-canvas-bg)";
+      document.body.append(probe);
+      const painted = window.getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      setThemedCanvasBackground(painted || null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [canvasBackground, resolvedTheme]);
   const handleCanvasBackgroundChange = useCallback(
     (value: string, meta?: { phase?: "preview" | "commit" }) => {
       if (!id || !canEditDesignRef.current) return;
@@ -19619,6 +19650,7 @@ function DesignEditor() {
     selectedScreenLayoutGrid,
     onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
+    canvasBackgroundFallback: themedCanvasBackground,
     onCanvasBackgroundChange: canEditDesign
       ? handleCanvasBackgroundChange
       : undefined,
@@ -20378,6 +20410,7 @@ function DesignEditor() {
                     BreakpointDeviceControl — see rightSidebarActions. */}
                 <div
                   ref={canvasContainerRef}
+                  data-design-canvas-container
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.

@@ -42,6 +42,8 @@ export interface CreatePrimitiveArgs {
     },
   ) => void;
   boardFileId: string | undefined;
+  /** Effective canvas colour, stored or themed — the board's visible surface. */
+  canvasBackground: string | null | undefined;
   canEditDesign: boolean;
   collabContentFileIdRef: RefObject<string | null>;
   collabContentRef: RefObject<string | null>;
@@ -86,6 +88,7 @@ export function runCreatePrimitive(
     activeFile,
     applyLocalContentUpdate,
     boardFileId,
+    canvasBackground,
     canEditDesign,
     collabContentFileIdRef,
     collabContentRef,
@@ -187,6 +190,7 @@ export function runCreatePrimitive(
   const insertedContent = appendCanvasPrimitiveToHtml(baseContent, primitive, {
     preserveNegativePosition: targetFile.id === boardFileId,
     isBoardTarget: targetFile.id === boardFileId,
+    boardBackground: canvasBackground,
   });
   if (!insertedContent) {
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));

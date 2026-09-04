@@ -350,3 +350,69 @@ test("New Design starts an empty design and fills it from a template in the rail
     }
   }
 });
+
+test("choosing No design system clears the design instead of snapping back", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  let createdDesignId: string | undefined;
+  const designSystemIds: string[] = [];
+  const suffix = Date.now();
+  const systemTitle = `E2E clearable system ${suffix}`;
+
+  try {
+    for (const title of [`E2E default system ${suffix}`, systemTitle]) {
+      const system = await postAction(request, "create-design-system", {
+        title,
+        data: JSON.stringify({ colors: { primary: "#3366ff" } }),
+      });
+      const systemId = system.id ?? system.data?.id;
+      expect(systemId).toBeTruthy();
+      designSystemIds.push(systemId);
+    }
+
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load");
+    await page.getByRole("button", { name: "New Design", exact: true }).click();
+    await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
+      timeout: 30_000,
+    });
+    createdDesignId = page.url().match(/\/design\/([^/?#]+)/)?.[1];
+    expect(createdDesignId).toBeTruthy();
+
+    const trigger = page
+      .locator("[data-design-system-picker]")
+      .getByRole("combobox");
+    await expect(trigger).toBeVisible({ timeout: 30_000 });
+    await trigger.click();
+    await page.getByRole("option", { name: systemTitle, exact: true }).click();
+    await expect(trigger).toContainText(systemTitle);
+
+    await trigger.click();
+    await page
+      .getByRole("option", { name: "No design system", exact: true })
+      .click();
+    // Clearing used to read as "nothing chosen yet", which re-resolved the
+    // default system on the very next render.
+    await expect(trigger).toContainText("No design system");
+    await expect
+      .poll(
+        async () =>
+          (await getAction(request, "get-design", { id: createdDesignId! }))
+            .designSystemId ?? null,
+        { timeout: 20_000 },
+      )
+      .toBeNull();
+    await expect(trigger).toContainText("No design system");
+  } finally {
+    if (createdDesignId) {
+      await postAction(request, "delete-design", { id: createdDesignId }).catch(
+        () => {},
+      );
+    }
+    for (const id of designSystemIds.reverse()) {
+      await postAction(request, "delete-design-system", { id }).catch(() => {});
+    }
+  }
+});
