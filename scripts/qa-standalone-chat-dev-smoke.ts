@@ -1764,6 +1764,14 @@ async function waitForChatText(
     await sleep(250);
   }
   let currentUrl = "";
+  let bodyPreview = "";
+  try {
+    bodyPreview = (await body.innerText({ timeout: 1_000 })).slice(0, 2_000);
+  } catch (error) {
+    if (!isNavigationContextError(error)) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
   try {
     currentUrl = page.url();
   } catch (error) {
@@ -1774,7 +1782,8 @@ async function waitForChatText(
   throw new Error(
     `Chat text ${JSON.stringify(expected)} did not render within ${timeoutMs}ms` +
       (lastError ? ` (${lastError})` : ".") +
-      (currentUrl ? ` Current URL: ${currentUrl}` : ""),
+      (currentUrl ? ` Current URL: ${currentUrl}` : "") +
+      (bodyPreview ? ` Body preview: ${JSON.stringify(bodyPreview)}` : ""),
   );
 }
 
@@ -2107,6 +2116,12 @@ async function assertAgentKitChatAcceptance(
   await waitForLoopbackState(
     "the initial provider request",
     () => provider.requests.length >= 1,
+    30_000,
+  );
+  await waitForLoopbackState(
+    "the initial streamed markdown response",
+    () =>
+      provider.helloActionResults.length === 1 && provider.markdownChunks >= 2,
     30_000,
   );
   network.allowInitialEphemeralThread404 = false;
