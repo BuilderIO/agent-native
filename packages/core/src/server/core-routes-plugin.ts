@@ -43,6 +43,7 @@ import { getAppConfig } from "../app-config/index.js";
 import {
   getState,
   putState,
+  compareAndSetState,
   deleteState,
   listComposeDrafts,
   getComposeDraft,
@@ -5234,6 +5235,7 @@ export function createCoreRoutesPlugin(
             const method = getMethod(event);
             if (method === "GET") return getState(event);
             if (method === "PUT") return putState(event);
+            if (method === "PATCH") return compareAndSetState(event);
             if (method === "DELETE") return deleteState(event);
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };

@@ -1055,6 +1055,32 @@ export const runContentMigrations = runMigrations(
         ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_retryable INTEGER;
         ALTER TABLE content_database_body_hydration_queue ADD COLUMN IF NOT EXISTS next_attempt_at TEXT`,
     },
+    {
+      version: 87,
+      name: "content-document-body-revision-and-edit-receipts",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS body_revision INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS document_edit_receipts (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        document_id TEXT NOT NULL,
+        caller_scope TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        payload_digest TEXT NOT NULL,
+        base_revision INTEGER NOT NULL,
+        result_revision INTEGER NOT NULL,
+        before_hash TEXT NOT NULL,
+        after_hash TEXT NOT NULL,
+        ranges_json TEXT NOT NULL DEFAULT '[]',
+        actor_json TEXT NOT NULL DEFAULT '{}',
+        result_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS document_edit_receipts_document_scope_key_unique
+        ON document_edit_receipts (document_id, caller_scope, idempotency_key);
+      CREATE INDEX IF NOT EXISTS document_edit_receipts_owner_document_idx
+        ON document_edit_receipts (owner_email, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

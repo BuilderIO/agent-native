@@ -97,6 +97,7 @@ import {
 } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
+import { flushBlockFieldSaveController } from "./blockFieldSaveRegistry";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
@@ -326,6 +327,25 @@ export function shouldAwaitAuthoritativeDocument({
   return isFetching && !isFetchedAfterMount;
 }
 
+export function updateAdditionalBlockContents(args: {
+  current: Record<string, string>;
+  activeDocumentId: string;
+  sourceDocumentId: string;
+  propertyId: string;
+  content: string | null;
+}): Record<string, string> {
+  if (args.sourceDocumentId !== args.activeDocumentId) return args.current;
+  if (args.content === null) {
+    if (!(args.propertyId in args.current)) return args.current;
+    const next = { ...args.current };
+    delete next[args.propertyId];
+    return next;
+  }
+  return args.current[args.propertyId] === args.content
+    ? args.current
+    : { ...args.current, [args.propertyId]: args.content };
+}
+
 export function visualEditorInstanceKey(args: {
   documentId: string;
   documentUpdatedAt: string | null;
@@ -368,6 +388,7 @@ type PendingDocumentSave = {
 type DocumentSaveOptions = {
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
+  adoptCurrentServerBase?: boolean;
 };
 
 type DocumentSaveResult = {
@@ -714,6 +735,29 @@ function DocumentEditorBody({
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+  const [additionalBlockContents, setAdditionalBlockContents] = useState<
+    Record<string, string>
+  >({});
+  const activeDocumentIdRef = useRef(documentId);
+  activeDocumentIdRef.current = documentId;
+  const handleAdditionalBlockContentChange = useCallback(
+    (sourceDocumentId: string, propertyId: string, content: string | null) => {
+      setAdditionalBlockContents((current) =>
+        updateAdditionalBlockContents({
+          current,
+          activeDocumentId: activeDocumentIdRef.current,
+          sourceDocumentId,
+          propertyId,
+          content,
+        }),
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setAdditionalBlockContents({});
+  }, [documentId]);
 
   useEffect(() => {
     const nextTitle = `${normalizeDocumentTitle(
@@ -755,6 +799,9 @@ function DocumentEditorBody({
     diskDocument: Document;
     diskRevision?: DesktopContentFileRevision;
     unsavedText: string;
+  } | null>(null);
+  const [documentReconcileConflict, setDocumentReconcileConflict] = useState<{
+    localDraft: string;
   } | null>(null);
   const [localSourceMissing, setLocalSourceMissing] = useState(false);
   const [localSourceAccess, setLocalSourceAccess] = useState<
@@ -1484,6 +1531,12 @@ function DocumentEditorBody({
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
+      if (options.adoptCurrentServerBase) {
+        lastSavedContentRef.current = {
+          content: documentContentRef.current,
+          updatedAt: documentUpdatedAtRef.current,
+        };
+      }
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -1792,6 +1845,7 @@ function DocumentEditorBody({
   // The shared sync transport wakes this reader for the exact app-state key;
   // the first run covers a request that was already pending when the editor
   // mounted.
+  const flushRequestInFlightRef = useRef(new Set<string>());
   useEffect(() => {
     if (!editorCanEdit || isLocalFileDocument) return;
     let active = true;
@@ -1807,6 +1861,7 @@ function DocumentEditorBody({
             id?: string;
             ts?: number;
             requestId?: string;
+            propertyId?: string;
             status?: "pending" | "success" | "error";
             error?: string;
           } | null;
@@ -1817,6 +1872,11 @@ function DocumentEditorBody({
             if (pending.status === "error" || pending.status === "success") {
               return;
             }
+            const requestIdentity =
+              pending.requestId ??
+              `${pending.id ?? documentId}:${pending.ts ?? 0}`;
+            if (flushRequestInFlightRef.current.has(requestIdentity)) return;
+            flushRequestInFlightRef.current.add(requestIdentity);
             const title = localTitleRef.current;
             const content = localContentRef.current;
             const updates: Record<string, string> = {};
@@ -1826,7 +1886,12 @@ function DocumentEditorBody({
               updates.content = content;
             }
             try {
-              if (Object.keys(updates).length > 0) {
+              if (pending.propertyId) {
+                await flushBlockFieldSaveController(
+                  documentId,
+                  pending.propertyId,
+                );
+              } else if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdatesRef.current(updates);
                 if (isDocumentUpdateConflict(saved)) {
                   // Do not acknowledge a CAS loss as a successful flush. The
@@ -1850,16 +1915,19 @@ function DocumentEditorBody({
               // editor state is confirmed in SQL (or nothing needed saving).
               // A delete is ambiguous with a transient app-state read failure.
               await fetch(flushPath, {
-                method: "PUT",
+                method: "PATCH",
                 headers: {
                   "Content-Type": "application/json",
                   "X-Agent-Native-CSRF": "1",
                 },
                 body: JSON.stringify({
-                  id: pending.id ?? documentId,
-                  ts: pending.ts ?? Date.now(),
-                  requestId: pending.requestId,
-                  status: "success",
+                  expected: pending,
+                  next: {
+                    id: pending.id ?? documentId,
+                    ts: pending.ts ?? Date.now(),
+                    requestId: pending.requestId,
+                    status: "success",
+                  },
                 }),
               }).catch(() => {});
             } catch (error) {
@@ -1867,22 +1935,27 @@ function DocumentEditorBody({
               // Notion action can fail closed instead of timing out and using a
               // stale documents row. The server clears this after reading it.
               await fetch(flushPath, {
-                method: "PUT",
+                method: "PATCH",
                 headers: {
                   "Content-Type": "application/json",
                   "X-Agent-Native-CSRF": "1",
                 },
                 body: JSON.stringify({
-                  id: pending.id ?? documentId,
-                  ts: pending.ts ?? Date.now(),
-                  requestId: pending.requestId,
-                  status: "error",
-                  error:
-                    error instanceof Error
-                      ? error.message
-                      : t("editor.liveDocumentSaveBeforeSyncFailed"),
+                  expected: pending,
+                  next: {
+                    id: pending.id ?? documentId,
+                    ts: pending.ts ?? Date.now(),
+                    requestId: pending.requestId,
+                    status: "error",
+                    error:
+                      error instanceof Error
+                        ? error.message
+                        : t("editor.liveDocumentSaveBeforeSyncFailed"),
+                  },
                 }),
               }).catch(() => {});
+            } finally {
+              flushRequestInFlightRef.current.delete(requestIdentity);
             }
           }
         }
@@ -1920,13 +1993,17 @@ function DocumentEditorBody({
       if (!editorCanEdit) return;
       localContentRef.current = newContent;
       setLocalContent(newContent);
+      if (documentReconcileConflict) {
+        setDocumentReconcileConflict({ localDraft: newContent });
+        return;
+      }
       debouncedSave(localTitleRef.current, newContent);
     },
-    [debouncedSave, editorCanEdit],
+    [debouncedSave, documentReconcileConflict, editorCanEdit],
   );
 
   const handleContentSaveNow = useCallback(
-    async (newContent: string) => {
+    async (newContent: string, adoptCurrentServerBase = false) => {
       if (!editorCanEdit) return false;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -1935,10 +2012,30 @@ function DocumentEditorBody({
       }
       localContentRef.current = newContent;
       setLocalContent(newContent);
-      const result = await queueDocumentSave(localTitleRef.current, newContent);
+      const result = await queueDocumentSave(
+        localTitleRef.current,
+        newContent,
+        {
+          adoptCurrentServerBase,
+        },
+      );
       return result.contentPersisted;
     },
     [editorCanEdit, queueDocumentSave],
+  );
+
+  const handleBaseAwareReconcile = useCallback(
+    (result: { status: "merged" | "conflict" | "failed"; content: string }) => {
+      if (result.status === "merged") {
+        void handleContentSaveNow(result.content, true).then((persisted) => {
+          if (persisted) setDocumentReconcileConflict(null);
+          else setDocumentReconcileConflict({ localDraft: result.content });
+        });
+        return;
+      }
+      setDocumentReconcileConflict({ localDraft: result.content });
+    },
+    [handleContentSaveNow],
   );
 
   const useDiskVersion = useCallback(() => {
@@ -2430,6 +2527,8 @@ function DocumentEditorBody({
         {panel === "info" ? (
           <DocumentInfoPanel
             document={document}
+            documentContent={exportContent}
+            additionalBlockContents={additionalBlockContents}
             databaseId={databaseId}
             databaseDocumentId={databaseDocumentId}
             canEdit={editorCanEdit}
@@ -2567,6 +2666,49 @@ function DocumentEditorBody({
               </Button>
               <Button type="button" size="sm" onClick={useDiskVersion}>
                 {t("editor.useDiskVersion")}
+              </Button>
+            </div>
+          ) : null}
+
+          {documentReconcileConflict ? (
+            <div
+              className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+              role="alert"
+              data-document-reconcile-conflict
+            >
+              <span className="me-auto">{t("editor.toolbar.conflict")}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void writeClipboardText(
+                    documentReconcileConflict.localDraft,
+                  ).then((copied) => {
+                    if (copied) toast.success(t("editor.unsavedTextCopied"));
+                    else
+                      toast.error(
+                        t("editor.toolbar.clipboardAccessUnavailable"),
+                      );
+                  });
+                }}
+              >
+                {t("editor.copyUnsavedText")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  const localDraft = documentReconcileConflict.localDraft;
+                  void handleContentSaveNow(localDraft, true).then(
+                    (persisted) => {
+                      if (persisted) setDocumentReconcileConflict(null);
+                      else setDocumentReconcileConflict({ localDraft });
+                    },
+                  );
+                }}
+              >
+                {t("editor.keepLocalDraft")}
               </Button>
             </div>
           ) : null}
@@ -2849,6 +2991,12 @@ function DocumentEditorBody({
                                 ? (localContentUpdatedAt ?? document.updatedAt)
                                 : document.updatedAt
                             }
+                            contentRevision={
+                              isLocalFileDocument
+                                ? null
+                                : (document.revision ?? null)
+                            }
+                            onBaseAwareReconcile={handleBaseAwareReconcile}
                             onChange={handleContentChange}
                             onSaveContent={handleContentSaveNow}
                             ydoc={collabEditorEnabled ? ydoc : null}
@@ -2900,6 +3048,9 @@ function DocumentEditorBody({
                             }
                             canEdit={editorCanEdit}
                             primaryEditor={primaryEditor}
+                            onAdditionalContentChange={
+                              handleAdditionalBlockContentChange
+                            }
                           />
                         );
                       }

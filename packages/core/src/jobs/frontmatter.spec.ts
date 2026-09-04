@@ -69,6 +69,8 @@ triggerType: schedule
 domain: "factory"
 factoryId: enzo-test-factory-3
 displayName: My Slack triage
+source: slack
+slackChannelId: C0BUK2293SA
 ---
 
 Run the automation.`;
@@ -82,6 +84,8 @@ Run the automation.`;
 
     expect(rewritten).toContain("factoryId: enzo-test-factory-3");
     expect(rewritten).toContain("displayName: My Slack triage");
+    expect(rewritten).toContain("source: slack");
+    expect(rewritten).toContain("slackChannelId: C0BUK2293SA");
     expect(rewritten).toContain('lastRun: "2026-08-21T17:30:01.097Z"');
   });
 

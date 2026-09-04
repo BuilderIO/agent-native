@@ -66,7 +66,10 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
+import {
+  identitySsoLoginButtonHtml,
+  isCanonicalIdentitySsoClientRequest,
+} from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
@@ -1126,6 +1129,9 @@ export interface OnboardingHtmlOptions {
    * default auth guard serves before a template-specific auth plugin.
    */
   requestHost?: string;
+  /** Exact host and protocol used by the SSO route's request-boundary check. */
+  identitySsoRequestHost?: string;
+  identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
   /**
@@ -1161,6 +1167,7 @@ function initialAuthView(
     if (requestedView === "login" || requestedView === "signup") {
       return requestedView;
     }
+    if (url.searchParams.get("c")) return "login";
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     if (pathname.endsWith("/login")) return "login";
     if (pathname.endsWith("/signup")) return "signup";
@@ -1261,7 +1268,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
-  const identitySsoEnabled = Boolean(identitySsoLoginButtonHtml());
+  const identitySsoRequestHost =
+    opts.identitySsoRequestHost ?? opts.requestHost;
+  const identitySsoEnabled = Boolean(
+    identitySsoLoginButtonHtml({ requestHost: identitySsoRequestHost }),
+  );
+  const identitySsoAuto =
+    identitySsoEnabled &&
+    isCanonicalIdentitySsoClientRequest(
+      identitySsoRequestHost,
+      opts.identitySsoRequestProtocol,
+    );
   const embeddedAuthCss = identitySsoEnabled
     ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
     : "";
@@ -1639,6 +1656,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,

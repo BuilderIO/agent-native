@@ -80,10 +80,316 @@ describe("slide rich text normalization", () => {
   });
 
   it("restores semantic containers without nesting editor block markup", () => {
-    expect(contentForSlideTextContainer("H2", "<h2>Title</h2>")).toBe("Title");
+    expect(
+      contentForSlideTextContainer(
+        "H2",
+        '<h2 style="position:absolute;left:107px;top:190px">Title</h2>',
+      ),
+    ).toBe("<p>Title</p>");
     expect(contentForSlideTextContainer("UL", "<ul><li>First</li></ul>")).toBe(
-      "<li>First</li>",
+      "<ul><li>First</li></ul>",
     );
+    expect(
+      contentForSlideTextContainer(
+        "OL",
+        '<ol style="position:absolute;left:20px"><li>First</li></ol>',
+      ),
+    ).toBe("<ol><li>First</li></ol>");
+    expect(
+      contentForSlideTextContainer(
+        "BLOCKQUOTE",
+        "<blockquote><p>Quote</p></blockquote>",
+      ),
+    ).toBe("<blockquote><p>Quote</p></blockquote>");
+  });
+
+  it("round-trips a positioned heading without losing its semantic root", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<h2 style="position:absolute;left:107px;top:190px">Title</h2>';
+    const heading = root.firstElementChild as HTMLElement;
+    const editorContent = contentForSlideTextContainer(
+      heading.tagName,
+      heading.outerHTML,
+    );
+
+    const restored = restoreSlideTextContainerContent(heading, editorContent);
+
+    expect(restored).toBe(heading);
+    expect(restored.tagName).toBe("H2");
+    expect(restored.textContent).toBe("Title");
+    expect(restored.style.left).toBe("107px");
+  });
+
+  it("preserves heading paragraph attributes and formatting", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<h2 style="position:absolute;left:107px;top:190px">Title</h2>';
+    const heading = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      heading,
+      '<p style="text-align:center;color:red" dir="rtl" data-pptx-paragraph="2">Title</p>',
+    );
+
+    expect(restored.style.position).toBe("absolute");
+    expect(restored.style.left).toBe("107px");
+    expect(restored.style.top).toBe("190px");
+    expect(restored.style.textAlign).toBe("center");
+    expect(restored.style.color).toBe("red");
+    expect(restored.getAttribute("dir")).toBe("rtl");
+    expect(restored.getAttribute("data-pptx-paragraph")).toBe("2");
+  });
+
+  it("preserves paragraph and list-item formatting through editor wrappers", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<p style="position:absolute;left:8px;color:red;font-size:24px;text-align:right" dir="rtl" data-pptx-paragraph="2">Paragraph</p><ul><li style="position:absolute;left:12px;color:blue;font-size:18px" dir="ltr" data-pptx-paragraph="3"><p>Item</p><ul><li>Nested</li></ul></li></ul>';
+    const paragraph = root.firstElementChild as HTMLElement;
+    const item = root.querySelector("ul > li") as HTMLElement;
+
+    const paragraphEditorContent = contentForSlideTextContainer(
+      paragraph.tagName,
+      paragraph.outerHTML,
+    );
+    const paragraphSeed = document.createElement("div");
+    paragraphSeed.innerHTML = paragraphEditorContent;
+    expect(paragraphSeed.firstElementChild?.tagName).toBe("P");
+    expect((paragraphSeed.firstElementChild as HTMLElement).style.color).toBe(
+      "red",
+    );
+    expect(
+      paragraphSeed.firstElementChild?.getAttribute("data-pptx-paragraph"),
+    ).toBe("2");
+
+    const restoredParagraph = restoreSlideTextContainerContent(
+      paragraph,
+      paragraphEditorContent,
+    );
+    expect(restoredParagraph.style.left).toBe("8px");
+    expect(restoredParagraph.style.color).toBe("red");
+    expect(restoredParagraph.style.fontSize).toBe("24px");
+    expect(restoredParagraph.getAttribute("dir")).toBe("rtl");
+
+    const itemEditorContent = contentForSlideTextContainer(
+      item.tagName,
+      item.outerHTML,
+      "UL",
+    );
+    const itemSeed = document.createElement("div");
+    itemSeed.innerHTML = itemEditorContent;
+    const seededItem = itemSeed.querySelector("ul > li") as HTMLElement;
+    expect(seededItem.style.color).toBe("blue");
+    expect(seededItem.getAttribute("dir")).toBe("ltr");
+    expect(seededItem.querySelector(":scope > ul li")?.textContent).toBe(
+      "Nested",
+    );
+
+    const restoredItem = restoreSlideTextContainerContent(
+      item,
+      itemEditorContent,
+    );
+    expect(restoredItem).toBe(item);
+    expect(restoredItem.style.left).toBe("12px");
+    expect(restoredItem.style.color).toBe("blue");
+    expect(restoredItem.style.fontSize).toBe("18px");
+    expect(restoredItem.getAttribute("dir")).toBe("ltr");
+    expect(restoredItem.getAttribute("data-pptx-paragraph")).toBe("3");
+    expect(restoredItem.querySelector(":scope > ul li")?.textContent).toBe(
+      "Nested",
+    );
+
+    const orderedRoot = document.createElement("div");
+    orderedRoot.innerHTML = "<ol><li>Ordered item</li></ol>";
+    const orderedItem = orderedRoot.querySelector("li") as HTMLElement;
+    expect(
+      contentForSlideTextContainer("LI", orderedItem.outerHTML, "OL"),
+    ).toBe("<ol><li>Ordered item</li></ol>");
+  });
+
+  it("clears removed heading formatting without clearing its position", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<h2 style="position:absolute;left:107px;top:190px;color:red;font-size:56px" dir="rtl" data-pptx-paragraph="2">Title</h2>';
+    const heading = root.firstElementChild as HTMLElement;
+
+    restoreSlideTextContainerContent(
+      heading,
+      '<p style="color:red;font-size:56px" dir="rtl" data-pptx-paragraph="2">Title</p>',
+    );
+    const restored = restoreSlideTextContainerContent(heading, "<p>Title</p>");
+
+    expect(restored.style.position).toBe("absolute");
+    expect(restored.style.left).toBe("107px");
+    expect(restored.style.color).toBe("");
+    expect(restored.style.fontSize).toBe("");
+    expect(restored.getAttribute("dir")).toBeNull();
+    expect(restored.getAttribute("data-pptx-paragraph")).toBeNull();
+  });
+
+  it("keeps all blocks when a heading becomes structurally multi-block", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<h2>Title</h2>";
+    const heading = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      heading,
+      "<p>Title</p><p>Second line</p>",
+    );
+
+    expect(restored.tagName).toBe("DIV");
+    expect(restored.querySelectorAll("p")).toHaveLength(2);
+    expect(restored.textContent).toBe("TitleSecond line");
+  });
+
+  it("round-trips blockquote and list roots from editor block output", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<blockquote style="position:absolute;left:10px"><p>Quote</p></blockquote><ul><li>First</li></ul>';
+    const quote = root.firstElementChild as HTMLElement;
+    const list = root.lastElementChild as HTMLElement;
+    const item = list.firstElementChild as HTMLElement;
+
+    const restoredQuote = restoreSlideTextContainerContent(
+      quote,
+      contentForSlideTextContainer("BLOCKQUOTE", quote.outerHTML),
+    );
+    const restoredList = restoreSlideTextContainerContent(
+      list,
+      contentForSlideTextContainer("UL", list.outerHTML),
+    );
+    const restoredItem = restoreSlideTextContainerContent(item, "<p>First</p>");
+
+    expect(restoredQuote).toBe(quote);
+    expect(restoredQuote.querySelector("p")?.textContent).toBe("Quote");
+    expect(restoredQuote.style.left).toBe("10px");
+    expect(restoredList).toBe(list);
+    expect(restoredList.querySelector("li")?.textContent).toBe("First");
+    expect(restoredItem).toBe(item);
+    expect(restoredItem.tagName).toBe("LI");
+
+    const unquoted = restoreSlideTextContainerContent(quote, "<p>Quote</p>");
+    expect(unquoted.tagName).toBe("DIV");
+    expect(unquoted.querySelector("p")?.textContent).toBe("Quote");
+  });
+
+  it("syncs same-root block formatting without moving the canvas object", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<blockquote style="position:absolute;left:10px;color:red" dir="ltr" data-pptx-paragraph="1"><p>Quote</p></blockquote>';
+    const quote = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      quote,
+      '<blockquote style="color:blue;text-align:center" dir="rtl" data-pptx-paragraph="2"><p>Quote</p></blockquote>',
+    );
+
+    expect(restored).toBe(quote);
+    expect(restored.style.position).toBe("absolute");
+    expect(restored.style.left).toBe("10px");
+    expect(restored.style.color).toBe("blue");
+    expect(restored.style.textAlign).toBe("center");
+    expect(restored.getAttribute("dir")).toBe("rtl");
+    expect(restored.getAttribute("data-pptx-paragraph")).toBe("2");
+  });
+
+  it("preserves blockquote attributes the editor cannot round-trip", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<blockquote style="position:absolute;left:10px;color:red" dir="rtl" data-pptx-paragraph="1"><p>Quote</p></blockquote>';
+    const quote = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      quote,
+      '<blockquote style="color:blue"><p>Quote</p></blockquote>',
+    );
+
+    expect(restored).toBe(quote);
+    expect(restored.style.position).toBe("absolute");
+    expect(restored.style.left).toBe("10px");
+    expect(restored.style.color).toBe("blue");
+    expect(restored.getAttribute("dir")).toBe("rtl");
+    expect(restored.getAttribute("data-pptx-paragraph")).toBe("1");
+  });
+
+  it("keeps positioned list objects when changing list type", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<ul data-builder-id="list" style="position:absolute;left:12px;list-style-type:disc"><li>First</li></ul>';
+    const list = root.firstElementChild as HTMLElement;
+
+    const ordered = restoreSlideTextContainerContent(
+      list,
+      "<ol><li>First</li></ol>",
+    );
+
+    expect(ordered.tagName).toBe("OL");
+    expect(ordered.getAttribute("data-builder-id")).toBe("list");
+    expect(ordered.style.position).toBe("absolute");
+    expect(ordered.style.left).toBe("12px");
+    expect(ordered.style.listStyleType).toBe("disc");
+
+    const unordered = restoreSlideTextContainerContent(
+      ordered,
+      "<ul><li>First</li></ul>",
+    );
+    expect(unordered.tagName).toBe("UL");
+    expect(unordered.querySelector("li")?.textContent).toBe("First");
+  });
+
+  it("keeps list-item roots containing nested lists", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      "<ul><li><p>First</p><ul><li><p>Nested</p></li></ul></li></ul>";
+    const item = root.querySelector("ul > li") as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      item,
+      "<p>Updated</p><ul><li><p>Nested updated</p></li></ul>",
+    );
+
+    expect(restored).toBe(item);
+    expect(restored.tagName).toBe("LI");
+    expect(restored.querySelector(":scope > p")?.textContent).toBe("Updated");
+    expect(restored.querySelector(":scope > ul li")?.textContent).toBe(
+      "Nested updated",
+    );
+  });
+
+  it("keeps newly created list items as siblings", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<ul><li>First</li></ul>";
+    const item = root.querySelector("li") as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      item,
+      "<ul><li>First</li><li>Second</li></ul>",
+    );
+
+    expect(restored).toBe(item);
+    expect(item.parentElement?.tagName).toBe("UL");
+    expect(
+      Array.from(item.parentElement!.children).map(
+        (child) => child.textContent,
+      ),
+    ).toEqual(["First", "Second"]);
+  });
+
+  it("converts the actual parent list when editing an item", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<ul data-builder-id="list"><li>First</li><li>Second</li></ul>';
+    const item = root.querySelector("li") as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      item,
+      "<ol><li>First</li></ol>",
+    );
+
+    expect(restored).toBe(item);
+    expect(item.parentElement?.tagName).toBe("OL");
+    expect(item.parentElement?.getAttribute("data-builder-id")).toBe("list");
+    expect(item.parentElement?.children).toHaveLength(2);
   });
 
   it("promotes semantic containers to one wrapper for structural edits", () => {

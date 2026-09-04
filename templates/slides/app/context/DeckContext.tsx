@@ -30,6 +30,7 @@ import {
 
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
+import { deckContentSignature as stableDeckContentSignature } from "../../shared/deck-content";
 import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
 
 // ---------------------------------------------------------------------------
@@ -1283,9 +1284,7 @@ export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
  * metadata-only refresh does not create a no-op undo entry.
  */
 export function deckContentSignature(deck: Deck): string {
-  const { updatedAt: _updatedAt, ...rest } = deck;
-  void _updatedAt;
-  return JSON.stringify(rest);
+  return stableDeckContentSignature(deck);
 }
 
 /**
@@ -2290,7 +2289,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     (
       updated: Deck,
       label = "Agent edit",
-      options?: { clearPendingWrites?: boolean },
+      options?: { clearPendingWrites?: boolean; agentChangeId?: string },
     ) => {
       if (options?.clearPendingWrites) {
         discardPendingDeckOps(updated.id);
@@ -2306,6 +2305,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           undo: [{ op: "replace-deck", deckId: updated.id, deck: before }],
           redo: [{ op: "replace-deck", deckId: updated.id, deck: updated }],
           label,
+          ...(options?.agentChangeId
+            ? {
+                coalesceKey: `agent:${updated.id}:${options.agentChangeId}`,
+                coalesceWindowMs: Number.POSITIVE_INFINITY,
+              }
+            : {}),
         });
       }
       setDecks((prev) => {
@@ -2405,7 +2410,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const refetchOpenDeckIfChanged = useCallback(
     async (
       currentOpenId: string,
-      options?: { clearPendingWrites?: boolean },
+      options?: { clearPendingWrites?: boolean; agentChangeId?: string },
     ): Promise<Deck | null> => {
       const snapshotGeneration = serverSnapshotGenerationRef.current;
       const requestId = nextOpenDeckRequestId(currentOpenId);
@@ -2446,6 +2451,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         lastExternalUpdateRef.current = Date.now();
         applyRemoteDeckUpdate(serverDeck, "Deck restored", {
           clearPendingWrites: true,
+          ...(options.agentChangeId
+            ? { agentChangeId: options.agentChangeId }
+            : {}),
         });
         return serverDeck;
       }
@@ -2474,13 +2482,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         );
         if (merged === clientDeck) return serverDeck; // nothing new to surface
         lastExternalUpdateRef.current = Date.now();
-        setDecks((prev) => {
-          const idx = prev.findIndex((d) => d.id === currentOpenId);
-          if (idx < 0) return prev;
-          const next = [...prev];
-          next[idx] = merged;
-          return next;
-        });
+        applyRemoteDeckUpdate(
+          merged,
+          "Agent edit",
+          options?.agentChangeId
+            ? { agentChangeId: options.agentChangeId }
+            : undefined,
+        );
         return serverDeck;
       }
 
@@ -2490,7 +2498,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         deckContentSignature(clientDeck) !== deckContentSignature(serverDeck);
       if (!changed) return serverDeck;
       lastExternalUpdateRef.current = Date.now();
-      applyRemoteDeckUpdate(serverDeck);
+      applyRemoteDeckUpdate(
+        serverDeck,
+        "Agent edit",
+        options?.agentChangeId
+          ? { agentChangeId: options.agentChangeId }
+          : undefined,
+      );
       return serverDeck;
     },
     [
@@ -2810,7 +2824,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             // surfacing server-added slides immediately. It reads the deck
             // itself rather than trusting `data.slideId`, so an event that
             // names no slide still delivers the edit.
-            const refetchPromise = refetchOpenDeckIfChanged(data.deckId);
+            const agentChangeId =
+              typeof data.agentChangeId === "string"
+                ? data.agentChangeId
+                : undefined;
+            const refetchPromise = refetchOpenDeckIfChanged(
+              data.deckId,
+              agentChangeId ? { agentChangeId } : undefined,
+            );
             void refetchPromise.catch((error) => {
               console.error(
                 `Failed to refresh deck ${typeof data.deckId === "string" ? data.deckId : (JSON.stringify(data.deckId) ?? "unknown")} after sync event:`,
@@ -3400,7 +3421,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         before.slides.some((slide) => slide.id === slideId),
       );
       if (validUpdates.length === 0) return;
-      const ops: PatchDeckOp[] = validUpdates.map(({ slideId, updates }) => ({
+      const changedUpdates = validUpdates.filter(({ slideId, updates }) => {
+        const op: PatchDeckOp = {
+          op: "patch-slide",
+          slideId,
+          fields: updates,
+        };
+        return deriveInverseOp(before, op) !== null;
+      });
+      if (changedUpdates.length === 0) return;
+      const ops: PatchDeckOp[] = changedUpdates.map(({ slideId, updates }) => ({
         op: "patch-slide",
         slideId,
         fields: updates,
@@ -3410,7 +3440,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         return {
           ...d,
           slides: d.slides.map((slide) => {
-            const update = validUpdates.find(
+            const update = changedUpdates.find(
               ({ slideId }) => slideId === slide.id,
             );
             return update ? { ...slide, ...update.updates } : slide;

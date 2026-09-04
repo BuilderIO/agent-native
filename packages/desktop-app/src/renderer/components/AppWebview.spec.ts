@@ -574,6 +574,122 @@ describe("Desktop identity activation", () => {
     expect(identityStatuses.at(-1)).toBe("signed-in");
   });
 
+  it("falls back to the app page when child synchronization stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      const ensureAppSession = vi.fn(() => new Promise<boolean>(() => {}));
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          identity: {
+            getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+            getStatus: vi.fn(async () => "signed-in"),
+            ensureAppSession,
+            onStatusChange: vi.fn(() => () => {}),
+          },
+        },
+      });
+      rememberDesktopIdentityStatus("signed-in");
+      root = createRoot(container);
+
+      const app: AppDefinition = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig: AppConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod",
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark",
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const webview = container.querySelector("webview");
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+        await Promise.resolve();
+      });
+
+      expect(webview?.getAttribute("src")).not.toBe("about:blank");
+      expect(container.textContent).not.toContain("Loading Mail...");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not time out deferred inactive tabs", async () => {
+    vi.useFakeTimers();
+    try {
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: { identity: {} },
+      });
+      root = createRoot(container);
+
+      const app: AppDefinition = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig: AppConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod",
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: false,
+            theme: "dark",
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const webview = container.querySelector("webview");
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+        await Promise.resolve();
+      });
+
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reconciles a completed sign-in when the status event was missed", async () => {
     const getStatus = vi
       .fn()

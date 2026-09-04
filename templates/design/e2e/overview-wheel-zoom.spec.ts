@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
 /**
@@ -14,9 +15,7 @@ import { appPath } from "./helpers";
  * step rather than the trackpad curve's ~1.65x.
  */
 
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Wheel zoom</title></head>

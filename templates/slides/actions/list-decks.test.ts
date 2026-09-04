@@ -16,8 +16,12 @@ const deckRows = [
 ];
 
 let requestUserEmail = "alice@example.com";
+let rowsForQuery = deckRows;
 
-const orderByFn = vi.fn(async () => deckRows);
+const limitFn = vi.fn(async (limit: number) => rowsForQuery.slice(0, limit));
+const orderByFn = vi.fn(() =>
+  Object.assign(Promise.resolve(rowsForQuery), { limit: limitFn }),
+);
 const whereFn = vi.fn(() => ({ orderBy: orderByFn }));
 const fromFn = vi.fn(() => ({ where: whereFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
@@ -64,6 +68,7 @@ import action from "./list-decks";
 beforeEach(() => {
   vi.clearAllMocks();
   requestUserEmail = "alice@example.com";
+  rowsForQuery = deckRows;
   vi.stubEnv("APP_URL", "https://slides.agent.test");
 });
 
@@ -168,6 +173,52 @@ describe("list-decks", () => {
         },
       ],
     });
+  });
+
+  it("returns bounded metadata pages with an opaque cursor", async () => {
+    rowsForQuery = [
+      ...deckRows,
+      {
+        ...deckRows[0],
+        id: "deck_122",
+        title: "Earlier",
+        updatedAt: "2026-05-02T00:00:00.000Z",
+      },
+    ];
+
+    const result = await action.run({ limit: 1 });
+
+    expect(limitFn).toHaveBeenCalledWith(2);
+    expect(result).toMatchObject({
+      count: 1,
+      decks: [
+        { id: "deck_123", appUrl: "https://slides.agent.test/deck/deck_123" },
+      ],
+      nextCursor: Buffer.from(
+        JSON.stringify({
+          updatedAt: "2026-05-03T00:00:00.000Z",
+          id: "deck_123",
+        }),
+      ).toString("base64url"),
+    });
+  });
+
+  it("normalizes offset timestamps before incremental sync comparisons", async () => {
+    await action.run({
+      updatedSince: "2026-05-03T00:00:00-07:00",
+      limit: 1,
+    });
+
+    const pagedWhere = whereFn.mock.calls.at(-1)?.[0] as {
+      and?: Array<{ values?: unknown[] }>;
+    };
+    expect(pagedWhere.and).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          values: ["updated_at_col", "2026-05-03T07:00:00.000Z"],
+        }),
+      ]),
+    );
   });
 
   it("does not bypass Mine filtering for a whitespace-only identity", async () => {

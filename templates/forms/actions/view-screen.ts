@@ -14,6 +14,11 @@ import { readAppStateForCurrentTab } from "./_tab-state.js";
 const FORMS_LIST_LIMIT = 25;
 const RESPONSE_PREVIEW_LIMIT = 5;
 const FIELD_PREVIEW_LIMIT = 20;
+/** Options shown per field in the screen preview. `patch-form-fields` upsert
+ *  replaces a field wholesale, so a caller that rebuilds a field from this
+ *  preview drops every option past the cap — `optionsTruncated` is what makes
+ *  a preview distinguishable from the real option list. */
+const FIELD_OPTION_PREVIEW_LIMIT = 8;
 
 function canReadPrivateFormData(role: string): boolean {
   return role === "owner" || role === "editor" || role === "admin";
@@ -42,7 +47,7 @@ function cleanText(value: unknown, maxLength = 160): string {
     : `${normalized.slice(0, maxLength - 3)}...`;
 }
 
-function summarizeFields(fields: FormField[]) {
+export function summarizeFields(fields: FormField[]) {
   return fields.slice(0, FIELD_PREVIEW_LIMIT).map((field) => ({
     id: field.id,
     type: field.type,
@@ -50,8 +55,9 @@ function summarizeFields(fields: FormField[]) {
     required: field.required,
     ...(field.options?.length
       ? {
-          options: field.options.slice(0, 8),
+          options: field.options.slice(0, FIELD_OPTION_PREVIEW_LIMIT),
           optionCount: field.options.length,
+          optionsTruncated: field.options.length > FIELD_OPTION_PREVIEW_LIMIT,
         }
       : {}),
   }));

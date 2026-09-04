@@ -88,6 +88,14 @@ export {
   type LlmConnectionStatus,
 } from "./llm-connection.js";
 export {
+  AGENT_NATIVE_ACTION_EVENTS,
+  AGENT_NATIVE_LIFECYCLE_EVENTS,
+  normalizeTrackingDimension,
+  withCanonicalTrackingProperties,
+  type AgentNativeActionEventName,
+  type AgentNativeLifecycleEventName,
+} from "./analytics-events.js";
+export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,
   assertValidWorkspaceAppId,
@@ -181,3 +189,20 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "./agent-readable-resource.js";
+export {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatch,
+  type TargetedMatchFailure,
+  type TargetedMatchesResult,
+  type TargetedReplaceResult,
+  type TargetedTextEditOptions,
+} from "./targeted-text-edit.js";
+export {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+  stripDiagnosticSnippets,
+  wrapDiagnosticSnippet,
+} from "./diagnostic-snippet.js";

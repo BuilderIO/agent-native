@@ -334,6 +334,44 @@ describe("FirstRunOnboarding", () => {
     expect(flow.start).toHaveBeenCalledOnce();
   });
 
+  it("opens the additional Builder services when the count is clicked", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    const moreServices = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "+8 more",
+    );
+    expect(moreServices).toBeTruthy();
+    expect(document.body.textContent).not.toContain(
+      "Also included with Builder.io free credits",
+    );
+
+    act(() => moreServices?.click());
+
+    expect(document.body.textContent).toContain(
+      "Also included with Builder.io free credits",
+    );
+    expect(document.body.textContent).toContain("Voice input");
+    const moreServicesPopover =
+      document.body.querySelector("[aria-labelledby]");
+    const titleId = moreServicesPopover?.getAttribute("aria-labelledby");
+    expect(titleId).toBeTruthy();
+    expect(document.getElementById(titleId ?? "")?.textContent).toContain(
+      "Also included with Builder.io free credits",
+    );
+  });
+
   it("uses the existing-account connection flow from the consent popover", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -554,6 +592,28 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector("[data-onboarding-screen='tools']"),
     ).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Sigma");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Sigma"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain(
+      "Sigma's MCP URL is organization-specific.",
+    );
+    expect(document.body.textContent).toContain("Configure Sigma");
+    expect(mocks.completeFirstRun).not.toHaveBeenCalled();
   });
 
   it("skips the generic integrations catalog but still asks for a role", () => {
@@ -1026,5 +1086,90 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).toContain("Producto");
     expect(document.body.textContent).toContain("Desarrollo");
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
+  });
+
+  // Regression: `statusResolved` flips only on a *successful* status response,
+  // so a failed one used to leave a fully styled CTA that swallowed every click
+  // for the rest of the session with nothing rendered and nothing logged. The
+  // contract is that a failed read is visible, not that it silently picks the
+  // existing-account path (which would bypass the free-credits consent).
+  it("surfaces a failed Builder status read next to the connect CTA", () => {
+    const start = vi.fn();
+    const retry = vi.fn();
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
+      retry,
+      start,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-status-error"]',
+      )?.textContent,
+    ).toContain("Couldn't reach Builder");
+
+    const cta = document.body.querySelector(
+      '[data-testid="first-run-connect-builder"]',
+    );
+    expect(cta?.getAttribute("aria-disabled")).toBe("true");
+
+    act(() => {
+      cta?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("shows no status error while the first Builder status read is in flight", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: false,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: null,
+      retry: vi.fn(),
+      start: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-status-error"]',
+      ),
+    ).toBeNull();
   });
 });

@@ -84,6 +84,7 @@ import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import {
+  buildAllDayEventDraft,
   buildWorkingLocationDraft,
   resolveDraftWorkingLocation,
 } from "@/lib/calendar-drafts";
@@ -1399,7 +1400,7 @@ export default function CalendarView() {
       clickedDate: Date,
       startTime: string,
       endTime: string,
-      options?: { explicitDuration?: boolean },
+      options?: { allDay?: boolean; explicitDuration?: boolean },
     ) => {
       let activeSettings = settings;
       if (!activeSettings) {
@@ -1417,10 +1418,29 @@ export default function CalendarView() {
         activeSettings.defaultEventDuration ?? 30,
       );
       const timezone = activeSettings.timezone;
-      setCreateDefaultStart(startTime);
+      const dateStr = dateToCalendarDateKey(clickedDate);
+      const now = new Date().toISOString();
+      const draftId = `slot-${Date.now()}`;
       setCreateDialogOpen(false);
 
-      const dateStr = dateToCalendarDateKey(clickedDate);
+      if (options?.allDay) {
+        setCreateDefaultStart(undefined);
+        setCreateDefaultEnd(undefined);
+        const draft = buildAllDayEventDraft({
+          id: draftId,
+          date: clickedDate,
+          accountEmail: defaultAccountEmail,
+          now,
+        });
+
+        persistCalendarDraft(draft);
+        setEventDraft(draft);
+        setQuickEditEventId(calendarDraftEventId(draftId));
+        return;
+      }
+
+      setCreateDefaultStart(startTime);
+
       // A drag-to-create gesture already computed the exact dragged range;
       // a plain click falls back to the user's configured default duration.
       const end = options?.explicitDuration
@@ -1429,8 +1449,6 @@ export default function CalendarView() {
       setCreateDefaultEnd(end.time);
       const startISO = dateTimeInTimezoneToIso(dateStr, startTime, timezone);
       const endISO = dateTimeInTimezoneToIso(end.date, end.time, timezone);
-      const now = new Date().toISOString();
-      const draftId = `slot-${Date.now()}`;
       const draft: CalendarEventDraft = {
         id: draftId,
         title: "",

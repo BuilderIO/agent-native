@@ -27,7 +27,11 @@ import {
   provisionContentSpaces,
 } from "./_content-spaces.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 import { nanoid, seedDefaultBlocksField } from "./_property-utils.js";
 
 const createContentDatabaseSchema = z.object({
@@ -35,6 +39,10 @@ const createContentDatabaseSchema = z.object({
     .string()
     .optional()
     .describe("Existing document to convert into a database page"),
+  newDocumentId: z
+    .string()
+    .optional()
+    .describe("Caller-provided document ID for a new database page"),
   spaceId: z
     .string()
     .optional()
@@ -89,6 +97,12 @@ export async function createContentDatabaseCore(
   args: CreateDatabaseRequest,
   options: { db?: any } = {},
 ): Promise<ContentDatabaseResponse> {
+  if (args.documentId && args.newDocumentId) {
+    throw new Error("documentId and newDocumentId cannot both be provided");
+  }
+  if (args.newDocumentId !== undefined && !args.newDocumentId.trim()) {
+    throw new Error("newDocumentId cannot be empty");
+  }
   const db = options.db ?? getDb();
   const resolvedSpaceId = await resolveContentDatabaseSpace(args, db);
   let databaseId: string | null = null;
@@ -297,7 +311,7 @@ export async function createContentDatabaseRecord(
       visibility = orgId ? "org" : "private";
     }
 
-    documentId = nanoid();
+    documentId = args.newDocumentId ?? nanoid();
     // Snapshot as a const so the closure below keeps TypeScript's
     // non-undefined narrowing from the guard above (`let` bindings lose
     // narrowing across a closure boundary).
@@ -306,7 +320,7 @@ export async function createContentDatabaseRecord(
       documentsPositionScope(resolvedOwnerEmail, parentId),
       async () => {
         const [maxPos] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             parentId
@@ -330,7 +344,7 @@ export async function createContentDatabaseRecord(
           content: "",
           description: args.description?.trim() ?? "",
           icon: null,
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           isFavorite: 0,
           hideFromSearch,
           visibility,

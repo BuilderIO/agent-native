@@ -1,6 +1,10 @@
 import type { ActionRunContext } from "../action.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
+import {
+  legacyLifecycleEvent,
+  withCanonicalTrackingProperties,
+} from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
 import { isQaTestEmail } from "../shared/qa-test-email.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
@@ -114,22 +118,54 @@ export function track(
     resolveTrackingSource(source);
   if (isTrackingSuppressed(userId, properties)) return;
   const clientPlatform = getRequestContext()?.clientPlatform;
-  const trackedProperties = {
+  const actionContext =
+    source && isActionRunContext(source) ? source : undefined;
+  const trackedProperties = withCanonicalTrackingProperties({
     ...(properties ?? {}),
+    ...(sessionId ? { session_id: sessionId } : {}),
+    ...(userId ? { user_id: userId } : {}),
+    ...(actionContext?.userEmail
+      ? { user_email: actionContext.userEmail }
+      : {}),
+    ...(actionContext?.orgId ? { workspace_id: actionContext.orgId } : {}),
     deployment_environment: resolveDeployEnvironment(),
     ...(clientPlatform
       ? { [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform }
       : {}),
-  };
-  const event: TrackingEvent = {
-    name,
-    properties: trackedProperties,
-    // A caller-supplied `occurredAt` of 0 is not a real event time, so `||`
-    // rather than `??` is deliberate here.
-    timestamp: new Date(occurredAt || Date.now()).toISOString(),
+  });
+
+  emitTrackingEvent(name, trackedProperties, {
     userId,
     anonymousId,
     sessionId,
+    occurredAt,
+  });
+
+  const lifecycle = legacyLifecycleEvent(name, trackedProperties);
+  if (lifecycle) {
+    emitTrackingEvent(lifecycle.name, lifecycle.properties, {
+      userId,
+      anonymousId,
+      sessionId,
+      occurredAt,
+    });
+  }
+}
+
+function emitTrackingEvent(
+  name: string,
+  properties: Record<string, unknown>,
+  source: TrackingMeta,
+): void {
+  const event: TrackingEvent = {
+    name,
+    properties,
+    // A caller-supplied `occurredAt` of 0 is not a real event time, so `||`
+    // rather than `??` is deliberate here.
+    timestamp: new Date(source.occurredAt || Date.now()).toISOString(),
+    userId: source.userId,
+    anonymousId: source.anonymousId,
+    sessionId: source.sessionId,
   };
 
   for (const provider of getRegistry().values()) {

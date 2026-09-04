@@ -6097,6 +6097,117 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge un-nests an absolute child dropped outside its clipped frame onto the screen",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #frame {
+        position: absolute; left: 40px; top: 40px;
+        width: 200px; height: 160px; background: #f4f4f8;
+        overflow: hidden;
+      }
+      #child {
+        position: absolute; left: 20px; top: 20px;
+        width: 60px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="frame" data-an-primitive="frame" data-agent-native-node-id="frame">
+      <div id="child" data-agent-native-node-id="child">Child</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      // Child center is at (90, 80). Drop on empty screen to the right of
+      // the frame (frame right edge is 240).
+      await page.mouse.click(90, 80);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(90, 80);
+      await page.mouse.down();
+      await page.mouse.move(100, 90, { steps: 4 });
+      const midDragVisible = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        const rect = child.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      await page.mouse.move(320, 80, { steps: 8 });
+      const pastEdgeVisible = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        const frame = document.querySelector<HTMLElement>("#frame")!;
+        const childRect = child.getBoundingClientRect();
+        const frameRect = frame.getBoundingClientRect();
+        return {
+          width: childRect.width,
+          height: childRect.height,
+          pastFrame: childRect.left >= frameRect.right - 1,
+        };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        return {
+          parentTag: child.parentElement?.tagName.toLowerCase() ?? null,
+          parentId: child.parentElement?.id ?? null,
+          position: window.getComputedStyle(child).position,
+        };
+      });
+
+      expect(midDragVisible).toBe(true);
+      expect(pastEdgeVisible.width).toBeGreaterThan(0);
+      expect(pastEdgeVisible.height).toBeGreaterThan(0);
+      expect(pastEdgeVisible.pastFrame).toBe(true);
+      expect(result.parentTag).toBe("body");
+      expect(result.parentId).not.toBe("frame");
+      expect(result.position).toBe("absolute");
+
+      const sibling = await page.evaluate(() => {
+        const frame = document.querySelector("#frame");
+        const child = document.querySelector("#child");
+        return frame?.nextElementSibling === child;
+      });
+      expect(sibling).toBe(true);
+
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as { dropMode?: string; placement?: string } | undefined;
+      expect(structureMessage).toBeTruthy();
+      expect(structureMessage?.dropMode).toBe("absolute-container");
+      expect(structureMessage?.placement).toBe("after");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Multi-select group move (Figma parity) ──────────────────────────────────
 //
 // Dragging any member of a 2+ selection moves the WHOLE group: same delta per
@@ -6310,6 +6421,88 @@ it(
 );
 
 it(
+  "editor chrome bridge lifts SCROLLABLE clipping ancestors during a drag",
+  { timeout: 30_000 },
+  async () => {
+    // `auto` and `scroll` clip absolutely-positioned descendants to the
+    // ancestor's padding box exactly as `hidden` does, so a child dragged out
+    // of a scrollable frame disappears mid-gesture unless the lift covers them.
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { position: relative; background: white; }
+      #screen { position: absolute; left: 0; top: 0; width: 900px; height: 700px; }
+      #scroller {
+        position: absolute; left: 100px; top: 100px;
+        width: 300px; height: 200px; background: #f0f0f4;
+        overflow: auto;
+      }
+      #item {
+        position: absolute; left: 20px; top: 20px;
+        width: 60px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="screen" data-agent-native-node-id="screen">
+      <div id="scroller" data-an-primitive="frame" data-agent-native-node-id="scroller">
+        <div id="item" data-agent-native-node-id="item"></div>
+      </div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const box = (await page.locator("#item").boundingBox())!;
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      await page.mouse.click(startX, startY);
+      await page.waitForTimeout(30);
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX + 5, startY + 5, { steps: 2 });
+      // Mid-gesture, still holding: the scrollable ancestor must not clip.
+      await page.mouse.move(600, 500, { steps: 8 });
+      const midDrag = await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>("#scroller")!;
+        const cs = window.getComputedStyle(scroller);
+        return { overflow: cs.overflow, overflowX: cs.overflowX };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(50);
+
+      expect(midDrag).toEqual({
+        overflow: "visible",
+        overflowX: "visible",
+      });
+      // And the lift is undone once the gesture ends.
+      const afterDrop = await page.evaluate(
+        () =>
+          window.getComputedStyle(
+            document.querySelector<HTMLElement>("#scroller")!,
+          ).overflow,
+      );
+      expect(afterDrop).toBe("auto");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge round-trips flow child through freeform root, flow, and absolute container",
   { timeout: 30_000 },
   async () => {
@@ -6434,9 +6627,20 @@ it(
         "absolute-container",
         "flow-insert",
       ]);
-      expect(
-        structureMessages.every((message) => message.placement === "inside"),
-      ).toBe(true);
+      // Assert the list, not `every(...)`: a boolean says "false" without
+      // naming which drop reported the wrong placement.
+      //
+      // The freeform-root drop is deliberately "after", not "inside" — body
+      // has no node-id, so persist cannot resolve `html > body` as an
+      // inside-anchor, and anchoring after the current parent lands the same
+      // freeform root while giving persist a real id. See the comment above
+      // the `container === document.body` branch in editor-chrome.bridge.ts.
+      expect(structureMessages.map((message) => message.placement)).toEqual([
+        "after",
+        "inside",
+        "inside",
+        "inside",
+      ]);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

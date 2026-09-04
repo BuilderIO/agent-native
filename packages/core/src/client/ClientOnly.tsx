@@ -1,4 +1,7 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * Renders children only on the client (after hydration).
@@ -16,7 +19,9 @@ export function ClientOnly({
   fallback?: ReactNode;
 }) {
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // The static shell and client tree must hand off before paint or the loader
+  // flashes again while the authenticated app mounts.
+  useBrowserLayoutEffect(() => setMounted(true), []);
   if (!mounted) return fallback ?? null;
   return children;
 }

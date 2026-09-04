@@ -873,7 +873,9 @@ export function DocumentSidebar({
   const documentsQuery = useDocuments();
   const { data: documents = [] } = documentsQuery;
   const createDocument = useCreateDocument();
-  const createDatabase = useCreateContentDatabase(null);
+  const createDatabase = useCreateContentDatabase(null, {
+    skipListDocumentsInvalidation: true,
+  });
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
@@ -1103,6 +1105,48 @@ export function DocumentSidebar({
     [queueSidebarStateWrite],
   );
 
+  const parentCreationRevealsRef = useRef(
+    new Map<
+      string,
+      {
+        pendingCount: number;
+        initiallyExpanded: boolean;
+        keepExpanded: boolean;
+      }
+    >(),
+  );
+
+  const revealParentForCreation = useCallback(
+    (parentId?: string | null) => {
+      if (!parentId) {
+        return (_succeeded: boolean) => {};
+      }
+      const existing = parentCreationRevealsRef.current.get(parentId);
+      const reveal = existing ?? {
+        pendingCount: 0,
+        initiallyExpanded: expandedDocumentIdsRef.current.includes(parentId),
+        keepExpanded: false,
+      };
+      reveal.pendingCount += 1;
+      parentCreationRevealsRef.current.set(parentId, reveal);
+      if (!reveal.initiallyExpanded && reveal.pendingCount === 1) {
+        handleDocumentExpandedChange(parentId, true);
+      }
+      return (succeeded: boolean) => {
+        const current = parentCreationRevealsRef.current.get(parentId);
+        if (!current) return;
+        current.pendingCount -= 1;
+        current.keepExpanded ||= succeeded;
+        if (current.pendingCount > 0) return;
+        parentCreationRevealsRef.current.delete(parentId);
+        if (!current.initiallyExpanded && !current.keepExpanded) {
+          handleDocumentExpandedChange(parentId, false);
+        }
+      };
+    },
+    [handleDocumentExpandedChange],
+  );
+
   const handleSelectContentSpace = useCallback(
     async (
       space: (typeof contentSpaces)[number],
@@ -1180,6 +1224,13 @@ export function DocumentSidebar({
   >("remove-local-file-source");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const closeSearch = useCallback(() => {
+    setIsSearching(false);
+    setSearchQuery("");
+  }, []);
+  useEffect(() => {
+    closeSearch();
+  }, [closeSearch, location.key]);
   // Track user-expanded nodes only; active ancestors are derived below so they
   // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
@@ -1213,6 +1264,18 @@ export function DocumentSidebar({
     title: string;
   } | null>(null);
   const confirmedDeleteIdRef = useRef<string | null>(null);
+  const pendingOptimisticCreationIdsRef = useRef(new Set<string>());
+  const settleOptimisticListRefresh = useCallback(
+    (id: string) => {
+      pendingOptimisticCreationIdsRef.current.delete(id);
+      if (pendingOptimisticCreationIdsRef.current.size === 0) {
+        void queryClient.invalidateQueries({
+          queryKey: LIST_DOCUMENTS_QUERY_KEY,
+        });
+      }
+    },
+    [queryClient],
+  );
   const settingsActive = location.pathname.startsWith("/settings");
 
   const handleMouseDown = useCallback(
@@ -1287,6 +1350,7 @@ export function DocumentSidebar({
       optimisticId?: string,
       rootFilesDatabaseId?: string,
     ) => {
+      const settleParentExpansion = revealParentForCreation(parentId);
       if (
         !shouldCreateDocumentOptimistically({
           localFileMode,
@@ -1306,9 +1370,11 @@ export function DocumentSidebar({
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
+          settleParentExpansion(true);
           navigateToDocument(created.id);
           onNavigate?.();
         } catch (err) {
+          settleParentExpansion(false);
           toast.error(t("sidebar.failedCreatePage"), {
             description:
               err instanceof Error ? err.message : t("empty.genericError"),
@@ -1339,6 +1405,7 @@ export function DocumentSidebar({
         LIST_DOCUMENTS_QUERY_KEY,
       );
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
+      pendingOptimisticCreationIdsRef.current.add(id);
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
@@ -1384,23 +1451,21 @@ export function DocumentSidebar({
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
         void queryClient.invalidateQueries(documentQueryFilter(nextId));
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        settleOptimisticListRefresh(id);
         if (rootFilesDatabaseId) {
           void queryClient.invalidateQueries({
             queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
           });
         }
+        settleParentExpansion(true);
       } catch (err) {
+        settleParentExpansion(false);
         rollbackOptimisticCreatedDocument(
           queryClient,
           id,
           previousDocuments !== undefined,
         );
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        settleOptimisticListRefresh(id);
         queryClient.removeQueries(documentQueryFilter(id));
         if (rootFilesDatabaseId) {
           queryClient.setQueryData<ContentDatabaseResponse>(
@@ -1408,10 +1473,12 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        void navigate(previousPath, {
-          replace: true,
-          flushSync: true,
-        });
+        if (window.location.pathname === `/page/${id}`) {
+          void navigate(previousPath, {
+            replace: true,
+            flushSync: true,
+          });
+        }
         toast.error(t("sidebar.failedCreatePage"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
@@ -1428,28 +1495,101 @@ export function DocumentSidebar({
       navigateToDocument,
       onNavigate,
       queryClient,
+      revealParentForCreation,
       selectedSpace?.id,
+      settleOptimisticListRefresh,
+      t,
     ],
   );
 
   const handleCreateDatabase = useCallback(
     async (parentId?: string | null, rootSpaceId = selectedSpace?.id) => {
+      const settleParentExpansion = revealParentForCreation(parentId);
+      const id = nanoid();
+      const now = new Date().toISOString();
+      const title = t("editor.untitledDatabase");
+      const tempDoc = markDocumentCreationPending({
+        id,
+        parentId: parentId ?? null,
+        title,
+        content: "",
+        icon: null,
+        position: 9999,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+        accessRole: "owner",
+        canEdit: true,
+        canManage: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
+      const previousPath = `${location.pathname}${location.search}${location.hash}`;
+      pendingOptimisticCreationIdsRef.current.add(id);
+
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+        const docs: Document[] =
+          old?.documents ?? (Array.isArray(old) ? old : documents);
+        return withDocumentsCacheShape(old, [...docs, tempDoc]);
+      });
+      queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      navigateToDocument(id);
+      onNavigate?.();
+
       try {
         const result = await createDatabase.mutateAsync({
+          newDocumentId: id,
           parentId: parentId ?? null,
           spaceId: parentId ? undefined : rootSpaceId,
-          title: t("editor.untitledDatabase"),
+          title,
         });
-        navigateToDocument(result.database.documentId);
-        onNavigate?.();
+        const nextId = result.database.documentId;
+        if (nextId !== id) {
+          queryClient.removeQueries(documentQueryFilter(id));
+          navigateToDocument(nextId);
+        }
+        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        settleOptimisticListRefresh(id);
+        settleParentExpansion(true);
       } catch (err) {
+        settleParentExpansion(false);
+        rollbackOptimisticCreatedDocument(
+          queryClient,
+          id,
+          previousDocuments !== undefined,
+        );
+        queryClient.removeQueries(documentQueryFilter(id));
+        settleOptimisticListRefresh(id);
+        if (window.location.pathname === `/page/${id}`) {
+          void navigate(previousPath, {
+            replace: true,
+            flushSync: true,
+          });
+        }
         toast.error(t("sidebar.failedCreateDatabase"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
-    [createDatabase, navigateToDocument, onNavigate, selectedSpace?.id, t],
+    [
+      createDatabase,
+      documents,
+      location.hash,
+      location.pathname,
+      location.search,
+      navigate,
+      navigateToDocument,
+      onNavigate,
+      queryClient,
+      revealParentForCreation,
+      selectedSpace?.id,
+      settleOptimisticListRefresh,
+      t,
+    ],
   );
 
   const handleCreatePageInSpace = useCallback(
@@ -1795,7 +1935,13 @@ export function DocumentSidebar({
           type="button"
           aria-label={t("sidebar.search")}
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={() => setIsSearching((value) => !value)}
+          onClick={() => {
+            if (isSearching) {
+              closeSearch();
+            } else {
+              setIsSearching(true);
+            }
+          }}
         >
           <IconSearch size={16} />
         </button>
@@ -2273,8 +2419,7 @@ export function DocumentSidebar({
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
-                setIsSearching(false);
-                setSearchQuery("");
+                closeSearch();
               }
             }}
             className="w-full px-2 py-1.5 text-sm bg-background border border-border rounded-md outline-none focus:ring-1 focus:ring-ring"
@@ -2307,8 +2452,7 @@ export function DocumentSidebar({
                       )}
                       onClick={() => {
                         navigateToDocument(doc.id);
-                        setIsSearching(false);
-                        setSearchQuery("");
+                        closeSearch();
                         onNavigate?.();
                       }}
                     >

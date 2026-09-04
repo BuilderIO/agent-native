@@ -15,6 +15,7 @@ import {
   refreshUnchangedContentSaveWatermark,
   shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
+  updateAdditionalBlockContents,
   visualEditorInstanceKey,
 } from "./DocumentEditor";
 import {
@@ -23,6 +24,19 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("ignores delayed additional-field cleanup from the previous document", () => {
+    const current = { sharedProperty: "document B live value" };
+    expect(
+      updateAdditionalBlockContents({
+        current,
+        activeDocumentId: "document-b",
+        sourceDocumentId: "document-a",
+        propertyId: "sharedProperty",
+        content: null,
+      }),
+    ).toBe(current);
+  });
+
   it("centers a compact comment card below its paragraph when space permits", () => {
     expect(
       positionAnchoredCommentCard({
@@ -145,6 +159,36 @@ describe("document editor layout", () => {
     expect(
       handler.indexOf("localContentRef.current = newContent"),
     ).toBeLessThan(handler.indexOf("debouncedSave("));
+  });
+
+  it("freezes body autosave until an overlapping reconcile conflict is explicitly resolved", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handler = source.slice(
+      source.indexOf("const handleContentChange"),
+      source.indexOf("const handleContentSaveNow"),
+    );
+    expect(handler).toContain("if (documentReconcileConflict)");
+    expect(handler).toContain(
+      "setDocumentReconcileConflict({ localDraft: newContent });",
+    );
+    expect(handler.indexOf("return;")).toBeLessThan(
+      handler.indexOf("debouncedSave("),
+    );
+    expect(source).toContain('{t("editor.keepLocalDraft")}');
+    expect(source).toContain(
+      "void handleContentSaveNow(localDraft, true).then(",
+    );
+    expect(source).toContain("handleContentSaveNow(result.content, true)");
+    expect(source).toContain("if (options.adoptCurrentServerBase)");
+    expect(source).toContain(
+      "if (persisted) setDocumentReconcileConflict(null)",
+    );
+    expect(source).toContain(
+      "else setDocumentReconcileConflict({ localDraft })",
+    );
   });
 
   it("waits for the first authoritative document fetch, then stays mounted", () => {

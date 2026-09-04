@@ -1,3 +1,7 @@
+import {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+} from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -90,5 +94,95 @@ describe("applySlideContentEdits", () => {
 
     expect(result.changed).toBe(false);
     expect(result.content).not.toBe("<div>Old</div>");
+  });
+
+  it("never applies a whitespace-flexible match — reports the original bytes as a fenced candidate", async () => {
+    let error: unknown;
+    try {
+      await applySlideContentEdits(
+        "<div>\n  <span>Hello   World</span>\n</div>",
+        [
+          {
+            find: "<span>Hello World</span>",
+            replace: "<span>Hi There</span>",
+          },
+        ],
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    // Nothing applied: collapsing whitespace to match could otherwise
+    // silently rewrite semantically significant whitespace (<pre>, embedded
+    // JS/CSS) if it were spliced in.
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    const message = (error as Error).message;
+    expect(message).toContain("Closest matches in the current slide:");
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_OPEN);
+    expect(message).toContain(DIAGNOSTIC_SNIPPET_CLOSE);
+    expect(message).toContain("<span>Hello   World</span>");
+  });
+
+  it("reports ambiguity instead of silently patching the first of several matches", async () => {
+    await expect(
+      applySlideContentEdits("<p>Same</p><p>Same</p>", [
+        { find: "<p>Same</p>", replace: "<p>Different</p>" },
+      ]),
+    ).rejects.toThrow("matched 2 places; pass occurrence");
+  });
+
+  it("applies to a specific occurrence once the caller disambiguates", async () => {
+    const result = await applySlideContentEdits("<p>Same</p><p>Same</p>", [
+      { find: "<p>Same</p>", replace: "<p>Different</p>", occurrence: 2 },
+    ]);
+
+    expect(result.content).toBe("<p>Same</p><p>Different</p>");
+  });
+
+  it("treats expectedMatches: 0 as a no-op when the target is absent", async () => {
+    const result = await applySlideContentEdits("<div>One</div>", [
+      { find: "Missing", replace: "Never written", expectedMatches: 0 },
+    ]);
+
+    expect(result.content).toBe("<div>One</div>");
+    expect(result.applied).toEqual(["replace:0"]);
+  });
+
+  it("reports ambiguity for an insert marker that appears more than once with no occurrence given", async () => {
+    await expect(
+      applySlideContentEdits("<p>Item</p><p>Item</p>", [
+        { op: "insert-after", marker: "<p>Item</p>", content: "<hr>" },
+      ]),
+    ).rejects.toThrow("matched 2 places; pass occurrence");
+  });
+
+  it.each([0, 0.5])(
+    "rejects an invalid occurrence (%s) and leaves the content untouched",
+    async (occurrence) => {
+      await expect(
+        applySlideContentEdits("<div>One</div>", [
+          { find: "One", replace: "Two", occurrence },
+        ]),
+      ).rejects.toThrow(
+        `occurrence must be a positive integer, got ${occurrence}`,
+      );
+    },
+  );
+
+  it("errors on { occurrence: 2, expectedMatches: 0 } when one match exists, instead of treating it as a no-op", async () => {
+    await expect(
+      applySlideContentEdits("<div>One</div>", [
+        { find: "One", replace: "Two", occurrence: 2, expectedMatches: 0 },
+      ]),
+    ).rejects.toThrow("replace expected 0 match(es), found 1");
+  });
+
+  it("still treats { expectedMatches: 0 } as a no-op when zero matches exist, occurrence included", async () => {
+    const result = await applySlideContentEdits("<div>One</div>", [
+      { find: "Missing", replace: "Two", occurrence: 1, expectedMatches: 0 },
+    ]);
+
+    expect(result.content).toBe("<div>One</div>");
+    expect(result.applied).toEqual(["replace:0"]);
   });
 });

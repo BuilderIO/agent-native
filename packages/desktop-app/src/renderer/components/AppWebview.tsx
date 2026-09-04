@@ -1184,6 +1184,31 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     ]);
 
     useEffect(() => {
+      if (
+        app.placeholder ||
+        !isActive ||
+        !deferDesktopWebviewLoad ||
+        desktopIdentityStatus === "sign-in-required" ||
+        desktopIdentityStatus === "signing-in"
+      ) {
+        return;
+      }
+      const timer = window.setTimeout(() => {
+        // A stuck child-session request must fall back to the app's own
+        // sign-in page instead of leaving this webview on about:blank forever.
+        updateDesktopIdentitySessionReady(true);
+        setDesktopIdentityStatus("failed");
+      }, APP_LOAD_TIMEOUT_MS);
+      return () => window.clearTimeout(timer);
+    }, [
+      app.placeholder,
+      deferDesktopWebviewLoad,
+      desktopIdentityStatus,
+      isActive,
+      updateDesktopIdentitySessionReady,
+    ]);
+
+    useEffect(() => {
       const identity = window.electronAPI?.identity;
       if (
         !identity ||

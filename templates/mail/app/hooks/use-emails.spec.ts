@@ -110,6 +110,20 @@ describe("useLabels", () => {
   });
 });
 
+describe("useEmails query warming", () => {
+  it("shares the infinite-query fetcher with tab prefetches", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain("function emailQueryOptions(");
+    expect(source).toContain("prefetchInfiniteQuery({");
+    expect(source).toContain('const prefetchKey = ["email-prefetch"');
+    expect(source).toContain("EMAIL_PREFETCH_TIMEOUT_MS");
+    expect(source).toContain("queryClient.removeQueries");
+    expect(source).toContain("queryKey: prefetchKey");
+    expect(source).toContain("...emailQueryOptions(view, search, label)");
+  });
+});
+
 describe("serializePinnedLabelsUpdate", () => {
   it("runs pinned-label writes in order", async () => {
     const { serializePinnedLabelsUpdate } = await import("./use-emails");

@@ -20,7 +20,10 @@ import {
   registerFirstRunOnboardingExtension,
   type FirstRunOnboardingExtensionProps,
 } from "@agent-native/core/client/onboarding";
-import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  getThemeInitScript,
+  RequireSession,
+} from "@agent-native/core/client/ui";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -78,23 +81,26 @@ const BARE_ROUTES = new Set(["/slide"]);
 const BARE_PREFIXES = ["/share/", "/p/"];
 
 /**
- * Routes that serve deck content to any visitor — owner, teammate, or an
- * anonymous recipient of a shared link — rather than an app-management
- * surface. `/deck/:id` renders the full editor shell (so it's not "bare"
- * above: viewers still get chrome, just read-only), but it must never force
- * sign-in or gate on first-run onboarding, or a shared link flashes the deck
- * and then buries it under "create your first deck" (the onboarding gate has
- * no route awareness of its own — see `sessionBypass` below). `/present` is
- * the full-screen presentation view and `/slide` is the agent-embed preview;
- * both are shown to viewers the same way.
+ * Routes that use the shareable-content app shell. Deck editor links keep
+ * that shell to avoid first-run onboarding, then use a route-local session
+ * gate below so anonymous recipients reach the sign-in form first.
  */
 export function isShareableContentPath(pathname: string): boolean {
+  return isBareContentPath(pathname) || pathname.startsWith("/deck/");
+}
+
+export function isBareContentPath(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, "");
   return (
-    BARE_ROUTES.has(pathname) ||
+    BARE_ROUTES.has(normalizedPath) ||
     BARE_PREFIXES.some((p) => pathname.startsWith(p)) ||
-    pathname.startsWith("/deck/") ||
-    pathname.endsWith("/present")
+    normalizedPath.endsWith("/present")
   );
+}
+
+export function isDeckEditorPath(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, "");
+  return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
 }
 
 export const links: LinksFunction = () => [
@@ -239,6 +245,7 @@ function AppContent() {
     allowContentEditable: true,
   });
   const location = useLocation();
+  const isDeckEditor = isDeckEditorPath(location.pathname);
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{
     id: EditorCommandGroup;
@@ -251,20 +258,13 @@ function AppContent() {
     { id: "other", heading: t("editorToolbar.more") },
   ];
 
-  const isBare =
-    BARE_ROUTES.has(location.pathname) ||
-    BARE_PREFIXES.some((p) => location.pathname.startsWith(p)) ||
-    location.pathname.endsWith("/present");
+  const isBare = isBareContentPath(location.pathname);
 
-  if (isBare) {
-    return (
-      <DeckProvider key={DECK_KEY}>
-        <Outlet />
-      </DeckProvider>
-    );
-  }
-
-  return (
+  const content = isBare ? (
+    <DeckProvider key={DECK_KEY}>
+      <Outlet />
+    </DeckProvider>
+  ) : (
     <>
       <CommandMenu
         open={cmdkOpen}
@@ -329,6 +329,8 @@ function AppContent() {
       </DeckProvider>
     </>
   );
+
+  return isDeckEditor ? <RequireSession>{content}</RequireSession> : content;
 }
 
 export default function Root() {

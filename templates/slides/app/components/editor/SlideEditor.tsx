@@ -200,6 +200,7 @@ import {
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
+  contentForSlideTextContainer,
   isSlideTextContainerTag,
   restoreSlideTextContainerContent,
   selectionOffsetsWithin,
@@ -730,6 +731,8 @@ interface SlideSelectionItem {
   runtimeSelector?: string;
   objectId?: string;
   text?: string;
+  selectedText?: string;
+  textTruncated?: boolean;
   kind?: string;
   tagName?: string;
   imageSrc?: string;
@@ -743,8 +746,11 @@ function selectionItemForElement(
   runtimeSelector: string,
   snapshot?: SlideStyleSnapshot,
   imageStyle?: Pick<SlideStyleSnapshot, "objectFit" | "objectPosition">,
+  selectedText?: string,
 ): SlideSelectionItem {
   const identity = getSlideSelectionIdentity(element, runtimeSelector);
+  const fullText = (element.textContent || "").trim();
+  const textLimit = snapshot ? 80 : 200;
   return {
     ...identity,
     kind: snapshot?.isImage
@@ -753,8 +759,9 @@ function selectionItemForElement(
         ? "image"
         : "element",
     tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
-    text:
-      snapshot?.textPreview ?? (element.textContent || "").trim().slice(0, 200),
+    text: snapshot?.textPreview ?? fullText.slice(0, 200),
+    selectedText: selectedText?.trim() ? selectedText : undefined,
+    textTruncated: fullText.length > textLimit,
     imageSrc:
       element instanceof HTMLImageElement
         ? (element.getAttribute("src") ?? undefined)
@@ -804,7 +811,7 @@ interface SlideEditorProps {
     updates: Partial<Omit<Slide, "id">>,
     slideIdOverride?: string,
     options?: UpdateSlideOptions,
-  ) => void;
+  ) => string | undefined;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -909,6 +916,8 @@ interface SlideEditorProps {
    *  (see the slide-switch effect), so callers must not substitute their own
    *  "current slide" state for this argument. */
   onInlineEditEnd?: (slideId: string) => void;
+  /** Wait for an inline-edit write to reach the server before an agent uses it. */
+  onFlushInlineEdit?: () => Promise<void>;
   /** Called by the editor shell before a navigation that must persist the
    *  current contentEditable draft. Returns true when a draft was active. */
   flushInlineEditRef?: { current: (() => boolean) | null };
@@ -1340,6 +1349,7 @@ export default function SlideEditor({
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
+  onFlushInlineEdit,
   flushInlineEditRef,
   presentUsers = [],
   recentEdits = [],
@@ -1471,6 +1481,10 @@ export default function SlideEditor({
   const [placementRect, setPlacementRect] =
     useState<MarqueeSelectionRect | null>(null);
   const [activeAlignmentGuides, setActiveAlignmentGuides] = useState<{
+    guides: SlideAlignmentGuide[];
+    viewport: AlignmentGuideViewport;
+  } | null>(null);
+  const activeAlignmentGuidesRef = useRef<{
     guides: SlideAlignmentGuide[];
     viewport: AlignmentGuideViewport;
   } | null>(null);
@@ -1803,7 +1817,19 @@ export default function SlideEditor({
   const richTextEditorSessionRef = useRef<RichTextEditorSession | null>(null);
   const activeRichTextHtmlRef = useRef<string | null>(null);
   const activeRichTextPathRef = useRef<number[] | null>(null);
+  const inlineEditDraftCaptureTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const currentSlideIdRef = useRef(slide.id);
   const [richTextEditorRevision, setRichTextEditorRevision] = useState(0);
+
+  useLayoutEffect(() => {
+    currentSlideIdRef.current = slide.id;
+    if (inlineEditDraftCaptureTimerRef.current !== null) {
+      clearTimeout(inlineEditDraftCaptureTimerRef.current);
+      inlineEditDraftCaptureTimerRef.current = null;
+    }
+  }, [slide.id]);
 
   const serializeSlideContentHtml = useCallback(
     (
@@ -1886,6 +1912,10 @@ export default function SlideEditor({
 
   const captureInlineEditDraft = useCallback(
     (slideId = slide.id) => {
+      if (inlineEditDraftCaptureTimerRef.current !== null) {
+        clearTimeout(inlineEditDraftCaptureTimerRef.current);
+        inlineEditDraftCaptureTimerRef.current = null;
+      }
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
         const next = { slideId, content: html };
@@ -1908,8 +1938,32 @@ export default function SlideEditor({
     [readCurrentSlideContentHtml, slide.id],
   );
 
+  const scheduleInlineEditDraftCapture = useCallback(
+    (slideId: string) => {
+      if (inlineEditDraftCaptureTimerRef.current !== null) {
+        clearTimeout(inlineEditDraftCaptureTimerRef.current);
+      }
+      inlineEditDraftCaptureTimerRef.current = setTimeout(() => {
+        inlineEditDraftCaptureTimerRef.current = null;
+        const session = richTextEditorSessionRef.current;
+        if (
+          currentSlideIdRef.current !== slideId ||
+          session?.slideId !== slideId
+        ) {
+          return;
+        }
+        captureInlineEditDraft(slideId);
+      }, 250);
+    },
+    [captureInlineEditDraft],
+  );
+
   const disposeRichTextEditor = useCallback(
     (restoreLiveDom = true) => {
+      if (inlineEditDraftCaptureTimerRef.current !== null) {
+        clearTimeout(inlineEditDraftCaptureTimerRef.current);
+        inlineEditDraftCaptureTimerRef.current = null;
+      }
       const session = richTextEditorSessionRef.current;
       if (!session) return null;
 
@@ -2281,7 +2335,7 @@ export default function SlideEditor({
   );
 
   /** Exit edit mode, saving changed content without changing its layout. */
-  const exitInlineEdit = useCallback(() => {
+  const exitInlineEdit = useCallback((): string | undefined => {
     const el = editingElRef.current;
     if (!el) return;
 
@@ -2303,11 +2357,12 @@ export default function SlideEditor({
     richTextSelectionRef.current = null;
     window.getSelection()?.removeAllRanges();
     const initial = inlineEditInitialContentRef.current;
+    let normalizedContentHash: string | undefined;
     if (html !== null) {
       const current = { slideId: slide.id, content: html };
       if (shouldPersistInlineEditContent(initial, current)) {
         const latestDraft = inlineEditDraftRef.current;
-        onUpdateSlideRef.current(
+        normalizedContentHash = onUpdateSlideRef.current(
           { content: html },
           slide.id,
           shouldPersistInlineEditContent(latestDraft, current)
@@ -2332,6 +2387,10 @@ export default function SlideEditor({
     } else {
       syncSelectionToAppState(null);
     }
+    return (
+      normalizedContentHash ??
+      (html === null ? undefined : hashSlideContent(html))
+    );
   }, [
     readCurrentSlideContentHtml,
     disposeRichTextEditor,
@@ -2341,6 +2400,12 @@ export default function SlideEditor({
     clearSelectedElement,
     onInlineEditEnd,
   ]);
+
+  const commitInlineEditForAgent = useCallback(async () => {
+    const contentHash = exitInlineEdit();
+    await onFlushInlineEdit?.();
+    return contentHash;
+  }, [exitInlineEdit, onFlushInlineEdit]);
 
   const handleRichTextEditorReady = useCallback((editor: Editor) => {
     const session = richTextEditorSessionRef.current;
@@ -2363,6 +2428,13 @@ export default function SlideEditor({
         nativeSelection?.rangeCount === 1
           ? nativeSelection.getRangeAt(0)
           : null;
+      const initialSelectedText =
+        nativeRange &&
+        !nativeRange.collapsed &&
+        el.contains(nativeRange.startContainer) &&
+        el.contains(nativeRange.endContainer)
+          ? nativeRange.toString()
+          : undefined;
       const initialSelection =
         nativeRange &&
         el.contains(nativeRange.startContainer) &&
@@ -2370,7 +2442,15 @@ export default function SlideEditor({
           ? selectionOffsetsWithin(el, nativeRange)
           : null;
       const initialHtml = isSlideTextContainerTag(el.tagName)
-        ? el.outerHTML
+        ? contentForSlideTextContainer(
+            el.tagName,
+            el.outerHTML,
+            el.tagName === "LI" &&
+              (el.parentElement?.tagName === "OL" ||
+                el.parentElement?.tagName === "UL")
+              ? (el.parentElement.tagName as "OL" | "UL")
+              : undefined,
+          )
         : el.innerHTML;
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
@@ -2425,13 +2505,19 @@ export default function SlideEditor({
             if (richTextEditorSessionRef.current !== session) return;
             session.latestHtml = html;
             activeRichTextHtmlRef.current = html;
-            captureInlineEditDraft(slide.id);
+            scheduleInlineEditDraftCapture(slide.id);
           }}
           onEditorReady={handleRichTextEditorReady}
         />,
       );
       if (selector) {
-        const item = selectionItemForElement(el, selector);
+        const item = selectionItemForElement(
+          el,
+          selector,
+          undefined,
+          undefined,
+          initialSelectedText,
+        );
         syncSelectionToAppState(
           buildSelectionState("editing", [{ ...item, kind: "text" }]),
         );
@@ -2445,6 +2531,7 @@ export default function SlideEditor({
       getSlideContent,
       handleRichTextEditorReady,
       onInlineEditStart,
+      scheduleInlineEditDraftCapture,
       slide.content,
       slide.id,
     ],
@@ -2540,12 +2627,22 @@ export default function SlideEditor({
       );
       const selector = selectedElementSelector ?? getBuilderSelector(editingEl);
       if (!selector) return;
-      setSelectedStyleSnapshot(
-        buildStyleSnapshot(
-          editingEl,
-          selector,
-          getInlineTextStyleSnapshot(editingEl, selection),
-        ),
+      const snapshot = buildStyleSnapshot(
+        editingEl,
+        selector,
+        getInlineTextStyleSnapshot(editingEl, selection),
+      );
+      setSelectedStyleSnapshot(snapshot);
+      syncSelectionToAppState(
+        buildSelectionState("editing", [
+          selectionItemForElement(
+            editingEl,
+            selector,
+            snapshot,
+            undefined,
+            richTextSelectionRef.current?.toString(),
+          ),
+        ]),
       );
     };
 
@@ -2628,6 +2725,10 @@ export default function SlideEditor({
         selectedElementSelector,
         inlineTextStyle,
       );
+      const selectedText =
+        editingElRef.current === element
+          ? richTextSelectionRef.current?.toString()
+          : undefined;
       setSelectedElementMeasurement({
         key: selectionOverlayMeasurementKey,
         rect: element.getBoundingClientRect(),
@@ -2635,7 +2736,13 @@ export default function SlideEditor({
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
         buildSelectionState(getSlideSelectionMode(snapshot), [
-          selectionItemForElement(element, selectedElementSelector, snapshot),
+          selectionItemForElement(
+            element,
+            selectedElementSelector,
+            snapshot,
+            undefined,
+            selectedText,
+          ),
         ]),
       );
     };
@@ -3228,6 +3335,32 @@ export default function SlideEditor({
       setChipAnchorRect(canvas?.getBoundingClientRect() || null);
     },
     [getSlideContent],
+  );
+  const multiSelectionRefreshFrameRef = useRef<number | null>(null);
+  const scheduledMultiSelectionIdsRef = useRef<Set<string> | null>(null);
+  const scheduleMultiSelectionRects = useCallback(
+    (ids: Set<string>) => {
+      scheduledMultiSelectionIdsRef.current = ids;
+      if (multiSelectionRefreshFrameRef.current !== null) return;
+      multiSelectionRefreshFrameRef.current = requestAnimationFrame(() => {
+        multiSelectionRefreshFrameRef.current = null;
+        const scheduledIds = scheduledMultiSelectionIdsRef.current;
+        scheduledMultiSelectionIdsRef.current = null;
+        if (scheduledIds) refreshMultiSelectionRects(scheduledIds);
+      });
+    },
+    [refreshMultiSelectionRects],
+  );
+
+  useEffect(
+    () => () => {
+      if (multiSelectionRefreshFrameRef.current !== null) {
+        cancelAnimationFrame(multiSelectionRefreshFrameRef.current);
+        multiSelectionRefreshFrameRef.current = null;
+      }
+      scheduledMultiSelectionIdsRef.current = null;
+    },
+    [],
   );
 
   // Portal selection chrome uses viewport coordinates, so a flex layout change
@@ -4622,22 +4755,49 @@ export default function SlideEditor({
       canvas: { width: number; height: number },
     ) => {
       if (guides.length === 0) {
-        setActiveAlignmentGuides(null);
+        if (activeAlignmentGuidesRef.current !== null) {
+          activeAlignmentGuidesRef.current = null;
+          setActiveAlignmentGuides(null);
+        }
         return;
       }
-      setActiveAlignmentGuides({
+      const viewport = {
+        rect: positioningLayer.getBoundingClientRect(),
+        canvas,
+      };
+      const previous = activeAlignmentGuidesRef.current;
+      const guidesUnchanged =
+        previous?.guides.length === guides.length &&
+        previous.guides.every(
+          (guide, index) =>
+            guide.orientation === guides[index]?.orientation &&
+            guide.position === guides[index]?.position &&
+            guide.start === guides[index]?.start &&
+            guide.end === guides[index]?.end,
+        );
+      const viewportUnchanged =
+        previous?.viewport.rect.left === viewport.rect.left &&
+        previous.viewport.rect.top === viewport.rect.top &&
+        previous.viewport.rect.width === viewport.rect.width &&
+        previous.viewport.rect.height === viewport.rect.height &&
+        previous.viewport.canvas.width === viewport.canvas.width &&
+        previous.viewport.canvas.height === viewport.canvas.height;
+      if (guidesUnchanged && viewportUnchanged) return;
+      const next = {
         guides: [...guides],
-        viewport: {
-          rect: positioningLayer.getBoundingClientRect(),
-          canvas,
-        },
-      });
+        viewport,
+      };
+      activeAlignmentGuidesRef.current = next;
+      setActiveAlignmentGuides(next);
     },
     [],
   );
 
   const clearAlignmentGuides = useCallback(() => {
-    setActiveAlignmentGuides(null);
+    if (activeAlignmentGuidesRef.current !== null) {
+      activeAlignmentGuidesRef.current = null;
+      setActiveAlignmentGuides(null);
+    }
   }, []);
 
   const getSnapPeerGeometries = useCallback(
@@ -4725,6 +4885,11 @@ export default function SlideEditor({
       let clone: HTMLElement | null = null;
       let restoreMarkdownTree: (() => void) | undefined;
       let promotedToFreeform = false;
+
+      const initialSelector = getBuilderSelector(element);
+      if (initialSelector) {
+        selectElementForStyling(element, initialSelector);
+      }
 
       const promoteForDrag = () => {
         if (origin) return true;
@@ -4842,6 +5007,8 @@ export default function SlideEditor({
             ensureBuilderId(clone);
             stampBuilderIds(clone);
             activeElement = clone;
+            const selector = getBuilderSelector(activeElement);
+            if (selector) selectElementForStyling(activeElement, selector);
           }
           const snap = snapSlideObjectMove({
             moving: dragOrigin,
@@ -4857,8 +5024,6 @@ export default function SlideEditor({
             y: dragOrigin.y + snap.deltaY,
           });
           updateAlignmentGuides(snap.guides, positioningLayer, snapCanvas);
-          const selector = getBuilderSelector(activeElement);
-          if (selector) selectElementForStyling(activeElement, selector);
           return { handled: true };
         },
         commit: (gesture) => {
@@ -5292,7 +5457,7 @@ export default function SlideEditor({
               preserveAspectRatio: gesture.pointer.shiftKey,
             }),
           );
-          refreshMultiSelectionRects(selectedIds);
+          scheduleMultiSelectionRects(selectedIds);
           return { handled: true };
         },
         commit: () => {
@@ -5384,6 +5549,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       refreshMultiSelectionRects,
+      scheduleMultiSelectionRects,
     ],
   );
 
@@ -5630,7 +5796,7 @@ export default function SlideEditor({
             applyObjectGeometry,
           );
           updateAlignmentGuides(snap.guides, positioningLayer, snapCanvas);
-          refreshMultiSelectionRects(ids);
+          scheduleMultiSelectionRects(ids);
           return { handled: true };
         },
         commit: () => {
@@ -5747,6 +5913,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       refreshMultiSelectionRects,
+      scheduleMultiSelectionRects,
       updateAlignmentGuides,
     ],
   );
@@ -7464,7 +7631,8 @@ export default function SlideEditor({
         richTextEditor={richTextEditorRef.current}
         slideId={slide.id}
         deckId={deckId}
-        onCommitInlineEdit={exitInlineEdit}
+        slideContentHash={hashSlideContent(slide.content)}
+        onCommitInlineEdit={commitInlineEditForAgent}
       />
 
       {pendingUpdateCount > 0 && (

@@ -1,11 +1,11 @@
-import { usePathname } from "expo-router";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
 import { trackMobileEvent } from "@/lib/analytics";
+import { useCurrentPathname } from "@/lib/navigation";
 
 export default function MobileAnalyticsObserver() {
-  const pathname = usePathname();
+  const pathname = useCurrentPathname();
   const lastPathname = useRef<string | null>(null);
 
   useEffect(() => {
