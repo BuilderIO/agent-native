@@ -127,10 +127,15 @@ describe("AppLayout inbox rail count", () => {
     const source = appLayoutSource();
 
     expect(source).toContain("const cycleTab = useCallback(");
+    expect(source).toContain("const activeIdx = topBarTabs.findIndex(");
+    expect(source).toContain("(tab) => tab.isActive");
     expect(source).toContain('key: "Tab"');
+    expect(source).toContain("shouldHandle: canCycleTab");
     expect(source).toContain("handler: () => cycleTab(false)");
     expect(source).toContain("handler: () => cycleTab(true)");
-    expect(source).toContain("void navigate(visibleTabs[nextIdx].href);");
+    expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
+    expect(source).toContain('event.target.closest("[data-mail-tab-list]")');
+    expect(source).toContain("data-mail-tab-list");
     expect(source).toContain("prefetchEmails(");
     expect(source).toContain(
       'queryClient.cancelQueries({ queryKey: ["email-prefetch"] })',

@@ -120,6 +120,15 @@ describe("useEmails query warming", () => {
     expect(useEmailsSource).toContain(
       "placeholderData: (previousData) => previousData",
     );
+    expect(useEmailsSource).toContain(
+      "const canPaginate = !q.isPlaceholderData;",
+    );
+    expect(useEmailsSource).toContain(
+      "hasNextPage: canPaginate && q.hasNextPage",
+    );
+    expect(useEmailsSource).toContain(
+      "isFetchingNextPage: canPaginate && q.isFetchingNextPage",
+    );
     expect(source).toContain("function emailQueryOptions(");
     expect(source).toContain("prefetchInfiniteQuery({");
     expect(source).toContain('const prefetchKey = ["email-prefetch"');

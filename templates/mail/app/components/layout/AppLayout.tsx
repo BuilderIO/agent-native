@@ -1196,15 +1196,23 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // Global keyboard shortcuts
   const cycleTab = useCallback(
     (reverse?: boolean) => {
-      if (visibleTabs.length < 2) return;
-      const activeIdx = visibleTabs.findIndex((tab) => tab.isActive);
+      if (topBarTabs.length < 2) return;
+      const activeIdx = topBarTabs.findIndex((tab) => tab.isActive);
       const delta = reverse ? -1 : 1;
       const nextIdx =
-        (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
-        visibleTabs.length;
-      void navigate(visibleTabs[nextIdx].href);
+        (activeIdx === -1 ? 0 : activeIdx + delta + topBarTabs.length) %
+        topBarTabs.length;
+      void navigate(topBarTabs[nextIdx].href);
     },
-    [visibleTabs, navigate],
+    [topBarTabs, navigate],
+  );
+
+  const canCycleTab = useCallback(
+    (event: KeyboardEvent) =>
+      topBarTabs.length >= 2 &&
+      event.target instanceof Element &&
+      event.target.closest("[data-mail-tab-list]") !== null,
+    [topBarTabs.length],
   );
 
   const handleSnooze = useCallback(() => {
@@ -1268,11 +1276,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { key: "z", handler: runUndo },
     {
       key: "Tab",
+      shouldHandle: canCycleTab,
       handler: () => cycleTab(false),
     },
     {
       key: "Tab",
       shift: true,
+      shouldHandle: canCycleTab,
       handler: () => cycleTab(true),
     },
     {
@@ -1483,7 +1493,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 ))}
               </nav>
             ) : (
-              <nav className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
+              <nav
+                className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar"
+                data-mail-tab-list
+              >
                 {topBarTabs.map((tab, idx) => {
                   const visibleIndex = visibleTabs.findIndex(
                     (item) => item.id === tab.id,

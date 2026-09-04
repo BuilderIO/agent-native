@@ -618,6 +618,10 @@ export function useEmails(
     return applyRecentSentEmails(visible, view, search, label);
   }, [q.data, view, search, label]);
 
+  // Placeholder InfiniteData includes the previous query's page token. Keep
+  // pagination disabled until the new query owns the pages.
+  const canPaginate = !q.isPlaceholderData;
+
   return {
     data,
     isLoading: q.isLoading,
@@ -630,10 +634,10 @@ export function useEmails(
     error: q.isError && !q.data ? toError(q.error) : null,
     totalEstimate: q.data?.pages[0]?.totalEstimate,
     refetch: q.refetch,
-    hasNextPage: q.hasNextPage,
+    hasNextPage: canPaginate && q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
-    isFetchingNextPage: q.isFetchingNextPage,
-    isFetchNextPageError: q.isFetchNextPageError,
+    isFetchingNextPage: canPaginate && q.isFetchingNextPage,
+    isFetchNextPageError: canPaginate && q.isFetchNextPageError,
   };
 }
 
