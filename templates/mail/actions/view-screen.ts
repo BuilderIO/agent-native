@@ -167,7 +167,10 @@ async function fetchEmailList(
     const needsLabelMap =
       Boolean(label) ||
       Boolean(activeInboxTab) ||
-      savedFilterQueries.length > 0;
+      (effectiveView === "inbox" &&
+        !effectiveSearch &&
+        !label &&
+        savedFilterQueries.length > 0);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(

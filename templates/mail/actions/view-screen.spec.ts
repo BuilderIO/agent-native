@@ -230,6 +230,26 @@ describe("view-screen Mail preview", () => {
     expect(mocks.fetchGmailLabelMap).toHaveBeenCalledWith("owner-token");
   });
 
+  it("does not read label maps for saved filters outside Inbox", async () => {
+    mocks.readAppState.mockResolvedValue({ view: "sent" });
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [{ id: "filter", query: "from:sender@example.com" }],
+      pinnedLabels: [],
+    });
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [email("message")],
+      errors: [],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.fetchGmailLabelMap).not.toHaveBeenCalled();
+    expect(result.emailList.coverage).toEqual({
+      complete: true,
+      failedAccounts: [],
+    });
+  });
+
   it("returns sanitized context for unexpected preview failures", async () => {
     mocks.readSettings.mockRejectedValue(
       new Error("Bearer secret-token request failed"),
