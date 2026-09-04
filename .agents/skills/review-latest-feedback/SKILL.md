@@ -42,12 +42,20 @@ act. Ask for reporter input only when a specific missing detail, such as a
 browser-console screenshot, would let you reproduce and fix the issue. Keep the
 eye while that clarification is pending.
 
-Remove the eye for every terminal disposition, including **Fixed**, **Shipped**,
+Remove this workflow's eye for every terminal disposition, including **Fixed**,
+**Shipped**,
 **Open - no reply**, **Resolved elsewhere**, **Skipped**, and **Abandoned - no
 answer in 4 days**, and **Clustered**. Only active **In progress** work or a pending
 **Clarification needed** question may retain it.
 **Clustered** is terminal for a non-owning duplicate or repeat row, so remove
 that row's eye; only the single owning investigation row may retain one.
+
+Only remove the invoking identity's own eye. A foreign eye from another valid
+workflow identity is an ownership signal, even when it looks stale: do not
+remove it, duplicate it, or reply over it. Record **Owned elsewhere**, leave
+that item out of this run's claimed work, and let the owning workflow release
+or explicitly hand off the eye. If the item is required for this PR, preserve
+the foreign claim as a handoff blocker rather than inventing a terminal state.
 
 Enumerate with `slack_read_channel` from newest backwards, following its
 `next_cursor` until you reach a parent already carrying your `👀` or one older
@@ -175,7 +183,7 @@ resolved, or aged out at four days. **Fixed**, **Shipped**, and **In progress**
 are not pending questions. Treat **Open - no reply** as terminal only after the
 `👀` has been removed and no outstanding clarification remains; it never
 replaces an unanswered clarification question that is still inside its
-four-day window. If an older **Open - no reply** row still has the eye, remove
+four-day window. If an older **Open - no reply** row still has your eye, remove
 the reaction before treating it as terminal. The same eye-release rule applies
 to **Fixed**, **Shipped**, **Resolved elsewhere**, **Skipped**, and
 **Abandoned - no answer in 4 days**. A non-owning **Clustered** row also
@@ -433,9 +441,9 @@ have. Three kinds qualify:
   PR, a person actively working it). Acknowledge it; ask nothing.
 - **A question** — subject to the budget below.
 
-Everything else gets an internal recap row and **no message**. Keep the eye
-only while actively investigating, fixing, or waiting on a targeted
-clarification. If a clear bug cannot be reproduced or fixed after the
+Everything else gets an internal recap row and **no message**. Keep this
+workflow's eye only while actively investigating, fixing, or waiting on a
+targeted clarification. If a clear bug cannot be reproduced or fixed after the
 investigation, remove the eye and record it as **Open - no reply**. Silence and
 releasing the eye are the handoff; do not message the thread just to say
 someone else should handle it.
@@ -563,7 +571,7 @@ Upvoted items in scope: N (built: N)
 
 | Source / item | Disposition | Replied? | Eye | Why and evidence |
 | --- | --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Resolved elsewhere / Skipped / Abandoned - no answer in 4 days | yes / no | held / removed | ... |
+| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Resolved elsewhere / Skipped / Abandoned - no answer in 4 days / Owned elsewhere | yes / no | held by me / held by other / removed | ... |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Unavailable or unverified: ...

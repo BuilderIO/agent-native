@@ -142,12 +142,14 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   already has an `👀` reaction from anyone, preserve that fact as an existing
   investigation marker, but do not treat it as a disposition or suppression
   signal. After classifying the parent, re-read the complete thread and, for
-  an actionable in-scope item, require a verified disposition from the
-  invoking Slack identity - **Fixed**, **Shipped**, **Resolved elsewhere**,
-  **Skipped**, **Clustered**, or **Abandoned - no answer in 4 days** after the eye has been
-  removed; **In progress** or **Clarification needed** while the eye is held;
-  or **Open - no reply** after the eye has been removed. An eye-only or stale
-  eye-only item remains actionable for that handoff check. For items
+  an actionable in-scope item, require a verified feedback-ledger disposition
+  and reaction state - **Fixed**, **Shipped**, **Resolved elsewhere**,
+  **Skipped**, **Clustered**, **Abandoned - no answer in 4 days**, or
+  **Open - no reply** after this workflow's eye has been removed;
+  **In progress** or **Clarification needed** while this workflow's eye is
+  held. Silent terminal states do not require a Slack reply; never manufacture
+  one just to satisfy this handoff check. An eye-only or stale eye-only item
+  remains actionable for that handoff check. For items
   routed to Sid or Alice, or classified as external, duplicate, deferred, or
   informational, honor that owning disposition and do not turn the eye into a
   merge blocker. If the reaction state is unavailable, record the item as
@@ -220,11 +222,13 @@ with its `👀` removed, and that no new evidence has been left without a
 disposition. Items routed to Sid or Alice remain outside this
 workflow's ownership. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
-parent marked with `👀` is not thereby complete or non-actionable: preserve the
-reaction without duplicating it, and for actionable in-scope items do not merge
-while an active eye-only or stale eye-only item lacks a verified disposition
-from the invoking Slack identity. A released terminal item is not a merge
-blocker.
+  parent marked with `👀` is not thereby complete or non-actionable: preserve the
+  reaction without duplicating it, and for actionable in-scope items do not merge
+  while an active eye-only or stale eye-only item lacks a verified disposition.
+  A foreign valid workflow eye is owned elsewhere and must not be removed by
+  this workflow; exclude it from this handoff unless this PR depends on that
+  item, in which case preserve it as a handoff blocker. A released terminal
+  item is not a merge blocker.
 
 ## Worktree and branch setup
 

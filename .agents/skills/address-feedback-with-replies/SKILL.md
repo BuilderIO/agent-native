@@ -56,7 +56,8 @@ Before finishing, re-read each claimed item and verify the invoking identity
 posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
 recorded **Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**,
 or **Abandoned - no answer in 4 days** with a concrete reason and the `👀`
-removed for any terminal disposition. An
+removed for any terminal disposition. Record **Owned elsewhere** when another
+valid workflow identity holds the eye; do not mutate that reaction. An
 expired question leaves the ledger with its `👀` removed and no reply owed.
 **Clarification needed** may retain the eye only while the targeted question is
 pending. **In progress** requires
@@ -140,12 +141,19 @@ should act adds no value. Ask for reporter input only when a specific missing
 detail, such as a browser-console screenshot, would let you reproduce and fix
 the issue.
 
-Remove the eye for every terminal disposition, including **Fixed**, **Shipped**,
+Remove this workflow's eye for every terminal disposition, including **Fixed**, **Shipped**,
 **Open - no reply**, **Resolved elsewhere**, **Skipped**, and **Abandoned - no
 answer in 4 days**, and **Clustered**. Only active **In progress** work or a pending
 **Clarification needed** question may retain it.
 **Clustered** is terminal for a non-owning duplicate or repeat row, so remove
 that row's eye; only the single owning investigation row may retain one.
+
+Only remove the invoking identity's own eye. A foreign eye from another valid
+workflow identity is an ownership signal, even when it looks stale: do not
+remove it, duplicate it, or reply over it. Record **Owned elsewhere**, leave
+that item out of this run's claimed work, and let the owning workflow release
+or explicitly hand off the eye. If the item is required for this PR, preserve
+the foreign claim as a handoff blocker rather than inventing a terminal state.
 
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
@@ -271,7 +279,8 @@ non-repeating question only if one specific required detail still blocks it.
    audit the reply ledger: for every `👀` parent, record the invoking user's
    reply timestamp and whether it is **Fixed**, **Shipped**, **In progress**, or
    **Clarification needed**, **Open - no reply**, **Resolved elsewhere**,
-   **Skipped**, or **Clustered** with the reason. For a
+   **Skipped**, or **Clustered** with the reason. For a foreign eye, record
+   **Owned elsewhere** and leave the reaction untouched. For a
    mistakenly eyed out-of-scope item, record reaction removal and no new reply
    instead. Keep an eye-only clear bug while actively working it; if the
    investigation cannot reproduce or fix it, remove the eye and record
