@@ -1,7 +1,56 @@
-import {
-  widenIntColumnsToBigInt,
-  type MigrationEntry,
-} from "@agent-native/core/db";
+import { type DbExec, type MigrationEntry } from "@agent-native/core/db";
+
+const dispatchTimestampColumns: Record<string, string[]> = {
+  dispatch_destinations: ["created_at", "updated_at"],
+  dispatch_identity_links: ["created_at", "updated_at"],
+  dispatch_link_tokens: [
+    "expires_at",
+    "claimed_at",
+    "created_at",
+    "updated_at",
+  ],
+  dispatch_approval_requests: ["reviewed_at", "created_at", "updated_at"],
+  dispatch_audit_events: ["created_at"],
+  dispatch_dreams: ["started_at", "completed_at", "created_at", "updated_at"],
+  dispatch_dream_proposals: [
+    "applied_at",
+    "rejected_at",
+    "created_at",
+    "updated_at",
+  ],
+  vault_secrets: ["created_at", "updated_at"],
+  vault_grants: ["synced_at", "created_at", "updated_at"],
+  vault_requests: ["reviewed_at", "created_at", "updated_at"],
+  vault_audit_log: ["created_at"],
+  workspace_resources: ["created_at", "updated_at"],
+  workspace_resource_grants: ["synced_at", "created_at", "updated_at"],
+  identity_sso_authorization_code: ["created_at", "expires_at", "consumed_at"],
+};
+
+async function widenLegacyDispatchTimestamps(exec: DbExec): Promise<void> {
+  const tables = Object.keys(dispatchTimestampColumns);
+  const { rows } = await exec.execute({
+    sql: `SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND data_type = 'integer'
+        AND table_name IN (${tables.map(() => "?").join(", ")})`,
+    args: tables,
+  });
+  const int4Columns = new Set(
+    rows.map((row) => `${String(row.table_name)}.${String(row.column_name)}`),
+  );
+
+  for (const [table, columns] of Object.entries(dispatchTimestampColumns)) {
+    const legacyColumns = columns.filter((column) =>
+      int4Columns.has(`${table}.${column}`),
+    );
+    if (legacyColumns.length === 0) continue;
+    await exec.execute(
+      `ALTER TABLE ${table} ${legacyColumns
+        .map((column) => `ALTER COLUMN ${column} TYPE BIGINT`)
+        .join(", ")}`,
+    );
+  }
+}
 
 export const dispatchMigrations: MigrationEntry[] = [
   {
@@ -255,46 +304,6 @@ export const dispatchMigrations: MigrationEntry[] = [
     version: 6,
     name: "dispatch-millisecond-timestamps-bigint",
     sql: {},
-    run: async (exec) => {
-      const timestampColumns: Record<string, string[]> = {
-        dispatch_destinations: ["created_at", "updated_at"],
-        dispatch_identity_links: ["created_at", "updated_at"],
-        dispatch_link_tokens: [
-          "expires_at",
-          "claimed_at",
-          "created_at",
-          "updated_at",
-        ],
-        dispatch_approval_requests: ["reviewed_at", "created_at", "updated_at"],
-        dispatch_audit_events: ["created_at"],
-        dispatch_dreams: [
-          "started_at",
-          "completed_at",
-          "created_at",
-          "updated_at",
-        ],
-        dispatch_dream_proposals: [
-          "applied_at",
-          "rejected_at",
-          "created_at",
-          "updated_at",
-        ],
-        vault_secrets: ["created_at", "updated_at"],
-        vault_grants: ["synced_at", "created_at", "updated_at"],
-        vault_requests: ["reviewed_at", "created_at", "updated_at"],
-        vault_audit_log: ["created_at"],
-        workspace_resources: ["created_at", "updated_at"],
-        workspace_resource_grants: ["synced_at", "created_at", "updated_at"],
-        identity_sso_authorization_code: [
-          "created_at",
-          "expires_at",
-          "consumed_at",
-        ],
-      };
-
-      for (const [table, columns] of Object.entries(timestampColumns)) {
-        await widenIntColumnsToBigInt(table, columns, exec);
-      }
-    },
+    run: widenLegacyDispatchTimestamps,
   },
 ];
