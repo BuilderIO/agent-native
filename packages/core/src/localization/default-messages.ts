@@ -1290,6 +1290,14 @@ const messages = {
         setupNote:
           "Amplitude MCP uses OAuth over streaming HTTP. The default endpoint is for US data residency; use Amplitude's EU endpoint when the account requires EU residency.",
       },
+      sigma: {
+        description:
+          "Search, explore, and analyze Sigma workbooks and dashboards.",
+        useCase:
+          "Analytics, dashboards, workbooks, data exploration, business intelligence",
+        setupNote:
+          "Sigma's MCP URL is organization-specific. In Sigma, open Profile > Integrations > Connect Sigma to AI tools, copy the URL, and paste it here. Sigma MCP currently supports search, metadata exploration, and analysis; dashboard or workbook creation and import are not exposed by this connection.",
+      },
       notion: {
         description: "Search pages and team knowledge.",
         useCase: "Documentation, knowledge management, notes, content creation",

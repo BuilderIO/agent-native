@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -8,7 +8,10 @@ import {
   replaceCreativeContextElementProvenance,
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
-import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
+import type {
+  CreativeContextElementProvenance,
+  CreativeContextReuseLabel,
+} from "@agent-native/creative-context/types";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -116,8 +119,9 @@ function assertNoNewUnresolvedPlaceholders(
     ...new Set(nextContent.match(unresolvedPlaceholderPattern)),
   ].filter((marker) => !previous.has(marker));
   if (introduced.length > 0) {
-    throw new Error(
+    fail(
       `Slide edit introduced unresolved placeholder content: ${introduced.join(", ")}. Re-read the slide and preserve the existing content instead of using markers as stand-ins.`,
+      { errorCode: "slide_unresolved_placeholder" },
     );
   }
 }
@@ -265,16 +269,18 @@ function assertStyleOnlyEdit(
   nextContent: string,
 ): void {
   if (styleInvariant(previousContent) !== styleInvariant(nextContent)) {
-    throw new Error(
+    fail(
       "Style-only slide edits must preserve text, markup, element order, and layout structure; use edits that change only CSS declarations",
+      { errorCode: "style_only_slide_structure_changed" },
     );
   }
   if (
     protectedStyleInvariant(previousContent) !==
     protectedStyleInvariant(nextContent)
   ) {
-    throw new Error(
+    fail(
       "Style-only slide edits must preserve text, markup, and protected layout CSS; use edits that change only the requested visual CSS declarations",
+      { errorCode: "style_only_slide_layout_changed" },
     );
   }
 }
@@ -412,23 +418,31 @@ export default defineAction({
       Number(hasLegacyMode) +
       Number(fullContent !== undefined);
     if (inputModeCount === 0) {
-      throw new Error("One of --edits, --find, or --fullContent is required");
+      fail("One of --edits, --find, or --fullContent is required", {
+        errorCode: "slide_edit_mode_required",
+      });
     }
     if (inputModeCount > 1) {
-      throw new Error(
+      fail(
         "Use exactly one input mode: --edits, --find/--replace, or --fullContent; do not combine modes",
+        { errorCode: "slide_edit_modes_conflict" },
       );
     }
     if (styleOnly && !edits) {
-      throw new Error(
+      fail(
         "Style-only slide edits require --edits and cannot use --fullContent or legacy find/replace",
+        { errorCode: "style_only_slide_edits_required" },
       );
     }
     if (replace !== undefined && find === undefined) {
-      throw new Error("Legacy --replace requires --find");
+      fail("Legacy --replace requires --find", {
+        errorCode: "slide_replace_requires_find",
+      });
     }
     if (find !== undefined && find.length === 0) {
-      throw new Error("find must not be empty for legacy search/replace");
+      fail("find must not be empty for legacy search/replace", {
+        errorCode: "slide_find_empty",
+      });
     }
     await assertAccess("deck", deckId, "editor");
 
@@ -460,7 +474,10 @@ export default defineAction({
         .where(eq(schema.decks.id, deckId))
         .limit(1);
       if (!row) {
-        throw new Error(`Deck ${deckId} not found`);
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       }
 
       const deck = JSON.parse(row.data);
@@ -470,8 +487,9 @@ export default defineAction({
         contextPackId !== undefined &&
         contextPackId !== existingContext.contextPackId
       ) {
-        throw new Error(
+        fail(
           "The slide edit must use the deck's existing creative-context pack",
+          { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
         );
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -481,15 +499,19 @@ export default defineAction({
         : -1;
       const slide = slideIndex >= 0 ? deck.slides[slideIndex] : undefined;
       if (!slide) {
-        throw new Error(`Slide ${slideId} not found in deck ${deckId}`);
+        fail(`Slide ${slideId} not found in deck ${deckId}`, {
+          errorCode: "slide_not_found",
+          statusCode: 404,
+        });
       }
 
       if (
         baseContentHash !== undefined &&
         hashSlideContent(String(slide.content ?? "")) !== baseContentHash
       ) {
-        throw new Error(
+        fail(
           "Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
+          { errorCode: "slide_content_stale", statusCode: 409 },
         );
       }
 
@@ -581,71 +603,97 @@ export default defineAction({
       // an open editor uses to tell an intentional external edit apart from a
       // stale poll echo — only a newer timestamp is reconciled into the view.
       if (applied) {
-        const effectivePackId = contextPackId ?? existingContext?.contextPackId;
-        const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
-          ? reuseLabels
-          : [
-              {
-                kind: "slide",
-                label: "Net-new slide edit",
-                dataRole: "untrusted-reference",
-                elementId: slideId,
-                influence: "generated",
-              },
-            ];
-        const validated = await validateGenerationCreativeContext({
-          contextPackId: effectivePackId,
-          contextPackSource:
-            contextPackId === undefined ? "inherited" : "explicit",
-          contextModeOverride,
-          reuseLabels: requestedLabels,
-          reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
-        });
-        const contextMode =
-          validated.contextMode === "off"
-            ? "off"
-            : (existingContext?.contextMode ?? validated.contextMode);
-        const slideReuseLabels = validated.reuseLabels.map((label) => ({
-          ...label,
-          elementId: slideId,
-        }));
-        const mergedReuseLabels = mergeCreativeContextReuseLabels(
-          existingContext?.reuseLabels ?? [],
-          slideReuseLabels,
-        );
-        const previous =
-          contextMode === "off"
-            ? null
-            : await getGenerationCreativeContext({
-                appId: "slides",
-                artifactType: "deck",
-                artifactId: deckId,
-              });
-        const editedElementProvenance = slideReuseLabels.map((label) => ({
-          elementId: slideId,
-          influence: label.influence ?? ("reference-conditioned" as const),
-          ...(label.itemId ? { itemId: label.itemId } : {}),
-          ...(label.itemVersionId
-            ? { itemVersionId: label.itemVersionId }
-            : {}),
-          label: label.label,
-        }));
-        const elementProvenance =
-          contextMode === "off"
-            ? editedElementProvenance
-            : replaceCreativeContextElementProvenance(
-                previous?.elementProvenance ?? [],
-                editedElementProvenance,
-              );
-        slide.creativeContextReuseLabels = slideReuseLabels;
-        deck.creativeContext =
-          contextMode === "off" && existingContext
-            ? existingContext
-            : {
-                contextMode,
-                contextPackId: validated.contextPackId,
-                reuseLabels: mergedReuseLabels,
-              };
+        const shouldResolveCreativeContext =
+          Boolean(existingContext) ||
+          contextPackId !== undefined ||
+          contextModeOverride !== undefined ||
+          reuseLabels.length > 0;
+        let creativeContext:
+          | {
+              contextMode: "off" | "auto" | "pinned";
+              contextPackId: string | null;
+              reuseLabels: CreativeContextReuseLabel[];
+              mergedReuseLabels: CreativeContextReuseLabel[];
+              elementProvenance: CreativeContextElementProvenance[];
+            }
+          | undefined;
+
+        if (shouldResolveCreativeContext) {
+          const effectivePackId =
+            contextPackId ?? existingContext?.contextPackId;
+          const requestedLabels: CreativeContextReuseLabel[] =
+            reuseLabels.length
+              ? reuseLabels
+              : [
+                  {
+                    kind: "slide",
+                    label: "Net-new slide edit",
+                    dataRole: "untrusted-reference",
+                    elementId: slideId,
+                    influence: "generated",
+                  },
+                ];
+          const validated = await validateGenerationCreativeContext({
+            contextPackId: effectivePackId,
+            contextPackSource:
+              contextPackId === undefined ? "inherited" : "explicit",
+            contextModeOverride,
+            reuseLabels: requestedLabels,
+            reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+          });
+          const contextMode =
+            validated.contextMode === "off"
+              ? "off"
+              : (existingContext?.contextMode ?? validated.contextMode);
+          const slideReuseLabels = validated.reuseLabels.map((label) => ({
+            ...label,
+            elementId: slideId,
+          }));
+          const mergedReuseLabels = mergeCreativeContextReuseLabels(
+            existingContext?.reuseLabels ?? [],
+            slideReuseLabels,
+          );
+          const previous =
+            contextMode === "off"
+              ? null
+              : await getGenerationCreativeContext({
+                  appId: "slides",
+                  artifactType: "deck",
+                  artifactId: deckId,
+                });
+          const editedElementProvenance = slideReuseLabels.map((label) => ({
+            elementId: slideId,
+            influence: label.influence ?? ("reference-conditioned" as const),
+            ...(label.itemId ? { itemId: label.itemId } : {}),
+            ...(label.itemVersionId
+              ? { itemVersionId: label.itemVersionId }
+              : {}),
+            label: label.label,
+          }));
+          const elementProvenance =
+            contextMode === "off"
+              ? editedElementProvenance
+              : replaceCreativeContextElementProvenance(
+                  previous?.elementProvenance ?? [],
+                  editedElementProvenance,
+                );
+          creativeContext = {
+            contextMode,
+            contextPackId: validated.contextPackId,
+            reuseLabels: slideReuseLabels,
+            mergedReuseLabels,
+            elementProvenance,
+          };
+          slide.creativeContextReuseLabels = slideReuseLabels;
+          deck.creativeContext =
+            contextMode === "off" && existingContext
+              ? existingContext
+              : {
+                  contextMode,
+                  contextPackId: validated.contextPackId,
+                  reuseLabels: mergedReuseLabels,
+                };
+        }
         const now = nextDeckRevision(row.updatedAt);
         deck.updatedAt = now;
         await db.transaction(async (tx: any) => {
@@ -668,19 +716,23 @@ export default defineAction({
             .set({ data: JSON.stringify(deck), updatedAt: now })
             .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
           assertDeckWriteApplied(updateResult, deckId, "slide edit");
-          await recordGenerationCreativeContext(
-            {
-              appId: "slides",
-              artifactType: "deck",
-              artifactId: deckId,
-              contextMode,
-              contextPackId: validated.contextPackId,
-              reuseLabels:
-                contextMode === "off" ? slideReuseLabels : mergedReuseLabels,
-              elementProvenance,
-            },
-            { db: tx },
-          );
+          if (creativeContext) {
+            await recordGenerationCreativeContext(
+              {
+                appId: "slides",
+                artifactType: "deck",
+                artifactId: deckId,
+                contextMode: creativeContext.contextMode,
+                contextPackId: creativeContext.contextPackId,
+                reuseLabels:
+                  creativeContext.contextMode === "off"
+                    ? creativeContext.reuseLabels
+                    : creativeContext.mergedReuseLabels,
+                elementProvenance: creativeContext.elementProvenance,
+              },
+              { db: tx },
+            );
+          }
         });
         return {
           applied,
@@ -690,9 +742,13 @@ export default defineAction({
           slideIndex,
           contentHash: hashSlideContent(String(slide.content ?? "")),
           layoutFitRevision: slide.layoutFitRevision,
-          contextMode,
-          contextPackId: validated.contextPackId,
-          reuseLabels: slideReuseLabels,
+          ...(creativeContext
+            ? {
+                contextMode: creativeContext.contextMode,
+                contextPackId: creativeContext.contextPackId,
+                reuseLabels: creativeContext.reuseLabels,
+              }
+            : {}),
         };
       }
 
@@ -720,8 +776,9 @@ export default defineAction({
     // only channel that says "the deck was not modified", and it is already
     // this file's idiom for the stale-hash rejection above.
     if (rmw.notFound) {
-      throw new Error(
+      fail(
         `Nothing was written: text not found in slide: "${find!.slice(0, 60)}". Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`,
+        { errorCode: "slide_text_not_found" },
       );
     }
 
@@ -730,10 +787,11 @@ export default defineAction({
       entry.endsWith(":0"),
     );
     if (!applied) {
-      throw new Error(
+      fail(
         unmatched.length
           ? `Nothing was written: ${unmatched.join(", ")} matched no text in the slide. Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`
           : `Nothing was written: the result is identical to the current slide content (contentHash ${rmw.contentHash}). The slide already says what this edit would have made it say.`,
+        { errorCode: "slide_edit_noop" },
       );
     }
 

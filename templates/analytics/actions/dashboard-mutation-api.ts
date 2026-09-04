@@ -42,7 +42,7 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   /** Use "dashboard" for AI-generated first-party panels by default. */
   timeScope?: PanelTimeScope;
-  /** Fixed bar width in pixels for bar charts. */
+  /** Renderer options only; keep panel fields at the panel level. */
 };
 
 type PanelPatch = {

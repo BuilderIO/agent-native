@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { recordChange } from "@agent-native/core/server";
 import { and, desc, eq } from "drizzle-orm";
 
+import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
@@ -36,7 +37,9 @@ async function applyRepairToDashboardRow(
   const db = getDb() as any;
   let config: Record<string, unknown>;
   try {
-    config = JSON.parse(row.config) as Record<string, unknown>;
+    config = normalizeDashboardConfig(
+      JSON.parse(row.config) as Record<string, unknown>,
+    );
   } catch {
     return false;
   }

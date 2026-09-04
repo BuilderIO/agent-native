@@ -79,7 +79,26 @@ const state = vi.hoisted(() => ({
     hiddenAt: null as string | null,
     hiddenBy: null as string | null,
   },
+  analysis: {
+    id: "analysis-1",
+    name: "Conversion analysis",
+    description: "",
+    question: "Which channel converts best?",
+    instructions: "Compare conversion rates.",
+    dataSources: JSON.stringify(["analytics_events"]),
+    resultMarkdown: "Email converts best.",
+    resultData: null as string | null,
+    author: "alice@example.com" as string | null,
+    ownerEmail: "alice@example.com",
+    orgId: null as string | null,
+    visibility: "private",
+    createdAt: "2026-07-09T00:00:00.000Z",
+    updatedAt: "2026-07-09T00:00:00.000Z",
+    hiddenAt: null as string | null,
+    hiddenBy: null as string | null,
+  },
   revisions: [] as any[],
+  analysisRevisions: [] as any[],
   otherDashboards: [] as DashboardRow[],
   // One-shot flag: the next fenced UPDATE attempt against `dashboards`
   // simulates a concurrent writer (adding a panel of its own) landing in
@@ -163,7 +182,12 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
             role: "editor",
             resource: { ...state.dashboard },
           }
-        : null,
+        : id === state.analysis.id
+          ? {
+              role: "editor",
+              resource: { ...state.analysis },
+            }
+          : null,
     assertAccess: async () => ({ role: "editor" }),
   };
 });
@@ -196,6 +220,21 @@ vi.mock("../db/index.js", () => {
       dashboardId: { name: "dashboardId" },
       kind: { name: "kind" },
       title: { name: "title" },
+      config: { name: "config" },
+      createdAt: { name: "createdAt" },
+      createdBy: { name: "createdBy" },
+      chatContext: { name: "chatContext" },
+    },
+    analysisRevisions: {
+      id: { name: "id" },
+      analysisId: { name: "analysisId" },
+      name: { name: "name" },
+      description: { name: "description" },
+      question: { name: "question" },
+      instructions: { name: "instructions" },
+      dataSources: { name: "dataSources" },
+      resultMarkdown: { name: "resultMarkdown" },
+      resultData: { name: "resultData" },
       createdAt: { name: "createdAt" },
       createdBy: { name: "createdBy" },
       chatContext: { name: "chatContext" },
@@ -231,6 +270,18 @@ vi.mock("../db/index.js", () => {
               state.revisions.filter((r) => matchesRow(predicate, r)),
             );
           }
+          if (table === schema.analysisRevisions) {
+            return rowsResult(
+              state.analysisRevisions.filter((r) => matchesRow(predicate, r)),
+            );
+          }
+          if (table === schema.analyses) {
+            return rowsResult(
+              [state.analysis]
+                .filter((row) => matchesRow(predicate, row))
+                .map((row) => ({ ...row })),
+            );
+          }
           return rowsResult(
             [state.dashboard, ...state.otherDashboards]
               .filter((row) => matchesRow(predicate, row))
@@ -256,11 +307,15 @@ vi.mock("../db/index.js", () => {
         if (table === schema.dashboardRevisions) {
           state.revisions.push({ ...row });
         }
+        if (table === schema.analysisRevisions) {
+          state.analysisRevisions.push({ ...row });
+        }
         const p: any = Promise.resolve(undefined);
         p.onConflictDoNothing = async () => undefined;
         return p;
       },
     }),
+    execute: async () => undefined,
     delete: (table: unknown) => ({
       where: async (predicate: unknown) => {
         if (table === schema.dashboardRevisions) {
@@ -268,12 +323,24 @@ vi.mock("../db/index.js", () => {
             (r) => !matchesRow(predicate, r),
           );
         }
+        if (table === schema.analysisRevisions) {
+          state.analysisRevisions = state.analysisRevisions.filter(
+            (r) => !matchesRow(predicate, r),
+          );
+        }
         return undefined;
       },
     }),
     update: (table: unknown) => ({
-      set: (values: Partial<DashboardRow>) => ({
+      set: (values: Record<string, unknown>) => ({
         where: async (predicate: unknown) => {
+          if (table === schema.analyses) {
+            if (!matchesRow(predicate, state.analysis)) {
+              return { rowsAffected: 0 };
+            }
+            state.analysis = { ...state.analysis, ...values };
+            return { rowsAffected: 1 };
+          }
           if (table !== schema.dashboards) return { rowsAffected: 0 };
           state.updateAttempts += 1;
           if (state.alwaysLoseCas) {
@@ -317,6 +384,9 @@ const {
   getDashboard,
   upsertDashboard,
   upsertDashboardWithRetry,
+  upsertAnalysis,
+  createDashboardRevisionSnapshot,
+  createAnalysisRevisionSnapshot,
   persistDashboardVisibilityChange,
   unarchiveDashboard,
   DashboardConflictError,
@@ -336,7 +406,12 @@ function readPanelIds(): string[] {
 
 beforeEach(() => {
   state.dashboard = baseDashboard();
+  state.analysis = {
+    ...state.analysis,
+    updatedAt: "2026-07-09T00:00:00.000Z",
+  };
   state.revisions = [];
+  state.analysisRevisions = [];
   state.otherDashboards = [];
   state.loseNextCas = false;
   state.alwaysLoseCas = false;
@@ -344,6 +419,99 @@ beforeEach(() => {
 });
 
 describe("dashboards-store concurrency", () => {
+  it("skips an identical dashboard save without updating or creating history", async () => {
+    const saved = await upsertDashboard(
+      "traffic",
+      "sql",
+      { name: "Traffic", panels: [panel("a")] },
+      ctx,
+      state.dashboard.updatedAt,
+    );
+
+    expect(saved.updatedAt).toBe("2026-07-09T00:00:00.000Z");
+    expect(state.updateAttempts).toBe(0);
+    expect(state.revisions).toEqual([]);
+  });
+
+  it("coalesces an unchanged dashboard autosave with the latest revision", async () => {
+    state.revisions = [
+      {
+        id: "dashboard-revision-1",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        config: state.dashboard.config,
+        createdAt: "2026-07-09T00:01:00.000Z",
+        createdBy: "alice@example.com",
+        chatContext: null,
+      },
+    ];
+
+    await expect(createDashboardRevisionSnapshot("traffic", ctx)).resolves.toBe(
+      "dashboard-revision-1",
+    );
+    expect(state.revisions).toHaveLength(1);
+  });
+
+  it("skips an identical analysis save without updating or creating history", async () => {
+    const saved = await upsertAnalysis(
+      "analysis-1",
+      {
+        name: state.analysis.name,
+        description: state.analysis.description,
+        question: state.analysis.question,
+        instructions: state.analysis.instructions,
+        dataSources: JSON.parse(state.analysis.dataSources),
+        resultMarkdown: state.analysis.resultMarkdown,
+        resultData: null,
+      },
+      ctx,
+      state.analysis.updatedAt,
+    );
+
+    expect(saved.updatedAt).toBe("2026-07-09T00:00:00.000Z");
+    expect(state.analysisRevisions).toEqual([]);
+  });
+
+  it("repairs malformed analysis JSON instead of trusting normalized fallbacks", async () => {
+    state.analysis.dataSources = "{malformed";
+    state.analysis.resultData = "{malformed";
+
+    await upsertAnalysis(
+      "analysis-1",
+      { dataSources: [], resultData: null },
+      ctx,
+      state.analysis.updatedAt,
+    );
+
+    expect(state.analysis.dataSources).toBe("[]");
+    expect(state.analysis.resultData).toBeNull();
+  });
+
+  it("coalesces an unchanged analysis autosave with the latest revision", async () => {
+    state.analysisRevisions = [
+      {
+        id: "analysis-revision-1",
+        analysisId: "analysis-1",
+        name: state.analysis.name,
+        description: state.analysis.description,
+        question: state.analysis.question,
+        instructions: state.analysis.instructions,
+        dataSources: state.analysis.dataSources,
+        resultMarkdown: state.analysis.resultMarkdown,
+        resultData: null,
+        createdAt: "2026-07-09T00:01:00.000Z",
+        createdBy: "alice@example.com",
+        chatContext: null,
+      },
+    ];
+
+    await expect(
+      createAnalysisRevisionSnapshot("analysis-1", ctx),
+    ).resolves.toBe("analysis-1");
+    expect(state.analysisRevisions).toHaveLength(1);
+  });
+
   it("rejects a new dashboard name already used by a visible dashboard", async () => {
     state.otherDashboards = [
       {

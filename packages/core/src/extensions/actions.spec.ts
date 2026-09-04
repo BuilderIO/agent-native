@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isAgentActionStopError } from "../action.js";
+import { isActionContractError, isAgentActionStopError } from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
 const extensionRow = {
@@ -874,7 +874,7 @@ describe("extensions/actions", () => {
     );
   });
 
-  it("stops on deterministic edit failures instead of inviting identical retries", async () => {
+  it("reports a deterministic edit failure as a retryable tool error, not a turn stop", async () => {
     const { ExtensionContentEditError } = await import("./content-patch.js");
     const updateExtensionContent = vi.fn(async () => {
       throw new ExtensionContentEditError("replace found no matches");
@@ -893,12 +893,16 @@ describe("extensions/actions", () => {
       error = caught;
     }
 
-    expect(isAgentActionStopError(error)).toBe(true);
+    // A text/marker mismatch must reach the model as a normal, retryable tool
+    // error (bounded by the identical-error and across-arguments breakers) —
+    // not an AgentActionStopError, which would end the turn on the first miss.
+    expect(isAgentActionStopError(error)).toBe(false);
+    expect(isActionContractError(error)).toBe(true);
     expect(error).toMatchObject({
       errorCode: "extension_content_edit_failed",
     });
-    expect((error as { toolResult?: string }).toolResult).toContain(
-      "Do not retry unchanged arguments",
+    expect((error as Error).message).toContain(
+      "Do not retry the same arguments",
     );
   });
 

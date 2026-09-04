@@ -45,6 +45,50 @@ const SLIDE_TEXT_CONTAINER_TAGS = new Set([
   "UL",
 ]);
 
+const SLIDE_EDITOR_BLOCK_ATTRIBUTES = ["dir", "data-pptx-paragraph"] as const;
+const SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "min-height",
+  "text-align",
+  "text-decoration",
+] as const;
+
+function syncSlideEditorBlockFormatting(
+  source: HTMLElement,
+  target: HTMLElement,
+  clearMissing = false,
+): void {
+  const canRoundTripAttributes =
+    target.tagName === "P" ||
+    target.tagName === "LI" ||
+    /^H[1-6]$/.test(target.tagName);
+  for (const attributeName of SLIDE_EDITOR_BLOCK_ATTRIBUTES) {
+    const value = source.getAttribute(attributeName);
+    if (value !== null) target.setAttribute(attributeName, value);
+    else if (clearMissing && canRoundTripAttributes) {
+      target.removeAttribute(attributeName);
+    }
+  }
+  for (const property of SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES) {
+    const value = source.style.getPropertyValue(property);
+    if (value) {
+      target.style.setProperty(
+        property,
+        value,
+        source.style.getPropertyPriority(property),
+      );
+    } else if (clearMissing) {
+      target.style.removeProperty(property);
+    }
+  }
+}
+
 export function isSlideTextContainerTag(tagName: string): boolean {
   return SLIDE_TEXT_CONTAINER_TAGS.has(tagName.toUpperCase());
 }
@@ -53,6 +97,7 @@ export function isSlideTextContainerTag(tagName: string): boolean {
 export function contentForSlideTextContainer(
   tagName: string,
   html: string,
+  listTagName?: "OL" | "UL",
 ): string {
   if (
     !html ||
@@ -63,10 +108,44 @@ export function contentForSlideTextContainer(
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   const first = doc.body.firstElementChild;
-  return doc.body.children.length === 1 &&
-    first?.tagName.toUpperCase() === tagName.toUpperCase()
-    ? first.innerHTML
-    : html;
+  if (
+    doc.body.children.length !== 1 ||
+    first?.tagName.toUpperCase() !== tagName.toUpperCase()
+  ) {
+    return html;
+  }
+  if (/^H[1-6]$/.test(tagName.toUpperCase())) {
+    const source = first as HTMLElement;
+    const hasParagraphRoot =
+      source.children.length === 1 && source.firstElementChild?.tagName === "P";
+    const paragraph = hasParagraphRoot
+      ? (source.firstElementChild!.cloneNode(true) as HTMLElement)
+      : doc.createElement("p");
+    if (!hasParagraphRoot) paragraph.innerHTML = source.innerHTML;
+    syncSlideEditorBlockFormatting(source, paragraph);
+    return paragraph.outerHTML;
+  }
+  if (tagName.toUpperCase() === "P") {
+    const paragraph = doc.createElement("p");
+    syncSlideEditorBlockFormatting(first as HTMLElement, paragraph);
+    paragraph.innerHTML = first.innerHTML;
+    return paragraph.outerHTML;
+  }
+  if (tagName.toUpperCase() === "LI") {
+    const list = doc.createElement(listTagName === "OL" ? "ol" : "ul");
+    const item = doc.createElement("li");
+    syncSlideEditorBlockFormatting(first as HTMLElement, item);
+    item.innerHTML = first.innerHTML;
+    list.appendChild(item);
+    return list.outerHTML;
+  }
+  if (["BLOCKQUOTE", "OL", "UL"].includes(tagName.toUpperCase())) {
+    const wrapper = doc.createElement(tagName.toLowerCase());
+    syncSlideEditorBlockFormatting(first as HTMLElement, wrapper);
+    wrapper.innerHTML = first.innerHTML;
+    return wrapper.outerHTML;
+  }
+  return first.innerHTML;
 }
 
 /** Keep a semantic canvas target valid when rich text changes its block root. */
@@ -83,9 +162,122 @@ export function restoreSlideTextContainerContent(
     return element;
   }
 
+  const nextDocument = new DOMParser().parseFromString(html, "text/html");
+  const nextRoot = nextDocument.body.firstElementChild as HTMLElement | null;
+  const nextChildren = Array.from(nextDocument.body.children);
+  if (nextChildren.length === 1 && nextRoot?.tagName === element.tagName) {
+    syncSlideEditorBlockFormatting(nextRoot, element, true);
+    element.innerHTML = nextRoot.innerHTML;
+    return element;
+  }
+
+  const nextListRoot =
+    nextRoot && (nextRoot.tagName === "OL" || nextRoot.tagName === "UL")
+      ? nextRoot
+      : null;
+  let parentList =
+    element.tagName === "LI" &&
+    (element.parentElement?.tagName === "OL" ||
+      element.parentElement?.tagName === "UL")
+      ? element.parentElement
+      : null;
+  if (
+    parentList &&
+    nextListRoot &&
+    parentList.tagName !== nextListRoot.tagName
+  ) {
+    const replacement = element.ownerDocument.createElement(
+      nextListRoot.tagName.toLowerCase(),
+    );
+    for (const attribute of Array.from(parentList.attributes)) {
+      replacement.setAttribute(attribute.name, attribute.value);
+    }
+    while (parentList.firstChild) {
+      replacement.appendChild(parentList.firstChild);
+    }
+    parentList.replaceWith(replacement);
+    parentList = replacement;
+  }
+
   const content = contentForSlideTextContainer(element.tagName, html);
   if (content !== html) {
     element.innerHTML = content;
+    return element;
+  }
+
+  const nextListItemRoot =
+    element.tagName === "LI" &&
+    nextListRoot !== null &&
+    nextListRoot.children.length === 1 &&
+    nextListRoot.firstElementChild?.tagName === "LI"
+      ? (nextListRoot.firstElementChild as HTMLElement)
+      : null;
+  const hasMultipleListItems =
+    element.tagName === "LI" &&
+    nextListRoot !== null &&
+    nextListRoot.children.length > 1 &&
+    Array.from(nextListRoot.children).every((child) => child.tagName === "LI");
+  const preservesListItemRoot =
+    element.tagName === "LI" &&
+    !hasMultipleListItems &&
+    (nextListItemRoot !== null ||
+      (nextChildren.length > 0 &&
+        nextChildren.every((child) =>
+          ["OL", "P", "UL"].includes(child.tagName),
+        )));
+  const preservesListRoot =
+    (element.tagName === "UL" || element.tagName === "OL") &&
+    nextRoot !== null &&
+    ["OL", "UL"].includes(nextRoot.tagName) &&
+    nextRoot.children.length > 0 &&
+    Array.from(nextRoot.children).every((child) => child.tagName === "LI");
+  const preservesRoot = preservesListItemRoot || preservesListRoot;
+  if (
+    nextChildren.length === 1 &&
+    /^H[1-6]$/.test(element.tagName) &&
+    nextRoot?.tagName === "P"
+  ) {
+    syncSlideEditorBlockFormatting(nextRoot, element, true);
+    element.innerHTML = nextRoot.innerHTML;
+    return element;
+  }
+  if (preservesRoot) {
+    if (preservesListRoot && nextRoot?.tagName !== element.tagName) {
+      const replacement = element.ownerDocument.createElement(
+        nextRoot.tagName.toLowerCase(),
+      );
+      for (const attribute of Array.from(element.attributes)) {
+        replacement.setAttribute(attribute.name, attribute.value);
+      }
+      syncSlideEditorBlockFormatting(nextRoot, replacement, true);
+      replacement.innerHTML = nextRoot.innerHTML;
+      element.replaceWith(replacement);
+      return replacement;
+    }
+    if (element.tagName === "LI" && nextChildren[0]?.tagName === "P") {
+      syncSlideEditorBlockFormatting(
+        nextChildren[0] as HTMLElement,
+        element,
+        true,
+      );
+    }
+    if (nextListItemRoot) {
+      syncSlideEditorBlockFormatting(nextListItemRoot, element, true);
+      element.innerHTML = nextListItemRoot.innerHTML;
+      return element;
+    }
+    element.innerHTML = html;
+    return element;
+  }
+
+  if (hasMultipleListItems && parentList && nextListRoot) {
+    const firstItem = nextListRoot.firstElementChild as HTMLElement;
+    syncSlideEditorBlockFormatting(firstItem, element, true);
+    element.innerHTML = firstItem.innerHTML;
+    const insertBefore = element.nextSibling;
+    for (const item of Array.from(nextListRoot.children).slice(1)) {
+      parentList.insertBefore(item.cloneNode(true), insertBefore);
+    }
     return element;
   }
 
@@ -94,8 +286,6 @@ export function restoreSlideTextContainerContent(
     replacement.setAttribute(attribute.name, attribute.value);
   }
   if (element.tagName === "UL" || element.tagName === "OL") {
-    const nextRoot = new DOMParser().parseFromString(html, "text/html").body
-      .firstElementChild;
     if (nextRoot?.tagName !== "UL" && nextRoot?.tagName !== "OL") {
       for (const property of [
         "list-style",

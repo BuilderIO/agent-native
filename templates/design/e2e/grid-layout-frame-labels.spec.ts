@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { designFrame, gotoEditor } from "./helpers";
 
 /**
@@ -140,11 +141,10 @@ async function postAction(
 }
 
 function actionBaseUrl(baseURL: string | undefined): string {
-  return (
-    baseURL ??
-    process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`
-  ).replace(/\/$/, "");
+  return (baseURL ?? process.env.E2E_BASE_URL ?? e2eBaseURL()).replace(
+    /\/$/,
+    "",
+  );
 }
 
 async function expectFileContent(

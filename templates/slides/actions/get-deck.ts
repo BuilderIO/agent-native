@@ -166,10 +166,10 @@ function sourceEditabilityForDeck(
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Read a Slides deck or one slide. Pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits.",
+    "Read a Slides deck or one slide. Pass the deck ID as `id` and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits.",
   timeoutMs: 60_000,
   schema: z.object({
-    id: z.string().optional().describe("Deck ID (required)"),
+    id: z.string().min(1).describe("Deck ID"),
     slideId: z
       .string()
       .optional()
@@ -201,10 +201,6 @@ export default defineAction({
     }),
   },
   run: async (args, ctx) => {
-    if (!args.id) {
-      throw new Error("--id is required.");
-    }
-
     const { row, data, slides } = await loadDeckWithUniqueSlideIds(args.id);
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);

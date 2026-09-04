@@ -93,7 +93,10 @@ import {
 } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
+import {
+  resolveSsrCacheHeaders,
+  SSR_QUERY_CACHE_KEY_HEADER,
+} from "../shared/cache-control.js";
 import {
   extractOAuthStateAppId,
   extractOAuthStateProvider,
@@ -787,9 +790,10 @@ function betterAuthCallbackURL(
 export function getConfiguredLoginHtml(event: H3Event): string | null {
   const config = _authGuardConfig;
   if (!config) return null;
-  const { rawPath } = getRequestPathAndSearch(event);
+  const { rawPath, search } = getRequestPathAndSearch(event);
+  const requestPath = `${rawPath}${search}`;
   const loginHtml =
-    config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
+    config.getLoginHtml?.(event, requestPath) ?? config.loginHtml ?? null;
   if (!loginHtml) return null;
 
   const appOriginConfigScript = getAppOriginClientConfigScript();
@@ -799,7 +803,7 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
       ? injectHeadScript(loginHtml, appOriginConfigScript)
       : loginHtml;
   return injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(html, rawPath),
+    injectBetaOptOutPersistence(html, requestPath),
     event,
   );
 }
@@ -3319,6 +3323,7 @@ function loginHtmlResponse(
     requestIndependent?: boolean;
   } = {},
 ): Response {
+  const { search } = getRequestPathAndSearch(event);
   const appOriginConfigScript = getAppOriginClientConfigScript();
   let html = loginHtml;
   if (
@@ -3351,6 +3356,9 @@ function loginHtmlResponse(
       // analytics script is public build configuration, not user/session
       // state. Never vary this per request by cookie or session.
       ...resolveSsrCacheHeaders(),
+      ...(!options.requestIndependent && search
+        ? { [SSR_QUERY_CACHE_KEY_HEADER]: "query" }
+        : {}),
       "X-Robots-Tag": "noindex, nofollow",
     },
   });
@@ -3381,6 +3389,7 @@ function createAuthGuardFn(
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+    const requestPath = queryStart >= 0 ? url : rawPath;
     const p = stripAppBasePath(rawPath);
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
@@ -3669,7 +3678,8 @@ function createAuthGuardFn(
       });
     }
 
-    const loginHtml = config.getLoginHtml?.(event, rawPath) ?? config.loginHtml;
+    const loginHtml =
+      config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query. The clean
