@@ -3206,6 +3206,39 @@ describe("server/auth", () => {
       }
     });
 
+    it("uses the continuation query when SSR renders the login entry", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_MAGIC_LINK", "0");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        marketing: {
+          appName: "Slides",
+          tagline: "Build presentations alongside your agent.",
+        },
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(
+        createMockEvent({
+          path: "/sign-in",
+          query: { c: "continuation" },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect(
+        readAuthPageData(await (result as Response).text()).initialView,
+      ).toBe("login");
+    });
+
     it("serves the public home with the same cached auth document and head handoff", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
