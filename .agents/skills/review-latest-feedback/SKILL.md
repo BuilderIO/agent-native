@@ -44,8 +44,10 @@ eye while that clarification is pending.
 
 Remove the eye for every terminal disposition, including **Fixed**, **Shipped**,
 **Open - no reply**, **Resolved elsewhere**, **Skipped**, and **Abandoned - no
-answer in 4 days**. Only active **In progress** work or a pending
+answer in 4 days**, and **Clustered**. Only active **In progress** work or a pending
 **Clarification needed** question may retain it.
+**Clustered** is terminal for a non-owning duplicate or repeat row, so remove
+that row's eye; only the single owning investigation row may retain one.
 
 Enumerate with `slack_read_channel` from newest backwards, following its
 `next_cursor` until you reach a parent already carrying your `👀` or one older
@@ -176,7 +178,8 @@ replaces an unanswered clarification question that is still inside its
 four-day window. If an older **Open - no reply** row still has the eye, remove
 the reaction before treating it as terminal. The same eye-release rule applies
 to **Fixed**, **Shipped**, **Resolved elsewhere**, **Skipped**, and
-**Abandoned - no answer in 4 days**.
+**Abandoned - no answer in 4 days**. A non-owning **Clustered** row also
+requires removing the eye.
 
 Only an unanswered **Clarification needed** thread enters the age branches
 below — never one whose latest reply is **Fixed**, **Shipped**, or **In

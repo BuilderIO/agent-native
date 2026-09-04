@@ -144,7 +144,7 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   signal. After classifying the parent, re-read the complete thread and, for
   an actionable in-scope item, require a verified disposition from the
   invoking Slack identity - **Fixed**, **Shipped**, **Resolved elsewhere**,
-  **Skipped**, or **Abandoned - no answer in 4 days** after the eye has been
+  **Skipped**, **Clustered**, or **Abandoned - no answer in 4 days** after the eye has been
   removed; **In progress** or **Clarification needed** while the eye is held;
   or **Open - no reply** after the eye has been removed. An eye-only or stale
   eye-only item remains actionable for that handoff check. For items

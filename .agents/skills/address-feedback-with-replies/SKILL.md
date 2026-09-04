@@ -54,8 +54,9 @@ Every clear-bug parent or upvoted improvement that receives `👀`
 enters the reply ledger. The reaction is not a reply or completion marker.
 Before finishing, re-read each claimed item and verify the invoking identity
 posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
-recorded **Open - no reply** or **Abandoned - no answer in 4 days** with a
-concrete reason and the `👀` removed for any terminal disposition. An
+recorded **Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**,
+or **Abandoned - no answer in 4 days** with a concrete reason and the `👀`
+removed for any terminal disposition. An
 expired question leaves the ledger with its `👀` removed and no reply owed.
 **Clarification needed** may retain the eye only while the targeted question is
 pending. **In progress** requires
@@ -141,8 +142,10 @@ the issue.
 
 Remove the eye for every terminal disposition, including **Fixed**, **Shipped**,
 **Open - no reply**, **Resolved elsewhere**, **Skipped**, and **Abandoned - no
-answer in 4 days**. Only active **In progress** work or a pending
+answer in 4 days**, and **Clustered**. Only active **In progress** work or a pending
 **Clarification needed** question may retain it.
+**Clustered** is terminal for a non-owning duplicate or repeat row, so remove
+that row's eye; only the single owning investigation row may retain one.
 
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
@@ -267,12 +270,14 @@ non-repeating question only if one specific required detail still blocks it.
    timestamp or an adjacent thread. Before ending the run, mechanically
    audit the reply ledger: for every `👀` parent, record the invoking user's
    reply timestamp and whether it is **Fixed**, **Shipped**, **In progress**, or
-   **Clarification needed**, or **Open - no reply** with the reason. For a
+   **Clarification needed**, **Open - no reply**, **Resolved elsewhere**,
+   **Skipped**, or **Clustered** with the reason. For a
    mistakenly eyed out-of-scope item, record reaction removal and no new reply
    instead. Keep an eye-only clear bug while actively working it; if the
    investigation cannot reproduce or fix it, remove the eye and record
-   **Open - no reply** without posting a status message. Do not create new
-   reactions or questions for out-of-scope items.
+   **Open - no reply** without posting a status message. For a non-owning
+   clustered row, remove the eye and record **Clustered** without posting.
+   Do not create new reactions or questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
