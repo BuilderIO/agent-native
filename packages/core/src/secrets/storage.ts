@@ -38,7 +38,10 @@ export async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       // Postgres version of the CREATE TABLE — the generic `INTEGER` maps to
       // BIGINT on Postgres, which we need for millisecond timestamps.
-      const createSql = APP_SECRETS_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
+      const createSql = APP_SECRETS_CREATE_SQL.replace(
+        /\bINTEGER\b/g,
+        "BIGINT",
+      );
 
       await ensureTableExists("app_secrets", createSql);
       await ensureColumnExists(

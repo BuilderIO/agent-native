@@ -39,7 +39,9 @@ function stripBuilderKeys(row: Record<string, unknown>) {
   return { cleaned, removed };
 }
 
-export default async function dbWipeLeakedBuilderKeys(args: string[]): Promise<void> {
+export default async function dbWipeLeakedBuilderKeys(
+  args: string[],
+): Promise<void> {
   const parsed = parseArgs(args);
   if (parsed.help === "true") {
     console.log(`Usage: pnpm action db-wipe-leaked-builder-keys [options]

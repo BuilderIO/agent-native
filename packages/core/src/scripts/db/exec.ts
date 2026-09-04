@@ -10,12 +10,12 @@ import path from "node:path";
 
 import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
+import { createPostgresScriptClient } from "./postgres-client.js";
 import {
   assertNoRawDbAccessControlWrite,
   assertNoSchemaQualifiedTables,
   assertNoSensitiveFrameworkTables,
 } from "./safety.js";
-import { createPostgresScriptClient } from "./postgres-client.js";
 import { buildScopingPostgres, type ScopingContext } from "./scoping.js";
 
 interface DbExecStatement {
@@ -256,7 +256,8 @@ function printBatchResult(results: DbExecResult[], format?: string): void {
   console.log(`Executed ${results.length} statements in one transaction.`);
   for (const result of results) {
     console.log(`[${result.index}] Changes: ${result.changes}`);
-    if (result.rows.length > 0) console.log(JSON.stringify(result.rows, null, 2));
+    if (result.rows.length > 0)
+      console.log(JSON.stringify(result.rows, null, 2));
   }
   console.log(`Total changes: ${changes}`);
 }

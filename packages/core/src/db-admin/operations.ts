@@ -386,9 +386,7 @@ const OP_SQL: Record<string, string> = {
 };
 
 /** Build a parameterized WHERE clause + args from filters. */
-function buildWhere(
-  filters: DbAdminFilter[] | undefined,
-): {
+function buildWhere(filters: DbAdminFilter[] | undefined): {
   clause: string;
   args: unknown[];
 } {

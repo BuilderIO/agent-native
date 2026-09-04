@@ -39,13 +39,7 @@ const NUMBER_TYPES = [
 
 const BOOLEAN_TYPES = ["bool", "boolean"];
 const JSON_TYPES = ["json", "jsonb"];
-const TIMESTAMP_TYPES = [
-  "timestamp",
-  "timestamptz",
-  "date",
-  "time",
-  "timetz",
-];
+const TIMESTAMP_TYPES = ["timestamp", "timestamptz", "date", "time", "timetz"];
 const UUID_TYPES = ["uuid", "guid"];
 
 function normalizeType(col: DbAdminColumn): string {

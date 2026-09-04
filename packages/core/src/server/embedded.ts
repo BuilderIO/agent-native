@@ -141,10 +141,7 @@ export function normalizeAgentNativeEmbeddedSession(
 }
 
 export function configureAgentNativeEmbeddedEnvironment(
-  options: Pick<
-    AgentNativeEmbeddedPluginOptions,
-    "appName" | "databaseUrl"
-  >,
+  options: Pick<AgentNativeEmbeddedPluginOptions, "appName" | "databaseUrl">,
 ): void {
   if (options.appName) {
     process.env.APP_NAME = options.appName; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state

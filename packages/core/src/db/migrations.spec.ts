@@ -16,11 +16,7 @@ vi.mock("./client.js", async (importOriginal) => {
   };
 });
 
-import {
-  getDbExec,
-  createDbExec,
-  getMigrationDatabaseUrl,
-} from "./client.js";
+import { getDbExec, createDbExec, getMigrationDatabaseUrl } from "./client.js";
 import {
   deferMigration,
   runMigrations,
@@ -372,7 +368,6 @@ describe("runMigrations – run-only entries", () => {
     expect(exec.insertedNames).toEqual([]);
     expect(exec.insertedVersions).toEqual([]);
   });
-
 });
 
 describe("runMigrations – Postgres steady-state (no pending migrations)", () => {

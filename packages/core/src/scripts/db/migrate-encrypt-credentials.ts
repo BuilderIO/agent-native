@@ -46,7 +46,9 @@ function databaseLabel(url: string): string {
   }
 }
 
-export default async function dbMigrateEncryptCredentials(args: string[]): Promise<void> {
+export default async function dbMigrateEncryptCredentials(
+  args: string[],
+): Promise<void> {
   const parsed = parseArgs(args);
   if (parsed.help === "true") {
     console.log(`Usage: pnpm action db-migrate-encrypt-credentials [options]
@@ -67,7 +69,9 @@ Options:
   const url = parsed.db
     ? `pglite:${path.resolve(parsed.db)}`
     : getDatabaseUrl("pglite:./data/pglite");
-  console.log(`[migrate-encrypt-credentials] target: ${databaseLabel(url)}${dryRun ? " (dry-run)" : ""}`);
+  console.log(
+    `[migrate-encrypt-credentials] target: ${databaseLabel(url)}${dryRun ? " (dry-run)" : ""}`,
+  );
 
   const client = await createPostgresScriptClient(url);
   try {
@@ -87,14 +91,15 @@ Options:
       console.log("[migrate-encrypt-credentials] nothing to encrypt.");
       return;
     }
-    for (const row of candidates) console.log(`  - ${row.settingsKey} ${mask(row.plaintext)}`);
+    for (const row of candidates)
+      console.log(`  - ${row.settingsKey} ${mask(row.plaintext)}`);
     if (dryRun) return;
     let encrypted = 0;
     for (const row of candidates) {
-      await client.unsafe(
-        `UPDATE settings SET value = $1 WHERE key = $2`,
-        [JSON.stringify({ value: encryptSecretValue(row.plaintext) }), row.settingsKey],
-      );
+      await client.unsafe(`UPDATE settings SET value = $1 WHERE key = $2`, [
+        JSON.stringify({ value: encryptSecretValue(row.plaintext) }),
+        row.settingsKey,
+      ]);
       encrypted++;
     }
     console.log(`[migrate-encrypt-credentials] done. encrypted=${encrypted}`);

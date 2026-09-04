@@ -58,7 +58,6 @@ export async function ensureTable(): Promise<void> {
       );
       return;
     }
-
   })().catch((err) => {
     // Reset so a transient failure can retry.
     tableReady = null;

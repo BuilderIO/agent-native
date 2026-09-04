@@ -178,9 +178,9 @@ Local development uses PGlite at `data/pglite`. For production and shared enviro
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-| Variable              | Required                        | Description                                                                |
-| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
+| Variable       | Required                     | Description                                                                   |
+| -------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `DATABASE_URL` | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
 
 ### Cross-app Thread Debug sources
 

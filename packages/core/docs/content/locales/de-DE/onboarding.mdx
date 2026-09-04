@@ -250,12 +250,12 @@ bevor es verfügbar ist.
 
 ### Eingebaute Schritte
 
-| ID         | Erforderlich | Beschreibung                                             |
-| ---------- | ------------ | -------------------------------------------------------- |
-| `llm`      | Ja           | Builder-Verbindung oder ein Provider-LLM-Schlüssel       |
+| ID         | Erforderlich | Beschreibung                                          |
+| ---------- | ------------ | ----------------------------------------------------- |
+| `llm`      | Ja           | Builder-Verbindung oder ein Provider-LLM-Schlüssel    |
 | `database` | nein         | Gehostete PostgreSQL-URL oder leer für lokales PGlite |
-| `auth`     | nein         | Eingebaute Konten, optional OAuth oder Zugriffstoken     |
-| `email`    | nein         | Erneut senden oder SendGrid für Transaktions-E-Mails     |
+| `auth`     | nein         | Eingebaute Konten, optional OAuth oder Zugriffstoken  |
+| `email`    | nein         | Erneut senden oder SendGrid für Transaktions-E-Mails  |
 
 Any of these can be overridden by re-registering with the same `id` after the
 Standardlast.

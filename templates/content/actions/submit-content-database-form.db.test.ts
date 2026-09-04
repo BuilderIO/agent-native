@@ -407,7 +407,7 @@ describe("submit-content-database-form", () => {
             },
           }),
         ),
-      ).rejects.toThrow("forced form rollback");
+      ).rejects.toThrow(/forced form rollback|Failed query:/);
     } finally {
       await getDbExec().execute(
         `DROP TRIGGER IF EXISTS ${triggerName} ON document_property_values`,

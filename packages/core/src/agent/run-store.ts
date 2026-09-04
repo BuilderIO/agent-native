@@ -421,117 +421,117 @@ export async function ensureRunTables(): Promise<void> {
         )
       `;
 
-        // Hot path: in production the tables and all additive columns are
-        // virtually always already present. Issuing `CREATE TABLE`/`ALTER TABLE
-        // ADD COLUMN` still takes an ACCESS EXCLUSIVE lock — which, in a fresh
-        // background-worker process behind a concurrent connection on the shared
-        // Neon DB, can block ~indefinitely. So check `information_schema` first
-        // (plain reads, no lock) and run DDL ONLY for what is actually missing.
-        // The `ensureTableExists` / `ensureColumnExists` wrappers probe →
-        // guarded-DDL (bounded `lock_timeout`) → re-probe, and THROW if the
-        // schema is still missing after a swallowed lock-timeout so a poisoned
-        // init never memoizes success against absent schema (the `_initPromise`
-        // rejects and the next call retries).
-        await ensureTableExists("agent_runs", agentRunsCreateSql);
-        // Additive columns — all listed in the CREATE TABLE above, so on a
-        // fresh DB they already exist after the CREATE and these checks are
-        // instant short-circuits. On an older deployment that predates a
-        // column, the wrapper issues one bounded ALTER.
-        //
-        // Backfill heartbeat_at on older deployments.
-        // heartbeat_at = "the producer process is alive" (bumped on a timer).
-        // last_progress_at = "the agent is actually emitting events" (bumped on
-        // each emit). The gap between them is the stuck-detector signal.
-        for (const [col, colType] of [
-          ["heartbeat_at", intType()],
-          ["abort_reason", "TEXT"],
-          ["last_progress_at", intType()],
-          // Backfill turn_id / error_code / error_detail.
-          //   turn_id    = stable identity for one logical assistant turn that may
-          //                span several continuation runs, so the durable record
-          //                can be folded across runs instead of dropped per-run.
-          //   error_code / error_detail = terminal failure classification captured
-          //                at completion so errored/cut-off runs are queryable for
-          //                pattern analysis (see listErroredRuns).
-          // dispatch_mode marks how a run was started: NULL/"foreground" for the
-          // normal client-continued synchronous path, "foreground-self-chain" for
-          // a foreground run whose continuation boundary is server-driven, and
-          // "background" for a run dispatched into a Netlify background function.
-          // The reaper/claim widen the stale window for background rows so a slow
-          // cold-start isn't falsely reaped.
-          // diag_stage records the last reached pipeline stage (+ any error) for a
-          // background-dispatched run so a silent worker death is DIAGNOSABLE from
-          // the client (/runs/active surfaces it) without reading the unreadable
-          // Netlify background-function logs. See recordRunDiagnostic.
-          ["turn_id", "TEXT"],
-          ["error_code", "TEXT"],
-          ["error_detail", "TEXT"],
-          ["terminal_reason", "TEXT"],
-          ["dispatch_mode", "TEXT"],
-          ["diag_stage", "TEXT"],
-          ["worker_stage", "TEXT"],
-          // peak_rss_mb: high-water resident memory, bumped on the heartbeat
-          // write that already happens. An OOM kill is SIGKILL — no handler
-          // runs, nothing is logged, and the run just stops mid-token — so the
-          // ONLY way to tell "ran out of memory" from "hit a wall clock" after
-          // the fact is a memory trace that climbs to a ceiling and stops.
-          // Assets background workers die ~10s into a 780s budget with this
-          // signature and Netlify's function logs are not retrievable.
-          ["peak_rss_mb", intType()],
-          // dispatch_payload holds the JSON request body for a background
-          // dispatch so the self-POST to the Netlify background function can
-          // stay tiny (Netlify caps background-function request bodies at
-          // 256KB — a large chat history silently exceeded it). The worker
-          // rehydrates the body from this column via the marker's payloadRef.
-          // Cleared on terminal status writes.
-          ["dispatch_payload", "TEXT"],
-          // in_flight_since = ms epoch when run-manager's in-memory
-          // `inFlightWorkCount` last transitioned 0->1 (a tool call or nested
-          // `agent_call`/A2A delegation started), NULL once it drops back to 0.
-          // Lets the cross-isolate stale reapers grant a bounded grace to a
-          // demonstrably-alive run even when the SAME-isolate heartbeat write
-          // has failed. See `IN_FLIGHT_RUN_STALE_GRACE_MS` and
-          // `setRunInFlightMarker`.
-          ["in_flight_since", intType()],
-        ] as const) {
-          await ensureColumnExists(
-            "agent_runs",
-            col,
-            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
-          );
-        }
-        await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+      // Hot path: in production the tables and all additive columns are
+      // virtually always already present. Issuing `CREATE TABLE`/`ALTER TABLE
+      // ADD COLUMN` still takes an ACCESS EXCLUSIVE lock — which, in a fresh
+      // background-worker process behind a concurrent connection on the shared
+      // Neon DB, can block ~indefinitely. So check `information_schema` first
+      // (plain reads, no lock) and run DDL ONLY for what is actually missing.
+      // The `ensureTableExists` / `ensureColumnExists` wrappers probe →
+      // guarded-DDL (bounded `lock_timeout`) → re-probe, and THROW if the
+      // schema is still missing after a swallowed lock-timeout so a poisoned
+      // init never memoizes success against absent schema (the `_initPromise`
+      // rejects and the next call retries).
+      await ensureTableExists("agent_runs", agentRunsCreateSql);
+      // Additive columns — all listed in the CREATE TABLE above, so on a
+      // fresh DB they already exist after the CREATE and these checks are
+      // instant short-circuits. On an older deployment that predates a
+      // column, the wrapper issues one bounded ALTER.
+      //
+      // Backfill heartbeat_at on older deployments.
+      // heartbeat_at = "the producer process is alive" (bumped on a timer).
+      // last_progress_at = "the agent is actually emitting events" (bumped on
+      // each emit). The gap between them is the stuck-detector signal.
+      for (const [col, colType] of [
+        ["heartbeat_at", intType()],
+        ["abort_reason", "TEXT"],
+        ["last_progress_at", intType()],
+        // Backfill turn_id / error_code / error_detail.
+        //   turn_id    = stable identity for one logical assistant turn that may
+        //                span several continuation runs, so the durable record
+        //                can be folded across runs instead of dropped per-run.
+        //   error_code / error_detail = terminal failure classification captured
+        //                at completion so errored/cut-off runs are queryable for
+        //                pattern analysis (see listErroredRuns).
+        // dispatch_mode marks how a run was started: NULL/"foreground" for the
+        // normal client-continued synchronous path, "foreground-self-chain" for
+        // a foreground run whose continuation boundary is server-driven, and
+        // "background" for a run dispatched into a Netlify background function.
+        // The reaper/claim widen the stale window for background rows so a slow
+        // cold-start isn't falsely reaped.
+        // diag_stage records the last reached pipeline stage (+ any error) for a
+        // background-dispatched run so a silent worker death is DIAGNOSABLE from
+        // the client (/runs/active surfaces it) without reading the unreadable
+        // Netlify background-function logs. See recordRunDiagnostic.
+        ["turn_id", "TEXT"],
+        ["error_code", "TEXT"],
+        ["error_detail", "TEXT"],
+        ["terminal_reason", "TEXT"],
+        ["dispatch_mode", "TEXT"],
+        ["diag_stage", "TEXT"],
+        ["worker_stage", "TEXT"],
+        // peak_rss_mb: high-water resident memory, bumped on the heartbeat
+        // write that already happens. An OOM kill is SIGKILL — no handler
+        // runs, nothing is logged, and the run just stops mid-token — so the
+        // ONLY way to tell "ran out of memory" from "hit a wall clock" after
+        // the fact is a memory trace that climbs to a ceiling and stops.
+        // Assets background workers die ~10s into a 780s budget with this
+        // signature and Netlify's function logs are not retrievable.
+        ["peak_rss_mb", intType()],
+        // dispatch_payload holds the JSON request body for a background
+        // dispatch so the self-POST to the Netlify background function can
+        // stay tiny (Netlify caps background-function request bodies at
+        // 256KB — a large chat history silently exceeded it). The worker
+        // rehydrates the body from this column via the marker's payloadRef.
+        // Cleared on terminal status writes.
+        ["dispatch_payload", "TEXT"],
+        // in_flight_since = ms epoch when run-manager's in-memory
+        // `inFlightWorkCount` last transitioned 0->1 (a tool call or nested
+        // `agent_call`/A2A delegation started), NULL once it drops back to 0.
+        // Lets the cross-isolate stale reapers grant a bounded grace to a
+        // demonstrably-alive run even when the SAME-isolate heartbeat write
+        // has failed. See `IN_FLIGHT_RUN_STALE_GRACE_MS` and
+        // `setRunInFlightMarker`.
+        ["in_flight_since", intType()],
+      ] as const) {
         await ensureColumnExists(
-          "agent_run_events",
-          "event_at",
-          `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at ${intType()}`,
+          "agent_runs",
+          col,
+          `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
         );
-        await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
-        await ensureColumnExists(
-          "agent_tool_ledger",
-          "artifacts_json",
-          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
-        );
-        await ensureTableExists(
-          "agent_run_outcome_daily",
-          agentRunOutcomeDailyCreateSql,
-        );
-        // Widen millisecond-timestamp columns that older deployments created as
-        // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
-        // on every turn, so an int4 column makes every agent prompt fail on
-        // Postgres with "value … is out of range for type integer". No-op once
-        // widened (and on fresh DBs that already use BIGINT). See
-        // widenIntColumnsToBigInt.
-        await widenIntColumnsToBigInt("agent_runs", [
-          "started_at",
-          "completed_at",
-          "heartbeat_at",
-          "last_progress_at",
-          "in_flight_since",
-        ]);
-        await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
-        await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
-        return;
+      }
+      await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+      await ensureColumnExists(
+        "agent_run_events",
+        "event_at",
+        `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at ${intType()}`,
+      );
+      await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
+      await ensureColumnExists(
+        "agent_tool_ledger",
+        "artifacts_json",
+        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
+      );
+      await ensureTableExists(
+        "agent_run_outcome_daily",
+        agentRunOutcomeDailyCreateSql,
+      );
+      // Widen millisecond-timestamp columns that older deployments created as
+      // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
+      // on every turn, so an int4 column makes every agent prompt fail on
+      // Postgres with "value … is out of range for type integer". No-op once
+      // widened (and on fresh DBs that already use BIGINT). See
+      // widenIntColumnsToBigInt.
+      await widenIntColumnsToBigInt("agent_runs", [
+        "started_at",
+        "completed_at",
+        "heartbeat_at",
+        "last_progress_at",
+        "in_flight_since",
+      ]);
+      await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
+      await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
+      return;
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

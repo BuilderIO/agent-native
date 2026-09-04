@@ -130,11 +130,11 @@ export const tasks = table("tasks", {
 
 | हेल्पर    | उद्देश्य                                                                    |
 | --------- | --------------------------------------------------------------------------- |
-| `table`   | एक तालिका परिभाषित करता है; PostgreSQL हेल्पर्स का उपयोग करता है |
+| `table`   | एक तालिका परिभाषित करता है; PostgreSQL हेल्पर्स का उपयोग करता है            |
 | `text`    | टेक्स्ट कॉलम, `{ enum: [...] }` का समर्थन करता है                           |
 | `integer` | पूर्णांक कॉलम, `{ mode: "boolean" }` Postgres बूलियन से मैप होता है         |
 | `real`    | फ्लोट कॉलम। PGlite पर `real`, Postgres पर `double precision` से मैप होता है |
-| `now`     | `.default(now())` के लिए वर्तमान टाइमस्टैम्प सेट करता है                   |
+| `now`     | `.default(now())` के लिए वर्तमान टाइमस्टैम्प सेट करता है                    |
 
 <DataModel
   id="doc-block-3hbven"
@@ -266,6 +266,7 @@ Cloudflare Workers/Pages और बिना deployable filesystem वाले 
 filesystem loader उपलब्ध नहीं है। वहाँ worker bundle में embedded PostgreSQL migration entries
 के साथ `runMigrations()` का उपयोग करें। Migrations को PostgreSQL के लिए generate करें और
 एक ही folder को local PGlite और hosted PostgreSQL के बीच switch न करें।
+
 <Callout tone="risk">
   उत्पादन डेटाबेस के विरुद्ध कभी भी `drizzle-kit push` न चलाएं। टेम्प्लेट स्कीमा
   केवल ऐप-विशिष्ट तालिकाओं को परिभाषित करते हैं; इनमें केंद्रीय फ्रेमवर्क
@@ -433,9 +434,9 @@ const { rows } = await getDbExec().execute({
 
 ## पर्यावरण चर {#environment-variables}
 
-| वेरिएबल               | उद्देश्य                                                                                                |
-| --------------------- | ------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | स्थायी PostgreSQL कनेक्शन स्ट्रिंग (अनसेट = स्थानीय PGlite; `pglite:./data/pglite` = स्थानीय Postgres ऑप्ट-इन) |
+| वेरिएबल        | उद्देश्य                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | स्थायी PostgreSQL कनेक्शन स्ट्रिंग (अनसेट = स्थानीय PGlite; `pglite:./data/pglite` = स्थानीय Postgres ऑप्ट-इन) |
 
 ## आगे क्या है {#whats-next}
 

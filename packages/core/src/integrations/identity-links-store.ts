@@ -5,7 +5,12 @@
 
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  isUniqueViolation,
+  retryOnDdlRace,
+} from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 const TABLE = "integration_identity_links";

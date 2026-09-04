@@ -23,7 +23,9 @@ description: "将 PostgreSQL 连接到你的代理本机应用：schema 助手�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    PostgreSQL 数据库<br /><small class="diagram-muted">PostgreSQL（DATABASE_URL）</small>
+    PostgreSQL 数据库<br /><small class="diagram-muted"
+      >PostgreSQL（DATABASE_URL）</small
+    >
   </div>
 </div>
 ```
@@ -128,11 +130,11 @@ export const tasks = table("tasks", {
 
 | 助手      | 用途                                                                         |
 | --------- | ---------------------------------------------------------------------------- |
-| `table`   | 定义一个表，使用 PostgreSQL 助手                              |
+| `table`   | 定义一个表，使用 PostgreSQL 助手                                             |
 | `text`    | 文本列，支持 `{ enum: [...] }`                                               |
 | `integer` | 整数列，`{ mode: "boolean" }` 会映射到 Postgres 的布尔类型                   |
 | `real`    | 浮点数列。在 PGlite 上映射为 `real`，在 Postgres 上映射为 `double precision` |
-| `now`     | 为 `.default(now())` 设置当前时间戳                                       |
+| `now`     | 为 `.default(now())` 设置当前时间戳                                          |
 
 <DataModel
   id="doc-block-3hbven"
@@ -259,6 +261,7 @@ SQL、Postgres 行为、数据回填和延迟 JavaScript 步骤继续使用 `run
 文件系统的 edge runtime。在这些环境中，请使用 worker bundle 中嵌入的 PostgreSQL migration 条目
 调用 `runMigrations()`。请针对 PostgreSQL 生成迁移，不要在同一文件夹中切换本地 PGlite
 和托管 PostgreSQL。
+
 <Callout tone="risk">
   切勿针对生产数据库运行 `drizzle-kit push`。模板 schema 只定义了应用特有的表；
   它们不包含中心框架表（`user`、`session`、`application_state` 等）。在生产环境
@@ -422,9 +425,9 @@ const { rows } = await getDbExec().execute({
 
 ## 环境变量 {#environment-variables}
 
-| 变量                  | 用途                                                                                          |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | 持久化的 PostgreSQL 连接字符串（未设置 = 本地 PGlite；`pglite:./data/pglite` = 可选的本地 Postgres） |
+| 变量           | 用途                                                                                                 |
+| -------------- | ---------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | 持久化的 PostgreSQL 连接字符串（未设置 = 本地 PGlite；`pglite:./data/pglite` = 可选的本地 Postgres） |
 
 ## 下一步 {#whats-next}
 

@@ -9,7 +9,12 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  isUniqueViolation,
+  retryOnDdlRace,
+} from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { SecretScope } from "../secrets/register.js";
 import {

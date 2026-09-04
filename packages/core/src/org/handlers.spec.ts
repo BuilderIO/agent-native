@@ -174,7 +174,7 @@ describe("org handlers", () => {
       );
       expect(mockExecute.mock.calls[2][0].args).toEqual(["org-1"]);
       expect(mockExecute.mock.calls[3][0].sql).toContain(
-        "DELETE FROM settings WHERE key LIKE ? ESCAPE '!'",
+        "DELETE FROM public.settings WHERE key LIKE ? ESCAPE '!'",
       );
       expect(mockExecute.mock.calls[3][0].args).toEqual(["o:org-1:%"]);
       expect(mockExecute.mock.calls[4][0].sql).toContain(

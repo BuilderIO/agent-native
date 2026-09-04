@@ -4122,7 +4122,7 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
     return true;
   }
   return (
-    name === "pglite" &&
-    pathParts?.at(-2) === "data"
-  ) || name.endsWith(".tmp.json");
+    (name === "pglite" && pathParts?.at(-2) === "data") ||
+    name.endsWith(".tmp.json")
+  );
 }

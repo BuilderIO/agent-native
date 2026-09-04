@@ -8,8 +8,8 @@ import { createTestPglite } from "../a2a/test-pglite.js";
  * a REAL in-memory PGlite engine (wrapped to the framework's `DbExec` shape, the
  * same wrapper production uses for pglite) so expiry filtering, consume-once
  * atomicity, UNIQUE constraints, and refresh rotation are exercised for real —
- * not pattern-matched. SQL stays dialect-agnostic; we never assert pglite-only
- * behavior.
+ * not pattern-matched. The SQL targets PostgreSQL; the test asserts behavior
+ * rather than local engine details.
  */
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -31,12 +31,11 @@ function makeExec() {
       const args = (
         typeof input === "string" ? [] : (input.args ?? [])
       ) as any[];
-      const stmt = await pglite.prepare(rawSql);
-      if (stmt.reader) {
-        return { rows: (await stmt.all(...args)) as any[], rowsAffected: 0 };
-      }
-      const result = await stmt.run(...args);
-      return { rows: [] as any[], rowsAffected: result.changes ?? 0 };
+      const result = await pglite.query(rawSql, args);
+      return {
+        rows: Array.from(result.rows ?? []) as any[],
+        rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+      };
     },
   };
 }
@@ -343,9 +342,9 @@ describe("refresh tokens", () => {
     expect(row.tokenHash).toBe(s.hashOAuthToken("raw-refresh-token"));
     expect(row.tokenHash).not.toBe("raw-refresh-token");
     // The raw value must not be retrievable from any stored column.
-    const dump = pglite
+    const dump = (await pglite
       .prepare("SELECT * FROM mcp_oauth_refresh_tokens")
-      .all() as any[];
+      .all()) as any[];
     const serialized = JSON.stringify(dump);
     expect(serialized).not.toContain("raw-refresh-token");
     expect(serialized).toContain(row.tokenHash);
@@ -447,9 +446,9 @@ describe("refresh tokens", () => {
       oldRefreshToken: "raw-refresh-token",
       newRefreshToken: "new-refresh-token",
     });
-    const oldRow = pglite
+    const oldRow = (await pglite
       .prepare("SELECT * FROM mcp_oauth_refresh_tokens WHERE token_hash = ?")
-      .get(s.hashOAuthToken("raw-refresh-token")) as any;
+      .get(s.hashOAuthToken("raw-refresh-token"))) as any;
     expect(oldRow.revoked_at).not.toBeNull();
     expect(oldRow.replaced_by_hash).toBe(s.hashOAuthToken("new-refresh-token"));
   });

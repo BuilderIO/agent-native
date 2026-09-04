@@ -1,9 +1,5 @@
 import type { AgentNativeWebMcpTool } from "../client/webmcp.js";
-import {
-  getDbExec,
-  intType,
-  safeJsonParse,
-} from "../db/client.js";
+import { getDbExec, intType, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type {
   AgentNativeBrowserSession,
@@ -90,7 +86,6 @@ export async function ensureTables(): Promise<void> {
         );
         return;
       }
-
     })().catch((err) => {
       // Don't cache a transient init failure — otherwise every browser-session
       // call re-awaits the same rejected promise until the process restarts.

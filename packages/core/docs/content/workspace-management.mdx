@@ -171,7 +171,7 @@ Then add the [actions/labeler](https://github.com/actions/labeler) action — se
 | --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
 | **App-only** (`templates/<app>/`) | Owning app team                       | Domain correctness, action schemas                                        |
 | **Framework** (`packages/core/`)  | Platform team + one affected app team | Breaking changes, performance, backwards compat                           |
-| **Schema migrations**             | Platform team + senior engineer       | Data safety, PostgreSQL compatibility                                    |
+| **Schema migrations**             | Platform team + senior engineer       | Data safety, PostgreSQL compatibility                                     |
 | **Actions**                       | Owning team                           | Actions are both agent tools AND HTTP endpoints — review from both angles |
 | **Cross-app A2A**                 | Both app teams                        | If you change an A2A interface, the callers need to know                  |
 | **Dispatch vault/resources**      | Platform team                         | Secret access, grant scope, who gets what                                 |

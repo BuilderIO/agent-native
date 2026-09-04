@@ -652,9 +652,7 @@ export async function claimA2AContinuation(
     args: ["processing", now, id, processingCutoff, staleNextCheckCutoff],
   });
   const rows = result.rows ?? [];
-  return rows[0]
-    ? rowToContinuation(rows[0] as Record<string, unknown>)
-    : null;
+  return rows[0] ? rowToContinuation(rows[0] as Record<string, unknown>) : null;
 }
 
 export async function claimDueA2AContinuations(
@@ -821,9 +819,7 @@ export async function claimA2AContinuationDelivery(
     args: ["delivering", now, id],
   });
   const rows = result.rows ?? [];
-  return rows[0]
-    ? rowToContinuation(rows[0] as Record<string, unknown>)
-    : null;
+  return rows[0] ? rowToContinuation(rows[0] as Record<string, unknown>) : null;
 }
 
 export async function rescheduleA2AContinuation(

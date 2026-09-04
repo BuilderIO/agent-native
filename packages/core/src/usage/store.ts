@@ -322,7 +322,6 @@ export async function ensureUsageTable(): Promise<void> {
         );
         return;
       }
-
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

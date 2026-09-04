@@ -179,9 +179,9 @@ Real credential values belong only in local `.env` files, deployment configurati
 
 When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Keep SQL PostgreSQL-compatible and reserve raw SQL for additive migrations, health checks, or carefully scoped maintenance.
 
-| Variable              | Required                        | Description                                                                |
-| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
+| Variable       | Required                     | Description                                                                   |
+| -------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `DATABASE_URL` | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
 
 **Database overrides:** `<APP_NAME>_DATABASE_URL` (e.g. `PLAN_DATABASE_URL`) takes precedence over `DATABASE_URL` and is checked first on startup.
 

@@ -50,7 +50,6 @@ function oauthTokensTable(): string {
   return "public.oauth_tokens";
 }
 
-
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -110,7 +109,6 @@ export async function ensureTable(): Promise<void> {
         await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"], client);
         return;
       }
-
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

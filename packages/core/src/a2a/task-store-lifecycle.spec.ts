@@ -18,12 +18,11 @@ const dbExec: DbExec = {
     // Postgres/our wrapper convert undefined -> null; mimic that so INSERTs of
     // optional columns (owner_email, context_id, metadata) behave like prod.
     const bound = args.map((a) => (a === undefined ? null : a));
-    const stmt = await pglite.prepare(rawSql);
-    if (stmt.reader) {
-      return { rows: await stmt.all(...bound), rowsAffected: 0 };
-    }
-    const result = await stmt.run(...bound);
-    return { rows: [], rowsAffected: result.changes ?? 0 };
+    const result = await pglite.query(rawSql, bound);
+    return {
+      rows: Array.from(result.rows ?? []),
+      rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+    };
   },
 };
 

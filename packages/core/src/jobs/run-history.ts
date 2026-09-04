@@ -218,7 +218,6 @@ export async function ensureTable(): Promise<void> {
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
         return;
       }
-
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

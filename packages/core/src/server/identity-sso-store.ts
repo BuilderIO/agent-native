@@ -18,7 +18,12 @@
 
 import { randomBytes } from "node:crypto";
 
-import { getDbExec, intType, isConnectionError, isProductionServerlessFunctionRuntime } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  isConnectionError,
+  isProductionServerlessFunctionRuntime,
+} from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;

@@ -130,11 +130,11 @@ export const tasks = table("tasks", {
 
 | Helfer    | Zweck                                                                                 |
 | --------- | ------------------------------------------------------------------------------------- |
-| `table`   | Definiert eine Tabelle mit PostgreSQL-Helfern                     |
+| `table`   | Definiert eine Tabelle mit PostgreSQL-Helfern                                         |
 | `text`    | Textspalte, unterstützt `{ enum: [...] }`                                             |
 | `integer` | Integer-Spalte, `{ mode: "boolean" }` wird dem booleschen Wert in Postgres zugeordnet |
 | `real`    | Float-Spalte. Wird auf PGlite zu `real`, auf Postgres zu `double precision`           |
-| `now`     | Setzt den aktuellen Zeitstempel für `.default(now())`                    |
+| `now`     | Setzt den aktuellen Zeitstempel für `.default(now())`                                 |
 
 <DataModel
   id="doc-block-3hbven"
@@ -269,6 +269,7 @@ Runtimes ohne bereitgestelltes Dateisystem nicht verfügbar. Verwenden Sie dort
 `runMigrations()` mit in das Worker-Bundle eingebetteten PostgreSQL-SQL-Einträgen.
 Erzeugen Sie Migrationen für PostgreSQL und wechseln Sie denselben Ordner nicht
 zwischen lokalem PGlite und gehostetem PostgreSQL.
+
 <Callout tone="risk">
   Führen Sie `drizzle-kit push` niemals gegen eine Produktionsdatenbank aus.
   Vorlagenschemata definieren nur app-spezifische Tabellen; sie enthalten keine
@@ -436,9 +437,9 @@ const { rows } = await getDbExec().execute({
 
 ## Umgebungsvariablen {#environment-variables}
 
-| Variable              | Zweck                                                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Dauerhafte PostgreSQL-Verbindungszeichenfolge (nicht gesetzt = lokales PGlite; `pglite:./data/pglite` = lokales Postgres-Opt-in) |
+| Variable       | Zweck                                                                                                                            |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | Dauerhafte PostgreSQL-Verbindungszeichenfolge (nicht gesetzt = lokales PGlite; `pglite:./data/pglite` = lokales Postgres-Opt-in) |
 
 ## Was kommt als nächstes? {#whats-next}
 

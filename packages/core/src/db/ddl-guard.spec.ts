@@ -578,7 +578,6 @@ describe("ddl-guard", () => {
       // Only the initial probe ran; a hard DDL error doesn't trigger a re-probe.
       expect(probeCount).toBe(1);
     });
-
   });
 
   describe("isLockTimeoutError", () => {

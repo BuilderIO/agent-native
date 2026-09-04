@@ -66,7 +66,6 @@ export async function ensureTable(): Promise<void> {
         );
         return;
       }
-
     })().catch((err) => {
       // Reset on failure so a transient DB outage doesn't poison the cached
       // promise and reject every future insert/update call for the lifetime

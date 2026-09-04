@@ -11,11 +11,11 @@ Agent-Native 应用在幕后如何运作：原则与架构。此页是契约：�
 
 Agent-Native 是一个具有三层架构的框架：
 
-| 层级                                    | 内容                                                                                                                                    |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 层级                                    | 内容                                                                                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Core：框架**                          | 基础运行时契约：actions、PostgreSQL/PGlite 和 Drizzle 辅助函数、身份验证、应用状态、代理执行、访问检查、路由和实时同步。每个应用都可以直接使用 Core。 |
-| **Toolkit：可选的可复用组件**           | 共享的应用构建 UI 和产品系统，例如基础组件、编辑器、共享、协作、设置和代理 UX。应用可以使用、组合或 fork 所需的组件。                   |
-| **Templates：基于 Core 构建的可选应用** | 完整的、特定领域的应用，具有路由、schema、actions、指令和视觉标识。第一方和自定义模板通常使用 Toolkit，也可以被 fork 并用作起点。       |
+| **Toolkit：可选的可复用组件**           | 共享的应用构建 UI 和产品系统，例如基础组件、编辑器、共享、协作、设置和代理 UX。应用可以使用、组合或 fork 所需的组件。                                 |
+| **Templates：基于 Core 构建的可选应用** | 完整的、特定领域的应用，具有路由、schema、actions、指令和视觉标识。第一方和自定义模板通常使用 Toolkit，也可以被 fork 并用作起点。                     |
 
 Core 是基础。Toolkit 和 Templates 都是可选的：模板可以使用 Toolkit，但基于 Core 构建应用并不需要 Toolkit。
 
@@ -166,7 +166,7 @@ Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 | MCP 客户端 + 服务器，双向 | 该应用摄取 MCP 服务器（本地、远程、hub 共享的），*同时*也将自己的 actions 暴露为一个 MCP 服务器。参见 [MCP Clients](/docs/mcp-clients) 和 [MCP Protocol](/docs/mcp-protocol)。                                                                                                                                                             |
 | 跨应用委托                | 不同应用中的代理通过 [A2A](/docs/a2a-protocol) 通信。同源部署跳过 JWT；跨域部署使用共享的 `A2A_SECRET`。                                                                                                                                                                                                                                   |
 | 子代理团队                | 生成一个拥有自己线程和工具的子代理，以聊天内联芯片的形式呈现。参见 [Agent Teams](/docs/agent-teams)。                                                                                                                                                                                                                                      |
-| 可移植性 | 使用本地 PGlite 和托管 Postgres 的 PostgreSQL，以及任何 Nitro 兼容主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。 |
+| 可移植性                  | 使用本地 PGlite 和托管 Postgres 的 PostgreSQL，以及任何 Nitro 兼容主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。                                                                                                                                                                                                              |
 
 ## PostgreSQL 中的数据 {#data-in-sql}
 

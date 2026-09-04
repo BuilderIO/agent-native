@@ -148,7 +148,6 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureIndexExists(`idx_${TABLE}_updated`, indexSql);
         return;
       }
-
     })().catch((error) => {
       initPromise = undefined;
       throw error;

@@ -148,8 +148,7 @@ export async function createDevScriptRegistry(
             properties: {
               format: {
                 type: "string",
-                description:
-                  'Output format: "json" or "text" (default: text)',
+                description: 'Output format: "json" or "text" (default: text)',
                 enum: ["json", "text"],
               },
             },
@@ -161,7 +160,7 @@ export async function createDevScriptRegistry(
       "db-query": wrapCliScript(
         {
           description:
-                    "Run a read-only SQL query (SELECT, WITH, EXPLAIN) against the app database",
+            "Run a read-only SQL query (SELECT, WITH, EXPLAIN) against the app database",
           parameters: {
             type: "object",
             properties: {
@@ -202,8 +201,7 @@ export async function createDevScriptRegistry(
               },
               format: {
                 type: "string",
-                description:
-                  'Output format: "json" or "text" (default: text)',
+                description: 'Output format: "json" or "text" (default: text)',
                 enum: ["json", "text"],
               },
             },
@@ -231,8 +229,7 @@ export async function createDevScriptRegistry(
             properties: {
               table: {
                 type: "string",
-                description:
-                  "Target table name (plain identifier, no quoting)",
+                description: "Target table name (plain identifier, no quoting)",
               },
               column: {
                 type: "string",
@@ -267,8 +264,7 @@ export async function createDevScriptRegistry(
               },
               format: {
                 type: "string",
-                description:
-                  'Output format: "json" or "text" (default: text)',
+                description: 'Output format: "json" or "text" (default: text)',
                 enum: ["json", "text"],
               },
             },

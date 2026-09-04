@@ -10,13 +10,12 @@ const db = {
       await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const statement = await pglite.prepare(input.sql);
     const args = input.args ?? [];
-    if (statement.reader) {
-      return { rows: await statement.all(...args), rowsAffected: 0 };
-    }
-    const result = await statement.run(...args);
-    return { rows: [], rowsAffected: result.changes };
+    const result = await pglite.query(input.sql, args);
+    return {
+      rows: Array.from(result.rows ?? []),
+      rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+    };
   }),
 };
 

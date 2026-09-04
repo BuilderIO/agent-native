@@ -130,11 +130,11 @@ export const tasks = table("tasks", {
 
 | ヘルパー  | 目的                                                                                |
 | --------- | ----------------------------------------------------------------------------------- |
-| `table`   | テーブルを定義します。PostgreSQL ヘルパーを使用します            |
+| `table`   | テーブルを定義します。PostgreSQL ヘルパーを使用します                               |
 | `text`    | テキスト列。`{ enum: [...] }` をサポートします                                      |
 | `integer` | 整数列。`{ mode: "boolean" }` は Postgres のブール値にマップされます                |
 | `real`    | 浮動小数点列。PGlite では `real`、Postgres では `double precision` にマップされます |
-| `now`     | `.default(now())` 用に現在のタイムスタンプを設定します                    |
+| `now`     | `.default(now())` 用に現在のタイムスタンプを設定します                              |
 
 <DataModel
   id="doc-block-3hbven"
@@ -268,6 +268,7 @@ serverless ランタイムで共有 Agent-Native ランナーに読み込みま�
 そこでは worker bundle に埋め込んだ PostgreSQL の migration エントリで `runMigrations()` を使います。
 マイグレーションは PostgreSQL 向けに生成し、同じフォルダーをローカル PGlite と
 ホスト型 PostgreSQL の間で切り替えないでください。
+
 <Callout tone="risk">
   本番データベースに対して `drizzle-kit push`
   を実行しないでください。テンプレートのスキーマはアプリ固有のドメイン
@@ -433,9 +434,9 @@ const { rows } = await getDbExec().execute({
 
 ## 環境変数 {#environment-variables}
 
-| 変数                  | 目的                                                                                                        |
-| --------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | 永続的な PostgreSQL 接続文字列 (未設定 = ローカル PGlite。`pglite:./data/pglite` = ローカル Postgres のオプトイン) |
+| 変数           | 目的                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL` | 永続的な PostgreSQL 接続文字列 (未設定 = ローカル PGlite。`pglite:./data/pglite` = ローカル Postgres のオプトイン) |
 
 ## 次は何ですか {#whats-next}
 

@@ -27,7 +27,9 @@ description: "تخصيص Claude على مستوى التعليمات البرم�
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">موارد Agent-Native</span
-    ><small class="diagram-muted">rows in one قاعدة بيانات PostgreSQL/PGlite</small>
+    ><small class="diagram-muted"
+      >rows in one قاعدة بيانات PostgreSQL/PGlite</small
+    >
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -71,14 +73,14 @@ description: "تخصيص Claude على مستوى التعليمات البرم�
 
 </Diagram>
 
-| رمز Claude / Codex                     | موارد الوكيل الأصلية                             |
-| -------------------------------------- | ------------------------------------------------ |
-| الملفات الموجودة على القرص المحلي لديك | الصفوف في قاعدة بيانات PostgreSQL/PGlite المشتركة              |
-| قاعدة تعليمات برمجية واحدة لكل مطور    | قاعدة تعليمات برمجية واحدة والعديد من المستخدمين |
-| يحتاج إلى صندوق تطوير أو حاوية         | يتم تشغيله على أي مضيف بدون خادم/حافة            |
-| التخصيص في `~/.claude/`                | التخصيص لكل مستخدم، `u:<email>:…` محدد النطاق    |
-| `CLAUDE.md` / skills لكل مشروع         | `AGENTS.md` لكل تطبيق + موارد الذاكرة            |
-| تكوين MCP في ملف JSON                  | تكوين MCP في JSON _أو_ الإعدادات UI، لكل نطاق    |
+| رمز Claude / Codex                     | موارد الوكيل الأصلية                              |
+| -------------------------------------- | ------------------------------------------------- |
+| الملفات الموجودة على القرص المحلي لديك | الصفوف في قاعدة بيانات PostgreSQL/PGlite المشتركة |
+| قاعدة تعليمات برمجية واحدة لكل مطور    | قاعدة تعليمات برمجية واحدة والعديد من المستخدمين  |
+| يحتاج إلى صندوق تطوير أو حاوية         | يتم تشغيله على أي مضيف بدون خادم/حافة             |
+| التخصيص في `~/.claude/`                | التخصيص لكل مستخدم، `u:<email>:…` محدد النطاق     |
+| `CLAUDE.md` / skills لكل مشروع         | `AGENTS.md` لكل تطبيق + موارد الذاكرة             |
+| تكوين MCP في ملف JSON                  | تكوين MCP في JSON _أو_ الإعدادات UI، لكل نطاق     |
 
 نفس الإمكانيات. اقتصاد مختلف. راجع [التطبيقات](/docs/cloneable-saas) لمعرفة سبب أهمية ذلك بالنسبة إلى SaaS.
 

@@ -78,9 +78,9 @@ describe("loadDrizzleMigrations", () => {
   it("fails clearly on filesystem-free runtimes", async () => {
     vi.stubGlobal("__cf_env", {});
 
-    await expect(
-    loadDrizzleMigrations("/missing/migrations"),
-    ).rejects.toThrow("loadDrizzleMigrations requires a Node.js filesystem");
+    await expect(loadDrizzleMigrations("/missing/migrations")).rejects.toThrow(
+      "loadDrizzleMigrations requires a Node.js filesystem",
+    );
   });
 
   it("ignores non-SQL metadata files", async () => {
@@ -89,18 +89,16 @@ describe("loadDrizzleMigrations", () => {
     await mkdir(join(root, "meta"), { recursive: true });
     await writeFile(join(root, "meta", "0000_snapshot.json"), "{}", "utf8");
 
-    await expect(
-      loadDrizzleMigrations(root),
-    ).resolves.toEqual([]);
+    await expect(loadDrizzleMigrations(root)).resolves.toEqual([]);
   });
 
   it("fails when a migration file is empty", async () => {
     const root = await createTemporaryDirectory();
     await createMigrationFile(root, "0000_empty.sql", "\n");
 
-    await expect(
-      loadDrizzleMigrations(root),
-    ).rejects.toThrow('Drizzle migration file "0000_empty.sql" has empty SQL');
+    await expect(loadDrizzleMigrations(root)).rejects.toThrow(
+      'Drizzle migration file "0000_empty.sql" has empty SQL',
+    );
   });
 
   it("does not mutate the generated SQL", async () => {

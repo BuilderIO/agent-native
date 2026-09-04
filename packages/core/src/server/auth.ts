@@ -74,11 +74,7 @@ function toWebRequest(event: H3Event): Request {
 }
 
 type H3App = H3AppShim;
-import {
-  getDbExec,
-  intType,
-  describeDbError,
-} from "../db/client.js";
+import { getDbExec, intType, describeDbError } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -1598,7 +1594,6 @@ export async function ensureSessionTable(): Promise<void> {
         await widenIntColumnsToBigInt("sessions", ["created_at"]);
         return;
       }
-
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _sessionInitPromise = undefined;

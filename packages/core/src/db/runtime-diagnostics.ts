@@ -334,9 +334,7 @@ export async function runDatabaseSchemaHealthCheck(
   try {
     // Independent probes: serially they cost one network round trip each.
     const found = await Promise.all(
-      required.map((requirement) =>
-        tableColumns(exec, requirement.table),
-      ),
+      required.map((requirement) => tableColumns(exec, requirement.table)),
     );
     required.forEach((requirement, index) => {
       const columns = found[index];

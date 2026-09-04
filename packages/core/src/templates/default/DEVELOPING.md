@@ -151,8 +151,8 @@ Real credential values belong only in local `.env` files, deployment configurati
 
 When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's PostgreSQL query builder for reads/writes. Do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
 
-| Variable              | Required                        | Description                                                                                                               |
-| --------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Variable       | Required                     | Description                                                   |
+| -------------- | ---------------------------- | ------------------------------------------------------------- |
 | `DATABASE_URL` | Production yes, local dev no | PostgreSQL connection string (`pglite:./data/pglite` locally) |
 
 ## Tech Stack

@@ -1,6 +1,5 @@
 import type { DbExec } from "../db/index.js";
 
-
 export const DEFAULT_SEARCH_NAMESPACE = "creative_context";
 export const PGVECTOR_REQUIRED_MESSAGE =
   "Vector search requires Postgres with the pgvector extension in the configured DATABASE_URL database.";

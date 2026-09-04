@@ -68,7 +68,7 @@ describe("settings store", () => {
       rawClient.execute.mockImplementation(orig);
     }
     expect(seen).toContain(
-      "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON settings (updated_at)",
+      "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON public.settings (updated_at)",
     );
   });
 

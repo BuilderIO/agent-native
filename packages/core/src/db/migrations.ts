@@ -3,6 +3,7 @@ import {
   createDbExec,
   getDbExec,
   getMigrationDatabaseUrl,
+  isPgliteUrl,
   retryOnDdlRace,
   type DbExec,
 } from "./client.js";
@@ -34,6 +35,8 @@ async function releaseMigrationExec(): Promise<void> {
   migrationExecPromise = null;
   migrationExecRefCount = 0;
   if (!execPromise) return;
+  const migrationUrl = getMigrationDatabaseUrl();
+  if (!migrationUrl || isPgliteUrl(migrationUrl)) return;
   try {
     const exec = await execPromise;
     await exec.close?.();

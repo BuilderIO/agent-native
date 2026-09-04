@@ -174,8 +174,7 @@ const databaseStep: OnboardingStep = {
           {
             key: "DATABASE_URL",
             label: "DATABASE_URL",
-            placeholder:
-              "postgres://..., pglite:./data/pglite",
+            placeholder: "postgres://..., pglite:./data/pglite",
           },
         ],
       },

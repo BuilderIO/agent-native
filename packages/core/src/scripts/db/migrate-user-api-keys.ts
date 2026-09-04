@@ -18,15 +18,23 @@ interface LegacyRow {
   apiKey: string;
 }
 
-function parseLegacyKey(key: string): { provider: string; email: string } | null {
+function parseLegacyKey(
+  key: string,
+): { provider: string; email: string } | null {
   if (key.startsWith("user-api-key:")) {
     const rest = key.slice("user-api-key:".length);
     const separator = rest.indexOf(":");
     if (separator <= 0) return null;
-    return { provider: rest.slice(0, separator), email: rest.slice(separator + 1) };
+    return {
+      provider: rest.slice(0, separator),
+      email: rest.slice(separator + 1),
+    };
   }
   if (key.startsWith("user-anthropic-api-key:")) {
-    return { provider: "anthropic", email: key.slice("user-anthropic-api-key:".length) };
+    return {
+      provider: "anthropic",
+      email: key.slice("user-anthropic-api-key:".length),
+    };
   }
   return null;
 }
@@ -40,7 +48,8 @@ function extractKey(value: string): string | null {
   try {
     const parsed = JSON.parse(value);
     if (typeof parsed === "string" && parsed.trim()) return parsed.trim();
-    if (parsed && typeof parsed.key === "string" && parsed.key.trim()) return parsed.key.trim();
+    if (parsed && typeof parsed.key === "string" && parsed.key.trim())
+      return parsed.key.trim();
   } catch {
     const trimmed = value.trim();
     if (trimmed) return trimmed;
@@ -53,7 +62,9 @@ function mask(value: string): string {
   return `${value.slice(0, 4)}...${value.slice(-4)} (len=${value.length})`;
 }
 
-export default async function dbMigrateUserApiKeys(args: string[]): Promise<void> {
+export default async function dbMigrateUserApiKeys(
+  args: string[],
+): Promise<void> {
   const parsed = parseArgs(args);
   if (parsed.help === "true") {
     console.log(`Usage: pnpm action db-migrate-user-api-keys [options]
@@ -87,7 +98,9 @@ Options:
       return;
     }
     for (const row of legacy) {
-      console.log(`  - ${row.email} ${row.provider} -> ${secretKeyForProvider(row.provider)} ${mask(row.apiKey)}`);
+      console.log(
+        `  - ${row.email} ${row.provider} -> ${secretKeyForProvider(row.provider)} ${mask(row.apiKey)}`,
+      );
     }
     if (dryRun) return;
 
@@ -103,7 +116,9 @@ Options:
         scope: "user",
         scopeId: row.email,
       });
-      await client.unsafe(`DELETE FROM settings WHERE key = $1`, [row.settingsKey]);
+      await client.unsafe(`DELETE FROM settings WHERE key = $1`, [
+        row.settingsKey,
+      ]);
       migrated++;
     }
     console.log(`[migrate-user-api-keys] done. migrated=${migrated}`);

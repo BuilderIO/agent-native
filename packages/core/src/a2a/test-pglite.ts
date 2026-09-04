@@ -12,6 +12,12 @@ export async function createTestPglite() {
     async exec(sql: string) {
       await (db as any).exec(sql);
     },
+    async query(sql: string, args: unknown[] = []) {
+      return db.query(
+        postgresSql(sql),
+        args.map((value) => (value === undefined ? null : value)),
+      );
+    },
     prepare(sql: string) {
       const query = postgresSql(sql);
       return {

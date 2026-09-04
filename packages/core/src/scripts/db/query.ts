@@ -9,11 +9,11 @@ import path from "node:path";
 
 import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
+import { createPostgresScriptClient } from "./postgres-client.js";
 import {
   assertNoSchemaQualifiedTables,
   assertNoSensitiveFrameworkTables,
 } from "./safety.js";
-import { createPostgresScriptClient } from "./postgres-client.js";
 import { buildScopingPostgres } from "./scoping.js";
 
 function parseSqlArgs(raw: string | undefined): unknown[] {
@@ -33,7 +33,9 @@ function printTable(
   format?: string,
 ): void {
   if (format === "json") {
-    console.log(JSON.stringify({ query: sql, rows, count: rows.length }, null, 2));
+    console.log(
+      JSON.stringify({ query: sql, rows, count: rows.length }, null, 2),
+    );
     return;
   }
   console.log(`Query: ${sql}`);
@@ -45,7 +47,9 @@ function printTable(
 
   const keys = Object.keys(rows[0]);
   const widths = keys.map((key) => {
-    const max = Math.max(...rows.map((row) => String(row[key] ?? "NULL").length));
+    const max = Math.max(
+      ...rows.map((row) => String(row[key] ?? "NULL").length),
+    );
     return Math.max(key.length, Math.min(max, 60));
   });
   console.log(keys.map((key, index) => key.padEnd(widths[index])).join(" | "));
@@ -55,9 +59,9 @@ function printTable(
       keys
         .map((key, index) => {
           const value = String(row[key] ?? "NULL");
-          return (value.length > 60 ? `${value.slice(0, 57)}...` : value).padEnd(
-            widths[index],
-          );
+          return (
+            value.length > 60 ? `${value.slice(0, 57)}...` : value
+          ).padEnd(widths[index]);
         })
         .join(" | "),
     );
@@ -87,8 +91,14 @@ Options:
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .trim();
   const upper = stripped.toUpperCase();
-  if (!upper.startsWith("SELECT") && !upper.startsWith("WITH") && !upper.startsWith("EXPLAIN")) {
-    fail("Only SELECT, WITH, and EXPLAIN queries are allowed. Use db-exec for writes.");
+  if (
+    !upper.startsWith("SELECT") &&
+    !upper.startsWith("WITH") &&
+    !upper.startsWith("EXPLAIN")
+  ) {
+    fail(
+      "Only SELECT, WITH, and EXPLAIN queries are allowed. Use db-exec for writes.",
+    );
   }
   assertNoSensitiveFrameworkTables(stripped, "read");
   assertNoSchemaQualifiedTables(stripped, "read");

@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  safeJsonParse,
-} from "../db/client.js";
+import { getDbExec, intType, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
@@ -48,7 +44,6 @@ export async function ensureTable(): Promise<void> {
         );
         return;
       }
-
     })().catch((err) => {
       // Reset on failure so a transient DB outage doesn't poison the cached
       // promise and reject every future insert/list call for the lifetime of

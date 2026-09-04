@@ -127,13 +127,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Helper    | Purpose                                                                |
-| --------- | ---------------------------------------------------------------------- |
-| `table`   | Define a PostgreSQL table                                         |
-| `text`    | Text column, supports `{ enum: [...] }`                                |
-| `integer` | Integer column, `{ mode: "boolean" }` maps to Postgres boolean         |
-| `real`    | Floating-point column                                            |
-| `now`     | Current timestamp for `.default(now())`                          |
+| Helper    | Purpose                                                        |
+| --------- | -------------------------------------------------------------- |
+| `table`   | Define a PostgreSQL table                                      |
+| `text`    | Text column, supports `{ enum: [...] }`                        |
+| `integer` | Integer column, `{ mode: "boolean" }` maps to Postgres boolean |
+| `real`    | Floating-point column                                          |
+| `now`     | Current timestamp for `.default(now())`                        |
 
 <DataModel
   id="doc-block-3hbven"
@@ -470,8 +470,8 @@ const { rows } = await getDbExec().execute({
 
 ## Environment Variables {#environment-variables}
 
-| Variable              | Purpose                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------- |
+| Variable       | Purpose                                                                 |
+| -------------- | ----------------------------------------------------------------------- |
 | `DATABASE_URL` | Local `pglite:./data/pglite` URL or hosted PostgreSQL connection string |
 
 ## What's next {#whats-next}

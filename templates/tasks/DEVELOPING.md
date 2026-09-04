@@ -172,10 +172,10 @@ SQL migration. Tasks keeps one PostgreSQL migration baseline for hosted
 PostgreSQL and local PGlite.
 Use `pnpm db:push` for the local PGlite database.
 
-| Variable              | Required                        | Description                                                                |
-| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
-| `AUTH_DISABLED`       | Optional                        | Set to `true` or `1` to skip login/signup (local dev/preview only)         |
+| Variable        | Required                     | Description                                                                   |
+| --------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `DATABASE_URL`  | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
+| `AUTH_DISABLED` | Optional                     | Set to `true` or `1` to skip login/signup (local dev/preview only)            |
 
 ## Extensions (Framework Feature)
 

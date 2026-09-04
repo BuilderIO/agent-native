@@ -66,7 +66,10 @@ async function discoverColumns(client: {
       WHERE table_schema = 'public'
       ORDER BY table_name, ordinal_position`,
   )) as Array<{ table_name: string; column_name: string }>;
-  return rows.map((row) => ({ table: row.table_name, column: row.column_name }));
+  return rows.map((row) => ({
+    table: row.table_name,
+    column: row.column_name,
+  }));
 }
 
 export default async function dbCheckScoping(args: string[]): Promise<void> {
@@ -100,14 +103,17 @@ Options:
         const scopes = [
           result.hasOwnerEmail ? "owner_email" : null,
           result.hasOrgId ? "org_id" : null,
-        ].filter(Boolean).join(", ");
+        ]
+          .filter(Boolean)
+          .join(", ");
         console.log(`  ✓ ${result.table} (${scopes})`);
       }
     }
     if (issues.length > 0) {
       console.log("Tables denied to raw database tools:");
       for (const result of issues) {
-        for (const issue of result.issues) console.log(`  ✗ ${result.table}: ${issue}`);
+        for (const issue of result.issues)
+          console.log(`  ✗ ${result.table}: ${issue}`);
       }
       process.exitCode = 1;
     } else {

@@ -1,4 +1,9 @@
-import { getDbExec, intType, type DbExec, type DbExecStatement } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  type DbExec,
+  type DbExecStatement,
+} from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 let initPromise: Promise<void> | undefined;

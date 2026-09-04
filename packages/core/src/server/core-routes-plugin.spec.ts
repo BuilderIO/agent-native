@@ -820,7 +820,6 @@ describe("runDbHealthProbe", () => {
     expect(result.ok).toBe(true);
     expect(result.db).toBe(true);
     expect(result.ms).toBeGreaterThanOrEqual(0);
-    expect(result.database).not.toHaveProperty("dialect");
     expect(result.database).not.toHaveProperty("authTokenConfigured");
   });
 

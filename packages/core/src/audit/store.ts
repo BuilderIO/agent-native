@@ -105,7 +105,6 @@ export async function ensureAuditTables(): Promise<void> {
         );
         return;
       }
-
     })().catch((err) => {
       // Allow a later call to retry if the first init failed.
       _initPromise = undefined;

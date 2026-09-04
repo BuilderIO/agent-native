@@ -130,11 +130,11 @@ export const tasks = table("tasks", {
 
 | Ayudante  | Propósito                                                                         |
 | --------- | --------------------------------------------------------------------------------- |
-| `table`   | Define una tabla con los ayudantes de PostgreSQL                  |
+| `table`   | Define una tabla con los ayudantes de PostgreSQL                                  |
 | `text`    | Columna de texto, admite `{ enum: [...] }`                                        |
 | `integer` | Columna entera; `{ mode: "boolean" }` se asigna al booleano de Postgres           |
 | `real`    | Columna flotante. Se asigna a `real` en PGlite y a `double precision` en Postgres |
-| `now`     | Marca la hora actual para `.default(now())`                               |
+| `now`     | Marca la hora actual para `.default(now())`                                       |
 
 <DataModel
   id="doc-block-3hbven"
@@ -268,6 +268,7 @@ Workers/Pages ni en otros runtimes edge sin sistema de archivos. Allí, use
 `runMigrations()` con entradas de SQL de PostgreSQL integradas en el bundle del worker.
 Genere las migraciones para PostgreSQL y no cambie la misma carpeta entre PGlite
 local y PostgreSQL alojado.
+
 <Callout tone="risk">
   Nunca ejecute `drizzle-kit push` contra una base de datos de producción. Los
   esquemas de las plantillas solo definen tablas específicas de la aplicación;
@@ -435,9 +436,9 @@ const { rows } = await getDbExec().execute({
 
 ## Variables de Entorno {#environment-variables}
 
-| Variable              | Propósito                                                                                                            |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Cadena de conexión PostgreSQL persistente (no configurada = PGlite local; `pglite:./data/pglite` = Postgres local opcional) |
+| Variable       | Propósito                                                                                                                   |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | Cadena de conexión PostgreSQL persistente (no configurada = PGlite local; `pglite:./data/pglite` = Postgres local opcional) |
 
 ## ¿Qué sigue? {#whats-next}
 

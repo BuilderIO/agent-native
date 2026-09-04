@@ -61,48 +61,48 @@ export async function ensureTables(): Promise<void> {
       const createRegistrationsSql = buildCreateRegistrationsSql();
       const createNotificationsSql = buildCreateNotificationsSql();
       await ensureTableExists(
-          "integration_remote_push_registrations",
-          createRegistrationsSql,
+        "integration_remote_push_registrations",
+        createRegistrationsSql,
       );
       await ensureIndexExists(
-          "idx_remote_push_token_hash",
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_push_token_hash ON integration_remote_push_registrations(token_hash)`,
+        "idx_remote_push_token_hash",
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_push_token_hash ON integration_remote_push_registrations(token_hash)`,
       );
       await ensureIndexExists(
-          "idx_remote_push_owner",
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_owner ON integration_remote_push_registrations(owner_email, org_id, status)`,
+        "idx_remote_push_owner",
+        `CREATE INDEX IF NOT EXISTS idx_remote_push_owner ON integration_remote_push_registrations(owner_email, org_id, status)`,
       );
       await ensureTableExists(
-          "integration_remote_push_notifications",
-          createNotificationsSql,
+        "integration_remote_push_notifications",
+        createNotificationsSql,
       );
       await ensureIndexExists(
-          "idx_remote_push_notifications_owner",
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_owner ON integration_remote_push_notifications(owner_email, org_id, status, created_at)`,
+        "idx_remote_push_notifications_owner",
+        `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_owner ON integration_remote_push_notifications(owner_email, org_id, status, created_at)`,
       );
       await ensureColumnExists(
-          "integration_remote_push_notifications",
-          "provider_ticket_id",
-          `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS provider_ticket_id TEXT`,
+        "integration_remote_push_notifications",
+        "provider_ticket_id",
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS provider_ticket_id TEXT`,
       );
       await ensureColumnExists(
-          "integration_remote_push_notifications",
-          "next_attempt_at",
-          `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS next_attempt_at ${intType()} NOT NULL DEFAULT 0`,
+        "integration_remote_push_notifications",
+        "next_attempt_at",
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS next_attempt_at ${intType()} NOT NULL DEFAULT 0`,
       );
       await ensureColumnExists(
-          "integration_remote_push_notifications",
-          "last_error",
-          `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS last_error TEXT`,
+        "integration_remote_push_notifications",
+        "last_error",
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS last_error TEXT`,
       );
       await ensureColumnExists(
-          "integration_remote_push_notifications",
-          "delivered_at",
-          `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS delivered_at ${intType()}`,
+        "integration_remote_push_notifications",
+        "delivered_at",
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS delivered_at ${intType()}`,
       );
       await ensureIndexExists(
-          "idx_remote_push_notifications_delivery",
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_delivery ON integration_remote_push_notifications(status, next_attempt_at, updated_at)`,
+        "idx_remote_push_notifications_delivery",
+        `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_delivery ON integration_remote_push_notifications(status, next_attempt_at, updated_at)`,
       );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.

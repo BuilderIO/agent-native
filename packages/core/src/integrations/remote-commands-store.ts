@@ -89,7 +89,6 @@ export async function ensureTable(): Promise<void> {
         await ensureComputerCommandIndexes();
         return;
       }
-
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

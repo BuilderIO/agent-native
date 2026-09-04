@@ -27,7 +27,9 @@ description: "Claude ユーザーごとのコード レベルのカスタマイ�
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Agent-Nativeリソース</span
-    ><small class="diagram-muted">rows in one PostgreSQL/PGliteデータベース</small>
+    ><small class="diagram-muted"
+      >rows in one PostgreSQL/PGliteデータベース</small
+    >
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -73,7 +75,7 @@ description: "Claude ユーザーごとのコード レベルのカスタマイ�
 
 | Claude コード / Codex                 | エージェントネイティブのリソース                             |
 | ------------------------------------- | ------------------------------------------------------------ |
-| ローカル ディスク上のファイル         | 共有 PostgreSQL/PGlite データベース内の行                                  |
+| ローカル ディスク上のファイル         | 共有 PostgreSQL/PGlite データベース内の行                    |
 | 開発者ごとに 1 つのコードベース       | 1 つのコードベースで多数のユーザー                           |
 | 開発ボックスまたはコンテナが必要です  | 任意のサーバーレス/エッジ ホスト上で実行                     |
 | `~/.claude/` でのカスタマイズ         | ユーザーごとのカスタマイズ、スコープ指定された `u:<email>:…` |

@@ -10348,7 +10348,7 @@ bearer or basic authentication in header` and the PR comment reported
     stays login-gated.
 
   Storage is a new additive Postgres `recap_images` table created via
-    `CREATE TABLE IF NOT EXISTS` (PNG kept as base64 TEXT in Postgres). Stored
+  `CREATE TABLE IF NOT EXISTS` (PNG kept as base64 TEXT in Postgres). Stored
   images are pruned on write past a
   30-day TTL so the table and the set of anonymously-fetchable image URLs stay
   bounded.

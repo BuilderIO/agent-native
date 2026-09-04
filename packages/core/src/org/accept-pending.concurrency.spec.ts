@@ -116,14 +116,14 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
       expect(r.accepted).toEqual([{ invitationId: "inv1", orgId: "org1" }]);
     }
 
-    const { count } = pglite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM org_members`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(1);
 
-    const member = pglite
+    const member = (await pglite
       .prepare(`SELECT org_id, email, role FROM org_members`)
-      .get() as { org_id: string; email: string; role: string };
+      .get()) as { org_id: string; email: string; role: string };
     expect(member).toEqual({
       org_id: "org1",
       email: "a@b.com",
@@ -168,9 +168,9 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
       accepted: [{ invitationId: "inv1", orgId: "org1" }],
     });
 
-    const { count } = pglite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM org_members`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(1);
 
     await pglite.close();

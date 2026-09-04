@@ -1936,64 +1936,42 @@ async function createBetterAuthInstance(
   return auth as unknown as BetterAuthInstance;
 }
 
-export async function buildDatabaseConfig(): Promise<BetterAuthOptions["database"]> {
+export async function buildDatabaseConfig(): Promise<
+  BetterAuthOptions["database"]
+> {
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
-    const {
-      buildResilientNeonPool,
-      buildResilientPostgresJsClient,
-      isNeonUrl,
-    } = await import("../db/create-get-db.js");
+  const { buildResilientNeonPool, buildResilientPostgresJsClient, isNeonUrl } =
+    await import("../db/create-get-db.js");
 
-    if (isPgliteUrl(url)) {
-      const { drizzle } = await loadPgliteDrizzle();
-      const client = await getPgliteClient(url);
-      const db = drizzle({ client, schema: pgAuthSchema });
-      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
-      return drizzleAdapter(db, {
-        provider: "pg",
-        schema: pgAuthSchema,
-      });
-    }
+  if (isPgliteUrl(url)) {
+    const { drizzle } = await loadPgliteDrizzle();
+    const client = await getPgliteClient(url);
+    const db = drizzle({ client, schema: pgAuthSchema });
+    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+    return drizzleAdapter(db, {
+      provider: "pg",
+      schema: pgAuthSchema,
+    });
+  }
 
-    // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
-    // opens a raw TCP connection on port 5432 which frequently times out on
-    // Netlify Functions / Vercel / CF Workers when Neon's pooler is cold.
-    if (isNeonUrl(url)) {
-      const { Pool } = await import("@neondatabase/serverless");
-      // Cap the auth pool the same way as the app pool. Better Auth runs a
-      // session lookup on essentially every authenticated request, so an
-      // un-capped pool here is a primary contributor to "Max client
-      // connections reached" across concurrent serverless instances.
-      resetAuthOnPoolClose("neon", url);
-      _neonAuthPool = sharedDbPool(
-        "neon",
-        url,
-        () => new Pool({ connectionString: url, ...neonPoolOptions() }),
-      );
-      guardNeonPool(_neonAuthPool, url, "db/neon-auth");
-      const { drizzle } = await import("drizzle-orm/neon-serverless");
-      const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
-        schema: pgAuthSchema,
-      });
-      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
-      return drizzleAdapter(db, {
-        provider: "pg",
-        schema: pgAuthSchema,
-      });
-    }
-
-    // Non-Neon Postgres (Supabase, self-hosted, etc.) → postgres-js.
-    // pgPoolOptions caps this pool to a small size on serverless. Better Auth
-    // runs a session lookup on essentially every authenticated request, so an
-    // un-capped pool here is a primary contributor to "Max client connections
-    // reached" across concurrent serverless instances.
-    const { default: postgres } = await import("postgres");
-    resetAuthOnPoolClose("postgres-js", url);
-    const sql = sharedDbPool("postgres-js", url, () =>
-      postgres(url, pgPoolOptions(url)),
+  // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
+  // opens a raw TCP connection on port 5432 which frequently times out on
+  // Netlify Functions / Vercel / CF Workers when Neon's pooler is cold.
+  if (isNeonUrl(url)) {
+    const { Pool } = await import("@neondatabase/serverless");
+    // Cap the auth pool the same way as the app pool. Better Auth runs a
+    // session lookup on essentially every authenticated request, so an
+    // un-capped pool here is a primary contributor to "Max client
+    // connections reached" across concurrent serverless instances.
+    resetAuthOnPoolClose("neon", url);
+    _neonAuthPool = sharedDbPool(
+      "neon",
+      url,
+      () => new Pool({ connectionString: url, ...neonPoolOptions() }),
     );
-    const { drizzle } = await import("drizzle-orm/postgres-js");
-    const db = drizzle(buildResilientPostgresJsClient(sql), {
+    guardNeonPool(_neonAuthPool, url, "db/neon-auth");
+    const { drizzle } = await import("drizzle-orm/neon-serverless");
+    const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
       schema: pgAuthSchema,
     });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
@@ -2001,4 +1979,25 @@ export async function buildDatabaseConfig(): Promise<BetterAuthOptions["database
       provider: "pg",
       schema: pgAuthSchema,
     });
+  }
+
+  // Non-Neon Postgres (Supabase, self-hosted, etc.) → postgres-js.
+  // pgPoolOptions caps this pool to a small size on serverless. Better Auth
+  // runs a session lookup on essentially every authenticated request, so an
+  // un-capped pool here is a primary contributor to "Max client connections
+  // reached" across concurrent serverless instances.
+  const { default: postgres } = await import("postgres");
+  resetAuthOnPoolClose("postgres-js", url);
+  const sql = sharedDbPool("postgres-js", url, () =>
+    postgres(url, pgPoolOptions(url)),
+  );
+  const { drizzle } = await import("drizzle-orm/postgres-js");
+  const db = drizzle(buildResilientPostgresJsClient(sql), {
+    schema: pgAuthSchema,
+  });
+  const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+  return drizzleAdapter(db, {
+    provider: "pg",
+    schema: pgAuthSchema,
+  });
 }

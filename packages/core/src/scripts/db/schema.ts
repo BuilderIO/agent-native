@@ -113,14 +113,22 @@ async function inspectDatabase(
         return {
           name: index.name,
           unique: /\bUNIQUE\b/i.test(index.indexdef),
-          columns: match ? match[1].split(",").map((value) => value.trim()) : [],
+          columns: match
+            ? match[1].split(",").map((value) => value.trim())
+            : [],
         };
       }),
     });
   }
 
   if (format === "json") {
-    console.log(JSON.stringify({ database: databaseLabel(url), tables: tableInfos }, null, 2));
+    console.log(
+      JSON.stringify(
+        { database: databaseLabel(url), tables: tableInfos },
+        null,
+        2,
+      ),
+    );
     return;
   }
   console.log(`Database: ${databaseLabel(url)}`);
@@ -130,8 +138,14 @@ async function inspectDatabase(
     const foreignKeyMap = new Map(
       table.foreignKeys.map((key) => [key.from, `${key.table}(${key.to})`]),
     );
-    const nameWidth = Math.max(1, ...table.columns.map((column) => column.name.length));
-    const typeWidth = Math.max(1, ...table.columns.map((column) => column.type.length));
+    const nameWidth = Math.max(
+      1,
+      ...table.columns.map((column) => column.name.length),
+    );
+    const typeWidth = Math.max(
+      1,
+      ...table.columns.map((column) => column.type.length),
+    );
     for (const column of table.columns) {
       const details = [
         column.pk ? "PRIMARY KEY" : null,

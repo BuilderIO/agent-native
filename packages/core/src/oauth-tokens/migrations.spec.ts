@@ -27,11 +27,11 @@ describe("OAuth token migrations", () => {
       }
     }
 
-    const columns = db
+    const columns = (await db
       .prepare(
         "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'oauth_tokens'",
       )
-      .all() as Array<{ name: string }>;
+      .all()) as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toEqual([
       "provider",
       "account_id",
@@ -42,7 +42,7 @@ describe("OAuth token migrations", () => {
       "revision",
     ]);
     expect(
-      db
+      await db
         .prepare(
           "SELECT owner, revision FROM oauth_tokens WHERE provider = ? AND account_id = ?",
         )

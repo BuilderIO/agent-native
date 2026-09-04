@@ -20,7 +20,6 @@ export async function ensureTable(): Promise<void> {
         await ensureTableExists("integration_configs", createSql);
         return;
       }
-
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _initPromise = undefined;

@@ -332,7 +332,6 @@ function workspaceConnectionGrantsTable(): string {
   return "public.workspace_connection_grants";
 }
 
-
 export async function ensureWorkspaceConnectionsTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -564,7 +563,6 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         );
         return;
       }
-
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

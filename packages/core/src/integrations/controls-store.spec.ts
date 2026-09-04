@@ -19,13 +19,12 @@ async function executePglite(
     await pglite.exec(input);
     return { rows: [], rowsAffected: 0 };
   }
-  const statement = await pglite.prepare(input.sql);
   const args = input.args ?? [];
-  if (statement.reader) {
-    return { rows: await statement.all(...args), rowsAffected: 0 };
-  }
-  const result = await statement.run(...args);
-  return { rows: [], rowsAffected: result.changes };
+  const result = await pglite.query(input.sql, args);
+  return {
+    rows: Array.from(result.rows ?? []),
+    rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+  };
 }
 
 const db = {
@@ -106,11 +105,11 @@ describe("integration action controls", () => {
       incoming,
     });
 
-    const columns = pglite
+    const columns = (await pglite
       .prepare(
         "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'integration_controls'",
       )
-      .all() as Array<{ name: string }>;
+      .all()) as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toContain("api_app_id");
   });
 

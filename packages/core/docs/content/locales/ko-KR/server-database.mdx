@@ -130,11 +130,11 @@ export const tasks = table("tasks", {
 
 | 도우미    | 목적                                                                                |
 | --------- | ----------------------------------------------------------------------------------- |
-| `table`   | 테이블을 정의하고 PostgreSQL 도우미를 사용합니다                 |
+| `table`   | 테이블을 정의하고 PostgreSQL 도우미를 사용합니다                                    |
 | `text`    | 텍스트 열, `{ enum: [...] }` 지원                                                   |
 | `integer` | 정수 열, `{ mode: "boolean" }`는 Postgres의 불리언에 매핑됩니다.                    |
 | `real`    | 부동소수점 열. PGlite에서는 `real`, Postgres에서는 `double precision`에 매핑됩니다. |
-| `now`     | `.default(now())`에 사용할 현재 타임스탬프를 설정합니다                     |
+| `now`     | `.default(now())`에 사용할 현재 타임스탬프를 설정합니다                             |
 
 <DataModel
   id="doc-block-3hbven"
@@ -266,6 +266,7 @@ export const getDb = createGetDb(schema);
 없는 다른 edge runtime에서 사용할 수 없습니다. 해당 환경에서는 worker bundle에 포함한
 PostgreSQL migration 항목과 함께 `runMigrations()`를 사용하세요. 마이그레이션은 PostgreSQL용으로
 생성하고 같은 폴더를 로컬 PGlite와 호스팅 PostgreSQL 사이에서 전환하지 마세요.
+
 <Callout tone="risk">
   프로덕션 데이터베이스에 대해 `drizzle-kit push`를 절대 실행하지 마세요. 템플릿
   스키마는 앱별 테이블만 정의하며, 중앙 프레임워크 테이블(`user`, `session`,
@@ -430,9 +431,9 @@ const { rows } = await getDbExec().execute({
 
 ## 환경변수 {#environment-variables}
 
-| 변수                  | 목적                                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | 영구 PostgreSQL 연결 문자열(설정 안 됨 = 로컬 PGlite, `pglite:./data/pglite` = 로컬 Postgres 선택) |
+| 변수           | 목적                                                                                               |
+| -------------- | -------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | 영구 PostgreSQL 연결 문자열(설정 안 됨 = 로컬 PGlite, `pglite:./data/pglite` = 로컬 Postgres 선택) |
 
 ## 다음 단계 {#whats-next}
 

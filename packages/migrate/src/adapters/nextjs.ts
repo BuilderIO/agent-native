@@ -274,11 +274,7 @@ async function extractBehaviorGraph(
       });
     }
 
-    if (
-      /\b(prisma|drizzle|supabase|neon|postgres)\b/i.test(
-        text,
-      )
-    ) {
+    if (/\b(prisma|drizzle|supabase|neon|postgres)\b/i.test(text)) {
       behavior.dataStores.push({
         id: stableId(`${relativePath}:data`),
         name: inferDataStoreName(text),

@@ -107,10 +107,7 @@ const excludedFileNames = new Set([
   "yarn.lock",
 ]);
 
-const excludedFileSuffixes = [
-  ".log",
-  ".tsbuildinfo",
-];
+const excludedFileSuffixes = [".log", ".tsbuildinfo"];
 
 // Matches both the "corpus" output dir itself and the unique per-process
 // temp dirs materializeSourceCorpus() swaps into place (see

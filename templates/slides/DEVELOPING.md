@@ -109,9 +109,9 @@ Real credential values belong only in local `.env` files, deployment configurati
 
 **Environment variables:**
 
-| Variable              | Required                        | Description                                                                |
-| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
+| Variable       | Required                     | Description                                                                   |
+| -------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `DATABASE_URL` | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
 
 ## Private Deck Access Recovery
 

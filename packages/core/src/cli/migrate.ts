@@ -1248,9 +1248,7 @@ function createLocalProjectIr(sourceRoot: string): ProjectIRLike {
         provider: inferLlmProvider(text),
       });
     }
-    if (
-      /\b(drizzle|prisma|postgres|supabase)\b/i.test(text)
-    ) {
+    if (/\b(drizzle|prisma|postgres|supabase)\b/i.test(text)) {
       behavior.dataStores.push({
         id: stableId(`${file}:data`),
         name: path.basename(file),

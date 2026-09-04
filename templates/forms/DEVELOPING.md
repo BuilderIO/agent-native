@@ -110,7 +110,6 @@ Local development uses PGlite at `data/pglite`. For production and shared enviro
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-
 ## Build & Dev Commands
 
 ```bash

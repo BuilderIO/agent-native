@@ -35,7 +35,9 @@ function databaseLabel(url: string): string {
   }
 }
 
-export default async function dbMigrateEncryptOAuthTokens(args: string[]): Promise<void> {
+export default async function dbMigrateEncryptOAuthTokens(
+  args: string[],
+): Promise<void> {
   const parsed = parseArgs(args);
   if (parsed.help === "true") {
     console.log(`Usage: pnpm action db-migrate-encrypt-oauth-tokens [options]
@@ -56,7 +58,9 @@ Options:
   const url = parsed.db
     ? `pglite:${path.resolve(parsed.db)}`
     : getDatabaseUrl("pglite:./data/pglite");
-  console.log(`[migrate-encrypt-oauth-tokens] target: ${databaseLabel(url)}${dryRun ? " (dry-run)" : ""}`);
+  console.log(
+    `[migrate-encrypt-oauth-tokens] target: ${databaseLabel(url)}${dryRun ? " (dry-run)" : ""}`,
+  );
 
   const client = await createPostgresScriptClient(url);
   try {
@@ -74,7 +78,10 @@ Options:
       console.log("[migrate-encrypt-oauth-tokens] nothing to encrypt.");
       return;
     }
-    for (const row of candidates) console.log(`  - ${row.provider}:${row.accountId} ${mask(row.plaintext)}`);
+    for (const row of candidates)
+      console.log(
+        `  - ${row.provider}:${row.accountId} ${mask(row.plaintext)}`,
+      );
     if (dryRun) return;
     for (const row of candidates) {
       await client.unsafe(
@@ -82,7 +89,9 @@ Options:
         [encryptSecretValue(row.plaintext), row.provider, row.accountId],
       );
     }
-    console.log(`[migrate-encrypt-oauth-tokens] done. encrypted=${candidates.length}`);
+    console.log(
+      `[migrate-encrypt-oauth-tokens] done. encrypted=${candidates.length}`,
+    );
   } finally {
     await client.end();
   }

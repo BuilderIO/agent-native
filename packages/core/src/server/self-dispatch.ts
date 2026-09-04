@@ -1,4 +1,5 @@
 import { getAppConfig } from "../app-config/index.js";
+import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
 import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
@@ -76,7 +77,7 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
     getAppConfig().app.url;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
     throw new Error(
       "Self-dispatch requires DEPLOY_PRIME_URL, DEPLOY_URL, URL, APP_URL, or " +
         "BETTER_AUTH_URL in " +
@@ -146,6 +147,7 @@ async function dispatchResponseError(
  * request reliably leaves a serverless box before it freezes.
  *
  * Dispatches require an HMAC signature before sending an unauthenticated request.
+ * Local PGlite development may use the trusted loopback path when no secret is set.
  */
 /**
  * For host-root dispatch targets (`/.netlify/functions/*`), strip the configured
@@ -186,10 +188,21 @@ export async function fireInternalDispatch(
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `[self-dispatch] Cannot sign processor handoff for ${options.taskId}: ${detail}`,
-      { cause: err },
-    );
+    // Only local PGlite development has the loopback/unsigned exception. A
+    // shared database or production deployment must never turn a signing
+    // failure into an unauthenticated processor request.
+    if (
+      process.env.NODE_ENV !== "production" &&
+      isLocalDatabase() &&
+      /A2A_SECRET/i.test(detail)
+    ) {
+      // The processor applies the matching trusted-local policy.
+    } else {
+      throw new Error(
+        `[self-dispatch] Cannot sign processor handoff for ${options.taskId}: ${detail}`,
+        { cause: err },
+      );
+    }
   }
 
   const awaitResponse = options.awaitResponse === true;
