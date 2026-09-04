@@ -1193,6 +1193,20 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setDropIndicator(null);
   }, []);
 
+  // Global keyboard shortcuts
+  const cycleTab = useCallback(
+    (reverse?: boolean) => {
+      if (visibleTabs.length < 2) return;
+      const activeIdx = visibleTabs.findIndex((tab) => tab.isActive);
+      const delta = reverse ? -1 : 1;
+      const nextIdx =
+        (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
+        visibleTabs.length;
+      void navigate(visibleTabs[nextIdx].href);
+    },
+    [visibleTabs, navigate],
+  );
+
   const handleSnooze = useCallback(() => {
     const listSnoozeEvent = new CustomEvent("email:shortcut-snooze", {
       cancelable: true,
@@ -1252,6 +1266,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { key: "h", handler: handleSnooze },
     { key: "!", shift: true, handler: handleSpam },
     { key: "z", handler: runUndo },
+    {
+      key: "Tab",
+      handler: () => cycleTab(false),
+    },
+    {
+      key: "Tab",
+      shift: true,
+      handler: () => cycleTab(true),
+    },
     {
       key: "Escape",
       handler: () => {

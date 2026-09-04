@@ -113,7 +113,13 @@ describe("useLabels", () => {
 describe("useEmails query warming", () => {
   it("shares the infinite-query fetcher with tab prefetches", () => {
     const source = emailsHookSource();
+    const useEmailsSource = source.slice(
+      source.indexOf("export function useEmails("),
+    );
 
+    expect(useEmailsSource).toContain(
+      "placeholderData: (previousData) => previousData",
+    );
     expect(source).toContain("function emailQueryOptions(");
     expect(source).toContain("prefetchInfiniteQuery({");
     expect(source).toContain('const prefetchKey = ["email-prefetch"');

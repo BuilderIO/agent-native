@@ -123,10 +123,14 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("activeFilterHasNextPage");
   });
 
-  it("keeps native Tab focus navigation and warms visible tab queries", () => {
+  it("cycles filter tabs without leaving the client and warms visible queries", () => {
     const source = appLayoutSource();
 
-    expect(source).not.toContain('key: "Tab"');
+    expect(source).toContain("const cycleTab = useCallback(");
+    expect(source).toContain('key: "Tab"');
+    expect(source).toContain("handler: () => cycleTab(false)");
+    expect(source).toContain("handler: () => cycleTab(true)");
+    expect(source).toContain("void navigate(visibleTabs[nextIdx].href);");
     expect(source).toContain("prefetchEmails(");
     expect(source).toContain(
       'queryClient.cancelQueries({ queryKey: ["email-prefetch"] })',

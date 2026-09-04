@@ -583,6 +583,9 @@ export function useEmails(
 ) {
   const q = useInfiniteQuery({
     ...emailQueryOptions(view, search, label),
+    // Keep the current list rendered while a search or tab query loads. Mail
+    // navigation is client-side, so a new query must not look like a reload.
+    placeholderData: (previousData) => previousData,
     // Gmail's per-user quota is tight. Keep pages modest and refetches
     // conservative; thread list hydration is quota-expensive even when batched.
     // Search queries get a short cache window so repeated renders/back
