@@ -325,7 +325,9 @@ beforeAll(async () => {
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       allowed_domain TEXT,
-      a2a_secret TEXT
+      a2a_secret TEXT,
+      identity_authority TEXT,
+      identity_id TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,

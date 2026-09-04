@@ -19,6 +19,7 @@ import { isPostgres } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { orgMembers } from "../org/schema.js";
+import { organizations } from "../org/schema.js";
 import {
   getRequestAuthCapability,
   getRequestUserEmail,
@@ -123,6 +124,20 @@ async function isOrgMember(
     )
     .limit(1);
   if (rows.length === 0) return false;
+
+  const [organization] = await db
+    .select({
+      identityAuthority: organizations.identityAuthority,
+      identityId: organizations.identityId,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, memberOrgId))
+    .limit(1);
+  const linked =
+    String(organization?.identityAuthority ?? "").trim() ||
+    String(organization?.identityId ?? "").trim();
+  if (!linked) return true;
+
   if (
     !(await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
       userEmail: email,

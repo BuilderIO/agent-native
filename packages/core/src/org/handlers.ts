@@ -40,6 +40,7 @@ import { warnAgent } from "../agent/action-warnings.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
@@ -52,6 +53,7 @@ import { setActiveOrgId } from "./active-org.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import {
   addFederatedOrganizationMember,
   updateFederatedOrganizationMemberRole,
@@ -782,10 +784,22 @@ export const acceptInvitationHandler = defineEventHandler(
     }
 
     const orgRes = await e.execute({
-      sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+      sql: `SELECT name, identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
       args: [invOrgId],
     });
-    const orgName = String((orgRes.rows[0] as any)?.name ?? "");
+    const organization = orgRes.rows[0] as any;
+    const orgName = String(organization?.name ?? "");
+    const linked =
+      String(organization?.identity_authority ?? "").trim() ||
+      String(organization?.identity_id ?? "").trim();
+    const federationEnabled = linked
+      ? await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
+          userEmail: email,
+          userKey: email,
+          orgId: invOrgId,
+        })
+      : false;
 
     if (existingMembership.rows.length > 0) {
       await e.execute({
@@ -810,26 +824,28 @@ export const acceptInvitationHandler = defineEventHandler(
     });
     const inviterRole = String((inviterRes.rows[0] as any)?.role ?? "");
 
-    try {
-      await addFederatedOrganizationMember(event, {
-        orgId: invOrgId,
-        actorEmail: inviterEmail,
-        actorRole:
-          inviterRole === "owner" || inviterRole === "admin"
-            ? inviterRole
-            : "member",
-        memberEmail: email,
-        memberRole: inviteRole,
-      });
-    } catch (error) {
-      // The invitation remains pending so the authorized inviter can repair or
-      // retry the federation path without granting local access.
-      void error;
-      throw createError({
-        statusCode: 503,
-        message:
-          "Could not synchronize this invitation with the identity authority.",
-      });
+    if (federationEnabled) {
+      try {
+        await addFederatedOrganizationMember(event, {
+          orgId: invOrgId,
+          actorEmail: inviterEmail,
+          actorRole:
+            inviterRole === "owner" || inviterRole === "admin"
+              ? inviterRole
+              : "member",
+          memberEmail: email,
+          memberRole: inviteRole,
+        });
+      } catch (error) {
+        // The invitation remains pending so the authorized inviter can repair
+        // or retry the federation path without granting local access.
+        void error;
+        throw createError({
+          statusCode: 503,
+          message:
+            "Could not synchronize this invitation with the identity authority.",
+        });
+      }
     }
 
     // Do not expose a local membership while the identity authority is still

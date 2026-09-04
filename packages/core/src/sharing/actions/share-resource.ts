@@ -4,6 +4,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
+import { isOrgMember } from "../../org/membership.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 import {
   emailQuote,
@@ -139,14 +140,7 @@ async function isOrgMemberOrInvited(
   const lower = email.trim().toLowerCase();
   if (!lower || !orgId) return false;
   const client = getDbExec();
-  const member = await client.execute({
-    sql: `SELECT 1 FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [orgId, lower],
-  });
-  if (member.rows.length > 0) return true;
+  if (await isOrgMember(orgId, lower)) return true;
   const invited = await client.execute({
     sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
     args: [orgId, lower],

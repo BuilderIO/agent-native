@@ -20,26 +20,36 @@ const { isOrgMember } = await import("./membership.js");
 describe("isOrgMember", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    executeMock.mockResolvedValue({ rows: [{ id: "member-1" }] });
+    executeMock.mockResolvedValue({
+      rows: [
+        {
+          id: "member-1",
+          identity_authority: null,
+          identity_id: null,
+        },
+      ],
+    });
     evaluateFeatureFlagStrictMock.mockResolvedValue(false);
   });
 
-  it("keeps local membership semantics while federation is disabled", async () => {
+  it("does not consult federation rollout state for local organizations", async () => {
     await expect(isOrgMember("org-1", " Alice@Example.com ")).resolves.toBe(
       true,
     );
-    expect(evaluateFeatureFlagStrictMock).toHaveBeenCalledWith(
-      "organization.cross-app-federation",
-      {
-        userEmail: "alice@example.com",
-        userKey: "alice@example.com",
-        orgId: "org-1",
-      },
-    );
+    expect(evaluateFeatureFlagStrictMock).not.toHaveBeenCalled();
     expect(validateFederatedMembershipMock).not.toHaveBeenCalled();
   });
 
   it("rejects a copied membership after the authority revokes it", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        {
+          id: "member-1",
+          identity_authority: "https://dispatch.example.test",
+          identity_id: "dispatch-org-1",
+        },
+      ],
+    });
     evaluateFeatureFlagStrictMock.mockResolvedValue(true);
     validateFederatedMembershipMock.mockResolvedValue({
       active: false,
@@ -56,6 +66,15 @@ describe("isOrgMember", () => {
   });
 
   it("does not turn an authority check failure into membership", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        {
+          id: "member-1",
+          identity_authority: "https://dispatch.example.test",
+          identity_id: "dispatch-org-1",
+        },
+      ],
+    });
     evaluateFeatureFlagStrictMock.mockResolvedValue(true);
     validateFederatedMembershipMock.mockRejectedValue(
       new Error("identity authority unavailable"),

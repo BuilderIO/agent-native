@@ -109,7 +109,9 @@ beforeEach(() => {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       created_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      identity_authority TEXT,
+      identity_id TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
