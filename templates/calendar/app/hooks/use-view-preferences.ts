@@ -182,8 +182,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
   const t = useT();
   const demo = isSharedCalendarDemo();
   const [prefs, setPrefs] = useState<ViewPreferences>(load);
-  const accountColorRequestIds = useRef<Record<string, number>>({});
-  const accountModeRequestIds = useRef<Record<string, number>>({});
+  const accountPreferenceRequestIds = useRef<Record<string, number>>({});
   const pendingAccountColors = useRef<Record<string, string>>({});
   const visibilityRequestIds = useRef<Record<string, number>>({});
   const pendingVisibility = useRef<Record<string, boolean>>({});
@@ -191,6 +190,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
   const pendingGoogleColors = useRef<Record<string, string | null>>({});
   const visibilityMutationChains = useRef<Record<string, Promise<unknown>>>({});
   const colorMutationChains = useRef<Record<string, Promise<unknown>>>({});
+  const accountMutationChains = useRef<Record<string, Promise<unknown>>>({});
   const confirmedServerRevision = useRef(0);
 
   useEffect(() => {
@@ -321,8 +321,9 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
 
   const updateAccountColor = useCallback(
     (accountEmail: string, accountColor: string) => {
-      const requestId = (accountColorRequestIds.current[accountEmail] ?? 0) + 1;
-      accountColorRequestIds.current[accountEmail] = requestId;
+      const requestId =
+        (accountPreferenceRequestIds.current[accountEmail] ?? 0) + 1;
+      accountPreferenceRequestIds.current[accountEmail] = requestId;
       pendingAccountColors.current[accountEmail] = accountColor;
       savePendingAccountColor(accountEmail, accountColor);
       let rollbackPrefs: CalendarViewPreferences | null = null;
@@ -347,12 +348,17 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
 
       if (demo) return;
 
-      callAction("update-calendar-visual-preferences", {
+      enqueueSourcePreferenceMutation(
+        accountMutationChains.current,
         accountEmail,
-        accountColor,
-      })
+        () =>
+          callAction("update-calendar-visual-preferences", {
+            accountEmail,
+            accountColor,
+          }),
+      )
         .then((result) => {
-          if (accountColorRequestIds.current[accountEmail] !== requestId) {
+          if (accountPreferenceRequestIds.current[accountEmail] !== requestId) {
             return;
           }
           delete pendingAccountColors.current[accountEmail];
@@ -384,7 +390,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
           });
         })
         .catch(() => {
-          if (accountColorRequestIds.current[accountEmail] === requestId) {
+          if (accountPreferenceRequestIds.current[accountEmail] === requestId) {
             delete pendingAccountColors.current[accountEmail];
             clearPendingAccountColor(accountEmail);
             setPrefs((current) => {
@@ -427,8 +433,11 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
 
   const updateAccountColorMode = useCallback(
     (accountEmail: string, accountColorMode: CalendarColorMode) => {
-      const requestId = (accountModeRequestIds.current[accountEmail] ?? 0) + 1;
-      accountModeRequestIds.current[accountEmail] = requestId;
+      const requestId =
+        (accountPreferenceRequestIds.current[accountEmail] ?? 0) + 1;
+      accountPreferenceRequestIds.current[accountEmail] = requestId;
+      delete pendingAccountColors.current[accountEmail];
+      clearPendingAccountColor(accountEmail);
       let rollbackPrefs: CalendarViewPreferences | null = null;
 
       setPrefs((prev) => {
@@ -447,12 +456,17 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
 
       if (demo) return;
 
-      callAction("update-calendar-visual-preferences", {
+      enqueueSourcePreferenceMutation(
+        accountMutationChains.current,
         accountEmail,
-        accountColorMode,
-      })
+        () =>
+          callAction("update-calendar-visual-preferences", {
+            accountEmail,
+            accountColorMode,
+          }),
+      )
         .then((result) => {
-          if (accountModeRequestIds.current[accountEmail] !== requestId) {
+          if (accountPreferenceRequestIds.current[accountEmail] !== requestId) {
             return;
           }
           const preferences = (result as { preferences?: unknown }).preferences;
@@ -477,7 +491,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
           });
         })
         .catch(() => {
-          if (accountModeRequestIds.current[accountEmail] === requestId) {
+          if (accountPreferenceRequestIds.current[accountEmail] === requestId) {
             setPrefs((current) => {
               if (!rollbackPrefs) return current;
               if (

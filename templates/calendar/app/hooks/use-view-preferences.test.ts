@@ -39,4 +39,32 @@ describe("source preference sequencing", () => {
     await Promise.all([first, second]);
     expect(order).toEqual(["first-start", "first-end", "second"]);
   });
+
+  it("preserves invocation order across color and mode updates for one account", async () => {
+    const chains: Record<string, Promise<unknown>> = {};
+    const order: string[] = [];
+    let releaseColor: (() => void) | undefined;
+    const color = enqueueSourcePreferenceMutation(
+      chains,
+      "alice@example.com",
+      async () => {
+        order.push("color-start");
+        await new Promise<void>((resolve) => {
+          releaseColor = resolve;
+        });
+        order.push("color-end");
+      },
+    );
+    const mode = enqueueSourcePreferenceMutation(
+      chains,
+      "alice@example.com",
+      async () => order.push("mode"),
+    );
+
+    await Promise.resolve();
+    expect(order).toEqual(["color-start"]);
+    releaseColor?.();
+    await Promise.all([color, mode]);
+    expect(order).toEqual(["color-start", "color-end", "mode"]);
+  });
 });
