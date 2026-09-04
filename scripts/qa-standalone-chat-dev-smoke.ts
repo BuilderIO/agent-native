@@ -1165,7 +1165,12 @@ type ChatSurfaceState = {
   readyState: DocumentReadyState;
   chatRendered: boolean;
   chatEmpty: string | null;
+  transcriptRendered: boolean;
+  transcriptVisible: boolean;
+  footerRendered: boolean;
+  footerVisible: boolean;
   composerRendered: boolean;
+  composerVisible: boolean;
 };
 
 async function readChatSurfaceState(page: Page): Promise<ChatSurfaceState> {
@@ -1174,12 +1179,30 @@ async function readChatSurfaceState(page: Page): Promise<ChatSurfaceState> {
     const composer = document.querySelector<HTMLElement>(
       '.agentkit-composer[data-agent-composer-slot="root"]',
     );
+    const transcript = document.querySelector<HTMLElement>(
+      ".agentkit-transcript",
+    );
+    const footer = document.querySelector<HTMLElement>(".agentkit-chat-footer");
+    const transcriptRect = transcript?.getBoundingClientRect();
+    const footerRect = footer?.getBoundingClientRect();
+    const composerRect = composer?.getBoundingClientRect();
     return {
       pathname: window.location.pathname,
       readyState: document.readyState,
       chatRendered: Boolean(chat?.isConnected),
       chatEmpty: chat?.dataset.empty ?? null,
+      transcriptRendered: Boolean(transcript?.isConnected),
+      transcriptVisible: Boolean(
+        transcriptRect && transcriptRect.width > 0 && transcriptRect.height > 0,
+      ),
+      footerRendered: Boolean(footer?.isConnected),
+      footerVisible: Boolean(
+        footerRect && footerRect.width > 0 && footerRect.height > 0,
+      ),
       composerRendered: Boolean(composer?.isConnected),
+      composerVisible: Boolean(
+        composerRect && composerRect.width > 0 && composerRect.height > 0,
+      ),
     };
   });
 }
@@ -1197,7 +1220,12 @@ async function waitForStableChatSurface(page: Page): Promise<void> {
         durableChatPathPattern.test(candidate.pathname) &&
         candidate.readyState === "complete" &&
         candidate.chatRendered &&
-        candidate.composerRendered
+        candidate.transcriptRendered &&
+        candidate.transcriptVisible &&
+        candidate.footerRendered &&
+        candidate.footerVisible &&
+        candidate.composerRendered &&
+        candidate.composerVisible
       ) {
         await sleep(500);
         const settled = await readChatSurfaceState(page);
@@ -1205,7 +1233,12 @@ async function waitForStableChatSurface(page: Page): Promise<void> {
           settled.pathname === candidate.pathname &&
           settled.readyState === candidate.readyState &&
           settled.chatRendered &&
-          settled.composerRendered
+          settled.transcriptRendered &&
+          settled.transcriptVisible &&
+          settled.footerRendered &&
+          settled.footerVisible &&
+          settled.composerRendered &&
+          settled.composerVisible
         ) {
           return;
         }
