@@ -26,7 +26,7 @@ Agent-Native 应用运行在 Nitro 上。请选择适合你要发布内容的路
 
 ## 部署前：选择持久数据库 {#persistent-database}
 
-对于托管式生产部署，本页推荐使用 PostgreSQL。在首次生产部署前，将 `DATABASE_URL` 设置到部署环境中。常见的 PostgreSQL 提供商包括 Neon、Supabase、Railway、Render、Amazon RDS for PostgreSQL、Cloud SQL for PostgreSQL 和 Azure Database for PostgreSQL。其他 SQL 后端仍受支持，配置详情请参阅[数据库指南](/docs/server-database)。
+对于托管式生产部署，本页推荐使用 PostgreSQL。在首次生产部署前，将 `DATABASE_URL` 设置到部署环境中。常见的 PostgreSQL 提供商包括 Neon、Supabase、Railway、Render、Amazon RDS for PostgreSQL、Cloud SQL for PostgreSQL 和 Azure Database for PostgreSQL。其他 SQL 后端仍受支持，配置详情请参阅 [libSQL / Turso](/docs/turso) 和 [Cloudflare D1](/docs/cloudflare-d1) 提供商指南。
 
 独立应用需要稳定的 `BETTER_AUTH_SECRET`。使用签名跨应用请求的工作区需要 `A2A_SECRET`。
 

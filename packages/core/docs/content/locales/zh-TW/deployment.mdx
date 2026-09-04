@@ -26,7 +26,7 @@ Agent-Native 應用程式執行於 Nitro。請選擇符合部署內容的路徑�
 
 ## 部署前：選擇持久性資料庫 {#persistent-database}
 
-對於託管的正式環境部署，本頁建議使用 PostgreSQL。在第一次正式環境部署前，請將 `DATABASE_URL` 設定在部署環境中。常見的 PostgreSQL 提供者包括 Neon、Supabase、Railway、Render、Amazon RDS for PostgreSQL、Cloud SQL for PostgreSQL 和 Azure Database for PostgreSQL。其他 SQL 後端仍受支援，設定詳細資訊請參閱[資料庫指南](/docs/server-database)。
+對於託管的正式環境部署，本頁建議使用 PostgreSQL。在第一次正式環境部署前，請將 `DATABASE_URL` 設定在部署環境中。常見的 PostgreSQL 提供者包括 Neon、Supabase、Railway、Render、Amazon RDS for PostgreSQL、Cloud SQL for PostgreSQL 和 Azure Database for PostgreSQL。其他 SQL 後端仍受支援，設定詳細資訊請參閱 [libSQL / Turso](/docs/turso) 和 [Cloudflare D1](/docs/cloudflare-d1) 提供者指南。
 
 獨立應用程式需要穩定的 `BETTER_AUTH_SECRET`。使用簽署跨應用程式要求的工作區需要 `A2A_SECRET`。
 
