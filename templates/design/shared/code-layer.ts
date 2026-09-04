@@ -359,6 +359,8 @@ export interface CodeLayerTreeNode {
   id: string;
   name: string;
   type: CodeLayerTreeNodeType;
+  /** Identity, not shape: a button is a frame that is *also* a component. */
+  isComponent?: boolean;
   tag: string;
   selector: string;
   detail: string;
@@ -940,6 +942,399 @@ const SHAPE_LAYER_TAGS = new Set([
 ]);
 const COMPONENT_LAYER_TAGS = new Set(["button", "input", "select", "textarea"]);
 
+/**
+ * Tags that format text *inside* a text layer instead of becoming their own
+ * layer. A heading with one coloured `<span>` is a single Text layer with
+ * runs; splitting it into three is what makes an imported page unreadable.
+ */
+const INLINE_TEXT_TAGS = new Set([
+  "a",
+  "abbr",
+  "b",
+  "bdi",
+  "bdo",
+  "br",
+  "cite",
+  "code",
+  "data",
+  "dfn",
+  "em",
+  "i",
+  "kbd",
+  "mark",
+  "q",
+  "s",
+  "samp",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "sup",
+  "time",
+  "u",
+  "var",
+  "wbr",
+]);
+
+const COMPONENT_CLASS_PATTERN = /component|card|button|control|\bbtn\b/i;
+
+/**
+ * The one component-identity test. The editor's Create Component gate and the
+ * Layers panel badge must agree, or a layer reads "not a component" while the
+ * gate refuses to make it one.
+ */
+export function componentIdentityHint(value: string): boolean {
+  return !looksLikeUtilityClass(value) && COMPONENT_CLASS_PATTERN.test(value);
+}
+
+/**
+ * First segments of Tailwind utilities. Tailwind's stem vocabulary is closed,
+ * so this is a table; the deny-list it replaces was a guess and lost — it let
+ * `flex-col`, `opacity-90`, and `top-0` become layer names.
+ */
+const UTILITY_CLASS_STEMS = new Set([
+  "absolute",
+  "accent",
+  "align",
+  "animate",
+  "antialiased",
+  "appearance",
+  "aspect",
+  "auto",
+  "backdrop",
+  "backface",
+  "basis",
+  "before",
+  "after",
+  "bg",
+  "blend",
+  "block",
+  "blur",
+  "border",
+  "bottom",
+  "box",
+  "break",
+  "brightness",
+  "capitalize",
+  "caption",
+  "caret",
+  "clear",
+  "col",
+  "collapse",
+  "columns",
+  "contain",
+  "container",
+  "content",
+  "contents",
+  "contrast",
+  "cursor",
+  "dark",
+  "data",
+  "decoration",
+  "delay",
+  "diagonal",
+  "divide",
+  "drop",
+  "duration",
+  "ease",
+  "empty",
+  "end",
+  "even",
+  "fill",
+  "filter",
+  "first",
+  "fixed",
+  "flex",
+  "float",
+  "flow",
+  "font",
+  "forced",
+  "from",
+  "gap",
+  "gradient",
+  "grayscale",
+  "grid",
+  "group",
+  "grow",
+  "h",
+  "hidden",
+  "hue",
+  "hyphens",
+  "indent",
+  "inline",
+  "inset",
+  "invert",
+  "invisible",
+  "isolate",
+  "isolation",
+  "italic",
+  "items",
+  "justify",
+  "last",
+  "leading",
+  "left",
+  "light",
+  "line",
+  "lining",
+  "list",
+  "lowercase",
+  "ltr",
+  "m",
+  "marker",
+  "max",
+  "mb",
+  "me",
+  "min",
+  "mix",
+  "ml",
+  "motion",
+  "mr",
+  "ms",
+  "mt",
+  "mx",
+  "my",
+  "no",
+  "normal",
+  "not",
+  "object",
+  "odd",
+  "oldstyle",
+  "only",
+  "opacity",
+  "open",
+  "order",
+  "ordinal",
+  "origin",
+  "outline",
+  "overflow",
+  "overline",
+  "overscroll",
+  "p",
+  "pb",
+  "pe",
+  "peer",
+  "perspective",
+  "pl",
+  "place",
+  "placeholder",
+  "pointer",
+  "pr",
+  "print",
+  "proportional",
+  "ps",
+  "pt",
+  "px",
+  "py",
+  "relative",
+  "resize",
+  "right",
+  "ring",
+  "rotate",
+  "rounded",
+  "row",
+  "rtl",
+  "s",
+  "saturate",
+  "scale",
+  "scroll",
+  "select",
+  "selection",
+  "self",
+  "sepia",
+  "shadow",
+  "shrink",
+  "size",
+  "skew",
+  "slashed",
+  "snap",
+  "space",
+  "sr",
+  "stacked",
+  "start",
+  "static",
+  "sticky",
+  "stroke",
+  "subpixel",
+  "table",
+  "tabular",
+  "text",
+  "to",
+  "top",
+  "touch",
+  "tracking",
+  "transform",
+  "transition",
+  "translate",
+  "truncate",
+  "underline",
+  "uppercase",
+  "via",
+  "visible",
+  "visited",
+  "w",
+  "whitespace",
+  "will",
+  "z",
+]);
+
+function bareClassToken(token: string): string {
+  return token.slice(token.lastIndexOf(":") + 1).replace(/^-/, "");
+}
+
+function looksLikeUtilityClass(token: string): boolean {
+  const bare = bareClassToken(token);
+  if (!bare) return true;
+  if (bare.includes("[") || bare.includes("/")) return true;
+  return UTILITY_CLASS_STEMS.has(bare.split("-")[0] ?? "");
+}
+
+/**
+ * The four facts that decide a design node's type. Read from the class list
+ * and inline style because a source projection has no layout engine — a live
+ * screen can upgrade these through the bridge's computed style.
+ */
+interface NodeVisualFacts {
+  painted: boolean;
+  padded: boolean;
+  sized: boolean;
+  circular: boolean;
+}
+
+function classDimension(
+  classes: readonly string[],
+  axis: "w" | "h",
+): string | null {
+  for (const token of classes) {
+    const bare = bareClassToken(token);
+    if (bare.startsWith(`${axis}-`)) return bare.slice(axis.length + 1);
+  }
+  return null;
+}
+
+/**
+ * `rounded-full` alone does not mean a circle — on a wide box it is a pill,
+ * which is a rounded rectangle. Equal extents are what separate the two.
+ */
+function isSquare(
+  classes: readonly string[],
+  style: Record<string, string | undefined>,
+): boolean {
+  if (
+    classes.some((token) => {
+      const bare = bareClassToken(token);
+      return bare.startsWith("size-") || bare === "aspect-square";
+    })
+  ) {
+    return true;
+  }
+  const width = classDimension(classes, "w") ?? style["width"]?.trim();
+  const height = classDimension(classes, "h") ?? style["height"]?.trim();
+  return Boolean(width && height && width === height);
+}
+
+function classPaints(token: string): boolean {
+  const bare = bareClassToken(token);
+  if (/^bg-/.test(bare)) {
+    return !/^bg-(transparent|none|inherit|current|clip-|origin-|fixed|local|scroll|bottom|center|left|right|top|repeat|no-repeat|auto|cover|contain|blend-)/.test(
+      bare,
+    );
+  }
+  if (/^border(-[xytrbles])?(-\d+)?$/.test(bare)) return !/-0$/.test(bare);
+  if (/^ring(-\d+)?$/.test(bare)) return bare !== "ring-0";
+  if (/^outline(-\d+)?$/.test(bare)) return bare !== "outline-0";
+  if (/^shadow(-(sm|md|lg|xl|2xl|inner))?$/.test(bare)) return true;
+  return false;
+}
+
+function classPads(token: string): boolean {
+  const match = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(
+    bareClassToken(token),
+  );
+  return Boolean(match) && match![2] !== "0";
+}
+
+function classSizes(token: string): boolean {
+  const bare = bareClassToken(token);
+  // `inset-0` on an absolute overlay is a size even though it names no axis.
+  if (/^inset(-[xy])?-/.test(bare)) return !bare.endsWith("-auto");
+  const match = /^(w|h|size|min-w|min-h)-(.+)$/.exec(bare);
+  if (!match) return false;
+  return !["auto", "fit", "min", "max"].includes(match[2]!);
+}
+
+function styleValueIsPresent(
+  value: string | undefined,
+  empties: RegExp,
+): boolean {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && !empties.test(trimmed);
+}
+
+function visualFactsFor(node: CodeLayerNode): NodeVisualFacts {
+  return visualFactsOf(node.classes, node.style);
+}
+
+function visualFactsOfElement(element: ParsedElement): NodeVisualFacts {
+  return visualFactsOf(
+    classList(element),
+    parseStyle(attributeValue(element, "style")),
+  );
+}
+
+function visualFactsOf(
+  classes: readonly string[],
+  rawStyle: Record<string, string | undefined> | object,
+): NodeVisualFacts {
+  const style = rawStyle as Record<string, string | undefined>;
+  const emptyPaint = /^(none|transparent|initial|inherit|unset|0|0px)$/i;
+  const emptyLength = /^(0|0px|0rem|auto|initial|inherit|unset)$/i;
+
+  const painted =
+    classes.some(classPaints) ||
+    styleValueIsPresent(style["background"], emptyPaint) ||
+    styleValueIsPresent(style["background-color"], emptyPaint) ||
+    styleValueIsPresent(style["background-image"], emptyPaint) ||
+    styleValueIsPresent(style["border"], emptyPaint) ||
+    styleValueIsPresent(style["border-width"], emptyPaint) ||
+    styleValueIsPresent(style["box-shadow"], emptyPaint) ||
+    styleValueIsPresent(style["outline"], emptyPaint);
+
+  const padded =
+    classes.some(classPads) ||
+    styleValueIsPresent(style["padding"], emptyLength) ||
+    styleValueIsPresent(style["padding-top"], emptyLength) ||
+    styleValueIsPresent(style["padding-right"], emptyLength) ||
+    styleValueIsPresent(style["padding-bottom"], emptyLength) ||
+    styleValueIsPresent(style["padding-left"], emptyLength);
+
+  const sized =
+    classes.some(classSizes) ||
+    styleValueIsPresent(style["width"], emptyLength) ||
+    styleValueIsPresent(style["height"], emptyLength);
+
+  const roundedFull =
+    classes.some((token) => bareClassToken(token) === "rounded-full") ||
+    /^(50%|9999px|9999rem)$/.test((style["border-radius"] ?? "").trim());
+
+  return {
+    painted,
+    padded,
+    sized,
+    circular: roundedFull && isSquare(classes, style),
+  };
+}
+
+/**
+ * Whether a node is a *component* — an identity, orthogonal to its shape. A
+ * button is a Frame that is also a component; the shape enum cannot say both.
+ */
+function treeNodeIsComponent(node: CodeLayerNode): boolean {
+  if (node.componentInstance) return true;
+  if (COMPONENT_LAYER_TAGS.has(node.tag)) return true;
+  return node.classes.some(componentIdentityHint);
+}
+
 function hashStable(value: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < value.length; i += 1) {
@@ -1080,6 +1475,14 @@ function semanticLayerNameFor(element: ParsedElement): {
     }
   }
 
+  return null;
+}
+
+function identifierLayerNameFor(element: ParsedElement): {
+  name: string;
+  source: CodeLayerNode["layerNameSource"];
+  attribute?: string;
+} | null {
   const id = attributeValue(element, "id");
   if (id) {
     return {
@@ -1090,14 +1493,7 @@ function semanticLayerNameFor(element: ParsedElement): {
   }
 
   const meaningfulClass = classList(element).find(
-    (token) =>
-      !/^(flex|grid|block|inline|hidden|relative|absolute|fixed|sticky)$/.test(
-        token,
-      ) &&
-      !/^(sm|md|lg|xl|2xl):/.test(token) &&
-      !/^(p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|w|h|min|max|text|bg|border|rounded|shadow|gap)-/.test(
-        token,
-      ),
+    (token) => !looksLikeUtilityClass(token),
   );
   if (meaningfulClass) {
     return { name: prettifyIdentifier(meaningfulClass), source: "selector" };
@@ -1124,11 +1520,21 @@ function fallbackTagLayerName(tag: string): string {
       return "Form";
     case "header":
       return "Header";
+    case "a":
+      return "Link";
     case "img":
     case "picture":
       return "Image";
+    case "input":
+      return "Input";
+    case "label":
+      return "Label";
     case "main":
       return "Main";
+    case "select":
+      return "Select";
+    case "textarea":
+      return "Text area";
     case "nav":
       return "Navigation";
     case "section":
@@ -1915,6 +2321,7 @@ function textSnippetFor(html: string, element: ParsedElement): string | null {
 function layerNameFor(
   html: string,
   element: ParsedElement,
+  elements: readonly ParsedElement[],
 ): {
   name: string;
   source: CodeLayerNode["layerNameSource"];
@@ -1926,15 +2333,49 @@ function layerNameFor(
   const semantic = semanticLayerNameFor(element);
   if (semantic) return semantic;
 
-  if (TEXT_LAYER_TAGS.has(element.tag)) {
+  const textName = () => {
     const text = textSnippetFor(html, element);
-    if (text) return { name: truncateLayerName(text), source: "text" };
+    return text
+      ? { name: truncateLayerName(text), source: "text" as const }
+      : null;
+  };
+
+  // A leaf is named by what it says; a container by what it is. Reversing this
+  // is how a wrapper ends up named after its entire subtree's text.
+  if (element.childIndexes.length === 0) {
+    const leafName = textName();
+    if (leafName) return leafName;
+  }
+
+  const identifier = identifierLayerNameFor(element);
+  if (identifier) return identifier;
+
+  const inlineOnly = element.childIndexes.every((index) => {
+    const child = elements[index];
+    return Boolean(
+      child &&
+      INLINE_TEXT_TAGS.has(child.tag) &&
+      child.childIndexes.length === 0,
+    );
+  });
+  const facts = visualFactsOfElement(element);
+  if (
+    TEXT_LAYER_TAGS.has(element.tag) &&
+    inlineOnly &&
+    !facts.painted &&
+    !facts.padded
+  ) {
+    const richTextName = textName();
+    if (richTextName) return richTextName;
   }
 
   return { name: fallbackTagLayerName(element.tag), source: "tag" };
 }
 
-function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
+function treeTypeForNode(
+  node: CodeLayerNode,
+  nodesById: ReadonlyMap<string, CodeLayerNode>,
+): CodeLayerTreeNodeType {
   // Canvas primitives (drawn shapes / board objects) carry their kind via
   // data-an-primitive so the layers panel shows a true shape/text/frame icon
   // instead of the generic code glyph. The marker wins over tag heuristics:
@@ -1962,23 +2403,72 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
     // rectangle/rect and anything else still classify as a generic shape.
     return "shape";
   }
-  if (TEXT_LAYER_TAGS.has(node.tag)) return "text";
   if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
   if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";
   // A node annotated as a component instance is always classified as "component"
   // regardless of its tag — this is the canonical detection path.
   if (node.componentInstance) return "component";
-  if (
-    COMPONENT_LAYER_TAGS.has(node.tag) ||
-    node.classes.some((item) => /component|card|button|control/.test(item))
-  ) {
+  // Form controls are leaf widgets with no design primitive to decompose into.
+  if (COMPONENT_LAYER_TAGS.has(node.tag) && node.tag !== "button") {
     return "component";
   }
+
+  const facts = visualFactsFor(node);
+  const childNodes = node.children
+    .map((id) => nodesById.get(id))
+    .filter((child): child is CodeLayerNode => Boolean(child));
+
+  if (childNodes.length === 0) {
+    // A Text node's fill colours glyphs, not a background, so a painted or
+    // padded text leaf must be a frame or it loses its box (see buildSpec).
+    if (node.textSnippet) {
+      return facts.painted || facts.padded ? "frame" : "text";
+    }
+    if (facts.painted && facts.sized)
+      return facts.circular ? "ellipse" : "shape";
+    return "element";
+  }
+
+  if (
+    TEXT_LAYER_TAGS.has(node.tag) &&
+    !facts.painted &&
+    !facts.padded &&
+    childNodes.every(
+      (child) => INLINE_TEXT_TAGS.has(child.tag) && child.children.length === 0,
+    )
+  ) {
+    return "text";
+  }
+
   if (node.layout.isFlexContainer || node.layout.isGridContainer) {
     return "frame";
   }
-  if (node.children.length > 0) return "group";
-  return "element";
+  if (facts.painted || facts.padded) return "frame";
+  return "group";
+}
+
+const GENERIC_TAG_LAYER_NAMES = new Set(["Frame", "Text"]);
+
+const TYPE_DISPLAY_NAMES: Partial<Record<CodeLayerTreeNodeType, string>> = {
+  ellipse: "Ellipse",
+  frame: "Frame",
+  group: "Group",
+  shape: "Rectangle",
+  text: "Text",
+};
+
+/**
+ * An element carrying only utility classes has no name of its own, and the tag
+ * fallback describes the tag rather than what the element resolved to — every
+ * bare `<div>` reads "Frame" whether it became a frame, a dot, or a divider.
+ */
+function unnamedLayerName(
+  node: CodeLayerNode,
+  type: CodeLayerTreeNodeType,
+): string | null {
+  if (node.layerNameSource !== "tag") return null;
+  if (!GENERIC_TAG_LAYER_NAMES.has(node.layerName)) return null;
+  return TYPE_DISPLAY_NAMES[type] ?? null;
 }
 
 function isCollapsibleDocumentShellNode(node: CodeLayerTreeNode): boolean {
@@ -2145,7 +2635,7 @@ function buildProjection(
       parseStyle(attributeValue(element, "style")),
     );
     const dataAttributes = dataAttributeRecord(element);
-    const layerName = layerNameFor(html, element);
+    const layerName = layerNameFor(html, element, elements);
     // Only alias attribute selectors that are actually STABLE, UNIQUE node
     // identifiers (data-agent-native-node-id, data-code-layer-id, etc). Every
     // other data-* attribute (e.g. data-an-primitive="frame", or the boolean
@@ -2312,6 +2802,58 @@ export function clearCodeLayerProjectionCache(): void {
   projectionCache.clear();
 }
 
+const TEXT_WRAP_SKIP_TAGS = new Set([
+  "option",
+  "optgroup",
+  "pre",
+  "textarea",
+  "title",
+]);
+
+/**
+ * Give every painted or padded text leaf a real `<span>` child so a button
+ * projects as a frame wrapping Text. Idempotent: a wrapped element is no
+ * longer a leaf. Mixed content is skipped — wrapping the loose runs of
+ * `<p>Hi <b>there</b></p>` would turn one sentence into three layers.
+ */
+export function wrapBareTextLeavesInHtml(
+  html: string,
+  options: { source?: CodeLayerSource } = {},
+): { content: string; changed: boolean; wrapped: number } {
+  const projection = buildCodeLayerProjection(html, options);
+  const edits: Array<{ start: number; end: number }> = [];
+
+  for (const node of projection.nodes) {
+    if (node.children.length > 0) continue;
+    if (!node.textSnippet) continue;
+    if (TEXT_WRAP_SKIP_TAGS.has(node.tag)) continue;
+    const span = node.source;
+    if (
+      !span ||
+      span.contentStart === undefined ||
+      span.contentEnd === undefined ||
+      span.contentEnd <= span.contentStart
+    ) {
+      continue;
+    }
+    const facts = visualFactsFor(node);
+    if (!facts.painted && !facts.padded) continue;
+    if (/[<>]/.test(html.slice(span.contentStart, span.contentEnd))) continue;
+    edits.push({ start: span.contentStart, end: span.contentEnd });
+  }
+
+  if (edits.length === 0) return { content: html, changed: false, wrapped: 0 };
+
+  let content = html;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    content = `${content.slice(0, edit.start)}<span data-an-text>${content.slice(
+      edit.start,
+      edit.end,
+    )}</span>${content.slice(edit.end)}`;
+  }
+  return { content, changed: true, wrapped: edits.length };
+}
+
 export function ensureCodeLayerNodeIdsInHtml(
   html: string,
   options: { source?: CodeLayerSource } = {},
@@ -2422,10 +2964,12 @@ export function buildCodeLayerTree(
 
   for (const node of projection.nodes) {
     const componentName = node.componentInstance?.name;
+    const type = treeTypeForNode(node, nodesById);
     treeById.set(node.id, {
       id: node.id,
-      name: componentName ?? node.layerName,
-      type: treeTypeForNode(node),
+      name: componentName ?? unnamedLayerName(node, type) ?? node.layerName,
+      type,
+      isComponent: treeNodeIsComponent(node),
       tag: node.tag,
       selector: node.selector,
       detail: `<${node.tag}>`,
@@ -2457,6 +3001,8 @@ export function buildCodeLayerTree(
         : undefined;
     const treeNode = treeById.get(node.id);
     if (!parent || !treeNode || parent.id === treeNode.id) continue;
+    // Inline runs inside a Text layer are formatting, not layers of their own.
+    if (parent.type === "text" && INLINE_TEXT_TAGS.has(node.tag)) continue;
     const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
     if (childIds.has(treeNode.id)) continue;
     childIds.add(treeNode.id);
