@@ -184,7 +184,7 @@ Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rüc
 4. **Die App überprüft und verknüpft Just-in-Time per E-Mail.** Die Route `GET /_agent-native/identity/callback` überprüft die Token-Signatur mit `A2A_SECRET`, prüft `scope: "identity"` und `exp` und führt dann **Just-in-Time-Verknüpfung anhand der verifizierten E-Mail-Adresse** durch:
    - Wenn ein lokaler Benutzer mit dieser E-Mail existiert → unverändert wiederverwenden.
    - Wenn nicht → erstellen Sie einen lokalen Benutzer für diese E-Mail.
-   Wenn `organization.cross-app-federation` aktiviert ist, validiert die App zusätzlich die signierten Felder `org_id`, `org_name` und `org_role` zusammen. Die lokale Organisation wird nur über die exakte Authority und ID zugeordnet, niemals über Name oder E-Mail-Domain.
+     Wenn `organization.cross-app-federation` aktiviert ist, validiert die App zusätzlich die signierten Felder `org_id`, `org_name` und `org_role` zusammen. Die lokale Organisation wird nur über die exakte Authority und ID zugeordnet, niemals über Name oder E-Mail-Domain.
 
 5. **App erstellt eine normale lokale Sitzung.** Von hier aus verfügt der Benutzer über eine normale lokale Sitzung im eigenen Store dieser App – alle vorhandenen Zugriffsprüfungen, Organisationsbereiche und Aktionsschutzfunktionen funktionieren genau wie zuvor. Die Föderation geschah erst vor der Haustür.
 

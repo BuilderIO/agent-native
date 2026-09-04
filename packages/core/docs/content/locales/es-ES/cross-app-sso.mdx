@@ -169,22 +169,22 @@ El flujo es una autorización estándar → token firmado → redireccionamiento
 
 3. **Dispatch → Aplicación (token de identidad firmado).** Dispatch valida `redirect_uri` contra una lista de permitidos estricta y redirecciona 302 al `redirect_uri` de la aplicación que lleva una identidad de corta duración **`A2A_SECRET` firmada por JWT**. Los reclamos del token son intencionalmente mínimos:
 
-   | Reclamación  | Significado                                                                  |
-   | ------------ | ---------------------------------------------------------------------------- |
-   | `sub`        | Identificación de usuario estable en la autoridad de identidad               |
-   | `email`      | El correo electrónico **verificado** del usuario: la única clave para unirse |
-   | `name`       | Nombre para mostrar (no autorizado, solo para UI)                            |
-   | `org_domain` | Dominio de espacio de trabajo/organización, cuando esté presente             |
-   | `org_id`     | ID de organización canónico, solo con la federación activa                    |
-   | `org_name`   | Nombre de la organización emparejado con `org_id`                             |
-   | `org_role`   | Rol de membresía verificado emparejado con `org_id`                           |
+   | Reclamación  | Significado                                                                         |
+   | ------------ | ----------------------------------------------------------------------------------- |
+   | `sub`        | Identificación de usuario estable en la autoridad de identidad                      |
+   | `email`      | El correo electrónico **verificado** del usuario: la única clave para unirse        |
+   | `name`       | Nombre para mostrar (no autorizado, solo para UI)                                   |
+   | `org_domain` | Dominio de espacio de trabajo/organización, cuando esté presente                    |
+   | `org_id`     | ID de organización canónico, solo con la federación activa                          |
+   | `org_name`   | Nombre de la organización emparejado con `org_id`                                   |
+   | `org_role`   | Rol de membresía verificado emparejado con `org_id`                                 |
    | `scope`      | Siempre `"identity"`. Los campos de organización solo se aceptan con el flag activo |
-   | `exp`        | **≤ 2 minutos** desde el problema                                            |
+   | `exp`        | **≤ 2 minutos** desde el problema                                                   |
 
 4. **La aplicación verifica y enlaza JIT por correo electrónico.** La ruta `GET /_agent-native/identity/callback` verifica la firma del token con `A2A_SECRET`, comprueba `scope: "identity"` y `exp`, y realiza el **enlace justo a tiempo por correo electrónico verificado**:
    - Si existe un usuario local con ese correo electrónico → reutilícelo sin cambios.
    - Si no → crea un usuario local para ese correo electrónico.
-   Con `organization.cross-app-federation` activo, también valida juntos los campos firmados `org_id`, `org_name` y `org_role`. Asigna la organización local solo mediante la autoridad y el ID exactos, nunca por nombre ni dominio de correo electrónico.
+     Con `organization.cross-app-federation` activo, también valida juntos los campos firmados `org_id`, `org_name` y `org_role`. Asigna la organización local solo mediante la autoridad y el ID exactos, nunca por nombre ni dominio de correo electrónico.
 
 5. **La aplicación crea una sesión local normal.** A partir de aquí, el usuario tiene una sesión local normal en la propia tienda de esa aplicación: cada verificación de acceso, alcance de organización y protección de acciones existentes funciona exactamente como antes. La federación sólo ocurrió en la puerta grande.
 

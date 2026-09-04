@@ -250,17 +250,17 @@ federation flag is enabled.
    server-to-server response. The browser never receives the assertion. Its
    claims are intentionally minimal:
 
-   | Claim        | Meaning                                                  |
-   | ------------ | -------------------------------------------------------- |
-   | `sub`        | Stable user id at the identity authority                 |
-   | `email`      | The user's **verified** email — the only join key        |
-   | `name`       | Display name (non-authoritative, for UI only)            |
-   | `org_domain` | Workspace/org domain, when present                       |
-   | `org_id`     | Canonical organization ID, only when org federation is enabled |
-   | `org_name`   | Organization display name paired with `org_id`          |
-   | `org_role`   | Verified membership role paired with `org_id`           |
+   | Claim        | Meaning                                                                                           |
+   | ------------ | ------------------------------------------------------------------------------------------------- |
+   | `sub`        | Stable user id at the identity authority                                                          |
+   | `email`      | The user's **verified** email — the only join key                                                 |
+   | `name`       | Display name (non-authoritative, for UI only)                                                     |
+   | `org_domain` | Workspace/org domain, when present                                                                |
+   | `org_id`     | Canonical organization ID, only when org federation is enabled                                    |
+   | `org_name`   | Organization display name paired with `org_id`                                                    |
+   | `org_role`   | Verified membership role paired with `org_id`                                                     |
    | `scope`      | Always `"identity"`. Org fields are honored only when the target's org federation flag is enabled |
-   | `exp`        | **≤ 2 minutes** from issue                               |
+   | `exp`        | **≤ 2 minutes** from issue                                                                        |
 
 4. **App verifies and JIT-links by email.** The app's callback verifies the
    server-to-server assertion with its own `A2A_SECRET`, checks the exact
@@ -268,9 +268,9 @@ federation flag is enabled.
    performs **just-in-time linking strictly by verified email**:
    - If a local user with that email exists → reuse it unchanged.
    - If not → create a local user for that email.
-   When `organization.cross-app-federation` is enabled, it also validates the
-   signed `org_id`, `org_name`, and `org_role` together. It maps the local org
-   by the exact authority and ID. It never matches by name or email domain.
+     When `organization.cross-app-federation` is enabled, it also validates the
+     signed `org_id`, `org_name`, and `org_role` together. It maps the local org
+     by the exact authority and ID. It never matches by name or email domain.
 
 5. **App mints a normal local session.** From here on the user has an ordinary local session in that app's own store — every existing access check, org scoping, and action guard works exactly as before. The federation only happened at the front door.
 

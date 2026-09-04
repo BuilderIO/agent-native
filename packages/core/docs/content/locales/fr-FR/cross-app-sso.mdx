@@ -169,22 +169,22 @@ Le flux est une redirection standard d'autorisation → jeton signé → rappel,
 
 3. **Dispatch → Application (jeton d'identité signé).** Dispatch valide `redirect_uri` par rapport à une liste autorisée stricte et redirige vers le `redirect_uri` de l'application portant une **identité signée `A2A_SECRET` de courte durée JWT**. Les revendications du jeton sont intentionnellement minimes :
 
-   | Réclamation  | Signification                                                              |
-   | ------------ | -------------------------------------------------------------------------- |
-   | `sub`        | ID utilisateur stable auprès de l'autorité d'identité                      |
-   | `email`      | L'adresse e-mail **vérifiée** de l'utilisateur : la seule clé de connexion |
-   | `name`       | Nom d'affichage (ne faisant pas autorité, pour UI uniquement)              |
-   | `org_domain` | Domaine de l'espace de travail/de l'organisation, le cas échéant           |
-   | `org_id`     | ID d'organisation canonique, uniquement si la fédération est activée       |
-   | `org_name`   | Nom de l'organisation associé à `org_id`                                   |
-   | `org_role`   | Rôle de membre vérifié associé à `org_id`                                  |
+   | Réclamation  | Signification                                                                            |
+   | ------------ | ---------------------------------------------------------------------------------------- |
+   | `sub`        | ID utilisateur stable auprès de l'autorité d'identité                                    |
+   | `email`      | L'adresse e-mail **vérifiée** de l'utilisateur : la seule clé de connexion               |
+   | `name`       | Nom d'affichage (ne faisant pas autorité, pour UI uniquement)                            |
+   | `org_domain` | Domaine de l'espace de travail/de l'organisation, le cas échéant                         |
+   | `org_id`     | ID d'organisation canonique, uniquement si la fédération est activée                     |
+   | `org_name`   | Nom de l'organisation associé à `org_id`                                                 |
+   | `org_role`   | Rôle de membre vérifié associé à `org_id`                                                |
    | `scope`      | Toujours `"identity"`. Les champs d'organisation ne sont acceptés qu'avec le flag activé |
-   | `exp`        | **≤ 2 minutes** à partir du problème                                       |
+   | `exp`        | **≤ 2 minutes** à partir du problème                                                     |
 
 4. **L’application vérifie et lie le compte juste à temps par e-mail.** La route `GET /_agent-native/identity/callback` vérifie la signature du jeton avec `A2A_SECRET`, contrôle `scope: "identity"` et `exp`, puis effectue **une liaison juste à temps par e-mail vérifié** :
    - S'il existe un utilisateur local avec cette adresse e-mail → réutilisez-le tel quel.
    - Sinon → créez un utilisateur local pour cet e-mail.
-   Lorsque `organization.cross-app-federation` est activé, l'application valide également les champs signés `org_id`, `org_name` et `org_role` ensemble. Elle associe l'organisation locale uniquement avec l'autorité et l'ID exacts, jamais avec le nom ou le domaine de l'e-mail.
+     Lorsque `organization.cross-app-federation` est activé, l'application valide également les champs signés `org_id`, `org_name` et `org_role` ensemble. Elle associe l'organisation locale uniquement avec l'autorité et l'ID exacts, jamais avec le nom ou le domaine de l'e-mail.
 
 5. **L'application crée une session locale normale.** À partir de là, l'utilisateur dispose d'une session locale ordinaire dans le propre magasin de cette application : chaque vérification d'accès, portée d'organisation et protection d'action existante fonctionne exactement comme avant. La fédération ne s'est produite qu'à la porte d'entrée.
 
