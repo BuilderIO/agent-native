@@ -18,6 +18,8 @@ import { getRequestOrgId } from "../server/request-context.js";
 
 let _initPromise: Promise<void> | undefined;
 
+const ADDITIVE_TEXT_COLUMNS = ["request_payload", "response_body"] as const;
+
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -25,6 +27,8 @@ export async function ensureTable(): Promise<void> {
         EMAIL_LOG_CREATE_SQL,
         EMAIL_LOG_ORG_APP_INDEX_SQL,
         EMAIL_LOG_TEMPLATE_INDEX_SQL,
+        EMAIL_LOG_ORG_STATUS_INDEX_SQL,
+        EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
       } = await import("./schema.js");
       const client = getDbExec();
       // Generic INTEGER maps to BIGINT on Postgres, which millisecond
@@ -39,6 +43,18 @@ export async function ensureTable(): Promise<void> {
           "org_id",
           "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS org_id TEXT",
         );
+        for (const column of ADDITIVE_TEXT_COLUMNS) {
+          await ensureColumnExists(
+            "email_log",
+            column,
+            `ALTER TABLE email_log ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+          );
+        }
+        await ensureColumnExists(
+          "email_log",
+          "response_status",
+          "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS response_status BIGINT",
+        );
         await ensureIndexExists(
           "email_log_template_created_idx",
           EMAIL_LOG_TEMPLATE_INDEX_SQL,
@@ -47,23 +63,42 @@ export async function ensureTable(): Promise<void> {
           "email_log_org_app_created_idx",
           EMAIL_LOG_ORG_APP_INDEX_SQL,
         );
+        await ensureIndexExists(
+          "email_log_org_status_created_idx",
+          EMAIL_LOG_ORG_STATUS_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "email_log_org_provider_created_idx",
+          EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
+        );
         return;
       }
 
       await client.execute(createSql);
-      try {
-        await client.execute("ALTER TABLE email_log ADD COLUMN org_id TEXT");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/already exists|duplicate column name/i.test(message)) {
-          throw error;
+      const addColumn = async (column: string, type: string) => {
+        try {
+          await client.execute(
+            `ALTER TABLE email_log ADD COLUMN ${column} ${type}`,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          if (!/already exists|duplicate column name/i.test(message)) {
+            throw error;
+          }
+          console.info(
+            `[agent-native:email] email_log.${column} already exists during local bootstrap`,
+          );
         }
-        console.info(
-          "[agent-native:email] email_log.org_id already exists during local bootstrap",
-        );
-      }
+      };
+      await addColumn("org_id", "TEXT");
+      await addColumn("request_payload", "TEXT");
+      await addColumn("response_status", "INTEGER");
+      await addColumn("response_body", "TEXT");
       await client.execute(EMAIL_LOG_TEMPLATE_INDEX_SQL);
       await client.execute(EMAIL_LOG_ORG_APP_INDEX_SQL);
+      await client.execute(EMAIL_LOG_ORG_STATUS_INDEX_SQL);
+      await client.execute(EMAIL_LOG_ORG_PROVIDER_INDEX_SQL);
     })().catch((error) => {
       // Don't memoize a failed bootstrap — the next send should retry rather
       // than log nothing forever.
@@ -82,8 +117,15 @@ export interface RecordEmailSendArgs {
   sender: string;
   subject: string;
   status: "sent" | "failed";
+  /** Set when the call never reached the provider (threw before/without an HTTP response). */
   error?: string;
   provider: string;
+  /** Exact outbound JSON body sent to the provider, credential- and attachment-body-free. */
+  requestPayload?: string;
+  /** Raw HTTP status code from the provider, when a response was received. */
+  responseStatus?: number;
+  /** Raw HTTP response body text from the provider, when a response was received. */
+  responseBody?: string;
 }
 
 /**
@@ -102,8 +144,8 @@ export async function recordEmailSend(
     const orgId = args.orgId ?? getRequestOrgId() ?? null;
     await getDbExec().execute({
       sql: `INSERT INTO email_log
-        (id, org_id, template_id, app, recipient, sender, subject, status, error, provider, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, template_id, app, recipient, sender, subject, status, error, provider, request_payload, response_status, response_body, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         randomUUID(),
         orgId,
@@ -115,6 +157,9 @@ export async function recordEmailSend(
         args.status,
         args.error ?? null,
         args.provider,
+        args.requestPayload ?? null,
+        args.responseStatus ?? null,
+        args.responseBody ?? null,
         Date.now(),
       ],
     });
@@ -169,28 +214,74 @@ export interface EmailLogEntry {
   status: string;
   error: string | null;
   provider: string;
+  requestPayload: string | null;
+  responseStatus: number | null;
+  responseBody: string | null;
   createdAt: number;
 }
 
-/** Most recent sends for one app, newest first, optionally filtered to one template. */
-export async function listEmailLog(options: {
+export interface ListEmailLogFilters {
   orgId: string;
   app: string;
   templateId?: string;
+  /** Substring match against the recipient address. */
+  to?: string;
+  /** Substring match against the resolved sender address. */
+  from?: string;
+  status?: "sent" | "failed";
+  provider?: string;
+  /** Only sends at or after this Unix epoch (ms). */
+  sinceMs?: number;
+  /** Only sends at or before this Unix epoch (ms). */
+  untilMs?: number;
   limit?: number;
-}): Promise<EmailLogEntry[]> {
+  offset?: number;
+}
+
+const LOG_COLUMNS =
+  "id, template_id, app, recipient, sender, subject, status, error, provider, " +
+  "request_payload, response_status, response_body, created_at";
+
+/**
+ * Most recent sends for one app, newest first, combinably filtered — modeled
+ * on `queryAuditEvents` so this admin-facing query builds the same way every
+ * other filterable log in the framework does.
+ */
+export async function listEmailLog(
+  options: ListEmailLogFilters,
+): Promise<EmailLogEntry[]> {
   await ensureTable();
+  const where: string[] = ["org_id = ?", "app = ?"];
+  const args: unknown[] = [options.orgId, options.app];
+  const push = (clause: string, value: unknown) => {
+    where.push(clause);
+    args.push(value);
+  };
+  if (options.templateId) push("template_id = ?", options.templateId);
+  if (options.status) push("status = ?", options.status);
+  if (options.provider) push("provider = ?", options.provider);
+  if (options.to) push("recipient LIKE ?", `%${options.to}%`);
+  if (options.from) push("sender LIKE ?", `%${options.from}%`);
+  if (typeof options.sinceMs === "number") {
+    push("created_at >= ?", Math.floor(options.sinceMs));
+  }
+  if (typeof options.untilMs === "number") {
+    push("created_at <= ?", Math.floor(options.untilMs));
+  }
+
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
-  const where = options.templateId
-    ? `WHERE org_id = ? AND app = ? AND template_id = ?`
-    : `WHERE org_id = ? AND app = ?`;
-  const args = options.templateId
-    ? [options.orgId, options.app, options.templateId, limit]
-    : [options.orgId, options.app, limit];
+  const offset = Math.max(0, Math.floor(options.offset ?? 0));
+
   const { rows } = await getDbExec().execute({
-    sql: `SELECT id, template_id, app, recipient, sender, subject, status, error, provider, created_at
-      FROM email_log ${where} ORDER BY created_at DESC LIMIT ?`,
-    args,
+    // `id DESC` breaks ties on `created_at` (millisecond resolution, so
+    // concurrent/bulk sends can share a timestamp) — without it, tied rows
+    // can sort differently across page requests and the Send log UI would
+    // skip or duplicate entries when paging.
+    sql: `SELECT ${LOG_COLUMNS} FROM email_log
+      WHERE ${where.join(" AND ")}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ? OFFSET ?`,
+    args: [...args, limit, offset],
   });
   return rows.map((row: any) => ({
     id: String(row.id),
@@ -202,6 +293,11 @@ export async function listEmailLog(options: {
     status: String(row.status),
     error: row.error == null ? null : String(row.error),
     provider: String(row.provider),
+    requestPayload:
+      row.request_payload == null ? null : String(row.request_payload),
+    responseStatus:
+      row.response_status == null ? null : Number(row.response_status),
+    responseBody: row.response_body == null ? null : String(row.response_body),
     createdAt: Number(row.created_at),
   }));
 }

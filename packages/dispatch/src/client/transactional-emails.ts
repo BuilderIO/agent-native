@@ -117,7 +117,11 @@ export async function callAppAction<T>(
     },
     ...(method === "POST" ? { body: JSON.stringify(params) } : {}),
   });
-  if (!res.ok) throw new Error(`${action} failed: HTTP ${res.status}`);
+  if (!res.ok) {
+    const error = new Error(`${action} failed: HTTP ${res.status}`);
+    (error as Error & { status: number }).status = res.status;
+    throw error;
+  }
   return (await res.json()) as T;
 }
 
