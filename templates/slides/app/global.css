@@ -1079,10 +1079,21 @@ button[title="Open agent sidebar"] {
   color: inherit;
 }
 
-.slide-content .fmd-slide .fmd-text-box ul,
-.slide-content .fmd-slide .fmd-text-box ol {
+.slide-content .fmd-slide [data-slide-text-block="true"]:is(ul, ol),
+.slide-content .fmd-slide [data-slide-text-block="true"] ul,
+.slide-content .fmd-slide [data-slide-text-block="true"] ol {
   padding-left: 1.5em;
   list-style-position: outside;
+}
+
+.slide-content .fmd-slide [data-slide-text-block="true"]:is(ul),
+.slide-content .fmd-slide [data-slide-text-block="true"] ul {
+  list-style-type: disc;
+}
+
+.slide-content .fmd-slide [data-slide-text-block="true"]:is(ol),
+.slide-content .fmd-slide [data-slide-text-block="true"] ol {
+  list-style-type: decimal;
 }
 
 .slide-content .fmd-slide h1,
