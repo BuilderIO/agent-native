@@ -14,8 +14,8 @@ export interface StyledSlide {
  * is rendered as a class outside the HTML, so its CSS value is folded in as a
  * wrapper the tally can read. An unset one is left out: the renderer's default
  * canvas fill sits behind the slide's own markup and is not part of the visible
- * palette. A named utility such as `bg-black` has no CSS value here and is left
- * out too, rather than tallied as a guessed color.
+ * palette. A named color utility class has no CSS value here and is left out
+ * too, rather than tallied as a guessed color.
  */
 export function slideStyleFragment(slide: StyledSlide): string {
   const fill = slide.background ? backgroundCssValue(slide.background) : null;
