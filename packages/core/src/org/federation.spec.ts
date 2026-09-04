@@ -145,6 +145,78 @@ describe("cross-app organization federation", () => {
     expect(executeMock).toHaveBeenCalledTimes(1);
   });
 
+  it("sends the current owner roster during the one-time registration", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT identity_authority, identity_id/i.test(sql)) {
+        return {
+          rows: [
+            {
+              identity_authority: null,
+              identity_id: null,
+              federation_roster_initialized_at: null,
+            },
+          ],
+        };
+      }
+      if (/SELECT email, role FROM org_members/i.test(sql)) {
+        return {
+          rows: [
+            { email: "admin@example.test", role: "admin" },
+            { email: "member@example.test", role: "member" },
+            { email: "owner@example.test", role: "owner" },
+          ],
+        };
+      }
+      if (/UPDATE organizations/i.test(sql)) return { rows: [] };
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(JSON.parse(String(init.body))).toEqual({
+        members: [
+          { email: "admin@example.test", role: "admin" },
+          { email: "member@example.test", role: "member" },
+          { email: "owner@example.test", role: "owner" },
+        ],
+      });
+      return new Response(
+        JSON.stringify({
+          orgId: identity.id,
+          name: identity.name,
+          rosterInitialized: true,
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      syncOrganizationToIdentityHub({} as any, {
+        id: identity.id,
+        name: identity.name,
+        role: identity.role,
+        email: identity.email,
+      }),
+    ).resolves.toBe(true);
+    expect(signA2ATokenMock).toHaveBeenCalledWith(
+      identity.email,
+      undefined,
+      undefined,
+      expect.objectContaining({
+        extraClaims: expect.objectContaining({
+          federation_roster_hash: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+        }),
+      }),
+    );
+    expect(executeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining(
+          "SET federation_roster_initialized_at = ?",
+        ),
+      }),
+    );
+  });
+
   it("sends a signed revocation before a local member is removed", async () => {
     executeMock.mockImplementation(async (input) => {
       const sql = (typeof input === "string" ? input : input.sql).trim();

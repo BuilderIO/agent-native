@@ -197,4 +197,10 @@ export const ORG_MIGRATIONS = [
     sql: `ALTER TABLE org_members
           ADD COLUMN IF NOT EXISTS federation_removal_pending_at INTEGER`,
   },
+  {
+    version: 1021,
+    name: "organization-federation-roster-initialized",
+    sql: `ALTER TABLE organizations
+          ADD COLUMN IF NOT EXISTS federation_roster_initialized_at INTEGER`,
+  },
 ];

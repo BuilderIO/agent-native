@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { H3Event } from "h3";
 
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
@@ -19,6 +21,7 @@ import type { OrgRole } from "./types.js";
 const FEDERATION_PATH = "/_agent-native/identity/organization";
 const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const MAX_ORG_NAME_LENGTH = 200;
+const MAX_FEDERATION_ROSTER_MEMBERS = 10_000;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 export interface FederatedOrganizationIdentity {
@@ -41,6 +44,7 @@ export type FederatedOrganizationProvisionResult =
   | "unlinked";
 
 type FederatedMemberRole = Exclude<OrgRole, "owner">;
+type FederatedRosterMember = { email: string; role: OrgRole };
 type FederatedMemberOperation =
   | "add-member"
   | "update-member-role"
@@ -114,6 +118,7 @@ async function sendFederationAssertion(
   event: H3Event,
   input: FederatedOrganizationIdentity,
   extraClaims: Record<string, unknown> = {},
+  body?: unknown,
 ): Promise<{ hub: string; response: Response } | null> {
   const hub = resolveIdentityHubUrl(event);
   if (!hub) return null;
@@ -132,6 +137,8 @@ async function sendFederationAssertion(
     },
   });
 
+  const serializedBody = body === undefined ? undefined : JSON.stringify(body);
+
   return {
     hub,
     response: await fetch(`${hub}${FEDERATION_PATH}`, {
@@ -139,7 +146,9 @@ async function sendFederationAssertion(
       headers: {
         authorization: `Bearer ${token}`,
         accept: "application/json",
+        ...(serializedBody ? { "content-type": "application/json" } : {}),
       },
+      ...(serializedBody ? { body: serializedBody } : {}),
       redirect: "error",
       signal: AbortSignal.timeout(5_000),
     }),
@@ -158,7 +167,15 @@ async function sendFederatedMemberOperation(
   operation: FederatedMemberOperation,
 ): Promise<boolean> {
   if (!(await federationEnabled(input.actorEmail, input.orgId))) return false;
-  if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+  const isSelfRemoval =
+    operation === "remove-member" &&
+    input.actorEmail.trim().toLowerCase() ===
+      input.memberEmail.trim().toLowerCase();
+  if (
+    !isSelfRemoval &&
+    input.actorRole !== "owner" &&
+    input.actorRole !== "admin"
+  ) {
     throw new Error("Only organization owners and admins can change members.");
   }
   const memberEmail = input.memberEmail.trim().toLowerCase();
@@ -225,8 +242,21 @@ async function sendFederatedMemberOperation(
 async function registerWithIdentityHub(
   event: H3Event,
   input: FederatedOrganizationIdentity,
-): Promise<string | null> {
-  const sent = await sendFederationAssertion(event, input);
+  roster?: readonly FederatedRosterMember[],
+): Promise<{ hub: string; rosterInitialized: boolean } | null> {
+  const rosterBody = roster ? { members: roster } : undefined;
+  const sent = await sendFederationAssertion(
+    event,
+    input,
+    roster
+      ? {
+          federation_roster_hash: createHash("sha256")
+            .update(JSON.stringify(rosterBody))
+            .digest("base64url"),
+        }
+      : {},
+    rosterBody,
+  );
   if (!sent) return null;
   const { hub, response } = sent;
   if (!response.ok) {
@@ -245,7 +275,49 @@ async function registerWithIdentityHub(
   ) {
     throw new Error("Identity hub returned an invalid federated organization.");
   }
-  return hub;
+  return { hub, rosterInitialized: body.rosterInitialized === true };
+}
+
+async function loadFederatedRoster(
+  exec: ReturnType<typeof getDbExec>,
+  orgId: string,
+  ownerEmail: string,
+): Promise<FederatedRosterMember[]> {
+  const result = await exec.execute({
+    sql: `SELECT email, role FROM org_members
+          WHERE org_id = ? AND federation_removal_pending_at IS NULL
+          ORDER BY LOWER(email) ASC`,
+    args: [orgId],
+  });
+  if (
+    result.rows.length === 0 ||
+    result.rows.length > MAX_FEDERATION_ROSTER_MEMBERS
+  ) {
+    throw new Error("Invalid federated organization roster.");
+  }
+
+  const roster: FederatedRosterMember[] = [];
+  const emails = new Set<string>();
+  for (const row of result.rows as any[]) {
+    const email = String(row.email ?? "")
+      .trim()
+      .toLowerCase();
+    const role = row.role;
+    if (!email.includes("@") || !isOrgRole(role) || emails.has(email)) {
+      throw new Error("Invalid federated organization roster.");
+    }
+    emails.add(email);
+    roster.push({ email, role });
+  }
+
+  roster.sort((left, right) =>
+    left.email < right.email ? -1 : left.email > right.email ? 1 : 0,
+  );
+  const owner = roster.find((member) => member.role === "owner");
+  if (!owner || owner.email !== ownerEmail.trim().toLowerCase()) {
+    throw new Error("Federated organization roster must contain its owner.");
+  }
+  return roster;
 }
 
 /** Add an explicitly invited member to the identity authority roster. */
@@ -299,7 +371,9 @@ export async function syncOrganizationToIdentityHub(
 
   const exec = getDbExec();
   const local = await exec.execute({
-    sql: `SELECT identity_authority, identity_id FROM organizations WHERE id = ? LIMIT 1`,
+    sql: `SELECT identity_authority, identity_id,
+                 federation_roster_initialized_at
+          FROM organizations WHERE id = ? LIMIT 1`,
     args: [input.id],
   });
   const row = local.rows[0] as any;
@@ -319,11 +393,20 @@ export async function syncOrganizationToIdentityHub(
     );
   }
 
-  const registeredHub = await registerWithIdentityHub(event, {
-    ...input,
-    authority,
-  });
-  if (!registeredHub) return false;
+  const roster =
+    input.role === "owner" && !(row as any).federation_roster_initialized_at
+      ? await loadFederatedRoster(exec, input.id, input.email)
+      : undefined;
+
+  const registered = await registerWithIdentityHub(
+    event,
+    {
+      ...input,
+      authority,
+    },
+    roster,
+  );
+  if (!registered) return false;
 
   if (!existingAuthority && !existingId) {
     await exec.execute({
@@ -331,6 +414,14 @@ export async function syncOrganizationToIdentityHub(
             SET identity_authority = ?, identity_id = ?
             WHERE id = ? AND identity_authority IS NULL AND identity_id IS NULL`,
       args: [authority, input.id, input.id],
+    });
+  }
+  if (roster && registered.rosterInitialized) {
+    await exec.execute({
+      sql: `UPDATE organizations
+            SET federation_roster_initialized_at = ?
+            WHERE id = ? AND federation_roster_initialized_at IS NULL`,
+      args: [Date.now(), input.id],
     });
   }
   return true;

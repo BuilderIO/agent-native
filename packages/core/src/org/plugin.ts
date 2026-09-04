@@ -27,6 +27,7 @@ import {
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
+  retryPendingFederatedRemovalHandler,
   changeMemberRoleHandler,
   listInvitationsHandler,
   createInvitationHandler,
@@ -59,6 +60,7 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   PUT    /_agent-native/org/switch                      — switch active org
  *   GET    /_agent-native/org/members                     — list members of active org
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
+ *   POST   /_agent-native/org/federation-removal/retry  — retry the caller's pending self-cleanup
  *   GET    /_agent-native/org/app-roles?appId=X           — app role vocabulary + assignments
  *   PUT    /_agent-native/org/app-roles/:email            — assign/clear app role (owner/admin)
  *   GET    /_agent-native/org/invitations                 — list pending invites
@@ -152,6 +154,19 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return removeMemberHandler(event);
+      }),
+    );
+
+    // POST /federation-removal/retry — the caller is already excluded from
+    // normal org context; this route only permits authority-confirmed self cleanup.
+    app.use(
+      `${ORG_PREFIX}/federation-removal/retry`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return retryPendingFederatedRemovalHandler(event);
       }),
     );
 

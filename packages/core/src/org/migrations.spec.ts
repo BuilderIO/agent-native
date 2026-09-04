@@ -135,4 +135,11 @@ describe("ORG_MIGRATIONS", () => {
       /ALTER TABLE org_members[\s\S]*federation_removal_pending_at/i,
     );
   });
+
+  it("adds the one-time federation roster bootstrap marker", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1021);
+    expect(migration?.sql).toMatch(
+      /ALTER TABLE organizations[\s\S]*federation_roster_initialized_at/i,
+    );
+  });
 });

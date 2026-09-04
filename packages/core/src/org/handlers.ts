@@ -114,6 +114,21 @@ function scheduleFederatedOrgSync(
     pendingFederatedOrgSyncs.delete(key);
   });
   pendingFederatedOrgSyncs.set(key, sync);
+  const waitUntil = (
+    event as H3Event & {
+      waitUntil?: (promise: Promise<unknown>) => void;
+    }
+  ).waitUntil;
+  if (typeof waitUntil === "function") {
+    try {
+      waitUntil.call(event, sync);
+      return;
+    } catch (error) {
+      // Some local adapters expose a non-functional placeholder. Continue the
+      // best-effort path without turning an org read into an outage.
+      void error;
+    }
+  }
   void sync;
 }
 
@@ -160,6 +175,19 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgs = allOrgsRes.rows.map((r: any) => ({
     orgId: String(r.orgId ?? r.org_id),
     role: String(r.role) as OrgRole,
+    orgName: String(r.orgName ?? r.org_name),
+  }));
+
+  const pendingRemovalRes = await e.execute({
+    sql: `SELECT m.org_id AS "orgId", o.name AS "orgName"
+          FROM org_members m
+          INNER JOIN organizations o ON m.org_id = o.id
+          WHERE LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NOT NULL`,
+    args: [ctx.email.toLowerCase()],
+  });
+  const pendingRemovals = pendingRemovalRes.rows.map((r: any) => ({
+    orgId: String(r.orgId ?? r.org_id),
     orgName: String(r.orgName ?? r.org_name),
   }));
 
@@ -252,6 +280,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     orgName: ctx.orgName,
     role: ctx.role,
     orgs,
+    pendingRemovals,
     pendingInvitations,
     domainMatches,
     allowedDomain,
@@ -265,6 +294,97 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
   };
 });
+
+/** POST /_agent-native/org/federation-removal/retry — finish self-cleanup after a failed revoke */
+export const retryPendingFederatedRemovalHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const session = await getSession(event);
+    const email = requireAuthEmail(session).trim().toLowerCase();
+    const body = await readBody(event);
+    const orgId = typeof body?.orgId === "string" ? body.orgId.trim() : "";
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(orgId)) {
+      throw createError({ statusCode: 400, message: "orgId is required" });
+    }
+
+    const e = await exec();
+    const pending = await e.execute({
+      sql: `SELECT m.role, o.name
+            FROM org_members m
+            INNER JOIN organizations o ON m.org_id = o.id
+            WHERE m.org_id = ? AND LOWER(m.email) = ?
+              AND m.federation_removal_pending_at IS NOT NULL
+            LIMIT 1`,
+      args: [orgId, email],
+    });
+    if (pending.rows.length === 0) {
+      throw createError({
+        statusCode: 404,
+        message: "Pending organization removal not found",
+      });
+    }
+    const role = String((pending.rows[0] as any).role) as OrgRole;
+    if (role === "owner") {
+      throw createError({
+        statusCode: 409,
+        message: "The organization owner cannot be removed",
+      });
+    }
+
+    let revoked = false;
+    try {
+      revoked = await revokeFederatedOrganizationMember(event, {
+        orgId,
+        actorEmail: email,
+        actorRole: role,
+        memberEmail: email,
+      });
+    } catch (error) {
+      void error;
+    }
+    if (!revoked) {
+      throw createError({
+        statusCode: 503,
+        message:
+          "Could not confirm removal with the identity authority; local cleanup remains pending.",
+      });
+    }
+
+    try {
+      await e.execute({
+        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+        args: [orgId, email],
+      });
+    } catch (error) {
+      void error;
+      throw createError({
+        statusCode: 503,
+        message: "Identity removal succeeded but local cleanup is pending.",
+      });
+    }
+    invalidateMemberOrgCaches();
+
+    const nextOrg = await e.execute({
+      sql: `SELECT org_id AS "orgId" FROM org_members
+            WHERE LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            ORDER BY joined_at ASC, org_id ASC
+            LIMIT 1`,
+      args: [email],
+    });
+    const nextOrgId = nextOrg.rows[0]
+      ? String(
+          (nextOrg.rows[0] as any).orgId ?? (nextOrg.rows[0] as any).org_id,
+        )
+      : null;
+    await setActiveOrgId(
+      email,
+      nextOrgId,
+      "completed pending organization removal",
+    );
+
+    return { success: true, orgId };
+  },
+);
 
 /** PUT /_agent-native/org/workspace-app-default-visibility - org admins only */
 export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(

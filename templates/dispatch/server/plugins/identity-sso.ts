@@ -17,7 +17,7 @@
  * client.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import { signA2AToken, verifyA2AToken } from "@agent-native/core/a2a";
 import { getDbExec } from "@agent-native/core/db";
@@ -154,6 +154,193 @@ function validFederatedMemberRole(value: unknown): value is "admin" | "member" {
   return value === "admin" || value === "member";
 }
 
+const FEDERATION_ROSTER_HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const MAX_FEDERATION_ROSTER_MEMBERS = 10_000;
+type FederationRosterMember = {
+  email: string;
+  role: "owner" | "admin" | "member";
+};
+
+function parseFederationRoster(
+  body: unknown,
+  expectedHash: string,
+): FederationRosterMember[] | null {
+  if (!body || typeof body !== "object") return null;
+  const rawMembers = (body as Record<string, unknown>).members;
+  if (
+    !Array.isArray(rawMembers) ||
+    rawMembers.length === 0 ||
+    rawMembers.length > MAX_FEDERATION_ROSTER_MEMBERS
+  ) {
+    return null;
+  }
+
+  const emails = new Set<string>();
+  const members: FederationRosterMember[] = [];
+  for (const rawMember of rawMembers) {
+    if (!rawMember || typeof rawMember !== "object") return null;
+    const email = String((rawMember as any).email ?? "")
+      .trim()
+      .toLowerCase();
+    const role = (rawMember as any).role;
+    if (
+      !email.includes("@") ||
+      !validOrganizationRole(role) ||
+      emails.has(email)
+    ) {
+      return null;
+    }
+    emails.add(email);
+    members.push({ email, role });
+  }
+
+  members.sort((left, right) =>
+    left.email < right.email ? -1 : left.email > right.email ? 1 : 0,
+  );
+  const canonicalBody = JSON.stringify({ members });
+  const actualHash = createHash("sha256")
+    .update(canonicalBody)
+    .digest("base64url");
+  if (actualHash !== expectedHash) return null;
+  if (members.filter((member) => member.role === "owner").length !== 1) {
+    return null;
+  }
+  return members;
+}
+
+async function executeFederationRosterSetup(
+  exec: ReturnType<typeof getDbExec>,
+  statements: Array<{ sql: string; args: unknown[] }>,
+): Promise<boolean> {
+  if (exec.transaction) {
+    await exec.transaction(async (tx) => {
+      for (const statement of statements) await tx.execute(statement);
+    });
+    return true;
+  }
+  if (exec.atomicBatch) {
+    await exec.atomicBatch(statements);
+    return true;
+  }
+  return false;
+}
+
+type FederationRosterSetupResult =
+  | { ok: true }
+  | { ok: false; status: 409 | 503; error: string };
+
+async function initializeFederationRoster(
+  exec: ReturnType<typeof getDbExec>,
+  input: {
+    orgId: string;
+    authority: string;
+    actorEmail: string;
+    existingOrg: any;
+    roster: FederationRosterMember[];
+  },
+): Promise<FederationRosterSetupResult> {
+  const existingMembers = await exec.execute({
+    sql: `SELECT email, role, federation_removal_pending_at
+          FROM org_members WHERE org_id = ?`,
+    args: [input.orgId],
+  });
+  const byEmail = new Map<string, { role: string; pending: boolean }>();
+  for (const row of existingMembers.rows as any[]) {
+    const email = String(row.email ?? "")
+      .trim()
+      .toLowerCase();
+    if (email) {
+      byEmail.set(email, {
+        role: String(row.role ?? ""),
+        pending: Boolean(row.federation_removal_pending_at),
+      });
+    }
+  }
+
+  const existingAuthority = String(
+    input.existingOrg?.identity_authority ?? "",
+  ).trim();
+  const existingId = String(input.existingOrg?.identity_id ?? "").trim();
+  if (existingAuthority && existingId) {
+    const actor = byEmail.get(input.actorEmail);
+    if (!actor || actor.pending || actor.role !== "owner") {
+      return {
+        ok: false,
+        status: 409,
+        error: "Only the central organization owner can bootstrap its roster",
+      };
+    }
+  }
+
+  for (const member of input.roster) {
+    const existing = byEmail.get(member.email);
+    if (!existing) continue;
+    if (existing.pending) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Organization membership is pending identity-authority cleanup",
+      };
+    }
+    if (existing.role !== member.role) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Organization membership role conflict",
+      };
+    }
+  }
+
+  const statements: Array<{ sql: string; args: unknown[] }> = [];
+  if (!existingAuthority && !existingId) {
+    statements.push({
+      sql: `UPDATE organizations
+            SET identity_authority = ?, identity_id = ?
+            WHERE id = ? AND identity_authority IS NULL AND identity_id IS NULL`,
+      args: [input.authority, input.orgId, input.orgId],
+    });
+  }
+  for (const member of input.roster) {
+    if (byEmail.has(member.email)) continue;
+    statements.push({
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [
+        randomBytes(16).toString("base64url"),
+        input.orgId,
+        member.email,
+        member.role,
+        Date.now(),
+      ],
+    });
+  }
+  statements.push({
+    sql: `UPDATE organizations
+          SET federation_roster_initialized_at = ?
+          WHERE id = ? AND federation_roster_initialized_at IS NULL`,
+    args: [Date.now(), input.orgId],
+  });
+
+  try {
+    if (!(await executeFederationRosterSetup(exec, statements))) {
+      return {
+        ok: false,
+        status: 503,
+        error: "Identity authority does not support atomic roster setup",
+      };
+    }
+  } catch (error) {
+    void error;
+    return {
+      ok: false,
+      status: 503,
+      error: "Could not initialize the federated organization roster",
+    };
+  }
+  invalidateMemberOrgCaches();
+  return { ok: true };
+}
+
 export async function canAttemptWorkspaceSso(): Promise<boolean> {
   return hasActiveFeatureFlagRollout(DESKTOP_WORKSPACE_SSO_FLAG.key).catch(
     () => false,
@@ -247,6 +434,21 @@ export const organizationFederationHandler = defineEventHandler(
         ? claims.federation_member_email.trim().toLowerCase()
         : "";
     const federationMemberRole = claims.federation_member_role;
+    const rawFederationRosterHash = claims.federation_roster_hash;
+    if (
+      rawFederationRosterHash !== undefined &&
+      (typeof rawFederationRosterHash !== "string" ||
+        !FEDERATION_ROSTER_HASH_PATTERN.test(rawFederationRosterHash))
+    ) {
+      return jsonResponse(
+        { error: "Invalid federated organization roster" },
+        400,
+      );
+    }
+    const federationRosterHash =
+      typeof rawFederationRosterHash === "string"
+        ? rawFederationRosterHash
+        : undefined;
     if (
       federationOperation === undefined &&
       (claims.federation_member_email !== undefined ||
@@ -273,6 +475,12 @@ export const organizationFederationHandler = defineEventHandler(
     ) {
       return jsonResponse({ error: "Invalid federated member role" }, 400);
     }
+    if (federationRosterHash && federationOperation !== undefined) {
+      return jsonResponse(
+        { error: "Invalid federated organization roster" },
+        400,
+      );
+    }
     if (
       !/^[A-Za-z0-9_-]{1,128}$/.test(orgId) ||
       !orgName ||
@@ -280,6 +488,32 @@ export const organizationFederationHandler = defineEventHandler(
       !validOrganizationRole(orgRole)
     ) {
       return jsonResponse({ error: "Invalid organization assertion" }, 400);
+    }
+
+    let federationRoster: FederationRosterMember[] | undefined;
+    if (federationRosterHash) {
+      const body = await readBody(event).catch((error) => {
+        void error;
+        return null;
+      });
+      federationRoster =
+        parseFederationRoster(body, federationRosterHash) ?? undefined;
+      if (!federationRoster) {
+        return jsonResponse(
+          { error: "Invalid federated organization roster" },
+          400,
+        );
+      }
+      const owner = federationRoster.find((member) => member.role === "owner");
+      if (
+        orgRole !== "owner" ||
+        owner?.email !== verified.email.trim().toLowerCase()
+      ) {
+        return jsonResponse(
+          { error: "Only the organization owner can bootstrap its roster" },
+          403,
+        );
+      }
     }
 
     const enabled = await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
@@ -298,7 +532,8 @@ export const organizationFederationHandler = defineEventHandler(
     if (!authority) return jsonResponse({ error: "identity_unavailable" }, 503);
     const exec = getDbExec();
     const existing = await exec.execute({
-      sql: `SELECT id, name, identity_authority, identity_id
+      sql: `SELECT id, name, identity_authority, identity_id,
+                   federation_roster_initialized_at
             FROM organizations WHERE id = ? LIMIT 1`,
       args: [orgId],
     });
@@ -349,22 +584,84 @@ export const organizationFederationHandler = defineEventHandler(
         );
       }
       const now = Date.now();
-      await exec.execute({
-        sql: `INSERT INTO organizations
-              (id, name, created_by, created_at, a2a_secret,
-               identity_authority, identity_id)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          orgId,
-          orgName,
-          email,
-          now,
-          randomBytes(32).toString("base64url"),
-          authority,
-          orgId,
-        ],
-      });
-    } else if (!existingAuthority && !existingId) {
+      if (federationRoster) {
+        const statements: Array<{ sql: string; args: unknown[] }> = [
+          {
+            sql: `INSERT INTO organizations
+                  (id, name, created_by, created_at, a2a_secret,
+                   identity_authority, identity_id,
+                   federation_roster_initialized_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+              orgId,
+              orgName,
+              email,
+              now,
+              randomBytes(32).toString("base64url"),
+              authority,
+              orgId,
+              now,
+            ],
+          },
+          ...federationRoster.map((member) => ({
+            sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+                  VALUES (?, ?, ?, ?, ?)`,
+            args: [
+              randomBytes(16).toString("base64url"),
+              orgId,
+              member.email,
+              member.role,
+              now,
+            ],
+          })),
+        ];
+        let rosterSetupSucceeded = false;
+        try {
+          rosterSetupSucceeded = await executeFederationRosterSetup(
+            exec,
+            statements,
+          );
+        } catch (error) {
+          void error;
+        }
+        if (!rosterSetupSucceeded) {
+          return jsonResponse(
+            {
+              error: "Could not initialize the federated organization roster",
+            },
+            503,
+          );
+        }
+        invalidateMemberOrgCaches();
+      } else {
+        await exec.execute({
+          sql: `INSERT INTO organizations
+                (id, name, created_by, created_at, a2a_secret,
+                 identity_authority, identity_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            orgId,
+            orgName,
+            email,
+            now,
+            randomBytes(32).toString("base64url"),
+            authority,
+            orgId,
+          ],
+        });
+      }
+      if (federationRoster) {
+        return jsonResponse(
+          {
+            orgId,
+            name: orgName,
+            role: orgRole,
+            rosterInitialized: true,
+          },
+          200,
+        );
+      }
+    } else if (!existingAuthority && !existingId && !federationRoster) {
       await exec.execute({
         sql: `UPDATE organizations
               SET identity_authority = ?, identity_id = ?
@@ -374,6 +671,36 @@ export const organizationFederationHandler = defineEventHandler(
     }
 
     const organizationName = String(existingOrg?.name ?? orgName);
+    if (federationRoster && !existingOrg?.federation_roster_initialized_at) {
+      const setup = await initializeFederationRoster(exec, {
+        orgId,
+        authority,
+        actorEmail: email,
+        existingOrg,
+        roster: federationRoster,
+      });
+      if (!setup.ok) return jsonResponse({ error: setup.error }, setup.status);
+      return jsonResponse(
+        {
+          orgId,
+          name: organizationName,
+          role: orgRole,
+          rosterInitialized: true,
+        },
+        200,
+      );
+    }
+    if (federationRoster && existingOrg?.federation_roster_initialized_at) {
+      return jsonResponse(
+        {
+          orgId,
+          name: organizationName,
+          role: orgRole,
+          rosterInitialized: true,
+        },
+        200,
+      );
+    }
     if (federationOperation !== undefined) {
       if (!existingOrg) {
         return jsonResponse({ error: "Organization not found" }, 404);
@@ -385,21 +712,6 @@ export const organizationFederationHandler = defineEventHandler(
         );
       }
 
-      const actor = await exec.execute({
-        sql: `SELECT role FROM org_members
-              WHERE org_id = ? AND LOWER(email) = ?
-                AND federation_removal_pending_at IS NULL
-              LIMIT 1`,
-        args: [orgId, email],
-      });
-      const actorRole = String((actor.rows[0] as any)?.role ?? "");
-      if (
-        (actorRole !== "owner" && actorRole !== "admin") ||
-        actorRole !== orgRole
-      ) {
-        return jsonResponse({ error: "Unauthorized" }, 403);
-      }
-
       const member = await exec.execute({
         sql: `SELECT role, federation_removal_pending_at FROM org_members
               WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
@@ -409,6 +721,45 @@ export const organizationFederationHandler = defineEventHandler(
       const memberRemovalPending = Boolean(
         (member.rows[0] as any)?.federation_removal_pending_at,
       );
+      let actorRole = "";
+      const isSelfRemoval =
+        federationOperation === "remove-member" &&
+        federationMemberEmail === email;
+      if (isSelfRemoval) {
+        if (!member.rows[0]) {
+          return jsonResponse(
+            {
+              orgId,
+              name: organizationName,
+              role: orgRole,
+              removedMember: federationMemberEmail,
+            },
+            200,
+          );
+        }
+        if (
+          !validOrganizationRole(currentMemberRole) ||
+          currentMemberRole === "owner"
+        ) {
+          return jsonResponse({ error: "Unauthorized" }, 403);
+        }
+        actorRole = currentMemberRole;
+      } else {
+        const actor = await exec.execute({
+          sql: `SELECT role FROM org_members
+                WHERE org_id = ? AND LOWER(email) = ?
+                  AND federation_removal_pending_at IS NULL
+                LIMIT 1`,
+          args: [orgId, email],
+        });
+        actorRole = String((actor.rows[0] as any)?.role ?? "");
+        if (
+          (actorRole !== "owner" && actorRole !== "admin") ||
+          actorRole !== orgRole
+        ) {
+          return jsonResponse({ error: "Unauthorized" }, 403);
+        }
+      }
 
       if (federationOperation === "add-member") {
         const memberRole = federationMemberRole as "admin" | "member";

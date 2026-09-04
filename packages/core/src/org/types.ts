@@ -39,6 +39,7 @@ export interface OrgInfo {
   orgName: string | null;
   role: OrgRole | null;
   orgs: OrgSummary[];
+  pendingRemovals?: OrgPendingRemoval[];
   pendingInvitations: OrgInvitationSummary[];
   domainMatches: DomainMatchOrg[];
   allowedDomain: string | null;
@@ -60,6 +61,11 @@ export interface OrgInfo {
    * `GET /_agent-native/org/a2a-secret`.
    */
   a2aSecretSet?: boolean;
+}
+
+export interface OrgPendingRemoval {
+  orgId: string;
+  orgName: string;
 }
 
 export interface OrgMember {

@@ -18,6 +18,8 @@ export const organizations = table("organizations", {
   /** Stable Dispatch identity used to match this org across app databases. */
   identityAuthority: text("identity_authority"),
   identityId: text("identity_id"),
+  /** Set after the identity authority has accepted the initial member roster. */
+  federationRosterInitializedAt: integer("federation_roster_initialized_at"),
 });
 
 export const orgMembers = table("org_members", {

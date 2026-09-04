@@ -6,6 +6,7 @@ const mockTransaction = vi.fn(
     fn({ execute: mockExecute }),
 );
 const mockGetOrgContext = vi.fn();
+const mockGetSession = vi.hoisted(() => vi.fn());
 const mockAddFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockRevokeFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockUpdateFederatedOrganizationMemberRole = vi.hoisted(() => vi.fn());
@@ -47,7 +48,7 @@ vi.mock("../server/app-url.js", () => ({
 }));
 
 vi.mock("../server/auth.js", () => ({
-  getSession: vi.fn(),
+  getSession: (...args: any[]) => mockGetSession(...args),
 }));
 
 vi.mock("../server/email-templates.js", () => ({
@@ -73,6 +74,7 @@ import {
   deleteOrgHandler,
   changeMemberRoleHandler,
   removeMemberHandler,
+  retryPendingFederatedRemovalHandler,
   updateOrgHandler,
   setDomainHandler,
   setWorkspaceAppDefaultVisibilityHandler,
@@ -95,6 +97,7 @@ describe("org handlers", () => {
       orgName: "Example",
       role: "owner",
     });
+    mockGetSession.mockResolvedValue({ email: "member@example.test" });
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 0 });
     mockAddFederatedOrganizationMember.mockResolvedValue(false);
     mockRevokeFederatedOrganizationMember.mockResolvedValue(false);
@@ -140,6 +143,36 @@ describe("org handlers", () => {
     expect(mockExecute).toHaveBeenCalledTimes(2);
     expect(mockExecute.mock.calls[1][0].sql).toContain(
       "SET federation_removal_pending_at = ?",
+    );
+  });
+
+  it("lets a pending member finish local cleanup after authority confirmation", async () => {
+    mockExecute
+      .mockResolvedValueOnce({ rows: [{ role: "member", name: "Example" }] })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+    mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
+
+    await expect(
+      retryPendingFederatedRemovalHandler(
+        makeEvent("/_agent-native/org/federation-removal/retry", {
+          orgId: "org-1",
+        }),
+      ),
+    ).resolves.toEqual({ success: true, orgId: "org-1" });
+    expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        orgId: "org-1",
+        actorEmail: "member@example.test",
+        actorRole: "member",
+        memberEmail: "member@example.test",
+      },
+    );
+    expect(putUserSetting).toHaveBeenCalledWith(
+      "member@example.test",
+      "active-org-id",
+      { orgId: null },
     );
   });
 

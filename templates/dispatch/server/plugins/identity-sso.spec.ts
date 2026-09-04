@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const featureFlagMocks = vi.hoisted(() => ({
@@ -69,15 +71,17 @@ vi.mock("@agent-native/core/shared", () => ({
   signInJourney: signInJourneyMock,
 }));
 vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({
-    execute: async (input: string | { sql: string; args?: unknown[] }) => {
+  getDbExec: () => {
+    const execute = async (
+      input: string | { sql: string; args?: unknown[] },
+    ) => {
       const sql = (typeof input === "string" ? input : input.sql).trim();
       const args = (
         typeof input === "string" ? [] : (input.args ?? [])
       ) as any[];
       if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
       if (
-        /^SELECT id, name(?:, identity_authority, identity_id)?\s+FROM organizations/i.test(
+        /^SELECT id, name(?:, identity_authority, identity_id(?:,\s+federation_roster_initialized_at)?)?\s+FROM organizations/i.test(
           sql,
         )
       ) {
@@ -116,6 +120,16 @@ vi.mock("@agent-native/core/db", () => ({
                 },
               ]
             : [],
+          rowsAffected: 0,
+        };
+      }
+      if (
+        /^SELECT email, role, federation_removal_pending_at\s+FROM org_members/i.test(
+          sql,
+        )
+      ) {
+        return {
+          rows: [{ email: "owner@example.test", role: "owner" }],
           rowsAffected: 0,
         };
       }
@@ -169,8 +183,13 @@ vi.mock("@agent-native/core/db", () => ({
         return { rows: [], rowsAffected: 0 };
       }
       throw new Error(`unexpected SQL in test: ${sql}`);
-    },
-  }),
+    };
+    return {
+      execute,
+      transaction: async (fn: (tx: { execute: typeof execute }) => unknown) =>
+        fn({ execute }),
+    };
+  },
   intType: () => "INTEGER",
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -636,6 +655,103 @@ describe("authorization code and PKCE handlers", () => {
 });
 
 describe("organization federation endpoint", () => {
+  it("atomically bootstraps the existing owner roster", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    const roster = {
+      members: [
+        { email: "admin@example.test", role: "admin" },
+        { email: "member@example.test", role: "member" },
+        { email: "owner@example.test", role: "owner" },
+      ],
+    };
+    const rosterHash = createHash("sha256")
+      .update(JSON.stringify(roster))
+      .digest("base64url");
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        federation_roster_hash: rosterHash,
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        body: roster,
+        headers: { authorization: "Bearer roster-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      orgId: "dispatch-org-1",
+      rosterInitialized: true,
+    });
+    expect(verifyA2ATokenMock).toHaveBeenCalledWith(
+      "roster-assertion",
+      expect.anything(),
+      expect.objectContaining({ globalSecretOnly: true }),
+    );
+  });
+
+  it("bootstraps missing members on a mapped organization only once", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+    };
+    centralActorRole = "owner";
+    const roster = {
+      members: [
+        { email: "member@example.test", role: "member" },
+        { email: "owner@example.test", role: "owner" },
+      ],
+    };
+    const rosterHash = createHash("sha256")
+      .update(JSON.stringify(roster))
+      .digest("base64url");
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        federation_roster_hash: rosterHash,
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        body: roster,
+        headers: { authorization: "Bearer mapped-roster-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      orgId: "dispatch-org-1",
+      rosterInitialized: true,
+    });
+  });
+
   it("accepts only a verified assertion from an exact registered app", async () => {
     featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
       return flag.key === "organization.cross-app-federation";
@@ -868,6 +984,45 @@ describe("organization federation endpoint", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
       error: "Organization membership role conflict",
+    });
+  });
+
+  it("lets a pending member retry its own authority removal idempotently", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+      federation_roster_initialized_at: Date.now(),
+    };
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "removed@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://slides.agent-native.com",
+        app_id: "slides",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "member",
+        federation_operation: "remove-member",
+        federation_member_email: "removed@example.test",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer pending-cleanup-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      removedMember: "removed@example.test",
     });
   });
 });
