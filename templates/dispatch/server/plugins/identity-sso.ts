@@ -129,6 +129,7 @@ export async function isWorkspaceSsoEnabledForSession(
 
 export async function canAttemptBrowserIdentitySso(): Promise<boolean> {
   return hasActiveFeatureFlagRollout(BROWSER_IDENTITY_SSO_FLAG.key).catch(
+    // coercion-ok: unreadable rollout state must fail closed for silent sign-in.
     () => false,
   );
 }
@@ -141,7 +142,7 @@ export async function isBrowserIdentitySsoEnabledForSession(
     userEmail: session.email,
     userKey: session.email,
     orgId: session.orgId,
-  }).catch(() => false);
+  }).catch(() => false); // coercion-ok: unreadable rollout state must fail closed.
 }
 
 export const availabilityHandler = defineEventHandler(
