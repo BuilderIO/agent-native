@@ -477,19 +477,15 @@ describe("route-state client helpers", () => {
     await act(flush);
 
     expect(rendered.container.textContent).toBe("/detail/123");
-    expect(writes.slice(0, 2).map((write) => write.key)).toEqual([
+    expect(writes.map((write) => write.key)).toEqual([
       "navigation:tab-1",
-      "navigation",
+      "navigation:tab-1",
     ]);
     expect(writes[0].body).toEqual({
       view: "home",
       label: "important",
     });
-    expect(writes.slice(2).map((write) => write.key)).toEqual([
-      "navigation:tab-1",
-      "navigation",
-    ]);
-    expect(writes[2].body).toEqual({
+    expect(writes[1].body).toEqual({
       view: "detail/123",
       label: null,
     });
@@ -550,7 +546,7 @@ describe("route-state client helpers", () => {
 
   it("prepares shared chat view transitions before navigate commands", async () => {
     const { fetchMock } = makeAppStateFetch({
-      navigate: { view: "detail", id: "123", _writeId: "cmd-1" },
+      "navigate:tab-1": { view: "detail", id: "123", _writeId: "cmd-1" },
     });
     vi.stubGlobal("fetch", fetchMock);
     const prepare = vi.fn();
@@ -562,6 +558,8 @@ describe("route-state client helpers", () => {
         { view: string },
         { view: string; id?: string; _writeId?: string }
       >({
+        browserTabId: "tab-1",
+        requestSource: "tab-1",
         refetchInterval: false,
         getNavigationState: ({ pathname }) => ({
           view: pathname === "/" ? "home" : pathname.slice(1),

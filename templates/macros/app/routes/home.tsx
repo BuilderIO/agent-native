@@ -31,6 +31,7 @@ import {
 } from "@/hooks/use-optimistic-log-rows";
 import messages from "@/i18n/en-US";
 import { apiFetch } from "@/lib/api";
+import { TAB_ID } from "@/lib/tab-id";
 import { formatLocalDate } from "@/lib/utils";
 
 const SEO_TITLE = messages.seo.homeTitle;
@@ -64,7 +65,7 @@ export default function IndexPage() {
 
   // Sync current date to navigation state so the agent knows what day the user is viewing
   useEffect(() => {
-    apiFetch("/_agent-native/application-state/navigation", {
+    apiFetch(`/_agent-native/application-state/navigation:${TAB_ID}`, {
       method: "PUT",
       body: JSON.stringify({ view: "entry", date: dateStr }),
     }).catch(() => {});

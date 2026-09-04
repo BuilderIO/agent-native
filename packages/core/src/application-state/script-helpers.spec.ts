@@ -90,6 +90,24 @@ describe("application-state script-helpers", () => {
       expect(result).toEqual(value);
       expect(mockAppStateGet).toHaveBeenCalledWith("alice@test.com", "my-key");
     });
+
+    it("scopes ambient navigation reads to the request browser tab", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { readAppState } = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      mockAppStateGet.mockResolvedValue({ view: "inbox" });
+
+      await runWithRequestContext(
+        { userEmail: "alice@test.com", run: { browserTabId: "tab-a" } },
+        () => readAppState("navigation"),
+      );
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigation:tab-a",
+      );
+    });
   });
 
   describe("writeAppState", () => {
@@ -105,6 +123,26 @@ describe("application-state script-helpers", () => {
         {
           foo: "bar",
         },
+        { requestSource: "agent" },
+      );
+    });
+
+    it("scopes ambient navigation writes to the request browser tab", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { writeAppState } = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      await runWithRequestContext(
+        { userEmail: "alice@test.com", run: { browserTabId: "tab-a" } },
+        () => writeAppState("navigate", { view: "editor" }),
+      );
+
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigate:tab-a",
+        { view: "editor" },
         { requestSource: "agent" },
       );
     });

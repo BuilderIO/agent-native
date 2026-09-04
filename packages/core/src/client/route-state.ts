@@ -13,6 +13,7 @@ import {
   readClientAppState,
   setClientAppState,
 } from "./application-state.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
@@ -36,10 +37,12 @@ export interface UseSemanticNavigationStateOptions<
    * unless the app needs a human-readable semantic alias.
    */
   state: NavigationState | null | undefined;
-  /** Application-state keys the UI should write. Defaults to [`navigation`]. */
+  /** Application-state keys the UI should write. Defaults to the current tab's `navigation` key in a browser. */
   navigationKeys?: readonly string[];
-  /** Application-state keys to read for one-shot agent commands. Defaults to [`navigate`]. */
+  /** Application-state keys to read for one-shot agent commands. Defaults to the current tab's `navigate` key in a browser. */
   commandKeys?: readonly string[];
+  /** Current browser tab id. Defaults to the current page's tab. */
+  browserTabId?: string;
   /** React Query key used for command polling/cache. Defaults to [`navigate-command`]. */
   commandQueryKey?: QueryKey;
   /** Request source tag for `useDbSync({ ignoreSource })` jitter prevention. */
@@ -114,12 +117,12 @@ export interface UseAgentRouteStateOptions<
   requestSource?: string;
   /**
    * Also write the unscoped navigation key when browserTabId is present.
-   * Defaults to true so CLI/external agents still have a useful fallback.
+   * Defaults to false so another tab cannot observe this tab's screen.
    */
   writeGlobalNavigation?: boolean;
   /**
    * Fall back to the unscoped command key when no tab-scoped command exists.
-   * Defaults to true for backwards compatibility with existing navigate tools.
+   * Defaults to false so another tab cannot consume this tab's command.
    */
   readGlobalCommandFallback?: boolean;
   /** React Query key used for command polling/cache. */
@@ -168,6 +171,12 @@ function normalizeBrowserTabId(browserTabId?: string): string | undefined {
   if (typeof browserTabId !== "string") return undefined;
   const trimmed = browserTabId.trim();
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
+function defaultBrowserTabId(): string | undefined {
+  return typeof window === "undefined"
+    ? undefined
+    : normalizeBrowserTabId(getBrowserTabId());
 }
 
 function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
@@ -278,25 +287,43 @@ export function useSemanticNavigationState<
   options: UseSemanticNavigationStateOptions<NavigationState, NavigateCommand>,
 ): UseSemanticNavigationStateResult<NavigationState, NavigateCommand> {
   const {
-    requestSource,
     commandRefetchInterval = 15_000,
     enabled = true,
     keepalive = true,
     writeDebounceMs = 0,
   } = options;
 
+  const browserTabId = useMemo(
+    () =>
+      normalizeBrowserTabId(options.browserTabId) ??
+      (options.browserTabId === undefined ? defaultBrowserTabId() : undefined),
+    [options.browserTabId],
+  );
+  const requestSource = options.requestSource ?? browserTabId;
+
   const queryClient = useQueryClient();
   const navigationKeys = useMemo(
-    () => uniqueKeys(options.navigationKeys ?? ["navigation"]),
-    [options.navigationKeys],
+    () =>
+      uniqueKeys(
+        options.navigationKeys ?? [
+          appStateKeyForBrowserTab("navigation", browserTabId),
+        ],
+      ),
+    [browserTabId, options.navigationKeys],
   );
   const commandKeys = useMemo(
-    () => uniqueKeys(options.commandKeys ?? ["navigate"]),
-    [options.commandKeys],
+    () =>
+      uniqueKeys(
+        options.commandKeys ?? [
+          appStateKeyForBrowserTab("navigate", browserTabId),
+        ],
+      ),
+    [browserTabId, options.commandKeys],
   );
   const commandQueryKey = useMemo<QueryKey>(
-    () => options.commandQueryKey ?? ["navigate-command"],
-    [options.commandQueryKey],
+    () =>
+      options.commandQueryKey ?? ["navigate-command", browserTabId ?? "global"],
+    [browserTabId, options.commandQueryKey],
   );
   const navigationState = options.state ?? null;
   const navigationWriteDedup = useMemo(
@@ -422,19 +449,18 @@ export function useAgentRouteState<
 >(
   options: UseAgentRouteStateOptions<NavigationState, NavigateCommand>,
 ): UseAgentRouteStateResult<NavigationState, NavigateCommand> {
-  const {
-    navigationKey = "navigation",
-    commandKey = "navigate",
-    writeGlobalNavigation = true,
-    readGlobalCommandFallback = true,
-  } = options;
+  const { navigationKey = "navigation", commandKey = "navigate" } = options;
 
   const location = useLocation();
   const navigate = useNavigate();
   const browserTabId = useMemo(
-    () => normalizeBrowserTabId(options.browserTabId),
+    () =>
+      normalizeBrowserTabId(options.browserTabId) ??
+      (options.browserTabId === undefined ? defaultBrowserTabId() : undefined),
     [options.browserTabId],
   );
+  const writeGlobalNavigation = options.writeGlobalNavigation ?? false;
+  const readGlobalCommandFallback = options.readGlobalCommandFallback ?? false;
 
   useEffect(() => {
     if (options.enabled === false) return;
@@ -494,7 +520,8 @@ export function useAgentRouteState<
     navigationKeys,
     commandKeys,
     commandQueryKey,
-    requestSource: options.requestSource,
+    browserTabId,
+    requestSource: options.requestSource ?? browserTabId,
     commandRefetchInterval: options.refetchInterval,
     enabled: options.enabled,
     keepalive: options.keepalive,

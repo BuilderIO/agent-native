@@ -2,6 +2,7 @@ import { initializeWebMCPPolyfill } from "@mcp-b/webmcp-polyfill";
 
 import { agentNativeToolTitle } from "../shared/agent-mcp-metadata.js";
 import { agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import type {
   AgentNativeClientAction,
   AgentNativeClientActions,
@@ -1133,7 +1134,10 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
         agentNativePath("/_agent-native/webmcp/manifest"),
         {
           credentials: "same-origin",
-          headers: { Accept: "application/json" },
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Browser-Tab": getBrowserTabId(),
+          },
         },
       );
       if (!response.ok) {
@@ -1161,6 +1165,7 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
               headers: {
                 Accept: "application/json",
                 "Content-Type": "application/json",
+                "X-Agent-Native-Browser-Tab": getBrowserTabId(),
               },
               body: JSON.stringify(args),
               ...(runtime.signal ? { signal: runtime.signal } : {}),

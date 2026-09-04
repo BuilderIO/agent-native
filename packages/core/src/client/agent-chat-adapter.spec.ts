@@ -198,6 +198,7 @@ describe("createAgentChatAdapter", () => {
       apiUrl: "/_agent-native/agent-chat",
       tabId: "chat-pending",
       threadId: "thread-pending",
+      browserTabId: "browser-pending",
     });
 
     await drain(
@@ -214,6 +215,9 @@ describe("createAgentChatAdapter", () => {
 
     expect(pendingAtDispatch).toMatchObject({ threadId: "thread-pending" });
     expect(pendingAtDispatch?.turnId).toMatch(/^turn-/);
+    expect(fetchSpy.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "x-agent-native-browser-tab": "browser-pending",
+    });
     expect(getPendingTurn("thread-pending")).toBeNull();
   });
 

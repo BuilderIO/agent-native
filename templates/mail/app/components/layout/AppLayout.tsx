@@ -5,7 +5,10 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
+import {
+  getBrowserTabId,
+  usePerAppChatOpen,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
@@ -315,6 +318,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <AgentSidebar
+      browserTabId={getBrowserTabId()}
       position="right"
       defaultOpen={false}
       agentPageHref="/settings/agent"
@@ -946,7 +950,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const fetchNav = async () => {
       try {
         const res = await fetch(
-          agentNativePath("/_agent-native/application-state/navigation"),
+          agentNativePath(
+            `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+          ),
         );
         if (res.ok) {
           const nav = await res.json();

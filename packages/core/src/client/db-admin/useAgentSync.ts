@@ -24,14 +24,8 @@ import {
   readClientAppState,
   setClientAppState,
 } from "../application-state.js";
+import { getBrowserTabId } from "../browser-tab-id.js";
 import { usePollLoop } from "../use-poll-loop.js";
-
-const NAVIGATION_PATH = agentNativePath(
-  "/_agent-native/application-state/navigation",
-);
-const NAVIGATE_PATH = agentNativePath(
-  "/_agent-native/application-state/navigate",
-);
 
 const POLL_INTERVAL_MS = 1500;
 const TABLE_CONTEXT_KEY = "database-selected-table";
@@ -42,23 +36,15 @@ let cachedSource: string | null = null;
 
 function requestSource(): string | undefined {
   if (typeof window === "undefined") return undefined;
-  if (cachedSource) return cachedSource;
-  try {
-    const existing = window.sessionStorage.getItem("agentnative.tabId");
-    if (existing) {
-      cachedSource = existing;
-      return existing;
-    }
-    const generated =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `tab-${Math.random().toString(36).slice(2)}`;
-    window.sessionStorage.setItem("agentnative.tabId", generated);
-    cachedSource = generated;
-    return generated;
-  } catch {
-    return undefined;
-  }
+  if (!cachedSource) cachedSource = getBrowserTabId();
+  return cachedSource;
+}
+
+function appStatePath(key: string): string {
+  const source = requestSource();
+  return agentNativePath(
+    `/_agent-native/application-state/${key}${source ? `:${source}` : ""}`,
+  );
 }
 
 function headers(extra?: Record<string, string>): Record<string, string> {
@@ -110,7 +96,7 @@ export function useDbAdminAgentSync({
   useEffect(() => {
     if (!enabled) return;
     const state: DbAdminNavigationState = { view: "database", table, mode };
-    fetch(NAVIGATION_PATH, {
+    fetch(appStatePath("navigation"), {
       method: "PUT",
       keepalive: true,
       credentials: "include",
@@ -189,7 +175,8 @@ export function useNavigateConsumer(
 
   usePollLoop(
     async (signal) => {
-      const res = await fetch(NAVIGATE_PATH, {
+      const navigatePath = appStatePath("navigate");
+      const res = await fetch(navigatePath, {
         method: "GET",
         credentials: "include",
         headers: headers(),
@@ -205,7 +192,7 @@ export function useNavigateConsumer(
       ) {
         const target = data.table;
         // Clear the one-shot command before acting so it fires once.
-        fetch(NAVIGATE_PATH, {
+        fetch(navigatePath, {
           method: "DELETE",
           credentials: "include",
           headers: headers({ "X-Agent-Native-CSRF": "1" }),

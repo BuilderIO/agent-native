@@ -46,6 +46,7 @@ import {
   type AssistantChatProps,
   type AssistantChatHandle,
 } from "./AssistantChat.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   buildChatModelGroups,
   type EngineModelGroup,
@@ -868,7 +869,7 @@ export function MultiTabAssistantChat({
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
   restoreActiveThread = true,
-  browserTabId,
+  browserTabId: browserTabIdProp,
   threadUrlSync = false,
   scope = null,
   isolateHistoryByScope = false,
@@ -879,6 +880,17 @@ export function MultiTabAssistantChat({
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
+  const browserTabId =
+    browserTabIdProp ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
+  const tabStoragePart = browserTabId ? `:tab:${browserTabId}` : "";
+  const localStorageNamespace = storageKey
+    ? `${storageKey}${tabStoragePart}`
+    : browserTabId
+      ? `tab:${browserTabId}`
+      : undefined;
+  const keyPrefix = localStorageNamespace ? `:${localStorageNamespace}` : "";
+  const modelSelectionKey = chatModelSelectionStorageKey(localStorageNamespace);
   const contextNamespace = scope
     ? scope.contextKey?.trim() || `scope:${scope.type}:${scope.id}`
     : undefined;
@@ -1026,6 +1038,7 @@ export function MultiTabAssistantChat({
     renameThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
+    browserTabId,
     routeThreadId: threadUrlSyncEnabled
       ? urlThreadId
       : (activeDeepLinkedThreadId ?? undefined),
@@ -1039,10 +1052,6 @@ export function MultiTabAssistantChat({
     },
     [switchThreadState, writeThreadUrl],
   );
-
-  // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
-  const keyPrefix = storageKey ? `:${storageKey}` : "";
-  const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
 
   // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
   const mountedTabsRef = useRef<Set<string>>(new Set());

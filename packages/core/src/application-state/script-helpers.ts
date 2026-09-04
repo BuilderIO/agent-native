@@ -56,8 +56,7 @@ async function resolveSessionId(): Promise<string> {
 export async function readAppState(
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  const sessionId = await resolveSessionId();
-  return appStateGet(sessionId, key);
+  return readUnscopedAppState(requestScopedAppStateKey(key));
 }
 
 export async function writeAppState(
@@ -65,14 +64,14 @@ export async function writeAppState(
   value: Record<string, unknown>,
 ): Promise<void> {
   const sessionId = await resolveSessionId();
-  return appStatePut(sessionId, key, value, {
+  return appStatePut(sessionId, requestScopedAppStateKey(key), value, {
     requestSource: "agent",
   });
 }
 
 export async function deleteAppState(key: string): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateDelete(sessionId, key, {
+  return appStateDelete(sessionId, requestScopedAppStateKey(key), {
     requestSource: "agent",
   });
 }
@@ -83,18 +82,27 @@ export async function compareAndSetAppState(
   nextValue: Record<string, unknown> | null,
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateCompareAndSet(sessionId, key, expectedValue, nextValue, {
-    requestSource: "agent",
-  });
+  return appStateCompareAndSet(
+    sessionId,
+    requestScopedAppStateKey(key),
+    expectedValue,
+    nextValue,
+    { requestSource: "agent" },
+  );
 }
 
 export async function compareAndSetManyAppState(
   operations: readonly AppStateCompareAndSetOperation[],
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
-  return appStateCompareAndSetMany(sessionId, operations, {
-    requestSource: "agent",
-  });
+  return appStateCompareAndSetMany(
+    sessionId,
+    operations.map((operation) => ({
+      ...operation,
+      key: requestScopedAppStateKey(operation.key),
+    })),
+    { requestSource: "agent" },
+  );
 }
 
 export async function listAppState(
@@ -112,6 +120,12 @@ export async function deleteAppStateByPrefix(prefix: string): Promise<number> {
 }
 
 const SAFE_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+const TAB_SCOPED_AMBIENT_KEYS = new Set([
+  "navigation",
+  "navigate",
+  "__url__",
+  "__set_url__",
+]);
 
 function normalizeBrowserTabId(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -121,7 +135,7 @@ function normalizeBrowserTabId(value: unknown): string | null {
 
 /**
  * Browser tab id for the current request, if the client sent one. Used to
- * scope ambient UI state (navigation, selection, etc.) so a chat from one tab
+ * scope ambient navigation state so a chat from one tab
  * reads that tab's state instead of whichever tab wrote the global key last.
  */
 export function getCurrentRequestBrowserTabId(): string | null {
@@ -141,22 +155,35 @@ export function appStateKeyForBrowserTab(
   return normalized ? `${key}:${normalized}` : key;
 }
 
+function requestScopedAppStateKey(key: string): string {
+  if (!TAB_SCOPED_AMBIENT_KEYS.has(key)) return key;
+  return appStateKeyForBrowserTab(key, getCurrentRequestBrowserTabId());
+}
+
+async function readUnscopedAppState(
+  key: string,
+): Promise<Record<string, unknown> | null> {
+  const sessionId = await resolveSessionId();
+  return appStateGet(sessionId, key);
+}
+
 /**
  * Read application state scoped to the requesting browser tab. Reads the
- * tab-scoped key first and (by default) falls back to the global key so
- * CLI/external agents and pre-scoping clients keep working.
+ * tab-scoped key first. Global fallback is opt-in when a browser tab is
+ * present, so a missing tab snapshot cannot silently expose another tab.
  */
 export async function readAppStateForCurrentTab(
   key: string,
   options?: { fallbackToGlobal?: boolean },
 ): Promise<Record<string, unknown> | null> {
-  const tabKey = appStateKeyForBrowserTab(key, getCurrentRequestBrowserTabId());
+  const browserTabId = getCurrentRequestBrowserTabId();
+  const tabKey = appStateKeyForBrowserTab(key, browserTabId);
   if (tabKey !== key) {
     const scoped = await readAppState(tabKey).catch(() => null);
     if (scoped) return scoped;
-    if (options?.fallbackToGlobal === false) return null;
+    if (options?.fallbackToGlobal !== true) return null;
   }
-  return readAppState(key);
+  return readUnscopedAppState(key);
 }
 
 /** Write application state scoped to the requesting browser tab. */
