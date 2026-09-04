@@ -1118,11 +1118,13 @@ async function waitForChatPage(
       );
       await chat.waitFor({ state: "visible", timeout: 15_000 });
       await modelButton.waitFor({ state: "visible", timeout: 30_000 });
+      await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
       await waitForViteDepsQuiet(running.viteReload, running.logs, {
         timeoutMs: 60_000,
       });
       await chat.waitFor({ state: "visible", timeout: 8_000 });
       await modelButton.waitFor({ state: "visible", timeout: 8_000 });
+      await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
       discardSettledNavigationAborts(httpErrors);
       return;
     } catch (err) {
