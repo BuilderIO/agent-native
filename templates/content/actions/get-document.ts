@@ -4,7 +4,7 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { roleSatisfies } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { getDb } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
