@@ -2,6 +2,7 @@ import { getAppBasePath } from "@agent-native/core/server";
 import { resolveSsrCacheHeaders } from "@agent-native/core/server/ssr-handler";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
@@ -370,7 +371,11 @@ function renderFormPage(
   const faviconPath = `${appBasePath}/favicon.svg`;
   const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
     form.slug || form.id,
-  )}/og.png${form.updatedAt ? `?v=${encodeURIComponent(form.updatedAt)}` : ""}`;
+  )}/og.png?v=${encodeURIComponent(
+    [form.updatedAt, AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER]
+      .filter(Boolean)
+      .join("-") || AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  )}`;
   const ogImageUrl = origin
     ? new URL(ogImagePath, origin).toString()
     : ogImagePath;
