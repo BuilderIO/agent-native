@@ -11,6 +11,7 @@ import {
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
   metadataUpdatesWithPendingTitle,
+  pageEditorSessionKey,
   positionAnchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
   shouldAwaitAuthoritativeDocument,
@@ -456,7 +457,7 @@ describe("document editor layout", () => {
     expect(source).toContain("showInlineComments");
   });
 
-  it("moves page metadata to Info and omits the body below full-page databases", () => {
+  it("keeps metadata in Info while reusing canonical properties inline in previews", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
@@ -483,7 +484,24 @@ describe("document editor layout", () => {
       /<DocumentBlockFields[\s\S]*?databaseId=\{[\s\S]*?databaseId \?\?[\s\S]*?document\.databaseMembership\.databaseId[\s\S]*?databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
     expect(source).not.toContain("<DescriptionField");
-    expect(source).not.toContain("<DocumentProperties");
+    expect(source).toContain("<DocumentProperties");
+    expect(source).toContain('host === "preview" &&');
+  });
+
+  it("keys editor sessions by page and explicit membership context", () => {
+    expect(
+      pageEditorSessionKey({
+        documentId: "page",
+        databaseId: "database-a",
+        databaseDocumentId: "membership-a",
+      }),
+    ).not.toBe(
+      pageEditorSessionKey({
+        documentId: "page",
+        databaseId: "database-b",
+        databaseDocumentId: "membership-b",
+      }),
+    );
   });
 
   it("keeps the document toolbar in normal layout flow", () => {
@@ -555,9 +573,57 @@ describe("document editor layout", () => {
     expect(source).toContain("handleBackgroundSaveError");
     expect(source).toContain("const canEditRef = useRef(canEdit)");
     expect(source).toContain(
-      "if (!options.allowQueuedSave && !canEditRef.current) return document",
+      "if (!options.allowQueuedSave && !canEditRef.current)",
+    );
+    expect(source).toContain(
+      'throw new Error(t("editor.pageSaveBeforeNavigationFailed"))',
     );
     expect(source).toContain("if (!canEditRef.current) return");
+  });
+
+  it("exports a fail-closed route-neutral page session barrier", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("export function PageEditorSurface");
+    expect(source).toContain("document.canEdit === true");
+    expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
+    expect(source).toContain("flushDocumentPropertyWrites(documentId)");
+    expect(source).toContain(
+      "await editorPersistenceControllerRef.current?.flushLatest()",
+    );
+    expect(
+      source.indexOf("while (pendingPersistenceRef.current.size > 0)"),
+    ).toBeLessThan(
+      source.indexOf(
+        "await editorPersistenceControllerRef.current?.flushLatest()",
+      ),
+    );
+    expect(source).toContain(
+      "result.content === lastSavedContentRef.current.content",
+    );
+    expect(source).toContain("if (!primaryResult.value.contentPersisted)");
+    expect(source).toContain("pendingPersistenceRef.current.size > 0");
+    expect(source).toContain("onSessionChangeRef");
+    expect(source).toContain("documentLayoutRef.current?.querySelector");
+  });
+
+  it("routes global Escape handling to the nearest nested page editor", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("const pathOwner = path.find(");
+    expect(source).toContain(
+      'activeElement.closest<HTMLElement>("[data-page-editor-owner]")',
+    );
+    expect(source).toContain(
+      "eventOwner?.dataset.pageEditorOwner === pageEditorOwner",
+    );
+    expect(source).not.toContain("path.includes(editorRoot)");
   });
 
   it("renders viewers from SQL while retaining scoped presence", () => {

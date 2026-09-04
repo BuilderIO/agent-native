@@ -208,13 +208,10 @@ import {
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
-  documentQueryFilter,
   type DocumentUpdateResult,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
-  usePreviewDocumentDraft,
-  useUpdatePreviewDocumentDraft,
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -226,10 +223,6 @@ import {
   builderBodyHydrationDisplayHydratedCount,
   databaseItemBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
-  previewBodyHydrationIsPending,
-  previewBodyHydrationTerminalError,
-  previewDraftConflictsWithHydratedBody,
-  shouldIgnorePreviewEmptyNormalization,
 } from "../body-hydration";
 import {
   builderBodyHydrationMutationMadeProgress,
@@ -243,6 +236,7 @@ import {
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
 import { DocumentBlockFields } from "../DocumentBlockFields";
+import { PageEditorSurface, type PageEditorSession } from "../DocumentEditor";
 import {
   AddProperty,
   DocumentProperties,
@@ -266,18 +260,11 @@ import {
 } from "../DocumentProperties";
 import { EmojiPicker } from "../EmojiPicker";
 import {
-  createPreviewDocumentSaveController,
   deferredPreviewDocumentSave,
   type PreviewDocumentPayload,
-  type PreviewDocumentSaveAdapter,
   type PreviewDocumentSaveDeferred,
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
-import {
-  acquirePreviewDocumentSaveController,
-  peekPreviewDocumentSaveController,
-  releasePreviewDocumentSaveController,
-} from "../previewDocumentSaveRegistry";
 import { VisualEditor } from "../VisualEditor";
 import type { DatabaseExportContext } from "./DatabaseExportDialog";
 import { DatabaseFormView } from "./FormView";
@@ -886,9 +873,53 @@ function DatabaseTable({
     () => databaseAttachedBuilderSources(sources, source),
     [sources, source],
   );
-  const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
-    null,
+  const [previewDocumentId, setPreviewDocumentIdState] = useState<
+    string | null
+  >(null);
+  const previewSessionRef = useRef<PageEditorSession | null>(null);
+  const previewTransitionRef = useRef(false);
+  const [previewTransitionPending, setPreviewTransitionPending] =
+    useState(false);
+  const handlePreviewSessionChange = useCallback(
+    (session: PageEditorSession | null) => {
+      previewSessionRef.current = session;
+    },
+    [],
   );
+  function runPreviewTransition(action: () => void) {
+    if (previewTransitionRef.current) return;
+    const session = previewSessionRef.current;
+    if (!session) {
+      action();
+      return;
+    }
+    previewTransitionRef.current = true;
+    setPreviewTransitionPending(true);
+    void session
+      .flush()
+      .then(() => {
+        previewTransitionRef.current = false;
+        setPreviewTransitionPending(false);
+        action();
+      })
+      .catch((error: unknown) => {
+        previewTransitionRef.current = false;
+        setPreviewTransitionPending(false);
+        toast.error(dbText("failedToSavePagePreview"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : dbText("somethingWentWrong"),
+        });
+      });
+  }
+  function setPreviewDocumentId(id: string | null) {
+    if (id === previewDocumentId) return;
+    runPreviewTransition(() => {
+      previewSessionRef.current = null;
+      setPreviewDocumentIdState(id);
+    });
+  }
   const [createdPreviewItem, setCreatedPreviewItem] =
     useState<ContentDatabaseItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -1191,11 +1222,20 @@ function DatabaseTable({
     activeFilters.length === 0 &&
     !databaseGroupProperty;
   const hasResultConstraints = !!searchQuery.trim() || activeFilters.length > 0;
-  const previewItem = databasePreviewItem(
+  const lastPreviewItemRef = useRef<ContentDatabaseItem | null>(null);
+  const fetchedPreviewItem = databasePreviewItem(
     items,
     previewDocumentId,
     createdPreviewItem,
   );
+  const previewItem =
+    fetchedPreviewItem ??
+    (lastPreviewItemRef.current?.document.id === previewDocumentId
+      ? lastPreviewItemRef.current
+      : null);
+  useEffect(() => {
+    lastPreviewItemRef.current = previewItem;
+  }, [previewItem]);
   const previousPreviewItem = previewItem
     ? databaseItemPreviewNeighbor(
         screenVisibleItems,
@@ -1668,6 +1708,10 @@ function DatabaseTable({
   }
 
   function openItemPage(item: ContentDatabaseItem) {
+    runPreviewTransition(() => openItemPageNow(item));
+  }
+
+  function openItemPageNow(item: ContentDatabaseItem) {
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
@@ -3142,6 +3186,8 @@ function DatabaseTable({
 
       <DatabaseItemPreviewSheet
         item={previewItem}
+        transitionPending={previewTransitionPending}
+        onSessionChange={handlePreviewSessionChange}
         previousItem={previousPreviewItem}
         nextItem={nextPreviewItem}
         position={previewPosition}
@@ -3150,9 +3196,12 @@ function DatabaseTable({
         focusTitle={previewTitleFocusDocumentId === previewItem?.document.id}
         onOpenChange={(open) => {
           if (!open) {
-            setPreviewDocumentId(null);
-            setPreviewTitleFocusDocumentId(null);
-            setCreatedPreviewItem(null);
+            runPreviewTransition(() => {
+              previewSessionRef.current = null;
+              setPreviewDocumentIdState(null);
+              setPreviewTitleFocusDocumentId(null);
+              setCreatedPreviewItem(null);
+            });
           }
         }}
         onPreviewItem={(item) => {
@@ -3161,7 +3210,7 @@ function DatabaseTable({
         }}
         onTitleFocused={() => setPreviewTitleFocusDocumentId(null)}
         onOpenPage={(item) => {
-          openItemPage(item);
+          runPreviewTransition(() => openItemPageNow(item));
         }}
       />
 
@@ -4362,6 +4411,8 @@ function DatabaseItemPreviewSheet({
   onPreviewItem,
   onTitleFocused,
   onOpenPage,
+  transitionPending,
+  onSessionChange,
 }: {
   item: ContentDatabaseItem | null;
   previousItem: ContentDatabaseItem | null;
@@ -4370,33 +4421,52 @@ function DatabaseItemPreviewSheet({
   databaseDocumentId: string;
   open: boolean;
   focusTitle: boolean;
+  transitionPending: boolean;
+  onSessionChange: (session: PageEditorSession | null) => void;
   onOpenChange: (open: boolean) => void;
   onPreviewItem?: (item: ContentDatabaseItem) => void;
   onTitleFocused?: () => void;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
       <SheetContent
         side="right"
         showOverlay={false}
-        onInteractOutside={(event) => {
-          if (isDatabasePreviewPortalInteraction(event.target)) {
+        onOpenAutoFocus={() => {
+          const active = window.document.activeElement;
+          returnFocusRef.current =
+            active instanceof HTMLElement ? active : null;
+        }}
+        onCloseAutoFocus={(event) => {
+          if (returnFocusRef.current?.isConnected) {
             event.preventDefault();
+            returnFocusRef.current.focus();
           }
+        }}
+        onInteractOutside={(event) => {
+          if (
+            transitionPending ||
+            isDatabasePreviewPortalInteraction(event.target)
+          )
+            event.preventDefault();
         }}
         className="flex w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[min(72vw,720px)] sm:!max-w-none lg:w-[50vw] lg:!max-w-[860px]"
       >
         {item ? (
           <DatabaseItemPreview
+            key={`${item.databaseId}:${item.id}:${item.document.id}`}
             item={item}
             databaseDocumentId={databaseDocumentId}
             previousItem={previousItem}
             nextItem={nextItem}
             position={position}
             focusTitle={focusTitle}
-            onPreviewItem={onPreviewItem}
             onTitleFocused={onTitleFocused}
+            transitionPending={transitionPending}
+            onSessionChange={onSessionChange}
+            onPreviewItem={onPreviewItem}
             onClose={() => onOpenChange(false)}
             onOpenPage={() => onOpenPage(item)}
           />
@@ -4415,42 +4485,9 @@ function DatabaseItemPreviewSheet({
 
 function isDatabasePreviewPortalInteraction(target: EventTarget | null) {
   if (!(target instanceof Element)) return false;
-  return !!target.closest("[data-database-preview-portal]");
-}
-
-function previewPayloadsEqual(
-  a: {
-    title: string;
-    content: string;
-    loadedUpdatedAt?: string;
-    loadedContentWasEmpty?: boolean;
-  },
-  b: {
-    title: string;
-    content: string;
-    loadedUpdatedAt?: string;
-    loadedContentWasEmpty?: boolean;
-  },
-) {
-  return a.title === b.title && a.content === b.content;
-}
-
-function retainedPreviewPayload(
-  documentId: string,
-  serverPayload: {
-    title: string;
-    content: string;
-    loadedUpdatedAt?: string;
-    loadedContentWasEmpty?: boolean;
-  },
-) {
-  const controller = peekPreviewDocumentSaveController(documentId);
-  if (!controller) return null;
-  const dirty = !previewPayloadsEqual(controller.pending, controller.lastSaved);
-  const savedAheadOfServer =
-    controller.hasSavedLocally &&
-    !previewPayloadsEqual(controller.lastSaved, serverPayload);
-  return dirty || savedAheadOfServer ? controller.pending : null;
+  return !!target.closest(
+    '[data-database-preview-portal], [data-radix-popper-content-wrapper], [role="dialog"], [role="alertdialog"]',
+  );
 }
 
 function DatabaseItemPreview({
@@ -4464,6 +4501,8 @@ function DatabaseItemPreview({
   onTitleFocused,
   onClose,
   onOpenPage,
+  transitionPending,
+  onSessionChange,
 }: {
   item: ContentDatabaseItem;
   previousItem: ContentDatabaseItem | null;
@@ -4471,6 +4510,8 @@ function DatabaseItemPreview({
   position: { index: number; total: number } | null;
   databaseDocumentId: string;
   focusTitle: boolean;
+  transitionPending: boolean;
+  onSessionChange: (session: PageEditorSession | null) => void;
   onPreviewItem?: (item: ContentDatabaseItem) => void;
   onTitleFocused?: () => void;
   onClose: () => void;
@@ -4478,696 +4519,79 @@ function DatabaseItemPreview({
 }) {
   const queryClient = useQueryClient();
   const contentSpaces = useContentSpaces();
-  const updateDocument = useUpdateDocument();
   const deleteDocument = useDeleteDocument();
   const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
-  const { data: document, isLoading } = useDocument(item.document.id);
-  const { data: persistedPreviewDraft } = usePreviewDocumentDraft(
-    item.document.id,
+  const { data: document } = useDocument(item.document.id, {
+    databaseId: item.databaseId,
+    databaseDocumentId,
+  });
+  const previewTitle = document?.title || databaseItemPreviewTitle(item);
+  const canEdit = document?.canEdit === true;
+  const sessionRef = useRef<PageEditorSession | null>(null);
+  const handleSessionChange = useCallback(
+    (session: PageEditorSession | null) => {
+      sessionRef.current = session;
+      onSessionChange(session);
+    },
+    [onSessionChange],
   );
-  const updatePreviewDraft = useUpdatePreviewDocumentDraft();
-  const previewDocument = document ?? item.document;
-  const previewTitle = databaseItemPreviewTitle(item);
-  const [bodyDraftConflict, setBodyDraftConflict] = useState<{
-    documentId: string;
-    serverPayload: {
-      title: string;
-      content: string;
-      loadedUpdatedAt?: string;
-      loadedContentWasEmpty?: boolean;
-    };
-  } | null>(null);
-  const activeBodyDraftConflict =
-    bodyDraftConflict?.documentId === item.document.id
-      ? bodyDraftConflict
-      : null;
-  const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
-  const canManage = document?.canManage ?? item.document.canManage ?? false;
-  const sourceBackedPreview = Boolean(
-    item.bodyHydration ||
-    item.document.databaseMembership?.sourceId ||
-    document?.databaseMembership?.sourceId,
-  );
-  const bodyHydrationPending =
-    (sourceBackedPreview && (isLoading || !document)) ||
-    previewBodyHydrationIsPending({
-      item,
-      document,
-    });
-  const bodyHydrationError = previewBodyHydrationTerminalError({
-    item,
-    document,
-  });
-  const previewCanEdit =
-    canEdit && !bodyHydrationPending && !activeBodyDraftConflict;
-  const location = useLocation();
-  // Seed the displayed title/content from a RETAINED dirty controller's pending
-  // edit if one exists for this doc (reopen-before-evict), so an unsaved peek
-  // edit is restored on remount instead of showing stale server content; else
-  // from the server/item value.
-  const [localTitle, setLocalTitle] = useState(() => {
-    const retained = retainedPreviewPayload(item.document.id, {
-      title: item.document.title,
-      content: item.document.content,
-      loadedUpdatedAt: item.document.updatedAt,
-    });
-    return retained?.title ?? item.document.title;
-  });
-  const [localContent, setLocalContent] = useState(() => {
-    const retained = retainedPreviewPayload(item.document.id, {
-      title: item.document.title,
-      content: item.document.content,
-      loadedUpdatedAt: item.document.updatedAt,
-    });
-    return retained?.content ?? item.document.content;
-  });
-  const [localIcon, setLocalIcon] = useState(item.document.icon);
-  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [openingFullPage, setOpeningFullPage] = useState(false);
-  const titleInputRef = useRef<HTMLTextAreaElement>(null);
-  const removesFavoriteMembership =
-    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
   const workspaceSpace = contentSpaces.data?.spaces.find(
     (space) => space.catalogDocumentId === item.document.id,
   );
   const isWorkspaceCatalog =
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
-  const canDeleteWorkspace =
-    isWorkspaceCatalog && workspaceSpace?.kind === "user";
-
-  // The peek's primary title+body save runs through a flush-on-release controller
-  // so a pending debounced edit is PERSISTED — not dropped — when the row
-  // switches, the editor unmounts, or the sheet closes / Open-page navigates.
-  //
-  // ONE CONTROLLER PER DOCUMENT ID (mirrors the additional Blocks fields): the
-  // peek is a SINGLE component instance whose `item` prop changes on row-switch.
-  // Rather than rebasing one controller's target id across rows (which produced a
-  // class of timing races), we ACQUIRE a per-doc controller for the current row
-  // and RELEASE it on switch. A controller's doc id is fixed for its life, so a
-  // flush always lands on the correct document and a stale completion can only
-  // ever touch its own row's state. See previewDocumentSaveRegistry.
-  const updateDocumentRef = useRef(updateDocument);
-  updateDocumentRef.current = updateDocument;
-  const bodyHydrationPendingRef = useRef(bodyHydrationPending);
-  bodyHydrationPendingRef.current = bodyHydrationPending;
-  const draftVersionsRef = useRef<Map<string, number | null>>(new Map());
-  const draftWriteChainsRef = useRef<Map<string, Promise<void>>>(new Map());
-  const draftSaveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
-  const updatePreviewDraftRef = useRef(updatePreviewDraft);
-  updatePreviewDraftRef.current = updatePreviewDraft;
-  // Doc ids that have been deleted in this peek's lifetime. A pending save must
-  // never resurrect a deleted document, so dispatch is suppressed for these.
-  const deletedIdsRef = useRef<Set<string>>(new Set());
-
-  const documentId = item.document.id;
-
-  function enqueueDraftWrite(
-    controller: ReturnType<typeof createPreviewDocumentSaveController>,
-    operation: "upsert" | "delete",
-    expectedPayload?: { title: string; content: string },
-    allowCreateRetry = true,
-  ) {
-    const snapshot = controller.draftSnapshot();
-    const previous =
-      draftWriteChainsRef.current.get(documentId) ?? Promise.resolve();
-    const next = previous
-      .catch(() => undefined)
-      .then(async () => {
-        const expectedVersion =
-          draftVersionsRef.current.get(documentId) ?? null;
-        if (operation === "delete") {
-          if (expectedVersion === null) return;
-          if (!expectedPayload) return;
-          const result = await updatePreviewDraftRef.current.mutateAsync({
-            operation: "delete",
-            documentId,
-            expectedVersion,
-            expectedTitle: expectedPayload.title,
-            expectedContent: expectedPayload.content,
-          });
-          if (result.status === "deleted")
-            draftVersionsRef.current.set(documentId, null);
-          else if (result.draft) {
-            draftVersionsRef.current.set(documentId, result.draft.version);
-          } else {
-            // Another tab already removed the row. Treat the stale delete as
-            // converged instead of retaining a version that can never match.
-            draftVersionsRef.current.set(documentId, null);
-          }
-          return;
-        }
-        const result = await updatePreviewDraftRef.current.mutateAsync({
-          operation: "upsert",
-          documentId,
-          expectedVersion,
-          draft: {
-            title: snapshot.pending.title,
-            content: snapshot.pending.content,
-            baseDocumentUpdatedAt: snapshot.pending.loadedUpdatedAt ?? null,
-            loadedContentWasEmpty:
-              snapshot.pending.loadedContentWasEmpty === true,
-            deferredReason: snapshot.deferredReason,
-          },
-        });
-        if (result.status === "saved" && result.draft) {
-          draftVersionsRef.current.set(documentId, result.draft.version);
-        } else if (result.draft) {
-          draftVersionsRef.current.set(documentId, result.draft.version);
-        } else {
-          // A competing tab deleted the version we tried to update. Reset to
-          // create mode and enqueue the latest pending payload once; keeping
-          // the stale version would make every later upsert conflict forever.
-          draftVersionsRef.current.set(documentId, null);
-          const recovery = previewDraftMissingCasRecovery({
-            operation: "upsert",
-            allowCreateRetry,
-          });
-          if (recovery === "retry-create") {
-            enqueueDraftWrite(controller, "upsert", undefined, false);
-          } else {
-            toast.error(dbText("failedToSavePagePreview"), {
-              description: dbText("somethingWentWrong"),
-            });
-          }
-        }
-      });
-    draftWriteChainsRef.current.set(
-      documentId,
-      next.catch((error) => {
-        toast.error(dbText("failedToSavePagePreview"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : dbText("somethingWentWrong"),
-        });
-      }),
-    );
-  }
-
-  function scheduleDraftWrite(
-    controller: ReturnType<typeof createPreviewDocumentSaveController>,
-  ) {
-    const existing = draftSaveTimersRef.current.get(documentId);
-    if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      draftSaveTimersRef.current.delete(documentId);
-      enqueueDraftWrite(controller, "upsert");
-    }, 250);
-    draftSaveTimersRef.current.set(documentId, timer);
-  }
-
-  // Adapters are replaced whenever a document is acquired. A controller can
-  // outlive one preview mount while its final flush settles, but it must never
-  // retain that old mount's hydration refs, mutation callback, or conflict UI.
-  const makeSaveAdapter = (): PreviewDocumentSaveAdapter => ({
-    save: (id, payload, baseline) =>
-      new Promise((resolve, reject) => {
-        // A just-deleted doc must not be re-dispatched (resurrection guard).
-        if (deletedIdsRef.current.has(id)) {
-          resolve(undefined);
-          return;
-        }
-        const titleChanged = payload.title !== baseline?.title;
-        const contentChanged = payload.content !== baseline?.content;
-        if (bodyHydrationPendingRef.current && contentChanged) {
-          resolve(deferredPreviewDocumentSave());
-          return;
-        }
-        updateDocumentRef.current.mutate(
-          {
-            id,
-            ...(titleChanged ? { title: payload.title } : {}),
-            ...(contentChanged
-              ? {
-                  content: payload.content,
-                  loadedUpdatedAt: payload.loadedUpdatedAt,
-                  loadedContentWasEmpty: payload.loadedContentWasEmpty,
-                }
-              : {}),
-            ...(contentChanged && payload.loadedUpdatedAt
-              ? { baseUpdatedAt: payload.loadedUpdatedAt }
-              : {}),
-          },
-          {
-            onSuccess: (result) => {
-              resolve(
-                previewDocumentSaveResult({
-                  result,
-                  payload,
-                  baseline,
-                  contentChanged,
-                }),
-              );
-            },
-            onError: reject,
-          },
-        );
-      }),
-    onSaved: (persistedPayload) => {
-      const controller = peekPreviewDocumentSaveController(documentId);
-      if (controller) enqueueDraftWrite(controller, "delete", persistedPayload);
-    },
-    onError: (err) => {
-      toast.error(dbText("failedToSavePagePreview"), {
-        description:
-          err instanceof Error ? err.message : dbText("somethingWentWrong"),
-      });
-    },
-    onDraftConflict: (snapshot) => {
-      setBodyDraftConflict({
-        documentId,
-        serverPayload: {
-          title: snapshot.pending.title,
-          content: snapshot.pending.content,
-          loadedUpdatedAt: snapshot.pending.loadedUpdatedAt,
-          loadedContentWasEmpty: snapshot.pending.loadedContentWasEmpty,
-        },
-      });
-    },
-  });
-
-  const makeController = () =>
-    createPreviewDocumentSaveController({
-      documentId,
-      initial: {
-        title: item.document.title,
-        content: item.document.content,
-        loadedUpdatedAt: item.document.updatedAt,
-        loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-          item.document.content,
-        ),
-      },
-      ...makeSaveAdapter(),
-    });
-
-  // Acquire the controller for the current row, and release it on row-switch /
-  // unmount. Release flush-then-evicts: the OLD row's latest dirty payload is
-  // dispatched SYNCHRONOUSLY (bound to the OLD doc id) before the new row's
-  // controller takes over, so a pending edit is persisted, not dropped, and never
-  // retargeted. A quick reopen before the flush settles reuses the live instance.
-  // The current controller is held in a ref so the change handlers reach it
-  // synchronously.
-  const saveControllerRef = useRef<ReturnType<typeof makeController> | null>(
-    null,
-  );
-  useEffect(() => {
-    seedDatabaseItemDocumentCaches(queryClient, item);
-  }, [item, queryClient]);
-
-  useEffect(() => {
-    setOpeningFullPage(false);
-  }, [location.key]);
-
-  useEffect(() => {
-    if (!openingFullPage) return;
-    const timer = window.setTimeout(() => {
-      setOpeningFullPage(false);
-      toast.error(dbText("somethingWentWrong"));
-    }, 8000);
-    return () => window.clearTimeout(timer);
-  }, [openingFullPage]);
-
-  useEffect(() => {
-    saveControllerRef.current = acquirePreviewDocumentSaveController(
-      documentId,
-      makeController,
-      (controller) => controller.replaceSaveAdapter(makeSaveAdapter()),
-    );
-    return () => {
-      const controller = saveControllerRef.current;
-      const draftTimer = draftSaveTimersRef.current.get(documentId);
-      if (draftTimer) {
-        clearTimeout(draftTimer);
-        draftSaveTimersRef.current.delete(documentId);
-      }
-      if (
-        controller &&
-        !previewPayloadsEqual(controller.pending, controller.lastSaved)
-      ) {
-        enqueueDraftWrite(controller, "upsert");
-      }
-      saveControllerRef.current = null;
-      releasePreviewDocumentSaveController(documentId);
-    };
-    // makeController is rebuilt every render but intentionally not a dep: the
-    // registry only invokes it on the FIRST acquire of a doc id, and the doc id
-    // (the registry key) is the only thing that should drive re-acquire.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId]);
-
-  useEffect(() => {
-    const draft = persistedPreviewDraft?.draft;
-    if (!draft) {
-      if (!draftVersionsRef.current.has(documentId)) {
-        draftVersionsRef.current.set(documentId, null);
-      }
-      return;
-    }
-    const previouslyExpectedVersion =
-      draftVersionsRef.current.get(documentId) ?? null;
-    draftVersionsRef.current.set(documentId, draft.version);
-    const controller = peekPreviewDocumentSaveController(documentId);
-    if (!controller) return;
-    const controllerDirty = !previewPayloadsEqual(
-      controller.pending,
-      controller.lastSaved,
-    );
-    const snapshot = {
-      lastSaved: controller.lastSaved,
-      pending: {
-        title: draft.title,
-        content: draft.content,
-        loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
-        loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
-      },
-      deferredReason:
-        draft.deferredReason === "hydration" ||
-        draft.deferredReason === "conflict"
-          ? draft.deferredReason
-          : null,
-    } as const;
-    // A poll tick simply confirming a version this client's own debounced
-    // write already advanced the ref to is not an external change — it is
-    // this client's typing racing ahead of its own last round trip. Comparing
-    // that echo against the still-live `pending` would flag a conflict on
-    // almost every keystroke. Only treat the draft as having moved out from
-    // under the user when its version is newer than what this client itself
-    // last recorded.
-    const draftAdvancedExternally =
-      previouslyExpectedVersion !== null &&
-      draft.version > previouslyExpectedVersion;
-    if (controllerDirty) {
-      if (
-        draftAdvancedExternally &&
-        previewDraftNeedsConflict({
-          returnedDraft: draft,
-          pending: controller.pending,
-        })
-      ) {
-        controller.notifyDraftConflict(snapshot);
-      } else {
-        setBodyDraftConflict((current) =>
-          current?.documentId === documentId ? null : current,
-        );
-      }
-      return;
-    }
-    controller.restoreDraft(snapshot);
-    setLocalTitle(snapshot.pending.title);
-    setLocalContent(snapshot.pending.content);
-    if (snapshot.deferredReason === "conflict") {
-      controller.notifyDraftConflict(snapshot);
-    }
-  }, [documentId, persistedPreviewDraft?.draft]);
-
-  // Sync displayed state to the current row, and adopt fresh server content
-  // (e.g. an agent edit) as the controller's new confirmed baseline. mark()
-  // touches only THIS row's controller — never another row's — because the
-  // controller's doc id is fixed. The acquire effect above runs first, so the
-  // controller for `documentId` is registered before this fires.
-  useEffect(() => {
-    const nextTitle = document?.title ?? item.document.title;
-    const nextContent = document?.content ?? item.document.content;
-    const nextIcon = document?.icon ?? item.document.icon;
-    const nextLoadedUpdatedAt = document?.updatedAt ?? item.document.updatedAt;
-    // Icon isn't tracked by the title/content save controller, so it can always
-    // follow the server.
-    setLocalIcon(nextIcon);
-    const controller = peekPreviewDocumentSaveController(documentId);
-    const serverPayload = {
-      title: nextTitle,
-      content: nextContent,
-      loadedUpdatedAt: nextLoadedUpdatedAt,
-      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(nextContent),
-    };
-    const dirty =
-      !!controller &&
-      !previewPayloadsEqual(controller.pending, controller.lastSaved);
-    const savedAheadOfServer =
-      !!controller &&
-      controller.hasSavedLocally &&
-      !previewPayloadsEqual(controller.lastSaved, serverPayload);
-    const staleEmptyPendingOverFreshServer =
-      !!controller &&
-      dirty &&
-      controller.lastSaved.loadedContentWasEmpty === true &&
-      isEffectivelyEmptyDocumentContent(controller.pending.content) &&
-      !isEffectivelyEmptyDocumentContent(nextContent);
-    const hydratedBodyConflictsWithDraft =
-      !!controller &&
-      dirty &&
-      (controller.deferredReason === "conflict" ||
-        previewDraftConflictsWithHydratedBody({
-          loadedContent: controller.lastSaved.content,
-          loadedUpdatedAt: controller.lastSaved.loadedUpdatedAt,
-          loadedContentWasEmpty: controller.lastSaved.loadedContentWasEmpty,
-          pendingContent: controller.pending.content,
-          hydratedContent: nextContent,
-          hydratedUpdatedAt: nextLoadedUpdatedAt,
-        }));
-    // Only adopt the server's title/content — into BOTH the displayed editor
-    // state and the controller baseline — when the user hasn't typed something
-    // newer on this row. If a dirty in-progress edit exists, preserve it: don't
-    // clobber the visible text (the controller already holds the unsaved edit,
-    // so nothing is lost, but the editor must keep showing what the user typed).
-    if (hydratedBodyConflictsWithDraft) {
-      setBodyDraftConflict({ documentId, serverPayload });
-      setLocalTitle(controller.pending.title);
-      setLocalContent(controller.pending.content);
-    } else if (
-      staleEmptyPendingOverFreshServer ||
-      (!dirty && !savedAheadOfServer)
-    ) {
-      setLocalTitle(nextTitle);
-      setLocalContent(nextContent);
-      controller?.mark(serverPayload);
-    } else if (controller) {
-      // A dirty in-progress edit or a clean local save that the query has not
-      // echoed yet is newer than stale server props.
-      setLocalTitle(controller.pending.title);
-      setLocalContent(controller.pending.content);
-    }
-  }, [
-    documentId,
-    document?.id,
-    document?.title,
-    document?.content,
-    document?.icon,
-    document?.updatedAt,
-    item.document.title,
-    item.document.content,
-    item.document.icon,
-    item.document.updatedAt,
-  ]);
-
-  // If hydration began after a keystroke, the controller deferred that save
-  // without discarding it. Retry once the authoritative document is ready —
-  // unless a non-empty Builder body arrived over an empty baseline. In that
-  // conflict case the draft remains dirty in the registry instead of silently
-  // overwriting either side; the update action's CAS is a final fail-closed
-  // guard if the source changed between this check and the write.
-  useEffect(() => {
-    if (bodyHydrationPending || !document) return;
-    const controller = peekPreviewDocumentSaveController(documentId);
-    if (!controller || controller.deferredReason !== "hydration") return;
-    if (
-      previewDraftConflictsWithHydratedBody({
-        loadedContent: controller.lastSaved.content,
-        loadedUpdatedAt: controller.lastSaved.loadedUpdatedAt,
-        loadedContentWasEmpty: controller.lastSaved.loadedContentWasEmpty,
-        pendingContent: controller.pending.content,
-        hydratedContent: document.content,
-        hydratedUpdatedAt: document.updatedAt,
-      })
-    ) {
-      return;
-    }
-    void controller.flush();
-  }, [
-    bodyHydrationPending,
-    document?.content,
-    document?.updatedAt,
-    documentId,
-  ]);
-
-  useEffect(() => {
-    if (!focusTitle || !previewCanEdit || isLoading || !document) return;
-
-    const frame = requestAnimationFrame(() => {
-      titleInputRef.current?.focus();
-      titleInputRef.current?.select();
-      onTitleFocused?.();
-    });
-
-    return () => cancelAnimationFrame(frame);
-  }, [document, focusTitle, isLoading, onTitleFocused, previewCanEdit]);
-
-  function handleTitleChange(nextTitle: string) {
-    setLocalTitle(nextTitle);
-    if (!previewCanEdit || !document) return;
-    const controller = saveControllerRef.current;
-    controller?.changeTitle(nextTitle);
-    if (controller) scheduleDraftWrite(controller);
-  }
-
-  function handleContentChange(nextContent: string) {
-    if (
-      shouldIgnorePreviewEmptyNormalization({
-        currentContent: localContent,
-        nextContent,
-      })
-    ) {
-      setLocalContent(nextContent);
-      return;
-    }
-    setLocalContent(nextContent);
-    if (!previewCanEdit || !document) return;
-    const controller = saveControllerRef.current;
-    controller?.changeContent(nextContent);
-    if (controller) scheduleDraftWrite(controller);
-  }
-
-  async function handleContentSaveNow(nextContent: string) {
-    setLocalContent(nextContent);
-    if (!previewCanEdit || !document) return false;
-    const controller = saveControllerRef.current;
-    if (!controller) return false;
-    controller.changeContent(nextContent);
-    await controller.flush();
-    return controller.lastSaved.content === nextContent;
-  }
-
-  function keepLocalBodyDraft() {
-    if (!activeBodyDraftConflict) return;
-    const controller = peekPreviewDocumentSaveController(documentId);
-    if (!controller) return;
-    controller.rebasePending(activeBodyDraftConflict.serverPayload);
-    setBodyDraftConflict(null);
-    void controller.flush();
-  }
-
-  function reloadBuilderBody() {
-    if (!activeBodyDraftConflict) return;
-    const controller = peekPreviewDocumentSaveController(documentId);
-    if (!controller) return;
-    const serverPayload = activeBodyDraftConflict.serverPayload;
-    const discardedPayload = controller.pending;
-    controller.mark(serverPayload);
-    enqueueDraftWrite(controller, "delete", discardedPayload);
-    setLocalTitle(serverPayload.title);
-    setLocalContent(serverPayload.content);
-    setBodyDraftConflict(null);
-  }
-
-  function handleIconChange(nextIcon: string | null) {
-    if (!previewCanEdit || !document) return;
-    setLocalIcon(nextIcon);
-    updateDocument.mutate(
-      { id: document.id, icon: nextIcon },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({
-            queryKey: contentDatabaseQueryKey(databaseDocumentId),
-          });
-          void queryClient.invalidateQueries(documentQueryFilter(document.id));
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "list-documents"],
-          });
-        },
-        onError: (err) => {
-          setLocalIcon(document.icon);
-          toast.error(dbText("failedToSavePageIcon"), {
-            description:
-              err instanceof Error ? err.message : dbText("somethingWentWrong"),
-          });
-        },
-      },
-    );
-  }
-
+  const removesFavoriteMembership =
+    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   async function duplicatePreviewRow() {
     setActionsMenuOpen(false);
     try {
+      await sessionRef.current?.flush();
       const response = await duplicateItem.mutateAsync({ itemId: item.id });
-      const duplicatedItem = response.items.find(
+      const duplicate = response.items.find(
         (candidate) => candidate.id === response.duplicatedItemId,
       );
-      if (duplicatedItem) onPreviewItem?.(duplicatedItem);
-    } catch (err) {
+      if (duplicate) onPreviewItem?.(duplicate);
+    } catch (error) {
       toast.error(dbText("failedToDuplicateRow"), {
         description:
-          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+          error instanceof Error ? error.message : dbText("somethingWentWrong"),
       });
     }
   }
-
-  async function deletePreviewRow() {
-    // Cancel (do NOT flush) before any row switch/close: we're deleting this
-    // document, so a pending save must not resurrect it. Reset pending onto the
-    // last-saved baseline so the controller's release flush is a no-op, and
-    // record the id so any save already in flight is a no-op too (the
-    // controller's save impl skips deleted ids).
-    deletedIdsRef.current.add(item.document.id);
-    const controller = saveControllerRef.current;
-    if (controller) {
-      controller.cancel();
-      controller.mark(controller.lastSaved);
-    }
-
-    const nextPreviewItem = nextItem ?? previousItem;
-    if (nextPreviewItem) {
-      onPreviewItem?.(nextPreviewItem);
+  async function deletePreviewPage(removeFavorite = false) {
+    await sessionRef.current?.flush();
+    if (isWorkspaceCatalog && workspaceSpace?.kind === "user") {
+      await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
     } else {
-      onClose();
-    }
-
-    try {
-      if (canDeleteWorkspace && workspaceSpace) {
-        await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
-      } else {
-        await deleteDocument.mutateAsync({
-          id: item.document.id,
-          databaseDocumentId,
-        });
-      }
-      await queryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "get-content-database",
-          { documentId: databaseDocumentId },
-        ],
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-    } catch (err) {
-      deletedIdsRef.current.delete(item.document.id);
-      onPreviewItem?.(item);
-      toast.error(dbText("failedToDeleteRow"), {
-        description:
-          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      await deleteDocument.mutateAsync({
+        id: item.document.id,
+        databaseDocumentId:
+          removesFavoriteMembership && !removeFavorite
+            ? undefined
+            : databaseDocumentId,
       });
     }
+    // The deleted Page's pending queue was settled before deletion.
+    sessionRef.current = null;
+    onSessionChange(null);
+    await queryClient.invalidateQueries({
+      queryKey: ["action", "get-content-database"],
+    });
+    if (nextItem ?? previousItem) onPreviewItem?.((nextItem ?? previousItem)!);
+    else onClose();
   }
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <SheetHeader className="shrink-0 gap-0 border-b border-border px-5 py-3 text-left">
-        <div className="flex min-w-0 items-center justify-between gap-3 pr-14">
-          <div className="flex min-w-0 items-center gap-2">
-            <DatabaseItemPageIcon
-              document={{ icon: localIcon }}
-              className="size-4 text-sm"
-              fallbackClassName="size-4"
-            />
-            <SheetTitle className="truncate text-sm font-medium">
-              {previewTitle}
-            </SheetTitle>
-          </div>
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      aria-busy={transitionPending || undefined}
+    >
+      <SheetHeader className="shrink-0 gap-0 border-b border-border px-4 py-2 text-start">
+        <div className="flex min-w-0 items-center justify-between gap-2 pe-10">
+          <SheetTitle className="min-w-0 truncate text-sm font-medium">
+            {previewTitle}
+          </SheetTitle>
           <div className="flex shrink-0 items-center gap-1">
             {position ? (
               <span className="hidden px-1.5 text-xs text-muted-foreground sm:inline">
@@ -5178,8 +4602,8 @@ function DatabaseItemPreview({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-8 text-muted-foreground"
-              disabled={!previousItem}
+              className="size-8"
+              disabled={!previousItem || transitionPending}
               aria-label={dbText("previousDatabasePage")}
               onClick={() => {
                 if (previousItem) onPreviewItem?.(previousItem);
@@ -5191,8 +4615,8 @@ function DatabaseItemPreview({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-8 text-muted-foreground"
-              disabled={!nextItem}
+              className="size-8"
+              disabled={!nextItem || transitionPending}
               aria-label={dbText("nextDatabasePage")}
               onClick={() => {
                 if (nextItem) onPreviewItem?.(nextItem);
@@ -5204,21 +4628,14 @@ function DatabaseItemPreview({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 shrink-0 gap-1.5 px-2 text-xs"
-              disabled={openingFullPage}
-              onClick={() => {
-                setOpeningFullPage(true);
-                onOpenPage();
-              }}
+              className="h-8 gap-1.5 px-2 text-xs"
+              disabled={transitionPending}
+              onClick={onOpenPage}
             >
-              {openingFullPage ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <IconExternalLink className="size-3.5" />
-              )}
-              {openingFullPage ? dbText("opening") : dbText("openPage")}
+              <IconExternalLink className="size-3.5" />
+              {dbText("openPage")}
             </Button>
-            {canEdit || canManage || removesFavoriteMembership ? (
+            {(canEdit && !isWorkspaceCatalog) || removesFavoriteMembership ? (
               <DropdownMenu
                 modal={false}
                 open={actionsMenuOpen}
@@ -5229,7 +4646,7 @@ function DatabaseItemPreview({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-8 text-muted-foreground"
+                    className="size-8"
                     aria-label={`Preview actions for ${previewTitle}`}
                   >
                     <IconDots className="size-4" />
@@ -5237,51 +4654,33 @@ function DatabaseItemPreview({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="end"
-                  className="w-44"
                   data-database-preview-portal=""
                 >
                   {canEdit && !isWorkspaceCatalog ? (
                     <DropdownMenuItem
-                      disabled={duplicateItem.isPending}
+                      disabled={duplicateItem.isPending || transitionPending}
                       onSelect={(event) => {
                         event.preventDefault();
                         void duplicatePreviewRow();
                       }}
                     >
-                      <IconCopy className="mr-2 size-4 text-muted-foreground" />
+                      <IconCopy className="me-2 size-4" />
                       {dbText("duplicateRow")}
                     </DropdownMenuItem>
                   ) : null}
-                  {canEdit &&
-                  !isWorkspaceCatalog &&
-                  (canManage || removesFavoriteMembership) ? (
-                    <DropdownMenuSeparator />
-                  ) : null}
                   {removesFavoriteMembership ? (
                     <DropdownMenuItem
+                      disabled={transitionPending}
                       onSelect={(event) => {
                         event.preventDefault();
                         setActionsMenuOpen(false);
-                        void deletePreviewRow();
+                        void deletePreviewPage(true).catch(() =>
+                          toast.error(dbText("failedToSavePagePreview")),
+                        );
                       }}
                     >
-                      <IconStarOff className="mr-2 size-4 text-muted-foreground" />
+                      <IconStarOff className="me-2 size-4" />
                       {sidebarText("removeFromFavorites")}
-                    </DropdownMenuItem>
-                  ) : canManage &&
-                    (!isWorkspaceCatalog || canDeleteWorkspace) ? (
-                    <DropdownMenuItem
-                      className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        setActionsMenuOpen(false);
-                        setConfirmDeleteOpen(true);
-                      }}
-                    >
-                      <IconTrash className="mr-2 size-4" />
-                      {canDeleteWorkspace
-                        ? "Delete workspace"
-                        : dbText("deleteRow")}
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -5293,188 +4692,21 @@ function DatabaseItemPreview({
           {dbText("previewThisDatabasePageWithoutLeavingTheDatabase")}
         </SheetDescription>
       </SheetHeader>
-
-      {!previewDocument ? (
-        <div className="grid gap-4 p-6">
-          <div className="h-10 w-2/3 rounded bg-muted" />
-          <div className="h-4 w-full rounded bg-muted" />
-          <div className="h-4 w-5/6 rounded bg-muted" />
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto w-full max-w-3xl px-6 pt-8 pb-12">
-            <div className="mb-5 flex items-start gap-3">
-              {previewCanEdit ? (
-                <EmojiPicker
-                  icon={localIcon}
-                  variant="compact"
-                  portalled={false}
-                  onSelect={handleIconChange}
-                />
-              ) : (
-                <DatabaseItemPageIcon
-                  document={previewDocument}
-                  className="mt-2 size-5 text-xl"
-                  fallbackClassName="mt-2 size-5"
-                />
-              )}
-              <textarea
-                ref={titleInputRef}
-                rows={1}
-                value={localTitle}
-                readOnly={!previewCanEdit}
-                aria-label={dbText("previewPageTitle")}
-                placeholder="Untitled"
-                onChange={(event) => handleTitleChange(event.target.value)}
-                style={{ fieldSizing: "content" } as any}
-                className="min-w-0 flex-1 resize-none overflow-hidden break-words border-0 bg-transparent p-0 text-3xl font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40"
-              />
-            </div>
-            {previewDocument.databaseMembership ? (
-              <DocumentProperties
-                documentId={previewDocument.id}
-                databaseId={item.databaseId}
-                databaseDocumentId={databaseDocumentId}
-                canEdit={previewCanEdit}
-                popoversPortalled={false}
-              />
-            ) : null}
-            <div className="pt-6">
-              {(() => {
-                if (bodyHydrationPending) {
-                  return (
-                    <BuilderBodySyncingNotice
-                      title={dbText("builderBodySyncing")}
-                      description={dbText("builderBodySyncingDescription")}
-                    />
-                  );
-                }
-
-                // The peek's primary "Content" Blocks field is the document body.
-                // No collab in the peek (ydoc=null), so it's a plain rich-text
-                // editor saving through the preview document save path.
-                const primaryEditor = (
-                  <VisualEditor
-                    key={previewDocument.id}
-                    documentId={previewDocument.id}
-                    content={localContent}
-                    onChange={handleContentChange}
-                    onSaveContent={handleContentSaveNow}
-                    ydoc={null}
-                    editable={previewCanEdit}
-                  />
-                );
-
-                // Render the peek body through the SAME component the full page
-                // uses so ALL Blocks fields (Content + any others) appear with
-                // identical loading/empty/solo/multi behavior — including the
-                // empty state (no editable body when there are zero Blocks
-                // fields). Only database rows have Blocks fields.
-                const editor = previewDocument.databaseMembership ? (
-                  <DocumentBlockFields
-                    documentId={previewDocument.id}
-                    databaseId={item.databaseId}
-                    databaseDocumentId={databaseDocumentId}
-                    canEdit={previewCanEdit}
-                    primaryEditor={primaryEditor}
-                  />
-                ) : (
-                  primaryEditor
-                );
-
-                return (
-                  <div className="grid gap-4">
-                    {activeBodyDraftConflict ? (
-                      <div
-                        role="status"
-                        className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-4 text-sm"
-                      >
-                        <div className="flex items-center gap-2 font-medium text-foreground">
-                          <IconLock className="size-4 text-amber-600 dark:text-amber-400" />
-                          {dbText("builderDraftConflictTitle")}
-                        </div>
-                        <p className="mt-2 max-w-2xl leading-6 text-muted-foreground">
-                          {dbText("builderDraftConflictDescription")}
-                        </p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={keepLocalBodyDraft}
-                          >
-                            {dbText("keepLocalDraft")}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={reloadBuilderBody}
-                          >
-                            {dbText("reloadBuilderBody")}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : null}
-                    {bodyHydrationError ? (
-                      <BuilderBodySyncingNotice
-                        title={dbText("builderBodySyncFailedNotice")}
-                        description={
-                          bodyHydrationError.error ??
-                          dbText("builderBodySyncFailedDescription")
-                        }
-                      />
-                    ) : null}
-                    {editor}
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-      )}
-      <AlertDialog
-        open={
-          !removesFavoriteMembership &&
-          (!isWorkspaceCatalog || canDeleteWorkspace) &&
-          confirmDeleteOpen
-        }
-        onOpenChange={setConfirmDeleteOpen}
+      <div
+        className="flex min-h-0 flex-1"
+        inert={transitionPending || undefined}
       >
-        <AlertDialogContent data-database-preview-portal="">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {canDeleteWorkspace ? "Delete workspace?" : dbText("deleteRow2")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {canDeleteWorkspace ? (
-                <>
-                  &ldquo;{previewTitle}&rdquo; and every page and database
-                  inside it will be permanently deleted. This cannot be undone.
-                </>
-              ) : (
-                <>
-                  &ldquo;{previewTitle}&rdquo; and any sub-pages will be
-                  permanently deleted. This cannot be undone.
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={
-                deleteDocument.isPending || deleteContentSpace.isPending
-              }
-              onClick={() => void deletePreviewRow()}
-            >
-              {deleteDocument.isPending || deleteContentSpace.isPending
-                ? "Deleting..."
-                : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <PageEditorSurface
+          documentId={item.document.id}
+          databaseId={item.databaseId}
+          databaseDocumentId={databaseDocumentId}
+          host="preview"
+          focusTitle={focusTitle}
+          onTitleFocused={onTitleFocused}
+          onSessionChange={handleSessionChange}
+          onDelete={() => deletePreviewPage()}
+        />
+      </div>
     </div>
   );
 }

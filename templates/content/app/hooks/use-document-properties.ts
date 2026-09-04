@@ -16,6 +16,7 @@ import type {
 } from "@shared/api";
 import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 
+import { trackDocumentPropertyWrite } from "./document-property-persistence";
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
@@ -181,7 +182,14 @@ export function useSetDocumentProperty(
       });
     },
   });
-  return withDatabaseScope(mutation, databaseId);
+  const scoped = withDatabaseScope(mutation, databaseId);
+  return {
+    ...scoped,
+    mutateAsync: (...args: Parameters<typeof scoped.mutateAsync>) =>
+      trackDocumentPropertyWrite(args[0].documentId, args[0].propertyId, () =>
+        scoped.mutateAsync(...args),
+      ),
+  };
 }
 
 export function useUpdateDatabaseItems(databaseDocumentId: string) {

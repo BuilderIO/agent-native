@@ -899,6 +899,12 @@ describe("seedDatabaseItemDocumentCaches", () => {
     };
 
     seedDatabaseItemDocumentCaches(queryClient, item);
+    expect(
+      queryClient
+        .getQueryCache()
+        .find({ queryKey: documentPropertiesQueryKey("row-page", "database") })
+        ?.isStaleByTime(30_000),
+    ).toBe(true);
 
     expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
       undefined,
