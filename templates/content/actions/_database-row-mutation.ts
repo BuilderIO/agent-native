@@ -1101,7 +1101,6 @@ async function updateInsideTransaction(
     values: Map<string, string>;
   },
 ) {
-  await assertAccess("document", args.documentId, "editor");
   const [lockedDocument] = await tx
     .update(schema.documents)
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
