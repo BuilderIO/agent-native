@@ -6279,6 +6279,12 @@ describe("runAgentLoop", () => {
       "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
       "no authenticated user",
       "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
+      // A nested A2A/ask_app delegation embedding the callee's OWN
+      // `formatA2ATerminalError` text verbatim (2026-08-26 Slides incident).
+      "Error running generate-image-api: Assets could not generate this image (failed): I stopped because generate-image-batch needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. Retrying would not have changed it, and anything completed before this is saved.\ncode: permanent_precondition",
+      // `fail(message, { errorCode: "permanent_precondition" })`, rendered by
+      // this module's own non-AgentActionStopError catch branch.
+      "Error running stage-dataset: Staged dataset byte cap exceeded (errorCode: permanent_precondition)",
     ]) {
       expect(permanentPreconditionRemedy(permanent)).not.toBeNull();
     }
@@ -6374,6 +6380,84 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).not.toContain("GEMINI_API_KEY");
     expect((stop as { error: string }).error).toContain(
       "needs a setup step outside this turn",
+    );
+  });
+
+  // 2026-08-26 Slides incident: an A2A/ask_app delegation (Assets) already
+  // classified its own failure as a permanent precondition and stopped, but
+  // its terminal-stop text only reaches the caller as a plain Error message
+  // once wrapped (`Assets could not generate this image (failed): …`). The
+  // outer run must recognize the callee's embedded marker on the FIRST
+  // failure rather than retrying an error the callee already proved
+  // unrecoverable.
+  it("stops on the FIRST failure when a tool error embeds a nested permanent-precondition marker", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Assets could not generate this image (failed): I stopped because " +
+          "generate-image-batch needs a setup step outside this turn — a " +
+          "credential, a role, a connected account, or an approval — before " +
+          "it can run. Retrying would not have changed it, and anything " +
+          "completed before this is saved.\ncode: permanent_precondition",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `gen-image-${streamCalls}`,
+              name: "generate-image-api",
+              input: { prompt: `attempt ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "generate-image-api": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // Not 3: the identical-error breaker never gets a chance to count this.
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    expect((stop as { error: string }).error).toContain(
+      "needs a setup step outside this turn",
+    );
+    // Not the scarier, less specific repeated-failure message the incident
+    // actually produced.
+    expect((stop as { error: string }).error).not.toContain(
+      "failed 3 times in a row",
     );
   });
 

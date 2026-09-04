@@ -1,3 +1,11 @@
+import {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatchesResult,
+} from "@agent-native/core/shared";
+
 export type SlideContentEdit =
   | {
       op?: "replace";
@@ -158,52 +166,126 @@ function applyLiteralReplace(
   content: string,
   edit: Extract<SlideContentEdit, { op?: "replace" }>,
 ): { content: string; summary: string } {
-  const matches = countOccurrences(content, edit.find);
-  assertMatchCount("replace", matches, edit.expectedMatches, edit.required);
-  if (matches === 0) return { content, summary: "replace:0" };
-
-  if (edit.occurrence !== undefined) {
-    return {
-      content: replaceNth(content, edit.find, edit.replace, edit.occurrence),
-      summary: `replace:nth:${edit.occurrence}`,
-    };
+  if (!edit.find) {
+    throw new SlideContentEditError("Patch find/marker text cannot be empty");
   }
 
-  if (edit.all) {
-    return {
-      content: content.split(edit.find).join(edit.replace),
-      summary: `replace:all:${matches}`,
-    };
+  const result = applyTargetedReplace(content, edit.find, edit.replace, {
+    occurrence: edit.occurrence,
+    all: edit.all,
+  });
+
+  if (!result.ok) {
+    if (
+      result.reason === "not_found" &&
+      edit.expectedMatches === undefined &&
+      edit.required === false
+    ) {
+      return { content, summary: "replace:0" };
+    }
+    throwLiteralMatchFailure("replace", result, edit.expectedMatches);
   }
 
-  return {
-    content: content.replace(edit.find, edit.replace),
-    summary: "replace:first",
-  };
+  if (
+    edit.expectedMatches !== undefined &&
+    result.matchCount !== edit.expectedMatches
+  ) {
+    throw new SlideContentEditError(
+      `replace expected ${edit.expectedMatches} match(es), found ${result.matchCount}`,
+    );
+  }
+
+  const summary =
+    edit.occurrence !== undefined
+      ? `replace:nth:${edit.occurrence}`
+      : edit.all
+        ? `replace:all:${result.matchCount}`
+        : "replace:first";
+  return { content: result.content, summary };
 }
 
 function applyInsert(
   content: string,
   edit: Extract<SlideContentEdit, { op: "insert-before" | "insert-after" }>,
 ): { content: string; summary: string } {
-  const matches = countOccurrences(content, edit.marker);
-  assertMatchCount(edit.op, matches, edit.expectedMatches, edit.required);
-  if (matches === 0) return { content, summary: `${edit.op}:0` };
+  if (!edit.marker) {
+    throw new SlideContentEditError("Patch find/marker text cannot be empty");
+  }
 
   const occurrence = edit.occurrence ?? 1;
-  const index = nthIndexOf(content, edit.marker, occurrence);
-  if (index < 0) {
+  const result = findTargetedMatches(content, edit.marker, { occurrence });
+
+  if (!result.ok) {
+    if (
+      result.reason === "not_found" &&
+      edit.expectedMatches === undefined &&
+      edit.required === false
+    ) {
+      return { content, summary: `${edit.op}:0` };
+    }
+    throwLiteralMatchFailure(edit.op, result, edit.expectedMatches);
+  }
+
+  const { matches } = result;
+  if (
+    edit.expectedMatches !== undefined &&
+    matches.length !== edit.expectedMatches
+  ) {
+    throw new SlideContentEditError(
+      `${edit.op} expected ${edit.expectedMatches} match(es), found ${matches.length}`,
+    );
+  }
+
+  const match = matches[occurrence - 1];
+  if (!match) {
     throw new SlideContentEditError(
       `${edit.op} could not find occurrence ${occurrence}`,
     );
   }
-  const insertAt =
-    edit.op === "insert-before" ? index : index + edit.marker.length;
+  const insertAt = edit.op === "insert-before" ? match.index : match.end;
   return {
     content:
       content.slice(0, insertAt) + edit.content + content.slice(insertAt),
     summary: `${edit.op}:${occurrence}`,
   };
+}
+
+/**
+ * Shared not-found / ambiguous reporting for the literal-find ops (replace,
+ * insert-before, insert-after). Always throws — callers check the
+ * `required`/`expectedMatches` no-op case themselves before reaching here.
+ */
+function throwLiteralMatchFailure(
+  op: string,
+  result: Extract<TargetedMatchesResult, { ok: false }>,
+  expectedMatches: number | undefined,
+): never {
+  if (result.reason === "ambiguous") {
+    throw new SlideContentEditError(
+      `${op} ${formatAmbiguousMatches(result.matches)}`,
+    );
+  }
+  const expected =
+    expectedMatches !== undefined
+      ? `${op} expected ${expectedMatches} match(es), found 0.`
+      : `${op} found no matches.`;
+  throw new SlideContentEditError(
+    `${expected}${formatCandidates(result.candidates)}`,
+  );
+}
+
+function formatCandidates(candidates: TargetedCandidate[]): string {
+  if (candidates.length === 0) return "";
+  const lines = candidates.map((c) => `  line ${c.line}: ${c.text}`).join("\n");
+  return `\nClosest matches in the current slide:\n${lines}`;
+}
+
+function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {
+  const lines = matches.map((m) => `  line ${m.line}: ${m.snippet}`).join("\n");
+  return (
+    `matched ${matches.length} places; pass occurrence to pick one, or add ` +
+    `more surrounding context so it matches exactly one location:\n${lines}`
+  );
 }
 
 function applyReplaceBetween(
@@ -268,53 +350,6 @@ function assertMatchCount(
   if (expected === undefined && required !== false && actual === 0) {
     throw new SlideContentEditError(`${op} found no matches`);
   }
-}
-
-function countOccurrences(content: string, needle: string): number {
-  if (!needle) {
-    throw new SlideContentEditError("Patch find/marker text cannot be empty");
-  }
-  let count = 0;
-  let index = 0;
-  while (true) {
-    index = content.indexOf(needle, index);
-    if (index < 0) return count;
-    count += 1;
-    index += needle.length;
-  }
-}
-
-function nthIndexOf(
-  content: string,
-  needle: string,
-  occurrence: number,
-): number {
-  if (!Number.isInteger(occurrence) || occurrence < 1) {
-    throw new SlideContentEditError("occurrence must be a positive integer");
-  }
-  let index = -1;
-  let from = 0;
-  for (let i = 0; i < occurrence; i += 1) {
-    index = content.indexOf(needle, from);
-    if (index < 0) return -1;
-    from = index + needle.length;
-  }
-  return index;
-}
-
-function replaceNth(
-  content: string,
-  find: string,
-  replace: string,
-  occurrence: number,
-): string {
-  const index = nthIndexOf(content, find, occurrence);
-  if (index < 0) {
-    throw new SlideContentEditError(
-      `replace could not find occurrence ${occurrence}`,
-    );
-  }
-  return content.slice(0, index) + replace + content.slice(index + find.length);
 }
 
 function findBetweenRanges(

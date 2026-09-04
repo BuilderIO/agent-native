@@ -126,4 +126,82 @@ describe("extension content patching", () => {
     expect(result.formatted).toBe(true);
     expect(result.content).toContain("<span>Hi</span>");
   });
+
+  it("matches across differing whitespace and splices the replacement over the original bytes", async () => {
+    const content = "<div>\n  <span>Hello   World</span>\n</div>";
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "replace",
+          find: "<span>Hello World</span>",
+          replace: "<span>Hi There</span>",
+        },
+      ],
+    });
+
+    expect(result.content).toBe("<div>\n  <span>Hi There</span>\n</div>");
+  });
+
+  it("matches a CRLF find target against LF-normalized content", async () => {
+    const content = "<ul>\n  <li>One</li>\n  <li>Two</li>\n</ul>";
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "replace",
+          find: "<li>One</li>\r\n  <li>Two</li>",
+          replace: "<li>Combined</li>",
+        },
+      ],
+    });
+
+    expect(result.content).toBe("<ul>\n  <li>Combined</li>\n</ul>");
+  });
+
+  it("reports closest-match candidates instead of a bare miss", async () => {
+    const content = [
+      "<section>",
+      '  <button class="save-btn">Save changes</button>',
+      "</section>",
+    ].join("\n");
+
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            op: "replace",
+            find: '<button class="save-btn">Save Changes</button>',
+            replace: "x",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/Closest matches in the current extension:\n {2}line 2:/);
+  });
+
+  it("reports ambiguity instead of silently patching the first of several matches", async () => {
+    const content = "<p>Same</p><p>Same</p>";
+
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          { op: "replace", find: "<p>Same</p>", replace: "<p>Different</p>" },
+        ],
+      }),
+    ).rejects.toThrow(/matched 2 places; pass occurrence/);
+  });
+
+  it("applies to a specific occurrence once the caller disambiguates", async () => {
+    const content = "<p>Same</p><p>Same</p>";
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "replace",
+          find: "<p>Same</p>",
+          replace: "<p>Different</p>",
+          occurrence: 2,
+        },
+      ],
+    });
+
+    expect(result.content).toBe("<p>Same</p><p>Different</p>");
+  });
 });

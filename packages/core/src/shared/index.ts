@@ -181,3 +181,13 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "./agent-readable-resource.js";
+export {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatch,
+  type TargetedMatchesResult,
+  type TargetedReplaceResult,
+  type TargetedTextEditOptions,
+} from "./targeted-text-edit.js";

@@ -91,4 +91,29 @@ describe("applySlideContentEdits", () => {
     expect(result.changed).toBe(false);
     expect(result.content).not.toBe("<div>Old</div>");
   });
+
+  it("matches across differing whitespace and splices the replacement over the original bytes", async () => {
+    const result = await applySlideContentEdits(
+      "<div>\n  <span>Hello   World</span>\n</div>",
+      [{ find: "<span>Hello World</span>", replace: "<span>Hi There</span>" }],
+    );
+
+    expect(result.content).toBe("<div>\n  <span>Hi There</span>\n</div>");
+  });
+
+  it("reports ambiguity instead of silently patching the first of several matches", async () => {
+    await expect(
+      applySlideContentEdits("<p>Same</p><p>Same</p>", [
+        { find: "<p>Same</p>", replace: "<p>Different</p>" },
+      ]),
+    ).rejects.toThrow("matched 2 places; pass occurrence");
+  });
+
+  it("applies to a specific occurrence once the caller disambiguates", async () => {
+    const result = await applySlideContentEdits("<p>Same</p><p>Same</p>", [
+      { find: "<p>Same</p>", replace: "<p>Different</p>", occurrence: 2 },
+    ]);
+
+    expect(result.content).toBe("<p>Same</p><p>Different</p>");
+  });
 });
