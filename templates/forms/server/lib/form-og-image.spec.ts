@@ -3,13 +3,15 @@ import { describe, expect, it } from "vitest";
 import { formOgResvgOptions, renderFormOgImageSvg } from "./form-og-image";
 
 describe("form OG image", () => {
-  it("renders on a solid background without the old card shell or grid", () => {
+  it("renders on the shared branded background without the old card shell or grid", () => {
     const svg = renderFormOgImageSvg({ title: "Customer intake" });
 
     expect(svg).toContain("Customer intake");
     expect(svg).toContain("Agent-Native");
     expect(svg).toContain("Forms");
-    expect(svg).toContain('fill="#0A0A0A"');
+    expect(svg).toContain(
+      '<image x="0" y="0" width="1200" height="630" href="data:image/png;base64,',
+    );
     expect(svg).not.toContain("<pattern");
     expect(svg).not.toContain('x="64" y="64" width="1072" height="502"');
     expect(svg).not.toContain('d="M80 154 H1120"');
