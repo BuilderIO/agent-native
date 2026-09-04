@@ -194,6 +194,22 @@ const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
 const DASHBOARD_BUILD_PAUSE_PATTERN =
   /\b(?:want me to|would you like me to|shall i|should i|can i|may i|do you want me to)\b[\s\S]{0,160}\b(?:proceed|continue|seed|populate|save|embed|finish|run|apply|create|build)\b/i;
 
+// create-extension is authoring, not a dashboard save (see the save set
+// below), but a non-error result is still proof the requested artifact now
+// exists.
+function hasSuccessfulExtensionCreation(
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+): boolean {
+  return (toolResults ?? []).some(
+    (result) =>
+      !result.isError &&
+      String(result.name ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-") === "create-extension",
+  );
+}
+
 function hasSuccessfulDashboardSave(
   toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
 ): boolean {
@@ -201,13 +217,12 @@ function hasSuccessfulDashboardSave(
     "update-dashboard",
     "mutate-dashboard",
     "compose-dashboard",
-    // An extension edit or creation is the whole job when the dashboard
-    // panel IS the extension. Leaving either out meant a turn that saved
-    // exactly what the user asked for still had to prove itself with a data
-    // query — and a fresh create-extension turn fell into the template-clone
-    // retry, whose fallback is a dead end.
+    // An extension edit is the whole job when the dashboard panel IS the
+    // extension. Leaving it out meant a turn that saved exactly what the user
+    // asked for still had to prove itself with a data query. create-extension
+    // is deliberately not here: it creates the shell, and the partial-build
+    // branch above relies on it not counting as the finished save.
     "update-extension",
-    "create-extension",
   ]);
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;
@@ -1041,16 +1056,22 @@ export function realDataFinalGuard(
     return null;
   }
   // Dashboard construction/template-clone turns may inspect and clone an
-  // existing dashboard/extension without running a metric query, as long as
-  // the draft does not invent numbers. Check this before the generic
-  // "no data query ran" fallback so a template-based extension clone is not
-  // treated the same as an unanswerable analytics-result question.
+  // existing dashboard/extension, or author one outright (create-extension,
+  // compose-dashboard), without running a metric query, as long as the draft
+  // does not invent numbers. Check this before the generic "no data query
+  // ran" fallback so a template-based extension clone is not treated the
+  // same as an unanswerable analytics-result question. A create-extension
+  // turn that paused mid-build was already caught above; one that finished
+  // ("Done — I created the extension") is completed work, not a turn that
+  // still has to go find a template. Saves are judged by their result
+  // content in the branch above, so only the creation itself counts here.
   if (
     dashboardConstructionRequest &&
     !draftClaimsAnalyticsMetrics(context.text)
   ) {
     if (
       hasDashboardConstructionAttempt(context.toolResults) ||
+      hasSuccessfulExtensionCreation(context.toolResults) ||
       isSafeNoDataAnalyticsResponse(context.text)
     ) {
       return null;
