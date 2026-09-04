@@ -58,7 +58,7 @@ describe("KeyboardShortcutsPanel Essential tutorial", () => {
       first
         .querySelector("[data-shortcut-bindings]")
         ?.getAttribute("aria-label"),
-    ).toBe("shift Backslash");
+    ).toBe("Control Backslash");
     expect(first.querySelector("kbd")?.getAttribute("aria-hidden")).toBe(
       "true",
     );

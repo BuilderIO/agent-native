@@ -1,6 +1,7 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  AgentNativeWebMcpActionRegistration,
   AppProviders,
   createAgentNativeQueryClient,
   useDbSync,
@@ -247,6 +248,9 @@ export default function Root() {
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
         toaster={<DesignToaster />}
       >
+        {isPublicDesignAppPath(location.pathname) && (
+          <AgentNativeWebMcpActionRegistration />
+        )}
         <RootContent />
       </AppProviders>
     </AppToolkitProvider>

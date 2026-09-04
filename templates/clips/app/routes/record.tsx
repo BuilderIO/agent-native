@@ -2039,6 +2039,11 @@ export default function RecordRoute() {
       return;
     }
     setUiState("uploading");
+    // End diagnostics at the stop gesture. Transcript writes and media
+    // finalization can outlive the recording and must not extend this window.
+    const diagnosticsSave = saveBrowserDiagnostics(pending.id).catch((err) => {
+      console.warn("[recorder] browser diagnostics save failed:", err);
+    });
     try {
       // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
@@ -2099,14 +2104,13 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
-      // The recording is durable here; saveBrowserDiagnostics is one more
-      // round trip. Start the clipboard write first so it isn't pushed even
-      // further from the stop gesture that authorized it.
+      // Start the clipboard write once the recording is durable so it isn't
+      // pushed further from the stop gesture that authorized it.
       const pendingCopy =
         stopResult.waitingForStorage || bugReportContextRef.current
           ? undefined
           : copyRecordingShareLink(pending.id).catch(() => false);
-      await saveBrowserDiagnostics(pending.id);
+      await diagnosticsSave;
       await finishSavedRecording(pending.id, stopResult, pendingCopy);
     } catch (err) {
       const message =
@@ -2131,7 +2135,7 @@ export default function RecordRoute() {
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
-      await saveBrowserDiagnostics(pending.id);
+      await diagnosticsSave;
       if (!isStoredButUnservableFinalizeError(message)) {
         fetch(pending.abortUrl, {
           method: "POST",

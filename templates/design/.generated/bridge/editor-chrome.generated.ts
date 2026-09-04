@@ -4651,9 +4651,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         return true;
       }
       if (/^Arrow/.test(key || "")) return !e.altKey;
-      if (!primary && !e.altKey && e.shiftKey && e.code === "Backslash") {
-        return true;
-      }
       if (primary) {
         return [
           "z",
@@ -4686,7 +4683,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         // modifier, matching isPlatformPrimaryModifier host-side: forwarding
         // is NOT harmless, because the shield preventDefaults before posting,
         // so a forwarded-then-ignored macOS Ctrl+F loses browser Find.
-        isPlatformPrimaryChord(e) && !e.altKey && !e.shiftKey && normalized === "f" || e.shiftKey && (normalized === "h" || normalized === "l") || e.shiftKey && normalized === "r" || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
+        isPlatformPrimaryChord(e) && !e.altKey && !e.shiftKey && normalized === "f" || // Cmd/Ctrl+\\ and Cmd/Ctrl+Shift+\\ toggle Design chrome. Use the
+        // physical code so both shortcuts remain stable across layouts.
+        e.code === "Backslash" && !e.altKey || e.shiftKey && (normalized === "h" || normalized === "l") || e.shiftKey && normalized === "r" || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.
         e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H/V/T distribute + tidy up: LITERAL Control on every
