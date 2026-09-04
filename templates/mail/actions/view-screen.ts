@@ -44,12 +44,20 @@ const SCREEN_EMAIL_LIMIT = 10;
 type EmailPreviewResult = {
   emails: any[];
   truncated: boolean;
+  coverageComplete: boolean;
+  failedAccounts: string[];
 };
 
-function boundEmailPreview(emails: any[]): EmailPreviewResult {
+function boundEmailPreview(
+  emails: any[],
+  failedAccounts: string[] = [],
+  coverageComplete = failedAccounts.length === 0,
+): EmailPreviewResult {
   return {
     emails: emails.slice(0, SCREEN_EMAIL_LIMIT + 1),
     truncated: emails.length > SCREEN_EMAIL_LIMIT,
+    coverageComplete,
+    failedAccounts,
   };
 }
 
@@ -228,6 +236,7 @@ async function fetchEmailList(
       let messages: any[] = [];
       let filteredMessages: any[] = [];
       let hasMore = false;
+      const failedAccounts = new Set<string>();
 
       for (;;) {
         const page = await listGmailMessages(
@@ -240,6 +249,9 @@ async function fetchEmailList(
             accountEmails: pageAccountEmails,
           },
         );
+        for (const error of page.errors ?? []) {
+          if (error?.email) failedAccounts.add(error.email);
+        }
         messages = messages.concat(page.messages);
         const preparedMessages = messages.map((m: any) =>
           gmailToEmailMessage(m, m._accountEmail, labelMap),
@@ -256,6 +268,8 @@ async function fetchEmailList(
       return {
         emails: filteredMessages.slice(0, SCREEN_EMAIL_LIMIT + 1),
         truncated: hasMore || filteredMessages.length > SCREEN_EMAIL_LIMIT,
+        coverageComplete: failedAccounts.size === 0,
+        failedAccounts: Array.from(failedAccounts),
       };
     }
 
@@ -305,7 +319,7 @@ async function fetchEmailList(
     }
     return boundEmailPreview([]);
   } catch {
-    return boundEmailPreview([]);
+    return boundEmailPreview([], [], false);
   }
 }
 
@@ -420,14 +434,15 @@ export default defineAction({
         };
       }
     } else if (nav?.view) {
-      const { emails, truncated } = await fetchEmailList(
-        nav.view,
-        nav.search,
-        nav.label,
-        nav.activeInboxTab,
-        nav.activeAccounts,
-        nav.filter,
-      );
+      const { emails, truncated, coverageComplete, failedAccounts } =
+        await fetchEmailList(
+          nav.view,
+          nav.search,
+          nav.label,
+          nav.activeInboxTab,
+          nav.activeAccounts,
+          nav.filter,
+        );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(
             nav.selectedThreadIds.filter(
@@ -458,6 +473,10 @@ export default defineAction({
         selectedThreadIds: Array.from(selectedThreadIds),
         count: compact.length,
         truncated,
+        coverage: {
+          complete: coverageComplete,
+          failedAccounts,
+        },
         emails: compact,
       };
     }

@@ -116,6 +116,10 @@ describe("view-screen Mail preview", () => {
     expect(result.emailList.emails).toHaveLength(10);
     expect(result.emailList.count).toBe(10);
     expect(result.emailList.truncated).toBe(true);
+    expect(result.emailList.coverage).toEqual({
+      complete: true,
+      failedAccounts: [],
+    });
   });
 
   it("refills after inbox filtering removes the provider sentinel", async () => {
@@ -158,5 +162,20 @@ describe("view-screen Mail preview", () => {
     ]);
     expect(result.emailList.emails).toHaveLength(10);
     expect(result.emailList.truncated).toBe(true);
+  });
+
+  it("reports partial provider coverage separately from truncation", async () => {
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [email("healthy")],
+      errors: [{ email: "failed@example.com", error: "token expired" }],
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.emailList.coverage).toEqual({
+      complete: false,
+      failedAccounts: ["failed@example.com"],
+    });
+    expect(result.emailList.truncated).toBe(false);
   });
 });
