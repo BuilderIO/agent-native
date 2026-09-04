@@ -88,6 +88,9 @@ const [command, outputArgument, ...unexpectedArguments] = cliArguments;
 if (unexpectedArguments.length > 0) {
   throw new Error(`Unexpected argument(s): ${unexpectedArguments.join(", ")}`);
 }
+if (command === "--check" && outputArgument !== undefined) {
+  throw new Error("--check does not accept an output directory.");
+}
 
 if (command === "--check") {
   console.log(
