@@ -271,7 +271,9 @@ describe("ConnectionsSettingsContent", () => {
     await act(async () => {
       root.render(
         <MemoryRouter>
-          <AgentSettingsContent sections={WORKSPACE_SETTINGS_SECTIONS} />
+          <AgentSettingsContent
+            sections={[...WORKSPACE_SETTINGS_SECTIONS, "background"]}
+          />
         </MemoryRouter>,
       );
       await Promise.resolve();
@@ -294,7 +296,7 @@ describe("ConnectionsSettingsContent", () => {
       Array.from(container.querySelectorAll("button")).filter((button) =>
         button.textContent?.includes("Connect Builder"),
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
 
     act(() => root.unmount());
   });

@@ -3063,17 +3063,19 @@ function SettingsPanelContent({
                     label="Background agent"
                     description="Make code changes from production mode via Builder."
                     control={
-                      <UseBuilderCard
-                        builderFlow={builderFlow}
-                        connectUrl={connectUrl}
-                        connected={connected}
-                        orgName={orgName}
-                        envManaged={envManaged}
-                        credentialSource={credentialSource}
-                        trackingSource="background_agent_settings"
-                        trackingFlow="background_agent"
-                        compact
-                      />
+                      builderStatusAvailable ? (
+                        <UseBuilderCard
+                          builderFlow={builderFlow}
+                          connectUrl={connectUrl}
+                          connected={connected}
+                          orgName={orgName}
+                          envManaged={envManaged}
+                          credentialSource={credentialSource}
+                          trackingSource="background_agent_settings"
+                          trackingFlow="background_agent"
+                          compact
+                        />
+                      ) : null
                     }
                   />
                 </SettingsSection>
@@ -3574,16 +3576,18 @@ function SettingsPanelContent({
               open={openSection === "background"}
               onToggle={() => toggle("background")}
             >
-              <UseBuilderCard
-                builderFlow={builderFlow}
-                connectUrl={connectUrl}
-                connected={connected}
-                orgName={orgName}
-                envManaged={envManaged}
-                credentialSource={credentialSource}
-                trackingSource="background_agent_settings"
-                trackingFlow="background_agent"
-              />
+              {builderStatusAvailable ? (
+                <UseBuilderCard
+                  builderFlow={builderFlow}
+                  connectUrl={connectUrl}
+                  connected={connected}
+                  orgName={orgName}
+                  envManaged={envManaged}
+                  credentialSource={credentialSource}
+                  trackingSource="background_agent_settings"
+                  trackingFlow="background_agent"
+                />
+              ) : null}
             </SettingsSection>
           )}
 
