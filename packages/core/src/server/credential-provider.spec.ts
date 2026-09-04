@@ -94,6 +94,7 @@ import {
   resolveBuilderCredentialsDetailed,
   resolveBuilderCredentialSource,
   resolveBuilderGatewayAuth,
+  resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
   resolveHasBuilderGatewayCredential,
   resolveHasBuilderPrivateKey,
@@ -2044,6 +2045,20 @@ describe("Builder gateway credential lane", () => {
     expect(isBuilderGatewayDeployConfigured()).toBe(true);
   });
 
+  // Deprecated, but an external caller built against the old export must
+  // keep working until it migrates.
+  it("keeps the deprecated resolveBuilderGatewayCredentials alias working", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
+      privateKey: "btk-site-token",
+      publicKey: "space-abc",
+      userId: null,
+    });
+  });
+
   it("keeps the identity resolver off the gateway token", async () => {
     hostedVisitor();
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -2216,7 +2231,11 @@ describe("Builder gateway credential lane", () => {
     expect(mockHasBuilderOAuthSession).not.toHaveBeenCalled();
   });
 
-  it("falls back to the key lane when OAuth custody exists but the session is unusable", async () => {
+  // OAuth custody wins outright, same as resolveBuilderRequestAuthorization in
+  // builder-api-auth.ts: falling through here would silently authenticate the
+  // request with a key-based credential that could belong to a different
+  // Builder identity than the one the owner explicitly connected.
+  it("reports not configured, rather than falling back, when OAuth custody exists but the session is unusable", async () => {
     hostedVisitor();
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
@@ -2225,25 +2244,17 @@ describe("Builder gateway credential lane", () => {
       new Error("Builder OAuth connection does not grant builder:ai:invoke"),
     );
 
-    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
-      authorization: "Bearer btk-site-token",
-      spaceId: "space-abc",
-      userId: null,
-    });
+    await expect(resolveBuilderGatewayAuth()).resolves.toBeNull();
   });
 
-  it("falls back to the key lane when OAuth custody exists but returns no session", async () => {
+  it("reports not configured, rather than falling back, when OAuth custody exists but returns no session", async () => {
     hostedVisitor();
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
     mockHasBuilderOAuthSession.mockResolvedValue(true);
     mockGetBuilderOAuthSession.mockResolvedValue(null);
 
-    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
-      authorization: "Bearer btk-site-token",
-      spaceId: "space-abc",
-      userId: null,
-    });
+    await expect(resolveBuilderGatewayAuth()).resolves.toBeNull();
   });
 
   it("fingerprints the gateway token when the deploy pair is rejected", async () => {

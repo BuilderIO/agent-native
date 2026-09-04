@@ -1122,6 +1122,52 @@ export async function resolveBuilderGatewayCredentialsDetailed(
   return { ...scoped, lane: scoped.source ? "identity" : null };
 }
 
+/**
+ * @deprecated Use `resolveBuilderGatewayAuth()` instead — it also checks the
+ * request owner's Builder OAuth grant, which this key-only shape cannot
+ * represent. Kept only so an external caller built against the old export
+ * does not break; no code in this repo calls it anymore.
+ */
+export async function resolveBuilderGatewayCredentials(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<{
+  privateKey: string | null;
+  publicKey: string | null;
+  userId: string | null;
+  orgName: string | null;
+  orgKind: string | null;
+  subscription: string | null;
+  subscriptionLevel: string | null;
+  subscriptionName: string | null;
+  isEnterprise: boolean | null;
+  isFreeAccount: boolean | null;
+}> {
+  const {
+    privateKey,
+    publicKey,
+    userId,
+    orgName,
+    orgKind,
+    subscription,
+    subscriptionLevel,
+    subscriptionName,
+    isEnterprise,
+    isFreeAccount,
+  } = await resolveBuilderGatewayCredentialsDetailed(identity);
+  return {
+    privateKey,
+    publicKey,
+    userId,
+    orgName,
+    orgKind,
+    subscription,
+    subscriptionLevel,
+    subscriptionName,
+    isEnterprise,
+    isFreeAccount,
+  };
+}
+
 export interface BuilderGatewayAuth {
   /** `Bearer <token>` for the `Authorization` header. */
   authorization: string;
@@ -1147,9 +1193,10 @@ export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
  * Gateway-lane `resolveBuilderAuthHeader`, same fall-through order, with the
  * request owner's Builder OAuth grant checked first. Mirrors
  * `resolveBuilderRequestAuthorization`'s OAuth-before-legacy-key precedence in
- * builder-api-auth.ts; unlike that helper, a broken OAuth grant here falls
- * through to the key lane instead of throwing, since gateway callers already
- * treat a null result as "not configured" rather than a reconnect prompt.
+ * builder-api-auth.ts, including that helper's rule that OAuth custody wins
+ * outright: once a stored grant exists, a broken one (expired, missing scope,
+ * needs reconnect) reports "not configured" rather than falling through to a
+ * key-based credential that could belong to a different Builder identity.
  */
 export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
   const ownerEmail = getRequestUserEmail();
@@ -1161,17 +1208,18 @@ export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | 
         orgId,
         BUILDER_OAUTH_SCOPE,
       );
-      if (session) {
-        return {
-          authorization: `Bearer ${session.accessToken}`,
-          spaceId: null,
-          userId: null,
-        };
-      }
+      return session
+        ? {
+            authorization: `Bearer ${session.accessToken}`,
+            spaceId: null,
+            userId: null,
+          }
+        : null;
     } catch {
-      // coercion-ok: custody exists but the grant is unusable (expired,
-      // missing scope, needs reconnect) -- fall through to the key lane
-      // below rather than throw.
+      // coercion-ok: custody exists but the grant needs reconnecting
+      // (expired, missing scope) -- report "not configured" rather than
+      // falling through to a different identity's credential.
+      return null;
     }
   }
   const creds = await resolveBuilderGatewayCredentialsDetailed();

@@ -579,6 +579,8 @@ export {
   // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentialsDetailed,
   resolveBuilderGatewayAuth,
+  // Deprecated: kept only for external callers built against the old export.
+  resolveBuilderGatewayCredentials,
   resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
