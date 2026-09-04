@@ -1641,18 +1641,33 @@ type LayoutBox = {
 };
 
 async function waitForChatLayoutBoxes(
-  chat: ReturnType<Page["locator"]>,
-  composer: ReturnType<Page["locator"]>,
+  page: Page,
 ): Promise<{ chatBox: LayoutBox; composerBox: LayoutBox }> {
   const deadline = Date.now() + (isCi ? 120_000 : 30_000);
   let lastBoxes: string = "chat=null composer=null";
 
   while (Date.now() < deadline) {
     try {
-      const [chatBox, composerBox] = await Promise.all([
-        chat.boundingBox(),
-        composer.boundingBox(),
-      ]);
+      const boxes = await page.evaluate(() => {
+        const readBox = (selector: string): LayoutBox | null => {
+          const node = document.querySelector<HTMLElement>(selector);
+          if (!node) return null;
+          const rect = node.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          };
+        };
+        return {
+          chatBox: readBox("section.agentkit-chat"),
+          composerBox: readBox(
+            '.agentkit-composer[data-agent-composer-slot="root"]',
+          ),
+        };
+      });
+      const { chatBox, composerBox } = boxes;
       lastBoxes = `chat=${JSON.stringify(chatBox)} composer=${JSON.stringify(composerBox)}`;
       if (
         chatBox &&
