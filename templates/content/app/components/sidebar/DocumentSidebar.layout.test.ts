@@ -201,6 +201,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "pendingOptimisticCreationIdsRef.current.add(id)",
     );
+    expect(sidebar).toContain("skipListDocumentsInvalidation: true");
     expect(sidebar).toContain("settleOptimisticListRefresh(id)");
   });
 

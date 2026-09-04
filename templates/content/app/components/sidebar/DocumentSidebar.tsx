@@ -873,7 +873,9 @@ export function DocumentSidebar({
   const documentsQuery = useDocuments();
   const { data: documents = [] } = documentsQuery;
   const createDocument = useCreateDocument();
-  const createDatabase = useCreateContentDatabase(null);
+  const createDatabase = useCreateContentDatabase(null, {
+    skipListDocumentsInvalidation: true,
+  });
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
