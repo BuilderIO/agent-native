@@ -1,7 +1,7 @@
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agentkit-chat/rail";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { markAgentChatHomeHandoff } from "@agent-native/core/client/agentkit-chat/rail";
 import { APP_TITLE } from "@/lib/app-config";
 import { getChatHomeThreadId } from "@/lib/chat-home-thread";
 
