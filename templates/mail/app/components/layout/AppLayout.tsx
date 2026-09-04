@@ -5,10 +5,8 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import {
-  getBrowserTabId,
-  usePerAppChatOpen,
-} from "@agent-native/core/client/hooks";
+import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
