@@ -1,6 +1,7 @@
 import { Outlet } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import { ViewPreferencesProvider } from "@/hooks/use-view-preferences";
 
 // Pathless layout route — wraps all protected routes with AppLayout so the
 // agent sidebar and calendar context persist across client-side navigations.
@@ -8,8 +9,10 @@ import { AppLayout } from "@/components/layout/AppLayout";
 // intentionally live outside this layout.
 export default function AppLayoutRoute() {
   return (
-    <AppLayout>
-      <Outlet />
-    </AppLayout>
+    <ViewPreferencesProvider>
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </ViewPreferencesProvider>
   );
 }

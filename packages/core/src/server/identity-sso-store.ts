@@ -187,18 +187,19 @@ export function isCanonicalIdentitySsoClientRequest(
 }
 
 /**
- * The conditional login entry is the only browser UI this feature adds. It
- * stays byte-for-byte absent on canonical hosted apps, even though those
- * origins may use the backend flow for packaged Desktop. Explicitly
- * configured noncanonical deployments may opt in to the browser entry.
+ * The conditional login entry is available on exact canonical hosted clients
+ * and on explicitly configured self-hosted deployments. The automatic browser
+ * handoff is separately gated by Dispatch's user-scoped feature flag.
  */
-export function identitySsoLoginButtonHtml(): string {
-  if (
-    isCanonicalIdentitySsoClientOrigin(configuredAppOrigin()) ||
-    !isIdentitySsoExplicitlyEnabled()
-  ) {
-    return "";
-  }
+export function identitySsoLoginButtonHtml(
+  options: {
+    requestHost?: string;
+  } = {},
+): string {
+  const canonicalRequest = options.requestHost
+    ? isCanonicalIdentitySsoClientRequest(options.requestHost, "https")
+    : isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+  if (!canonicalRequest && !isIdentitySsoExplicitlyEnabled()) return "";
   return (
     `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
     `href="/_agent-native/identity/login" ` +

@@ -11,9 +11,10 @@
  *
  * The browser never receives a JWT, password, or reusable identity assertion.
  * The device-local Desktop setting controls whether the parent login surface
- * appears. The per-user Desktop flag still gates session fan-out; ordinary
- * browser federation remains controlled by the client's explicit
- * identity-hub configuration.
+ * appears. The per-user Desktop flag still gates session fan-out; canonical
+ * browser federation is controlled by the separate `browser.identity-sso`
+ * flag, while self-hosted federation remains explicitly configured by the
+ * client.
  */
 
 import { signA2AToken } from "@agent-native/core/a2a";
@@ -31,7 +32,10 @@ import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
 import type { H3Event } from "h3";
 
-import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
+import {
+  BROWSER_IDENTITY_SSO_FLAG,
+  DESKTOP_WORKSPACE_SSO_FLAG,
+} from "../../shared/feature-flags.js";
 import {
   IDENTITY_AUTHORIZATION_CODE_TTL_MS,
   IDENTITY_SCOPE,
@@ -41,6 +45,7 @@ import {
   buildRedirectLocation,
   consumeIdentityAuthorizationCode,
   createIdentityAuthorizationCode,
+  DEFAULT_ALLOWED_ORIGINS,
   isValidSsoState,
   normalizeIdentityAuthority,
   resolveIdentitySsoApp,
@@ -123,6 +128,24 @@ export async function isWorkspaceSsoEnabledForSession(
   }).catch(() => false);
 }
 
+export async function canAttemptBrowserIdentitySso(): Promise<boolean> {
+  return hasActiveFeatureFlagRollout(BROWSER_IDENTITY_SSO_FLAG.key).catch(
+    // coercion-ok: unreadable rollout state must fail closed for silent sign-in.
+    () => false,
+  );
+}
+
+export async function isBrowserIdentitySsoEnabledForSession(
+  session: Awaited<ReturnType<typeof getSession>>,
+): Promise<boolean> {
+  if (!session?.email) return false;
+  return isFeatureFlagEnabled(BROWSER_IDENTITY_SSO_FLAG, {
+    userEmail: session.email,
+    userKey: session.email,
+    orgId: session.orgId,
+  }).catch(() => false); // coercion-ok: unreadable rollout state must fail closed.
+}
+
 export const availabilityHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     const method = getMethod(event);
@@ -168,6 +191,7 @@ export const authorizeHandler = defineEventHandler(
     const responseType = search.get("response_type");
     const codeChallenge = search.get("code_challenge");
     const codeChallengeMethod = search.get("code_challenge_method");
+    const prompt = search.get("prompt");
     const isDesktopRequest = isDesktopWorkspaceSsoRequest(
       getHeader(event, "user-agent"),
     );
@@ -175,12 +199,17 @@ export const authorizeHandler = defineEventHandler(
     // Validate every browser-controlled protocol parameter before resolving a
     // Dispatch session or constructing a continuation URL.
     const registration = resolveIdentitySsoApp(appId, clientId, redirectUri);
+    const isCanonicalBrowserClient =
+      !isDesktopRequest &&
+      DEFAULT_ALLOWED_ORIGINS.includes(registration?.origin ?? "");
     if (
       !registration ||
       responseType !== "code" ||
       !isValidSsoState(state) ||
       !isValidSsoState(codeChallenge) ||
-      codeChallengeMethod !== "S256"
+      codeChallengeMethod !== "S256" ||
+      (prompt !== null && prompt !== "none") ||
+      (prompt === "none" && !isCanonicalBrowserClient)
     ) {
       return jsonResponse(
         {
@@ -191,6 +220,7 @@ export const authorizeHandler = defineEventHandler(
         400,
       );
     }
+    const isSilentBrowserRequest = prompt === "none";
     const safeRedirectUri = redirectUri as string;
     const safeAppId = appId as string;
     const safeClientId = clientId as string;
@@ -207,12 +237,28 @@ export const authorizeHandler = defineEventHandler(
       );
     }
 
+    const buildErrorLocation = (
+      error: "feature_disabled" | "login_required",
+    ) => {
+      const location = new URL(safeRedirectUri);
+      location.searchParams.set("error", error);
+      location.searchParams.set("state", safeState);
+      return location.toString();
+    };
+
+    if (isSilentBrowserRequest && !(await canAttemptBrowserIdentitySso())) {
+      return redirect(buildErrorLocation("feature_disabled"));
+    }
+
     if (isDesktopRequest && !(await canAttemptWorkspaceSso())) {
       return jsonResponse({ error: "not_found" }, 404);
     }
 
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
+      if (isSilentBrowserRequest) {
+        return redirect(buildErrorLocation("login_required"));
+      }
       const queryStart = rawUrl.indexOf("?");
       const authorizePathWithQuery =
         AUTHORIZE_PATH + (queryStart >= 0 ? rawUrl.slice(queryStart) : "");
@@ -228,6 +274,13 @@ export const authorizeHandler = defineEventHandler(
         );
       }
       return redirect(signInHref);
+    }
+
+    if (
+      isSilentBrowserRequest &&
+      !(await isBrowserIdentitySsoEnabledForSession(session))
+    ) {
+      return redirect(buildErrorLocation("feature_disabled"));
     }
 
     if (isDesktopRequest && !(await isWorkspaceSsoEnabledForSession(session))) {

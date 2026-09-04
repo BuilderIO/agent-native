@@ -416,6 +416,7 @@ const ptBR = {
   },
   common: {
     copied: "Copiado",
+    copyFailed: "Falha ao copiar",
     copyCommand: "Comando copiar",
     copyCode: "Copiar código",
     tryIt: "Experimentar",

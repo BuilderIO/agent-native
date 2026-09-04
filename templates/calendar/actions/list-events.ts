@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   getRequestTimezone,
   getRequestUserEmail,
@@ -18,7 +17,6 @@ import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
 import type { CalendarEvent, ExternalCalendar } from "../shared/api.js";
-import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 import {
   addDaysToDateKey,
   dateKeyInTimezone,
@@ -864,12 +862,6 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args, ctx) => {
-    if (
-      args.calendarSourceKeys &&
-      !(await isFeatureFlagEnabled(SHARED_GOOGLE_CALENDARS, ctx))
-    ) {
-      throw new Error("Shared Google calendars is not enabled");
-    }
     const inventory =
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
     const owner = inventory ? getRequestUserEmail() : undefined;

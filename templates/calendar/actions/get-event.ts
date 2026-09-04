@@ -1,12 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { calendarGetEvent } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
-import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 import { parseGoogleCalendarSourceKey } from "../shared/google-calendar-sources.js";
 import { getGoogleEventColorHex } from "../shared/google-event-colors.js";
 
@@ -60,14 +58,11 @@ export default defineAction({
       view: "calendar",
     };
   },
-  run: async (args, ctx) => {
+  run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
 
     if (args.calendarSourceKey) {
-      if (!(await isFeatureFlagEnabled(SHARED_GOOGLE_CALENDARS, ctx))) {
-        throw new Error("Shared Google calendars is not enabled");
-      }
       const source = parseGoogleCalendarSourceKey(args.calendarSourceKey);
       if (!source) throw new Error("Invalid Google Calendar source key");
       const namespacedPrefix = `google-${args.calendarSourceKey}-`;
@@ -87,6 +82,11 @@ export default defineAction({
       ? args.id.slice("google-".length)
       : args.id;
     const calendarId = args.calendarId ?? "primary";
+    if (calendarId !== "primary") {
+      throw new Error(
+        "Non-primary Google calendars require a validated calendarSourceKey from list-google-calendars.",
+      );
+    }
 
     const clients = await googleCalendar.getClients(email);
     if (clients.length === 0) {

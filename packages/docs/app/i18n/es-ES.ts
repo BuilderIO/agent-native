@@ -418,6 +418,7 @@ const esES = {
   },
   common: {
     copied: "copiado",
+    copyFailed: "No se pudo copiar",
     copyCommand: "comando copiar",
     copyCode: "Copiar código",
     tryIt: "Probar",

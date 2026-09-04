@@ -9,8 +9,10 @@
  *
  * Direct browser federation uses the canonical Dispatch authority for exact
  * first-party hosted app origins and remains opt-in through
- * `AGENT_NATIVE_IDENTITY_HUB_URL` for self-hosted deployments. The packaged
- * Desktop Canary follows the same canonical-origin boundary.
+ * `AGENT_NATIVE_IDENTITY_HUB_URL` for self-hosted deployments. Canonical auth
+ * pages may also use a silent, flag-gated probe to reuse an existing Dispatch
+ * session. The packaged Desktop Canary follows the same canonical-origin
+ * boundary.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -362,14 +364,11 @@ async function jitLinkIdentity(
   signupHeaders?: Headers,
 ): Promise<void> {
   const adapter = await getBetterAuthInternalAdapter();
-  let existing = adapter
-    ? await adapter
-        .findUserByEmail(identity.email, { includeAccounts: true })
-        .catch((error) => {
-          void error;
-          return null;
-        })
-    : null;
+  if (!adapter) throw new Error("Local account storage is unavailable.");
+
+  let existing = await adapter.findUserByEmail(identity.email, {
+    includeAccounts: true,
+  });
 
   if (!existing) {
     const auth = await getBetterAuth();
@@ -385,35 +384,32 @@ async function jitLinkIdentity(
     } catch (error) {
       if (!isExpectedAuthFailure(error)) throw error;
     }
-    if (adapter) {
-      existing = await adapter
-        .findUserByEmail(identity.email, { includeAccounts: true })
-        .catch((error) => {
-          void error;
-          return null;
-        });
-    }
+    existing = await adapter.findUserByEmail(identity.email, {
+      includeAccounts: true,
+    });
   }
 
-  if (adapter && existing?.user?.id) {
-    const accountId = identity.sub || identity.email;
-    const alreadyLinked = (existing.accounts ?? []).some(
-      (account) =>
-        account.providerId === IDENTITY_SSO_PROVIDER_ID &&
-        account.accountId === accountId,
-    );
-    if (!alreadyLinked) {
-      try {
-        await adapter.linkAccount({
-          userId: existing.user.id,
-          providerId: IDENTITY_SSO_PROVIDER_ID,
-          accountId,
-        });
-      } catch (error) {
-        void error;
-        // The verified email already authenticates the user. This inert,
-        // additive bookkeeping link must never block session creation.
-      }
+  if (!existing?.user?.id) {
+    throw new Error("Local account could not be resolved.");
+  }
+
+  const accountId = identity.sub || identity.email;
+  const alreadyLinked = (existing.accounts ?? []).some(
+    (account) =>
+      account.providerId === IDENTITY_SSO_PROVIDER_ID &&
+      account.accountId === accountId,
+  );
+  if (!alreadyLinked) {
+    try {
+      await adapter.linkAccount({
+        userId: existing.user.id,
+        providerId: IDENTITY_SSO_PROVIDER_ID,
+        accountId,
+      });
+    } catch (error) {
+      void error;
+      // The verified email already authenticates the user. This inert,
+      // additive bookkeeping link must never block session creation.
     }
   }
 }
@@ -425,6 +421,14 @@ function safeRequestReturnPath(event: H3Event): string {
   } catch {
     return "/";
   }
+}
+
+function localSignInHref(returnPath: string | null): string {
+  const url = new URL(SIGN_IN_ENTRY_PATH, "http://an.invalid");
+  url.searchParams.set("sso", "unavailable");
+  const safeReturn = safeReturnPath(returnPath);
+  if (safeReturn !== "/") url.searchParams.set("return", safeReturn);
+  return `${url.pathname}${url.search}`;
 }
 
 export async function handleIdentitySso(
@@ -494,6 +498,18 @@ export async function handleIdentitySso(
     const returnPath = safeRequestReturnPath(event);
     if (existing?.email) return redirect(event, returnPath);
 
+    let silent = false;
+    try {
+      const url = new URL(requestUrl(event), "http://an.invalid");
+      const prompt = url.searchParams.get("prompt");
+      if (prompt !== null && prompt !== "none") {
+        return errorPage("Malformed sign-in request.", loginPath);
+      }
+      silent = prompt === "none";
+    } catch {
+      return errorPage("Malformed sign-in request.", loginPath);
+    }
+
     const binding = resolveClientBinding(event, hub);
     if (!binding)
       return errorPage("Federated sign-in is not configured.", loginPath);
@@ -533,7 +549,8 @@ export async function handleIdentitySso(
       `&redirect_uri=${encodeURIComponent(binding.redirectUri)}` +
       `&state=${encodeURIComponent(state)}` +
       `&code_challenge=${encodeURIComponent(challenge)}` +
-      `&code_challenge_method=S256`;
+      `&code_challenge_method=S256` +
+      (silent ? "&prompt=none" : "");
     return redirect(event, authorizeUrl);
   }
 
@@ -543,14 +560,18 @@ export async function handleIdentitySso(
     }
     let code = "";
     let state = "";
+    let ssoError = "";
     try {
       const url = new URL(requestUrl(event), "http://an.invalid");
       code = url.searchParams.get("code") || "";
       state = url.searchParams.get("state") || "";
+      ssoError = url.searchParams.get("error") || "";
     } catch {
       return errorPage("Malformed sign-in response.", loginPath);
     }
-    if (!STATE_PATTERN.test(state) || !CODE.test(code)) {
+    const isSilentFallback =
+      ssoError === "login_required" || ssoError === "feature_disabled";
+    if (!STATE_PATTERN.test(state) || (!CODE.test(code) && !isSilentFallback)) {
       return errorPage("Malformed sign-in response.", loginPath);
     }
 
@@ -573,6 +594,10 @@ export async function handleIdentitySso(
         "Your sign-in session expired or was already used. Please try again.",
         loginPath,
       );
+    }
+
+    if (isSilentFallback) {
+      return redirect(event, localSignInHref(stateResult.returnPath));
     }
 
     const assertion = await exchangeIdentityCode(hub, binding, {

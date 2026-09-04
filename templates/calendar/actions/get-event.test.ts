@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const isFeatureFlagEnabledMock = vi.hoisted(() => vi.fn());
 const getEventMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: isFeatureFlagEnabledMock,
-}));
 
 vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: vi.fn(() => "/home"),
@@ -27,7 +22,6 @@ import action from "./get-event";
 describe("get-event shared calendar reads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    isFeatureFlagEnabledMock.mockResolvedValue(true);
     getEventMock.mockResolvedValue({ id: "google-shared-event" });
   });
 
@@ -56,20 +50,15 @@ describe("get-event shared calendar reads", () => {
     );
   });
 
-  it("does not expose shared reads while the rollout flag is off", async () => {
-    isFeatureFlagEnabledMock.mockResolvedValue(false);
-
+  it("rejects the legacy raw non-primary calendarId bypass", async () => {
     await expect(
       action.run(
         {
           id: "google-shared-event",
-          calendarId: "primary",
-          calendarSourceKey: "google-calendar:opaque",
+          calendarId: "shared@example.com",
         },
         {},
       ),
-    ).rejects.toThrow("Shared Google calendars is not enabled");
-
-    expect(getEventMock).not.toHaveBeenCalled();
+    ).rejects.toThrow("require a validated calendarSourceKey");
   });
 });

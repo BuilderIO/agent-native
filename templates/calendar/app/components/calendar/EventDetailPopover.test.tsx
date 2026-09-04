@@ -729,6 +729,28 @@ describe("EventDetailPopover characterization", () => {
     expect(endTimeTrigger?.textContent).toBe("1 PM");
   });
 
+  it.each([true, false])(
+    "disables scheduling controls only for read-only sources (%s)",
+    (readOnly) => {
+      act(() => {
+        root.render(
+          <EventDetailPopover
+            event={baseEvent({ calendarReadOnly: readOnly })}
+            defaultOpen
+            onDelete={() => undefined}
+          >
+            <button type="button">Open</button>
+          </EventDetailPopover>,
+        );
+      });
+      const scheduling = document.querySelector("fieldset");
+      expect(scheduling).not.toBeNull();
+      expect(scheduling?.disabled).toBe(readOnly);
+      expect(scheduling?.querySelectorAll("button").length).toBeGreaterThan(0);
+      expect(updateEventMutate).not.toHaveBeenCalled();
+    },
+  );
+
   it("prefers the viewer's calendar timezone over the event's stored timezone when seeding the time editor", () => {
     // Same instant as the previous test, but this event was created in a
     // different zone (America/Los_Angeles) than the viewer's currently

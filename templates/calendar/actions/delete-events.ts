@@ -17,7 +17,7 @@ import {
   cliBoolean,
   isBookedOnAccount,
   mapWithConcurrency,
-  normalizeGoogleEventId,
+  normalizeWritableGoogleEventId,
   rawCliBoolean,
   requireActionUserEmail,
   requireExplicitBound,
@@ -225,7 +225,7 @@ export default defineAction({
       // writes for the same event: one succeeds, the other 404s, and the report
       // claims a failure that never happened.
       const requested = Array.from(
-        new Set(args.ids!.map(normalizeGoogleEventId)),
+        new Set(args.ids!.map(normalizeWritableGoogleEventId)),
       );
       // Explicit ids get the same booking protection as a filtered selection:
       // naming the event directly does not make leaving its booking confirmed
