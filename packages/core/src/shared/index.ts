@@ -88,6 +88,14 @@ export {
   type LlmConnectionStatus,
 } from "./llm-connection.js";
 export {
+  AGENT_NATIVE_ACTION_EVENTS,
+  AGENT_NATIVE_LIFECYCLE_EVENTS,
+  normalizeTrackingDimension,
+  withCanonicalTrackingProperties,
+  type AgentNativeActionEventName,
+  type AgentNativeLifecycleEventName,
+} from "./analytics-events.js";
+export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,
   assertValidWorkspaceAppId,

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { getOnboardingHtml } from "../../server/onboarding-html.js";
 import {
   AuthPage,
+  isConfirmedAnonymousAuthSession,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
   type AuthPageProps,
@@ -18,6 +19,30 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("only confirms anonymous sessions from a readable auth response", () => {
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: true, status: 200 },
+        { error: "Not authenticated" },
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: true, status: 200 },
+        { error: "Session unavailable" },
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      isConfirmedAnonymousAuthSession(
+        { ok: false, status: 503 },
+        { error: "Not authenticated" },
+        true,
+      ),
+    ).toBe(false);
+  });
+
   it("renders the password auth surface on the server without browser globals", () => {
     const html = renderToString(
       <AuthPage {...propsFromHtml(getOnboardingHtml())} />,

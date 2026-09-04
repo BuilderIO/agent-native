@@ -236,6 +236,21 @@ describe("resolveAnalyticsEventDimensions", () => {
       }),
     ).toEqual({ app: "analytics", template: "docs" });
   });
+
+  it("prefers canonical app/template properties", () => {
+    expect(
+      resolveAnalyticsEventDimensions({
+        properties: {
+          app_name: "clips",
+          template_name: "clips",
+          app: "analytics",
+          template: "docs",
+        },
+        context: {},
+        hostname: "mail.agent-native.com",
+      }),
+    ).toEqual({ app: "clips", template: "clips" });
+  });
 });
 
 describe("isMarketingWebsiteSessionEvent", () => {
