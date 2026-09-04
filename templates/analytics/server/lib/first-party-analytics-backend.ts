@@ -521,23 +521,118 @@ function sqlLiteral(value: string | null): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
+function readSqlDollarQuoteDelimiter(
+  sql: string,
+  start: number,
+): string | null {
+  if (sql[start] !== "$") return null;
+  const firstTagCharacter = sql[start + 1];
+  if (firstTagCharacter === "$") return "$$";
+  if (!firstTagCharacter || !/[A-Za-z_]/.test(firstTagCharacter)) return null;
+
+  let end = start + 2;
+  while (end < sql.length && /[A-Za-z0-9_]/.test(sql[end] ?? "")) end++;
+  return sql[end] === "$" ? sql.slice(start, end + 1) : null;
+}
+
+function readSqlQuotedEnd(
+  sql: string,
+  start: number,
+  quote: "'" | '"' | "`",
+): number {
+  let index = start + 1;
+  while (index < sql.length) {
+    const character = sql[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === quote) {
+      if (sql[index + 1] === quote) {
+        index += 2;
+        continue;
+      }
+      return index + 1;
+    }
+    index++;
+  }
+  return sql.length;
+}
+
 function bindSqlArguments(sql: string, args: Array<string | null>): string {
   let nextPositionalIndex = 0;
-  return sql.replace(/\$(\d+)|\?/g, (placeholder, explicitIndex: string) => {
-    const index = explicitIndex
-      ? Number(explicitIndex) - 1
-      : nextPositionalIndex++;
-    if (!Number.isInteger(index) || index < 0) {
-      throw new Error(
-        `First-party BigQuery query has an invalid bind ${placeholder}`,
+  let index = 0;
+  let result = "";
+
+  while (index < sql.length) {
+    const character = sql[index];
+    const nextCharacter = sql[index + 1];
+
+    if (character === "'" || character === '"' || character === "`") {
+      const end = readSqlQuotedEnd(sql, index, character);
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    if (character === "-" && nextCharacter === "-") {
+      const lineEnd = sql.indexOf("\n", index + 2);
+      const end = lineEnd === -1 ? sql.length : lineEnd;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    if (character === "/" && nextCharacter === "*") {
+      const commentEnd = sql.indexOf("*/", index + 2);
+      const end = commentEnd === -1 ? sql.length : commentEnd + 2;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    const dollarQuoteDelimiter = readSqlDollarQuoteDelimiter(sql, index);
+    if (dollarQuoteDelimiter) {
+      const bodyEnd = sql.indexOf(
+        dollarQuoteDelimiter,
+        index + dollarQuoteDelimiter.length,
       );
+      const end =
+        bodyEnd === -1 ? sql.length : bodyEnd + dollarQuoteDelimiter.length;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
     }
-    const value = args[index];
-    if (value === undefined) {
-      throw new Error("First-party BigQuery query has too few bind arguments");
+
+    const explicitBind =
+      character === "$" ? /^\$(\d+)/.exec(sql.slice(index)) : null;
+    if (explicitBind || character === "?") {
+      const placeholder = explicitBind?.[0] ?? "?";
+      const explicitIndex = explicitBind?.[1];
+      const bindIndex = explicitIndex
+        ? Number(explicitIndex) - 1
+        : nextPositionalIndex++;
+      if (!Number.isInteger(bindIndex) || bindIndex < 0) {
+        throw new Error(
+          `First-party BigQuery query has an invalid bind ${placeholder}`,
+        );
+      }
+      const value = args[bindIndex];
+      if (value === undefined) {
+        throw new Error(
+          "First-party BigQuery query has too few bind arguments",
+        );
+      }
+      result += sqlLiteral(value);
+      index += placeholder.length;
+      continue;
     }
-    return sqlLiteral(value);
-  });
+
+    result += character;
+    index++;
+  }
+
+  return result;
 }
 
 function maskSqlLiterals(sql: string): string {

@@ -90,6 +90,23 @@ describe("first-party BigQuery backend", () => {
     expect(sql).toContain("'2026-08-05'");
   });
 
+  it("does not bind markers inside SQL string literals", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT '$1' AS marker FROM analytics_events WHERE owner_email = $1",
+      ["owner@example.com"],
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+
+    expect(sql).toContain("SELECT '$1' AS marker");
+    expect(sql).toContain("owner_email = 'owner@example.com'");
+  });
+
   it("keeps union branches separated after source deduplication", () => {
     const sql = renderFirstPartyAnalyticsBigQuerySql(
       "SELECT * FROM analytics_events WHERE event_name = 'signup' UNION ALL SELECT * FROM analytics_events WHERE event_name = 'login'",
