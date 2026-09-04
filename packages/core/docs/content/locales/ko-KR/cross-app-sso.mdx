@@ -302,7 +302,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 컷오버 및 롤백은 **앱 배포당 단일 환경 변수**입니다. 한 번에 하나의 앱을 출시하고 확인한 후 확장하세요. 모든 앱에 변수를 한 번에 설정하지 마세요.
 
-먼저 브라우저 ID flag를 출시하세요. 앱과 Dispatch에 조직 매핑 migration을 배포한 후 한 조직에서 `organization.cross-app-federation`을 활성화하고 canonical ID와 역할을 확인하세요. 매핑이 없는 기존 조직은 명시적 migration 전까지 변경되지 않습니다.
+먼저 브라우저 ID flag를 출시하세요. 앱과 Dispatch에 조직 매핑 migration을 배포한 후 한 조직에서 `organization.cross-app-federation`을 활성화하고 canonical ID와 역할을 확인하세요. 브라우저 SSO는 계속 `A2A_SECRET`을 사용하지만 조직 federation은 앱별 별도 credential을 사용합니다. source 앱에 `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET`을, Dispatch에 일치하는 `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>`를 설정하세요. 이 federation authority 경계에서 공유 `A2A_SECRET`을 재사용하지 마세요. 매핑이 없는 기존 조직은 명시적 migration 전까지 변경되지 않습니다.
 
 **1. 코드 배포 — 동작 변경 없음**
 `AGENT_NATIVE_IDENTITY_HUB_URL` **모든 곳에서 설정되지 않음**을 사용하여 모든 앱에 릴리스를 제공합니다. 몇 가지 앱에서 일반 로그인이 여전히 작동하는지 확인하세요.

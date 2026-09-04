@@ -295,7 +295,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 切换和回滚是**每个应用程序部署的单个环境变量**。一次推出一个应用程序，验证，然后扩展。不要同时在每个应用程序上设置变量。
 
-先推出浏览器身份 flag。在应用程序和 Dispatch 部署组织映射迁移后，为一个组织启用 `organization.cross-app-federation`，并验证规范 ID 和角色。没有映射的现有组织在明确迁移前保持不变。
+先推出浏览器身份 flag。在应用程序和 Dispatch 部署组织映射迁移后，为一个组织启用 `organization.cross-app-federation`，并验证规范 ID 和角色。浏览器 SSO 继续使用 `A2A_SECRET`，但组织联邦使用每个应用单独的凭据：在源应用设置 `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET`，并在 Dispatch 设置匹配的 `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>`。不要在此联邦权限边界重复使用共享的 `A2A_SECRET`。没有映射的现有组织在明确迁移前保持不变。
 
 **1。部署代码——没有行为改变。**
 使用 `AGENT_NATIVE_IDENTITY_HUB_URL` **将版本发布到每个应用程序**到处都未设置\*\*。确认正常登录在几个应用程序上仍然有效。

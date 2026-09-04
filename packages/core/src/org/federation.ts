@@ -5,6 +5,7 @@ import type { H3Event } from "h3";
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
 import { isFeatureFlagEnabled } from "../feature-flags/store.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getOrigin } from "../server/google-oauth.js";
 import {
   resolveIdentityHubUrl,
@@ -158,9 +159,16 @@ async function sendFederationAssertion(
 ): Promise<{ hub: string; response: Response } | null> {
   const hub = resolveIdentityHubUrl(event);
   if (!hub) return null;
+  const federationSecret = readDeployCredentialEnv(
+    "AGENT_NATIVE_IDENTITY_FEDERATION_SECRET",
+  )?.trim();
+  if (!federationSecret) {
+    throw new Error(
+      "Cross-app organization federation is missing its deployment credential.",
+    );
+  }
 
-  const token = await signA2AToken(input.email, undefined, undefined, {
-    preferGlobalSecret: true,
+  const token = await signA2AToken(input.email, undefined, federationSecret, {
     audience: canonicalA2AAudience(hub),
     expiresIn: "2m",
     extraClaims: {
@@ -287,6 +295,7 @@ async function sendFederatedMemberOperation(
 async function registerWithIdentityHub(
   event: H3Event,
   input: FederatedOrganizationIdentity,
+  canonicalOrgId: string,
   roster?: readonly FederatedRosterMember[],
 ): Promise<{ hub: string; rosterInitialized: boolean } | null> {
   const rosterBody = roster ? { members: roster } : undefined;
@@ -314,7 +323,7 @@ async function registerWithIdentityHub(
     return null;
   })) as Record<string, unknown> | null;
   if (
-    body?.orgId !== input.id ||
+    body?.orgId !== canonicalOrgId ||
     typeof body.name !== "string" ||
     !body.name.trim()
   ) {
@@ -600,6 +609,7 @@ export async function syncOrganizationToIdentityHub(
       authority,
       id: canonicalOrgId,
     },
+    canonicalOrgId,
     roster,
   );
   if (!registered) return false;

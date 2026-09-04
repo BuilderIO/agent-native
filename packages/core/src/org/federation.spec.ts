@@ -10,6 +10,7 @@ const signA2ATokenMock = vi.hoisted(() => vi.fn());
 const resolveIdentityHubUrlMock = vi.hoisted(() => vi.fn());
 const resolveIdentitySsoAppIdMock = vi.hoisted(() => vi.fn());
 const getOriginMock = vi.hoisted(() => vi.fn());
+const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../feature-flags/store.js", () => ({
   isFeatureFlagEnabled: isFeatureFlagEnabledMock,
@@ -24,6 +25,9 @@ vi.mock("../a2a/index.js", () => ({
 vi.mock("../server/identity-sso.js", () => ({
   resolveIdentityHubUrl: resolveIdentityHubUrlMock,
   resolveIdentitySsoAppId: resolveIdentitySsoAppIdMock,
+}));
+vi.mock("../server/credential-provider.js", () => ({
+  readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 vi.mock("../server/google-oauth.js", () => ({ getOrigin: getOriginMock }));
 vi.mock("./active-org.js", () => ({ setActiveOrgId: setActiveOrgIdMock }));
@@ -63,6 +67,7 @@ describe("cross-app organization federation", () => {
     );
     getOriginMock.mockReturnValue("https://slides.agent-native.com");
     resolveIdentitySsoAppIdMock.mockReturnValue("slides");
+    readDeployCredentialEnvMock.mockReturnValue("test-federation-credential");
     signA2ATokenMock.mockResolvedValue("signed-assertion");
     vi.stubGlobal(
       "fetch",
@@ -149,6 +154,35 @@ describe("cross-app organization federation", () => {
     expect(executeMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not fall back to the shared A2A secret for federation signing", async () => {
+    readDeployCredentialEnvMock.mockReturnValue(undefined);
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT identity_authority, identity_id/i.test(sql)) {
+        return {
+          rows: [
+            {
+              identity_authority: null,
+              identity_id: null,
+              federation_roster_initialized_at: Date.now(),
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(
+      syncOrganizationToIdentityHub({} as any, {
+        id: identity.id,
+        name: identity.name,
+        role: identity.role,
+        email: identity.email,
+      }),
+    ).rejects.toThrow("missing its deployment credential");
+    expect(signA2ATokenMock).not.toHaveBeenCalled();
+  });
+
   it("sends the current owner roster during the one-time registration", async () => {
     executeMock.mockImplementation(async (input) => {
       const sql = (typeof input === "string" ? input : input.sql).trim();
@@ -205,7 +239,7 @@ describe("cross-app organization federation", () => {
     expect(signA2ATokenMock).toHaveBeenCalledWith(
       identity.email,
       undefined,
-      undefined,
+      "test-federation-credential",
       expect.objectContaining({
         extraClaims: expect.objectContaining({
           federation_roster_hash: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
@@ -250,15 +284,54 @@ describe("cross-app organization federation", () => {
     expect(signA2ATokenMock).toHaveBeenCalledWith(
       "owner@example.test",
       undefined,
-      undefined,
+      "test-federation-credential",
       expect.objectContaining({
-        preferGlobalSecret: true,
         extraClaims: expect.objectContaining({
           federation_operation: "remove-member",
           federation_member_email: "removed@example.test",
         }),
       }),
     );
+  });
+
+  it("accepts the canonical identity id returned for a mapped local organization", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT identity_authority, identity_id/i.test(sql)) {
+        return {
+          rows: [
+            {
+              identity_authority: "https://dispatch.agent-native.com",
+              identity_id: "canonical-org",
+              federation_roster_initialized_at: Date.now(),
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              orgId: "canonical-org",
+              name: identity.name,
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await expect(
+      syncOrganizationToIdentityHub({} as any, {
+        id: "local-org",
+        name: identity.name,
+        role: identity.role,
+        email: identity.email,
+      }),
+    ).resolves.toBe(true);
   });
 
   it("sends explicit add and role operations with the actor assertion", async () => {
@@ -300,7 +373,7 @@ describe("cross-app organization federation", () => {
     expect(signA2ATokenMock).toHaveBeenLastCalledWith(
       "owner@example.test",
       undefined,
-      undefined,
+      "test-federation-credential",
       expect.objectContaining({
         extraClaims: expect.objectContaining({
           federation_operation: "update-member-role",
@@ -341,7 +414,7 @@ describe("cross-app organization federation", () => {
     expect(signA2ATokenMock).toHaveBeenCalledWith(
       "owner@example.test",
       undefined,
-      undefined,
+      "test-federation-credential",
       expect.objectContaining({
         extraClaims: expect.objectContaining({ org_id: "canonical-org" }),
       }),

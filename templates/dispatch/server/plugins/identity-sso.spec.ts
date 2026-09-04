@@ -242,6 +242,12 @@ beforeEach(() => {
   centralMemberRole = null;
   process.env.APP_URL = AUTHORITY;
   process.env.A2A_SECRET = "test-a2a-secret";
+  process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_MAIL =
+    "test-mail-federation-secret";
+  process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_SLIDES =
+    "test-slides-federation-secret";
+  process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_CLIPS =
+    "test-clips-federation-secret";
   featureFlagMocks.hasActiveRollout.mockResolvedValue(false);
   featureFlagMocks.isEnabled.mockResolvedValue(false);
   getSessionMock.mockResolvedValue({
@@ -276,6 +282,9 @@ afterEach(() => {
   delete process.env.APP_URL;
   delete process.env.BETTER_AUTH_URL;
   delete process.env.A2A_SECRET;
+  delete process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_MAIL;
+  delete process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_SLIDES;
+  delete process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_CLIPS;
   delete process.env.IDENTITY_SSO_APP_REGISTRY_JSON;
 });
 
@@ -782,7 +791,7 @@ describe("organization federation endpoint", () => {
     );
   });
 
-  it("revokes a copied member using only the global federation secret", async () => {
+  it("revokes a copied member using the registered app federation secret", async () => {
     featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
       return flag.key === "organization.cross-app-federation";
     });
@@ -827,7 +836,40 @@ describe("organization federation endpoint", () => {
     expect(verifyA2ATokenMock).toHaveBeenCalledWith(
       "signed-revocation-assertion",
       expect.anything(),
-      expect.objectContaining({ globalSecretOnly: true }),
+      expect.objectContaining({
+        globalSecretOnly: true,
+        verificationSecret: "test-slides-federation-secret",
+      }),
+    );
+  });
+
+  it("does not use the shared A2A secret for federation assertions", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_SLIDES;
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://slides.agent-native.com",
+        app_id: "slides",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer shared-secret-only-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(verifyA2ATokenMock).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ verificationSecret: "test-a2a-secret" }),
     );
   });
 

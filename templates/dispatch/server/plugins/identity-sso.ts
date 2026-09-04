@@ -390,32 +390,35 @@ export const organizationFederationHandler = defineEventHandler(
     const token = bearerToken(event);
     if (!token) return jsonResponse({ error: "Unauthorized" }, 401);
 
-    const verified = await verifyA2AToken(token, event, {
-      routePrefix: "_agent-native",
-      includeClaims: true,
-      globalSecretOnly: true,
-    });
-    const claims = verified.claims;
-    const issuer =
-      typeof claims?.iss === "string"
-        ? normalizeIdentityAuthority(claims.iss)
-        : null;
-    const appId = typeof claims?.app_id === "string" ? claims.app_id : null;
-    const registration =
-      appId && issuer
-        ? getIdentitySsoAppRegistry().find(
-            (candidate) =>
-              candidate.appId === appId && candidate.origin === issuer,
-          )
-        : null;
-    if (
-      !verified.email ||
-      !claims ||
-      claims.scope !== CROSS_APP_ORG_FEDERATION_SCOPE ||
-      !registration
-    ) {
+    let verified: Awaited<ReturnType<typeof verifyA2AToken>> | null = null;
+    for (const registration of getIdentitySsoAppRegistry()) {
+      if (!registration.federationSecret) continue;
+      const candidate = await verifyA2AToken(token, event, {
+        routePrefix: "_agent-native",
+        includeClaims: true,
+        globalSecretOnly: true,
+        verificationSecret: registration.federationSecret,
+      });
+      const claims = candidate.claims;
+      const issuer =
+        typeof claims?.iss === "string"
+          ? normalizeIdentityAuthority(claims.iss)
+          : null;
+      const appId = typeof claims?.app_id === "string" ? claims.app_id : null;
+      if (
+        candidate.email &&
+        claims?.scope === CROSS_APP_ORG_FEDERATION_SCOPE &&
+        appId === registration.appId &&
+        issuer === registration.origin
+      ) {
+        verified = candidate;
+        break;
+      }
+    }
+    if (!verified || !verified.email || !verified.claims) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
+    const claims = verified.claims;
 
     const orgId = verified.orgId?.trim() ?? "";
     const orgName =

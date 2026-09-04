@@ -296,7 +296,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 切換和回滾是**每個應用程式部署的單一環境變數**。一次推出一個應用程式，驗證，然後擴充功能。不要同時在每個應用程式上設定變數。
 
-先推出瀏覽器身分 flag。在應用程式和 Dispatch 部署組織對應遷移後，為一個組織啟用 `organization.cross-app-federation`，並驗證標準 ID 和角色。沒有對應的現有組織在明確遷移前保持不變。
+先推出瀏覽器身分 flag。在應用程式和 Dispatch 部署組織對應遷移後，為一個組織啟用 `organization.cross-app-federation`，並驗證標準 ID 和角色。瀏覽器 SSO 繼續使用 `A2A_SECRET`，但組織聯合使用每個應用程式獨立的認證資料：在來源應用程式設定 `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET`，並在 Dispatch 設定相符的 `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>`。不要在此聯合權限邊界重複使用共用的 `A2A_SECRET`。沒有對應的現有組織在明確遷移前保持不變。
 
 **1。部署程式碼——沒有行為改變。**
 使用 `AGENT_NATIVE_IDENTITY_HUB_URL` **將版本發布到每個應用程式**到處都未設定\*\*。確認正常登入在幾個應用程式上仍然有效。

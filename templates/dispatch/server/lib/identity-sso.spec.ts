@@ -152,6 +152,27 @@ describe("strict identity app registration", () => {
     ).toBeNull();
   });
 
+  it("loads a separate federation credential for each registered app", () => {
+    const env = {
+      IDENTITY_SSO_APP_REGISTRY_JSON: JSON.stringify([
+        {
+          appId: "workspace",
+          clientId: "workspace-client",
+          origin: "https://workspace.example.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+      AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_WORKSPACE: "workspace-secret",
+    } as unknown as NodeJS.ProcessEnv;
+
+    expect(
+      mod
+        .getIdentitySsoAppRegistry(env)
+        .find((registration) => registration.appId === "workspace"),
+    ).toMatchObject({ federationSecret: "workspace-secret" });
+  });
+
   it("keeps localhost as an exact development-only callback", () => {
     expect(
       mod.isAllowedIdentityRedirect(

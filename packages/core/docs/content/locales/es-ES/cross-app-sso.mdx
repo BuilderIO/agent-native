@@ -305,7 +305,7 @@ Sin `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, un Dispatch autohospedado solo puede e
 
 La transición y la reversión son **una única variable de entorno por implementación de aplicación**. Implemente una aplicación a la vez, verifíquela y luego expanda. No establezca la variable en todas las aplicaciones a la vez.
 
-Implemente primero el flag de identidad del navegador. Después de desplegar las columnas de migración de organización en la aplicación y Dispatch, habilite `organization.cross-app-federation` para una organización y compruebe el ID canónico y el rol. Las organizaciones existentes sin asignación permanecen sin cambios hasta una migración explícita.
+Implemente primero el flag de identidad del navegador. Después de desplegar las columnas de migración de organización en la aplicación y Dispatch, habilite `organization.cross-app-federation` para una organización y compruebe el ID canónico y el rol. El SSO del navegador sigue usando `A2A_SECRET`, pero la federación de organizaciones usa una credencial separada por aplicación: establezca `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET` en la aplicación de origen y `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>` en Dispatch. No reutilice el `A2A_SECRET` compartido para este límite de autoridad. Las organizaciones existentes sin asignación permanecen sin cambios hasta una migración explícita.
 
 **1. Implemente el código, sin cambios de comportamiento.**
 Envíe la versión a todas las aplicaciones con `AGENT_NATIVE_IDENTITY_HUB_URL` **desconfigurado en todas partes**. Confirma que los inicios de sesión normales aún funcionan en un par de aplicaciones.

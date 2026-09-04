@@ -301,7 +301,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 カットオーバーとロールバックは、**アプリのデプロイメントごとに 1 つの環境変数**です。一度に 1 つのアプリをロールアウトし、検証してから拡張します。すべてのアプリに一度に変数を設定しないでください。
 
-まずブラウザー ID フラグをロールアウトします。アプリと Dispatch に組織マッピングのマイグレーションをデプロイした後、1 つの組織で `organization.cross-app-federation` を有効にし、正規 ID とロールを確認します。対応付けのない既存組織は明示的なマイグレーションまで変更されません。
+まずブラウザー ID フラグをロールアウトします。アプリと Dispatch に組織マッピングのマイグレーションをデプロイした後、1 つの組織で `organization.cross-app-federation` を有効にし、正規 ID とロールを確認します。ブラウザー SSO は引き続き `A2A_SECRET` を使用しますが、組織フェデレーションはアプリごとの別資格情報を使用します。送信元アプリに `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET`、Dispatch に対応する `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>` を設定してください。この authority 境界で共有 `A2A_SECRET` を再利用しないでください。対応付けのない既存組織は明示的なマイグレーションまで変更されません。
 
 **1。コードをデプロイします - 動作は変わりません。**
 `AGENT_NATIVE_IDENTITY_HUB_URL` **すべての設定を解除**して、すべてのアプリにリリースを配布します。いくつかのアプリで通常のログインが引き続き機能することを確認します。

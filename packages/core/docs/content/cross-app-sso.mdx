@@ -290,7 +290,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 - **Canonical hosted client** → the app shows a **"Sign in with Agent-Native"** option that runs the flow above. Direct local login (email/password, Google) still works alongside it.
 - **Self-hosted with the variable set** → the app shows the same option, using the configured Dispatch instance.
 - **Self-hosted with the variable unset** → **zero runtime behavior change.** The app authenticates exactly as it did before and the federation code path is dormant. The additive mapping columns may still be present after deployment, but they are unused while the flag is off.
-- **Organization federation** → enable `organization.cross-app-federation` through Analytics only after the app and Dispatch have deployed the additive org mapping migration. The source and target apps must share the verification `A2A_SECRET`.
+- **Organization federation** → enable `organization.cross-app-federation` through Analytics only after the app and Dispatch have deployed the additive org mapping migration. Browser SSO continues to use `A2A_SECRET`; federation requests use a separate per-app credential. Set `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET` on each source app and the matching `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>` on Dispatch. Never reuse the shared `A2A_SECRET` for this authority boundary.
 
 ## Security {#security}
 
@@ -310,6 +310,10 @@ The whole model rests on a few deliberately small guarantees:
   `org_id`, `org_name`, and `org_role` only from a cryptographically verified
   Dispatch assertion, after exact app and authority checks. The org ID is the
   only organization join key.
+- **Per-app federation credentials.** Organization assertions use a dedicated
+  credential for each registered source app, not the deployment-wide
+  `A2A_SECRET`. Dispatch verifies the credential configured for the exact app
+  ID and origin, so one app cannot mint another app's federation identity.
 - **Additive-only identity writes.** Linking either reuses an existing same-email account untouched or inserts a new one. No update, rename, repoint, or delete of identity rows ever happens on this path.
 - **Exact-origin trust.** Only the registered canonical hosted client origins get the implicit hosted default. Self-hosted and custom origins remain opt-in through `AGENT_NATIVE_IDENTITY_HUB_URL`; the separately gated packaged Desktop path is described below.
 

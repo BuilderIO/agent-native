@@ -302,7 +302,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 कटओवर और रोलबैक **प्रति ऐप परिनियोजन के लिए एक एकल पर्यावरण चर** हैं। एक समय में एक ऐप रोल आउट करें, सत्यापित करें, फिर विस्तृत करें। हर ऐप पर एक साथ वेरिएबल सेट न करें।
 
-पहले browser identity flag रोल आउट करें। ऐप और Dispatch में organization mapping migration deploy होने के बाद, एक organization के लिए `organization.cross-app-federation` सक्षम करें और canonical ID तथा role की जाँच करें। बिना mapping वाले मौजूदा organizations explicit migration तक अपरिवर्तित रहते हैं।
+पहले browser identity flag रोल आउट करें। ऐप और Dispatch में organization mapping migration deploy होने के बाद, एक organization के लिए `organization.cross-app-federation` सक्षम करें और canonical ID तथा role की जाँच करें। Browser SSO के लिए `A2A_SECRET` जारी रहता है, लेकिन organization federation हर ऐप के लिए अलग credential का उपयोग करता है: source ऐप में `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET` और Dispatch में मिलान वाला `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>` सेट करें। Federation authority boundary के लिए साझा `A2A_SECRET` को दोबारा उपयोग न करें। बिना mapping वाले मौजूदा organizations explicit migration तक अपरिवर्तित रहते हैं।
 
 **1. कोड परिनियोजित करें - कोई व्यवहार परिवर्तन नहीं।**
 `AGENT_NATIVE_IDENTITY_HUB_URL` के साथ प्रत्येक ऐप पर रिलीज़ भेजें **हर जगह अनसेट**। पुष्टि करें कि सामान्य लॉगिन अभी भी कुछ ऐप्स पर काम करते हैं।

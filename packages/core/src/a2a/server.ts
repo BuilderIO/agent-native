@@ -12,6 +12,7 @@ import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isSameOriginRequest } from "../server/request-origin.js";
@@ -170,6 +171,8 @@ export async function verifyA2AToken(
     includeClaims?: boolean;
     /** Only use the deployment-wide secret, never an org-domain secret. */
     globalSecretOnly?: boolean;
+    /** Only use this explicitly configured credential; never fall back. */
+    verificationSecret?: string;
   },
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
@@ -186,12 +189,24 @@ export async function verifyA2AToken(
     // Malformed token — fall through to global secret attempt
   }
 
-  // Step 2: Build a small, ordered set of candidate secrets. Tokens minted by
-  // current callers prefer the shared A2A_SECRET; older callers may still use
-  // an org-level secret. Try both without logging or reflecting secret details.
+  // Step 2: Build a small, ordered set of candidate secrets. An explicit
+  // verification credential is isolated from the deployment-wide and
+  // org-level credentials so a caller cannot use one app's trust grant as
+  // another app's identity.
   const candidateSecrets: string[] = [];
-  addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
-  if (orgDomainHint && !audienceOptions?.globalSecretOnly) {
+  const hasExplicitVerificationSecret =
+    audienceOptions?.verificationSecret !== undefined;
+  addSecretCandidate(
+    candidateSecrets,
+    hasExplicitVerificationSecret
+      ? audienceOptions?.verificationSecret
+      : readDeployCredentialEnv("A2A_SECRET"),
+  );
+  if (
+    orgDomainHint &&
+    !audienceOptions?.globalSecretOnly &&
+    !hasExplicitVerificationSecret
+  ) {
     try {
       const { getA2ASecretByDomain } = await import("../org/context.js");
       const orgSecret = await getA2ASecretByDomain(orgDomainHint);

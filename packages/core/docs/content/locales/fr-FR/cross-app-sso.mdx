@@ -305,7 +305,7 @@ Sans `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, un Dispatch auto-hébergé ne peut é
 
 Le basculement et la restauration sont **une seule variable d'environnement par déploiement d'application**. Déployez une application à la fois, vérifiez, puis développez. Ne définissez pas la variable sur chaque application à la fois.
 
-Déployez d'abord le flag d'identité du navigateur. Après le déploiement des colonnes de migration de l'organisation dans l'application et Dispatch, activez `organization.cross-app-federation` pour une organisation et vérifiez son ID canonique et son rôle. Les organisations existantes sans mappage restent inchangées jusqu'à une migration explicite.
+Déployez d'abord le flag d'identité du navigateur. Après le déploiement des colonnes de migration de l'organisation dans l'application et Dispatch, activez `organization.cross-app-federation` pour une organisation et vérifiez son ID canonique et son rôle. Le SSO du navigateur continue d'utiliser `A2A_SECRET`, mais la fédération d'organisation utilise un identifiant séparé par application : définissez `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET` dans l'application source et `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>` correspondant dans Dispatch. Ne réutilisez jamais le `A2A_SECRET` partagé pour cette frontière d'autorité. Les organisations existantes sans mappage restent inchangées jusqu'à une migration explicite.
 
 **1. Déployez le code — aucun changement de comportement.**
 Expédiez la version à chaque application avec `AGENT_NATIVE_IDENTITY_HUB_URL` **non défini partout**. Confirmez que les connexions normales fonctionnent toujours sur quelques applications.

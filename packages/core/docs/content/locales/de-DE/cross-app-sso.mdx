@@ -305,7 +305,7 @@ Ohne `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` kann ein selbstgehosteter Dispatch nur
 
 Cutover und Rollback sind **eine einzelne Umgebungsvariable pro App-Bereitstellung**. Führen Sie jeweils eine App aus, überprüfen Sie sie und erweitern Sie sie dann. Legen Sie die Variable nicht für jede App gleichzeitig fest.
 
-Führen Sie zuerst das Browser-Identitäts-Flag aus. Aktivieren Sie nach dem Deployment der Organisations-Migrationsspalten in App und Dispatch `organization.cross-app-federation` für eine Organisation und prüfen Sie die kanonische ID und Rolle. Bestehende Organisationen ohne Zuordnung bleiben bis zu einer ausdrücklichen Migration unverändert.
+Führen Sie zuerst das Browser-Identitäts-Flag aus. Aktivieren Sie nach dem Deployment der Organisations-Migrationsspalten in App und Dispatch `organization.cross-app-federation` für eine Organisation und prüfen Sie die kanonische ID und Rolle. Browser-SSO verwendet weiterhin `A2A_SECRET`, die Organisationsföderation verwendet jedoch ein separates Anmeldemittel pro App: Setzen Sie `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET` in der Quell-App und `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>` in Dispatch. Verwenden Sie `A2A_SECRET` nicht erneut für diese Föderationsgrenze. Bestehende Organisationen ohne Zuordnung bleiben bis zu einer ausdrücklichen Migration unverändert.
 
 **1. Stellen Sie den Code bereit – keine Verhaltensänderung.**
 Versenden Sie die Veröffentlichung an jede App mit `AGENT_NATIVE_IDENTITY_HUB_URL` **überall deaktiviert**. Bestätigen Sie, dass normale Anmeldungen bei einigen Apps weiterhin funktionieren.

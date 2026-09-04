@@ -82,6 +82,24 @@ export interface IdentitySsoAppRegistration {
   clientId: string;
   origin: string;
   callbackPath: typeof IDENTITY_SSO_CALLBACK_PATH;
+  federationSecret?: string;
+}
+
+function federationSecretEnvKey(appId: string): string {
+  return `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_${appId
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .toUpperCase()}`;
+}
+
+function attachFederationSecret(
+  registration: IdentitySsoAppRegistration,
+  env: NodeJS.ProcessEnv,
+): IdentitySsoAppRegistration {
+  const federationSecret =
+    env[federationSecretEnvKey(registration.appId)]?.trim();
+  return federationSecret
+    ? { ...registration, federationSecret }
+    : registration;
 }
 
 function canonicalRegistrations(): IdentitySsoAppRegistration[] {
@@ -116,7 +134,9 @@ function parseCustomRegistrations(
 export function getIdentitySsoAppRegistry(
   env: NodeJS.ProcessEnv = process.env,
 ): IdentitySsoAppRegistration[] {
-  return [...canonicalRegistrations(), ...parseCustomRegistrations(env)];
+  return [...canonicalRegistrations(), ...parseCustomRegistrations(env)].map(
+    (registration) => attachFederationSecret(registration, env),
+  );
 }
 
 function parseAbsoluteUrl(raw: string): URL | null {
