@@ -542,7 +542,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
   });
+  const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =
+    useState(false);
   const perAppChatOpen = usePerAppChatOpen();
+  useEffect(() => {
+    if (!perAppChatOpen) setSidebarExpandedWhileChatOpen(false);
+  }, [perAppChatOpen]);
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
@@ -558,18 +563,26 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const showCollapsedSidebar =
     !isMobile &&
     showSidebar &&
-    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
+    (sidebarPinned
+      ? sidebarCollapsed
+      : perAppChatOpen && !sidebarExpandedWhileChatOpen);
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
 
   const collapseButton =
-    sidebarPinned && !isMobile ? (
+    !isMobile && (sidebarPinned || (perAppChatOpen && showSidebar)) ? (
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={() => setSidebarCollapsed((value) => !value)}
+            onClick={() => {
+              if (!sidebarPinned && perAppChatOpen) {
+                setSidebarExpandedWhileChatOpen((value) => !value);
+                return;
+              }
+              setSidebarCollapsed((value) => !value);
+            }}
             className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             aria-label={
               showCollapsedSidebar
