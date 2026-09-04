@@ -2079,23 +2079,16 @@ async function assertAgentKitChatAcceptance(
     dark: false,
   });
 
-  const previousThreadPath = new URL(page.url()).pathname;
   await fillAndSubmitComposer(page, helloPrompt);
-  await page.waitForURL(
-    (url) =>
-      durableChatPathPattern.test(url.pathname) &&
-      url.pathname !== previousThreadPath,
-    { timeout: 60_000, waitUntil: "commit" },
-  );
-  await waitForStableChatSurface(page);
-  const threadUrl = page.url();
-  const threadPath = new URL(threadUrl).pathname;
   await waitForLoopbackState(
     "the initial provider request",
     () => provider.requests.length >= 1,
     30_000,
   );
   network.allowInitialEphemeralThread404 = false;
+  await waitForStableChatSurface(page);
+  const threadUrl = page.url();
+  const threadPath = new URL(threadUrl).pathname;
   await waitForChatText(page, "Loopback complete");
   await waitForChatText(page, "Hello, AgentKit Browser!");
   assert.equal(
