@@ -520,7 +520,8 @@ const enUS = {
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
       saasTerms: "Hosted Terms",
-      legalResources: "Legal resources",
+      // i18n-copy-ignore: English-only capitalization fix; translations unchanged
+      legalResources: "Legal Resources",
     },
   },
   gettingStarted: {
