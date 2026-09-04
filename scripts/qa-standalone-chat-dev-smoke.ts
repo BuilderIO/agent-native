@@ -2033,7 +2033,7 @@ async function assertAgentKitChatAcceptance(
       .waitFor({ state: "visible" });
   }
 
-  const { chatBox, composerBox } = await waitForChatLayoutBoxes(chat, composer);
+  const { chatBox, composerBox } = await waitForChatLayoutBoxes(page);
   assert.ok(
     composerBox.width >= 480,
     `new-chat composer must retain its full layout (${composerBox.width}px)`,
