@@ -57,6 +57,8 @@ export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
   orgId?: string;
+  /** Verified claims are returned only to callers that explicitly request them. */
+  claims?: jose.JWTPayload;
 }
 
 function addSecretCandidate(
@@ -165,6 +167,7 @@ export async function verifyA2AToken(
   audienceOptions?: {
     routePrefix?: string;
     allowBaseAudience?: boolean;
+    includeClaims?: boolean;
   },
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
@@ -247,6 +250,7 @@ export async function verifyA2AToken(
           email: (payload.sub as string) ?? null,
           orgDomain: (payload.org_domain as string) ?? null,
           ...(orgId ? { orgId } : {}),
+          ...(audienceOptions?.includeClaims ? { claims: payload } : {}),
         };
       } catch {
         // Try the next candidate without leaking which secret failed.

@@ -7,6 +7,7 @@ import {
 } from "h3";
 
 import { runMigrations } from "../db/migrations.js";
+import { registerFeatureFlags } from "../feature-flags/registry.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -17,6 +18,7 @@ import {
   listAppRolesHandler,
   setAppRoleHandler,
 } from "./app-roles-handlers.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import {
   getMyOrgHandler,
   createOrgHandler,
@@ -75,6 +77,7 @@ export function createOrgPlugin(): NitroPluginDef {
   const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
 
   return async (nitroApp: any) => {
+    registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     markDefaultPluginProvided(nitroApp, "org");
     await awaitBootstrap(nitroApp);
     await migrate(nitroApp);

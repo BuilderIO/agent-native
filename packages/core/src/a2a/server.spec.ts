@@ -804,6 +804,30 @@ describe("verifyA2AToken (exported)", () => {
     });
   });
 
+  it("exposes verified claims only to an explicit caller", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      app_id: "slides",
+      scope: "organization-federation",
+      org_id: "dispatch-org-1",
+      org_name: "Example Org",
+      org_role: "owner",
+    });
+
+    await expect(
+      verifyA2AToken(token, undefined, { includeClaims: true }),
+    ).resolves.toMatchObject({
+      email: "alice@builder.io",
+      orgId: "dispatch-org-1",
+      claims: expect.objectContaining({
+        app_id: "slides",
+        scope: "organization-federation",
+      }),
+    });
+  });
+
   it("binds a path-mounted receiver to its app base path", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.APP_URL = "https://workspace.example/dispatch";

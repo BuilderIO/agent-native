@@ -17,12 +17,21 @@
  * client.
  */
 
-import { signA2AToken } from "@agent-native/core/a2a";
+import { randomBytes } from "node:crypto";
+
+import { signA2AToken, verifyA2AToken } from "@agent-native/core/a2a";
+import { getDbExec } from "@agent-native/core/db";
 import {
   hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
 } from "@agent-native/core/feature-flags";
-import { getOrgDomain } from "@agent-native/core/org";
+import {
+  CROSS_APP_ORG_FEDERATION_FLAG,
+  CROSS_APP_ORG_FEDERATION_SCOPE,
+  getOrgContext,
+  getOrgDomain,
+  invalidateMemberOrgCaches,
+} from "@agent-native/core/org";
 import {
   getH3App,
   getSession,
@@ -49,10 +58,13 @@ import {
   isValidSsoState,
   normalizeIdentityAuthority,
   resolveIdentitySsoApp,
+  getIdentitySsoAppRegistry,
 } from "../lib/identity-sso.js";
 
 const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
+export const ORGANIZATION_FEDERATION_PATH =
+  "/_agent-native/identity/organization";
 const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 
 export function isDesktopWorkspaceSsoRequest(
@@ -111,6 +123,18 @@ async function resolveOrgDomain(
   }
 }
 
+function bearerToken(event: H3Event): string | null {
+  const authorization = getHeader(event, "authorization") ?? "";
+  const match = /^Bearer\s+(\S+)$/i.exec(authorization.trim());
+  return match?.[1] ?? null;
+}
+
+function validOrganizationRole(
+  value: unknown,
+): value is "owner" | "admin" | "member" {
+  return value === "owner" || value === "admin" || value === "member";
+}
+
 export async function canAttemptWorkspaceSso(): Promise<boolean> {
   return hasActiveFeatureFlagRollout(DESKTOP_WORKSPACE_SSO_FLAG.key).catch(
     () => false,
@@ -145,6 +169,152 @@ export async function isBrowserIdentitySsoEnabledForSession(
     orgId: session.orgId,
   }).catch(() => false); // coercion-ok: unreadable rollout state must fail closed.
 }
+
+/**
+ * Accept a signed org assertion from a registered first-party app. The org
+ * fields are read from the verified JWT, never from a mutable request body.
+ */
+export const organizationFederationHandler = defineEventHandler(
+  async (event: H3Event): Promise<Response> => {
+    if (getMethod(event) !== "POST") {
+      return jsonResponse({ error: "Method not allowed" }, 405);
+    }
+    const token = bearerToken(event);
+    if (!token) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const verified = await verifyA2AToken(token, event, {
+      routePrefix: "_agent-native",
+      includeClaims: true,
+    });
+    const claims = verified.claims;
+    const issuer =
+      typeof claims?.iss === "string"
+        ? normalizeIdentityAuthority(claims.iss)
+        : null;
+    const appId = typeof claims?.app_id === "string" ? claims.app_id : null;
+    const registration =
+      appId && issuer
+        ? getIdentitySsoAppRegistry().find(
+            (candidate) =>
+              candidate.appId === appId && candidate.origin === issuer,
+          )
+        : null;
+    if (
+      !verified.email ||
+      !claims ||
+      claims.scope !== CROSS_APP_ORG_FEDERATION_SCOPE ||
+      !registration
+    ) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = verified.orgId?.trim() ?? "";
+    const orgName =
+      typeof claims.org_name === "string" ? claims.org_name.trim() : "";
+    const orgRole = claims.org_role;
+    if (
+      !/^[A-Za-z0-9_-]{1,128}$/.test(orgId) ||
+      !orgName ||
+      orgName.length > 200 ||
+      !validOrganizationRole(orgRole)
+    ) {
+      return jsonResponse({ error: "Invalid organization assertion" }, 400);
+    }
+
+    const enabled = await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
+      userEmail: verified.email,
+      userKey: verified.email,
+      orgId,
+    }).catch((error) => {
+      // coercion-ok: unreadable rollout state must fail closed.
+      void error;
+      return false;
+    });
+    if (!enabled) return jsonResponse({ error: "Not found" }, 404);
+
+    const email = verified.email.trim().toLowerCase();
+    const authority = resolveAuthority();
+    if (!authority) return jsonResponse({ error: "identity_unavailable" }, 503);
+    const exec = getDbExec();
+    const existing = await exec.execute({
+      sql: `SELECT id, name, identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
+      args: [orgId],
+    });
+    const existingOrg = existing.rows[0] as any;
+    const existingAuthority = String(
+      existingOrg?.identity_authority ?? "",
+    ).trim();
+    const existingId = String(existingOrg?.identity_id ?? "").trim();
+    if (
+      existingOrg &&
+      (existingAuthority || existingId) &&
+      (existingAuthority !== authority || existingId !== orgId)
+    ) {
+      return jsonResponse({ error: "Organization identity conflict" }, 409);
+    }
+    if (!existingOrg) {
+      if (orgRole !== "owner") {
+        return jsonResponse(
+          {
+            error: "Only an organization owner can register a new organization",
+          },
+          403,
+        );
+      }
+      const now = Date.now();
+      await exec.execute({
+        sql: `INSERT INTO organizations
+              (id, name, created_by, created_at, a2a_secret,
+               identity_authority, identity_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          orgId,
+          orgName,
+          email,
+          now,
+          randomBytes(32).toString("base64url"),
+          authority,
+          orgId,
+        ],
+      });
+    } else if (!existingAuthority && !existingId) {
+      await exec.execute({
+        sql: `UPDATE organizations
+              SET identity_authority = ?, identity_id = ?
+              WHERE id = ? AND identity_authority IS NULL AND identity_id IS NULL`,
+        args: [authority, orgId, orgId],
+      });
+    }
+
+    await exec.execute({
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
+      args: [
+        randomBytes(16).toString("base64url"),
+        orgId,
+        email,
+        orgRole,
+        Date.now(),
+      ],
+    });
+    await exec.execute({
+      sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
+      args: [orgRole, orgId, email],
+    });
+    invalidateMemberOrgCaches();
+
+    return jsonResponse(
+      {
+        orgId,
+        name: String(existingOrg?.name ?? orgName),
+        role: orgRole,
+      },
+      200,
+    );
+  },
+);
 
 export const availabilityHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
@@ -296,6 +466,36 @@ export const authorizeHandler = defineEventHandler(
       );
     }
 
+    const hasFederationRollout = await hasActiveFeatureFlagRollout(
+      CROSS_APP_ORG_FEDERATION_FLAG.key,
+    ).catch((error) => {
+      // coercion-ok: unreadable rollout state must not add org claims.
+      void error;
+      return false;
+    });
+    const localOrg = hasFederationRollout
+      ? await getOrgContext(event).catch((error) => {
+          // coercion-ok: malformed or unreadable local org state omits org
+          // claims rather than turning identity SSO into an org grant.
+          void error;
+          return null;
+        })
+      : null;
+    const federationEnabled = hasFederationRollout
+      ? await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
+          userEmail: session.email,
+          userKey: session.email,
+          ...((localOrg?.orgId ?? session.orgId)
+            ? { orgId: localOrg?.orgId ?? session.orgId }
+            : {}),
+        }).catch((error) => {
+          // coercion-ok: unreadable rollout state must not add org claims.
+          void error;
+          return false;
+        })
+      : false;
+    const federatedOrg = federationEnabled && localOrg?.orgId ? localOrg : null;
+
     let code: string;
     try {
       code = await createIdentityAuthorizationCode({
@@ -307,7 +507,14 @@ export const authorizeHandler = defineEventHandler(
         codeChallenge: safeCodeChallenge,
         email: session.email,
         name: session.name,
-        orgDomain: await resolveOrgDomain(session.orgId),
+        orgDomain: await resolveOrgDomain(federatedOrg?.orgId ?? session.orgId),
+        ...(federatedOrg?.orgId
+          ? {
+              orgId: federatedOrg.orgId,
+              orgName: federatedOrg.orgName,
+              orgRole: federatedOrg.role,
+            }
+          : {}),
       });
     } catch (error) {
       void error;
@@ -381,6 +588,9 @@ export const tokenHandler = defineEventHandler(
       email: identity.email,
       name: identity.name,
       orgDomain: identity.orgDomain,
+      orgId: identity.orgId,
+      orgName: identity.orgName,
+      orgRole: identity.orgRole,
     });
     const identityAuthProvider = (await hasGoogleAuthIdentity(identity.email))
       ? "google"
@@ -398,6 +608,9 @@ export const tokenHandler = defineEventHandler(
           extraClaims: {
             email: claims.email,
             ...(claims.name ? { name: claims.name } : {}),
+            ...(claims.org_id ? { org_id: claims.org_id } : {}),
+            ...(claims.org_name ? { org_name: claims.org_name } : {}),
+            ...(claims.org_role ? { org_role: claims.org_role } : {}),
             ...(identityAuthProvider
               ? { identity_auth_provider: identityAuthProvider }
               : {}),
@@ -431,5 +644,9 @@ export const tokenHandler = defineEventHandler(
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(AVAILABILITY_PATH, availabilityHandler);
   getH3App(nitroApp).use(AUTHORIZE_PATH, authorizeHandler);
+  getH3App(nitroApp).use(
+    ORGANIZATION_FEDERATION_PATH,
+    organizationFederationHandler,
+  );
   getH3App(nitroApp).use(IDENTITY_SSO_TOKEN_PATH, tokenHandler);
 };

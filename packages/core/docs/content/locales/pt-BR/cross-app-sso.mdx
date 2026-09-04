@@ -39,11 +39,26 @@ A regra de vinculação é deliberadamente restrita e aditiva:
 
 Isso torna a implementação segura, mesmo que desconecte as pessoas. **O logout é esperado.** Quando um aplicativo ativa esse recurso, as sessões existentes terminam e os usuários são autenticados novamente por meio do Dispatch. Mas eles sempre fazem login novamente na **mesma conta de e-mail correspondente, com todos os dados intactos**, porque as linhas de identidade só são _adicionadas_, nunca destruídas, renomeadas ou renomeadas.
 
+### Contexto da organização {#organization-context}
+
+A flag desativada por padrão `organization.cross-app-federation` adiciona uma
+etapa somente no servidor para o contexto das organizações do workspace. Quando
+um aplicativo cria ou lê uma organização, ele a registra no Dispatch e guarda o
+mapeamento exato `(identity_authority, identity_id)`. Um login posterior em outro
+aplicativo habilitado leva o mesmo `org_id` canônico, o nome da organização e a
+função do membro na asserção assinada. O aplicativo de destino cria ou vincula
+sua organização local usando esse ID.
+
+Nomes de organizações, domínios de e-mail e cookies do navegador não são chaves
+de vínculo. Uma organização local existente sem mapeamento permanece inalterada
+e não é mesclada automaticamente. Use uma migração explícita depois de confirmar
+a correspondência desejada.
+
 ## Como funciona {#how-it-works}
 
 O fluxo é um redirecionamento padrão de autorização → token assinado → retorno de chamada, com e-mail como a única coisa que ultrapassa o limite de confiança.
 
-<Diagram id="doc-block-v0atqe" title={"Fluxo de federação de identidade"} summary={"Dispatch autentica o humano e retorna uma declaração assinada de curta duração de uma coisa – o e-mail verificado. O aplicativo é vinculado por e-mail e cria sua própria sessão local."}>
+<Diagram id="doc-block-v0atqe" title={"Fluxo de federação de identidade"} summary={"O Dispatch autentica a pessoa e retorna uma declaração assinada de curta duração com o e-mail verificado e, quando ativado, o contexto exato da organização. O aplicativo vincula a conta por e-mail, mapeia a organização pelo ID e cria sua própria sessão local."}>
 
 ```html
 <div class="diagram-sso">
@@ -158,13 +173,17 @@ O fluxo é um redirecionamento padrão de autorização → token assinado → r
    | `sub`         | ID de usuário estável na autoridade de identidade          |
    | `email`       | E-mail **verificado** do usuário — a única chave de adesão |
    | `name`        | Nome de exibição (não oficial, somente para UI)            |
-   | `org_domain`  | Domínio do espaço de trabalho/organização, quando presente |
-   | `scope`       | Sempre `"identity"` — este token autoriza apenas o login   |
+   | `org_domain`  | Domínio do espaço de trabalho/organização, quando presente       |
+   | `org_id`      | ID canônico da organização, somente com a federação ativada     |
+   | `org_name`    | Nome da organização associado a `org_id`                       |
+   | `org_role`    | Função de membro verificada associada a `org_id`                |
+   | `scope`       | Sempre `"identity"`. Campos de organização só são aceitos com o flag ativo |
    | `exp`         | **≤ 2 minutos** a partir da edição                         |
 
-4. **O aplicativo verifica e vincula JIT por e-mail.** A rota `GET /_agent-native/identity/callback` verifica a assinatura do token com `A2A_SECRET`, confere `scope: "identity"` e `exp` e realiza **vinculação just-in-time estritamente por e-mail verificado**:
+4. **O aplicativo verifica e vincula JIT por e-mail.** A rota `GET /_agent-native/identity/callback` verifica a assinatura do token com `A2A_SECRET`, confere `scope: "identity"` e `exp` e realiza **vinculação just-in-time por e-mail verificado**:
    - Se existir um usuário local com esse e-mail → reutilize-o inalterado.
    - Caso contrário → crie um usuário local para esse e-mail.
+   Quando `organization.cross-app-federation` está ativo, o aplicativo também valida juntos os campos assinados `org_id`, `org_name` e `org_role`. Ele mapeia a organização local somente pela autoridade e pelo ID exatos, nunca pelo nome ou domínio de e-mail.
 
 5. **O aplicativo gera uma sessão local normal.** A partir daqui, o usuário tem uma sessão local comum na própria loja do aplicativo — todas as verificações de acesso, escopo organizacional e proteção de ação existentes funcionam exatamente como antes. A federação só aconteceu na porta da frente.
 
@@ -177,7 +196,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **Set** → o aplicativo mostra uma opção **"Entrar com Agent-Native"** que executa o fluxo acima. O login local direto (e-mail/senha, Google) ainda funciona junto com ele.
-- **Cliente hospedado canônico** → o aplicativo mostra a opção **"Entrar com Agent-Native"** para a origem registrada; apps auto-hospedados continuam precisando definir a variável. Não há alteração de esquema nem migração.
+- **Cliente hospedado canônico** → o aplicativo mostra a opção **"Entrar com Agent-Native"** para a origem registrada; apps auto-hospedados continuam precisando definir a variável. Colunas de mapeamento aditivas podem existir após a implantação, mas ficam sem uso quando o flag está desativado.
 
 ## Segurança {#security}
 
@@ -185,19 +204,19 @@ Todo o modelo se baseia em algumas garantias deliberadamente pequenas:
 
 - **Token assinado de curta duração.** A declaração de identidade é um JWT assinado por `A2A_SECRET` com expiração de **≤ 2 minutos** e `scope: "identity"`. Ele autoriza um único login e não pode ser reproduzido por muito tempo ou reaproveitado para acesso API/A2A.
 - **Lista de permissões estrita de `redirect_uri` vinculada ao aplicativo.** Cada ID de aplicativo canônico corresponde a uma origem de produção e um caminho de callback exatos; localhost continua disponível para desenvolvimento. Subdomínios desconhecidos, IDs incompatíveis, caminhos arbitrários e destinos de origem cruzada são rejeitados.
-- **Junção somente por e-mail a partir de um token verificado.** A _única_ coisa que ultrapassa o limite de confiança é o e-mail verificado em um token assinado. O aplicativo não aceita ID de usuário, função, associação à organização ou qualquer estado privilegiado da transmissão. Ele deriva tudo localmente da conta correspondente.
-- **Gravações de identidade somente aditivas.** A vinculação reutiliza uma conta de mesmo e-mail existente intacta ou insere uma nova. Nenhuma atualização, renomeação, reposicionamento ou exclusão de linhas de identidade ocorre nesse caminho.
+- **Vinculação por e-mail verificado e mapeamento exato da organização.** O e-mail verificado continua sendo a única chave de junção das contas de usuário. Com o flag de organização ativo, o aplicativo aceita `org_id`, `org_name` e `org_role` somente de uma declaração Dispatch verificada criptograficamente e mapeia organizações apenas pela autoridade e pelo ID exatos.
+- **Gravações de identidade e organização somente aditivas.** A vinculação reutiliza uma conta de mesmo e-mail existente intacta ou insere uma nova. O mapeamento da organização apenas é acrescentado. Nenhuma renomeação, reatribuição ou exclusão de linhas existentes ocorre nesse caminho.
 - **Clientes hospedados canônicos habilitados por origem.** Apps hospedados canônicos com uma origem registrada são habilitados automaticamente; apps auto-hospedados continuam inativos sem `AGENT_NATIVE_IDENTITY_HUB_URL`.
 
 <Callout id="doc-block-6dy3lq" tone="success">
 
-**Seguro para ativar, seguro para reverter.** As gravações de identidade são **apenas aditivas** — uma conta de mesmo e-mail existente é reutilizada sem alterações, e um novo e-mail apenas insere uma nova linha. Não há alteração de esquema e nada para migrar, portanto, ativar ou desativar `AGENT_NATIVE_IDENTITY_HUB_URL` é totalmente reversível a qualquer momento, por aplicativo.
+**Seguro para ativar, seguro para reverter.** As gravações de identidade e os mapeamentos de organização são **apenas aditivos**. Uma conta existente é reutilizada sem alterações, um novo e-mail insere uma linha e a migração adiciona colunas de mapeamento anuláveis. Desativar qualquer flag não exclui usuários, organizações, associações ou credenciais locais.
 
 </Callout>
 
 O link just-in-time é uma decisão única digitada inteiramente no e-mail verificado:
 
-<Diagram id="doc-block-15y8gtf" title={"Decisão JIT-link"} summary={"A vinculação é inserida no e-mail verificado e é apenas aditiva: as contas existentes são reutilizadas inalteradas, novos e-mails criam um novo usuário local."}>
+<Diagram id="doc-block-15y8gtf" title={"Decisão JIT-link"} summary={"A conta do usuário é vinculada pelo e-mail verificado. Quando ativada, a organização é mapeada pela autoridade e pelo ID exatos. Todas as gravações são aditivas."}>
 
 ```html
 <div class="diagram-jit">
@@ -280,6 +299,8 @@ Sem `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, um Dispatch auto-hospedado só pode em
 
 A transferência e a reversão são **uma única variável de ambiente por implantação de aplicativo**. Implemente um aplicativo por vez, verifique e expanda. Não defina a variável em todos os aplicativos de uma só vez.
 
+Implemente primeiro o flag de identidade do navegador. Depois de implantar as colunas de migração da organização no aplicativo e no Dispatch, ative `organization.cross-app-federation` para uma organização e verifique o ID canônico e a função. Organizações existentes sem mapeamento permanecem inalteradas até uma migração explícita.
+
 **1. Implante o código — sem alteração de comportamento.**
 Envie o lançamento para todos os aplicativos com `AGENT_NATIVE_IDENTITY_HUB_URL` **desativado em todos os lugares**. Confirme se os logins normais ainda funcionam em alguns apps.
 
@@ -307,7 +328,7 @@ Se alguma verificação falhar, vá direto para a etapa 4 (reversão) — é ins
 Depois que um aplicativo for verificado, repita as etapas 2 a 3 para o próximo aplicativo — configurando `AGENT_NATIVE_IDENTITY_HUB_URL` em uma implantação por vez. Nunca habilite em lote.
 
 **5. Rollback = desativa a variável env na implantação desse aplicativo.**
-Para reverter qualquer aplicativo, **remova `AGENT_NATIVE_IDENTITY_HUB_URL` do ambiente desse aplicativo e reimplante-o/reinicie-o.** O aplicativo retorna imediatamente ao seu comportamento de autenticação anterior. Não há **nenhuma alteração de dados para desfazer** — as linhas de identidade apenas foram adicionadas e a desativação da variável simplesmente torna o caminho da federação inativo novamente. A substituição e a reversão de cada app são independentes e reversíveis.
+Para reverter qualquer aplicativo, **remova `AGENT_NATIVE_IDENTITY_HUB_URL` do ambiente desse aplicativo e reimplante-o/reinicie-o.** O aplicativo retorna imediatamente ao seu comportamento de autenticação anterior. As gravações de identidade e os mapeamentos de organização são apenas aditivos; desativar a variável não exclui usuários, organizações, associações ou credenciais locais. A substituição e a reversão de cada app são independentes e reversíveis.
 
 <Callout tone="info">
 

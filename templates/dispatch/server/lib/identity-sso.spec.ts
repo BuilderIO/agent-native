@@ -11,6 +11,9 @@ interface CodeRow {
   email: string;
   name: string | null;
   org_domain: string | null;
+  org_id: string | null;
+  org_name: string | null;
+  org_role: "owner" | "admin" | "member" | null;
   jti: string;
   expires_at: number;
   consumed_at: number | null;
@@ -46,6 +49,9 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       jti: args[10],
       expires_at: args[12],
       consumed_at: args[13],
+      org_id: args[14],
+      org_name: args[15],
+      org_role: args[16],
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -188,6 +194,9 @@ describe("authorization-code store", () => {
       email: "user@example.test",
       name: "User",
       orgDomain: "example.test",
+      orgId: "dispatch-org-1",
+      orgName: "Example Org",
+      orgRole: "owner",
     });
     expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(codeRows[0]?.code_hash).not.toBe(code);
@@ -205,6 +214,9 @@ describe("authorization-code store", () => {
       email: "user@example.test",
       name: "User",
       orgDomain: "example.test",
+      orgId: "dispatch-org-1",
+      orgName: "Example Org",
+      orgRole: "owner",
       jti: expect.any(String),
     });
     expect(
@@ -256,11 +268,14 @@ describe("authorization-code store", () => {
 });
 
 describe("identity claims and browser redirect", () => {
-  it("keeps identity claims free of credentials and org authorization", () => {
+  it("includes signed org context only when explicitly provided", () => {
     const claims = mod.buildIdentityClaims({
       email: "user@example.test",
       name: " User ",
       orgDomain: "example.test",
+      orgId: "dispatch-org-1",
+      orgName: "Example Org",
+      orgRole: "owner",
     });
     expect(claims).toMatchObject({
       sub: "user@example.test",
@@ -268,9 +283,11 @@ describe("identity claims and browser redirect", () => {
       scope: "identity",
       name: "User",
       org_domain: "example.test",
+      org_id: "dispatch-org-1",
+      org_name: "Example Org",
+      org_role: "owner",
     });
     expect(Object.keys(claims)).not.toContain("password");
-    expect(Object.keys(claims)).not.toContain("role");
   });
 
   it("places a one-time code, never a JWT token, in the browser redirect", () => {

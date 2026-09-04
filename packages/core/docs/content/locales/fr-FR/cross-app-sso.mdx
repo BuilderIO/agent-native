@@ -39,11 +39,27 @@ La règle de liaison est délibérément étroite et additive :
 
 Cela sécurise le déploiement même si les utilisateurs se déconnectent. **La déconnexion est attendue.** Lorsqu'une application active cette fonctionnalité, les sessions existantes se terminent et les utilisateurs se réauthentifient via Dispatch. Mais ils se reconnectent toujours au **même compte correspondant à leur adresse e-mail, avec toutes leurs données intactes**, car les lignes d'identité ne sont que _ajoutées à_ — jamais détruites, renommées ou redirigées.
 
+### Contexte de l'organisation {#organization-context}
+
+Le flag désactivé par défaut `organization.cross-app-federation` ajoute une
+étape côté serveur pour le contexte des organisations de l'espace de travail.
+Lorsqu'une application crée ou lit une organisation, elle l'enregistre auprès
+de Dispatch et conserve la correspondance exacte `(identity_authority,
+identity_id)`. Une connexion ultérieure à une autre application activée
+transporte le même `org_id` canonique, le nom de l'organisation et le rôle du
+membre dans l'assertion signée. L'application cible crée ou relie son
+organisation locale à partir de cet ID.
+
+Les noms d'organisation, les domaines d'e-mail et les cookies du navigateur ne
+sont pas des clés de liaison. Une organisation locale existante sans
+correspondance reste inchangée et n'est pas fusionnée automatiquement. Utilisez
+une migration explicite après avoir confirmé la correspondance souhaitée.
+
 ## Comment ça marche {#how-it-works}
 
 Le flux est une redirection standard d'autorisation → jeton signé → rappel, avec le courrier électronique comme seule chose qui traverse la limite de confiance.
 
-<Diagram id="doc-block-1w6goia" title={"Flux de fédération d'identité"} summary={"Dispatch authentifie l'humain et renvoie une assertion signée de courte durée d'une chose : l'e-mail vérifié. L'application est liée par e-mail et crée sa propre session locale."}>
+<Diagram id="doc-block-1w6goia" title={"Flux de fédération d'identité"} summary={"Dispatch authentifie l'utilisateur et renvoie une assertion signée de courte durée avec l'e-mail vérifié et, lorsqu'il est activé, le contexte exact de l'organisation. L'application lie le compte par e-mail, associe l'organisation par ID et crée sa propre session locale."}>
 
 ```html
 <div class="diagram-sso">
@@ -159,12 +175,16 @@ Le flux est une redirection standard d'autorisation → jeton signé → rappel,
    | `email`      | L'adresse e-mail **vérifiée** de l'utilisateur : la seule clé de connexion |
    | `name`       | Nom d'affichage (ne faisant pas autorité, pour UI uniquement)              |
    | `org_domain` | Domaine de l'espace de travail/de l'organisation, le cas échéant           |
-   | `scope`      | Toujours `"identity"` : ce jeton autorise uniquement la connexion          |
+   | `org_id`     | ID d'organisation canonique, uniquement si la fédération est activée       |
+   | `org_name`   | Nom de l'organisation associé à `org_id`                                   |
+   | `org_role`   | Rôle de membre vérifié associé à `org_id`                                  |
+   | `scope`      | Toujours `"identity"`. Les champs d'organisation ne sont acceptés qu'avec le flag activé |
    | `exp`        | **≤ 2 minutes** à partir du problème                                       |
 
-4. **L’application vérifie et lie le compte juste à temps par e-mail.** La route `GET /_agent-native/identity/callback` vérifie la signature du jeton avec `A2A_SECRET`, contrôle `scope: "identity"` et `exp`, puis effectue **une liaison juste à temps strictement par e-mail vérifié** :
+4. **L’application vérifie et lie le compte juste à temps par e-mail.** La route `GET /_agent-native/identity/callback` vérifie la signature du jeton avec `A2A_SECRET`, contrôle `scope: "identity"` et `exp`, puis effectue **une liaison juste à temps par e-mail vérifié** :
    - S'il existe un utilisateur local avec cette adresse e-mail → réutilisez-le tel quel.
    - Sinon → créez un utilisateur local pour cet e-mail.
+   Lorsque `organization.cross-app-federation` est activé, l'application valide également les champs signés `org_id`, `org_name` et `org_role` ensemble. Elle associe l'organisation locale uniquement avec l'autorité et l'ID exacts, jamais avec le nom ou le domaine de l'e-mail.
 
 5. **L'application crée une session locale normale.** À partir de là, l'utilisateur dispose d'une session locale ordinaire dans le propre magasin de cette application : chaque vérification d'accès, portée d'organisation et protection d'action existante fonctionne exactement comme avant. La fédération ne s'est produite qu'à la porte d'entrée.
 
@@ -177,7 +197,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **Set** → l'application affiche une option **"Connectez-vous avec Agent-Native"** qui exécute le flux ci-dessus. La connexion locale directe (e-mail/mot de passe, Google) fonctionne toujours en parallèle.
-- **Client hébergé canonique** → l'application affiche l'option **« Se connecter avec Agent-Native »** pour l'origine enregistrée ; les applications auto-hébergées doivent toujours définir la variable. Il n'y a aucun changement de schéma ni rien à migrer.
+- **Client hébergé canonique** → l'application affiche l'option **« Se connecter avec Agent-Native »** pour l'origine enregistrée ; les applications auto-hébergées doivent toujours définir la variable. Les colonnes de mappage additives peuvent être présentes après le déploiement, mais restent inutilisées lorsque le flag est désactivé.
 
 ## Sécurité {#security}
 
@@ -185,19 +205,19 @@ L'ensemble du modèle repose sur quelques garanties volontairement petites :
 
 - **Jeton signé de courte durée.** L'assertion d'identité est un JWT signé `A2A_SECRET` avec une expiration **≤ 2 minutes** et `scope: "identity"`. Il autorise une connexion unique et ne peut pas être rejoué longtemps ni réutilisé pour l'accès aux API/A2A.
 - **Liste stricte de `redirect_uri` liée à l'application.** Chaque identifiant d'application canonique correspond à une origine de production et à un chemin de rappel exacts ; localhost reste disponible pour le développement. Les sous-domaines inconnus, identifiants incompatibles, chemins arbitraires et destinations inter-origines sont rejetés.
-- **Jointure par e-mail uniquement à partir d'un jeton vérifié.** La seule chose qui traverse la limite de confiance est l'e-mail vérifié dans un jeton signé. L'application n'accepte pas d'identifiant d'utilisateur, de rôle, d'appartenance à une organisation ou tout autre état privilégié du fil : elle dérive tout localement du compte correspondant.
-- **Écrites d'identité additives uniquement.** La liaison réutilise un compte de même adresse existant sans modification ou en insère un nouveau. Aucune mise à jour, renommage, redirection ou suppression des lignes d'identité ne se produit sur ce chemin.
+- **Liaison par e-mail vérifié et mappage exact de l'organisation.** L'e-mail vérifié reste la seule clé de jointure des comptes. Lorsque le flag d'organisation est activé, l'application n'accepte `org_id`, `org_name` et `org_role` que d'une assertion Dispatch vérifiée cryptographiquement et associe les organisations uniquement par autorité et ID exacts.
+- **Écritures d'identité et d'organisation additives uniquement.** La liaison réutilise un compte de même adresse existant sans modification ou en insère un nouveau. Le mappage d'organisation est seulement ajouté. Aucune renomination, réaffectation ou suppression de lignes existantes ne se produit sur ce chemin.
 - **Clients hébergés canoniques activés par origine.** Les applications hébergées canoniques avec une origine enregistrée sont activées automatiquement ; les applications auto-hébergées restent inactives sans `AGENT_NATIVE_IDENTITY_HUB_URL`.
 
 <Callout id="doc-block-yjxbff" tone="success">
 
-**Activation sûre, restauration sécurisée.** Les écritures d'identité sont **additifs uniquement** : un compte de même adresse e-mail existant est réutilisé sans modification et un nouvel e-mail insère simplement une nouvelle ligne. Il n'y a aucun changement de schéma et rien à migrer, donc l'activation ou la désactivation de `AGENT_NATIVE_IDENTITY_HUB_URL` est entièrement réversible à tout moment, par application.
+**Activation sûre, restauration sécurisée.** Les écritures d'identité et les mappages d'organisation sont **additifs uniquement**. Un compte existant est réutilisé sans modification, un nouvel e-mail insère une ligne et la migration ajoute des colonnes de mappage nullable. La désactivation de l'un ou l'autre flag ne supprime ni utilisateurs, ni organisations, ni adhésions, ni identifiants locaux.
 
 </Callout>
 
 Le lien juste à temps est une décision unique entièrement saisie sur l’e-mail vérifié :
 
-<Diagram id="doc-block-xxejxz" title={"Décision JIT-link"} summary={"Le lien est saisi sur l'e-mail vérifié et est uniquement additif : les comptes existants sont réutilisés sans modification, les nouveaux e-mails créent un nouvel utilisateur local."}>
+<Diagram id="doc-block-xxejxz" title={"Décision JIT-link"} summary={"Le compte utilisateur est lié par l'e-mail vérifié. Lorsqu'il est activé, l'organisation est associée par l'autorité et l'ID exacts. Toutes les écritures sont additives."}>
 
 ```html
 <div class="diagram-jit">
@@ -280,6 +300,8 @@ Sans `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, un Dispatch auto-hébergé ne peut é
 
 Le basculement et la restauration sont **une seule variable d'environnement par déploiement d'application**. Déployez une application à la fois, vérifiez, puis développez. Ne définissez pas la variable sur chaque application à la fois.
 
+Déployez d'abord le flag d'identité du navigateur. Après le déploiement des colonnes de migration de l'organisation dans l'application et Dispatch, activez `organization.cross-app-federation` pour une organisation et vérifiez son ID canonique et son rôle. Les organisations existantes sans mappage restent inchangées jusqu'à une migration explicite.
+
 **1. Déployez le code — aucun changement de comportement.**
 Expédiez la version à chaque application avec `AGENT_NATIVE_IDENTITY_HUB_URL` **non défini partout**. Confirmez que les connexions normales fonctionnent toujours sur quelques applications.
 
@@ -307,7 +329,7 @@ Si une vérification échoue, passez directement à l'étape 4 (restauration) :
 Une fois qu'une application est vérifiée, répétez les étapes 2 à 3 pour l'application suivante : en définissant `AGENT_NATIVE_IDENTITY_HUB_URL` sur un déploiement à la fois. Ne jamais activer par lots.
 
 **5. Rollback = désactivez la variable d'environnement lors du déploiement de cette application.**
-Pour restaurer une application, **supprimez `AGENT_NATIVE_IDENTITY_HUB_URL` de l'environnement de cette application et redéployez-la/redémarrez-la.** L'application revient immédiatement à son comportement d'authentification antérieur. Il n'y a **aucune modification de données à annuler** : les lignes d'identité n'ont été ajoutées que, et la suppression de la variable rend simplement le chemin de fédération à nouveau inactif. Le basculement et la restauration de chaque application sont indépendants et réversibles.
+Pour restaurer une application, **supprimez `AGENT_NATIVE_IDENTITY_HUB_URL` de l'environnement de cette application et redéployez-la/redémarrez-la.** L'application revient immédiatement à son comportement d'authentification antérieur. Les écritures d'identité et les mappages d'organisation sont additives uniquement ; la suppression de la variable ne supprime ni utilisateurs, ni organisations, ni adhésions, ni identifiants locaux. Le basculement et la restauration de chaque application sont indépendants et réversibles.
 
 <Callout tone="info">
 

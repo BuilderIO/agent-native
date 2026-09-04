@@ -41,6 +41,7 @@ export type { AcceptPendingResult } from "./accept-pending.js";
 
 export { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 export type { AutoJoinDomainResult } from "./auto-join-domain.js";
+export { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 export {
   defineAppRoles,
@@ -59,6 +60,20 @@ export type {
 } from "./app-roles.js";
 
 export { ORG_MIGRATIONS } from "./migrations.js";
+
+export {
+  CROSS_APP_ORG_FEDERATION_FLAG,
+  CROSS_APP_ORG_FEDERATION_SCOPE,
+} from "./feature-flags.js";
+
+export {
+  provisionFederatedOrganization,
+  syncOrganizationToIdentityHub,
+} from "./federation.js";
+export type {
+  FederatedOrganizationIdentity,
+  FederatedOrganizationSyncInput,
+} from "./federation.js";
 
 export {
   getRequiredAuthProviderForEmail,

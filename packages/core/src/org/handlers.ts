@@ -36,6 +36,7 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+import { warnAgent } from "../agent/action-warnings.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
@@ -51,6 +52,7 @@ import { setActiveOrgId } from "./active-org.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
+import { syncOrganizationToIdentityHub } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type {
@@ -61,6 +63,34 @@ import type {
 import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
+
+async function syncFederatedOrgBestEffort(
+  event: H3Event,
+  input: {
+    email: string;
+    orgId: string | null;
+    orgName: string | null;
+    role: OrgRole | null;
+  },
+): Promise<void> {
+  if (!input.orgId || !input.orgName || !input.role) return;
+  await syncOrganizationToIdentityHub(event, {
+    id: input.orgId,
+    name: input.orgName,
+    role: input.role,
+    email: input.email,
+  }).catch((error) => {
+    // Federation is an opt-in cross-deployment enhancement. A hub outage must
+    // not turn a healthy local organization read or create into an outage.
+    void error;
+    warnAgent({
+      severity: "advisory",
+      code: "cross-app-organization-sync-failed",
+      message:
+        "Cross-app organization sync did not complete; local organization access remains unchanged.",
+    });
+  });
+}
 
 function normalizeWorkspaceAppDefaultVisibility(
   value: unknown,
@@ -91,6 +121,7 @@ function requireAuthEmail(session: { email?: string } | null): string {
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
 export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
+  await syncFederatedOrgBestEffort(event, ctx);
 
   const e = await exec();
   const allOrgsRes = await e.execute({
@@ -254,6 +285,12 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const { id, name: createdName, role } = await createOrganization(name, email);
+  await syncFederatedOrgBestEffort(event, {
+    email,
+    orgId: id,
+    orgName: createdName,
+    role,
+  });
   return { id, name: createdName, role };
 });
 

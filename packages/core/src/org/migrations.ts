@@ -181,4 +181,14 @@ export const ORG_MIGRATIONS = [
               WHERE workspace_app_shares.resource_id = workspace_apps.id
             )`,
   },
+  {
+    version: 1019,
+    name: "organization-identity-federation",
+    sql: `
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_authority TEXT;
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx
+        ON organizations (identity_authority, identity_id);
+    `,
+  },
 ];

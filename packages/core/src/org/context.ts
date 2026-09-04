@@ -501,6 +501,11 @@ export async function createOrganization(
   name: string,
   email: string,
   role: OrgRole = "owner",
+  options: {
+    id?: string;
+    identityAuthority?: string;
+    identityId?: string;
+  } = {},
 ): Promise<{
   id: string;
   name: string;
@@ -510,14 +515,26 @@ export async function createOrganization(
 }> {
   const trimmedName = name.trim();
   const exec = getDbExec();
-  const id = nanoid();
+  const id = options.id ?? nanoid();
+  if (Boolean(options.identityAuthority) !== Boolean(options.identityId)) {
+    throw new Error(
+      "Organization identity authority and identity id must be provided together.",
+    );
+  }
   const createdAt = Date.now();
   const { randomBytes } = await import("node:crypto");
   const a2aSecret = randomBytes(32).toString("base64url");
+  const identityColumns = options.identityAuthority
+    ? ", identity_authority, identity_id"
+    : "";
+  const identityPlaceholders = options.identityAuthority ? ", ?, ?" : "";
+  const identityArgs = options.identityAuthority
+    ? [options.identityAuthority, options.identityId]
+    : [];
 
   await exec.execute({
-    sql: `INSERT INTO organizations (id, name, created_by, created_at, a2a_secret) VALUES (?, ?, ?, ?, ?)`,
-    args: [id, trimmedName, email, createdAt, a2aSecret],
+    sql: `INSERT INTO organizations (id, name, created_by, created_at, a2a_secret${identityColumns}) VALUES (?, ?, ?, ?, ?${identityPlaceholders})`,
+    args: [id, trimmedName, email, createdAt, a2aSecret, ...identityArgs],
   });
 
   await exec.execute({

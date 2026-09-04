@@ -39,11 +39,27 @@ Die Verlinkungsregel ist bewusst eng und additiv:
 
 Dies macht den Rollout sicher, auch wenn dabei Personen abgemeldet werden. **Abmeldung wird erwartet.** Wenn eine App dies aktiviert, werden bestehende Sitzungen beendet und Benutzer authentifizieren sich erneut über Dispatch. Aber sie melden sich immer wieder bei dem **gleichen E-Mail-Konto an, bei dem alle Daten intakt sind**, da Identitätszeilen immer nur _hinzugefügt_ werden – niemals zerstört, umbenannt oder neu zugewiesen.
 
+### Organisationskontext {#organization-context}
+
+Das standardmäßig deaktivierte Flag `organization.cross-app-federation` ergänzt
+einen serverseitigen Schritt für Workspace-Organisationen. Wenn eine
+Organisation in einer App erstellt oder gelesen wird, registriert die App sie
+bei Dispatch und speichert die exakte Zuordnung `(identity_authority,
+identity_id)`. Eine spätere Anmeldung in einer anderen aktivierten App überträgt
+dieselbe kanonische `org_id`, den Organisationsnamen und die Mitgliedsrolle in
+der signierten Assertion. Die Ziel-App erstellt oder verknüpft ihre lokale
+Organisation über diese ID.
+
+Organisationsnamen, E-Mail-Domains und Browser-Cookies sind keine
+Zuordnungsschlüssel. Eine bestehende lokale Organisation ohne Zuordnung bleibt
+unverändert und wird nicht automatisch zusammengeführt. Verwenden Sie nach
+Bestätigung der gewünschten Zuordnung eine ausdrückliche Migration.
+
 ## Wie es funktioniert {#how-it-works}
 
 Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rückrufumleitung, wobei E-Mail das einzige ist, was die Vertrauensgrenze überschreitet.
 
-<Diagram id="doc-block-yntn6c" title={"Ablauf der Identitätsföderation"} summary={"Dispatch authentifiziert den Benutzer und gibt eine kurzlebige signierte Bestätigung von etwas zurück – der verifizierten E-Mail. Die App wird per E-Mail verknüpft und erstellt eine eigene lokale Sitzung."}>
+<Diagram id="doc-block-yntn6c" title={"Ablauf der Identitätsföderation"} summary={"Dispatch authentifiziert den Benutzer und gibt eine kurzlebige signierte Bestätigung mit der verifizierten E-Mail und, falls aktiviert, dem exakten Organisationskontext zurück. Die App verknüpft das Konto per E-Mail, ordnet die Organisation per ID zu und erstellt eine eigene lokale Sitzung."}>
 
 ```html
 <div class="diagram-sso">
@@ -159,12 +175,16 @@ Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rüc
    | `email`      | Die **bestätigte** E-Mail-Adresse des Benutzers – der einzige Beitrittsschlüssel |
    | `name`       | Anzeigename (nicht autorisierend, nur für UI)                                    |
    | `org_domain` | Workspace/org-Domäne, falls vorhanden                                            |
-   | `scope`      | Immer `"identity"` – dieses Token autorisiert nur die Anmeldung                  |
+   | `org_id`     | Kanonische Organisations-ID, nur wenn die Organisationsföderation aktiviert ist  |
+   | `org_name`   | Organisationsname zusammen mit `org_id`                                          |
+   | `org_role`   | Verifizierte Mitgliedsrolle zusammen mit `org_id`                                |
+   | `scope`      | Immer `"identity"`. Organisationsfelder werden nur bei aktiviertem Flag geehrt   |
    | `exp`        | **≤ 2 Minuten** ab Problem                                                       |
 
-4. **Die App überprüft und verknüpft Just-in-Time per E-Mail.** Die Route `GET /_agent-native/identity/callback` überprüft die Token-Signatur mit `A2A_SECRET`, prüft `scope: "identity"` und `exp` und führt dann **Just-in-Time-Verknüpfung ausschließlich anhand der verifizierten E-Mail-Adresse** durch:
+4. **Die App überprüft und verknüpft Just-in-Time per E-Mail.** Die Route `GET /_agent-native/identity/callback` überprüft die Token-Signatur mit `A2A_SECRET`, prüft `scope: "identity"` und `exp` und führt dann **Just-in-Time-Verknüpfung anhand der verifizierten E-Mail-Adresse** durch:
    - Wenn ein lokaler Benutzer mit dieser E-Mail existiert → unverändert wiederverwenden.
    - Wenn nicht → erstellen Sie einen lokalen Benutzer für diese E-Mail.
+   Wenn `organization.cross-app-federation` aktiviert ist, validiert die App zusätzlich die signierten Felder `org_id`, `org_name` und `org_role` zusammen. Die lokale Organisation wird nur über die exakte Authority und ID zugeordnet, niemals über Name oder E-Mail-Domain.
 
 5. **App erstellt eine normale lokale Sitzung.** Von hier aus verfügt der Benutzer über eine normale lokale Sitzung im eigenen Store dieser App – alle vorhandenen Zugriffsprüfungen, Organisationsbereiche und Aktionsschutzfunktionen funktionieren genau wie zuvor. Die Föderation geschah erst vor der Haustür.
 
@@ -177,7 +197,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **Set** → Die App zeigt die Option **„Mit Agent-Native anmelden“** an, die den obigen Ablauf ausführt. Daneben funktioniert weiterhin die direkte lokale Anmeldung (E-Mail/Passwort, Google).
-- **Kanonischer gehosteter Client** → Die App zeigt für den registrierten Origin die Option **„Mit Agent-Native anmelden“**; selbst gehostete Apps müssen die Variable weiterhin setzen. Es gibt keine Schemaänderung und nichts zu migrieren.
+- **Kanonischer gehosteter Client** → Die App zeigt für den registrierten Origin die Option **„Mit Agent-Native anmelden“**; selbst gehostete Apps müssen die Variable weiterhin setzen. Additive Zuordnungsspalten können nach dem Deployment vorhanden sein, bleiben bei deaktiviertem Flag aber ungenutzt.
 
 ## Sicherheit {#security}
 
@@ -185,19 +205,19 @@ Das gesamte Modell basiert auf ein paar bewusst kleinen Garantien:
 
 - **Kurzlebiges signiertes Token.** Die Identitätszusicherung ist ein `A2A_SECRET`-signiertes JWT mit einem **≤ 2-Minuten** Ablaufdatum und `scope: "identity"`. Es autorisiert eine einmalige Anmeldung und kann nicht für längere Zeit wiedergegeben oder für den API/A2A-Zugriff umgewidmet werden.
 - **Strikte, app-gebundene `redirect_uri`-Zulassungsliste.** Jede kanonische App-ID ist genau einer Produktions-Origin und Callback-Route zugeordnet; localhost bleibt für die Entwicklung verfügbar. Unbekannte Subdomains, nicht passende App-IDs, beliebige Pfade und Cross-Origin-Ziele werden abgelehnt.
-- **Nur E-Mail-Beitritt von einem verifizierten Token aus.** Das Einzige, was die Vertrauensgrenze überschreitet, ist die verifizierte E-Mail in einem signierten Token. Die App akzeptiert keine Benutzer-ID, Rolle, Organisationsmitgliedschaft oder einen privilegierten Status aus der Verbindung – sie leitet alles lokal vom übereinstimmenden Konto ab.
-- **Nur additive Identitätsschreibvorgänge.** Beim Verknüpfen wird entweder ein vorhandenes Konto mit derselben E-Mail-Adresse unverändert wiederverwendet oder ein neues eingefügt. Auf diesem Pfad findet niemals eine Aktualisierung, Umbenennung, Neuzuweisung oder Löschung von Identitätszeilen statt.
+- **Verifizierte E-Mail-Verknüpfung und exakte Organisationszuordnung.** Die verifizierte E-Mail bleibt der einzige Join-Schlüssel für Benutzerkonten. Bei aktiviertem Organisations-Flag akzeptiert die App `org_id`, `org_name` und `org_role` nur aus einer kryptografisch verifizierten Dispatch-Assertion und ordnet Organisationen ausschließlich über Authority und ID zu.
+- **Nur additive Identitäts- und Organisationsschreibvorgänge.** Beim Verknüpfen wird entweder ein vorhandenes Konto mit derselben E-Mail-Adresse unverändert wiederverwendet oder ein neues eingefügt. Die Organisationszuordnung wird nur ergänzt. Auf diesem Pfad findet niemals eine Umbenennung, Neuzuweisung oder Löschung bestehender Identitäts- oder Organisationszeilen statt.
 - **Kanonische Hosted-Clients nach Origin aktiviert.** Kanonische gehostete Apps mit registriertem Origin sind automatisch aktiv; selbst gehostete Apps bleiben ohne `AGENT_NATIVE_IDENTITY_HUB_URL` inaktiv.
 
 <Callout id="doc-block-1j7k5xd" tone="success">
 
-**Sicher zu aktivieren, sicher wiederherzustellen.** Identitätsschreibvorgänge sind **nur additiv** – ein vorhandenes Konto mit derselben E-Mail-Adresse wird unverändert wiederverwendet und eine neue E-Mail fügt lediglich eine neue Zeile ein. Es gibt keine Schemaänderung und es muss nichts migriert werden, sodass das Ein- oder Ausschalten von `AGENT_NATIVE_IDENTITY_HUB_URL` jederzeit und pro App vollständig rückgängig gemacht werden kann.
+**Sicher zu aktivieren, sicher wiederherzustellen.** Identitäts- und Organisationszuordnungen sind **nur additiv**. Ein vorhandenes Konto mit derselben E-Mail-Adresse wird unverändert wiederverwendet, eine neue E-Mail fügt eine neue Zeile ein und die Migration ergänzt nullable Zuordnungsspalten. Das Deaktivieren eines Flags löscht keine lokalen Benutzer, Organisationen, Mitgliedschaften oder Anmeldedaten.
 
 </Callout>
 
 Der Just-in-Time-Link ist eine einzelne Entscheidung, die vollständig auf der verifizierten E-Mail basiert:
 
-<Diagram id="doc-block-1u8o7kt" title="JIT-link Entscheidung" summary={"Die Verknüpfung basiert auf der verifizierten E-Mail und ist nur additiv – vorhandene Konten werden unverändert wiederverwendet, neue E-Mails erstellen einen neuen lokalen Benutzer."}>
+<Diagram id="doc-block-1u8o7kt" title="JIT-link Entscheidung" summary={"Das Benutzerkonto wird über die verifizierte E-Mail verknüpft. Bei Aktivierung wird die Organisation über Authority und exakte ID zugeordnet. Alle Schreibvorgänge sind additiv."}>
 
 ```html
 <div class="diagram-jit">
@@ -280,6 +300,8 @@ Ohne `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` kann ein selbstgehosteter Dispatch nur
 
 Cutover und Rollback sind **eine einzelne Umgebungsvariable pro App-Bereitstellung**. Führen Sie jeweils eine App aus, überprüfen Sie sie und erweitern Sie sie dann. Legen Sie die Variable nicht für jede App gleichzeitig fest.
 
+Führen Sie zuerst das Browser-Identitäts-Flag aus. Aktivieren Sie nach dem Deployment der Organisations-Migrationsspalten in App und Dispatch `organization.cross-app-federation` für eine Organisation und prüfen Sie die kanonische ID und Rolle. Bestehende Organisationen ohne Zuordnung bleiben bis zu einer ausdrücklichen Migration unverändert.
+
 **1. Stellen Sie den Code bereit – keine Verhaltensänderung.**
 Versenden Sie die Veröffentlichung an jede App mit `AGENT_NATIVE_IDENTITY_HUB_URL` **überall deaktiviert**. Bestätigen Sie, dass normale Anmeldungen bei einigen Apps weiterhin funktionieren.
 
@@ -307,7 +329,7 @@ Wenn eine Prüfung fehlschlägt, fahren Sie direkt mit Schritt 4 (Rollback) fort
 Sobald eine App verifiziert ist, wiederholen Sie die Schritte 2–3 für die nächste App und legen Sie `AGENT_NATIVE_IDENTITY_HUB_URL` jeweils für eine Bereitstellung fest. Niemals stapelweise aktivieren.
 
 **5. Rollback = Deaktivieren Sie die Umgebungsvariable bei der Bereitstellung dieser App.**
-Um eine App zurückzusetzen, **entfernen Sie `AGENT_NATIVE_IDENTITY_HUB_URL` aus der Umgebung dieser App und stellen Sie sie erneut bereit/starten Sie sie neu.** Die App kehrt sofort zu ihrem vorherigen Authentifizierungsverhalten zurück. Es gibt **keine Datenänderung, die rückgängig gemacht werden kann** – Identitätszeilen wurden immer nur hinzugefügt, und das Deaktivieren der Variablen macht den Verbundpfad einfach wieder in den Ruhezustand. Die Umstellung und das Rollback jeder App sind unabhängig und umkehrbar.
+Um eine App zurückzusetzen, **entfernen Sie `AGENT_NATIVE_IDENTITY_HUB_URL` aus der Umgebung dieser App und stellen Sie sie erneut bereit/starten Sie sie neu.** Die App kehrt sofort zu ihrem vorherigen Authentifizierungsverhalten zurück. Identitäts- und Organisationszuordnungen werden nur additiv geschrieben; das Deaktivieren der Variable löscht keine lokalen Benutzer, Organisationen, Mitgliedschaften oder Anmeldedaten. Die Umstellung und das Rollback jeder App sind unabhängig und umkehrbar.
 
 <Callout tone="info">
 

@@ -78,13 +78,30 @@ The linking rule is deliberately narrow and additive:
 
 This makes the rollout safe even though it logs people out. **Logout is expected.** When an app turns this on, existing sessions end and users re-authenticate through Dispatch. But they always log back into the **same email-matched account, with all their data intact**, because identity rows are only ever _added to_ — never destroyed, renamed, or repointed.
 
+### Organization context {#organization-context}
+
+The default-off `organization.cross-app-federation` flag adds a second,
+server-only step for workspace organizations. When an organization is created
+or read in one app, that app registers its local organization with Dispatch and
+stores the exact `(identity_authority, identity_id)` mapping. A later sign-in
+to another enabled app carries the same canonical `org_id`, organization name,
+and member role in the signed assertion. The target app creates or links its
+local organization by that ID, then applies its normal local access checks.
+
+Organization names, email domains, and browser cookies are not join keys. An
+existing local organization with no mapping is left unchanged rather than
+silently merged. Link those organizations through an explicit migration after
+confirming the intended match. A temporary Dispatch outage leaves local access
+available and the source app retries registration on a later organization read.
+
 ## How it works {#how-it-works}
 
 The flow is a standard authorize → one-time code → server-to-server exchange →
-callback redirect, with email as the only identity attribute that crosses the
-trust boundary.
+callback redirect. The verified email is the identity join key. Optional org
+context is accepted only from the verified Dispatch assertion when the org
+federation flag is enabled.
 
-<Diagram id="doc-block-137b24q" title="Identity federation flow" summary={"Dispatch authenticates the human and returns a short-lived signed assertion of one thing — the verified email. The app links by email and mints its own local session."}>
+<Diagram id="doc-block-137b24q" title="Identity federation flow" summary={"Dispatch authenticates the human and returns a short-lived signed assertion with the verified email and, when enabled, the exact organization context. The app links by email, maps the org by ID, and mints its own local session."}>
 
 ```html
 <div class="diagram-sso">
@@ -239,7 +256,10 @@ trust boundary.
    | `email`      | The user's **verified** email — the only join key        |
    | `name`       | Display name (non-authoritative, for UI only)            |
    | `org_domain` | Workspace/org domain, when present                       |
-   | `scope`      | Always `"identity"` — this token authorizes sign-in only |
+   | `org_id`     | Canonical organization ID, only when org federation is enabled |
+   | `org_name`   | Organization display name paired with `org_id`          |
+   | `org_role`   | Verified membership role paired with `org_id`           |
+   | `scope`      | Always `"identity"`. Org fields are honored only when the target's org federation flag is enabled |
    | `exp`        | **≤ 2 minutes** from issue                               |
 
 4. **App verifies and JIT-links by email.** The app's callback verifies the
@@ -248,6 +268,9 @@ trust boundary.
    performs **just-in-time linking strictly by verified email**:
    - If a local user with that email exists → reuse it unchanged.
    - If not → create a local user for that email.
+   When `organization.cross-app-federation` is enabled, it also validates the
+   signed `org_id`, `org_name`, and `org_role` together. It maps the local org
+   by the exact authority and ID. It never matches by name or email domain.
 
 5. **App mints a normal local session.** From here on the user has an ordinary local session in that app's own store — every existing access check, org scoping, and action guard works exactly as before. The federation only happened at the front door.
 
@@ -264,7 +287,8 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 - **Canonical hosted client** → the app shows a **"Sign in with Agent-Native"** option that runs the flow above. Direct local login (email/password, Google) still works alongside it.
 - **Self-hosted with the variable set** → the app shows the same option, using the configured Dispatch instance.
-- **Self-hosted with the variable unset** → **zero behavior change.** The app authenticates exactly as it did before; the federation code path is dormant. There is no schema change and nothing to migrate.
+- **Self-hosted with the variable unset** → **zero runtime behavior change.** The app authenticates exactly as it did before and the federation code path is dormant. The additive mapping columns may still be present after deployment, but they are unused while the flag is off.
+- **Organization federation** → enable `organization.cross-app-federation` through Analytics only after the app and Dispatch have deployed the additive org mapping migration. The source and target apps must share the verification `A2A_SECRET`.
 
 ## Security {#security}
 
@@ -279,16 +303,21 @@ The whole model rests on a few deliberately small guarantees:
   It is returned only from the server-to-server token exchange and is never
   placed in a browser URL.
 - **Strict app-bound `redirect_uri` allowlist.** Every canonical app ID maps to one exact production origin and callback path; localhost remains available for development. Unknown subdomains, mismatched app IDs, arbitrary paths, scheme-relative (`//host`), and cross-origin targets are rejected, so the authority can't become a token-exfiltration oracle.
-- **Email-only join from a verified assertion.** The _only_ identity attribute
-  that crosses the trust boundary is the verified email. The app does not
-  accept a user id, role, org membership, or any privileged state from the
-  wire — it derives everything locally from the matched account.
+- **Verified email join and exact org mapping.** The verified email remains the
+  only user-account join key. When the org flag is enabled, the app also accepts
+  `org_id`, `org_name`, and `org_role` only from a cryptographically verified
+  Dispatch assertion, after exact app and authority checks. The org ID is the
+  only organization join key.
 - **Additive-only identity writes.** Linking either reuses an existing same-email account untouched or inserts a new one. No update, rename, repoint, or delete of identity rows ever happens on this path.
 - **Exact-origin trust.** Only the registered canonical hosted client origins get the implicit hosted default. Self-hosted and custom origins remain opt-in through `AGENT_NATIVE_IDENTITY_HUB_URL`; the separately gated packaged Desktop path is described below.
 
 <Callout id="doc-block-18qhl3m" tone="success">
 
-**Safe to enable, safe to revert.** Identity writes are **additive only** — an existing same-email account is reused untouched, and a new email just inserts a fresh row. There is no schema change and nothing to migrate, so flipping `AGENT_NATIVE_IDENTITY_HUB_URL` on or off is fully reversible at any time, per app.
+**Safe to enable, safe to revert.** Identity and org mapping writes are
+**additive only**. An existing same-email account is reused untouched, a new
+email inserts a fresh row, and the org migration adds nullable mapping columns.
+Disabling either feature flag stops new federation behavior without deleting
+local users, organizations, memberships, or credentials.
 
 </Callout>
 
@@ -410,7 +439,8 @@ Without an exact custom registry entry, a self-hosted Dispatch can only issue co
 
 Canonical hosted clients take the default after the release ships. Self-hosted
 and custom deployments still use **a single environment variable per app**.
-Roll out one deployment at a time, verify, then expand.
+Roll out one deployment at a time, verify, then expand. Roll out the browser
+identity flag before the organization flag.
 
 **1. Deploy the code and verify a canonical hosted client.**
 Ship the release to the canonical apps. Confirm normal logins still work on a
@@ -433,6 +463,12 @@ Leave every other self-hosted app's environment unset. Redeploy/restart so it pi
 - You are redirected **back to the app, logged in** — and it is the **same pre-existing account** (same email) you had before, not a new one.
 - **App data is intact** — your existing records, settings, and org scoping are exactly as they were.
 - **Existing direct logins still work** — email/password and Google sign-in continue to function alongside SSO.
+
+For an organization canary, enable `organization.cross-app-federation` for one
+organization after the source app has loaded its organization once. Sign in to
+another enabled app and verify the same canonical `org_id`, organization name,
+and membership role. An existing target organization with no mapping must stay
+unchanged until an explicit migration links it.
 
 If any check fails, go straight to step 5 (rollback) — it is instant and data-safe.
 

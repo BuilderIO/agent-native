@@ -7,7 +7,10 @@ const featureFlagMocks = vi.hoisted(() => ({
 const getSessionMock = vi.hoisted(() => vi.fn());
 const signInJourneyMock = vi.hoisted(() => vi.fn());
 const signA2ATokenMock = vi.hoisted(() => vi.fn());
+const verifyA2ATokenMock = vi.hoisted(() => vi.fn());
 const getOrgDomainMock = vi.hoisted(() => vi.fn());
+const getOrgContextMock = vi.hoisted(() => vi.fn());
+const invalidateMemberOrgCachesMock = vi.hoisted(() => vi.fn());
 const hasGoogleAuthIdentityMock = vi.hoisted(() => vi.fn());
 
 interface CodeRow {
@@ -21,6 +24,9 @@ interface CodeRow {
   email: string;
   name: string | null;
   org_domain: string | null;
+  org_id: string | null;
+  org_name: string | null;
+  org_role: "owner" | "admin" | "member" | null;
   jti: string;
   expires_at: number;
   consumed_at: number | null;
@@ -40,9 +46,16 @@ vi.mock("@agent-native/core/feature-flags", async () => {
 
 vi.mock("@agent-native/core/a2a", () => ({
   signA2AToken: signA2ATokenMock,
+  verifyA2AToken: verifyA2ATokenMock,
 }));
 vi.mock("@agent-native/core/org", () => ({
+  CROSS_APP_ORG_FEDERATION_FLAG: {
+    key: "organization.cross-app-federation",
+  },
+  CROSS_APP_ORG_FEDERATION_SCOPE: "organization-federation",
+  getOrgContext: getOrgContextMock,
   getOrgDomain: getOrgDomainMock,
+  invalidateMemberOrgCaches: invalidateMemberOrgCachesMock,
 }));
 vi.mock("@agent-native/core/server", () => ({
   getH3App: vi.fn(() => ({ use: vi.fn() })),
@@ -60,6 +73,25 @@ vi.mock("@agent-native/core/db", () => ({
         typeof input === "string" ? [] : (input.args ?? [])
       ) as any[];
       if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
+      if (
+        /^SELECT id, name(?:, identity_authority, identity_id)?\s+FROM organizations/i.test(
+          sql,
+        )
+      ) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/^INSERT INTO organizations/i.test(sql)) {
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/^UPDATE organizations/i.test(sql)) {
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/^INSERT INTO org_members/i.test(sql)) {
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/^UPDATE org_members/i.test(sql)) {
+        return { rows: [], rowsAffected: 1 };
+      }
       if (/^DELETE FROM identity_sso_authorization_code/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -78,6 +110,9 @@ vi.mock("@agent-native/core/db", () => ({
           jti: args[10],
           expires_at: args[12],
           consumed_at: args[13],
+          org_id: args[14],
+          org_name: args[15],
+          org_role: args[16],
         });
         return { rows: [], rowsAffected: 1 };
       }
@@ -122,6 +157,7 @@ const {
   isDesktopWorkspaceSsoRequest,
   isWorkspaceSsoEnabledForSession,
   tokenHandler,
+  organizationFederationHandler,
 } = await import("./identity-sso.js");
 const { createCodeChallenge } = await import("../lib/identity-sso.js");
 
@@ -160,7 +196,24 @@ beforeEach(() => {
   signInJourneyMock.mockReturnValue({ signInHref: "/_agent-native/sign-in" });
   getOrgDomainMock.mockResolvedValue("example.test");
   hasGoogleAuthIdentityMock.mockResolvedValue(false);
+  getOrgContextMock.mockResolvedValue({
+    orgId: "org-1",
+    orgName: "Example Org",
+    role: "owner",
+  });
   signA2ATokenMock.mockResolvedValue("server-only-assertion");
+  verifyA2ATokenMock.mockResolvedValue({
+    email: "owner@example.test",
+    orgDomain: null,
+    orgId: "dispatch-org-1",
+    claims: {
+      iss: "https://mail.agent-native.com",
+      app_id: "mail",
+      scope: "organization-federation",
+      org_name: "Example Org",
+      org_role: "owner",
+    },
+  });
 });
 
 afterEach(() => {
@@ -319,6 +372,58 @@ describe("authorization code and PKCE handlers", () => {
     );
     expect(replay.status).toBe(400);
     expect(signA2ATokenMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries the active canonical organization when federation is enabled", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+    getOrgContextMock.mockResolvedValue({
+      orgId: "dispatch-org-1",
+      orgName: "Example Org",
+      role: "owner",
+    });
+
+    const redirect = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${createCodeChallenge(VERIFIER)}&code_challenge_method=S256`,
+      ),
+    );
+    const code = new URL(redirect.headers.get("Location")!).searchParams.get(
+      "code",
+    )!;
+
+    expect(codeRows[0]).toMatchObject({
+      org_id: "dispatch-org-1",
+      org_name: "Example Org",
+      org_role: "owner",
+    });
+
+    await tokenHandler(
+      event("/_agent-native/identity/token", {
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          code,
+          state: STATE,
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          code_verifier: VERIFIER,
+        },
+      }),
+    );
+    expect(signA2ATokenMock).toHaveBeenCalledWith(
+      "user@example.test",
+      "example.test",
+      undefined,
+      expect.objectContaining({
+        extraClaims: expect.objectContaining({
+          org_id: "dispatch-org-1",
+          org_name: "Example Org",
+          org_role: "owner",
+        }),
+      }),
+    );
   });
 
   it("marks only Google-linked authority identities as Google-backed", async () => {
@@ -490,5 +595,34 @@ describe("authorization code and PKCE handlers", () => {
 
     expect(response.status).toBe(400);
     expect(getSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("organization federation endpoint", () => {
+  it("accepts only a verified assertion from an exact registered app", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer signed-org-assertion",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      orgId: "dispatch-org-1",
+      name: "Example Org",
+      role: "owner",
+    });
+    expect(verifyA2ATokenMock).toHaveBeenCalledWith(
+      "signed-org-assertion",
+      expect.anything(),
+      expect.objectContaining({ includeClaims: true }),
+    );
   });
 });

@@ -113,4 +113,19 @@ describe("ORG_MIGRATIONS", () => {
     expect(sql).toMatch(/workspace_app_shares/i);
     expect(sql).toMatch(/visibility = 'org'/i);
   });
+
+  it("adds the nullable cross-app organization identity mapping", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1019);
+
+    expect(migration?.name).toBe("organization-identity-federation");
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS identity_authority TEXT/i,
+    );
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS identity_id TEXT/i,
+    );
+    expect(migration?.sql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx/i,
+    );
+  });
 });

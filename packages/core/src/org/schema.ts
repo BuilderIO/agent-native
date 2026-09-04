@@ -15,6 +15,9 @@ export const organizations = table("organizations", {
   a2aSecret: text("a2a_secret"),
   workspaceUrl: text("workspace_url"),
   requiredAuthProvider: text("required_auth_provider"),
+  /** Stable Dispatch identity used to match this org across app databases. */
+  identityAuthority: text("identity_authority"),
+  identityId: text("identity_id"),
 });
 
 export const orgMembers = table("org_members", {
