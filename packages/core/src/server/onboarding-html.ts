@@ -66,7 +66,10 @@ import {
   type GoogleAuthMode,
 } from "./google-auth-mode.js";
 import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
+import {
+  identitySsoLoginButtonHtml,
+  isCanonicalIdentitySsoClientRequest,
+} from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
 function hasGoogleOAuth(): boolean {
@@ -1262,7 +1265,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
-  const identitySsoEnabled = Boolean(identitySsoLoginButtonHtml());
+  const identitySsoEnabled = Boolean(
+    identitySsoLoginButtonHtml({ requestHost: opts.requestHost }),
+  );
+  const identitySsoAuto =
+    identitySsoEnabled &&
+    isCanonicalIdentitySsoClientRequest(opts.requestHost, "https");
   const embeddedAuthCss = identitySsoEnabled
     ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
     : "";
@@ -1640,6 +1648,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       hash: "local-development-sign-in",
     }),
     identitySsoEnabled,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,

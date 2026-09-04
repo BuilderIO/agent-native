@@ -117,6 +117,8 @@ const {
   authorizeHandler,
   availabilityHandler,
   canAttemptWorkspaceSso,
+  canAttemptBrowserIdentitySso,
+  isBrowserIdentitySsoEnabledForSession,
   isDesktopWorkspaceSsoRequest,
   isWorkspaceSsoEnabledForSession,
   tokenHandler,
@@ -237,6 +239,23 @@ describe("rollout availability", () => {
         userKey: "user@example.test",
         orgId: "org-1",
       },
+    );
+  });
+
+  it("evaluates the browser silent-sign-in flag against the rollout", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+
+    await expect(canAttemptBrowserIdentitySso()).resolves.toBe(true);
+    await expect(
+      isBrowserIdentitySsoEnabledForSession({
+        email: "user@example.test",
+        orgId: "org-1",
+      } as never),
+    ).resolves.toBe(true);
+    expect(featureFlagMocks.isEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "browser.identity-sso" }),
+      expect.objectContaining({ userEmail: "user@example.test" }),
     );
   });
 });
@@ -409,5 +428,48 @@ describe("authorization code and PKCE handlers", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/_agent-native/sign-in");
     expect(signInJourneyMock).toHaveBeenCalled();
+  });
+
+  it("returns login_required for a silent browser probe without a Dispatch session", async () => {
+    getSessionMock.mockResolvedValue(null);
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    const response = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${"c".repeat(43)}&code_challenge_method=S256&prompt=none`,
+      ),
+    );
+
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("Location")!);
+    expect(location.origin).toBe("https://mail.agent-native.com");
+    expect(location.searchParams.get("error")).toBe("login_required");
+    expect(location.searchParams.get("state")).toBe(STATE);
+    expect(signInJourneyMock).not.toHaveBeenCalled();
+  });
+
+  it("returns feature_disabled when the silent browser flag is off", async () => {
+    getSessionMock.mockResolvedValue(null);
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(false);
+    const response = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${"c".repeat(43)}&code_challenge_method=S256&prompt=none`,
+      ),
+    );
+
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBe("feature_disabled");
+    expect(getSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported prompt values before resolving a session", async () => {
+    const response = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${"c".repeat(43)}&code_challenge_method=S256&prompt=login`,
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(getSessionMock).not.toHaveBeenCalled();
   });
 });
