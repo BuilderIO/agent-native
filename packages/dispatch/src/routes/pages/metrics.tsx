@@ -739,6 +739,11 @@ function AppAdoptionPanel({
   const isDetail = !!selectedRow;
   const actionMetrics = selectedRow?.actionMetrics ?? [];
   const rowsToRender = showAll ? visibleRows : visibleRows.slice(0, 9);
+  const detailStats = [
+    [t("dispatch.pages.dailyActiveUsers"), selectedRow?.dailyActiveUsers],
+    [t("dispatch.pages.weeklyActiveUsers"), selectedRow?.weeklyActiveUsers],
+    [t("dispatch.pages.trackedActions"), selectedRow?.usageCalls],
+  ] satisfies Array<[string, number | null | undefined]>;
   const title = isDetail
     ? t("dispatch.pages.appAdoptionFor", { name: selectedRow.name })
     : scope === "workspace"
@@ -799,24 +804,14 @@ function AppAdoptionPanel({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              [
-                t("dispatch.pages.dailyActiveUsers"),
-                selectedRow.dailyActiveUsers,
-              ],
-              [
-                t("dispatch.pages.weeklyActiveUsers"),
-                selectedRow.weeklyActiveUsers,
-              ],
-              [t("dispatch.pages.trackedActions"), selectedRow.usageCalls],
-            ].map(([label, value]) => (
+            {detailStats.map(([label, value]) => (
               <div
                 key={String(label)}
                 className="rounded-md border bg-background p-3"
               >
                 <div className="text-xs text-muted-foreground">{label}</div>
                 <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-                  {formatNumber(Number(value))}
+                  {formatNumber(value)}
                 </div>
               </div>
             ))}
