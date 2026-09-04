@@ -40,6 +40,8 @@ import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 // Keep automatic screen context within the page-tool budget; list-emails is
 // the full inventory path when the agent needs more than this preview.
 const SCREEN_EMAIL_LIMIT = 10;
+// ponytail: stop after three pages; use list-emails for exhaustive filtered inventory.
+const SCREEN_EMAIL_MAX_PAGES = 3;
 
 type EmailPreviewResult = {
   emails: any[];
@@ -236,6 +238,7 @@ async function fetchEmailList(
       let messages: any[] = [];
       let filteredMessages: any[] = [];
       let hasMore = false;
+      let pagesRead = 0;
       const failedAccounts = new Set<string>();
 
       for (;;) {
@@ -249,6 +252,7 @@ async function fetchEmailList(
             accountEmails: pageAccountEmails,
           },
         );
+        pagesRead += 1;
         for (const error of page.errors ?? []) {
           if (error?.email) failedAccounts.add(error.email);
         }
@@ -261,7 +265,13 @@ async function fetchEmailList(
         );
         pageTokens = page.nextPageTokens;
         hasMore = Boolean(pageTokens && Object.keys(pageTokens).length > 0);
-        if (!hasMore || filteredMessages.length > SCREEN_EMAIL_LIMIT) break;
+        if (
+          !hasMore ||
+          filteredMessages.length > SCREEN_EMAIL_LIMIT ||
+          pagesRead >= SCREEN_EMAIL_MAX_PAGES
+        ) {
+          break;
+        }
         pageAccountEmails = Object.keys(pageTokens!);
       }
 

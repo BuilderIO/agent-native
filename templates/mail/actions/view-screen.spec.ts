@@ -178,4 +178,39 @@ describe("view-screen Mail preview", () => {
     });
     expect(result.emailList.truncated).toBe(false);
   });
+
+  it("caps refill work for a sparse filtered partition", async () => {
+    mocks.readAppState.mockResolvedValue({
+      view: "inbox",
+      label: "important",
+    });
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [],
+      pinnedLabels: ["important"],
+    });
+    const sparsePage = (prefix: string) =>
+      Array.from({ length: 11 }, (_, index) => email(`${prefix}-${index}`));
+    mocks.listGmailMessages
+      .mockResolvedValueOnce({
+        messages: sparsePage("page-1"),
+        errors: [],
+        nextPageTokens: { [OWNER]: "page-2" },
+      })
+      .mockResolvedValueOnce({
+        messages: sparsePage("page-2"),
+        errors: [],
+        nextPageTokens: { [OWNER]: "page-3" },
+      })
+      .mockResolvedValueOnce({
+        messages: sparsePage("page-3"),
+        errors: [],
+        nextPageTokens: { [OWNER]: "page-4" },
+      });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.listGmailMessages).toHaveBeenCalledTimes(3);
+    expect(result.emailList.emails).toHaveLength(0);
+    expect(result.emailList.truncated).toBe(true);
+  });
 });
