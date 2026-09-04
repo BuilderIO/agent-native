@@ -1211,6 +1211,13 @@ export const migrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS recordings_thumbnail_status_idx ON recordings (status, thumbnail_status)`,
       ].join("; "),
     },
+    {
+      version: 69,
+      name: "clips-meeting-end-reason",
+      // Additive. NULL on every existing row and on any stop that doesn't
+      // pass a reason — absent stays distinguishable from every named cause.
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS end_reason TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );
