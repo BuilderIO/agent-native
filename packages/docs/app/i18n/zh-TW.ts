@@ -556,7 +556,6 @@ const messages = {
     tryCommunityDemo: "體驗示範",
     customizeDescription: "以這個應用程式為起點。",
     customizeOnline: "線上",
-    customizeOnlineBadge: "加入候補名單",
     customizeLocally: "本機",
     communityNew: "新應用程式",
     communityComingSoon: "即將推出",

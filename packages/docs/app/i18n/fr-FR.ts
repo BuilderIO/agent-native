@@ -571,7 +571,6 @@ const frFR = {
     tryCommunityDemo: "Essayer la démo",
     customizeDescription: "Utilisez cette app comme point de départ.",
     customizeOnline: "En ligne",
-    customizeOnlineBadge: "Rejoindre la liste d'attente",
     customizeLocally: "Local",
     communityNew: "Nouveau",
     communityComingSoon: "Bientôt disponible",

@@ -568,7 +568,6 @@ const ptBR = {
     tryCommunityDemo: "Experimentar demo",
     customizeDescription: "Use este app como ponto de partida.",
     customizeOnline: "Online",
-    customizeOnlineBadge: "Entrar na lista de espera",
     customizeLocally: "Local",
     communityNew: "Novo",
     communityComingSoon: "Em breve",

@@ -572,7 +572,6 @@ const deDE = {
     tryCommunityDemo: "Demo testen",
     customizeDescription: "Nutze diese App als Ausgangspunkt.",
     customizeOnline: "Online",
-    customizeOnlineBadge: "Warteliste beitreten",
     customizeLocally: "Lokal",
     communityNew: "Neu",
     communityComingSoon: "Demnächst",

@@ -569,7 +569,6 @@ const koKR = {
     tryCommunityDemo: "데모 사용해 보기",
     customizeDescription: "이 앱을 시작점으로 사용하세요.",
     customizeOnline: "온라인",
-    customizeOnlineBadge: "대기자 명단 등록",
     customizeLocally: "로컬",
     communityNew: "새 앱",
     communityComingSoon: "곧 공개",

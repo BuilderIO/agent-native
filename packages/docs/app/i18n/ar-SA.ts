@@ -564,7 +564,6 @@ const arSA = {
     tryCommunityDemo: "تجربة العرض",
     customizeDescription: "استخدم هذا التطبيق كنقطة بداية.",
     customizeOnline: "عبر الإنترنت",
-    customizeOnlineBadge: "انضم إلى قائمة الانتظار",
     customizeLocally: "محلي",
     communityNew: "جديد",
     communityComingSoon: "قريبًا",

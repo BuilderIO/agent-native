@@ -571,7 +571,6 @@ const esES = {
     tryCommunityDemo: "Probar demo",
     customizeDescription: "Usa esta app como punto de partida.",
     customizeOnline: "En línea",
-    customizeOnlineBadge: "Unirse a la lista de espera",
     customizeLocally: "Local",
     communityNew: "Nueva",
     communityComingSoon: "Próximamente",

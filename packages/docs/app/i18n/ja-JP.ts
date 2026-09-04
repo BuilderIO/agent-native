@@ -569,7 +569,6 @@ const jaJP = {
     tryCommunityDemo: "デモを試す",
     customizeDescription: "このアプリを出発点として使えます。",
     customizeOnline: "オンライン",
-    customizeOnlineBadge: "ウェイトリストに登録",
     customizeLocally: "ローカル",
     communityNew: "新着",
     communityComingSoon: "近日公開",

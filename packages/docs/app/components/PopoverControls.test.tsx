@@ -71,6 +71,7 @@ describe("docs popover controls", () => {
     const content = customizeOnline.closest("[role=dialog]");
     expect(content).not.toBeNull();
     expectAnimatedPopover(content as HTMLElement);
+    expect(screen.queryByText("Join waitlist")).toBeNull();
 
     fireEvent.click(customizeOnline);
     expect(screen.getByText("Build in the browser")).toBeTruthy();

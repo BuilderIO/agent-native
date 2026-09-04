@@ -565,7 +565,6 @@ const hiIN = {
     tryCommunityDemo: "डेमो आज़माएँ",
     customizeDescription: "इस ऐप को शुरुआती बिंदु के रूप में उपयोग करें।",
     customizeOnline: "ऑनलाइन",
-    customizeOnlineBadge: "वेटलिस्ट में शामिल हों",
     customizeLocally: "लोकल",
     communityNew: "नया",
     communityComingSoon: "जल्द आ रहा है",

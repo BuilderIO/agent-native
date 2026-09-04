@@ -569,7 +569,6 @@ const enUS = {
     tryCommunityDemo: "Try demo",
     customizeDescription: "Use this app as a starting point.",
     customizeOnline: "Online",
-    customizeOnlineBadge: "Join waitlist",
     customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
