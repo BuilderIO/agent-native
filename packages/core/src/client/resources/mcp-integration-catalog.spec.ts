@@ -10,6 +10,7 @@ import {
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isCustomMcpIntegrationEnabled,
+  isMcpIntegrationUrl,
   isMcpIntegrationCatalogAvailable,
   isMcpConnectionFailureText,
   isMcpConnectionSuggestionText,
@@ -154,6 +155,10 @@ describe("MCP integration catalog", () => {
     expect(
       findMcpIntegrationForText("Find the sigma of this distribution"),
     ).toBe(null);
+    expect(
+      isMcpIntegrationUrl(sigma!, "https://acme.sigmacomputing.com/mcp"),
+    ).toBe(true);
+    expect(isMcpIntegrationUrl(sigma!, "https://example.com/mcp")).toBe(false);
   });
 
   it("records logo and provider-gating metadata for remote directory entries", () => {

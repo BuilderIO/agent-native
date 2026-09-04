@@ -26,6 +26,7 @@ import {
   filterMcpIntegrations,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   isCustomMcpIntegrationEnabled,
   navigateToMcpOAuthStart,
   resolveMcpIntegrationScope,
@@ -82,16 +83,6 @@ function parseHeaderLines(text: string): Record<string, string> | undefined {
     out[key] = value;
   }
   return Object.keys(out).length > 0 ? out : undefined;
-}
-
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
 }
 
 function requiresMcpIntegrationSetup(
@@ -174,7 +165,7 @@ export function McpIntegrationDialog({
   );
   const showCatalog = defaultIntegrations.length > 0;
 
-  const connectedUrls = useMemo(() => {
+  const connectedServers = useMemo(() => {
     const servers = [
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
@@ -182,11 +173,7 @@ export function McpIntegrationDialog({
     // A saved server is not necessarily a working connection. The settings
     // page reports failed and unknown health states separately, so only mark
     // catalog entries as connected after the health probe succeeds.
-    return new Set(
-      servers
-        .filter((server) => server.status.state === "connected")
-        .map((server) => compareUrl(server.url)),
-    );
+    return servers.filter((server) => server.status.state === "connected");
   }, [mcpServersQuery.data]);
 
   const filteredIntegrations = useMemo(
@@ -781,8 +768,8 @@ export function McpIntegrationDialog({
                 ) : null}
                 <IntegrationGrid
                   items={filteredIntegrations.map((integration) => {
-                    const connected = connectedUrls.has(
-                      compareUrl(integration.url),
+                    const connected = connectedServers.some((server) =>
+                      isMcpIntegrationUrl(integration, server.url),
                     );
                     const setupOnly = requiresMcpIntegrationSetup(integration);
                     const apiFallback =

@@ -1097,6 +1097,35 @@ function hostMatches(hostname: string, domain: string): boolean {
   return hostname === domain || hostname.endsWith(`.${domain}`);
 }
 
+function normalizeMcpUrl(value: string): string {
+  try {
+    const url = new URL(value.trim());
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return value.trim().replace(/\/+$/, "");
+  }
+}
+
+export function isMcpIntegrationUrl(
+  integration: DefaultMcpIntegration,
+  serverUrl: string,
+): boolean {
+  if (integration.url.trim()) {
+    return normalizeMcpUrl(integration.url) === normalizeMcpUrl(serverUrl);
+  }
+
+  try {
+    const hostname = new URL(serverUrl.trim()).hostname.toLowerCase();
+    return (MCP_LINK_HOSTS[integration.id] ?? []).some((domain) =>
+      hostMatches(hostname, domain),
+    );
+    // coercion-ok: a malformed saved server URL cannot match a provider host.
+  } catch {
+    return false;
+  }
+}
+
 function findUrlForText(text: string): URL | null {
   const candidates = text.match(/https?:\/\/[^\s<>()[\]{}]+/gi) ?? [];
   for (const candidate of candidates) {
