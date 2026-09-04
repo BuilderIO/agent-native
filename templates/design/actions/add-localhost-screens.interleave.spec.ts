@@ -8,10 +8,10 @@ const harness = vi.hoisted(() => ({
   pglite: null as null | {
     close(): void;
     exec(sql: string): void;
-    prepare(sql: string): {
-      run(...args: unknown[]): unknown;
-      get(...args: unknown[]): unknown;
-    };
+    query<T extends Record<string, unknown> = Record<string, unknown>>(
+      sql: string,
+      params?: unknown[],
+    ): Promise<{ rows: T[] }>;
   },
   applyText: vi.fn(),
   hasCollabState: vi.fn(),
@@ -39,13 +39,11 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("../server/db/index.js", async () => {
-  const [{ createRequire }, { drizzle }, pgliteCore, coreDb] =
-    await Promise.all([
-      import("node:module"),
-      import("drizzle-orm/pglite"),
-      import("drizzle-orm/pg-core"),
-      import("@agent-native/core/testing"),
-    ]);
+  const [{ createRequire }, { drizzle }, pgliteCore] = await Promise.all([
+    import("node:module"),
+    import("drizzle-orm/pglite"),
+    import("drizzle-orm/pg-core"),
+  ]);
 
   const designs = pgliteCore.pgTable("designs", {
     id: pgliteCore.text("id").primaryKey(),
@@ -89,29 +87,6 @@ vi.mock("../server/db/index.js", async () => {
     filename: string,
   ) => NonNullable<typeof harness.pglite>;
   const pglite = await Database.create("memory://");
-  let placeholder = 0;
-  (pglite as any).prepare = (sql: string) => ({
-    run: (...args: unknown[]) =>
-      pglite.query(
-        sql.replace(/\?/g, () => "$" + ++placeholder),
-        args,
-      ),
-    all: async (...args: unknown[]) =>
-      (
-        await pglite.query(
-          sql.replace(/\\?/g, () => "$" + ++placeholder),
-          args,
-        )
-      ).rows,
-    get: async (...args: unknown[]) =>
-      (
-        await pglite.query(
-          sql.replace(/\\?/g, () => "$" + ++placeholder),
-          args,
-        )
-      ).rows[0],
-  });
-
   await pglite.exec(`
     CREATE TABLE designs (
       id TEXT PRIMARY KEY,
@@ -146,10 +121,7 @@ vi.mock("../server/db/index.js", async () => {
     );
   `);
   const schema = { designs, designFiles, designLocalhostConnections };
-  const rawDb = drizzle(pglite as never, { schema }) as unknown as ReturnType<
-    typeof drizzle
-  > & { session: unknown };
-  const db = coreDb.rawDb;
+  const db = drizzle(pglite as never, { schema });
   harness.pglite = pglite;
   return { getDb: () => db, schema };
 });
@@ -174,22 +146,28 @@ const manifest = JSON.stringify({
   generatedAt: "2026-07-09T00:00:00.000Z",
 });
 
+function getPglite() {
+  if (!harness.pglite) {
+    throw new Error("PGlite test database is not initialized");
+  }
+  return harness.pglite;
+}
+
 async function seedDesign(data: string | null) {
-  harness.pglite
-    ?.prepare("INSERT INTO designs (id, data, updated_at) VALUES (?, ?, ?)")
-    .run("design_1", data, "2026-07-09T00:00:00.000Z");
+  await getPglite().query(
+    "INSERT INTO designs (id, data, updated_at) VALUES ($1, $2, $3)",
+    ["design_1", data, "2026-07-09T00:00:00.000Z"],
+  );
 }
 
 async function seedConnection() {
-  harness.pglite
-    ?.prepare(
-      `INSERT INTO design_localhost_connections (
+  await getPglite().query(
+    `INSERT INTO design_localhost_connections (
         id, name, source_type, dev_server_url, bridge_url, root_path,
         route_manifest, capabilities, status, bridge_token, owner_email,
         org_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+    [
       "conn_1",
       "Example app",
       "localhost",
@@ -204,17 +182,16 @@ async function seedConnection() {
       "org_1",
       "2026-07-09T00:00:00.000Z",
       "2026-07-09T00:00:00.000Z",
-    );
+    ],
+  );
 }
 
 async function seedExistingFile() {
-  harness.pglite
-    ?.prepare(
-      `INSERT INTO design_files (
+  await getPglite().query(
+    `INSERT INTO design_files (
         id, design_id, filename, content, file_type, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
       "file_1",
       "design_1",
       "localhost-settings.html",
@@ -222,18 +199,22 @@ async function seedExistingFile() {
       "html",
       "2026-07-09T00:00:00.000Z",
       "2026-07-09T00:00:00.000Z",
-    );
+    ],
+  );
 }
 
 async function persistedData(): Record<string, any> {
-  const row = harness.pglite
-    ?.prepare("SELECT data FROM designs WHERE id = ?")
-    .get("design_1") as { data: string | null };
+  const { rows } = await getPglite().query<{ data: string | null }>(
+    "SELECT data FROM designs WHERE id = $1",
+    ["design_1"],
+  );
+  const row = rows[0];
+  if (!row) throw new Error("Design row was not seeded");
   return JSON.parse(row.data ?? "null") as Record<string, any>;
 }
 
 beforeEach(async () => {
-  await harness.pglite?.exec(
+  await getPglite().exec(
     "DELETE FROM design_files; DELETE FROM design_localhost_connections; DELETE FROM designs;",
   );
   vi.clearAllMocks();
@@ -354,7 +335,7 @@ describe("add-localhost-screens concurrent design data writes", () => {
     releaseApplyText();
 
     const result = await refresh;
-    const data = persistedData();
+    const data = await persistedData();
     expect(data.keep).toEqual({ untouched: true });
     expect(data.tweakSelections).toEqual({ accent: "blue" });
     expect(data.canvasFrames.file_1).toEqual({
@@ -399,7 +380,7 @@ describe("add-localhost-screens concurrent design data writes", () => {
       gap: 160,
     });
 
-    expect(persistedData()).toMatchObject({
+    await expect(persistedData()).resolves.toMatchObject({
       sourceType: "localhost",
       sourceMode: "localhost",
       connectionId: "conn_1",
@@ -421,9 +402,12 @@ describe("add-localhost-screens concurrent design data writes", () => {
       }),
     ).rejects.toThrow("invalid data JSON");
 
-    const file = harness.pglite
-      ?.prepare("SELECT content FROM design_files WHERE id = ?")
-      .get("file_1") as { content: string };
+    const { rows } = await getPglite().query<{ content: string }>(
+      "SELECT content FROM design_files WHERE id = $1",
+      ["file_1"],
+    );
+    const file = rows[0];
+    if (!file) throw new Error("Design file row was not seeded");
     expect(file.content).toBe("http://localhost:5173/settings?old=1");
     expect(harness.applyText).not.toHaveBeenCalled();
     expect(harness.seedFromText).not.toHaveBeenCalled();
