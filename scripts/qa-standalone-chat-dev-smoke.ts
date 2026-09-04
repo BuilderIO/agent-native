@@ -1725,9 +1725,11 @@ async function waitForChatText(
   page: Page,
   expected: string,
   timeoutMs = 30_000,
+  options: { recoverDurableRoute?: boolean } = {},
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError = "";
+  let recoveredDurableRoute = false;
   while (Date.now() < deadline) {
     try {
       if (
@@ -1759,6 +1761,29 @@ async function waitForChatText(
             recoveryError instanceof Error
               ? recoveryError.message
               : String(recoveryError);
+        }
+
+        if (options.recoverDurableRoute && !recoveredDurableRoute) {
+          let currentUrl = "";
+          try {
+            currentUrl = page.url();
+            if (durableChatPathPattern.test(new URL(currentUrl).pathname)) {
+              recoveredDurableRoute = true;
+              log(
+                `recovering blank durable Chat route before waiting for ${JSON.stringify(expected)}`,
+              );
+              await gotoCommitted(page, currentUrl, "domcontentloaded");
+              await waitForStableChatSurface(page);
+              continue;
+            }
+          } catch (reloadError) {
+            if (!isNavigationContextError(reloadError)) {
+              lastError =
+                reloadError instanceof Error
+                  ? reloadError.message
+                  : String(reloadError);
+            }
+          }
         }
       }
     }
@@ -2126,7 +2151,9 @@ async function assertAgentKitChatAcceptance(
   await waitForStableChatSurface(page);
   const threadUrl = page.url();
   const threadPath = new URL(threadUrl).pathname;
-  await waitForChatText(page, "Loopback complete");
+  await waitForChatText(page, "Loopback complete", 30_000, {
+    recoverDurableRoute: true,
+  });
   await waitForChatText(page, "Hello, AgentKit Browser!");
   assert.equal(
     await page
