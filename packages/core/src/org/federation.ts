@@ -105,19 +105,24 @@ function validateIdentity(input: FederatedOrganizationIdentity): void {
   }
 }
 
-async function federationEnabled(
+type FederationRolloutState = "enabled" | "disabled" | "unavailable";
+
+async function federationRolloutState(
   email: string,
   orgId: string | null | undefined,
-): Promise<boolean> {
-  return isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
-    userEmail: email,
-    userKey: email,
-    ...(orgId ? { orgId } : {}),
-  }).catch((error) => {
-    // coercion-ok: unreadable rollout state must leave federation disabled.
+): Promise<FederationRolloutState> {
+  try {
+    return (await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
+      userEmail: email,
+      userKey: email,
+      ...(orgId ? { orgId } : {}),
+    }))
+      ? "enabled"
+      : "disabled";
+  } catch (error) {
     void error;
-    return false;
-  });
+    return "unavailable";
+  }
 }
 
 async function sendFederationAssertion(
@@ -172,7 +177,6 @@ async function sendFederatedMemberOperation(
   },
   operation: FederatedMemberOperation,
 ): Promise<boolean> {
-  if (!(await federationEnabled(input.actorEmail, input.orgId))) return false;
   const isSelfRemoval =
     operation === "remove-member" &&
     input.actorEmail.trim().toLowerCase() ===
@@ -210,12 +214,21 @@ async function sendFederatedMemberOperation(
   const existingId = String(row.identity_id ?? "").trim();
   if (!existingAuthority && !existingId) return false;
 
+  const rollout = await federationRolloutState(input.actorEmail, input.orgId);
+  if (rollout !== "enabled") {
+    throw new Error(
+      rollout === "unavailable"
+        ? "Cross-app organization federation rollout is unavailable."
+        : "Cross-app organization federation is disabled for this organization.",
+    );
+  }
+
   const hub = resolveIdentityHubUrl(event);
   const authority = normalizeAuthority(hub ?? "");
   if (
     !authority ||
     existingAuthority !== authority ||
-    existingId !== input.orgId
+    !ORG_ID_PATTERN.test(existingId)
   ) {
     throw new Error(
       "Organization is linked to an unavailable identity authority.",
@@ -226,7 +239,7 @@ async function sendFederatedMemberOperation(
     event,
     {
       authority,
-      id: input.orgId,
+      id: existingId,
       name: String(row.name ?? ""),
       role: input.actorRole,
       email: actorEmail,
@@ -407,16 +420,22 @@ export async function validateFederatedOrganizationMembership(
   if (!identityAuthority && !identityId) {
     return { active: true, role: localRole };
   }
-  if (!identityAuthority || identityId !== input.orgId) {
+  if (!identityAuthority || !ORG_ID_PATTERN.test(identityId)) {
     throw new Error("Organization has an invalid identity mapping.");
-  }
-  if (!(await federationEnabled(email, input.orgId))) {
-    return { active: true, role: localRole };
   }
 
   const currentOrigin = normalizeAuthority(getOrigin(event));
   if (currentOrigin === identityAuthority) {
     return { active: true, role: localRole };
+  }
+  const rollout = await federationRolloutState(email, input.orgId);
+  if (rollout === "disabled") {
+    return { active: true, role: localRole };
+  }
+  if (rollout === "unavailable") {
+    throw new Error(
+      "Cross-app organization federation rollout is unavailable.",
+    );
   }
   const hub = resolveIdentityHubUrl(event);
   const authority = normalizeAuthority(hub ?? "");
@@ -430,7 +449,7 @@ export async function validateFederatedOrganizationMembership(
     event,
     {
       authority,
-      id: input.orgId,
+      id: identityId,
       name: String(org.name ?? ""),
       role: localRole,
       email,
@@ -451,7 +470,7 @@ export async function validateFederatedOrganizationMembership(
     return null;
   })) as Record<string, unknown> | null;
   if (
-    body?.orgId !== input.orgId ||
+    body?.orgId !== identityId ||
     String(body.memberEmail ?? "")
       .trim()
       .toLowerCase() !== email
@@ -496,7 +515,13 @@ export async function syncOrganizationToIdentityHub(
   event: H3Event,
   input: FederatedOrganizationSyncInput,
 ): Promise<boolean> {
-  if (!(await federationEnabled(input.email, input.id))) return false;
+  const rollout = await federationRolloutState(input.email, input.id);
+  if (rollout === "unavailable") {
+    throw new Error(
+      "Cross-app organization federation rollout is unavailable.",
+    );
+  }
+  if (rollout === "disabled") return false;
   validateOrganizationFields(input);
 
   const exec = getDbExec();
@@ -516,11 +541,15 @@ export async function syncOrganizationToIdentityHub(
   if (!authority) return false;
   if (
     (existingAuthority || existingId) &&
-    (existingAuthority !== authority || existingId !== input.id)
+    (existingAuthority !== authority || !ORG_ID_PATTERN.test(existingId))
   ) {
     throw new Error(
       "Organization is already linked to another identity authority.",
     );
+  }
+  const canonicalOrgId = existingId || input.id;
+  if (!ORG_ID_PATTERN.test(canonicalOrgId)) {
+    throw new Error("Organization has an invalid identity mapping.");
   }
 
   const roster =
@@ -533,6 +562,7 @@ export async function syncOrganizationToIdentityHub(
     {
       ...input,
       authority,
+      id: canonicalOrgId,
     },
     roster,
   );
@@ -591,8 +621,13 @@ async function ensureLocalMembership(
 export async function provisionFederatedOrganization(
   identity: FederatedOrganizationIdentity,
 ): Promise<FederatedOrganizationProvisionResult> {
-  if (!(await federationEnabled(identity.email, identity.id)))
-    return "disabled";
+  const rollout = await federationRolloutState(identity.email, identity.id);
+  if (rollout === "unavailable") {
+    throw new Error(
+      "Cross-app organization federation rollout is unavailable.",
+    );
+  }
+  if (rollout === "disabled") return "disabled";
   validateIdentity(identity);
 
   const exec = getDbExec();

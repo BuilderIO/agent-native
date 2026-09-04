@@ -311,6 +311,74 @@ describe("cross-app organization federation", () => {
     );
   });
 
+  it("uses the canonical identity id for a mapped local organization", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/FROM organizations/i.test(sql)) {
+        return {
+          rows: [
+            {
+              id: "local-org",
+              name: "Example Org",
+              identity_authority: "https://dispatch.agent-native.com",
+              identity_id: "canonical-org",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(
+      addFederatedOrganizationMember({} as any, {
+        orgId: "local-org",
+        actorEmail: "owner@example.test",
+        actorRole: "owner",
+        memberEmail: "member@example.test",
+        memberRole: "member",
+      }),
+    ).resolves.toBe(true);
+    expect(signA2ATokenMock).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        extraClaims: expect.objectContaining({ org_id: "canonical-org" }),
+      }),
+    );
+  });
+
+  it("fails linked member mutations closed when the rollout store is unavailable", async () => {
+    isFeatureFlagEnabledMock.mockRejectedValue(new Error("flag store down"));
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/FROM organizations/i.test(sql)) {
+        return {
+          rows: [
+            {
+              id: "dispatch-org-1",
+              name: "Example Org",
+              identity_authority: "https://dispatch.agent-native.com",
+              identity_id: "dispatch-org-1",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(
+      addFederatedOrganizationMember({} as any, {
+        orgId: "dispatch-org-1",
+        actorEmail: "owner@example.test",
+        actorRole: "owner",
+        memberEmail: "member@example.test",
+        memberRole: "member",
+      }),
+    ).rejects.toThrow("rollout is unavailable");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid actor identity before sending a member operation", async () => {
     await expect(
       addFederatedOrganizationMember({} as any, {

@@ -140,34 +140,29 @@ async function refreshFederatedMemberships(
   event: H3Event,
   email: string,
   memberships: MembershipRow[],
+  selectedOrgId: string | null,
 ): Promise<MembershipRow[]> {
-  if (
-    !memberships.some(
-      (membership) => membership.identityAuthority || membership.identityId,
-    )
-  ) {
+  const selected = selectedOrgId
+    ? memberships.find((membership) => membership.orgId === selectedOrgId)
+    : undefined;
+  if (!selected || (!selected.identityAuthority && !selected.identityId)) {
     return memberships;
   }
   const { validateFederatedOrganizationMembership } =
     await import("./federation.js");
-  let refreshed = memberships;
-  for (const membership of memberships) {
-    if (!membership.identityAuthority && !membership.identityId) continue;
-    const result = await validateFederatedOrganizationMembership(event, {
-      orgId: membership.orgId,
-      email,
-    });
-    if (!result.active) {
-      refreshed = refreshed.filter((item) => item.orgId !== membership.orgId);
-      continue;
-    }
-    if (result.role !== membership.role) {
-      refreshed = refreshed.map((item) =>
-        item.orgId === membership.orgId ? { ...item, role: result.role } : item,
-      );
-    }
+  const result = await validateFederatedOrganizationMembership(event, {
+    orgId: selected.orgId,
+    email,
+  });
+  if (!result.active) {
+    return memberships.filter((item) => item.orgId !== selected.orgId);
   }
-  return refreshed;
+  if (result.role === selected.role) {
+    return memberships;
+  }
+  return memberships.map((item) =>
+    item.orgId === selected.orgId ? { ...item, role: result.role } : item,
+  );
 }
 
 const MEMBERSHIPS_CACHE_KEY = "__anOrgMembershipsCache";
@@ -289,18 +284,40 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
+  const activeOrgSetting = await activeOrgSettingPromise;
+  const explicitPersonal = activeOrgSetting?.orgId === null;
+  const selectedMembership = explicitPersonal
+    ? undefined
+    : ((activeOrgSetting?.orgId
+        ? memberships.find(
+            (membership) => membership.orgId === activeOrgSetting.orgId,
+          )
+        : undefined) ??
+      (sessionOrgId
+        ? memberships.find((membership) => membership.orgId === sessionOrgId)
+        : undefined) ??
+      memberships[0]);
+  const selectedOrgId = selectedMembership?.orgId ?? null;
+  const selectedWasFederated = Boolean(
+    selectedMembership?.identityAuthority || selectedMembership?.identityId,
+  );
   const refreshedMemberships = await refreshFederatedMemberships(
     event,
     email,
     memberships,
+    selectedOrgId,
   );
   if (refreshedMemberships !== memberships) {
     memberships = refreshedMemberships;
     updateMembershipsForEvent(event, email, memberships);
   }
-
-  const activeOrgSetting = await activeOrgSettingPromise;
-  const explicitPersonal = activeOrgSetting?.orgId === null;
+  if (
+    selectedWasFederated &&
+    selectedOrgId &&
+    !memberships.some((membership) => membership.orgId === selectedOrgId)
+  ) {
+    return { email, orgId: null, orgName: null, role: null };
+  }
 
   const emailDomain = emailDomainOf(email);
   // Membership in a domain-matched org is the only durable "already joined"

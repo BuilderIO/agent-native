@@ -905,19 +905,28 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
     const e = await exec();
-    // Look specifically for an OWNER row matching this email rather
-    // than just "any matching row". Duplicate-case rows are possible
-    // (e.g. legacy data with both "Alice@..." and "alice@..." in
-    // org_members), and the prior `SELECT role ... LIMIT 1` could
-    // return the non-owner duplicate, pass the role check, and then
-    // the case-insensitive DELETE below would remove BOTH rows —
-    // including the owner — leaving the org ownerless. Querying for
-    // the owner row directly closes that case-mismatch attack.
-    const ownerCheck = await e.execute({
-      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? AND role = 'owner' LIMIT 1`,
+    // Read every matching row before issuing an authority revoke. A missing
+    // target must not turn into a remote delete, and legacy case-duplicate
+    // rows are safe only when every matching row is active and non-owner.
+    const targetRows = await e.execute({
+      sql: `SELECT role, federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
-    if (ownerCheck.rows.length > 0) {
+    if (targetRows.rows.length === 0) {
+      throw createError({ statusCode: 404, message: "Member not found" });
+    }
+    if (
+      targetRows.rows.some(
+        (row: any) => row.federation_removal_pending_at != null,
+      )
+    ) {
+      throw createError({
+        statusCode: 503,
+        message: "This membership is pending identity-authority cleanup.",
+      });
+    }
+    if (targetRows.rows.some((row: any) => row.role === "owner")) {
       throw createError({
         statusCode: 403,
         message: "Cannot remove the organization owner",
@@ -1133,13 +1142,25 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const orgRes = await e.execute({
-    sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+    sql: `SELECT name, identity_authority, identity_id
+          FROM organizations WHERE id = ? LIMIT 1`,
     args: [ctx.orgId],
   });
   if (orgRes.rows.length === 0) {
     throw createError({ statusCode: 404, message: "Organization not found" });
   }
   const actualName = String((orgRes.rows[0] as any).name ?? "").trim();
+  const identityAuthority = String(
+    (orgRes.rows[0] as any).identity_authority ?? "",
+  ).trim();
+  const identityId = String((orgRes.rows[0] as any).identity_id ?? "").trim();
+  if (identityAuthority || identityId) {
+    throw createError({
+      statusCode: 409,
+      message:
+        "Federated organizations cannot be deleted from an individual app",
+    });
+  }
 
   if (confirmName.toLowerCase() !== actualName.toLowerCase()) {
     throw createError({

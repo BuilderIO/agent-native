@@ -1,6 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 
@@ -39,6 +39,7 @@ export async function getContentOrganizationMembership(
       .where(
         and(
           eq(orgMembers.orgId, orgId),
+          isNull(orgMembers.federationRemovalPendingAt),
           sql`LOWER(${orgMembers.email}) = ${normalizeContentSpaceEmail(userEmail)}`,
         ),
       )
@@ -59,6 +60,7 @@ export async function getContentOrganizationMembership(
           FROM org_members m
           INNER JOIN organizations o ON o.id = m.org_id
           WHERE m.org_id = ? AND LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL
           LIMIT 1`,
     args: [orgId, normalizeContentSpaceEmail(userEmail)],
   });
@@ -91,6 +93,7 @@ export async function listContentOrganizationMemberships(userEmail: string) {
           FROM org_members m
           INNER JOIN organizations o ON o.id = m.org_id
           WHERE LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL
           ORDER BY m.org_id ASC`,
       args: [normalizeContentSpaceEmail(userEmail)],
     });

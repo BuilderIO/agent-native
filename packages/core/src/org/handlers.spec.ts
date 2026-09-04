@@ -105,7 +105,10 @@ describe("org handlers", () => {
   });
 
   it("keeps a federated removal atomic across the local and identity rosters", async () => {
-    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ role: "member", federation_removal_pending_at: null }],
+      rowsAffected: 0,
+    });
     mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
 
     await expect(
@@ -130,7 +133,10 @@ describe("org handlers", () => {
   });
 
   it("does not remove a local member when federated revocation fails", async () => {
-    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ role: "member", federation_removal_pending_at: null }],
+      rowsAffected: 0,
+    });
     mockRevokeFederatedOrganizationMember.mockRejectedValue(
       new Error("identity authority unavailable"),
     );
@@ -351,6 +357,27 @@ describe("org handlers", () => {
       expect(mockExecute).toHaveBeenCalledTimes(1);
       expect(mockTransaction).not.toHaveBeenCalled();
       expect(putUserSetting).not.toHaveBeenCalled();
+    });
+
+    it("rejects deletion of a linked organization", async () => {
+      mockExecute.mockResolvedValueOnce({
+        rows: [
+          {
+            name: "Example",
+            identity_authority: "https://dispatch.agent-native.com",
+            identity_id: "canonical-org-1",
+          },
+        ],
+      });
+
+      await expect(
+        deleteOrgHandler(makeEvent("/_agent-native/org", { name: "Example" })),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message:
+          "Federated organizations cannot be deleted from an individual app",
+      });
+      expect(mockTransaction).not.toHaveBeenCalled();
     });
 
     it("rejects with 400 when there is no active organization", async () => {
