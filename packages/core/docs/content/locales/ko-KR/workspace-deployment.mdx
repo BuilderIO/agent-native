@@ -336,7 +336,7 @@ agents.example.com {
 - `BETTER_AUTH_URL`을 해당 앱 경로의 공개 URL로 설정하세요. OAuth 콜백 URL도
   동일한 공개 URL을 사용해야 합니다.
 - 프로덕션 데이터를 컨테이너 파일 시스템에 의존하지 마세요. `DATABASE_URL`에는
-  Postgres(또는 다른 영구 SQL 백엔드)를 사용하세요.
+  PostgreSQL을 사용하세요.
 - Cloudflare가 VPS 앞에서 TLS를 종료하는 경우, Cloudflare가 일반적인
   `X-Forwarded-Proto` / `X-Forwarded-Host` 헤더를 보내도록 설정하고 공개
   호스트를 프록시 컨테이너로 라우팅하세요.

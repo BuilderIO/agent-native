@@ -269,7 +269,7 @@
   channel it gets back. The gateway URL is now derived from
   `BUILDER_GATEWAY_BASE_URL` when unset, so hosted realtime needs one env var
   instead of four. Pipeline-injected channels still win, and anything missing
-  (no key, a non-Postgres database, a deploy preview, the org not in the rollout)
+  (no key, a deploy preview, the org not in the rollout)
   leaves the app on its own `/_agent-native/poll`.
 
   Registering an origin requires positive evidence that this process is the
@@ -1320,7 +1320,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - baedb60: Fetch the headless browser at launch instead of embedding it in every serverless function. `@agent-native/creative-context` now depends on `@sparticuz/chromium-min` (46KB) rather than `@sparticuz/chromium` (66.4MB), and passes a version-pinned pack URL to `executablePath()`. The hosted Builder Browser path is unchanged and still preferred; this only affects the local-launch fallback, which now downloads the pack once per container. Set `AGENT_NATIVE_CHROMIUM_PACK_URL` to serve the pack from your own mirror. Measured on slides: server function 126.0MB → 59.6MB, total upload 243.8MB → 111.0MB.
 - c595519: Fix the shared `code` and `code-tabs` block specs so inserting one from a slash menu seeds real content instead of an empty `__raw` string — previously the freshly inserted block got permanently stuck on "Loading code block…" (or a terminal load error) because neither spec had an `empty()` factory.
 - aba438a: docs: correct the Clips Rewind documentation. Rewind is Clips' own local rolling recording, not a rewind.ai integration, and the pre-roll section is renamed to the product's "Add what happened before" and nested under Rewind.
-- baedb60: Stop shipping the local database driver in serverless function bundles. Every consumer is gated on a local `DATABASE_URL`, and a serverless function holding a file-backed database is already broken because the filesystem is ephemeral and each container gets its own copy. Denying the package turns that misconfiguration into a loud failure instead of a silently empty database. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
+- baedb60: Stop shipping the unused database fallback in serverless function bundles. Every consumer is gated on `DATABASE_URL`, and a serverless function cannot safely persist database files because its filesystem is ephemeral and each container gets its own copy. Denying the fallback turns that misconfiguration into a loud failure instead of silently empty data. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
 - c595519: Fix the dev-server speculation-rules endpoint 404ing on the browser's real `Sec-Fetch-Dest: speculationrules` auto-fetch, logging a console error on every page load in `pnpm dev`.
 - 43c4adb: Allow transactional email definitions to re-register after a development hot reload while still rejecting conflicting catalog metadata for the same id. Add atomic, app-owned snapshot registration so conflicting or deleted catalog entries cannot leave partial or stale definitions behind while owned metadata changes refresh safely.
 - c595519: Fix EnvironmentBadge causing a React hydration mismatch on public SSR pages by deferring its content to a post-mount effect instead of branching on `typeof window` during render.
@@ -1401,13 +1401,12 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 41aa6e2: Let a manual automation run target a resource path, including the generic `run-automation-now` action and manage-automations `run-now` tool, so automations nested under `jobs/` (such as per-factory jobs) can be run immediately instead of failing with "A valid automation name is required." Preserve application-owned frontmatter when automation status is written back after a run, and dispatch local runs back to the inbound request host when present.
 - efbde51: Cut and ratchet serverless function payload size.
-  - Replace the local database driver with a throwing stub in serverless function bundles.
-    Every consumer is gated on a local `DATABASE_URL`, and a
-    function holding a file-backed database is already broken — the
-    filesystem is ephemeral and each container gets its own copy. The stub drops
-    the 1.9MB native binding from every emitted function and turns that
-    misconfiguration into a loud, specific error instead of a silently empty
-    database. Only the netlify, vercel and aws-lambda presets are affected; local
+  - Replace the unused database fallback with a throwing stub in serverless function bundles.
+    Every consumer is gated on `DATABASE_URL`, and a serverless
+    filesystem cannot safely persist database files because each container gets
+    its own copy. The stub drops the 1.9MB binding from every emitted function
+    and turns that misconfiguration into a loud, specific error instead of
+    silently empty data. Only the netlify, vercel and aws-lambda presets are affected; local
     development against a `file:` URL is unchanged.
   - Run an app's `scripts/prune-serverless-functions.ts`, when it exists, as part
     of `agent-native build` rather than leaving it to be chained afterwards. The

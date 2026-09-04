@@ -7,7 +7,7 @@ description: "How to create and publish your own agent-native app templates."
 
 <!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
 
-Templates are complete, cloneable agent-native apps that solve a real workflow. The first-party templates are built with the same framework surface you use: React routes for the UI, Drizzle SQL for data, actions for operations, workspace resources for agent behavior, and polling sync so the agent and UI stay aligned.
+Templates are complete, cloneable agent-native apps that solve a real workflow. The first-party templates are built with the same framework surface you use: React routes for the UI, PostgreSQL data through Drizzle, actions for operations, workspace resources for agent behavior, and polling sync so the agent and UI stay aligned.
 
 Use `@agent-native/core` for the runtime contract: actions, server plugins,
 database helpers, app state, routing helpers, and agent chat. Use
@@ -28,7 +28,7 @@ Toolkit does not replace Core.
 A good template:
 
 - Solves one workflow end-to-end, with useful seed data or an empty-state flow.
-- Stores durable state in SQL, not JSON files.
+- Stores durable state in PostgreSQL/PGlite, not JSON files.
 - Defines app operations as `defineAction()` actions.
 - Exposes navigation and selection through application state.
 - Ships a clear `AGENTS.md` plus focused skills for non-obvious workflows.
@@ -49,7 +49,7 @@ For a workspace with multiple apps, run the picker and include Chat with any dom
 npx @agent-native/core@latest create my-platform
 ```
 
-Chat gives you auth, durable chat threads, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
+Chat gives you auth, durable chat threads, PostgreSQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
 
 If you are not building a reusable UI template yet, use [Automation-First Apps](/docs/pure-agent-apps): define actions, run them without a browser, and add UI later when the workflow needs a durable surface.
 
@@ -125,7 +125,7 @@ Every template follows the same broad layout:
   ]}
 />
 
-Do not add a `data/` directory for application state. Durable app data belongs in SQL, and the UI reads it through actions or typed server handlers.
+Do not add a `data/` directory for application state. Durable app data belongs in PostgreSQL/PGlite, and the UI reads it through actions or typed server handlers.
 
 The four areas of every template wire together through one shared action surface and one PostgreSQL/PGlite database — the agent and the UI are equal partners over the same operations:
 
@@ -148,7 +148,7 @@ The four areas of every template wire together through one shared action surface
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL via Drizzle<br /><small class="diagram-muted">additive schema</small>
+    PostgreSQL via Drizzle<br /><small class="diagram-muted">additive schema</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
   <div class="diagram-pill ok">Polling sync</div>
@@ -181,7 +181,7 @@ The four areas of every template wire together through one shared action surface
 
 </Diagram>
 
-## Model Data In SQL {#data-models}
+## Model Data In PostgreSQL {#data-models}
 
 Define domain tables with the framework Drizzle helpers for PostgreSQL compatibility. Use local PGlite during development and hosted Postgres in deployed environments:
 
@@ -421,7 +421,7 @@ One workspace for projects, tasks, and notes.
 
 ## Core Rules
 
-- Data lives in SQL via Drizzle. Use actions for all writes; schema is additive.
+- Data lives in PostgreSQL via Drizzle. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## Application State

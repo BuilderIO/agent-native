@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSyncState } from "./poll.js";
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 const NOW = 1_800_000_000_000;
 
 /**
@@ -23,7 +29,7 @@ function makeDb(
           const args = typeof query === "string" ? [] : (query.args ?? []);
 
           // The insert is idempotent for an existing marker.
-          if (/insert(\s+or\s+ignore)?\s+into\s+sync_events/i.test(sql)) {
+          if (/insert\s+into\s+sync_events/i.test(sql)) {
             persisted.push({
               id: String(args[0]),
               key: String(args[5] ?? ""),

@@ -9,11 +9,11 @@ import path from "node:path";
 
 import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
+import { createPostgresScriptClient } from "./postgres-client.js";
 import {
   assertNoRawDbAccessControlPatchTarget,
   assertNoSensitiveFrameworkTables,
 } from "./safety.js";
-import { createPostgresScriptClient } from "./postgres-client.js";
 import { buildScopingPostgres } from "./scoping.js";
 
 interface TextEdit {
@@ -93,7 +93,9 @@ function parseEdits(parsed: Record<string, string>): TextEdit[] {
     try {
       value = JSON.parse(parsed.edits);
     } catch (error) {
-      fail(`Invalid --edits JSON: ${error instanceof Error ? error.message : String(error)}`);
+      fail(
+        `Invalid --edits JSON: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     if (!Array.isArray(value) || value.length === 0) {
       fail("--edits must be a non-empty JSON array of {find, replace} objects");
@@ -125,7 +127,9 @@ function parseJsonOps(parsed: Record<string, string>): JsonOp[] | null {
   try {
     value = JSON.parse(raw);
   } catch (error) {
-    fail(`Invalid --json-ops JSON: ${error instanceof Error ? error.message : String(error)}`);
+    fail(
+      `Invalid --json-ops JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   if (!Array.isArray(value) || value.length === 0) {
     fail("--json-ops must be a non-empty JSON array");
@@ -145,21 +149,30 @@ function preview(value: string): string {
 
 function parsePointer(pointer: string): string[] {
   if (pointer === "" || pointer === "/") return [];
-  if (!pointer.startsWith("/")) fail(`JSON path must start with '/' (got: ${pointer})`);
+  if (!pointer.startsWith("/"))
+    fail(`JSON path must start with '/' (got: ${pointer})`);
   return pointer
     .slice(1)
     .split("/")
     .map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
 }
 
-function resolveParent(root: unknown, segments: string[]): [any, string | number] {
-  if (segments.length === 0) fail("Root path is not supported for this operation");
+function resolveParent(
+  root: unknown,
+  segments: string[],
+): [any, string | number] {
+  if (segments.length === 0)
+    fail("Root path is not supported for this operation");
   let node: any = root;
   for (let index = 0; index < segments.length - 1; index++) {
     const segment = segments[index];
     if (Array.isArray(node)) {
       const childIndex = Number.parseInt(segment, 10);
-      if (!Number.isInteger(childIndex) || childIndex < 0 || childIndex >= node.length) {
+      if (
+        !Number.isInteger(childIndex) ||
+        childIndex < 0 ||
+        childIndex >= node.length
+      ) {
         fail(`Path segment "${segment}" is out of bounds`);
       }
       node = node[childIndex];
@@ -206,13 +219,22 @@ function applyJsonOp(root: any, op: JsonOp): string {
     }
     case "move":
     case "move-before": {
-      if (!op.from || op.path === undefined) fail(`${op.op} requires 'from' and 'path'`);
+      if (!op.from || op.path === undefined)
+        fail(`${op.op} requires 'from' and 'path'`);
       const [fromParent, fromKey] = resolveParent(root, parsePointer(op.from));
       const value = Array.isArray(fromParent)
         ? fromParent.splice(fromKey as number, 1)[0]
         : fromParent[fromKey as string];
       if (!Array.isArray(fromParent)) delete fromParent[fromKey as string];
-      const [toParent, toKey] = resolveParent(root, parsePointer(op.path));
+      let [toParent, toKey] = resolveParent(root, parsePointer(op.path));
+      if (
+        Array.isArray(toParent) &&
+        Array.isArray(fromParent) &&
+        toParent === fromParent &&
+        (toKey as number) > (fromKey as number)
+      ) {
+        toKey = (toKey as number) - 1;
+      }
       if (Array.isArray(toParent)) toParent.splice(toKey as number, 0, value);
       else toParent[toKey as string] = value;
       return `${op.op} ${op.from} -> ${op.path}`;
@@ -232,6 +254,61 @@ function countOccurrences(value: string, find: string): number {
   return count;
 }
 
+function findAll(value: string, find: string, limit = 10): number[] {
+  const positions: number[] = [];
+  let index = 0;
+  while (
+    find &&
+    positions.length < limit &&
+    (index = value.indexOf(find, index)) !== -1
+  ) {
+    positions.push(index);
+    index += find.length;
+  }
+  return positions;
+}
+
+function formatContext(
+  content: string,
+  matchIndex: number,
+  matchLength: number,
+  radius = 40,
+): string {
+  const start = Math.max(0, matchIndex - radius);
+  const end = Math.min(content.length, matchIndex + matchLength + radius);
+  const before = content.slice(start, matchIndex).replace(/\s+/g, " ");
+  const middle = content
+    .slice(matchIndex, matchIndex + matchLength)
+    .replace(/\s+/g, " ");
+  const after = content
+    .slice(matchIndex + matchLength, end)
+    .replace(/\s+/g, " ");
+  return `${start > 0 ? "…" : ""}${before}⟨${middle}⟩${after}${end < content.length ? "…" : ""}`;
+}
+
+function buildAmbiguousMessage(
+  find: string,
+  content: string,
+  occurrences: number,
+): string {
+  const positions = findAll(content, find, 6);
+  const lines = [
+    `Found ${occurrences} occurrences of the 'find' string — db-patch requires exactly one match by default.`,
+    `Widen 'find' with unique surrounding context, or pass --all to replace every occurrence.`,
+    `'find' preview: "${preview(find)}"`,
+    "Matches:",
+  ];
+  for (let index = 0; index < positions.length; index++) {
+    lines.push(
+      `  [${index + 1}] ${formatContext(content, positions[index], find.length)}`,
+    );
+  }
+  if (occurrences > positions.length) {
+    lines.push(`  … and ${occurrences - positions.length} more`);
+  }
+  return lines.join("\n");
+}
+
 function applyEdits(
   content: string,
   edits: TextEdit[],
@@ -244,11 +321,22 @@ function applyEdits(
     const edit = edits[index];
     const occurrences = countOccurrences(output, edit.find);
     if (occurrences === 0) {
-      results.push({ index, status: "not-found", detail: `NOT FOUND: "${preview(edit.find)}"`, occurrences });
+      results.push({
+        index,
+        status: "not-found",
+        detail: `NOT FOUND: "${preview(edit.find)}"`,
+        occurrences,
+      });
       continue;
     }
     if (!replaceAll && occurrences > 1) {
-      fail(`Found ${occurrences} occurrences of "${preview(edit.find)}". Widen --find or pass --all.`);
+      results.push({
+        index,
+        status: "not-found",
+        detail: buildAmbiguousMessage(edit.find, output, occurrences),
+        occurrences,
+      });
+      continue;
     }
     output = replaceAll
       ? output.split(edit.find).join(edit.replace)
@@ -273,7 +361,9 @@ function applyEditsToValue(original: string, options: RunOptions) {
   try {
     root = JSON.parse(original);
   } catch (error) {
-    fail(`--json-ops requires valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    fail(
+      `--json-ops requires the column value to be valid JSON. Parse failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   const results: EditResult[] = [];
   let applied = 0;
@@ -373,16 +463,29 @@ Options:
       try {
         const selectSql = `SELECT "${column}" AS __val FROM "${table}" WHERE ${where}`;
         const selected = await tx.unsafe(selectSql);
-        if (selected.length === 0) fail(`No rows matched: ${table} WHERE ${where}`);
-        if (selected.length > 1) fail(`WHERE matched ${selected.length} rows in ${table}; db-patch expects one row`);
+        if (selected.length === 0) {
+          fail(
+            `No rows matched: ${table} WHERE ${where}. ` +
+              "(Database scoping filters results to the current user; the row may exist but be owned by someone else.)",
+          );
+        }
+        if (selected.length > 1) {
+          fail(
+            `WHERE matched ${selected.length} rows in ${table}. db-patch expects exactly one row — narrow the WHERE clause (usually by primary key).`,
+          );
+        }
         const original = selected[0].__val;
         if (typeof original !== "string") {
-          fail(`Column ${table}.${column} is not a text column`);
+          fail(
+            `Column ${table}.${column} is not a text column (got ${typeof original}).`,
+          );
         }
         const edited = applyEditsToValue(original, options);
         if (edited.applied > 0) {
           await tx.unsafe(
-            toPostgresParams(`UPDATE "${table}" SET "${column}" = ? WHERE ${where}`),
+            toPostgresParams(
+              `UPDATE "${table}" SET "${column}" = ? WHERE ${where}`,
+            ),
             [edited.content],
           );
         }

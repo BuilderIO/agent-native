@@ -13,7 +13,7 @@ Agent-Native तीन लेयर्स वाला एक framework है:
 
 | लेयर                                     | यह क्या है                                                                                                                                                                                                                       |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core: framework**                      | मूल runtime contract: actions, SQL और Drizzle helpers, auth, application state, agent execution, access checks, routing, और live sync। हर ऐप सीधे Core का उपयोग कर सकता है।                                                      |
+| **Core: framework**                      | मूल runtime contract: actions, PostgreSQL/PGlite और Drizzle helpers, auth, application state, agent execution, access checks, routing, और live sync। हर ऐप सीधे Core का उपयोग कर सकता है।                                                      |
 | **Toolkit: वैकल्पिक reusable पीस**       | primitives, editors, sharing, collaboration, settings, और agent UX जैसे shared app-building UI और product systems। ऐप्स को जो पीस चाहिए उनका उपयोग, compose, या fork कर सकते हैं।                                                |
 | **Templates: Core पर बने वैकल्पिक ऐप्स** | routes, schema, actions, instructions, और visual identity वाले पूर्ण, डोमेन-specific ऐप्स। First-party और custom templates आमतौर पर Toolkit का उपयोग करते हैं, और starting points के रूप में fork करके इस्तेमाल किए जा सकते हैं। |
 
@@ -27,9 +27,9 @@ Runtime पर, हर Agent-Native ऐप तीन चीज़ें है�
 - **Application:** agent के इर्द-गिर्द product surface। यह chat के रूप में शुरू हो सकता है, native inline results जोड़ सकता है, एक छोटे control plane में बढ़ सकता है, या dashboards, flows, और visualizations वाला एक full React UI बन सकता है।
 - **Computer:** database, browser, और configured tool runtimes जिनके ज़रिए agent काम करता है। Agents ऐप के अपने action और data surface के ज़रिए काम करते हैं; उसी surface को वैकल्पिक रूप से MCP पर expose किया जा सकता है, लेकिन external MCP servers एक add-on ही रहते हैं, foundation नहीं।
 
-नीचे दिया diagram agent और application को साथ-साथ दिखाता है, दोनों के नीचे एक shared computer layer में जाने वाले two-way arrows के साथ। दोनों में से कोई भी data का owner नहीं है। इसके बजाय, वे same SQL store को पढ़ते और लिखते हैं, इसलिए कोई भी side जो change करता है वह तुरंत दूसरे को दिखाई देता है, और बीच में कोई sync layer बनाने की ज़रूरत नहीं।
+नीचे दिया diagram agent और application को साथ-साथ दिखाता है, दोनों के नीचे एक shared computer layer में जाने वाले two-way arrows के साथ। दोनों में से कोई भी data का owner नहीं है। इसके बजाय, वे same PostgreSQL/PGlite store को पढ़ते और लिखते हैं, इसलिए कोई भी side जो change करता है वह तुरंत दूसरे को दिखाई देता है, और बीच में कोई sync layer बनाने की ज़रूरत नहीं।
 
-<Diagram id="doc-block-t1f7pj" title="Agent, application, और computer" summary="एक shared SQL store पर मिलकर काम करने वाली तीन लेयर्स। agent और application दोनों एक ही data को पढ़ते और लिखते हैं।">
+<Diagram id="doc-block-t1f7pj" title="Agent, application, और computer" summary="एक shared PostgreSQL/PGlite store पर मिलकर काम करने वाली तीन लेयर्स। agent और application दोनों एक ही data को पढ़ते और लिखते हैं।">
 
 ```html
 <div class="diagram-arch">
@@ -128,11 +128,11 @@ Skills और actions साथ मिलकर काम करते हैं
 
 पांच नियम architecture को govern करते हैं:
 
-1. **Data SQL में रहता है:** सारा app state Drizzle ORM के ज़रिए database में रहता है।
+1. **Data PostgreSQL में रहता है:** सारा app state Drizzle ORM के ज़रिए database में रहता है।
 2. **सारा AI agent के through जाता है:** कोई inline LLM calls नहीं; हर AI interaction agent chat bridge से होकर गुज़रता है।
 3. **Agent operations के लिए Actions:** जटिल काम एक typed action के रूप में चलता है, inline code के रूप में नहीं।
 4. **Live sync UI को sync में रखता है:** database में हुए changes SSE पर stream होते हैं, और polling universal fallback के रूप में काम करती है।
-5. **Application state SQL में:** ephemeral UI state database में रहता है, जिसे agent और UI दोनों पढ़ सकते हैं।
+5. **Application state PostgreSQL में:** ephemeral UI state database में रहता है, जिसे agent और UI दोनों पढ़ सकते हैं।
 
 ## चार-क्षेत्र चेकलिस्ट {#four-area-checklist}
 
@@ -152,7 +152,7 @@ Framework अपनाना मुख्यतः इसलिए valuable ह�
 | Feature                           | आपको क्या मिलता है                                                                                                                                                                                                                                                                                                                                                                                |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | एक action = हर surface            | `defineAction()` से define की गई हर action एक साथ एक agent tool, एक typesafe frontend hook (`useActionQuery` / `useActionMutation`), एक framework-owned HTTP transport, एक CLI command, external clients के लिए एक MCP tool, और अन्य Agent-Native ऐप्स के लिए एक A2A tool होती है। वैकल्पिक `link` और `mcpApp` metadata बिना किसी दूसरे implementation के deep links और MCP Apps UI जोड़ देता है। |
-| प्रति user पूर्ण agent resources  | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, और connected MCP servers। सब कुछ SQL-backed है, किसी dev-box की ज़रूरत नहीं। देखें [Agent Resources](/docs/agent-resources)।                                                                                                                                                          |
+| प्रति user पूर्ण agent resources  | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, और connected MCP servers। सब कुछ PostgreSQL-backed है, किसी dev-box की ज़रूरत नहीं। देखें [Agent Resources](/docs/agent-resources)।                                                                                                                                                          |
 | Drop-in React components          | `<AgentPanel />` और `<AgentSidebar />` आपके ऐप में कहीं भी chat + resources render करते हैं। देखें [Drop-in Agent](/docs/drop-in-agent)।                                                                                                                                                                                                                                                          |
 | BYO agent chat runtimes           | वही chat UI OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, या आपके अपने normalized HTTP stream के ऊपर बैठ सकता है। देखें [मूल चैट UI](/docs/native-chat-ui#byo-agent-runtimes)।                                                                                                                                                                                         |
 | Agent और UI के बीच Live sync      | Same-process writes तुरंत `/_agent-native/events` पर stream होते हैं; एक lightweight poll serverless, cron, और cross-process writes को convergent रखती है। Mutating actions automatically action-backed queries को invalidate कर देती हैं, इसलिए agent द्वारा बनाए गए records बिना manual refresh के दिखाई देते हैं। नीचे देखें [Live Sync](#polling-sync)।                                       |
@@ -163,7 +163,7 @@ Framework अपनाना मुख्यतः इसलिए valuable ह�
 | Sub-agent teams                   | अपने खुद के thread और tools के साथ एक sub-agent spawn करें, जो chat में inline एक chip के रूप में दिखता है। देखें [Agent Teams](/docs/agent-teams)।                                                                                                                                                                                                                                               |
 | Portability | स्थानीय PGlite और hosted Postgres के साथ PostgreSQL, तथा कोई भी Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun)। |
 
-## SQL में Data {#data-in-sql}
+## PostgreSQL में Data {#data-in-sql}
 
 सारा application state Drizzle ORM के ज़रिए PostgreSQL में रहता है। Schemas PostgreSQL और PGlite helpers का इस्तेमाल करते हैं; `DATABASE_URL` config और संचालन नियम [Database](/docs/server-database) में हैं।
 
@@ -460,7 +460,7 @@ UI इसे route change पर लिखता है; agent कोई भी 
 
 ## App कोड और कस्टमाइज़ेशन {#agent-modifies-code}
 
-Framework embedded agent को ऐप के source code तक ambient access नहीं देता। एक deployed ऐप में, agent आमतौर पर actions, SQL-backed state, और configured integrations के ज़रिए काम करता है। यह components, routes, styles, और actions को edit कर सकता है जब इसके frame को जान-बूझकर workspace और write tooling दी गई हो। Templates पूर्ण ऐप्स हैं जिन्हें आप अपने खुद के repository और development workflow में किसी भी सूरत में fork और customize कर सकते हैं। बिना source बदले runtime customization के लिए [Extensions](/docs/extensions) का उपयोग करें।
+Framework embedded agent को ऐप के source code तक ambient access नहीं देता। एक deployed ऐप में, agent आमतौर पर actions, PostgreSQL-backed state, और configured integrations के ज़रिए काम करता है। यह components, routes, styles, और actions को edit कर सकता है जब इसके frame को जान-बूझकर workspace और write tooling दी गई हो। Templates पूर्ण ऐप्स हैं जिन्हें आप अपने खुद के repository और development workflow में किसी भी सूरत में fork और customize कर सकते हैं। बिना source बदले runtime customization के लिए [Extensions](/docs/extensions) का उपयोग करें।
 
 ## डिफ़ॉल्ट रूप से PostgreSQL {#hosting-agnostic}
 

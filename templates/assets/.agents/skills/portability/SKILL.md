@@ -1,7 +1,7 @@
 ---
 name: portability
 description: >-
-  How to keep template code Postgres-compatible and hosting-agnostic. Use when
+  How to keep template code PostgreSQL-specific and hosting-agnostic. Use when
   defining schemas, writing raw SQL, or creating server routes.
 scope: dev
 metadata:
@@ -50,7 +50,7 @@ export const meals = table("meals", {
 Always use `@agent-native/core/db/schema` in template code so all schemas share
 the framework's Postgres definitions.
 
-Use Drizzle's Postgres query builder for app code:
+Use Drizzle's PostgreSQL query builder for app code:
 
 ```ts
 import { and, desc, eq } from "drizzle-orm";
@@ -66,7 +66,7 @@ Avoid `db.execute(...)`, `getDbExec()`, and handwritten SQL in actions, handlers
 
 ### Raw SQL helpers
 
-- `getDbExec()` — executes parameterized Postgres SQL
+- `getDbExec()` — executes parameterized PostgreSQL SQL
 - `intType()` — returns `BIGINT` for millisecond timestamps and counters
 
 ### Never

@@ -1,6 +1,6 @@
 ---
 title: "Agent Resources"
-description: "Claude-Code-level customization per user — skills, memory, instructions, custom agents, scheduled jobs, MCP servers — backed by SQL, not a filesystem."
+description: "Claude-Code-level customization per user — skills, memory, instructions, custom agents, scheduled jobs, MCP servers — backed by PostgreSQL/PGlite, not a filesystem."
 ---
 
 # Agent Resources
@@ -9,9 +9,9 @@ description: "Claude-Code-level customization per user — skills, memory, instr
 
 Every agent-native app ships with **agent resources**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), shared learnings (`LEARNINGS.md`), personal structured memory (`memory/MEMORY.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
 
-The twist: **it's SQL rows, not filesystem files.** Each user gets their own set of agent resources stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
+The twist: **it's PostgreSQL/PGlite rows, not filesystem files.** Each user gets their own set of agent resources stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
 
-<Diagram id="doc-block-13zbuxe" title="A Claude-Code setup, but stored as agent resources in SQL" summary={"The same customization layer — instructions, skills, memory, agents, jobs, MCP — except every file is a row in a shared multi-tenant database."}>
+<Diagram id="doc-block-13zbuxe" title="A Claude-Code setup, but stored as agent resources in PostgreSQL/PGlite" summary={"The same customization layer — instructions, skills, memory, agents, jobs, MCP — except every file is a row in a shared multi-tenant database."}>
 
 ```html
 <div class="ws-map">
@@ -29,7 +29,7 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own set
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Agent-Native resources</span
-    ><small class="diagram-muted">rows in one SQL database</small>
+    ><small class="diagram-muted">rows in one PostgreSQL/PGlite database</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -75,7 +75,7 @@ The twist: **it's SQL rows, not filesystem files.** Each user gets their own set
 
 | Claude Code / Codex              | Agent-Native resources                             |
 | -------------------------------- | -------------------------------------------------- |
-| Files on your local disk         | Rows in a shared SQL database                      |
+| Files on your local disk         | Rows in a shared PostgreSQL/PGlite database                      |
 | One codebase per developer       | One codebase, many users                           |
 | Needs a dev-box or container     | Runs on any serverless/edge host                   |
 | Customization at `~/.claude/`    | Customization per-user, scoped `u:<email>:…`       |
@@ -413,7 +413,7 @@ The resource system works identically in both modes. What differs is the additio
 
 ## Workspace Connections {#workspace-connections}
 
-Workspace Connections let apps share the same provider account (Slack, GitHub, HubSpot, etc.) without duplicating credentials. A connection records provider identity, account labels, status, scopes, app grants, and credential references in SQL. Secrets stay in the credential store; connections only point at credential key names such as `SLACK_BOT_TOKEN`.
+Workspace Connections let apps share the same provider account (Slack, GitHub, HubSpot, etc.) without duplicating credentials. A connection records provider identity, account labels, status, scopes, app grants, and credential references in PostgreSQL/PGlite. Secrets stay in the credential store; connections only point at credential key names such as `SLACK_BOT_TOKEN`.
 
 See [Workspace Connections](/docs/workspace-connections) for the quickstart, connection/grant/credentialRef API, and concrete Slack, HubSpot, and GitHub examples.
 

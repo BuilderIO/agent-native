@@ -24,7 +24,7 @@ Todo aplicativo nativo do agente armazena seu estado em PostgreSQL. A UI e o age
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
     Banco de dados PostgreSQL<br /><small class="diagram-muted"
-      >dialeto a partir de DATABASE_URL</small
+      PostgreSQL via DATABASE_URL
     >
   </div>
 </div>
@@ -68,10 +68,10 @@ Isso serve apenas para desenvolvimento local. Contêineres, funções sem servid
 
 ### Postgres local: PGlite {#local-pglite}
 
-Para desenvolver localmente contra o dialeto Postgres sem Docker ou um banco de dados hospedado, instale o pacote opcional PGlite e defina `DATABASE_URL`:
+Para desenvolver localmente com PostgreSQL sem Docker ou um banco de dados hospedado, instale o pacote opcional PGlite e defina `DATABASE_URL`:
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -82,7 +82,7 @@ O [PGlite](https://pglite.dev/) executa um banco de dados Postgres WASM em proce
 
 ### Banco de dados de produção {#production}
 
-Defina `DATABASE_URL` no seu arquivo `.env` ou no ambiente do provedor de implantação para conectar um banco de dados hospedado:
+Defina `DATABASE_URL` no seu arquivo `.env` ou no ambiente do provedor de implantação para conectar um banco de dados PostgreSQL hospedado:
 
 ```bash
 # Neon Postgres
@@ -97,11 +97,11 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-A estrutura detecta automaticamente o dialeto a partir do prefixo do URL e configura o Drizzle de acordo.
+A estrutura configura o Drizzle para PostgreSQL a partir de `DATABASE_URL`.
 
 ### Banco de dados gerenciado Builder.io {#builder-managed}
 
-_Planejado (ainda não disponível):_ quando conectado ao Builder.io, seu aplicativo poderá usar um banco de dados gerenciado provisionado automaticamente, sem exigir cadeias de conexão.
+_Planejado (ainda não disponível):_ quando conectado ao Builder.io, seu aplicativo poderá usar um banco de dados PostgreSQL gerenciado provisionado automaticamente, sem exigir uma string de conexão do PostgreSQL.
 
 ## Configurando o banco de dados {#setup}
 
@@ -140,7 +140,7 @@ export const tasks = table("tasks", {
   id="doc-block-3hbven"
   title="A tabela tasks"
   summary={
-    "Definida uma vez com os auxiliares da estrutura; o dialeto é escolhido em tempo de execução a partir de DATABASE_URL."
+    "Definida uma vez com os auxiliares da estrutura para PostgreSQL e PGlite local."
   }
   entities={[
     {
@@ -218,7 +218,7 @@ as migrações em uma etapa de release ou deploy, não na primeira requisição.
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -238,7 +238,7 @@ as migrações em uma etapa de release ou deploy, não na primeira requisição.
     },
     {
       lines: "22-25",
-      label: "Controle por dialeto",
+      label: "SQL do PostgreSQL",
       note: "As migrações usam SQL do PostgreSQL diretamente e são aplicadas na ordem das versões.",
     },
   ]}
@@ -264,12 +264,10 @@ SQL específico de PostgreSQL, comportamento do Postgres, backfills e etapas Jav
 adiadas.
 
 O carregador baseado no sistema de arquivos não está disponível no Cloudflare
-Workers/Pages nem em outros runtimes edge sem sistema de arquivos implantável,
-incluindo Postgres. Nesses ambientes, use `runMigrations()` com entradas SQL embutidas
-no bundle do worker. Uma pasta de saída do Drizzle tem uma única baseline de
-metadados específica do dialeto; gere para o dialeto principal de implantação e
-não alterne a mesma pasta entre PGlite e PostgreSQL.
-
+Workers/Pages nem em outros runtimes edge sem sistema de arquivos implantável. Nesses ambientes,
+use `runMigrations()` com entradas de SQL do PostgreSQL incorporadas ao bundle do worker.
+Gere as migrações para PostgreSQL e não alterne a mesma pasta entre PGlite local
+e PostgreSQL hospedado.
 <Callout tone="risk">
   Nunca execute `drizzle-kit push` contra um banco de dados de produção. Os
   esquemas dos modelos definem apenas tabelas específicas do aplicativo; eles
@@ -371,7 +369,7 @@ Isso funciona em implantações serverless e multi-instância porque o banco de 
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>Banco de dados PostgrePostgreSQL</strong
+    <strong>Banco de dados PostgreSQL</strong
     ><small class="diagram-muted">versão de sincronização incrementa</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>

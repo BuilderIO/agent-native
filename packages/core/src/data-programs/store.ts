@@ -24,8 +24,8 @@ import { registerShareableResource } from "../sharing/registry.js";
 import {
   dataPrograms,
   dataProgramShares,
-  DATA_PROGRAMS_CREATE_SQL_PG,
-  DATA_PROGRAM_SHARES_CREATE_SQL_PG,
+  DATA_PROGRAMS_CREATE_SQL,
+  DATA_PROGRAM_SHARES_CREATE_SQL,
   DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
   DATA_PROGRAMS_APP_NAME_INDEX_SQL,
   DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL,
@@ -61,10 +61,10 @@ export async function ensureDataProgramTables(): Promise<void> {
       const runsCreateSql = dataProgramRunsCreateSql(integerType);
 
       // Probe before DDL so normal initialization stays a read-only path.
-      await ensureTableExists("data_programs", DATA_PROGRAMS_CREATE_SQL_PG);
+      await ensureTableExists("data_programs", DATA_PROGRAMS_CREATE_SQL);
       await ensureTableExists(
         "data_program_shares",
-        DATA_PROGRAM_SHARES_CREATE_SQL_PG,
+        DATA_PROGRAM_SHARES_CREATE_SQL,
       );
       await ensureTableExists("data_program_runs", runsCreateSql);
       await ensureColumnExists(
@@ -88,7 +88,6 @@ export async function ensureDataProgramTables(): Promise<void> {
         "data_program_runs_lookup_idx",
         DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
       );
-
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

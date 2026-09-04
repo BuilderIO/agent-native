@@ -13,7 +13,7 @@ Agent-Native ist ein Framework mit drei Ebenen:
 
 | Ebene                                              | Was es ist                                                                                                                                                                                                                                  |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core: das Framework**                            | Der grundlegende Laufzeitvertrag: Aktionen, SQL- und Drizzle-Hilfsfunktionen, Auth, Anwendungsstatus, Agentenausführung, Zugriffsprüfungen, Routing und Live-Synchronisierung. Jede App kann Core direkt verwenden.                         |
+| **Core: das Framework**                            | Der grundlegende Laufzeitvertrag: Aktionen, PostgreSQL/PGlite- und Drizzle-Hilfsfunktionen, Auth, Anwendungsstatus, Agentenausführung, Zugriffsprüfungen, Routing und Live-Synchronisierung. Jede App kann Core direkt verwenden.                         |
 | **Toolkit: optionale wiederverwendbare Bausteine** | Gemeinsame UI- und Produktsysteme zum App-Bau, etwa Primitives, Editoren, Freigabe, Zusammenarbeit, Einstellungen und Agent-UX. Apps können die benötigten Bausteine verwenden, kombinieren oder forken.                                    |
 | **Templates: optionale Apps auf Core-Basis**       | Vollständige, domänenspezifische Apps mit Routen, Schema, Aktionen, Anweisungen und visueller Identität. Erstanbieter- und benutzerdefinierte Templates verwenden häufig Toolkit und können geforkt und als Ausgangspunkt verwendet werden. |
 
@@ -135,11 +135,11 @@ die eigentlichen Daten abrufen und schreiben.
 
 Fünf Regeln bestimmen die Architektur:
 
-1. **Daten leben in SQL:** Der gesamte App-Zustand lebt in der Datenbank via Drizzle ORM.
+1. **Daten leben in PostgreSQL:** Der gesamte App-Zustand lebt in der Datenbank via Drizzle ORM.
 2. **Alle KI läuft über den Agenten:** keine Inline-LLM-Aufrufe; jede KI-Interaktion läuft über die Agent-Chat-Bridge.
 3. **Aktionen für Agentenoperationen:** komplexe Arbeit läuft als typisierte Aktion, nicht als Inline-Code.
 4. **Live Sync hält die UI synchron:** Datenbankänderungen werden über SSE gestreamt, mit Polling als universellem Fallback.
-5. **Anwendungsstatus in SQL:** flüchtiger UI-Zustand lebt in der Datenbank, lesbar sowohl von Agent als auch UI.
+5. **Anwendungsstatus in PostgreSQL:** flüchtiger UI-Zustand lebt in der Datenbank, lesbar sowohl von Agent als auch UI.
 
 ## Die Vier-Bereiche-Checkliste {#four-area-checklist}
 
@@ -170,11 +170,11 @@ Das Framework zu übernehmen ist vor allem deshalb wertvoll, weil man dadurch vi
 | Sub-Agent-Teams                            | Erzeugen Sie einen Sub-Agenten mit eigenem Thread und eigenen Tools, dargestellt als Chip inline im Chat. Siehe [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                               |
 | Portabilität | PostgreSQL mit lokalem PGlite und gehostetem Postgres sowie jeder Nitro-kompatible Host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun). |
 
-## Daten in SQL {#data-in-sql}
+## Daten in PostgreSQL {#data-in-sql}
 
 Der gesamte Anwendungsstatus lebt über Drizzle ORM in PostgreSQL. Die Schemas verwenden die PostgreSQL- und PGlite-Helfer; `DATABASE_URL` und die Betriebsregeln finden Sie unter [Database](/docs/server-database).
 
-Core-SQL-Stores werden automatisch erstellt und sind in jedem Template verfügbar:
+Core-PostgreSQL-Stores werden automatisch erstellt und sind in jedem Template verfügbar:
 
 - `application_state`: flüchtiger UI-Zustand (Navigation, Entwürfe, Auswahlen)
 - `settings`: persistente Key-Value-Konfiguration
@@ -185,7 +185,7 @@ Jede Zeile unten lässt sich aufklappen, um ihre Felder anzuzeigen:
 
 <DataModel
   id="doc-block-4w0fu8"
-  title="Core-SQL-Stores"
+  title="Core-PostgreSQL-Stores"
   summary={
     "Automatisch in jedem Template erstellt. Sowohl der Agent als auch die UI lesen und schreiben diese."
   }

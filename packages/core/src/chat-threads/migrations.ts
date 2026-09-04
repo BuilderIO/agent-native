@@ -25,7 +25,7 @@ export const CHAT_THREADS_MIGRATIONS: MigrationEntry[] = [
     version: 1,
     name: CHAT_THREADS_REPAIR_MESSAGE_COUNTS_MIGRATION,
     // Run-only: the count comes from `normalizeThreadRepository`, which dedupes
-    // and re-parents message entries. No portable SQL equivalent.
+    // and re-parents message entries. No direct PostgreSQL equivalent.
     sql: {},
     run: async () => {
       const { scanned, updated } = await repairLegacyChatThreadMessageCounts();

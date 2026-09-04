@@ -1,15 +1,15 @@
 ---
 title: "エージェント リソース"
-description: "Claude ユーザーごとのコード レベルのカスタマイズ — skills、メモリ、命令、カスタム エージェント、スケジュールされたジョブ、MCP サーバー — ファイル システムではなく、SQL によってサポートされます。"
+description: "Claude ユーザーごとのコード レベルのカスタマイズ — skills、メモリ、命令、カスタム エージェント、スケジュールされたジョブ、MCP サーバー — ファイル システムではなく、PostgreSQL/PGlite によってサポートされます。"
 ---
 
 # エージェント リソース
 
 すべてのエージェント ネイティブ アプリには、エージェントを自分のものにするカスタマイズ レイヤーである **エージェント リソース** が付属しています。これには、チームの指示 (`AGENTS.md`)、共有学習 (`LEARNINGS.md`)、個人の構造化メモリ (`memory/MEMORY.md`)、エージェントがオンデマンドで取り込む skills、カスタム サブエージェント、スケジュールされたジョブ、接続された MCP サーバーなど、Claude コード / Codex セットアップに期待されるすべてが含まれています。
 
-工夫: **ファイルシステム ファイルではなく、SQL 行です。** 各ユーザーは、データベースに保存された独自のエージェント リソースを取得します。起動する開発ボックスも、ユーザーごとのコンテナも、マウントするファイルもありません。マルチテナント SaaS は、完全にカスタマイズ可能なエージェントをすべてのユーザーに実質的に無料で提供できます。これは、すべてが行 (個人メモリ、個人 MCP サーバー、個人 skills、個人サブエージェント) であり、共有コードベースがそれらすべてを一度にホストするためです。
+工夫: **ファイルシステム ファイルではなく、PostgreSQL/PGlite 行です。** 各ユーザーは、データベースに保存された独自のエージェント リソースを取得します。起動する開発ボックスも、ユーザーごとのコンテナも、マウントするファイルもありません。マルチテナント SaaS は、完全にカスタマイズ可能なエージェントをすべてのユーザーに実質的に無料で提供できます。これは、すべてが行 (個人メモリ、個人 MCP サーバー、個人 skills、個人サブエージェント) であり、共有コードベースがそれらすべてを一度にホストするためです。
 
-<Diagram id="doc-block-xco4gl" title={"Claude-Code のセットアップですが、SQL にエージェント リソースとして保存されます"} summary={"同じカスタマイズ層 (命令、スキル、メモリ、エージェント、ジョブ、MCP) ですが、すべてのファイルが共有マルチテナント データベース内の行である点が異なります。"}>
+<Diagram id="doc-block-xco4gl" title={"Claude-Code のセットアップですが、PostgreSQL/PGlite にエージェント リソースとして保存されます"} summary={"同じカスタマイズ層 (命令、スキル、メモリ、エージェント、ジョブ、MCP) ですが、すべてのファイルが共有マルチテナント データベース内の行である点が異なります。"}>
 
 ```html
 <div class="ws-map">
@@ -27,7 +27,7 @@ description: "Claude ユーザーごとのコード レベルのカスタマイ�
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Agent-Nativeリソース</span
-    ><small class="diagram-muted">rows in one SQLデータベース</small>
+    ><small class="diagram-muted">rows in one PostgreSQL/PGliteデータベース</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -73,7 +73,7 @@ description: "Claude ユーザーごとのコード レベルのカスタマイ�
 
 | Claude コード / Codex                 | エージェントネイティブのリソース                             |
 | ------------------------------------- | ------------------------------------------------------------ |
-| ローカル ディスク上のファイル         | 共有 SQL データベース内の行                                  |
+| ローカル ディスク上のファイル         | 共有 PostgreSQL/PGlite データベース内の行                                  |
 | 開発者ごとに 1 つのコードベース       | 1 つのコードベースで多数のユーザー                           |
 | 開発ボックスまたはコンテナが必要です  | 任意のサーバーレス/エッジ ホスト上で実行                     |
 | `~/.claude/` でのカスタマイズ         | ユーザーごとのカスタマイズ、スコープ指定された `u:<email>:…` |
@@ -402,7 +402,7 @@ Skills は、`skills/` パス (`skills/<name>/SKILL.md` が望ましい) にあ�
 
 ## ワークスペース接続 {#workspace-connections}
 
-ワークスペース接続を使用すると、アプリは資格情報を重複せずに同じプロバイダー アカウント (Slack、GitHub、HubSpot など) を共有できます。接続は、プロバイダー ID、アカウント ラベル、ステータス、スコープ、アプリの許可、資格情報の参照を SQL に記録します。シークレットは資格情報ストアに残ります。接続は、`SLACK_BOT_TOKEN` などの資格情報キー名のみを指します。
+ワークスペース接続を使用すると、アプリは資格情報を重複せずに同じプロバイダー アカウント (Slack、GitHub、HubSpot など) を共有できます。接続は、プロバイダー ID、アカウント ラベル、ステータス、スコープ、アプリの許可、資格情報の参照を PostgreSQL/PGlite に記録します。シークレットは資格情報ストアに残ります。接続は、`SLACK_BOT_TOKEN` などの資格情報キー名のみを指します。
 
 クイックスタート、connection/grant/credentialRef API、具体的な Slack、HubSpot、GitHub の例については、[Workspace Connections](/docs/workspace-connections) を参照してください。
 

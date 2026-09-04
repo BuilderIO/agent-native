@@ -80,7 +80,7 @@ subresources are bounded and reject private or internal destinations.
 
 `search-creative-context` accepts text or an access-scoped image plus structured
 filters. Text supports `allTerms`, `anyTerm`, `phrase`, and safe `regex` modes.
-Portable lexical, PostgreSQL full-text, and multimodal-vector candidates are
+Lexical, PostgreSQL full-text, and multimodal-vector candidates are
 fused with reciprocal-rank fusion, then adjusted by curation, recency, prior
 reuse, and helpful feedback. Results collapse duplicate revisions, limit source
 dominance, and return bounded excerpts rather than raw provider payloads.

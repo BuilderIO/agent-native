@@ -1,6 +1,6 @@
 ---
 title: "实时协作"
-description: "多用户协作编辑，其中 AI 代理是一流的同行：CRDT 合并、实时呈现、SSE 快速路径和细粒度服务器端合并 - 在任何 SQL 数据库和任何主机上。"
+description: "多用户协作编辑，其中 AI 代理是一流的同行：CRDT 合并、实时呈现、SSE 快速路径和细粒度服务器端合并 - 在 PostgreSQL/PGlite 和任何主机上。"
 ---
 
 # 实时协作
@@ -29,7 +29,7 @@ description: "多用户协作编辑，其中 AI 代理是一流的同行：CRDT 
 - **代理作为对等编辑器** — 代理通过相同的 Yjs 进行编辑流程
   作为人工编辑的基础设施。它们显示为实时状态，不会干扰光标
   位置、选择或撤消堆栈。
-- **随处可用** — Drizzle 支持的任何 SQL 数据库（PGlite、Postgres）。
+- **随处可用** — PostgreSQL/PGlite。
   Nitro 支持的任何托管目标，包括无服务器和边缘。
 
 ## 架构 {#architecture}
@@ -632,7 +632,7 @@ AGENT_NATIVE_REALTIME_TRANSPORT=hosted
 
 | 要求                                                | 原因                                                                                                                             | 如何检查                                                                                                                                                       |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **位于公网可达主机上的 Postgres**                   | 网关从自己的网络拨号连接数据库。PGlite、`localhost`、`*.internal` 以及裸 IP 地址在连接字符串离开你的机器之前就会被拒绝。 | `DATABASE_URL` 指向 Neon 之类的托管 Postgres                                                                                                                   |
+| **位于公网可达主机上的 Postgres**                   | 网关从自己的网络拨号连接数据库。PGlite、`localhost`、`*.internal` 以及裸 IP 地址在PostgreSQL 连接字符串离开你的机器之前就会被拒绝。 | `DATABASE_URL` 指向 Neon 之类的托管 Postgres                                                                                                                   |
 | **把 `BUILDER_PRIVATE_KEY` 设为「部署级」环境变量** | 它为注册提供身份验证，并决定通道归属于哪个 Builder 组织。                                                                        | 见下方提示 —— 这是最容易被漏掉的一步                                                                                                                           |
 | **是生产部署**                                      | 部署预览会保持本地同步，因此一次性的分支凭据永远不会离开机器，活跃的仓库也不会为每个 pull request 创建一个通道。                 | `CONTEXT=production` / `BRANCH=production`，或 `VERCEL_ENV=production`                                                                                         |
 | **平台能标识该部署**                                | 注册以应用的公开来源（origin）为键，因此并非该部署的进程不得声称拥有它。                                                         | Netlify、Vercel、AWS Lambda、Cloud Run、Render 和 Cloudflare Pages 都会标记自身。在纯容器或虚拟机上，请把 `AGENT_NATIVE_REALTIME_APP_URL` 设为该部署自己的来源 |
@@ -646,7 +646,7 @@ AGENT_NATIVE_REALTIME_TRANSPORT=hosted
 
 </Callout>
 
-随后注册会按需发生，在第一个需要通道的请求上完成。应用发送自己的连接字符串和公开
+随后注册会按需发生，在第一个需要通道的请求上完成。应用发送自己的 PostgreSQL 连接字符串和公开
 来源，取回通道 ID 和签名密钥，然后像 Builder 托管应用一样签发订阅令牌。每当数据库
 URL、应用来源或 Builder 凭据发生变化时，它会自行重新注册，因此凭据轮换无需重新部署
 任何其他东西即可生效。
@@ -683,7 +683,7 @@ curl -s https://your-app.example.com/_agent-native/health | jq .realtime
 
 ### Builder 存储什么，以及信任边界 {#hosted-gateway-trust}
 
-**自注册意味着把你的数据库连接字符串发送给 Builder。** Builder 会存储它，并连接到
+**自注册意味着把你的 PostgreSQL 连接字符串发送给 Builder。** Builder 会存储它，并连接到
 你的数据库以跟踪 `sync_events`。该连接并非只读：版本分配和带外变更检测都会写入。
 如果你不希望这样，就不要设置传输变量。这就是全部的决定，没有其他途径会共享该凭据。
 

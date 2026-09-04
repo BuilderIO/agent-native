@@ -8,6 +8,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn(),
   ensureTableExists: vi.fn(),
   ensureIndexExists: vi.fn(),
 }));

@@ -31,7 +31,9 @@ describe("MCP action approval store", () => {
     dbMocks.execute.mockReset();
     dbMocks.execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
     ddlMocks.ensureTableExists.mockReset();
-    ddlMocks.ensureTableExists.mockResolvedValue(undefined);
+    ddlMocks.ensureTableExists.mockImplementation(
+      (_table: string, sql: string) => dbMocks.execute(sql),
+    );
   });
 
   it("inserts a pending exact grant and keeps cleanup best-effort", async () => {

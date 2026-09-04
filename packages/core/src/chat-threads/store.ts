@@ -21,7 +21,7 @@ import { emitChatThreadChange } from "./emitter.js";
 import {
   chatThreads,
   chatThreadShares,
-  CHAT_THREAD_SHARES_CREATE_SQL_PG,
+  CHAT_THREAD_SHARES_CREATE_SQL,
   CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
 } from "./schema.js";
 
@@ -130,7 +130,7 @@ async function ensureTable(): Promise<void> {
         }
         await ensureTableExists(
           "chat_thread_shares",
-          CHAT_THREAD_SHARES_CREATE_SQL_PG,
+          CHAT_THREAD_SHARES_CREATE_SQL,
         );
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
@@ -189,7 +189,6 @@ async function ensureTable(): Promise<void> {
         );
         return;
       }
-
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

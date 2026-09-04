@@ -1,6 +1,6 @@
 ---
 title: "Colaboração em tempo real"
-description: "Edição colaborativa multiusuário onde o agente de IA é um par de primeira classe: mesclagem CRDT, presença ao vivo, acesso rápido SSE e mesclagem granular no lado do servidor — em qualquer banco de dados SQL e qualquer host."
+description: "Edição colaborativa multiusuário onde o agente de IA é um par de primeira classe: mesclagem CRDT, presença ao vivo, acesso rápido SSE e mesclagem granular no lado do servidor — em PostgreSQL/PGlite e qualquer host."
 ---
 
 # Colaboração em tempo real
@@ -29,7 +29,7 @@ Isso se baseia em três tecnologias testadas em batalha: **Yjs** (CRDT para fus�
 - **O agente como editor de pares** — As edições do agente fluem pelos mesmos Yjs
   infraestrutura como edições humanas. Eles aparecem ao vivo, sem interromper o cursor
   posições, seleções ou pilha de desfazer.
-- **Funciona em qualquer lugar** — Qualquer banco de dados SQL compatível com Drizzle (PGlite, Postgres).
+- **Funciona em qualquer lugar** — PostgreSQL/PGlite.
   Qualquer alvo de hospedagem compatível com Nitro, incluindo serverless e edge.
 
 ## Arquitetura {#architecture}
@@ -650,7 +650,7 @@ por um aplicativo de produção comum:
 
 | Requisito                                                                   | Por quê                                                                                                                                                                                                  | Como verificar                                                                                                                                                                                       |
 | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Postgres em um host publicamente acessível**                              | O gateway disca para o banco de dados a partir da própria rede. PGlite, `localhost`, `*.internal` e endereços IP nus são recusados antes que a string de conexão sequer saia da sua máquina.     | `DATABASE_URL` aponta para um Postgres gerenciado, como o Neon                                                                                                                                       |
+| **Postgres em um host publicamente acessível**                              | O gateway disca para o banco de dados a partir da própria rede. PGlite, `localhost`, `*.internal` e endereços IP nus são recusados antes que a string de conexão do PostgreSQL sequer saia da sua máquina.     | `DATABASE_URL` aponta para um Postgres gerenciado, como o Neon                                                                                                                                       |
 | **`BUILDER_PRIVATE_KEY` definida como variável de ambiente da IMPLANTAÇÃO** | Autentica o registro e decide qual organização do Builder é dona do canal.                                                                                                                               | Veja a observação abaixo — esta é a etapa que mais passa despercebida                                                                                                                                |
 | **Uma implantação de produção**                                             | As pré-visualizações de implantação mantêm a sincronização local, de modo que uma credencial de branch descartável nunca sai da máquina e um repositório movimentado não cria um canal por pull request. | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production`                                                                                                                               |
 | **A plataforma identifica a implantação**                                   | O registro é indexado pela origem pública do aplicativo, então um processo que não é de fato a implantação não deve reivindicá-la.                                                                       | Netlify, Vercel, AWS Lambda, Cloud Run, Render e Cloudflare Pages se identificam sozinhos. Em um contêiner ou VM simples, defina `AGENT_NATIVE_REALTIME_APP_URL` com a origem da própria implantação |
@@ -669,7 +669,7 @@ variável continuará na sincronização local.
 </Callout>
 
 O registro acontece então sob demanda, na primeira requisição que precisa de um
-canal. O aplicativo envia sua string de conexão e sua origem pública, recebe de
+canal. O aplicativo envia sua string de conexão do PostgreSQL e sua origem pública, recebe de
 volta um identificador de canal e um segredo de assinatura, e emite tokens de
 inscrição exatamente como um aplicativo hospedado pelo Builder. Ele se repete
 sozinho sempre que a URL do banco de dados, a origem do aplicativo ou a
@@ -712,7 +712,7 @@ de requisitos acima na ordem.
 
 ### O que o Builder armazena e a fronteira de confiança {#hosted-gateway-trust}
 
-**O autorregistro significa enviar ao Builder a string de conexão do seu banco
+**O autorregistro significa enviar ao Builder a string de conexão do PostgreSQL do seu banco
 de dados.** O Builder a armazena e se conecta ao seu banco de dados para
 acompanhar `sync_events`. A conexão não é somente leitura: tanto a alocação de
 versões quanto a detecção de alterações fora de banda escrevem. Se você não

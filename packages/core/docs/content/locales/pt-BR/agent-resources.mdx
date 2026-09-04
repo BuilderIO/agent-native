@@ -1,15 +1,15 @@
 ---
 title: "Recursos do Agente"
-description: "Claude – Personalização em nível de código por usuário — skills, memória, instruções, agentes personalizados, trabalhos agendados, servidores MCP — apoiados por SQL, não por um sistema de arquivos."
+description: "Claude – Personalização em nível de código por usuário — skills, memória, instruções, agentes personalizados, trabalhos agendados, servidores MCP — apoiados por PostgreSQL/PGlite, não por um sistema de arquivos."
 ---
 
 # Recursos do Agente
 
 Todo aplicativo nativo do agente vem com **recursos do agente**: a camada de personalização que torna o agente seu. Ele contém instruções de equipe (`AGENTS.md`), aprendizados compartilhados (`LEARNINGS.md`), memória estruturada pessoal (`memory/MEMORY.md`), skills que o agente recebe sob demanda, subagentes personalizados, trabalhos agendados e servidores MCP conectados — tudo o que você esperaria de uma configuração do Código Claude/Codex.
 
-A diferença: **são linhas SQL, não arquivos do sistema de arquivos.** Cada usuário obtém seu próprio conjunto de recursos do agente armazenado no banco de dados. Não há dev-box para ativar, nem contêiner por usuário, nem arquivos para montar. Um SaaS multilocatário pode oferecer a cada usuário um agente totalmente personalizável, essencialmente gratuito, porque tudo isso são linhas – memória pessoal, servidores MCP pessoais, skills pessoais, subagentes pessoais – e a base de código compartilhada hospeda todos eles de uma vez.
+A diferença: **são linhas PostgreSQL/PGlite, não arquivos do sistema de arquivos.** Cada usuário obtém seu próprio conjunto de recursos do agente armazenado no banco de dados. Não há dev-box para ativar, nem contêiner por usuário, nem arquivos para montar. Um SaaS multilocatário pode oferecer a cada usuário um agente totalmente personalizável, essencialmente gratuito, porque tudo isso são linhas – memória pessoal, servidores MCP pessoais, skills pessoais, subagentes pessoais – e a base de código compartilhada hospeda todos eles de uma vez.
 
-<Diagram id="doc-block-1l7jkfd" title={"Uma configuração Claude-Code, mas armazenada como recursos do agente em SQL"} summary={"A mesma camada de personalização — instruções, habilidades, memória, agentes, trabalhos, MCP — exceto que cada arquivo é uma linha em um banco de dados multilocatário compartilhado."}>
+<Diagram id="doc-block-1l7jkfd" title={"Uma configuração Claude-Code, mas armazenada como recursos do agente em PostgreSQL/PGlite"} summary={"A mesma camada de personalização — instruções, habilidades, memória, agentes, trabalhos, MCP — exceto que cada arquivo é uma linha em um banco de dados multilocatário compartilhado."}>
 
 ```html
 <div class="ws-map">
@@ -27,7 +27,7 @@ A diferença: **são linhas SQL, não arquivos do sistema de arquivos.** Cada us
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Recursos agent-native</span
-    ><small class="diagram-muted">rows in one banco de dados SQL</small>
+    ><small class="diagram-muted">rows in one banco de dados PostgreSQL/PGlite</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -73,7 +73,7 @@ A diferença: **são linhas SQL, não arquivos do sistema de arquivos.** Cada us
 
 | Código Claude / Codex                | Recursos nativos do agente                                    |
 | ------------------------------------ | ------------------------------------------------------------- |
-| Arquivos em seu disco local          | Linhas em um banco de dados SQL compartilhado                 |
+| Arquivos em seu disco local          | Linhas em um banco de dados PostgreSQL/PGlite compartilhado                 |
 | Uma base de código por desenvolvedor | Uma base de código, muitos usuários                           |
 | Precisa de um dev-box ou contêiner   | Executa em qualquer host sem servidor/de borda                |
 | Personalização em `~/.claude/`       | Personalização por usuário, escopo `u:<email>:…`              |
@@ -402,7 +402,7 @@ O sistema de recursos funciona de forma idêntica em ambos os modos. O que difer
 
 ## Conexões do espaço de trabalho {#workspace-connections}
 
-O Workspace Connections permite que os aplicativos compartilhem a mesma conta de provedor (Slack, GitHub, HubSpot etc.) sem duplicar credenciais. Uma conexão registra a identidade do provedor, rótulos de conta, status, escopos, concessões de aplicativos e referências de credenciais em SQL. Os segredos ficam no armazenamento de credenciais; conexões apontam apenas para nomes de chaves de credenciais, como `SLACK_BOT_TOKEN`.
+O Workspace Connections permite que os aplicativos compartilhem a mesma conta de provedor (Slack, GitHub, HubSpot etc.) sem duplicar credenciais. Uma conexão registra a identidade do provedor, rótulos de conta, status, escopos, concessões de aplicativos e referências de credenciais em PostgreSQL/PGlite. Os segredos ficam no armazenamento de credenciais; conexões apontam apenas para nomes de chaves de credenciais, como `SLACK_BOT_TOKEN`.
 
 Consulte [Workspace Connections](/docs/workspace-connections) para obter o início rápido, conexão/concessão/redencialRef API e exemplos concretos de Slack, HubSpot e GitHub.
 

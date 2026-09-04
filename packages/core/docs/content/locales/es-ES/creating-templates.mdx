@@ -5,7 +5,7 @@ description: "Cómo crear y publicar sus propias plantillas de aplicaciones nati
 
 # Creación de plantillas
 
-Las plantillas son aplicaciones nativas del agente completas y bifurcables que resuelven un flujo de trabajo real. Las plantillas propias se crean con la misma superficie de marco que usted utiliza: rutas React para UI, Drizzle SQL para datos, actions para operaciones, recursos del espacio de trabajo para el comportamiento del agente y sincronización de sondeos para que el agente y UI permanezcan alineados.
+Las plantillas son aplicaciones nativas del agente completas y bifurcables que resuelven un flujo de trabajo real. Las plantillas propias se crean con la misma superficie de marco que usted utiliza: rutas React para UI, datos de PostgreSQL mediante Drizzle, actions para operaciones, recursos del espacio de trabajo para el comportamiento del agente y sincronización de sondeos para que el agente y UI permanezcan alineados.
 
 Use `@agent-native/core` para el contrato de runtime: actions, plugins de servidor, helpers de base de datos, estado de aplicación, helpers de rutas y chat del agente. Use `@agent-native/toolkit` para UI reutilizable y helpers de construcción de apps, como primitivas compartidas, hooks de toast/móvil, selectores de fecha y slots simples de shell de aplicación. Mantenga locales las variantes específicas de una plantilla cuando codifiquen comportamiento de producto o identidad visual.
 
@@ -20,7 +20,7 @@ Toolkit y Templates son opcionales. Un template no es el framework, y Toolkit no
 Una buena plantilla:
 
 - Resuelve un flujo de trabajo de principio a fin, con datos iniciales útiles o un flujo de estado vacío.
-- Almacena el estado duradero en archivos SQL, no en archivos JSON.
+- Almacena el estado duradero en PostgreSQL/PGlite, no en archivos JSON.
 - Define las operaciones de la aplicación como `defineAction()` actions.
 - Expone la navegación y la selección a través del estado de la aplicación.
 - Se envía un `AGENTS.md` claro y un skills enfocado para flujos de trabajo no obvios.
@@ -41,7 +41,7 @@ Para un espacio de trabajo con varias aplicaciones, ejecute el selector e incluy
 npx @agent-native/core@latest create my-platform
 ```
 
-Chat le brinda autenticación, hilos de chat duraderos, recursos respaldados por SQL, herramientas, estado de la aplicación, actions y sincronización de sondeo. Agregas el modelo de dominio y el producto UI.
+Chat le brinda autenticación, hilos de chat duraderos, recursos respaldados por PostgreSQL, herramientas, estado de la aplicación, actions y sincronización de sondeo. Agregas el modelo de dominio y el producto UI.
 
 Si todavía no está creando una plantilla de UI reutilizable, use [Aplicaciones orientadas a la automatización](/docs/pure-agent-apps): defina acciones, ejecútelas sin un navegador y añada UI más adelante cuando el flujo de trabajo necesite una superficie duradera.
 
@@ -117,11 +117,11 @@ Cada plantilla sigue el mismo diseño general:
   ]}
 />
 
-No agregue un directorio `data/` para el estado de la aplicación. Los datos duraderos de la aplicación pertenecen a SQL y el UI los lee a través de actions o controladores de servidor escritos.
+No agregue un directorio `data/` para el estado de la aplicación. Los datos duraderos de la aplicación pertenecen a PostgreSQL/PGlite y el UI los lee a través de actions o controladores de servidor escritos.
 
-Las cuatro áreas de cada plantilla se conectan a través de una superficie de acción compartida y una base de datos SQL: el agente y el UI son socios iguales en las mismas operaciones:
+Las cuatro áreas de cada plantilla se conectan a través de una superficie de acción compartida y una base de datos PostgreSQL/PGlite: el agente y el UI son socios iguales en las mismas operaciones:
 
-<Diagram id="doc-block-1reooa2" title={"Cómo se conectan las cuatro áreas de una plantilla"} summary={"Tanto la UI como el agente llegan a SQL mediante las mismas acciones; el estado de la aplicación y la sincronización del sondeo los mantienen alineados."}>
+<Diagram id="doc-block-1reooa2" title={"Cómo se conectan las cuatro áreas de una plantilla"} summary={"Tanto la UI como el agente llegan a PostgreSQL/PGlite mediante las mismas acciones; el estado de la aplicación y la sincronización del sondeo los mantienen alineados."}>
 
 ```html
 <div class="diagram-tmpl">
@@ -142,7 +142,7 @@ Las cuatro áreas de cada plantilla se conectan a través de una superficie de a
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL vía Drizzle<br /><small class="diagram-muted">additive schema</small>
+    PostgreSQL vía Drizzle<br /><small class="diagram-muted">additive schema</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
   <div class="diagram-pill ok">Sondeoing sync</div>
@@ -175,7 +175,7 @@ Las cuatro áreas de cada plantilla se conectan a través de una superficie de a
 
 </Diagram>
 
-## Datos del modelo en SQL {#data-models}
+## Datos del modelo en PostgreSQL {#data-models}
 
 Defina tablas de dominio con los asistentes del marco Drizzle para que los esquemas utilicen PostgreSQL y PGlite:
 
@@ -409,7 +409,7 @@ One workspace for projects, tasks, and notes.
 
 ## Reglas básicas
 
-- Data lives in SQL vía Drizzle. Use actions for all writes; schema is additive.
+- Data lives in PostgreSQL vía Drizzle. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## Estado de la aplicación

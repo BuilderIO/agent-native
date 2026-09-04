@@ -70,7 +70,7 @@ To develop locally without Docker or a hosted database, install the optional
 PGlite package and set `DATABASE_URL`:
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -82,7 +82,7 @@ local-only storage and must not be used for production or shared environments.
 
 ### Production database {#production}
 
-Set `DATABASE_URL` in your `.env` file or deploy-provider environment to connect a hosted database:
+Set `DATABASE_URL` in your `.env` file or deploy-provider environment to connect a hosted PostgreSQL database:
 
 ```bash
 # Neon Postgres
@@ -100,7 +100,7 @@ Drizzle for PostgreSQL from `DATABASE_URL`.
 
 ### Builder.io managed database {#builder-managed}
 
-_Planned (not yet available):_ when connected to Builder.io, your app will be able to use a managed database provisioned automatically, with no connection strings required.
+_Planned (not yet available):_ when connected to Builder.io, your app will be able to use a managed PostgreSQL database provisioned automatically, with no PostgreSQL connection string required.
 
 ## Setting Up the Database {#setup}
 
@@ -480,5 +480,5 @@ const { rows } = await getDbExec().execute({
 - [**Sharing**](/docs/sharing#building): `ownableColumns()` and the visibility model for shared resources
 - [**Plugins**](/docs/server-plugins): the startup plugin lifecycle where migrations run
 - [**Actions**](/docs/actions-overview): the surface where actions call `getDb()` to read and write data
-- [**Deployment**](/docs/deployment#persistent-database): connecting a persistent database per deploy target
+- [**Deployment**](/docs/deployment#persistent-database): connecting a persistent PostgreSQL database per deploy target
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync): `useDbSync()` and the full client-side sync model

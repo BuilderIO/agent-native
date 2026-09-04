@@ -5,7 +5,7 @@ description: "अपने स्वयं के एजेंट-नेटि�
 
 # टेम्प्लेट बनाना
 
-टेम्प्लेट पूर्ण, फोर्केबल एजेंट-नेटिव ऐप्स हैं जो वास्तविक वर्कफ़्लो को हल करते हैं। प्रथम-पक्ष टेम्पलेट आपके द्वारा उपयोग की जाने वाली समान फ़्रेमवर्क सतह के साथ बनाए गए हैं: UI के लिए React रूट, डेटा के लिए Drizzle SQL, संचालन के लिए actions, एजेंट व्यवहार के लिए कार्यक्षेत्र संसाधन, और पोलिंग सिंक ताकि एजेंट और UI संरेखित रहें।
+टेम्प्लेट पूर्ण, फोर्केबल एजेंट-नेटिव ऐप्स हैं जो वास्तविक वर्कफ़्लो को हल करते हैं। प्रथम-पक्ष टेम्पलेट आपके द्वारा उपयोग की जाने वाली समान फ़्रेमवर्क सतह के साथ बनाए गए हैं: UI के लिए React रूट, Drizzle के साथ PostgreSQL डेटा, संचालन के लिए actions, एजेंट व्यवहार के लिए कार्यक्षेत्र संसाधन, और पोलिंग सिंक ताकि एजेंट और UI संरेखित रहें।
 
 `@agent-native/core` का उपयोग runtime contract के लिए करें: actions, server plugins, database helpers, app state, routing helpers, और agent chat. `@agent-native/toolkit` का उपयोग reusable app-building UI और helpers के लिए करें, जैसे shared primitives, toast/mobile hooks, date pickers, और simple app shell slots. जब variants product behavior या visual identity encode करते हैं, तो उन्हें template-local रखें.
 
@@ -20,7 +20,7 @@ Toolkit और Templates वैकल्पिक हैं। Template स्�
 एक अच्छा टेम्पलेट:
 
 - उपयोगी बीज डेटा या खाली-अवस्था प्रवाह के साथ एक वर्कफ़्लो को शुरू से अंत तक हल करता है।
-- टिकाऊ स्थिति को SQL में संग्रहीत करता है, JSON फ़ाइलों में नहीं।
+- टिकाऊ स्थिति को PostgreSQL/PGlite में संग्रहीत करता है, JSON फ़ाइलों में नहीं।
 - ऐप संचालन को `defineAction()` actions के रूप में परिभाषित करता है।
 - एप्लिकेशन स्थिति के माध्यम से नेविगेशन और चयन को उजागर करता है।
 - गैर-स्पष्ट वर्कफ़्लो के लिए एक स्पष्ट `AGENTS.md` प्लस केंद्रित skills शिप करता है।
@@ -41,7 +41,7 @@ npx @agent-native/core@latest create my-template --template chat --standalone
 npx @agent-native/core@latest create my-platform
 ```
 
-चैट आपको प्रामाणिक, टिकाऊ चैट थ्रेड, SQL-समर्थित संसाधन, उपकरण, एप्लिकेशन स्थिति, actions और पोलिंग सिंक प्रदान करता है। आप डोमेन मॉडल और उत्पाद UI जोड़ें।
+चैट आपको प्रामाणिक, टिकाऊ चैट थ्रेड, PostgreSQL-समर्थित संसाधन, उपकरण, एप्लिकेशन स्थिति, actions और पोलिंग सिंक प्रदान करता है। आप डोमेन मॉडल और उत्पाद UI जोड़ें।
 
 यदि आप अभी तक पुन: उपयोग योग्य UI टेम्पलेट नहीं बना रहे हैं, तो [Automation-First Apps](/docs/pure-agent-apps) का उपयोग करें: actions परिभाषित करें, उन्हें ब्राउज़र के बिना चलाएं, और जब workflow को टिकाऊ surface की आवश्यकता हो तब UI जोड़ें।
 
@@ -117,11 +117,11 @@ npx @agent-native/core@latest create my-platform
   ]}
 />
 
-एप्लिकेशन स्थिति के लिए `data/` निर्देशिका न जोड़ें। टिकाऊ ऐप डेटा SQL में है, और UI इसे actions या टाइप किए गए सर्वर हैंडलर के माध्यम से पढ़ता है।
+एप्लिकेशन स्थिति के लिए `data/` निर्देशिका न जोड़ें। टिकाऊ ऐप डेटा PostgreSQL/PGlite में है, और UI इसे actions या टाइप किए गए सर्वर हैंडलर के माध्यम से पढ़ता है।
 
-प्रत्येक टेम्प्लेट के चार क्षेत्र एक साझा क्रिया सतह और एक SQL डेटाबेस के माध्यम से एक साथ जुड़ते हैं - एजेंट और UI समान संचालन में समान भागीदार हैं:
+प्रत्येक टेम्प्लेट के चार क्षेत्र एक साझा क्रिया सतह और एक PostgreSQL/PGlite डेटाबेस के माध्यम से एक साथ जुड़ते हैं - एजेंट और UI समान संचालन में समान भागीदार हैं:
 
-<Diagram id="doc-block-1l3djej" title={"किसी टेम्प्लेट के चार क्षेत्र कैसे जुड़ते हैं"} summary={"यूआई और एजेंट दोनों समान क्रियाओं के माध्यम से SQL तक पहुंचते हैं; एप्लिकेशन स्थिति और पोलिंग सिंक उन्हें संरेखित रखते हैं।"}>
+<Diagram id="doc-block-1l3djej" title={"किसी टेम्प्लेट के चार क्षेत्र कैसे जुड़ते हैं"} summary={"यूआई और एजेंट दोनों समान क्रियाओं के माध्यम से PostgreSQL/PGlite तक पहुंचते हैं; एप्लिकेशन स्थिति और पोलिंग सिंक उन्हें संरेखित रखते हैं।"}>
 
 ```html
 <div class="diagram-tmpl">
@@ -142,7 +142,7 @@ npx @agent-native/core@latest create my-platform
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    Drizzle के ज़रिए SQL<br /><small class="diagram-muted"
+    Drizzle के ज़रिए PostgreSQL<br /><small class="diagram-muted"
       >additive schema</small
     >
   </div>
@@ -177,7 +177,7 @@ npx @agent-native/core@latest create my-platform
 
 </Diagram>
 
-## SQL में मॉडल डेटा {#data-models}
+## PostgreSQL में मॉडल डेटा {#data-models}
 
 फ़्रेमवर्क Drizzle सहायकों के साथ डोमेन तालिकाएँ परिभाषित करें ताकि स्कीमा PostgreSQL और PGlite का उपयोग करें:
 
@@ -410,7 +410,7 @@ One workspace for projects, tasks, and notes.
 
 ## मूल नियम
 
-- Data lives in Drizzle के ज़रिए SQL. Use actions for all writes; schema is additive.
+- Data lives in Drizzle के ज़रिए PostgreSQL. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## आवेदन स्थिति

@@ -1,15 +1,15 @@
 ---
 title: "에이전트 리소스"
-description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메모리, 지침, 사용자 정의 에이전트, 예약된 작업, MCP 서버 — 파일 시스템이 아닌 SQL가 지원합니다."
+description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메모리, 지침, 사용자 정의 에이전트, 예약된 작업, MCP 서버 — 파일 시스템이 아닌 PostgreSQL/PGlite가 지원합니다."
 ---
 
 # 에이전트 리소스
 
 모든 에이전트 기반 앱에는 **에이전트 리소스**, 즉 에이전트를 나만의 것으로 만드는 사용자 정의 레이어가 함께 제공됩니다. 여기에는 팀 지침(`AGENTS.md`), 공유 학습(`LEARNINGS.md`), 개인 구조적 메모리(`memory/MEMORY.md`), 에이전트가 요청 시 가져오는 skills, 사용자 정의 하위 에이전트, 예약된 작업 및 연결된 MCP 서버 등 Claude 코드/Codex 설정에서 기대할 수 있는 모든 것이 포함되어 있습니다.
 
-비틀림: **파일 시스템 파일이 아니라 SQL 행입니다.** 각 사용자는 데이터베이스에 저장된 자신만의 에이전트 리소스를 얻습니다. 가동할 개발 상자도 없고, 사용자당 컨테이너도 없고, 마운트할 파일도 없습니다. 멀티 테넌트 SaaS는 개인 메모리, 개인 MCP 서버, 개인 skills, 개인 하위 에이전트 등 모든 행이 행으로 구성되어 있고 공유 코드베이스가 이 모든 것을 한 번에 호스팅하기 때문에 모든 사용자에게 본질적으로 무료로 완전히 사용자 정의 가능한 에이전트를 제공할 수 있습니다.
+비틀림: **파일 시스템 파일이 아니라 PostgreSQL/PGlite 행입니다.** 각 사용자는 데이터베이스에 저장된 자신만의 에이전트 리소스를 얻습니다. 가동할 개발 상자도 없고, 사용자당 컨테이너도 없고, 마운트할 파일도 없습니다. 멀티 테넌트 SaaS는 개인 메모리, 개인 MCP 서버, 개인 skills, 개인 하위 에이전트 등 모든 행이 행으로 구성되어 있고 공유 코드베이스가 이 모든 것을 한 번에 호스팅하기 때문에 모든 사용자에게 본질적으로 무료로 완전히 사용자 정의 가능한 에이전트를 제공할 수 있습니다.
 
-<Diagram id="doc-block-19r4wnf" title={"Claude-Code 설정이지만 SQL에 에이전트 리소스로 저장됨"} summary={"동일한 사용자 정의 계층(지침, 기술, 메모리, 에이전트, 작업, MCP)은 모든 파일이 공유 다중 테넌트 데이터베이스의 행이라는 점을 제외합니다."}>
+<Diagram id="doc-block-19r4wnf" title={"Claude-Code 설정이지만 PostgreSQL/PGlite에 에이전트 리소스로 저장됨"} summary={"동일한 사용자 정의 계층(지침, 기술, 메모리, 에이전트, 작업, MCP)은 모든 파일이 공유 다중 테넌트 데이터베이스의 행이라는 점을 제외합니다."}>
 
 ```html
 <div class="ws-map">
@@ -27,7 +27,7 @@ description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Agent-Native 리소스</span
-    ><small class="diagram-muted">rows in one SQL 데이터베이스</small>
+    ><small class="diagram-muted">rows in one PostgreSQL/PGlite 데이터베이스</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -73,7 +73,7 @@ description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메
 
 | Claude 코드 / Codex                  | 에이전트 기반 리소스                           |
 | ------------------------------------ | ---------------------------------------------- |
-| 로컬 디스크의 파일                   | 공유 SQL 데이터베이스의 행                     |
+| 로컬 디스크의 파일                   | 공유 PostgreSQL/PGlite 데이터베이스의 행                     |
 | 개발자당 하나의 코드베이스           | 하나의 코드베이스, 많은 사용자                 |
 | 개발 상자 또는 컨테이너가 필요합니다 | 모든 서버리스/에지 호스트에서 실행             |
 | `~/.claude/`의 사용자 정의           | 사용자별 맞춤설정, 범위가 지정된 `u:<email>:…` |
@@ -402,7 +402,7 @@ Skills는 `/skill-name`와의 채팅에서 호출되는 에이전트 주문형 �
 
 ## 작업공간 연결 {#workspace-connections}
 
-작업 공간 연결을 사용하면 앱이 자격 증명을 복제하지 않고도 동일한 공급자 계정(Slack, GitHub, HubSpot 등)을 공유할 수 있습니다. 연결은 공급자 ID, 계정 레이블, 상태, 범위, 앱 부여 및 자격 증명 참조를 SQL에 기록합니다. 비밀은 자격 증명 저장소에 보관됩니다. 연결은 `SLACK_BOT_TOKEN`와 같은 자격 증명 키 이름만 가리킵니다.
+작업 공간 연결을 사용하면 앱이 자격 증명을 복제하지 않고도 동일한 공급자 계정(Slack, GitHub, HubSpot 등)을 공유할 수 있습니다. 연결은 공급자 ID, 계정 레이블, 상태, 범위, 앱 부여 및 자격 증명 참조를 PostgreSQL/PGlite에 기록합니다. 비밀은 자격 증명 저장소에 보관됩니다. 연결은 `SLACK_BOT_TOKEN`와 같은 자격 증명 키 이름만 가리킵니다.
 
 빠른 시작, 연결/부여/자격 증명 참조 API 및 구체적인 Slack, HubSpot 및 GitHub 예는 [Workspace Connections](/docs/workspace-connections)를 참조하세요.
 

@@ -23,7 +23,7 @@ description: "将 PostgreSQL 连接到你的代理本机应用：schema 助手�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL 数据库<br /><small class="diagram-muted">PostgreSQL（DATABASE_URL）</small>
+    PostgreSQL 数据库<br /><small class="diagram-muted">PostgreSQL（DATABASE_URL）</small>
   </div>
 </div>
 ```
@@ -69,7 +69,7 @@ description: "将 PostgreSQL 连接到你的代理本机应用：schema 助手�
 如果想在不使用 Docker 或托管数据库的情况下本地开发 PostgreSQL，可以安装可选的 PGlite 包并设置 `DATABASE_URL`：
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -80,7 +80,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### 生产数据库 {#production}
 
-在 `.env` 文件或部署提供商的环境变量中设置 `DATABASE_URL`，以连接一个托管数据库：
+在 `.env` 文件或部署提供商的环境变量中设置 `DATABASE_URL`，以连接一个托管 PostgreSQL 数据库：
 
 ```bash
 # Neon Postgres
@@ -95,11 +95,11 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-框架会根据 URL 前缀自动检测方言，并相应地配置 Drizzle。
+框架会根据 `DATABASE_URL` 将 Drizzle 配置为使用 PostgreSQL。
 
 ### Builder.io 托管数据库 {#builder-managed}
 
-_计划中（尚未提供）：_ 连接到 Builder.io 后，你的应用将能够使用自动配置的托管数据库，无需任何连接字符串。
+_计划中（尚未提供）：_ 连接到 Builder.io 后，你的应用将能够使用自动配置的托管 PostgreSQL 数据库，无需任何 PostgreSQL 连接字符串。
 
 ## 搭建数据库 {#setup}
 
@@ -213,7 +213,7 @@ export const getDb = createGetDb(schema);
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -233,8 +233,8 @@ export const getDb = createGetDb(schema);
     },
     {
       lines: "22-25",
-      label: "PostgreSQL SQL",
-      note: "迁移直接使用 PostgreSQL SQL，并按版本顺序应用。",
+      label: "PostgreSQL",
+      note: "迁移直接使用 PostgreSQL 的 SQL，并按版本顺序应用。",
     },
   ]}
 />
@@ -252,11 +252,11 @@ export const getDb = createGetDb(schema);
 对于新的应用 schema 变更，请使用 `pnpm db:generate` 生成可审查的 SQL。
 它会创建 `server/db/migrations/<id_name>.sql`，并由
 `runDrizzleMigrations` 在 Node.js 和基于 Node 的 serverless runtime 中将这些
-文件加载到共享的 Agent-Native runner。生产变更仍由发布步骤负责。方言专用
+文件加载到共享的 Agent-Native runner。生产变更仍由发布步骤负责。PostgreSQL 专用
 SQL、Postgres 行为、数据回填和延迟 JavaScript 步骤继续使用 `runMigrations()`。
 
 基于文件系统的 loader 不适用于 Cloudflare Workers/Pages 或其他没有可部署
-文件系统的 edge runtime。在这些环境中，请使用 worker bundle 中嵌入的 PostgreSQL SQL 条目
+文件系统的 edge runtime。在这些环境中，请使用 worker bundle 中嵌入的 PostgreSQL migration 条目
 调用 `runMigrations()`。请针对 PostgreSQL 生成迁移，不要在同一文件夹中切换本地 PGlite
 和托管 PostgreSQL。
 <Callout tone="risk">
@@ -266,7 +266,7 @@ SQL、Postgres 行为、数据回填和延迟 JavaScript 步骤继续使用 `run
   数据丢失。
 </Callout>
 
-每个应用根目录下的 `drizzle.config.ts` 为本地开发时的 schema 检查配置了 drizzle-kit。如果一个 migration 文件夹服务多个 backend，请显式设置主要部署方言，例如 `createDrizzleConfig({ dialect: "postgresql" })`：
+每个应用根目录下的 `drizzle.config.ts` 为本地开发时的 PostgreSQL schema 检查配置 drizzle-kit。请显式配置 PostgreSQL 数据库，例如 `createDrizzleConfig({ dialect: "postgresql" })`：
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -358,7 +358,7 @@ const rows = await db
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>PostgrePostgreSQL 数据库</strong
+    <strong>PostgreSQL 数据库</strong
     ><small class="diagram-muted">同步版本号递增</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>

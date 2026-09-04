@@ -155,10 +155,10 @@ vi.mock("../db/client.js", () => ({
           rowsAffected: 0,
         };
       }
-      // staged_datasets INSERT OR REPLACE / INSERT ... ON CONFLICT
+      // staged_datasets INSERT ... ON CONFLICT
       if (
-        /INSERT (OR REPLACE INTO|INTO) staged_datasets/i.test(rawSql) ||
-        /INSERT INTO staged_datasets.*ON CONFLICT/i.test(rawSql)
+        /INSERT INTO staged_datasets/i.test(rawSql) &&
+        /ON CONFLICT/i.test(rawSql)
       ) {
         const [
           id,

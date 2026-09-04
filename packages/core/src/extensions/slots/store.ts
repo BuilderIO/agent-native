@@ -14,11 +14,11 @@ import { extensions, extensionShares } from "../schema.js";
 import {
   extensionSlots,
   extensionSlotInstalls,
-  EXTENSION_SLOTS_CREATE_SQL_PG,
+  EXTENSION_SLOTS_CREATE_SQL,
   EXTENSION_SLOTS_BY_SLOT_INDEX_SQL,
   EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL,
   EXTENSION_SLOTS_UNIQUE_INDEX_SQL,
-  EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG,
+  EXTENSION_SLOT_INSTALLS_CREATE_SQL,
   EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL,
   EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL,
 } from "./schema.js";
@@ -36,15 +36,11 @@ export async function ensureSlotTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(
-        EXTENSION_SLOTS_CREATE_SQL_PG,
-      );
+      await client.execute(EXTENSION_SLOTS_CREATE_SQL);
       await client.execute(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
       await client.execute(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
       await client.execute(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
-      await client.execute(
-        EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG,
-      );
+      await client.execute(EXTENSION_SLOT_INSTALLS_CREATE_SQL);
       await client.execute(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
       await client.execute(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
     })().catch((err) => {
@@ -109,7 +105,8 @@ export async function addExtensionSlotTarget(
     if (
       String(err?.message ?? err)
         .toLowerCase()
-        .includes("unique")
+        .includes("unique") ||
+      err?.cause?.code === "23505"
     ) {
       const existing = await db
         .select()
@@ -226,12 +223,14 @@ export async function listExtensionsForSlot(slotId: string): Promise<
       ),
     );
   const byId = new Map(
-    (accessible as Array<{
-      id: string;
-      name: string;
-      description: string;
-      icon: string | null;
-    }>).map((t) => [t.id, t]),
+    (
+      accessible as Array<{
+        id: string;
+        name: string;
+        description: string;
+        icon: string | null;
+      }>
+    ).map((t) => [t.id, t]),
   );
   const sqlRows = (declarations as ExtensionSlotRow[]).map((d) => {
     const t = byId.get(d.extensionId)!;
@@ -411,13 +410,15 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
       ),
     );
   const byId = new Map(
-    (accessible as Array<{
-      id: string;
-      name: string;
-      description: string;
-      icon: string | null;
-      updatedAt: string;
-    }>).map((t) => [t.id, t]),
+    (
+      accessible as Array<{
+        id: string;
+        name: string;
+        description: string;
+        icon: string | null;
+        updatedAt: string;
+      }>
+    ).map((t) => [t.id, t]),
   );
 
   const sqlInstalls = (installs as ExtensionSlotInstallRow[])

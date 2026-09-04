@@ -238,13 +238,13 @@ export const notes = table("notes", {
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 列がまだ存在しない場合、INSERT ステートメントは `owner_email` 自動挿入されます。
 
-`db-query` / `db-exec` ツールは、スキーマ修飾されたテーブル参照 (`public.<table>`、`main.<table>`) を拒否します。修飾名はベース テーブルに解決され、上記の一時ビューをバイパスします。エージェントは裸のテーブル名を使用します。スコープは自動的に適用されます。
+`db-query` / `db-exec` ツールは、スキーマ修飾されたテーブル参照 (`public.<table>`) を拒否します。修飾名はベース テーブルに解決され、上記の一時ビューをバイパスします。エージェントは裸のテーブル名を使用します。スコープは自動的に適用されます。
 
 ### 組織ごとのスコープ (`org_id`)
 

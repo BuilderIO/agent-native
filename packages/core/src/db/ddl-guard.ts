@@ -522,8 +522,7 @@ export async function ensureIndexExists(
     await dropInvalidIndex(indexName, options.injectedClient ?? getDbExec());
   }
   return ensureSchemaObject({
-    probe: () =>
-      pgIndexExists(indexName, options.injectedClient),
+    probe: () => pgIndexExists(indexName, options.injectedClient),
     ddl: createIndexSql,
     label: `index ${indexName}`,
     lockTimeout: options.lockTimeout,

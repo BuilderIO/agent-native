@@ -82,6 +82,13 @@ import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe("runCompletionCallbackWithDatabaseRetry", () => {
   it("retries transient database failures before giving up the completion boundary", async () => {
     const callback = vi

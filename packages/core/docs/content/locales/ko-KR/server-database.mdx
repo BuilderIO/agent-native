@@ -71,7 +71,7 @@ description: "PostgreSQL을 에이전트 기반 앱에 연결하세요: 스키�
 Docker나 호스팅 데이터베이스 없이 로컬에서 PostgreSQL을 개발하려면 선택적 PGlite 패키지를 설치하고 `DATABASE_URL`을 설정하세요:
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -97,11 +97,11 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-프레임워크는 URL의 접두사에서 방언을 자동으로 감지하고 그에 맞춰 Drizzle를 구성합니다.
+프레임워크는 `DATABASE_URL`을 기준으로 Drizzle을 PostgreSQL용으로 구성합니다.
 
 ### Builder.io 관리형 데이터베이스 {#builder-managed}
 
-_계획됨(아직 사용할 수 없음):_ Builder.io에 연결되면 앱은 연결 문자열 없이도 자동으로 프로비저닝되는 관리형 데이터베이스를 사용할 수 있게 됩니다.
+_계획됨(아직 사용할 수 없음):_ Builder.io에 연결되면 앱은 PostgreSQL 연결 문자열 없이도 자동으로 프로비저닝되는 관리형 PostgreSQL 데이터베이스를 사용할 수 있게 됩니다.
 
 ## 데이터베이스 설정하기 {#setup}
 
@@ -218,7 +218,7 @@ export const getDb = createGetDb(schema);
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -238,8 +238,8 @@ export const getDb = createGetDb(schema);
     },
     {
       lines: "22-25",
-      label: "PostgreSQL SQL",
-      note: "마이그레이션은 PostgreSQL SQL을 직접 사용하며 버전 순서대로 적용됩니다.",
+      label: "PostgreSQL",
+      note: "마이그레이션은 PostgreSQL의 SQL을 직접 사용하며 버전 순서대로 적용됩니다.",
     },
   ]}
 />
@@ -264,7 +264,7 @@ export const getDb = createGetDb(schema);
 
 파일 시스템 기반 loader는 Cloudflare Workers/Pages 또는 배포 가능한 파일 시스템이
 없는 다른 edge runtime에서 사용할 수 없습니다. 해당 환경에서는 worker bundle에 포함한
-PostgreSQL SQL 항목과 함께 `runMigrations()`를 사용하세요. 마이그레이션은 PostgreSQL용으로
+PostgreSQL migration 항목과 함께 `runMigrations()`를 사용하세요. 마이그레이션은 PostgreSQL용으로
 생성하고 같은 폴더를 로컬 PGlite와 호스팅 PostgreSQL 사이에서 전환하지 마세요.
 <Callout tone="risk">
   프로덕션 데이터베이스에 대해 `drizzle-kit push`를 절대 실행하지 마세요. 템플릿
@@ -366,7 +366,7 @@ const rows = await db
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>PostgrePostgreSQL 데이터베이스</strong
+    <strong>PostgreSQL 데이터베이스</strong
     ><small class="diagram-muted">동기화 버전 증가</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>

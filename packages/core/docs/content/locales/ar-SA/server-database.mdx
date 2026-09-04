@@ -71,7 +71,7 @@ description: "وصّل PostgreSQL بتطبيق Agent-Native الخاص بك: م�
 للتطوير محليًا باستخدام PostgreSQL دون Docker أو قاعدة بيانات مستضافة، ثبّت حزمة PGlite الاختيارية واضبط `DATABASE_URL`:
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -82,7 +82,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### قاعدة بيانات الإنتاج {#production}
 
-اضبط `DATABASE_URL` في ملف `.env` الخاص بك أو في بيئة موفر النشر للاتصال بقاعدة بيانات مستضافة:
+اضبط `DATABASE_URL` في ملف `.env` الخاص بك أو في بيئة موفر النشر للاتصال بقاعدة PostgreSQL مستضافة:
 
 ```bash
 # Neon Postgres
@@ -97,7 +97,7 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-يكتشف إطار العمل اللهجة تلقائيًا من بادئة الرابط ويهيئ Drizzle وفقًا لذلك.
+يهيئ إطار العمل Drizzle لـ PostgreSQL باستخدام `DATABASE_URL`.
 
 ### قاعدة بيانات مُدارة من Builder.io {#builder-managed}
 
@@ -218,7 +218,7 @@ export const getDb = createGetDb(schema);
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -366,7 +366,7 @@ const rows = await db
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>قاعدة بيانات PostgrePostgreSQL</strong
+    <strong>قاعدة بيانات PostgreSQL</strong
     ><small class="diagram-muted">يزداد إصدار المزامنة</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>

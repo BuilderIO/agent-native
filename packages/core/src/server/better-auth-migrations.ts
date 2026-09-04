@@ -5,7 +5,9 @@ async function assertBetterAuthUserIdentityColumns(): Promise<void> {
   const { rows } = await getDbExec().execute(
     `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user' AND column_name IN ('id', 'email')`,
   );
-  const columnNames = rows.map((row) => String(row.column_name ?? row[0] ?? ""));
+  const columnNames = rows.map((row) =>
+    String(row.column_name ?? row[0] ?? ""),
+  );
 
   const missing = ["id", "email"].filter(
     (column) => !columnNames.includes(column),

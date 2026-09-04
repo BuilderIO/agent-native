@@ -1,6 +1,6 @@
 ---
 title: "Zusammenarbeit in Echtzeit"
-description: "Kollaborative Bearbeitung durch mehrere Benutzer, bei der der KI-Agent ein erstklassiger Partner ist: CRDT-Zusammenführung, Live-Präsenz, SSE-Fast-Path und granulare serverseitige Zusammenführung – auf jeder SQL-Datenbank und jedem Host."
+description: "Kollaborative Bearbeitung durch mehrere Benutzer, bei der der KI-Agent ein erstklassiger Partner ist: CRDT-Zusammenführung, Live-Präsenz, SSE-Fast-Path und granulare serverseitige Zusammenführung – auf PostgreSQL/PGlite und jedem Host."
 ---
 
 # Zusammenarbeit in Echtzeit
@@ -29,7 +29,7 @@ Dies basiert auf drei kampferprobten Technologien: **Yjs** (CRDT für konfliktfr
 - **Der Agent als Peer-Editor** – Agentenbearbeitungen erfolgen über dieselben Yjs
   Infrastruktur als menschliche Bearbeitung. Sie erscheinen live, ohne den Cursor zu stören
   Positionen, Auswahlen oder der Rückgängig-Stapel.
-- **Funktioniert überall** – Jede SQL-Datenbank, die Drizzle unterstützt (PGlite, Postgres).
+- **Funktioniert überall** – PostgreSQL/PGlite.
   Jedes Hosting-Ziel, das Nitro unterstützt, einschließlich Serverless und Edge.
 
 ## Architektur {#architecture}
@@ -649,7 +649,7 @@ Produktions-App ohnehin zutreffen:
 
 | Voraussetzung                                                      | Warum                                                                                                                                                                                                              | Wie prüfen                                                                                                                                                                                                                  |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Postgres auf einem öffentlich erreichbaren Host**                | Das Gateway wählt die Datenbank aus seinem eigenen Netz an. PGlite, `localhost`, `*.internal` und nackte IP-Adressen werden abgelehnt, bevor die Verbindungszeichenfolge Ihre Maschine überhaupt verlässt. | `DATABASE_URL` zeigt auf ein verwaltetes Postgres wie Neon                                                                                                                                                                  |
+| **Postgres auf einem öffentlich erreichbaren Host**                | Das Gateway wählt die Datenbank aus seinem eigenen Netz an. PGlite, `localhost`, `*.internal` und nackte IP-Adressen werden abgelehnt, bevor die PostgreSQL-Verbindungszeichenfolge Ihre Maschine überhaupt verlässt. | `DATABASE_URL` zeigt auf ein verwaltetes Postgres wie Neon                                                                                                                                                                  |
 | **`BUILDER_PRIVATE_KEY` als DEPLOYMENT-Umgebungsvariable gesetzt** | Damit wird die Registrierung authentifiziert und entschieden, welcher Builder-Organisation der Kanal gehört.                                                                                                       | Siehe den Hinweis unten — dieser Schritt wird am häufigsten übersehen                                                                                                                                                       |
 | **Ein Produktions-Deployment**                                     | Deploy-Previews bleiben bei der lokalen Synchronisierung, damit ein kurzlebiges Branch-Credential die Maschine nie verlässt und ein aktives Repository nicht pro Pull Request einen Kanal erzeugt.                 | `CONTEXT=production` / `BRANCH=production` oder `VERCEL_ENV=production`                                                                                                                                                     |
 | **Die Plattform identifiziert das Deployment**                     | Die Registrierung ist an den öffentlichen Origin der App gebunden, daher darf ein Prozess, der nicht wirklich das Deployment ist, ihn nicht beanspruchen.                                                          | Netlify, Vercel, AWS Lambda, Cloud Run, Render und Cloudflare Pages kennzeichnen sich selbst. Auf einem einfachen Container oder einer VM setzen Sie `AGENT_NATIVE_REALTIME_APP_URL` auf den eigenen Origin des Deployments |
@@ -669,7 +669,7 @@ lokalen Synchronisierung.
 </Callout>
 
 Die Registrierung erfolgt dann bedarfsgesteuert, bei der ersten Anfrage, die
-einen Kanal benötigt. Die App sendet ihre Verbindungszeichenfolge und ihren
+einen Kanal benötigt. Die App sendet ihre PostgreSQL-Verbindungszeichenfolge und ihren
 öffentlichen Origin, erhält eine Kanal-ID und ein Signaturgeheimnis zurück und
 stellt Subscribe-Token genau so aus wie eine von Builder gehostete App. Sie
 läuft von selbst erneut, sobald sich die Datenbank-URL, der App-Origin oder das
@@ -713,7 +713,7 @@ Gehen Sie die Voraussetzungstabelle oben der Reihe nach durch.
 
 ### Was Builder speichert und die Vertrauensgrenze {#hosted-gateway-trust}
 
-**Selbstregistrierung bedeutet, Builder Ihre Datenbank-Verbindungszeichenfolge
+**Selbstregistrierung bedeutet, Builder Ihre PostgreSQL-Verbindungszeichenfolge
 zu senden.** Builder speichert sie und verbindet sich mit Ihrer Datenbank, um
 `sync_events` zu verfolgen. Die Verbindung ist nicht schreibgeschützt: sowohl
 die Versionszuteilung als auch die Erkennung von Änderungen außerhalb des

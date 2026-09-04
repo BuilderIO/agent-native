@@ -71,7 +71,7 @@ Esto es solo para desarrollo local. Los contenedores, las funciones sin servidor
 Para desarrollar localmente con PostgreSQL sin Docker ni una base de datos alojada, instale el paquete opcional PGlite y configure `DATABASE_URL`:
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -82,7 +82,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### Base de datos de producción {#production}
 
-Configure `DATABASE_URL` en su archivo `.env` o en el entorno del proveedor de despliegue para conectar una base de datos alojada:
+Configure `DATABASE_URL` en su archivo `.env` o en el entorno del proveedor de despliegue para conectar una base de datos PostgreSQL alojada:
 
 ```bash
 # Neon Postgres
@@ -97,11 +97,11 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-El marco detecta automáticamente el dialecto a partir del prefijo del URL y configura Drizzle en consecuencia.
+El marco configura Drizzle para PostgreSQL a partir de `DATABASE_URL`.
 
 ### Base de datos administrada por Builder.io {#builder-managed}
 
-_Planificado (aún no disponible):_ cuando esté conectada a Builder.io, su aplicación podrá usar una base de datos administrada y aprovisionada automáticamente, sin necesidad de cadenas de conexión.
+_Planificado (aún no disponible):_ cuando esté conectada a Builder.io, su aplicación podrá usar una base de datos PostgreSQL administrada y aprovisionada automáticamente, sin necesidad de una cadena de conexión de PostgreSQL.
 
 ## Configurar la Base de Datos {#setup}
 
@@ -218,7 +218,7 @@ solicitud. Usa `runMigrations` desde `@agent-native/core/db`:
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -264,12 +264,10 @@ siendo el responsable de los cambios en producción. Mantenga `runMigrations()`
 para SQL específico de PostgreSQL, Postgres, backfills y pasos de JavaScript diferidos.
 
 El cargador basado en el sistema de archivos no está disponible en Cloudflare
-Workers/Pages ni en otros runtimes edge sin sistema de archivos, incluido Postgres. Allí
-use `runMigrations()` con entradas SQL integradas en el bundle del worker. Una
-carpeta de salida de Drizzle tiene una única línea base de metadatos específica
-del dialecto: genere para el dialecto principal de despliegue y no cambie la
-misma carpeta entre PGlite y PostgreSQL.
-
+Workers/Pages ni en otros runtimes edge sin sistema de archivos. Allí, use
+`runMigrations()` con entradas de SQL de PostgreSQL integradas en el bundle del worker.
+Genere las migraciones para PostgreSQL y no cambie la misma carpeta entre PGlite
+local y PostgreSQL alojado.
 <Callout tone="risk">
   Nunca ejecute `drizzle-kit push` contra una base de datos de producción. Los
   esquemas de las plantillas solo definen tablas específicas de la aplicación;
@@ -371,7 +369,7 @@ Esto funciona en despliegues sin servidor y de múltiples instancias porque la b
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>Base de datos PostgrePostgreSQL</strong
+    <strong>Base de datos PostgreSQL</strong
     ><small class="diagram-muted"
       >la versión de sincronización se incrementa</small
     >

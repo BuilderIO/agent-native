@@ -80,7 +80,7 @@ export function assertNoSensitiveFrameworkTables(
   );
 }
 
-// Schema/database-qualified table references (e.g. `public.notes`, `main.notes`,
+// Schema/database-qualified table references (e.g. `public.notes`,
 // `pg_temp.notes`) BYPASS the per-user/per-org temporary views that scope
 // db-query / db-exec, because those views only shadow UNQUALIFIED table names.
 // A qualified reference resolves straight to the real base table, defeating the
@@ -119,7 +119,7 @@ export function assertNoSchemaQualifiedTables(
   }
   const verb = operation === "read" ? "queried" : "written";
   fail(
-    `Schema-qualified table references (e.g. "public.<table>" or "main.<table>") cannot be ${verb} through raw DB tools — a qualified name bypasses the per-user data scoping that isolates each tenant's rows. Use the bare table name; the current user's scoping is applied automatically.`,
+    `Schema-qualified table references (e.g. "public.<table>") cannot be ${verb} through raw DB tools — a qualified name bypasses the per-user data scoping that isolates each tenant's rows. Use the bare table name; the current user's scoping is applied automatically.`,
   );
 }
 

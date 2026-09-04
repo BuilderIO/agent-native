@@ -37,8 +37,8 @@ async function releaseMigrationExec(): Promise<void> {
   try {
     const exec = await execPromise;
     await exec.close?.();
-  } catch {
-    // Migration failures already carry the useful error; cleanup is best effort.
+  } catch (err) {
+    console.warn("[db] Migration connection cleanup failed:", err);
   }
 }
 
@@ -59,6 +59,13 @@ export function isPermissionError(err: unknown): boolean {
     /must be owner of/i.test(msg) ||
     /permission denied/i.test(msg) ||
     /insufficient privilege/i.test(msg)
+  );
+}
+
+function isMissingRelationError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | undefined;
+  return (
+    e?.code === "42P01" || /relation .* does not exist/i.test(e?.message ?? "")
   );
 }
 
@@ -231,8 +238,8 @@ export function runMigrations(
           `SELECT MAX(version) as v FROM ${table}`,
         );
         current = (rows[0]?.v as number) ?? 0;
-      } catch {
-        // A missing bookkeeping table means every migration is pending.
+      } catch (err) {
+        if (!isMissingRelationError(err)) throw err;
       }
       if (hasNamedMigrations) {
         try {
@@ -240,7 +247,8 @@ export function runMigrations(
             `SELECT name FROM ${namedTable}`,
           );
           appliedNames = new Set(rows.map((row) => String(row.name)));
-        } catch {
+        } catch (err) {
+          if (!isMissingRelationError(err)) throw err;
           namedRowsMissing = true;
         }
       }
@@ -255,10 +263,10 @@ export function runMigrations(
       const runOnlyPending =
         current >= 0 &&
         !namedRowsMissing &&
-        pendingFast.every((migration) => resolveMigrationSql(migration.sql) === null);
-      const exec = runOnlyPending
-        ? getDbExec()
-        : await acquireMigrationExec();
+        pendingFast.every(
+          (migration) => resolveMigrationSql(migration.sql) === null,
+        );
+      const exec = runOnlyPending ? getDbExec() : await acquireMigrationExec();
 
       try {
         if (!runOnlyPending) {
@@ -289,10 +297,8 @@ export function runMigrations(
           }
         }
 
-        const insertVersionSql =
-          `INSERT INTO ${table} (version) VALUES (?) ON CONFLICT DO NOTHING`;
-        const insertNamedSql =
-          `INSERT INTO ${namedTable} (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`;
+        const insertVersionSql = `INSERT INTO ${table} (version) VALUES (?) ON CONFLICT DO NOTHING`;
+        const insertNamedSql = `INSERT INTO ${namedTable} (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`;
         const pending = runOnlyPending
           ? pendingFast
           : migrations.filter((migration) =>
@@ -302,7 +308,9 @@ export function runMigrations(
             );
 
         if (pending.length > 0) {
-          console.log(`[db] Applying ${pending.length} migration(s) on Postgres...`);
+          console.log(
+            `[db] Applying ${pending.length} migration(s) on Postgres...`,
+          );
         }
 
         for (const migration of pending) {

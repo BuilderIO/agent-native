@@ -57,27 +57,6 @@ export const DATA_PROGRAMS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_program
   refresh_mode TEXT NOT NULL DEFAULT 'ttl',
   refresh_ttl_ms INTEGER NOT NULL DEFAULT 300000,
   background INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  archived_at TEXT,
-  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-  org_id TEXT,
-  visibility TEXT NOT NULL DEFAULT 'private'
-)`;
-
-export const DATA_PROGRAMS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS data_programs (
-  id TEXT PRIMARY KEY,
-  app_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  code TEXT NOT NULL,
-  params_schema TEXT,
-  default_params TEXT,
-  output_columns TEXT,
-  refresh_mode TEXT NOT NULL DEFAULT 'ttl',
-  refresh_ttl_ms INTEGER NOT NULL DEFAULT 300000,
-  background INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT now(),
   updated_at TEXT NOT NULL DEFAULT now(),
   archived_at TEXT,
@@ -87,16 +66,6 @@ export const DATA_PROGRAMS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS data_prog
 )`;
 
 export const DATA_PROGRAM_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_program_shares (
-  id TEXT PRIMARY KEY,
-  resource_id TEXT NOT NULL,
-  principal_type TEXT NOT NULL,
-  principal_id TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'viewer',
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-)`;
-
-export const DATA_PROGRAM_SHARES_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS data_program_shares (
   id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
   principal_type TEXT NOT NULL,

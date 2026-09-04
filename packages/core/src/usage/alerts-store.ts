@@ -231,12 +231,12 @@ export async function ensureTables(): Promise<void> {
         await ensureColumnExists(
           "usage_alert_rules",
           "is_default",
-          `ALTER TABLE usage_alert_rules ADD COLUMN is_default ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE usage_alert_rules ADD COLUMN IF NOT EXISTS is_default ${intType()} NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "usage_alert_events",
           "notification_id",
-          "ALTER TABLE usage_alert_events ADD COLUMN notification_id TEXT",
+          "ALTER TABLE usage_alert_events ADD COLUMN IF NOT EXISTS notification_id TEXT",
         );
         for (const index of indexes) {
           await ensureIndexExists(index.name, index.sql);

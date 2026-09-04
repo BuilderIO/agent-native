@@ -236,7 +236,7 @@ export async function performCreativeContextSearch(
         ? byChunk.get(candidate.chunkId)
         : undefined;
       return document
-        ? [ranked(document, candidate.score, "portable lexical match")]
+        ? [ranked(document, candidate.score, "lexical match")]
         : [];
     });
 

@@ -50,6 +50,13 @@ vi.mock("../workspace-files/store.js", () => ({
   writeWorkspaceFile,
 }));
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 const {
   createProviderApiRuntime,
   getProviderApiConfig,

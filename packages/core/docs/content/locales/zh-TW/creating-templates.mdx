@@ -5,7 +5,7 @@ description: "如何建立和發布您自己的 Agent-Native 應用範本。"
 
 # 建立範本
 
-範本是完整的、可分叉的 Agent-Native 應用程式，可解決實際工作流程。第一方範本使用您使用的相同框架表面建置：用於 UI 的 React 路由、用於資料的 Drizzle SQL、用於操作的 actions、用於代理行為的工作區資源以及輪詢同步，以便代理和 UI 保持一致。
+範本是完整的、可分叉的 Agent-Native 應用程式，可解決實際工作流程。第一方範本使用您使用的相同框架表面建置：用於 UI 的 React 路由、透過 Drizzle 使用 PostgreSQL 資料、用於操作的 actions、用於代理行為的工作區資源以及輪詢同步，以便代理和 UI 保持一致。
 
 將 `@agent-native/core` 用於執行階段合約：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。將 `@agent-native/toolkit` 用於可重用的應用程式建構 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和簡單 app shell slots。當變體承載產品行為或視覺識別時，請保留在範本本地。
 
@@ -20,7 +20,7 @@ Toolkit 與 Templates 都是可選的。範本不等於框架本身，Toolkit �
 一個好的範本：
 
 - 使用有用的種子資料或空狀態流端對端地解決一個工作流。
-- 將持久狀態儲存在 SQL 中，而不是 JSON 檔案中。
+- 將持久狀態儲存在 PostgreSQL/PGlite 中，而不是 JSON 檔案中。
 - 將應用操作定義為 `defineAction()` actions。
 - 透過應用程式狀態公開導覽和選取。
 - 為不明顯的工作流程提供清晰的 `AGENTS.md` 和重點 skills。
@@ -41,7 +41,7 @@ npx @agent-native/core@latest create my-template --template chat --standalone
 npx @agent-native/core@latest create my-platform
 ```
 
-聊天為您提供驗證、持久聊天對話串、SQL 支援的資源、工具、應用程式狀態、actions 和輪詢同步。您新增域模型和產品 UI。
+聊天為您提供驗證、持久聊天對話串、PostgreSQL 支援的資源、工具、應用程式狀態、actions 和輪詢同步。您新增域模型和產品 UI。
 
 如果您目前還不是在建置可重複使用的 UI 範本，請使用 [Automation-First Apps](/docs/pure-agent-apps)：定義動作，在不使用瀏覽器的情況下執行它們，並在工作流程需要持久化介面時再新增 UI。
 
@@ -117,11 +117,11 @@ npx @agent-native/core@latest create my-platform
   ]}
 />
 
-不要為應用程式狀態新增 `data/` 目錄。持久應用資料屬於 SQL，UI 透過 actions 或型別化伺服器處理常式讀取它。
+不要為應用程式狀態新增 `data/` 目錄。持久應用資料屬於 PostgreSQL/PGlite，UI 透過 actions 或型別化伺服器處理常式讀取它。
 
-每個範本的四個區域透過一個共用操作介面和一個 SQL 資料庫連線在一起 - 代理和 UI 是執行相同操作的平等合作伙伴：
+每個範本的四個區域透過一個共用操作介面和一個 PostgreSQL/PGlite 資料庫連線在一起 - 代理和 UI 是執行相同操作的平等合作伙伴：
 
-<Diagram id="doc-block-1kwaswm" title={"範本的四個區域如何連線"} summary={"UI 和代理都透過相同的操作到達 SQL；應用程式狀態和輪詢同步使它們保持一致。"}>
+<Diagram id="doc-block-1kwaswm" title={"範本的四個區域如何連線"} summary={"UI 和代理都透過相同的操作到達 PostgreSQL/PGlite；應用程式狀態和輪詢同步使它們保持一致。"}>
 
 ```html
 <div class="diagram-tmpl">
@@ -140,7 +140,7 @@ npx @agent-native/core@latest create my-platform
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    透過 Drizzle 使用 SQL<br /><small class="diagram-muted"
+    透過 Drizzle 使用 PostgreSQL<br /><small class="diagram-muted"
       >additive schema</small
     >
   </div>
@@ -175,7 +175,7 @@ npx @agent-native/core@latest create my-platform
 
 </Diagram>
 
-## SQL 中的模型資料 {#data-models}
+## PostgreSQL 中的模型資料 {#data-models}
 
 使用框架 Drizzle 幫助程式定義領域資料表，讓架構使用 PostgreSQL 和 PGlite：
 
@@ -407,7 +407,7 @@ One workspace for projects, tasks, and notes.
 
 ## 核心規則
 
-- Data lives in 透過 Drizzle 使用 SQL. Use actions for all writes; schema is additive.
+- Data lives in 透過 Drizzle 使用 PostgreSQL. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## 應用狀態

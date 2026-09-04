@@ -5,7 +5,7 @@ description: "So erstellen und veröffentlichen Sie Ihre eigenen agentennativen 
 
 # Vorlagen erstellen
 
-Vorlagen sind vollständige, forkbare agentennative Apps, die einen echten Arbeitsablauf lösen. Die Erstanbieter-Vorlagen werden mit derselben Framework-Oberfläche erstellt, die Sie verwenden: React-Routen für UI, Drizzle SQL für Daten, actions für Vorgänge, Arbeitsbereichsressourcen für Agentenverhalten und Abfragesynchronisierung, damit der Agent und UI aufeinander abgestimmt bleiben.
+Vorlagen sind vollständige, forkbare agentennative Apps, die einen echten Arbeitsablauf lösen. Die Erstanbieter-Vorlagen werden mit derselben Framework-Oberfläche erstellt, die Sie verwenden: React-Routen für UI, PostgreSQL-Daten über Drizzle, actions für Vorgänge, Arbeitsbereichsressourcen für Agentenverhalten und Abfragesynchronisierung, damit der Agent und UI aufeinander abgestimmt bleiben.
 
 Verwenden Sie `@agent-native/core` für den Laufzeitvertrag: Actions, Server-Plugins, Datenbank-Helfer, App-State, Routing-Helfer und Agent-Chat. Verwenden Sie `@agent-native/toolkit` für wiederverwendbare App-Building-UI und Helfer wie gemeinsame Primitives, Toast- und Mobile-Hooks, Date-Picker und einfache App-Shell-Slots. Halten Sie template-spezifische Varianten lokal, wenn sie Produktverhalten oder visuelle Identität kodieren.
 
@@ -20,7 +20,7 @@ Toolkit und Templates sind optional. Ein Template ist nicht das Framework selbst
 Eine gute Vorlage:
 
 - Löst einen Workflow durchgängig, mit nützlichen Seed-Daten oder einem Leerzustandsfluss.
-- Speichert den dauerhaften Zustand in SQL-Dateien, nicht in JSON-Dateien.
+- Speichert den dauerhaften Zustand in PostgreSQL/PGlite, nicht in JSON-Dateien.
 - Definiert App-Vorgänge als `defineAction()` actions.
 - Macht Navigation und Auswahl durch den Anwendungsstatus möglich.
 - Liefert ein klares `AGENTS.md` und ein fokussiertes skills für nicht offensichtliche Arbeitsabläufe.
@@ -41,7 +41,7 @@ Führen Sie für einen Arbeitsbereich mit mehreren Apps die Auswahl aus und schl
 npx @agent-native/core@latest create my-platform
 ```
 
-Chat bietet Ihnen Authentifizierung, dauerhafte Chat-Threads, von SQL unterstützte Ressourcen, Tools, Anwendungsstatus, actions und Abfragesynchronisierung. Sie fügen das Domänenmodell und das Produkt UI hinzu.
+Chat bietet Ihnen Authentifizierung, dauerhafte Chat-Threads, von PostgreSQL unterstützte Ressourcen, Tools, Anwendungsstatus, actions und Abfragesynchronisierung. Sie fügen das Domänenmodell und das Produkt UI hinzu.
 
 Wenn Sie noch keine wiederverwendbare UI-Vorlage erstellen, verwenden Sie [Automation-First Apps](/docs/pure-agent-apps): Definieren Sie Aktionen, führen Sie sie ohne Browser aus und fügen Sie später UI hinzu, wenn der Workflow eine dauerhafte Oberfläche benötigt.
 
@@ -117,11 +117,11 @@ Jede Vorlage folgt dem gleichen allgemeinen Layout:
   ]}
 />
 
-Fügen Sie kein `data/`-Verzeichnis für den Anwendungsstatus hinzu. Dauerhafte App-Daten gehören in SQL, und UI liest sie über actions oder typisierte Server-Handler.
+Fügen Sie kein `data/`-Verzeichnis für den Anwendungsstatus hinzu. Dauerhafte App-Daten gehören in PostgreSQL/PGlite, und UI liest sie über actions oder typisierte Server-Handler.
 
-Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche und eine SQL-Datenbank miteinander verbunden – der Agent und der UI sind gleichberechtigte Partner bei denselben Vorgängen:
+Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche und eine PostgreSQL/PGlite-Datenbank miteinander verbunden – der Agent und der UI sind gleichberechtigte Partner bei denselben Vorgängen:
 
-<Diagram id="doc-block-1pikucf" title="Wie die vier Bereiche einer Vorlage miteinander verbunden sind" summary={"Die Benutzeroberfläche und der Agent erreichen SQL beide über dieselben Aktionen; Anwendungsstatus und Abfragesynchronisierung sorgen dafür, dass sie aufeinander abgestimmt sind."}>
+<Diagram id="doc-block-1pikucf" title="Wie die vier Bereiche einer Vorlage miteinander verbunden sind" summary={"Die Benutzeroberfläche und der Agent erreichen PostgreSQL/PGlite beide über dieselben Aktionen; Anwendungsstatus und Abfragesynchronisierung sorgen dafür, dass sie aufeinander abgestimmt sind."}>
 
 ```html
 <div class="diagram-tmpl">
@@ -142,7 +142,7 @@ Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche un
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL über Drizzle<br /><small class="diagram-muted">additive schema</small>
+    PostgreSQL über Drizzle<br /><small class="diagram-muted">additive schema</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
   <div class="diagram-pill ok">Polling-Sync</div>
@@ -175,7 +175,7 @@ Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche un
 
 </Diagram>
 
-## Modelldaten in SQL {#data-models}
+## Modelldaten in PostgreSQL {#data-models}
 
 Definieren Sie Domänentabellen mit den Framework-Drizzle-Helfern, damit die Schemata PostgreSQL und PGlite verwenden:
 
@@ -409,7 +409,7 @@ One workspace for projects, tasks, and notes.
 
 ## Grundregeln
 
-- Data lives in SQL über Drizzle. Use actions for all writes; schema is additive.
+- Data lives in PostgreSQL über Drizzle. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## Anwendungsstatus

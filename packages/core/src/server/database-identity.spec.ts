@@ -174,7 +174,7 @@ describe("readDatabaseIdentity", () => {
     expect(result).toEqual({ state: "recorded", app: "chat", recordedAt: "t" });
     expect(mocks.getSetting).not.toHaveBeenCalled();
     expect(exec.execute).toHaveBeenCalledWith({
-      sql: "SELECT value FROM settings WHERE key = ?",
+      sql: "SELECT value FROM public.settings WHERE key = ?",
       args: [DATABASE_IDENTITY_SETTING_KEY],
     });
   });

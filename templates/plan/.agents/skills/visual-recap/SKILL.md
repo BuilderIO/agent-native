@@ -285,7 +285,7 @@ If the user wants to review on localhost but the recap was created through the
 hosted MCP, say so plainly: the local dev server cannot see it. To view a recap
 on localhost (e.g. to exercise un-deployed local renderer changes), they must
 connect a LOCAL Plan MCP (`http://localhost:<port>/mcp`) and
-   re-create the recap through it so it lands in the app's PostgreSQL database; offer to do
+re-create the recap through it so it lands in the local database; offer to do
 that rather than handing over a localhost URL that will not resolve.
 
 When running in Codex and the Browser/in-app side browser tools are available,

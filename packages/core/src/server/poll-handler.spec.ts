@@ -21,6 +21,12 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
 }));
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Stub auth so the handler doesn't try to read a real session cookie. Tests
 // that need a different session (e.g. an org membership) override this via
 // `mockGetSession.mockResolvedValueOnce(...)` before importing poll.js.

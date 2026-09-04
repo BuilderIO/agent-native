@@ -71,7 +71,7 @@ description: "अपने Agent-Native ऐप को PostgreSQL से जो�
 Docker या hosted database के बिना local PostgreSQL development के लिए optional PGlite package install करें और `DATABASE_URL` सेट करें:
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -97,11 +97,11 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-फ्रेमवर्क URL प्रीफ़िक्स से बोली का स्वतः पता लगाता है और तदनुसार Drizzle को कॉन्फ़िगर करता है।
+Framework `DATABASE_URL` के आधार पर Drizzle को PostgreSQL के लिए configure करता है।
 
 ### Builder.io प्रबंधित डेटाबेस {#builder-managed}
 
-_योजनाबद्ध (अभी तक उपलब्ध नहीं):_ Builder.io से कनेक्ट होने पर, आपका ऐप स्वचालित रूप से प्रावधानित एक प्रबंधित डेटाबेस का उपयोग करने में सक्षम होगा, बिना किसी कनेक्शन स्ट्रिंग की आवश्यकता के।
+_योजनाबद्ध (अभी तक उपलब्ध नहीं):_ Builder.io से कनेक्ट होने पर, आपका ऐप स्वचालित रूप से प्रावधानित managed PostgreSQL डेटाबेस का उपयोग कर सकेगा, बिना PostgreSQL कनेक्शन स्ट्रिंग के।
 
 ## डेटाबेस सेट करना {#setup}
 
@@ -218,7 +218,7 @@ Local development में schema changes को `server/plugins/db.ts` के 
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -238,8 +238,8 @@ Local development में schema changes को `server/plugins/db.ts` के 
     },
     {
       lines: "22-25",
-      label: "PostgreSQL SQL",
-      note: "Migrations सीधे PostgreSQL SQL का उपयोग करती हैं और version order में लागू होती हैं।",
+      label: "PostgreSQL",
+      note: "Migrations सीधे PostgreSQL के SQL का उपयोग करती हैं और version order में लागू होती हैं।",
     },
   ]}
 />
@@ -263,7 +263,7 @@ named migrations को version number से स्वतंत्र track क
 स्थगित JavaScript चरणों के लिए `runMigrations()` का उपयोग जारी रखें।
 
 Cloudflare Workers/Pages और बिना deployable filesystem वाले अन्य edge runtimes में
-filesystem loader उपलब्ध नहीं है। वहाँ worker bundle में embedded PostgreSQL SQL entries
+filesystem loader उपलब्ध नहीं है। वहाँ worker bundle में embedded PostgreSQL migration entries
 के साथ `runMigrations()` का उपयोग करें। Migrations को PostgreSQL के लिए generate करें और
 एक ही folder को local PGlite और hosted PostgreSQL के बीच switch न करें।
 <Callout tone="risk">
@@ -275,7 +275,7 @@ filesystem loader उपलब्ध नहीं है। वहाँ worker 
   होगी।
 </Callout>
 
-हर app की जड़ में `drizzle.config.ts` local development में PostgreSQL schema inspection के लिए drizzle-kit को configure करता है। PostgreSQL database को स्पष्ट रूप से configure करें, जैसे `createDrizzleConfig({ dialect: "postgresql" })`:
+हर app की जड़ में `drizzle.config.ts` local development में PostgreSQL schema inspection के लिए drizzle-kit को configure करता है। PostgreSQL डेटाबेस को स्पष्ट रूप से configure करें, जैसे `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -369,7 +369,7 @@ Agent-Native फ़ाइल सिस्टम वॉचर्स या स्
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>PostgrePostgreSQL डेटाबेस</strong
+    <strong>PostgreSQL डेटाबेस</strong
     ><small class="diagram-muted">सिंक संस्करण बढ़ता है</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>

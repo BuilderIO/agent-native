@@ -51,10 +51,8 @@ function pgliteDataDirFromUrl(url: string): string {
 export function createDrizzleConfig(
   opts: CreateDrizzleConfigOptions = {},
 ): Config {
-  const {
-    schema = "./server/db/schema.ts",
-    out = "./server/db/migrations",
-  } = opts;
+  const { schema = "./server/db/schema.ts", out = "./server/db/migrations" } =
+    opts;
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
   const explicitUrl = opts.url?.trim();
   const url =
@@ -99,8 +97,6 @@ export function createDrizzleConfig(
     out,
     dialect: "postgresql",
     ...(isPglite ? { driver: "pglite" as const } : {}),
-    dbCredentials: isPglite
-      ? { url: pgliteDataDirFromUrl(url) }
-      : { url },
+    dbCredentials: isPglite ? { url: pgliteDataDirFromUrl(url) } : { url },
   });
 }

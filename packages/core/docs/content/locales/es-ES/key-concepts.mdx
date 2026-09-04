@@ -13,7 +13,7 @@ Agent-Native es un framework con tres capas:
 
 | Capa                                                           | Qué es                                                                                                                                                                                                                                                |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core: el framework**                                         | El contrato fundamental de ejecución: actions, helpers de SQL y Drizzle, autenticación, estado de la aplicación, ejecución del agente, comprobaciones de acceso, enrutamiento y sincronización en vivo. Toda aplicación puede usar Core directamente. |
+| **Core: el framework**                                         | El contrato fundamental de ejecución: actions, helpers de PostgreSQL/PGlite y Drizzle, autenticación, estado de la aplicación, ejecución del agente, comprobaciones de acceso, enrutamiento y sincronización en vivo. Toda aplicación puede usar Core directamente. |
 | **Toolkit: piezas reutilizables opcionales**                   | UI y sistemas de producto compartidos para construir aplicaciones, como primitivas, editores, uso compartido, colaboración, configuración y UX del agente. Las aplicaciones pueden usar, combinar o bifurcar las piezas que necesiten.                |
 | **Plantillas: aplicaciones opcionales construidas sobre Core** | Aplicaciones completas y específicas de dominio con rutas, esquema, actions, instrucciones e identidad visual. Las plantillas propias y las personalizadas suelen usar Toolkit, y se pueden bifurcar y usar como punto de partida.                    |
 
@@ -135,11 +135,11 @@ cómo resumir la evidencia, mientras que las actions `search-crm` y
 
 Cinco reglas rigen la arquitectura:
 
-1. **Los datos viven en SQL:** todo el estado de la aplicación vive en la base de datos a través de Drizzle ORM.
+1. **Los datos viven en PostgreSQL:** todo el estado de la aplicación vive en la base de datos a través de Drizzle ORM.
 2. **Toda la IA pasa por el agente:** no hay llamadas a LLM en línea; toda interacción de IA fluye a través del puente de chat del agente.
 3. **Actions para las operaciones del agente:** el trabajo complejo se ejecuta como una acción tipada, no como código en línea.
 4. **La sincronización en vivo mantiene la UI sincronizada:** los cambios de la base de datos se transmiten por SSE, con el sondeo como respaldo universal.
-5. **El estado de la aplicación en SQL:** el estado efímero de la UI vive en la base de datos, y tanto el agente como la UI pueden leerlo.
+5. **El estado de la aplicación en PostgreSQL:** el estado efímero de la UI vive en la base de datos, y tanto el agente como la UI pueden leerlo.
 
 ## La lista de verificación de las cuatro áreas {#four-area-checklist}
 
@@ -170,7 +170,7 @@ Adoptar el framework es valioso sobre todo por lo que dejas de tener que constru
 | Equipos de subagentes                          | Genera un subagente con su propio hilo y herramientas, que aparece como un chip en línea en el chat. Consulta [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                                                                                      |
 | Portabilidad | PostgreSQL con PGlite local y Postgres alojado, además de cualquier host compatible con Nitro (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun). |
 
-## Datos en SQL {#data-in-sql}
+## Datos en PostgreSQL {#data-in-sql}
 
 Todo el estado de la aplicación vive en PostgreSQL a través de Drizzle ORM. Los esquemas utilizan los asistentes de PostgreSQL y PGlite; la configuración de `DATABASE_URL` y las reglas de ejecución están en [Database](/docs/server-database).
 

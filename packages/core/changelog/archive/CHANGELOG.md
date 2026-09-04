@@ -5807,7 +5807,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 - d61ca0c: The collaborative reconcile applies external content on a timer task instead of a microtask, so `setContent` can no longer run inside a React lifecycle flush ("flushSync was called from inside a lifecycle method" console errors during collab reconciliation).
 - 66ffcd9: Treat client-aborted framework route requests as disconnects instead of logging and returning 500 errors.
 - a74a885: `useDbSync` batches consisting entirely of suppressed action events (via `suppressActionInvalidationFor`) now skip the fixed framework invalidation list (extension, slot, tool, and app-state keys) as well as the whole-action-cache invalidation — high-volume background mutations no longer refetch framework queries on every poll tick. Events are still forwarded to `onEvent` and per-source change versions still bump.
-- d44ad4e: Concurrent top-level async transactions on the local database driver are serialized per connection. Previously a transaction starting while another was open saw `inTransaction` and opened a savepoint inside the other task's transaction, which then committed out from under it ("no such savepoint" 500s under concurrent reads/writes). Same-task nesting is detected via AsyncLocalStorage and keeps the direct savepoint path.
+- d44ad4e: Concurrent top-level async transactions are serialized per connection. Previously a transaction starting while another was open saw `inTransaction` and opened a savepoint inside the other task's transaction, which then committed out from under it ("no such savepoint" 500s under concurrent reads/writes). Same-task nesting is detected via AsyncLocalStorage and keeps the direct savepoint path.
 
 ## 0.90.1
 
@@ -12755,7 +12755,7 @@ workspace:*`, but the templates-meta entries were missing
 - 08d4113: Clear stale chat activity when corrective agent retries discard partial output.
 - 08d4113: Add Preview header bar to IframeEmbed showing the embed's title above the iframe.
 - c195ddd: Include installed database packages in Node serverless bundles so hosted apps do not fail loading local database fallbacks.
-- 08d4113: Use the local database driver for local URLs and the hosted database client for remote URLs so serverless bundles no longer depend on platform-specific native packages. The deploy bundler still copies required native packages into Netlify/Vercel/Lambda outputs as a safety net.
+- 08d4113: Use the PostgreSQL client for all URLs so serverless bundles no longer depend on platform-specific native packages. The deploy bundler still copies required packages into Netlify/Vercel/Lambda outputs as a safety net.
 - 08d4113: Bundle agent chat feedback controls with the main client entry so missing lazy chunks cannot crash the agent panel.
 - 08d4113: Show visible assistant error text for chat authentication failures instead of blank messages.
 

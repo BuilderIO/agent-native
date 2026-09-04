@@ -5,7 +5,7 @@ description: "Comment créer et publier vos propres modèles d'applications nati
 
 # Création de modèles
 
-Les modèles sont des applications natives d'agent complètes et exploitables qui résolvent un véritable flux de travail. Les modèles propriétaires sont créés avec la même surface de structure que vous utilisez : routes React pour le UI, Drizzle SQL pour les données, actions pour les opérations, ressources d'espace de travail pour le comportement de l'agent et synchronisation des interrogations afin que l'agent et le UI restent alignés.
+Les modèles sont des applications natives d'agent complètes et exploitables qui résolvent un véritable flux de travail. Les modèles propriétaires sont créés avec la même surface de structure que vous utilisez : routes React pour le UI, données PostgreSQL gérées avec Drizzle, actions pour les opérations, ressources d'espace de travail pour le comportement de l'agent et synchronisation des interrogations afin que l'agent et le UI restent alignés.
 
 Utilisez `@agent-native/core` pour le contrat de runtime : actions, plugins serveur, aides de base de données, état de l'application, aides de routage et chat de l'agent. Utilisez `@agent-native/toolkit` pour l'UI réutilisable de construction d'applications et les aides comme les primitives partagées, les hooks toast/mobile, les sélecteurs de date et les slots simples de shell d'application. Gardez les variantes propres au modèle locales lorsqu'elles encodent un comportement produit ou une identité visuelle.
 
@@ -20,7 +20,7 @@ Toolkit et Templates sont facultatifs. Un template n’est pas le framework lui-
 Un bon modèle :
 
 - Résout un flux de travail de bout en bout, avec des données de départ utiles ou un flux à état vide.
-- Stocke l'état durable dans les fichiers SQL, pas dans les fichiers JSON.
+- Stocke l'état durable dans PostgreSQL/PGlite, pas dans les fichiers JSON.
 - Définit les opérations de l'application comme `defineAction()` actions.
 - Expose la navigation et la sélection via l'état de l'application.
 - Expédie un `AGENTS.md` clair et un skills ciblé pour les flux de travail non évidents.
@@ -41,7 +41,7 @@ Pour un espace de travail avec plusieurs applications, exécutez le sélecteur e
 npx @agent-native/core@latest create my-platform
 ```
 
-Chat vous offre une authentification, des fils de discussion durables, des ressources soutenues par SQL, des outils, l'état de l'application, actions et la synchronisation des sondages. Vous ajoutez le modèle de domaine et le produit UI.
+Chat vous offre une authentification, des fils de discussion durables, des ressources soutenues par PostgreSQL, des outils, l'état de l'application, actions et la synchronisation des sondages. Vous ajoutez le modèle de domaine et le produit UI.
 
 Si vous ne créez pas encore de modèle UI réutilisable, utilisez [Automation-First Apps](/docs/pure-agent-apps) : définissez des actions, exécutez-les sans navigateur et ajoutez l’interface plus tard lorsque le workflow a besoin d’une surface durable.
 
@@ -117,11 +117,11 @@ Chaque modèle suit la même présentation générale :
   ]}
 />
 
-N'ajoutez pas de répertoire `data/` pour l'état de l'application. Les données d'application durables appartiennent à SQL, et le UI les lit via actions ou des gestionnaires de serveur typés.
+N'ajoutez pas de répertoire `data/` pour l'état de l'application. Les données d'application durables appartiennent à PostgreSQL/PGlite, et le UI les lit via actions ou des gestionnaires de serveur typés.
 
-Les quatre zones de chaque modèle s'articulent via une surface d'action partagée et une base de données SQL : l'agent et le UI sont des partenaires égaux pour les mêmes opérations :
+Les quatre zones de chaque modèle s'articulent via une surface d'action partagée et une base de données PostgreSQL/PGlite : l'agent et le UI sont des partenaires égaux pour les mêmes opérations :
 
-<Diagram id="doc-block-1gl364t" title={"Comment les quatre zones d'un modèle se connectent"} summary={"L'interface utilisateur et l'agent atteignent tous deux SQL via les mêmes actions ; l'état de l'application et la synchronisation des interrogations les maintiennent alignés."}>
+<Diagram id="doc-block-1gl364t" title={"Comment les quatre zones d'un modèle se connectent"} summary={"L'interface utilisateur et l'agent atteignent tous deux PostgreSQL/PGlite via les mêmes actions ; l'état de l'application et la synchronisation des interrogations les maintiennent alignés."}>
 
 ```html
 <div class="diagram-tmpl">
@@ -140,7 +140,7 @@ Les quatre zones de chaque modèle s'articulent via une surface d'action partag�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL avec Drizzle<br /><small class="diagram-muted">additive schema</small>
+    PostgreSQL avec Drizzle<br /><small class="diagram-muted">additive schema</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
   <div class="diagram-pill ok">Sondageing sync</div>
@@ -173,7 +173,7 @@ Les quatre zones de chaque modèle s'articulent via une surface d'action partag�
 
 </Diagram>
 
-## Données du modèle dans SQL {#data-models}
+## Données du modèle dans PostgreSQL {#data-models}
 
 Définissez des tables de domaines avec les assistants du framework Drizzle afin que les schémas utilisent PostgreSQL et PGlite :
 
@@ -407,7 +407,7 @@ One workspace for projects, tasks, and notes.
 
 ## Règles de base
 
-- Data lives in SQL avec Drizzle. Use actions for all writes; schema is additive.
+- Data lives in PostgreSQL avec Drizzle. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## État de la demande

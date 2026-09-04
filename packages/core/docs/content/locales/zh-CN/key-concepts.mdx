@@ -13,7 +13,7 @@ Agent-Native 是一个具有三层架构的框架：
 
 | 层级                                    | 内容                                                                                                                                    |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core：框架**                          | 基础运行时契约：actions、SQL 和 Drizzle 辅助函数、身份验证、应用状态、代理执行、访问检查、路由和实时同步。每个应用都可以直接使用 Core。 |
+| **Core：框架**                          | 基础运行时契约：actions、PostgreSQL/PGlite 和 Drizzle 辅助函数、身份验证、应用状态、代理执行、访问检查、路由和实时同步。每个应用都可以直接使用 Core。 |
 | **Toolkit：可选的可复用组件**           | 共享的应用构建 UI 和产品系统，例如基础组件、编辑器、共享、协作、设置和代理 UX。应用可以使用、组合或 fork 所需的组件。                   |
 | **Templates：基于 Core 构建的可选应用** | 完整的、特定领域的应用，具有路由、schema、actions、指令和视觉标识。第一方和自定义模板通常使用 Toolkit，也可以被 fork 并用作起点。       |
 
@@ -133,11 +133,11 @@ Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 
 五条规则支配着这一架构：
 
-1. **数据存在于 SQL 中：** 所有应用状态都通过 Drizzle ORM 存在于数据库中。
+1. **数据存在于 PostgreSQL 中：** 所有应用状态都通过 Drizzle ORM 存在于数据库中。
 2. **所有 AI 都通过代理进行：** 没有内联 LLM 调用；每一次 AI 交互都通过代理聊天桥进行。
 3. **Actions 用于代理操作：** 复杂的工作以类型化的 action 运行，而不是内联代码。
 4. **实时同步让 UI 保持同步：** 数据库更改通过 SSE 流式传输，轮询作为通用回退方案。
-5. **应用状态存储在 SQL 中：** 临时 UI 状态存在于数据库中，代理和 UI 都可读取。
+5. **应用状态存储在 PostgreSQL 中：** 临时 UI 状态存在于数据库中，代理和 UI 都可读取。
 
 ## 四个区域清单 {#four-area-checklist}
 
@@ -168,7 +168,7 @@ Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 | 子代理团队                | 生成一个拥有自己线程和工具的子代理，以聊天内联芯片的形式呈现。参见 [Agent Teams](/docs/agent-teams)。                                                                                                                                                                                                                                      |
 | 可移植性 | 使用本地 PGlite 和托管 Postgres 的 PostgreSQL，以及任何 Nitro 兼容主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。 |
 
-## SQL 中的数据 {#data-in-sql}
+## PostgreSQL 中的数据 {#data-in-sql}
 
 所有应用状态都通过 Drizzle ORM 存储在 PostgreSQL 中。Schema 使用 PostgreSQL 和 PGlite 助手；`DATABASE_URL` 配置和运行规则见 [Database](/docs/server-database)。
 

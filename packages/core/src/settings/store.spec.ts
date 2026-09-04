@@ -1,0 +1,151 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+
+const rawClient = {
+  execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
+    if (typeof input === "string") {
+      await pglite.exec(input);
+      return { rows: [], rowsAffected: 0 };
+    }
+    const stmt = await pglite.prepare(input.sql);
+    const args = (input.args ?? []) as unknown[];
+    if (/^\s*select/i.test(input.sql)) {
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
+    }
+    const info = await stmt.run(...args);
+    return { rows: [], rowsAffected: info.changes };
+  }),
+};
+
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => rawClient,
+  intType: () => "BIGINT",
+  isProductionServerlessFunctionRuntime: () => false,
+}));
+
+const {
+  getSetting,
+  putSetting,
+  deleteSetting,
+  deleteSettingIfValue,
+  mutateSetting,
+} = await import("./store.js");
+
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`);
+});
+
+afterEach(async () => {
+  await pglite.close();
+  vi.clearAllMocks();
+});
+
+describe("settings store", () => {
+  it("issues the poll-path index DDL on init", async () => {
+    // The first store call triggers ensureTable(), which must create the
+    // settings_updated_at_idx index so MAX(updated_at) poll queries avoid
+    // full table scans. Capture which SQL strings are executed and assert.
+    const seen: string[] = [];
+    const orig = rawClient.execute.getMockImplementation()!;
+    rawClient.execute.mockImplementation(
+      async (input: string | { sql: string; args?: unknown[] }) => {
+        const sql = typeof input === "string" ? input : input.sql;
+        seen.push(sql);
+        return orig(input);
+      },
+    );
+    try {
+      await putSetting("probe", { x: 1 });
+    } finally {
+      rawClient.execute.mockImplementation(orig);
+    }
+    expect(seen).toContain(
+      "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON settings (updated_at)",
+    );
+  });
+
+  it("round-trips a value via put/get", async () => {
+    await putSetting("theme", { value: "dark" });
+    const result = await getSetting("theme");
+    expect(result).toEqual({ value: "dark" });
+  });
+
+  it("returns null for a missing key", async () => {
+    const result = await getSetting("does-not-exist");
+    expect(result).toBeNull();
+  });
+
+  it("deletes an existing key and returns true", async () => {
+    await putSetting("to-delete", { keep: false });
+    const deleted = await deleteSetting("to-delete");
+    expect(deleted).toBe(true);
+    expect(await getSetting("to-delete")).toBeNull();
+  });
+
+  it("returns false when deleting a key that does not exist", async () => {
+    const deleted = await deleteSetting("ghost");
+    expect(deleted).toBe(false);
+  });
+
+  it("conditionally deletes only the inspected value", async () => {
+    await putSetting("conditional", { value: "old" });
+
+    expect(await deleteSettingIfValue("conditional", { value: "new" })).toBe(
+      false,
+    );
+    expect(await getSetting("conditional")).toEqual({ value: "old" });
+    expect(await deleteSettingIfValue("conditional", { value: "old" })).toBe(
+      true,
+    );
+    expect(await getSetting("conditional")).toBeNull();
+  });
+
+  it("preserves every concurrent read-modify-write update", async () => {
+    await putSetting("counter", { value: 0 });
+
+    await Promise.all(
+      Array.from({ length: 12 }, () =>
+        mutateSetting("counter", async (current) => {
+          await Promise.resolve();
+          return { value: Number(current?.value ?? 0) + 1 };
+        }),
+      ),
+    );
+
+    expect(await getSetting("counter")).toEqual({ value: 12 });
+  });
+
+  it("serializes concurrent creation of a missing setting", async () => {
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        mutateSetting("new-counter", async (current) => {
+          await Promise.resolve();
+          return { value: Number(current?.value ?? 0) + 1 };
+        }),
+      ),
+    );
+
+    expect(await getSetting("new-counter")).toEqual({ value: 8 });
+  });
+
+  it("lists and isolates keys by prefix", async () => {
+    await putSetting("builder-connect-pending:a", { expiresAt: 1 });
+    await putSetting("builder-connect-pending:b", { expiresAt: 2 });
+    await putSetting("other:c", { expiresAt: 3 });
+
+    const { listSettingsByPrefix } = await import("./store.js");
+    const rows = await listSettingsByPrefix("builder-connect-pending:");
+    expect(rows.map((row) => row.key).sort()).toEqual([
+      "builder-connect-pending:a",
+      "builder-connect-pending:b",
+    ]);
+  });
+});

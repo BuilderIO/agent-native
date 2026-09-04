@@ -1,6 +1,6 @@
 ---
 title: "Collaboration en temps réel"
-description: "Édition collaborative multi-utilisateurs où l'agent IA est un homologue de premier ordre : fusion CRDT, présence en direct, chemin rapide SSE et fusion granulaire côté serveur, sur n'importe quelle base de données SQL et n'importe quel hôte."
+description: "Édition collaborative multi-utilisateurs où l'agent IA est un homologue de premier ordre : fusion CRDT, présence en direct, chemin rapide SSE et fusion granulaire côté serveur, sur PostgreSQL/PGlite et n'importe quel hôte."
 ---
 
 # Collaboration en temps réel
@@ -29,7 +29,7 @@ Ceci s'appuie sur trois technologies éprouvées : **Yjs** (CRDT pour une fusio
 - **L'agent en tant qu'éditeur homologue** – Les modifications de l'agent passent par le même Yjs
   infrastructure sous forme de modifications humaines. Ils apparaissent en direct, sans perturber le curseur
   positions, sélections ou pile d'annulation.
-- **Fonctionne partout** – Toute base de données SQL prise en charge par Drizzle (PGlite, Postgres).
+- **Fonctionne partout** – PostgreSQL/PGlite.
   Toute cible d'hébergement prise en charge par Nitro, y compris sans serveur et Edge.
 
 ## Architecture {#architecture}
@@ -651,7 +651,7 @@ par une application de production normale :
 
 | Prérequis                                                                       | Pourquoi                                                                                                                                                                                                          | Comment vérifier                                                                                                                                                                                                |
 | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Postgres sur un hôte accessible publiquement**                                | La passerelle contacte la base de données depuis son propre réseau. PGlite, `localhost`, `*.internal` et les adresses IP nues sont refusés avant même que la chaîne de connexion ne quitte votre machine. | `DATABASE_URL` pointe vers un Postgres géré tel que Neon                                                                                                                                                        |
+| **Postgres sur un hôte accessible publiquement**                                | La passerelle contacte la base de données depuis son propre réseau. PGlite, `localhost`, `*.internal` et les adresses IP nues sont refusés avant même que la chaîne de connexion PostgreSQL ne quitte votre machine. | `DATABASE_URL` pointe vers un Postgres géré tel que Neon                                                                                                                                                        |
 | **`BUILDER_PRIVATE_KEY` définie comme variable d'environnement du DÉPLOIEMENT** | Elle authentifie l'enregistrement et détermine quelle organisation Builder possède le canal.                                                                                                                      | Voir la note ci-dessous — c'est l'étape que l'on oublie le plus souvent                                                                                                                                         |
 | **Un déploiement de production**                                                | Les préversions de déploiement conservent la synchronisation locale, si bien qu'un identifiant de branche jetable ne quitte jamais la machine et qu'un dépôt actif ne crée pas un canal par pull request.         | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production`                                                                                                                                          |
 | **La plateforme identifie le déploiement**                                      | L'enregistrement est indexé sur l'origine publique de l'application ; un processus qui n'est pas réellement le déploiement ne doit donc pas la revendiquer.                                                       | Netlify, Vercel, AWS Lambda, Cloud Run, Render et Cloudflare Pages se signalent d'eux-mêmes. Sur un simple conteneur ou une VM, définissez `AGENT_NATIVE_REALTIME_APP_URL` avec l'origine propre du déploiement |
@@ -670,7 +670,7 @@ fait la première requête par hasard — et ne lit qu'une variable d'environnem
 </Callout>
 
 L'enregistrement a ensuite lieu à la demande, à la première requête qui a besoin
-d'un canal. L'application envoie sa chaîne de connexion et son origine publique,
+d'un canal. L'application envoie sa chaîne de connexion PostgreSQL et son origine publique,
 reçoit en retour un identifiant de canal et un secret de signature, et émet des
 jetons d'abonnement exactement comme une application hébergée par Builder. Il se
 relance de lui-même dès que l'URL de la base de données, l'origine de
@@ -714,7 +714,7 @@ Parcourez le tableau des prérequis ci-dessus dans l'ordre.
 
 ### Ce que Builder conserve, et la frontière de confiance {#hosted-gateway-trust}
 
-**L'auto-enregistrement signifie envoyer à Builder la chaîne de connexion de
+**L'auto-enregistrement signifie envoyer à Builder la chaîne de connexion PostgreSQL de
 votre base de données.** Builder la conserve et se connecte à votre base de
 données pour suivre `sync_events`. La connexion n'est pas en lecture seule :
 l'allocation des versions et la détection des changements hors bande écrivent
@@ -753,7 +753,7 @@ identifiant d'enregistrement comme valant pour toute l'organisation.
   `BUILDER_GATEWAY_BASE_URL`.
 
 Ici, chaque échec est silencieux par conception : pas de variable de transport,
-pas de clé Builder au niveau du déploiement, une base de données non-Postgres ou
+pas de clé Builder au niveau du déploiement, une connexion PostgreSQL indisponible ou
 une passerelle injoignable laissent l'application en interrogation locale plutôt
 que de produire une erreur. Un 404 sur `GET /_agent-native/realtime-token`
 signifie qu'aucun canal n'a été résolu.

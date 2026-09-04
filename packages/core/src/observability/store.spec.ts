@@ -226,7 +226,7 @@ describe("observability store: per-user isolation", () => {
         createdAt: 1,
       });
       const call = execCalls.find((c) =>
-        /INSERT\s+(OR REPLACE\s+)?INTO agent_trace_summaries/.test(c.sql),
+        /INSERT\s+INTO agent_trace_summaries/.test(c.sql),
       );
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
@@ -265,7 +265,7 @@ describe("observability store: per-user isolation", () => {
         computedAt: 1,
       });
       const call = execCalls.find((c) =>
-        /INSERT (OR REPLACE )?INTO agent_satisfaction_scores/.test(c.sql),
+        /INSERT INTO agent_satisfaction_scores/.test(c.sql),
       );
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);

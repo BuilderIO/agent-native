@@ -13,7 +13,7 @@ Agent-Native is a framework with three layers:
 
 | Layer                                      | What it is                                                                                                                                                                                            |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core: the framework**                    | The foundational runtime contract: actions, SQL and Drizzle helpers, auth, application state, agent execution, access checks, routing, and live sync. Every app can use Core directly.                |
+| **Core: the framework**                    | The foundational runtime contract: actions, PostgreSQL/PGlite and Drizzle helpers, auth, application state, agent execution, access checks, routing, and live sync. Every app can use Core directly.                |
 | **Toolkit: optional reusable pieces**      | Shared app-building UI and product systems such as primitives, editors, sharing, collaboration, settings, and agent UX. Apps can use, compose, or fork the pieces they need.                          |
 | **Templates: optional apps built on Core** | Complete, domain-specific apps with routes, schema, actions, instructions, and visual identity. First-party and custom templates commonly use Toolkit, and can be forked and used as starting points. |
 
@@ -27,9 +27,9 @@ At runtime, every Agent-Native app is three things working together:
 - **Application:** The product surface around the agent. It may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
 - **Computer:** The database, browser, and configured tool runtimes the agent acts through. Agents work through the app's own action and data surface; that same surface can optionally be exposed over MCP, but external MCP servers stay an add-on, not the foundation.
 
-The diagram below shows the agent and the application side by side, both with two-way arrows into one shared computer layer underneath. Neither one owns the data. Instead, they read and write the same SQL store, so a change either side makes is visible to the other immediately, with no sync layer to build in between.
+The diagram below shows the agent and the application side by side, both with two-way arrows into one shared computer layer underneath. Neither one owns the data. Instead, they read and write the same PostgreSQL/PGlite store, so a change either side makes is visible to the other immediately, with no sync layer to build in between.
 
-<Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data.">
+<Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared PostgreSQL/PGlite store. The agent and the application both read and write the same data.">
 
 ```html
 <div class="diagram-arch">
@@ -52,7 +52,7 @@ The diagram below shows the agent and the application side by side, both with tw
   </div>
   <div class="diagram-box" data-rough>
     Computer<br /><small class="diagram-muted"
-      >SQL database · browser · code execution</small
+      >PostgreSQL/PGlite database · browser · code execution</small
     >
   </div>
 </div>
@@ -133,11 +133,11 @@ and write the actual data.
 
 Five rules govern the architecture:
 
-1. **Data lives in SQL:** all app state lives in the database via Drizzle ORM.
+1. **Data lives in PostgreSQL:** all app state lives in the database via Drizzle ORM.
 2. **All AI goes through the agent:** no inline LLM calls; every AI interaction flows through the agent chat bridge.
 3. **Actions for agent operations:** complex work runs as a typed action, not inline code.
 4. **Live sync keeps the UI in sync:** database changes stream over SSE, with polling as the universal fallback.
-5. **Application state in SQL:** ephemeral UI state lives in the database, readable by both agent and UI.
+5. **Application state in PostgreSQL:** ephemeral UI state lives in the database, readable by both agent and UI.
 
 ## The four-area checklist {#four-area-checklist}
 
@@ -157,7 +157,7 @@ Adopting the framework is valuable mostly because of what you stop having to bui
 | Feature                              | What it gives you                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | One action = every surface           | Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other Agent-Native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation. |
-| Full agent resources per user        | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, and connected MCP servers. All SQL-backed, no dev-box required. See [Agent Resources](/docs/agent-resources).                                                                                                                                                            |
+| Full agent resources per user        | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, and connected MCP servers. All PostgreSQL-backed, no dev-box required. See [Agent Resources](/docs/agent-resources).                                                                                                                                                            |
 | Drop-in React components             | `<AgentPanel />` and `<AgentSidebar />` render chat + resources anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).                                                                                                                                                                                                                                                      |
 | BYO agent chat runtimes              | The same chat UI can sit on top of OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, or your own normalized HTTP stream. See [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).                                                                                                                                                                       |
 | Live sync between agent and UI       | Same-process writes stream immediately over `/_agent-native/events`; a lightweight poll keeps serverless, cron, and cross-process writes convergent. Mutating actions invalidate action-backed queries automatically, so agent-created records appear without a manual refresh. See [Live Sync](#polling-sync) below.                                                                |
@@ -168,11 +168,11 @@ Adopting the framework is valuable mostly because of what you stop having to bui
 | Sub-agent teams                      | Spawn a sub-agent with its own thread and tools, surfaced as a chip inline in chat. See [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                            |
 | Portability                          | PostgreSQL with local PGlite and hosted Postgres, any Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                   |
 
-## Data in SQL {#data-in-sql}
+## Data in PostgreSQL {#data-in-sql}
 
 All application state lives in PostgreSQL via Drizzle ORM. Local development uses PGlite; hosted deployments use the PostgreSQL connection in `DATABASE_URL`. See [Database](/docs/server-database).
 
-Core SQL stores are auto-created and available in every template:
+Core PostgreSQL stores are auto-created and available in every template:
 
 - `application_state`: ephemeral UI state (navigation, drafts, selections)
 - `settings`: persistent key-value config
@@ -183,7 +183,7 @@ Each row below expands to show its fields:
 
 <DataModel
   id="doc-block-4w0fu8"
-  title="Core SQL stores"
+  title="Core PostgreSQL stores"
   summary={
     "Auto-created in every template. The agent and UI both read and write these."
   }
@@ -476,7 +476,7 @@ For the full protocol/surface matrix (MCP server and OAuth, MCP Apps, A2A, deep 
 
 The framework does not grant the embedded agent ambient access to an app's
 source code. In a deployed app, the agent normally works through actions,
-SQL-backed state, and configured integrations. It can edit components, routes,
+PostgreSQL-backed state, and configured integrations. It can edit components, routes,
 styles, and actions when its frame is intentionally granted workspace and write
 tooling. Templates are complete apps that you can fork and customize in your
 own repository and development workflow either way. For runtime customization
@@ -491,7 +491,7 @@ Two architectural rules keep apps consistent across PostgreSQL and hosts:
 
 ## Agent Resources {#workspace}
 
-Every user gets a personal set of **agent resources**: instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers, all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Agent Resources](/docs/agent-resources).
+Every user gets a personal set of **agent resources**: instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers, all stored in PostgreSQL/PGlite rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Agent Resources](/docs/agent-resources).
 
 ## Related building blocks {#building-blocks}
 

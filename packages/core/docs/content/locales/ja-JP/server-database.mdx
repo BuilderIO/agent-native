@@ -71,7 +71,7 @@ description: "PostgreSQL を Agent-Native アプリに接続する: スキーマ
 Docker やホスト型データベースを使わずに PostgreSQL をローカル開発するには、オプションの PGlite パッケージをインストールして `DATABASE_URL` を設定します:
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -82,7 +82,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### 本番データベース {#production}
 
-`.env` ファイルまたはデプロイプロバイダーの環境で `DATABASE_URL` を設定し、ホスト型データベースに接続します。
+`.env` ファイルまたはデプロイプロバイダーの環境で `DATABASE_URL` を設定し、ホスト型 PostgreSQL データベースに接続します。
 
 ```bash
 # Neon の Postgres
@@ -97,11 +97,11 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-フレームワークは URL のプレフィックスから方言を自動検出し、それに応じて Drizzle を構成します。
+フレームワークは `DATABASE_URL` に基づいて Drizzle を PostgreSQL 用に構成します。
 
 ### Builder.io 管理データベース {#builder-managed}
 
-_計画中 (まだ利用できません):_ Builder.io に接続すると、アプリは接続文字列を必要とせず、自動的にプロビジョニングされたマネージド データベースを使用できるようになります。
+_計画中 (まだ利用できません):_ Builder.io に接続すると、アプリは PostgreSQL 接続文字列を必要とせず、自動的にプロビジョニングされたマネージド PostgreSQL データベースを使用できるようになります。
 
 ## データベースのセットアップ {#setup}
 
@@ -218,7 +218,7 @@ export const getDb = createGetDb(schema);
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -238,8 +238,8 @@ export const getDb = createGetDb(schema);
     },
     {
       lines: "22-25",
-      label: "PostgreSQL SQL",
-      note: "マイグレーションでは PostgreSQL SQL を直接使用し、バージョン順に適用します。",
+      label: "PostgreSQL",
+      note: "マイグレーションでは PostgreSQL の SQL を直接使用し、バージョン順に適用します。",
     },
   ]}
 />
@@ -265,7 +265,7 @@ serverless ランタイムで共有 Agent-Native ランナーに読み込みま�
 
 ファイルシステム ベースの loader は、Cloudflare Workers/Pages や、
 デプロイ可能なファイルシステムを持たない他の edge runtime では利用できません。
-そこでは worker bundle に埋め込んだ PostgreSQL SQL エントリで `runMigrations()` を使います。
+そこでは worker bundle に埋め込んだ PostgreSQL の migration エントリで `runMigrations()` を使います。
 マイグレーションは PostgreSQL 向けに生成し、同じフォルダーをローカル PGlite と
 ホスト型 PostgreSQL の間で切り替えないでください。
 <Callout tone="risk">
@@ -369,7 +369,7 @@ Agent-Native はファイルシステム ウォッチャーや常駐のインメ
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>PostgrePostgreSQL データベース</strong
+    <strong>PostgreSQL データベース</strong
     ><small class="diagram-muted">同期バージョンが増加する</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>

@@ -13,7 +13,7 @@ Agent-Native é um framework com três camadas:
 
 | Camada                                                        | O que é                                                                                                                                                                                                                                 |
 | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core: o framework**                                         | O contrato fundamental de runtime: ações, auxiliares de SQL e Drizzle, autenticação, estado da aplicação, execução do agente, verificações de acesso, roteamento e sincronização ao vivo. Todo aplicativo pode usar o Core diretamente. |
+| **Core: o framework**                                         | O contrato fundamental de runtime: ações, auxiliares de PostgreSQL/PGlite e Drizzle, autenticação, estado da aplicação, execução do agente, verificações de acesso, roteamento e sincronização ao vivo. Todo aplicativo pode usar o Core diretamente. |
 | **Toolkit: peças reutilizáveis opcionais**                    | UI compartilhada para construção de apps e sistemas de produto, como primitivos, editores, compartilhamento, colaboração, configurações e UX do agente. Os aplicativos podem usar, compor ou fazer fork das peças de que precisam.      |
 | **Templates: aplicativos opcionais construídos sobre o Core** | Aplicativos completos e específicos de domínio, com rotas, schema, ações, instruções e identidade visual. Templates próprios e personalizados costumam usar o Toolkit, e podem ser forkados e usados como ponto de partida.             |
 
@@ -133,11 +133,11 @@ e gravam os dados reais.
 
 Cinco regras regem a arquitetura:
 
-1. **Os dados residem em SQL:** todo o estado do aplicativo reside no banco de dados via Drizzle ORM.
+1. **Os dados residem em PostgreSQL:** todo o estado do aplicativo reside no banco de dados via Drizzle ORM.
 2. **Toda IA passa pelo agente:** nenhuma chamada de LLM inline; toda interação de IA flui pela ponte de chat do agente.
 3. **Ações para operações do agente:** trabalho complexo roda como uma ação tipada, não como código inline.
 4. **A sincronização ao vivo mantém a UI sincronizada:** as alterações do banco de dados são transmitidas via SSE, com polling como substituto universal.
-5. **Estado da aplicação em SQL:** o estado efêmero da UI reside no banco de dados, legível tanto pelo agente quanto pela UI.
+5. **Estado da aplicação em PostgreSQL:** o estado efêmero da UI reside no banco de dados, legível tanto pelo agente quanto pela UI.
 
 ## A lista de verificação de quatro áreas {#four-area-checklist}
 
@@ -168,7 +168,7 @@ Adotar o framework é valioso principalmente pelo que você deixa de precisar co
 | Equipes de subagentes                     | Crie um subagente com sua própria thread e ferramentas, exibido como um chip inline no chat. Consulte [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                                                                       |
 | Portabilidade | PostgreSQL com PGlite local e Postgres hospedado, além de qualquer host compatível com Nitro (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun). |
 
-## Dados em SQL {#data-in-sql}
+## Dados em PostgreSQL {#data-in-sql}
 
 Todo o estado da aplicação reside no PostgreSQL via Drizzle ORM. Os schemas usam os auxiliares de PostgreSQL e PGlite; a configuração de `DATABASE_URL` e as regras operacionais estão em [Database](/docs/server-database).
 

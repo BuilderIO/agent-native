@@ -102,6 +102,10 @@ vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
 }));
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 const store = await import("./identity-sso-store.js");
 
 const STATE_INPUT = {

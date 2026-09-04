@@ -336,7 +336,7 @@ agents.example.com {
 - 把 `BETTER_AUTH_URL` 设置为该应用路径对应的公共 URL。OAuth 回调 URL
   应使用同一个公共 URL。
 - 不要依赖容器文件系统来保存生产数据。请为 `DATABASE_URL` 使用
-  Postgres(或其他持久 SQL 后端)。
+  PostgreSQL。
 - 如果 Cloudflare 在 VPS 前面终结 TLS,请配置 Cloudflare 发送
   正常的 `X-Forwarded-Proto` / `X-Forwarded-Host` 请求头,并把公共
   主机名路由到代理容器。

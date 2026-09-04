@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSyncState, type ChangeEvent } from "./poll.js";
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 /** Minimal DbExec-shaped mock that records the ids inserted into sync_events. */
 function makeDb(insertedIds?: string[]) {
   return {

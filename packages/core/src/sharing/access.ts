@@ -15,7 +15,6 @@
 
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
-
 import { orgMembers } from "../org/schema.js";
 import {
   getRequestAuthCapability,
@@ -380,16 +379,21 @@ function columnName(column: unknown): string | null {
 }
 
 function missingColumnName(err: unknown): string | null {
-  const error = err as { code?: string; message?: string } | undefined;
-  const message = error?.message ?? "";
-  if (
-    error?.code !== "42703" &&
-    !/no such column|does not exist/i.test(message)
-  ) {
-    return null;
+  let current = err as
+    | { code?: unknown; message?: unknown; cause?: unknown }
+    | undefined;
+  for (let attempt = 0; current && attempt < 4; attempt++) {
+    const code = typeof current.code === "string" ? current.code : "";
+    const message = typeof current.message === "string" ? current.message : "";
+    if (code === "42703" || /column .* does not exist/i.test(message)) {
+      return message.match(/column ["']?([\w.]+)["']?/i)?.[1] ?? null;
+    }
+    current =
+      current.cause && typeof current.cause === "object"
+        ? (current.cause as typeof current)
+        : undefined;
   }
-  const quoted = message.match(/column ["']?([\w.]+)["']?/i)?.[1];
-  return quoted ?? null;
+  return null;
 }
 
 function selectExistingColumns(

@@ -86,7 +86,7 @@ to use the stricter trusted-compiler and native-reassembly path.
 
 ## Retrieval behavior
 
-- Portable SQL uses normalized grep modes (`allTerms`, `anyTerm`, `phrase`,
+- Lexical search uses normalized grep modes (`allTerms`, `anyTerm`, `phrase`,
   `regex`) and weighted title/summary/body scoring.
 - PostgreSQL adds a `tsvector`/GIN candidate lane and one configured multimodal
   embedding family backed by pgvector in the same database.

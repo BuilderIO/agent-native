@@ -44,14 +44,6 @@ export const EXTENSION_SLOTS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_slots
   tool_id TEXT NOT NULL,
   slot_id TEXT NOT NULL,
   config TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-)`;
-
-export const EXTENSION_SLOTS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_slots (
-  id TEXT PRIMARY KEY,
-  tool_id TEXT NOT NULL,
-  slot_id TEXT NOT NULL,
-  config TEXT,
   created_at TEXT NOT NULL DEFAULT now()
 )`;
 
@@ -60,18 +52,6 @@ export const EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL = `CREATE INDEX IF NOT EXIST
 export const EXTENSION_SLOTS_UNIQUE_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS tool_slots_unique_idx ON tool_slots (tool_id, slot_id)`;
 
 export const EXTENSION_SLOT_INSTALLS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_slot_installs (
-  id TEXT PRIMARY KEY,
-  tool_id TEXT NOT NULL,
-  slot_id TEXT NOT NULL,
-  owner_email TEXT NOT NULL,
-  org_id TEXT,
-  position INTEGER NOT NULL DEFAULT 0,
-  config TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-)`;
-
-export const EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_slot_installs (
   id TEXT PRIMARY KEY,
   tool_id TEXT NOT NULL,
   slot_id TEXT NOT NULL,

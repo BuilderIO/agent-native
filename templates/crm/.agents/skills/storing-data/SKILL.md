@@ -48,7 +48,7 @@ Existing unnamed migrations don't need to be renamed retroactively (the two gati
 
 ### Domain Data (per-template)
 
-In a managed Drizzle scaffold, define schema in `drizzle/schema.ts` using that scaffold's existing schema imports. Otherwise, define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
+In a managed Drizzle scaffold, define the PostgreSQL schema in `drizzle/schema.ts`. Otherwise, define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
 
 ```ts
 import { eq } from "drizzle-orm";
@@ -135,8 +135,8 @@ Polling streams database changes to the UI. When the agent writes to the databas
 ## Do
 
 - Use Drizzle ORM for structured domain data (forms, bookings, documents)
-- Use Drizzle query builder methods (`select`, `insert`, `update`, `delete`) and Postgres operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads/writes
-Use framework schema helpers from `@agent-native/core/db/schema` so template schemas stay aligned with Postgres.
+- Use Drizzle query builder methods (`select`, `insert`, `update`, `delete`) and standard operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads/writes
+- Use framework schema helpers from `@agent-native/core/db/schema` instead of direct Drizzle schema-driver imports
 - Use the `settings` store for app configuration and user preferences
 - Use `application-state` for ephemeral UI state that the agent and UI share
 - Use `oauth-tokens` for OAuth credentials
@@ -153,7 +153,7 @@ Use framework schema helpers from `@agent-native/core/db/schema` so template sch
 - Don't use Redis or any external state store for app data
 - Don't store large files, base64 blobs, `data:` URLs, screenshots, videos, audio, PDFs, ZIPs, or session replay chunks directly in SQL rows, `application_state`, `settings`, or `resources`
 - Don't implement product features with raw SQL or `getDbExec()` when Drizzle can express the query
-- Keep advanced SQL PostgreSQL-compatible
+- Write advanced SQL for PostgreSQL
 - Don't interpolate user input directly into SQL queries — use Drizzle ORM's query builder
 
 ## Security

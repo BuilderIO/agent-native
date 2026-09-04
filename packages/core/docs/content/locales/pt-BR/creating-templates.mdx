@@ -5,7 +5,7 @@ description: "Como criar e publicar seus próprios modelos de aplicativos nativo
 
 # Criando modelos
 
-Os modelos são aplicativos nativos do agente completos e bifurcáveis que resolvem um fluxo de trabalho real. Os modelos primários são criados com a mesma superfície de estrutura que você usa: rotas React para UI, Drizzle SQL para dados, actions para operações, recursos de espaço de trabalho para comportamento do agente e sincronização de sondagem para que o agente e UI permaneçam alinhados.
+Os modelos são aplicativos nativos do agente completos e bifurcáveis que resolvem um fluxo de trabalho real. Os modelos primários são criados com a mesma superfície de estrutura que você usa: rotas React para UI, dados PostgreSQL com Drizzle, actions para operações, recursos de espaço de trabalho para comportamento do agente e sincronização de sondagem para que o agente e UI permaneçam alinhados.
 
 Use `@agent-native/core` para o contrato de runtime: actions, plugins de servidor, helpers de banco de dados, estado do app, helpers de rotas e chat do agente. Use `@agent-native/toolkit` para UI reutilizável e helpers de construção de apps, como primitivas compartilhadas, hooks de toast/mobile, seletores de data e slots simples de shell do app. Mantenha variantes específicas do template locais quando elas codificarem comportamento de produto ou identidade visual.
 
@@ -20,7 +20,7 @@ Toolkit e Templates são opcionais. Um template não é o próprio framework, e 
 Um bom modelo:
 
 - Resolve um fluxo de trabalho de ponta a ponta, com dados iniciais úteis ou um fluxo de estado vazio.
-- Armazena estado durável em arquivos SQL, não em arquivos JSON.
+- Armazena estado durável em PostgreSQL/PGlite, não em arquivos JSON.
 - Define as operações do aplicativo como `defineAction()` actions.
 - Expõe navegação e seleção por meio do estado do aplicativo.
 - Fornece um `AGENTS.md` claro e um skills focado para fluxos de trabalho não óbvios.
@@ -41,7 +41,7 @@ Para um workspace com vários aplicativos, execute o seletor e inclua o Chat com
 npx @agent-native/core@latest create my-platform
 ```
 
-O Chat oferece autenticação, threads de bate-papo duráveis, recursos apoiados por SQL, ferramentas, estado do aplicativo, actions e sincronização de pesquisa. Você adiciona o modelo de domínio e o produto UI.
+O Chat oferece autenticação, threads de bate-papo duráveis, recursos apoiados por PostgreSQL, ferramentas, estado do aplicativo, actions e sincronização de pesquisa. Você adiciona o modelo de domínio e o produto UI.
 
 Se você ainda não estiver criando um template de UI reutilizável, use [Apps orientados à automação](/docs/pure-agent-apps): defina ações, execute-as sem um navegador e adicione UI depois, quando o fluxo de trabalho precisar de uma superfície durável.
 
@@ -117,11 +117,11 @@ Cada modelo segue o mesmo layout amplo:
   ]}
 />
 
-Não adicione um diretório `data/` para o estado do aplicativo. Os dados duráveis do aplicativo pertencem ao SQL, e o UI os lê por meio do actions ou de manipuladores de servidor digitados.
+Não adicione um diretório `data/` para o estado do aplicativo. Os dados duráveis do aplicativo pertencem ao PostgreSQL/PGlite, e o UI os lê por meio do actions ou de manipuladores de servidor digitados.
 
-As quatro áreas de cada modelo se conectam por meio de uma superfície de ação compartilhada e um banco de dados SQL — o agente e o UI são parceiros iguais nas mesmas operações:
+As quatro áreas de cada modelo se conectam por meio de uma superfície de ação compartilhada e um banco de dados PostgreSQL/PGlite — o agente e o UI são parceiros iguais nas mesmas operações:
 
-<Diagram id="doc-block-pp7sdt" title={"Como as quatro áreas de um modelo se conectam"} summary={"A UI e o agente alcançam SQL através das mesmas ações; o estado do aplicativo e a sincronização de pesquisa os mantêm alinhados."}>
+<Diagram id="doc-block-pp7sdt" title={"Como as quatro áreas de um modelo se conectam"} summary={"A UI e o agente alcançam PostgreSQL/PGlite através das mesmas ações; o estado do aplicativo e a sincronização de pesquisa os mantêm alinhados."}>
 
 ```html
 <div class="diagram-tmpl">
@@ -142,7 +142,7 @@ As quatro áreas de cada modelo se conectam por meio de uma superfície de açã
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL com Drizzle<br /><small class="diagram-muted">additive schema</small>
+    PostgreSQL com Drizzle<br /><small class="diagram-muted">additive schema</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
   <div class="diagram-pill ok">Sincronização por polling</div>
@@ -175,7 +175,7 @@ As quatro áreas de cada modelo se conectam por meio de uma superfície de açã
 
 </Diagram>
 
-## Dados do modelo em SQL {#data-models}
+## Dados do modelo em PostgreSQL {#data-models}
 
 Defina tabelas de domínio com os auxiliares da estrutura Drizzle para que os esquemas usem PostgreSQL e PGlite:
 
@@ -409,7 +409,7 @@ One workspace for projects, tasks, and notes.
 
 ## Regras Básicas
 
-- Data lives in SQL com Drizzle. Use actions for all writes; schema is additive.
+- Data lives in PostgreSQL com Drizzle. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## Estado do aplicativo

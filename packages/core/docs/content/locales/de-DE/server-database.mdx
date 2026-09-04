@@ -71,7 +71,7 @@ Dies ist nur für die lokale Entwicklung gedacht. Container, serverlose Funktion
 Um lokal mit PostgreSQL zu entwickeln, ohne Docker oder eine gehostete Datenbank zu benötigen, installieren Sie das optionale PGlite-Paket und setzen Sie `DATABASE_URL`:
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -82,7 +82,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### Produktionsdatenbank {#production}
 
-Legen Sie `DATABASE_URL` in Ihrer `.env`-Datei oder der Umgebung Ihres Deploy-Providers fest, um eine gehostete Datenbank zu verbinden:
+Legen Sie `DATABASE_URL` in Ihrer `.env`-Datei oder der Umgebung Ihres Deploy-Providers fest, um eine gehostete PostgreSQL-Datenbank zu verbinden:
 
 ```bash
 # Neon Postgres
@@ -97,11 +97,11 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-Das Framework erkennt den Dialekt automatisch anhand des URL-Präfixes und konfiguriert Drizzle entsprechend.
+Das Framework konfiguriert Drizzle anhand von `DATABASE_URL` für PostgreSQL.
 
 ### Von Builder.io verwaltete Datenbank {#builder-managed}
 
-_Geplant (noch nicht verfügbar):_ Wenn Ihre App mit Builder.io verbunden ist, kann sie eine verwaltete Datenbank nutzen, die automatisch bereitgestellt wird – ganz ohne Connection Strings.
+_Geplant (noch nicht verfügbar):_ Wenn Ihre App mit Builder.io verbunden ist, kann sie eine verwaltete PostgreSQL-Datenbank nutzen, die automatisch bereitgestellt wird – ganz ohne PostgreSQL-Verbindungszeichenfolge.
 
 ## Einrichten der Datenbank {#setup}
 
@@ -218,7 +218,7 @@ bei der ersten Anfrage aus. Verwenden Sie `runMigrations` aus `@agent-native/cor
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -370,7 +370,7 @@ Das funktioniert über serverlose und Multi-Instanz-Deployments hinweg, weil die
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>PostgrePostgreSQL-Datenbank</strong
+    <strong>PostgreSQL-Datenbank</strong
     ><small class="diagram-muted">Sync-Version erhöht sich</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>

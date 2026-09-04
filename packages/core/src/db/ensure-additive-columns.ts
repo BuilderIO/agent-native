@@ -238,8 +238,10 @@ function sqlDefaultText(value: unknown): string | undefined {
 /** True when an ALTER ... ADD COLUMN failure indicates the column already exists (race with a concurrent boot). */
 function isDuplicateColumnError(err: unknown): boolean {
   const msg = (err as { message?: string } | undefined)?.message ?? "";
-  return /column .* already exists/i.test(msg) ||
-    (err as { code?: string } | undefined)?.code === "42701";
+  return (
+    /column .* already exists/i.test(msg) ||
+    (err as { code?: string } | undefined)?.code === "42701"
+  );
 }
 
 /** Annotate a schema-drift-shaped Postgres error (42703/42P01) so logs read plainly. */

@@ -1,15 +1,15 @@
 ---
 title: "代理資源"
-description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、指令、自訂代理、計畫作業、MCP 伺服器 - 由 SQL 支援，而不是檔案系統。"
+description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、指令、自訂代理、計畫作業、MCP 伺服器 - 由 PostgreSQL/PGlite 支援，而不是檔案系統。"
 ---
 
 # 代理資源
 
 每個 Agent-Native 應用程式都附帶**代理資源**：使代理成為您的自訂層。它包含團隊指令 (`AGENTS.md`)、共用學習內容 (`LEARNINGS.md`)、個人結構化記憶 (`memory/MEMORY.md`)、代理按需拉入的 skills、自訂子代理、計畫作業和連線的 MCP 伺服器 — 您期望從 Claude 程式碼 / Codex 設定獲得的一切。
 
-變化：**它是 SQL 行，而不是檔案系統檔案。**每個使用者都將自己的一組代理資源儲存在資料庫中。沒有要啟動的開發盒，沒有每個使用者的容器，沒有要安裝的檔案。多租戶 SaaS 可以為每個使用者提供基本上免費的完全可自訂的代理，因為所有這些都是行——個人記憶、個人 MCP 伺服器、個人 skills、個人子代理——並且共用程式碼庫同時託管所有這些。
+變化：**它是 PostgreSQL/PGlite 行，而不是檔案系統檔案。**每個使用者都將自己的一組代理資源儲存在資料庫中。沒有要啟動的開發盒，沒有每個使用者的容器，沒有要安裝的檔案。多租戶 SaaS 可以為每個使用者提供基本上免費的完全可自訂的代理，因為所有這些都是行——個人記憶、個人 MCP 伺服器、個人 skills、個人子代理——並且共用程式碼庫同時託管所有這些。
 
-<Diagram id="doc-block-13hq8ax" title={"Claude-Code 設定，但作為代理資源儲存在 SQL 中"} summary={"相同的定制層——指令、技能、記憶、代理、作業、MCP——除了每個檔案都是共用多租戶資料庫中的一行。"}>
+<Diagram id="doc-block-13hq8ax" title={"Claude-Code 設定，但作為代理資源儲存在 PostgreSQL/PGlite 中"} summary={"相同的定制層——指令、技能、記憶、代理、作業、MCP——除了每個檔案都是共用多租戶資料庫中的一行。"}>
 
 ```html
 <div class="ws-map">
@@ -27,7 +27,7 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Agent-Native 資源</span
-    ><small class="diagram-muted">rows in one SQL 資料庫</small>
+    ><small class="diagram-muted">rows in one PostgreSQL/PGlite 資料庫</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -73,7 +73,7 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
 
 | Claude 程式碼/Codex           | Agent-Native 資源                       |
 | ----------------------------- | --------------------------------------- |
-| 本機磁盤上的檔案              | 共用 SQL 資料庫中的行                   |
+| 本機磁盤上的檔案              | 共用 PostgreSQL/PGlite 資料庫中的行                   |
 | 每個開發人員一個程式碼庫      | 一個程式碼庫，多個使用者                |
 | 需要開發盒或容器              | 在任何無伺服器/邊緣主機上執行           |
 | `~/.claude/` 定制             | 按使用者自訂，範圍為 `u:<email>:…`      |
@@ -402,7 +402,7 @@ Skills 是 `skills/` 路徑（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 ## 工作區連線 {#workspace-connections}
 
-工作區連線允許應用程式共用相同的提供者帳戶（Slack、GitHub、HubSpot 等），而無需重複憑證。連線在 SQL 中紀錄提供者身分、帳戶標籤、狀態、範圍、應用程式授權和憑證引用。秘密保留在憑證儲存中；連線僅指向憑證金鑰名稱，例如 `SLACK_BOT_TOKEN`。
+工作區連線允許應用程式共用相同的提供者帳戶（Slack、GitHub、HubSpot 等），而無需重複憑證。連線在 PostgreSQL/PGlite 中紀錄提供者身分、帳戶標籤、狀態、範圍、應用程式授權和憑證引用。秘密保留在憑證儲存中；連線僅指向憑證金鑰名稱，例如 `SLACK_BOT_TOKEN`。
 
 請參閱 [Workspace Connections](/docs/workspace-connections) 了解快速入門、connection/grant/credentialRef API 以及具體的 Slack、HubSpot 和 GitHub 範例。
 

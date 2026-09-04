@@ -238,13 +238,13 @@ The framework creates temporary SQL views that filter queries automatically:
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 INSERT statements get `owner_email` auto-injected when the column isn't already present.
 
-The `db-query` / `db-exec` tools reject schema-qualified table references (`public.<table>`, `main.<table>`) — a qualified name resolves to the base table and would bypass the temporary view above. Agents use bare table names; scoping is applied automatically.
+The `db-query` / `db-exec` tools reject schema-qualified table references (`public.<table>`) — a qualified name resolves to the base table and would bypass the temporary view above. Agents use bare table names; scoping is applied automatically.
 
 ### Per-Org Scoping (`org_id`)
 

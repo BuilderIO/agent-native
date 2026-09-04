@@ -1,15 +1,15 @@
 ---
 title: "代理资源"
-description: "Claude - 每个用户的代码级自定义 - skills、内存、指令、自定义代理、计划作业、MCP 服务器 - 由 SQL 支持，而不是文件系统。"
+description: "Claude - 每个用户的代码级自定义 - skills、内存、指令、自定义代理、计划作业、MCP 服务器 - 由 PostgreSQL/PGlite 支持，而不是文件系统。"
 ---
 
 # 代理资源
 
 每个代理本机应用程序都附带**代理资源**：使代理成为您的自定义层。它包含团队指令 (`AGENTS.md`)、共享学习内容 (`LEARNINGS.md`)、个人结构化内存 (`memory/MEMORY.md`)、代理按需拉入的 skills、自定义子代理、计划作业和连接的 MCP 服务器 — 您期望从 Claude 代码 / Codex 设置获得的一切。
 
-变化：**它是 SQL 行，而不是文件系统文件。**每个用户都将自己的一套代理资源存储在数据库中。没有要启动的开发盒，没有每个用户的容器，没有要安装的文件。多租户 SaaS 可以为每个用户提供基本上免费的完全可定制的代理，因为所有这些都是行——个人内存、个人 MCP 服务器、个人 skills、个人子代理——并且共享代码库同时托管所有这些。
+变化：**它是 PostgreSQL/PGlite 行，而不是文件系统文件。**每个用户都将自己的一套代理资源存储在数据库中。没有要启动的开发盒，没有每个用户的容器，没有要安装的文件。多租户 SaaS 可以为每个用户提供基本上免费的完全可定制的代理，因为所有这些都是行——个人内存、个人 MCP 服务器、个人 skills、个人子代理——并且共享代码库同时托管所有这些。
 
-<Diagram id="doc-block-1729nmr" title={"Claude-Code 设置，但作为代理资源存储在 SQL 中"} summary={"相同的定制层——指令、技能、内存、代理、作业、MCP——除了每个文件都是共享多租户数据库中的一行。"}>
+<Diagram id="doc-block-1729nmr" title={"Claude-Code 设置，但作为代理资源存储在 PostgreSQL/PGlite 中"} summary={"相同的定制层——指令、技能、内存、代理、作业、MCP——除了每个文件都是共享多租户数据库中的一行。"}>
 
 ```html
 <div class="ws-map">
@@ -27,7 +27,7 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Agent-Native 资源</span
-    ><small class="diagram-muted">rows in one SQL 数据库</small>
+    ><small class="diagram-muted">rows in one PostgreSQL/PGlite 数据库</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -72,7 +72,7 @@ description: "Claude - 每个用户的代码级自定义 - skills、内存、指
 
 | Claude代码/Codex              | 代理本机资源                            |
 | ----------------------------- | --------------------------------------- |
-| 本地磁盘上的文件              | 共享 SQL 数据库中的行                   |
+| 本地磁盘上的文件              | 共享 PostgreSQL/PGlite 数据库中的行                   |
 | 每个开发人员一个代码库        | 一个代码库，多个用户                    |
 | 需要开发盒或容器              | 在任何无服务器/边缘主机上运行           |
 | `~/.claude/` 定制             | 按用户自定义，范围为 `u:<email>:…`      |
@@ -401,7 +401,7 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 ## 工作区连接 {#workspace-connections}
 
-工作区连接允许应用程序共享相同的提供商帐户（Slack、GitHub、HubSpot 等），而无需重复凭据。连接在 SQL 中记录提供者身份、帐户标签、状态、范围、应用程序授权和凭据引用。秘密保留在凭证存储中；连接仅指向凭证密钥名称，例如 `SLACK_BOT_TOKEN`。
+工作区连接允许应用程序共享相同的提供商帐户（Slack、GitHub、HubSpot 等），而无需重复凭据。连接在 PostgreSQL/PGlite 中记录提供者身份、帐户标签、状态、范围、应用程序授权和凭据引用。秘密保留在凭证存储中；连接仅指向凭证密钥名称，例如 `SLACK_BOT_TOKEN`。
 
 请参阅 [Workspace Connections](/docs/workspace-connections) 了解快速入门、connection/grant/credentialRef API 以及具体的 Slack、HubSpot 和 GitHub 示例。
 

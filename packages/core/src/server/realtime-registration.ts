@@ -19,7 +19,7 @@
  * connection string pasted once by hand goes stale on rotation and takes the
  * tail down silently.
  *
- * Everything here fails soft. No credential, a non-Postgres database, the org's
+ * Everything here fails soft. No credential, the org's
  * flag off, the gateway unreachable — all resolve to `null`, the token mint
  * 404s, and the client stays on the app's own `/_agent-native/poll`.
  */

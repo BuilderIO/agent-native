@@ -98,8 +98,5 @@ export function runDrizzleMigrations(
   migrationsFolder: DrizzleMigrationsFolder,
   options: RunDrizzleMigrationsOptions,
 ): ReturnType<typeof runMigrations> {
-  return runMigrations(
-    () => loadDrizzleMigrations(migrationsFolder),
-    options,
-  );
+  return runMigrations(() => loadDrizzleMigrations(migrationsFolder), options);
 }

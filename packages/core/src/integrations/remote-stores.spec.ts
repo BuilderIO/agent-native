@@ -158,7 +158,30 @@ describe("remote relay stores", () => {
           return { rows: [{ id: "cmd-1" }], rowsAffected: 0 };
         }
         if (sql.includes("UPDATE integration_remote_commands")) {
-          return { rows: [], rowsAffected: 1 };
+          return {
+            rows: [
+              {
+                id: args[3],
+                device_id: args[4],
+                owner_email: "alice@example.com",
+                org_id: null,
+                kind: "create-run",
+                params_json: JSON.stringify({ prompt: "ship it" }),
+                status: "claimed",
+                result_json: null,
+                platform: "desktop",
+                external_thread_id: null,
+                attempts: 1,
+                next_check_at: 1,
+                claimed_at: args[1],
+                completed_at: null,
+                error_message: null,
+                created_at: 1,
+                updated_at: args[2],
+              },
+            ],
+            rowsAffected: 1,
+          };
         }
         if (
           sql.includes("SELECT * FROM integration_remote_commands") &&

@@ -11,7 +11,7 @@ import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs } from "../utils.js";
 import { createPostgresScriptClient } from "./postgres-client.js";
 
-const DEV_FALLBACK_EMAIL = "local@localhost";
+const DEV_FALLBACK_EMAIL = "local@localhost"; // guard:allow-localhost-fallback - intentional dev-owner migration sentinel
 
 interface ScriptArgs {
   to: string;
@@ -91,7 +91,9 @@ export default async function dbResetDevOwner(args: string[]): Promise<void> {
           [DEV_FALLBACK_EMAIL],
         )) as Array<{ count: number }>;
         const count = Number(countRows[0]?.count ?? 0);
-        console.log(`  ${table}: ${count} row(s)${parsed.dryRun ? " (dry-run)" : ""}`);
+        console.log(
+          `  ${table}: ${count} row(s)${parsed.dryRun ? " (dry-run)" : ""}`,
+        );
         if (parsed.dryRun || count === 0) continue;
         const result = await tx.unsafe(
           `UPDATE ${identifier} SET owner_email = $1 WHERE owner_email = $2`,

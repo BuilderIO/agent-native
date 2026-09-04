@@ -39,11 +39,11 @@ import {
   extensionHides,
   extensionShares,
   extensionHistory,
-  EXTENSIONS_CREATE_SQL_PG,
-  EXTENSION_SHARES_CREATE_SQL_PG,
-  EXTENSION_DATA_CREATE_SQL_PG,
-  EXTENSION_DATA_ITEM_INDEX_SQL_PG,
-  EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG,
+  EXTENSIONS_CREATE_SQL,
+  EXTENSION_SHARES_CREATE_SQL,
+  EXTENSION_DATA_CREATE_SQL,
+  EXTENSION_DATA_ITEM_INDEX_SQL,
+  EXTENSION_DATA_DROP_OLD_INDEX_SQL,
   EXTENSIONS_OWNER_INDEX_SQL,
   EXTENSIONS_ORG_INDEX_SQL,
   EXTENSIONS_UPDATED_INDEX_SQL,
@@ -53,13 +53,13 @@ import {
   EXTENSIONS_HIDDEN_BY_COLUMN_SQL,
   EXTENSIONS_HIDDEN_AT_INDEX_SQL,
   EXTENSION_SHARES_RESOURCE_INDEX_SQL,
-  EXTENSION_HIDES_CREATE_SQL_PG,
+  EXTENSION_HIDES_CREATE_SQL,
   EXTENSION_HIDES_UNIQUE_INDEX_SQL,
   EXTENSION_HIDES_OWNER_INDEX_SQL,
-  EXTENSION_HISTORY_CREATE_SQL_PG,
+  EXTENSION_HISTORY_CREATE_SQL,
   EXTENSION_HISTORY_VERSION_INDEX_SQL,
   EXTENSION_HISTORY_CREATED_INDEX_SQL,
-  EXTENSION_CONSENTS_CREATE_SQL_PG,
+  EXTENSION_CONSENTS_CREATE_SQL,
   EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
 } from "./schema.js";
 
@@ -78,17 +78,17 @@ export async function ensureExtensionsTables(): Promise<void> {
       const client = getDbExec();
       {
         // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("tools", EXTENSIONS_CREATE_SQL_PG);
+        await ensureTableExists("tools", EXTENSIONS_CREATE_SQL);
         await migrateMisnamedExtensionsTable(client); // data migration, not DDL - unchanged
-        await ensureTableExists("tool_shares", EXTENSION_SHARES_CREATE_SQL_PG);
-        await ensureTableExists("tool_data", EXTENSION_DATA_CREATE_SQL_PG);
+        await ensureTableExists("tool_shares", EXTENSION_SHARES_CREATE_SQL);
+        await ensureTableExists("tool_data", EXTENSION_DATA_CREATE_SQL);
         await ensureExtensionDataItemId(); // ADD COLUMN - guarded inside
         await ensureExtensionDataScope(); // ADD COLUMN - guarded inside
         // DROP INDEX (for old index) — safe DDL, runs via client.execute; keep on both paths
-        await client.execute(EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG);
+        await client.execute(EXTENSION_DATA_DROP_OLD_INDEX_SQL);
         await ensureIndexExists(
           "tool_data_scoped_item_idx",
-          EXTENSION_DATA_ITEM_INDEX_SQL_PG,
+          EXTENSION_DATA_ITEM_INDEX_SQL,
         );
         await ensureIndexExists("tools_owner_idx", EXTENSIONS_OWNER_INDEX_SQL);
         await ensureIndexExists("tools_org_idx", EXTENSIONS_ORG_INDEX_SQL);
@@ -112,7 +112,7 @@ export async function ensureExtensionsTables(): Promise<void> {
         );
         await ensureTableExists(
           "tool_hidden_extensions",
-          EXTENSION_HIDES_CREATE_SQL_PG,
+          EXTENSION_HIDES_CREATE_SQL,
         );
         await ensureIndexExists(
           "tool_hidden_extensions_user_tool_idx",
@@ -122,10 +122,7 @@ export async function ensureExtensionsTables(): Promise<void> {
           "tool_hidden_extensions_owner_idx",
           EXTENSION_HIDES_OWNER_INDEX_SQL,
         );
-        await ensureTableExists(
-          "tool_history",
-          EXTENSION_HISTORY_CREATE_SQL_PG,
-        );
+        await ensureTableExists("tool_history", EXTENSION_HISTORY_CREATE_SQL);
         await ensureIndexExists(
           "tool_history_tool_version_idx",
           EXTENSION_HISTORY_VERSION_INDEX_SQL,
@@ -134,10 +131,7 @@ export async function ensureExtensionsTables(): Promise<void> {
           "tool_history_tool_created_idx",
           EXTENSION_HISTORY_CREATED_INDEX_SQL,
         );
-        await ensureTableExists(
-          "tool_consents",
-          EXTENSION_CONSENTS_CREATE_SQL_PG,
-        );
+        await ensureTableExists("tool_consents", EXTENSION_CONSENTS_CREATE_SQL);
         await ensureIndexExists(
           "tool_consents_viewer_idx",
           EXTENSION_CONSENTS_VIEWER_INDEX_SQL,

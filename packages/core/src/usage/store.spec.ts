@@ -1,0 +1,696 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
+import { runWithRequestContext } from "../server/request-context.js";
+
+// Real in-memory PGlite behind the raw getDbExec client so recordUsage /
+// getUserUsageCents / getUsageSummary exercise genuine aggregation + scoping.
+// A fresh DB per test keeps the module-level _initPromise (CREATE TABLE IF NOT
+// EXISTS) idempotent across tests.
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+
+const rawClient = {
+  execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
+    if (typeof input === "string") {
+      await pglite.exec(input);
+      return { rows: [], rowsAffected: 0 };
+    }
+    const stmt = await pglite.prepare(input.sql);
+    const args = (input.args ?? []) as unknown[];
+    if (/^\s*select/i.test(input.sql)) {
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
+    }
+    const info = await stmt.run(...args);
+    return { rows: [], rowsAffected: info.changes };
+  }),
+};
+
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => rawClient,
+  intType: () => "BIGINT",
+  isProductionServerlessFunctionRuntime: () => false,
+}));
+
+const {
+  builderCreditsFromCostCents,
+  calculateCost,
+  usageBillingForEngine,
+  recordUsage,
+  getUserUsageCents,
+  getUsageSummary,
+} = await import("./store.js");
+
+beforeEach(async () => {
+  // recordUsage derives its primary key from Date.now()*1000 + random(0..999).
+  // Under a fast loop Date.now() is constant and the 1000-value random space
+  // collides, producing a UNIQUE-constraint failure. Drive Math.random from a
+  // monotonic counter so every insert in a test gets a distinct id without
+  // touching source behavior. (Real Postgres would not hit this in practice;
+  // we are only removing test-induced flakiness.)
+  let randomCursor = 0;
+  vi.spyOn(Math, "random").mockImplementation(() => {
+    randomCursor = (randomCursor + 1) % 1000;
+    return randomCursor / 1000;
+  });
+
+  pglite = await createTestPglite();
+  // The store caches CREATE TABLE in a module-level _initPromise that only runs
+  // once for the whole file, so create the table per fresh DB ourselves.
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
+    id BIGINT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    input_tokens BIGINT NOT NULL DEFAULT 0,
+    output_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+    cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+    cost_source TEXT NOT NULL DEFAULT 'estimated',
+    model TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT 'chat',
+    app TEXT NOT NULL DEFAULT '',
+    ref_id TEXT NOT NULL DEFAULT '',
+    org_id TEXT,
+    run_id TEXT,
+    thread_id TEXT,
+    task_id TEXT,
+    integration_scope_id TEXT,
+    source_platform TEXT,
+    source_id TEXT,
+    created_at BIGINT NOT NULL
+  )`);
+  delete process.env.AGENT_APP;
+  delete process.env.APP_NAME;
+});
+
+afterEach(async () => {
+  await pglite.close();
+  vi.restoreAllMocks();
+});
+
+describe("usage billing", () => {
+  it("maps Builder hard costs to agent credits with margin", () => {
+    expect(builderCreditsFromCostCents(100)).toBe(25);
+    expect(builderCreditsFromCostCents(1)).toBe(0.25);
+  });
+
+  it("rounds Builder credits up to the same precision as ai-services", () => {
+    expect(builderCreditsFromCostCents(0.001)).toBe(0.001);
+  });
+
+  it("treats non-positive / non-finite cents as zero credits", () => {
+    expect(builderCreditsFromCostCents(0)).toBe(0);
+    expect(builderCreditsFromCostCents(-5)).toBe(0);
+    expect(builderCreditsFromCostCents(Number.NaN)).toBe(0);
+    expect(builderCreditsFromCostCents(Infinity)).toBe(0);
+  });
+
+  it("uses Builder credit display only for the Builder engine", () => {
+    expect(usageBillingForEngine("builder").unit).toBe("builder-credits");
+    expect(usageBillingForEngine("anthropic").unit).toBe("usd");
+    expect(usageBillingForEngine(null).unit).toBe("usd");
+    expect(usageBillingForEngine(undefined).unit).toBe("usd");
+  });
+});
+
+describe("calculateCost pricing tiers", () => {
+  it("does not round tiny completed calls down to zero spend", () => {
+    expect(calculateCost(10, 2, "claude-sonnet-4-5")).toBe(1);
+  });
+
+  it("returns 0 for a call with no tokens", () => {
+    expect(calculateCost(0, 0, "claude-opus-4")).toBe(0);
+  });
+
+  it("prices opus higher than sonnet which is higher than haiku for the same tokens", () => {
+    // 1M input + 1M output, centicents.
+    const opus = calculateCost(1_000_000, 1_000_000, "claude-opus-4-1");
+    const sonnet = calculateCost(1_000_000, 1_000_000, "claude-sonnet-4-5");
+    const haiku = calculateCost(1_000_000, 1_000_000, "claude-haiku-4");
+    // opus = (1500 + 7500) * 100 = 900000 centicents.
+    expect(opus).toBe(900_000);
+    // sonnet (default) = (300 + 1500) * 100 = 180000.
+    expect(sonnet).toBe(180_000);
+    // haiku = (100 + 500) * 100 = 60000.
+    expect(haiku).toBe(60_000);
+    expect(opus).toBeGreaterThan(sonnet);
+    expect(sonnet).toBeGreaterThan(haiku);
+  });
+
+  it("falls back to sonnet pricing for unknown models", () => {
+    expect(calculateCost(1_000_000, 0, "some-future-model")).toBe(
+      calculateCost(1_000_000, 0, "claude-sonnet-4-5"),
+    );
+  });
+
+  it("prices cache read cheaper than cache write", () => {
+    const read = calculateCost(0, 0, "claude-sonnet-4-5", 1_000_000, 0);
+    const write = calculateCost(0, 0, "claude-sonnet-4-5", 0, 1_000_000);
+    // sonnet cacheRead 30, cacheWrite 375 → centicents.
+    expect(read).toBe(3_000);
+    expect(write).toBe(37_500);
+    expect(write).toBeGreaterThan(read);
+  });
+
+  // `inputTokens` is the whole prompt and INCLUDES the cache counts, so the
+  // three are a partition. Charging the full total AND the cache counts on top
+  // billed every cached token twice — on a long cached conversation the cache
+  // is nearly the whole prompt, so the error was ~9x, not a rounding artifact.
+  it("prices each input token once when most of the prompt was cached", () => {
+    // A real turn: 42,438-token prompt, all but 3 tokens served from cache.
+    const cost = calculateCost(42_438, 285, "gpt-5.6-luna", 36_734, 5_701);
+
+    // luna, short context: $0.20 input / $0.02 cached / $0.25 cache write /
+    // $1.20 output per MTok, in this table's cents-per-MTok units.
+    const uncached = (3 / 1_000_000) * 20 * 100;
+    const output = (285 / 1_000_000) * 120 * 100;
+    const cacheRead = (36_734 / 1_000_000) * 2 * 100;
+    const cacheWrite = (5_701 / 1_000_000) * 25 * 100;
+    expect(cost).toBe(Math.round(uncached + output + cacheRead + cacheWrite));
+
+    // The shape of the old bug: the whole prompt charged at the full input
+    // rate, on top of the cache counts rather than net of them.
+    const doubleCounted =
+      (42_438 / 1_000_000) * 20 * 100 + output + cacheRead + cacheWrite;
+    expect(cost).toBeLessThan(doubleCounted);
+  });
+
+  // Cache writes cost MORE than uncached input, not less and not nothing —
+  // the one rate in OpenAI's table that is easy to assume away, and the one
+  // this table previously had at zero.
+  it("prices an OpenAI cache write above the full input rate", () => {
+    const write = calculateCost(1_000_000, 0, "gpt-5.6-luna", 0, 1_000_000);
+    const fresh = calculateCost(1_000_000, 0, "gpt-5.6-luna", 0, 0);
+    expect(write).toBe(2_500); // $0.25/MTok
+    expect(fresh).toBe(2_000); // $0.20/MTok
+    expect(write).toBeGreaterThan(fresh);
+  });
+
+  it("never credits the bill when cache counts exceed the prompt", () => {
+    // An engine still emitting the exclusive convention. Clamped, not negative
+    // — a wrong-signed charge is worse than a low one.
+    expect(
+      calculateCost(3, 0, "claude-sonnet-4-5", 36_734, 5_701),
+    ).toBeGreaterThan(0);
+  });
+
+  // A provider without prompt caching passes 0s and must still pay full rate
+  // on the whole prompt — the partition degrades to "all of it is uncached".
+  it("charges the full rate throughout when there is no caching", () => {
+    expect(calculateCost(1_000_000, 0, "claude-sonnet-4-5", 0, 0)).toBe(30_000);
+  });
+});
+
+describe("recordUsage", () => {
+  it("skips no-op writes when no tokens flowed", async () => {
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 0,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+    });
+    const inserts = rawClient.execute.mock.calls.filter((c) => {
+      const input = c[0] as string | { sql: string };
+      const sql = typeof input === "string" ? input : input.sql;
+      return /INSERT\s+INTO\s+token_usage/i.test(sql);
+    });
+    expect(inserts).toHaveLength(0);
+  });
+
+  it("persists a row and rolls it into the per-user total", async () => {
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+    });
+    // sonnet input 300/M → 30000 centicents = $3.00.
+    await expect(getUserUsageCents("a@example.com")).resolves.toBeCloseTo(300);
+  });
+
+  it("records a cache-only call (no input/output) instead of skipping it", async () => {
+    // The no-op guard checks cache tokens too, so a prompt-cache-heavy call
+    // with zero billable input/output must still be persisted and priced.
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 1_000_000,
+      cacheWriteTokens: 0,
+      model: "claude-sonnet-4-5",
+    });
+    const summary = await getUsageSummary({ ownerEmail: "a@example.com" });
+    expect(summary.totalCalls).toBe(1);
+    expect(summary.totalCacheReadTokens).toBe(1_000_000);
+    // sonnet cacheRead 30/M → 3000 centicents; getUserUsageCents = /100 = 30.
+    await expect(getUserUsageCents("a@example.com")).resolves.toBeCloseTo(30);
+  });
+
+  it("supports the legacy positional 4-arg signature", async () => {
+    await recordUsage("legacy@example.com", 1_000_000, 0, "claude-sonnet-4-5");
+    await expect(getUserUsageCents("legacy@example.com")).resolves.toBeCloseTo(
+      300,
+    );
+  });
+
+  it("defaults label to 'chat' and resolves app from AGENT_APP env", async () => {
+    process.env.AGENT_APP = "mail";
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+    });
+    const summary = await getUsageSummary({ ownerEmail: "a@example.com" });
+    expect(summary.byLabel.map((b) => b.key)).toContain("chat");
+    expect(summary.byApp.map((b) => b.key)).toContain("mail");
+  });
+
+  it("explicit label/app override the env fallback", async () => {
+    process.env.AGENT_APP = "mail";
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+      label: "automation",
+      app: "calendar",
+    });
+    const summary = await getUsageSummary({ ownerEmail: "a@example.com" });
+    expect(summary.byLabel.map((b) => b.key)).toEqual(["automation"]);
+    expect(summary.byApp.map((b) => b.key)).toEqual(["calendar"]);
+  });
+
+  it("persists run/thread/task attribution onto the row", async () => {
+    // Every one of 701 prod rows on analytics had NULL run_id/thread_id/task_id
+    // despite the columns existing, so no spend could be tied to a run, thread,
+    // or outcome. Pin that a supplied id actually lands in the INSERT.
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+      runId: "run-abc",
+      threadId: "thread-xyz",
+      taskId: "task-42",
+      orgId: "org-7",
+    });
+    const row = pglite
+      .prepare(`SELECT run_id, thread_id, task_id, org_id FROM token_usage`)
+      .get() as Record<string, string | null>;
+    expect(row).toEqual({
+      run_id: "run-abc",
+      thread_id: "thread-xyz",
+      task_id: "task-42",
+      org_id: "org-7",
+    });
+  });
+
+  it("inherits the organization from the active request when omitted", async () => {
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-7" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "claude-sonnet-4-5",
+        }),
+    );
+
+    const row = (await pglite
+      .prepare(`SELECT org_id FROM token_usage`)
+      .get()) as {
+      org_id: string | null;
+    };
+    expect(row.org_id).toBe("org-7");
+  });
+
+  it("leaves attribution NULL rather than empty-string when the caller omits it", async () => {
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+    });
+    const row = pglite
+      .prepare(`SELECT run_id, thread_id, task_id FROM token_usage`)
+      .get() as Record<string, string | null>;
+    expect(row).toEqual({ run_id: null, thread_id: null, task_id: null });
+  });
+});
+
+describe("getUserUsageCents scoping", () => {
+  it("never sums another owner's spend into a user's total", async () => {
+    await recordUsage({
+      ownerEmail: "alice@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+    });
+    await recordUsage({
+      ownerEmail: "bob@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-opus-4-1",
+    });
+    await expect(getUserUsageCents("alice@example.com")).resolves.toBeCloseTo(
+      300,
+    );
+    // Bob's opus spend is far higher and must not leak into Alice's number.
+    const bob = await getUserUsageCents("bob@example.com");
+    expect(bob).toBeGreaterThan(300);
+    await expect(getUserUsageCents("nobody@example.com")).resolves.toBe(0);
+  });
+});
+
+describe("getUsageSummary", () => {
+  it("aggregates totals and buckets and is scoped to the owner", async () => {
+    // Alice: two chat calls + one automation call.
+    await recordUsage({
+      ownerEmail: "alice@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+      label: "chat",
+      app: "mail",
+    });
+    await recordUsage({
+      ownerEmail: "alice@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+      label: "chat",
+      app: "mail",
+    });
+    await recordUsage({
+      ownerEmail: "alice@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-opus-4-1",
+      label: "automation",
+      app: "calendar",
+    });
+    // Bob's usage must not appear in Alice's summary.
+    await recordUsage({
+      ownerEmail: "bob@example.com",
+      inputTokens: 5_000_000,
+      outputTokens: 0,
+      model: "claude-opus-4-1",
+      label: "chat",
+      app: "mail",
+    });
+
+    const summary = await getUsageSummary({ ownerEmail: "alice@example.com" });
+
+    expect(summary.totalCalls).toBe(3);
+    expect(summary.totalInputTokens).toBe(3_000_000);
+
+    // byLabel buckets are owner-scoped and ordered by cents desc — automation
+    // (opus) outweighs the two sonnet chat calls.
+    const labels = Object.fromEntries(summary.byLabel.map((b) => [b.key, b]));
+    expect(labels.chat.calls).toBe(2);
+    expect(labels.automation.calls).toBe(1);
+    expect(summary.byLabel[0].key).toBe("automation");
+
+    // byApp similarly scoped — only Alice's apps.
+    expect(summary.byApp.map((b) => b.key).sort()).toEqual([
+      "calendar",
+      "mail",
+    ]);
+
+    // byModel has both models, opus first (more expensive).
+    expect(summary.byModel[0].key).toContain("opus");
+
+    // Total cents equals the sum across buckets.
+    const labelCentsSum = summary.byLabel.reduce((n, b) => n + b.cents, 0);
+    expect(summary.totalCents).toBeCloseTo(labelCentsSum);
+
+    // billing mode defaults to USD.
+    expect(summary.billing?.unit).toBe("usd");
+  });
+
+  it("filters by sinceMs while recent ignores the window", async () => {
+    const now = Date.now();
+    // Insert a stale row directly (200 days ago) and a fresh row via the API.
+    await pglite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
+        id BIGINT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        input_tokens BIGINT NOT NULL DEFAULT 0,
+        output_tokens BIGINT NOT NULL DEFAULT 0,
+        cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+        cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+        cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+        model TEXT NOT NULL DEFAULT '',
+        label TEXT NOT NULL DEFAULT 'chat',
+        app TEXT NOT NULL DEFAULT '',
+        created_at BIGINT NOT NULL
+      )`);
+    const oldTs = now - 200 * 86_400_000;
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, cost_cents_x100, model, label, app, created_at)
+         VALUES (1, 'alice@example.com', 1000000, 0, 5000, 'claude-sonnet-4-5', 'chat', 'mail', ?)`,
+      )
+      .run(oldTs);
+
+    await recordUsage({
+      ownerEmail: "alice@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+    });
+
+    // Default 30-day window excludes the 200-day-old row.
+    const windowed = await getUsageSummary({ ownerEmail: "alice@example.com" });
+    expect(windowed.totalCalls).toBe(1);
+    // recent (no window filter) sees both rows.
+    expect(windowed.recent.length).toBe(2);
+    expect(windowed.recent[0].createdAt).toBeGreaterThan(
+      windowed.recent[1].createdAt,
+    );
+
+    // Widening sinceMs to 1 year pulls the old row into the aggregates.
+    const wide = await getUsageSummary({
+      ownerEmail: "alice@example.com",
+      sinceMs: now - 365 * 86_400_000,
+    });
+    expect(wide.totalCalls).toBe(2);
+
+    // byDay buckets the two rows under their (distinct) UTC dates, ascending —
+    // the 200-day-old row sorts before today.
+    expect(wide.byDay).toHaveLength(2);
+    expect(wide.byDay.map((d) => d.date)).toEqual(
+      [...wide.byDay.map((d) => d.date)].sort(),
+    );
+    expect(wide.byDay[0].date).toBe(new Date(oldTs).toISOString().slice(0, 10));
+    expect(wide.byDay.reduce((n, d) => n + d.calls, 0)).toBe(2);
+  });
+
+  it("returns empty buckets and zeroed totals for an owner with no usage", async () => {
+    const summary = await getUsageSummary({ ownerEmail: "ghost@example.com" });
+    expect(summary.totalCalls).toBe(0);
+    expect(summary.totalCents).toBe(0);
+    expect(summary.totalCost).toEqual({
+      status: "known",
+      knownCents: 0,
+      unavailableCalls: 0,
+    });
+    expect(summary.byLabel).toEqual([]);
+    expect(summary.byModel).toEqual([]);
+    expect(summary.byApp).toEqual([]);
+    expect(summary.byDay).toEqual([]);
+    expect(summary.recent).toEqual([]);
+  });
+
+  it("keeps unavailable provider cost visible in every aggregate", async () => {
+    await recordUsage({
+      ownerEmail: "mixed@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+      label: "chat",
+    });
+    await recordUsage({
+      ownerEmail: "mixed@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      model: "openai/gpt-oss-120b",
+      label: "visual-recap",
+      costSource: "unavailable",
+    });
+
+    const summary = await getUsageSummary({
+      ownerEmail: "mixed@example.com",
+    });
+
+    expect(summary.totalCost).toEqual({
+      status: "partial",
+      knownCents: 300,
+      unavailableCalls: 1,
+    });
+    expect(
+      summary.byModel.find((bucket) => bucket.key === "openai/gpt-oss-120b")
+        ?.cost,
+    ).toEqual({
+      status: "unavailable",
+      knownCents: 0,
+      unavailableCalls: 1,
+    });
+    expect(summary.byDay[0]?.cost.status).toBe("partial");
+  });
+});
+
+describe("recordUsage refId + cost override", () => {
+  it("replaces a prior row with the same (label, refId) rather than duplicating", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 100,
+      outputTokens: 10,
+      model: "gpt-5.6-sol",
+      label: "visual-recap",
+      refId: "recap-1",
+    });
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 200,
+      outputTokens: 20,
+      model: "gpt-5.6-sol",
+      label: "visual-recap",
+      refId: "recap-1",
+    });
+    const rows = pglite
+      .prepare(
+        "SELECT input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'recap-1'",
+      )
+      .all() as Array<{ input_tokens: number }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].input_tokens).toBe(200);
+  });
+
+  it("deduplicates a refId only within the same organization", async () => {
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-a" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 100,
+          outputTokens: 10,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "shared-recap",
+        }),
+    );
+    await runWithRequestContext(
+      { userEmail: "b@example.com", orgId: "org-b" },
+      () =>
+        recordUsage({
+          ownerEmail: "b@example.com",
+          inputTokens: 200,
+          outputTokens: 20,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "shared-recap",
+        }),
+    );
+
+    const rows = pglite
+      .prepare(
+        "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'shared-recap' ORDER BY org_id",
+      )
+      .all() as Array<{ org_id: string; input_tokens: number }>;
+    expect(rows).toEqual([
+      { org_id: "org-a", input_tokens: 100 },
+      { org_id: "org-b", input_tokens: 200 },
+    ]);
+  });
+
+  it("replaces a legacy unscoped refId when an organization is available", async () => {
+    await pglite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, model, label, ref_id, org_id, created_at)
+         VALUES (1, 'legacy@example.com', 100, 10, 'gpt-5.6-sol', 'visual-recap', 'legacy-recap', NULL, ?)`,
+      )
+      .run(Date.now());
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-a" },
+      () =>
+        recordUsage({
+          ownerEmail: "owner@example.com",
+          inputTokens: 200,
+          outputTokens: 20,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "legacy-recap",
+        }),
+    );
+
+    const rows = pglite
+      .prepare(
+        "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'legacy-recap'",
+      )
+      .all() as Array<{ org_id: string | null; input_tokens: number }>;
+    expect(rows).toEqual([{ org_id: "org-a", input_tokens: 200 }]);
+  });
+
+  it("stores a precomputed costCentsX100 verbatim instead of deriving from tokens", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "gpt-5.6-sol",
+      label: "visual-recap",
+      refId: "recap-2",
+      costCentsX100: 4242,
+    });
+    const row = pglite
+      .prepare(
+        "SELECT cost_cents_x100 AS c FROM token_usage WHERE ref_id = 'recap-2'",
+      )
+      .get() as { c: number };
+    // Derived cost would be 50000 centicents ($5/1M); the override wins.
+    expect(row.c).toBe(4242);
+  });
+
+  it("records token counts without fabricated spend when cost is unavailable", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      model: "deepseek-chat",
+      label: "visual-recap",
+      refId: "recap-compatible",
+      costSource: "unavailable",
+    });
+    const row = pglite
+      .prepare(
+        "SELECT cost_cents_x100 AS cost, cost_source AS source FROM token_usage WHERE ref_id = 'recap-compatible'",
+      )
+      .get() as { cost: number; source: string };
+
+    expect(row).toEqual({ cost: 0, source: "unavailable" });
+  });
+
+  it("does not dedup rows that carry no refId", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1,
+      outputTokens: 1,
+      model: "m",
+      label: "chat",
+    });
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1,
+      outputTokens: 1,
+      model: "m",
+      label: "chat",
+    });
+    const rows = pglite
+      .prepare("SELECT id FROM token_usage WHERE label = 'chat'")
+      .all();
+    expect(rows).toHaveLength(2);
+  });
+});

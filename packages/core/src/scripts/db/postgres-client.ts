@@ -28,11 +28,16 @@ function rowsResult(
 function pgliteClient(client: any): PostgresScriptClient {
   return {
     async unsafe(sql, args) {
-      const result = await client.query(toPostgresParams(sql), args ?? []);
+      const result =
+        args === undefined
+          ? await client.query(toPostgresParams(sql))
+          : await client.query(toPostgresParams(sql), args);
       return rowsResult(result.rows, result.affectedRows ?? result.rowCount);
     },
     async begin<T>(fn: (tx: PostgresScriptClient) => Promise<T>): Promise<T> {
-      return client.transaction((tx: any) => fn(pgliteClient(tx))) as Promise<T>;
+      return client.transaction((tx: any) =>
+        fn(pgliteClient(tx)),
+      ) as Promise<T>;
     },
     async end() {},
   };
@@ -53,9 +58,7 @@ export async function createPostgresScriptClient(
   }
 
   if (!/^postgres(?:ql)?:\/\//i.test(url)) {
-    throw new Error(
-      "Database URL must be a PostgreSQL URL or a pglite: URL.",
-    );
+    throw new Error("Database URL must be a PostgreSQL URL or a pglite: URL.");
   }
 
   const { default: postgres } = await import("postgres");
@@ -67,7 +70,9 @@ export async function createPostgresScriptClient(
         : (client.unsafe(sql, args as any[]) as Promise<PostgresScriptRows>);
     },
     async begin<T>(fn: (tx: PostgresScriptClient) => Promise<T>): Promise<T> {
-      return client.begin((tx: any) => fn(tx as PostgresScriptClient)) as Promise<T>;
+      return client.begin((tx: any) =>
+        fn(tx as PostgresScriptClient),
+      ) as Promise<T>;
     },
     end() {
       return client.end();

@@ -71,7 +71,7 @@ Ceci est réservé au développement local. Les conteneurs, les fonctions sans s
 Pour développer localement avec PostgreSQL sans Docker ni base de données hébergée, installez le paquet optionnel PGlite et définissez `DATABASE_URL` :
 
 ```bash
-pnpm add @electric-sql/pglite@^0.5.3
+pnpm add @electric-sql/pglite@^0.5.8
 ```
 
 ```bash
@@ -82,7 +82,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### Base de données de production {#production}
 
-Définissez `DATABASE_URL` dans votre fichier `.env` ou dans l'environnement de votre fournisseur de déploiement pour connecter une base de données hébergée :
+Définissez `DATABASE_URL` dans votre fichier `.env` ou dans l'environnement de votre fournisseur de déploiement pour connecter une base de données PostgreSQL hébergée :
 
 ```bash
 # Neon Postgres
@@ -97,11 +97,11 @@ DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 DATABASE_URL=pglite:./data/pglite
 ```
 
-Le framework détecte automatiquement le dialecte à partir du préfixe de l'URL et configure Drizzle en conséquence.
+Le framework configure Drizzle pour PostgreSQL à partir de `DATABASE_URL`.
 
 ### Base de données gérée Builder.io {#builder-managed}
 
-_Planifié (pas encore disponible) :_ une fois connectée à Builder.io, votre application pourra utiliser une base de données gérée provisionnée automatiquement, sans aucune chaîne de connexion requise.
+_Planifié (pas encore disponible) :_ une fois connectée à Builder.io, votre application pourra utiliser une base de données PostgreSQL gérée provisionnée automatiquement, sans chaîne de connexion PostgreSQL requise.
 
 ## Configurer la base de données {#setup}
 
@@ -219,7 +219,7 @@ et non lors de la première requête. Utilisez `runMigrations` depuis
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -265,13 +265,11 @@ sur Node. L'étape de release reste responsable des modifications de production.
 Conservez `runMigrations()` pour le SQL propre à PostgreSQL, Postgres, les backfills et
 les étapes JavaScript différées.
 
-Le chargeur basé sur le système de fichiers n'est pas disponible dans Cloudflare
-Workers/Pages ni dans les autres runtimes edge sans système de fichiers, y compris
-Postgres. Utilisez-y `runMigrations()` avec des entrées SQL intégrées au bundle du
-worker. Un dossier de sortie Drizzle possède une seule base de métadonnées propre
-au dialecte : générez pour le dialecte de déploiement principal et ne réutilisez
-pas le même dossier en alternant PGlite et PostgreSQL.
-
+Le chargeur basé sur le système de fichiers n’est pas disponible dans Cloudflare
+Workers/Pages ni dans les autres runtimes edge sans système de fichiers. Utilisez-y
+`runMigrations()` avec des entrées SQL PostgreSQL intégrées au bundle du worker.
+Générez les migrations pour PostgreSQL et ne réutilisez pas le même dossier entre
+PGlite local et PostgreSQL hébergé.
 <Callout tone="risk">
   N'exécutez jamais `drizzle-kit push` sur une base de données de production.
   Les schémas de modèle définissent uniquement les tables spécifiques à
@@ -375,7 +373,7 @@ Cela fonctionne aussi bien dans les déploiements sans serveur que multi-instanc
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>Base de données PostgrePostgreSQL</strong
+    <strong>Base de données PostgreSQL</strong
     ><small class="diagram-muted"
       >la version de synchronisation s'incrémente</small
     >

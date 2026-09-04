@@ -150,7 +150,7 @@ function buildScopedTables(
         // prompt-injection exfiltration channel (read own secret → send to
         // attacker URL) and also hides any legacy plaintext rows that predate
         // encryption plus the recoverable last4/preview. Schema-qualified attempts
-        // to reach the base table (public.settings / main.settings) are
+        // to reach the base table (public.settings) are
         // rejected separately by assertNoSchemaQualifiedTables in safety.ts.
         whereSql =
           `"${coreScoping.column}" LIKE '${prefix}%' ESCAPE '\\'` +

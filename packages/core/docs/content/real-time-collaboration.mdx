@@ -660,7 +660,7 @@ deployment-level `BUILDER_PRIVATE_KEY` environment variable. An app that shows
 </Callout>
 
 Registration then happens on demand, on the first request that needs a channel.
-The app posts its connection string and public origin, gets back a channel id
+The app posts its PostgreSQL connection string and public origin, gets back a channel id
 and signing secret, and mints subscribe tokens exactly as a Builder-hosted app
 does. It re-runs by itself whenever the database URL, the app origin or the
 Builder credential changes, so a credential rotation carries over without a

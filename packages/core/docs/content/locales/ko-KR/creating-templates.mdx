@@ -5,7 +5,7 @@ description: "자신만의 에이전트 기반 앱 템플릿을 만들고 게시
 
 # 템플릿 만들기
 
-템플릿은 실제 워크플로를 해결하는 완전하고 포크 가능한 에이전트 기반 앱입니다. 자사 템플릿은 귀하가 사용하는 것과 동일한 프레임워크 표면으로 구축됩니다. UI용 React 경로, 데이터용 Drizzle SQL, 작업용 actions, 에이전트 동작용 작업 공간 리소스, 에이전트와 UI가 정렬 상태를 유지하도록 폴링 동기화합니다.
+템플릿은 실제 워크플로를 해결하는 완전하고 포크 가능한 에이전트 기반 앱입니다. 자사 템플릿은 귀하가 사용하는 것과 동일한 프레임워크 표면으로 구축됩니다. UI용 React 경로, Drizzle 기반 PostgreSQL 데이터, 작업용 actions, 에이전트 동작용 작업 공간 리소스, 에이전트와 UI가 정렬 상태를 유지하도록 폴링 동기화합니다.
 
 `@agent-native/core`는 runtime contract에 사용하세요: actions, server plugins, database helpers, app state, routing helpers, agent chat입니다. `@agent-native/toolkit`은 shared primitives, toast/mobile hooks, date pickers, simple app shell slots 같은 reusable app-building UI와 helpers에 사용하세요. 제품 동작이나 visual identity를 담는 template-specific variants는 로컬에 유지하세요.
 
@@ -20,7 +20,7 @@ Toolkit과 Templates는 선택 사항입니다. Template 자체가 프레임워�
 좋은 템플릿:
 
 - 유용한 시드 데이터 또는 빈 상태 흐름을 사용하여 하나의 워크플로를 엔드 투 엔드로 해결합니다.
-- JSON 파일이 아닌 SQL에 지속성 상태를 저장합니다.
+- JSON 파일이 아닌 PostgreSQL/PGlite에 지속성 상태를 저장합니다.
 - 앱 작업을 `defineAction()` actions로 정의합니다.
 - 애플리케이션 상태를 통해 탐색 및 선택을 노출합니다.
 - 명확하지 않은 작업 흐름을 위해 명확한 `AGENTS.md`와 집중된 skills를 제공합니다.
@@ -41,7 +41,7 @@ npx @agent-native/core@latest create my-template --template chat --standalone
 npx @agent-native/core@latest create my-platform
 ```
 
-Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구, 애플리케이션 상태, actions 및 폴링 동기화를 제공합니다. 도메인 모델과 제품 UI를 추가합니다.
+Chat은 인증, 내구성 있는 채팅 스레드, PostgreSQL 지원 리소스, 도구, 애플리케이션 상태, actions 및 폴링 동기화를 제공합니다. 도메인 모델과 제품 UI를 추가합니다.
 
 아직 재사용 가능한 UI 템플릿을 구축하지 않았다면 [Automation-First Apps](/docs/pure-agent-apps)를 사용하세요. 액션을 정의하고 브라우저 없이 실행한 다음 워크플로에 지속적인 화면이 필요할 때 UI를 추가하세요.
 
@@ -117,11 +117,11 @@ Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구,
   ]}
 />
 
-애플리케이션 상태에 대해 `data/` 디렉터리를 추가하지 마세요. 내구성 있는 앱 데이터는 SQL에 속하며 UI는 actions 또는 형식화된 서버 핸들러를 통해 이를 읽습니다.
+애플리케이션 상태에 대해 `data/` 디렉터리를 추가하지 마세요. 내구성 있는 앱 데이터는 PostgreSQL/PGlite에 속하며 UI는 actions 또는 형식화된 서버 핸들러를 통해 이를 읽습니다.
 
-모든 템플릿의 네 가지 영역은 하나의 공유 작업 표면과 하나의 SQL 데이터베이스를 통해 함께 연결됩니다. 에이전트와 UI는 동일한 작업에 대해 동등한 파트너입니다.
+모든 템플릿의 네 가지 영역은 하나의 공유 작업 표면과 하나의 PostgreSQL/PGlite 데이터베이스를 통해 함께 연결됩니다. 에이전트와 UI는 동일한 작업에 대해 동등한 파트너입니다.
 
-<Diagram id="doc-block-hjg2nf" title={"템플릿의 네 가지 영역이 연결되는 방식"} summary={"UI와 에이전트는 모두 동일한 작업을 통해 SQL에 도달합니다. 애플리케이션 상태와 폴링 동기화가 정렬된 상태를 유지합니다."}>
+<Diagram id="doc-block-hjg2nf" title={"템플릿의 네 가지 영역이 연결되는 방식"} summary={"UI와 에이전트는 모두 동일한 작업을 통해 PostgreSQL/PGlite에 도달합니다. 애플리케이션 상태와 폴링 동기화가 정렬된 상태를 유지합니다."}>
 
 ```html
 <div class="diagram-tmpl">
@@ -142,7 +142,7 @@ Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구,
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    Drizzle 기반 SQL<br /><small class="diagram-muted">additive schema</small>
+    Drizzle 기반 PostgreSQL<br /><small class="diagram-muted">additive schema</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
   <div class="diagram-pill ok">폴링ing sync</div>
@@ -175,7 +175,7 @@ Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구,
 
 </Diagram>
 
-## SQL의 모델 데이터 {#data-models}
+## PostgreSQL의 모델 데이터 {#data-models}
 
 프레임워크 Drizzle 도우미를 사용하여 도메인 테이블을 정의하고 스키마가 PostgreSQL 및 PGlite를 사용하도록 하세요.
 
@@ -408,7 +408,7 @@ One workspace for projects, tasks, and notes.
 
 ## 핵심 규칙
 
-- Data lives in Drizzle 기반 SQL. Use actions for all writes; schema is additive.
+- Data lives in Drizzle 기반 PostgreSQL. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## 애플리케이션 상태

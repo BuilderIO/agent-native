@@ -1447,13 +1447,8 @@ async function createDbExecInternal(
   trackSingletonResources = false,
 ): Promise<DbExec> {
   const url = config.url || "pglite:./data/pglite";
-  if (
-    !isPgliteUrl(url) &&
-    !/^postgres(?:ql)?:\/\//i.test(url)
-  ) {
-    throw new Error(
-      "DATABASE_URL must be a PostgreSQL URL or a pglite: URL.",
-    );
+  if (!isPgliteUrl(url) && !/^postgres(?:ql)?:\/\//i.test(url)) {
+    throw new Error("DATABASE_URL must be a PostgreSQL URL or a pglite: URL.");
   }
 
   if (isPgliteUrl(url)) {
@@ -1480,101 +1475,101 @@ async function createDbExecInternal(
   // different request" error.
   const { isNeonUrl } = await import("./create-get-db.js");
 
-    // Neon over @neondatabase/serverless (WebSocket upgrade on port 443).
-    // postgres-js uses a raw TCP socket on 5432 that frequently fails on
-    // serverless runtimes (Netlify Functions, Vercel, CF Workers) when
-    // Neon's pooler is cold — every request after an idle period times out
-    // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
-    // and keeps the same `pg`-compatible query(...) interface we need here.
-    if (isNeonUrl(url)) {
-      const { Pool, neon } = await import("@neondatabase/serverless");
-      // A frozen/thawed background function can retain half-dead WebSocket
-      // connections, so its direct executions use stateless Neon HTTP instead.
-      // The foreground and transaction surface keep the WebSocket pool.
-      const bgHttp = isBackgroundFunctionPoolContext();
-      const makePool = () =>
-        new Pool({ connectionString: url, ...neonPoolOptions() });
-      // The singleton exec shares the process pool; `createDbExec()` callers own
-      // a `close()` and so must not be handed it.
-      const pool = trackSingletonResources
-        ? sharedDbPool("neon", url, makePool)
-        : makePool();
-      guardNeonPool(pool, url);
-      const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
-      async function queryNeonClient(
-        client: any,
-        sql: Parameters<DbExec["execute"]>[0],
-        timeoutOverrideMs?: number,
-      ) {
-        const { rawSql, args } = sqlAndArgs(sql);
-        const { timeoutMs } = dbExecQueryBudget(sql);
-        const pgSql = toPostgresParams(rawSql);
-        // Neon only accepts multiple SQL commands through its simple protocol;
-        // the transaction start has no parameters, so use that overload.
-        const runQuery = () =>
-          args.length === 0 && rawSql.includes(";")
-            ? client.query(pgSql)
-            : client.query(pgSql, args as any[]);
-        const result = await withDbTimeout(
-          "query",
-          () => runQuery() as Promise<{ rows: unknown[]; rowCount?: number }>,
-          timeoutOverrideMs ?? timeoutMs,
-        );
-        return {
-          rows: result.rows,
-          rowsAffected: result.rowCount ?? 0,
-        };
-      }
-      async function queryNeonClientWithStatementTimeout(
-        client: any,
-        sql: Parameters<DbExec["execute"]>[0],
-        remainingMs: () => number,
-        markClientForDiscard: () => void,
-      ) {
-        const statementTimeoutMs = postgresStatementTimeoutMs(remainingMs());
-        await queryNeonClient(
-          client,
-          `SET statement_timeout = ${statementTimeoutMs}`,
-          remainingMs(),
-        );
+  // Neon over @neondatabase/serverless (WebSocket upgrade on port 443).
+  // postgres-js uses a raw TCP socket on 5432 that frequently fails on
+  // serverless runtimes (Netlify Functions, Vercel, CF Workers) when
+  // Neon's pooler is cold — every request after an idle period times out
+  // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
+  // and keeps the same `pg`-compatible query(...) interface we need here.
+  if (isNeonUrl(url)) {
+    const { Pool, neon } = await import("@neondatabase/serverless");
+    // A frozen/thawed background function can retain half-dead WebSocket
+    // connections, so its direct executions use stateless Neon HTTP instead.
+    // The foreground and transaction surface keep the WebSocket pool.
+    const bgHttp = isBackgroundFunctionPoolContext();
+    const makePool = () =>
+      new Pool({ connectionString: url, ...neonPoolOptions() });
+    // The singleton exec shares the process pool; `createDbExec()` callers own
+    // a `close()` and so must not be handed it.
+    const pool = trackSingletonResources
+      ? sharedDbPool("neon", url, makePool)
+      : makePool();
+    guardNeonPool(pool, url);
+    const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
+    async function queryNeonClient(
+      client: any,
+      sql: Parameters<DbExec["execute"]>[0],
+      timeoutOverrideMs?: number,
+    ) {
+      const { rawSql, args } = sqlAndArgs(sql);
+      const { timeoutMs } = dbExecQueryBudget(sql);
+      const pgSql = toPostgresParams(rawSql);
+      // Neon only accepts multiple SQL commands through its simple protocol;
+      // the transaction start has no parameters, so use that overload.
+      const runQuery = () =>
+        args.length === 0 && rawSql.includes(";")
+          ? client.query(pgSql)
+          : client.query(pgSql, args as any[]);
+      const result = await withDbTimeout(
+        "query",
+        () => runQuery() as Promise<{ rows: unknown[]; rowCount?: number }>,
+        timeoutOverrideMs ?? timeoutMs,
+      );
+      return {
+        rows: result.rows,
+        rowsAffected: result.rowCount ?? 0,
+      };
+    }
+    async function queryNeonClientWithStatementTimeout(
+      client: any,
+      sql: Parameters<DbExec["execute"]>[0],
+      remainingMs: () => number,
+      markClientForDiscard: () => void,
+    ) {
+      const statementTimeoutMs = postgresStatementTimeoutMs(remainingMs());
+      await queryNeonClient(
+        client,
+        `SET statement_timeout = ${statementTimeoutMs}`,
+        remainingMs(),
+      );
+      try {
+        return await queryNeonClient(client, sql, remainingMs());
+      } finally {
         try {
-          return await queryNeonClient(client, sql, remainingMs());
-        } finally {
-          try {
-            await queryNeonClient(
-              client,
-              "RESET statement_timeout",
-              Math.max(remainingMs(), POSTGRES_STATEMENT_TIMEOUT_RESET_MS),
-            );
-          } catch (err) {
-            markClientForDiscard();
-            console.warn(
-              "[db/neon] statement timeout reset failed; discarding connection:",
-              err instanceof Error ? err.message : err,
-            );
-          }
+          await queryNeonClient(
+            client,
+            "RESET statement_timeout",
+            Math.max(remainingMs(), POSTGRES_STATEMENT_TIMEOUT_RESET_MS),
+          );
+        } catch (err) {
+          markClientForDiscard();
+          console.warn(
+            "[db/neon] statement timeout reset failed; discarding connection:",
+            err instanceof Error ? err.message : err,
+          );
         }
       }
-      async function queryNeonHttp(sql: Parameters<DbExec["execute"]>[0]) {
-        if (!httpSql) {
-          throw new Error("Neon HTTP query used outside a background function");
+    }
+    async function queryNeonHttp(sql: Parameters<DbExec["execute"]>[0]) {
+      if (!httpSql) {
+        throw new Error("Neon HTTP query used outside a background function");
+      }
+      const { rawSql, args } = sqlAndArgs(sql);
+      const { timeoutMs } = dbExecQueryBudget(sql);
+      const pgSql = toPostgresParams(rawSql);
+      const controller = new AbortController();
+      const run = async () => {
+        if (!hasExplicitDbTimeout(sql)) {
+          return httpSql.query(pgSql, args as any[], {
+            fetchOptions: { signal: controller.signal },
+          });
         }
-        const { rawSql, args } = sqlAndArgs(sql);
-        const { timeoutMs } = dbExecQueryBudget(sql);
-        const pgSql = toPostgresParams(rawSql);
-        const controller = new AbortController();
-        const run = async () => {
-          if (!hasExplicitDbTimeout(sql)) {
-            return httpSql.query(pgSql, args as any[], {
-              fetchOptions: { signal: controller.signal },
-            });
-          }
-          const statementDeadlineMs =
-            Date.now() + postgresStatementTimeoutMs(timeoutMs);
-          const results = await httpSql.transaction(
-            [
-              httpSql.query(
-                `SELECT set_config(
+        const statementDeadlineMs =
+          Date.now() + postgresStatementTimeoutMs(timeoutMs);
+        const results = await httpSql.transaction(
+          [
+            httpSql.query(
+              `SELECT set_config(
                   'statement_timeout',
                   GREATEST(
                     1,
@@ -1583,312 +1578,231 @@ async function createDbExecInternal(
                   )::text,
                   true
                 )`,
-                [statementDeadlineMs],
-              ),
-              httpSql.query(pgSql, args as any[]),
-            ],
-            { fetchOptions: { signal: controller.signal } },
-          );
-          return results[1];
-        };
-        const result = await withDbTimeout("query", run, timeoutMs, () =>
-          controller.abort(),
+              [statementDeadlineMs],
+            ),
+            httpSql.query(pgSql, args as any[]),
+          ],
+          { fetchOptions: { signal: controller.signal } },
         );
-        return {
-          rows: result.rows,
-          rowsAffected: result.rowCount ?? 0,
-        };
-      }
+        return results[1];
+      };
+      const result = await withDbTimeout("query", run, timeoutMs, () =>
+        controller.abort(),
+      );
       return {
-        async execute(sql) {
-          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
-          if (bgHttp) {
-            // HTTP-per-query path: no pool.connect() and no persistent socket
-            // to survive a background-function freeze. Explicitly budgeted
-            // statements run with SET LOCAL inside the same HTTP transaction,
-            // so the server cancels the SQL before the fetch deadline without
-            // leaking session state into Neon's pooled backends.
-            return retryOnConnectionError<{
-              rows: unknown[];
-              rowsAffected: number;
-            }>(() => queryNeonHttp(sql), maxAttempts);
-          }
-          const result = await retryOnConnectionError<{
-            rows: unknown[];
-            rowsAffected: number;
-          }>(async () => {
-            const attemptStartedAt = Date.now();
-            const remainingAttemptMs = () =>
-              Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
-            // Bound the pooled-connection ACQUIRE, not just the query below.
-            // Neon's pooler can stall on `connect()` when cold or exhausted,
-            // and that happens BEFORE `client.query`, so the query-level
-            // timeout never fires — the request hangs until the platform kills
-            // the function (~"the site won't load" for authenticated users,
-            // whose every request runs a session/org lookup). Time the acquire
-            // out into a retryable CONNECT_TIMEOUT that retryOnConnectionError
-            // already handles, and release the connection if it resolves after
-            // we've given up so the scarce pool slot isn't leaked.
-            let acquireTimedOut = false;
-            const client = await withDbTimeout(
-              "connect",
-              () =>
-                pool.connect().then((c) => {
-                  if (acquireTimedOut) c.release();
-                  return c;
-                }),
-              remainingAttemptMs(),
-              () => {
-                acquireTimedOut = true;
-              },
-            );
-            let released = false;
-            const releaseClient = (err?: Error | boolean) => {
-              if (released) return;
-              released = true;
-              client.release(err);
-            };
-            let discardClient = false;
-
-            try {
-              const result = hasExplicitDbTimeout(sql)
-                ? await queryNeonClientWithStatementTimeout(
-                    client,
-                    sql,
-                    remainingAttemptMs,
-                    () => {
-                      discardClient = true;
-                    },
-                  )
-                : await queryNeonClient(client, sql, remainingAttemptMs());
-              releaseClient(discardClient ? true : undefined);
-              return result;
-            } catch (err) {
-              releaseClient(
-                discardClient || isConnectionError(err) ? true : undefined,
-              );
-              throw err;
-            }
-          }, maxAttempts);
-          return {
-            rows: result.rows,
-            rowsAffected: result.rowsAffected,
-          };
-        },
-        async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-          return retryOnConnectionError(async () => {
-            let acquireTimedOut = false;
-            const client = await withDbTimeout(
-              "connect",
-              () =>
-                pool.connect().then((c) => {
-                  if (acquireTimedOut) c.release();
-                  return c;
-                }),
-              dbOpTimeoutMs(),
-              () => {
-                acquireTimedOut = true;
-              },
-            );
-            let released = false;
-            const releaseClient = (err?: Error | boolean) => {
-              if (released) return;
-              released = true;
-              client.release(err);
-            };
-            const tx: DbExec = {
-              execute: async (sql) => {
-                if (!hasExplicitDbTimeout(sql)) {
-                  return queryNeonClient(client, sql);
-                }
-                const { timeoutMs } = dbExecQueryBudget(sql);
-                const startedAt = Date.now();
-                const remainingMs = () =>
-                  Math.max(1, timeoutMs - (Date.now() - startedAt));
-                const statementTimeoutMs =
-                  postgresStatementTimeoutMs(remainingMs());
-                await queryNeonClient(
-                  client,
-                  `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
-                  remainingMs(),
-                );
-                return queryNeonClient(client, sql, remainingMs());
-              },
-            };
-            try {
-              // Send the transaction start and idle reaper together. Neon
-              // transaction pooling can ignore startup parameters, and a
-              // worker can die between separate BEGIN and SET LOCAL calls.
-              await queryNeonClient(
-                client,
-                "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
-              );
-              const result = await fn(tx);
-              await queryNeonClient(client, "COMMIT");
-              releaseClient();
-              return result;
-            } catch (err) {
-              let rollbackFailed = false;
-              try {
-                await queryNeonClient(client, "ROLLBACK");
-              } catch {
-                rollbackFailed = true;
-              }
-              // A failed rollback can leave the backend inside the transaction.
-              // Do not return that client to PgBouncer as if it were clean.
-              releaseClient(
-                isConnectionError(err) || rollbackFailed ? true : undefined,
-              );
-              throw err;
-            }
-          }, 1);
-        },
-        async close() {
-          if (trackSingletonResources) return closeSharedDbPools();
-          await pool.end();
-        },
+        rows: result.rows,
+        rowsAffected: result.rowCount ?? 0,
       };
     }
-
-    const { default: postgres } = await import("postgres");
-    const isWorkers =
-      "__cf_env" in globalThis ||
-      (typeof navigator !== "undefined" &&
-        navigator.userAgent === "Cloudflare-Workers");
-
-    if (isWorkers) {
-      // Workers: fresh connection per query — I/O can't be shared across requests
-      return {
-        async execute(sql) {
-          const conn = postgres(url, {
-            max: 1,
-            idle_timeout: 0,
-            onnotice: () => {},
-          });
-          let timedOut = false;
-          try {
-            const rawSql = typeof sql === "string" ? sql : sql.sql;
-            const args = typeof sql === "string" ? [] : sql.args || [];
-            const { timeoutMs } = dbExecQueryBudget(sql);
-            const pgSql = toPostgresParams(rawSql);
-            const result = await withDbTimeout<
-              ArrayLike<unknown> & { count?: number }
-            >(
-              "query",
-              () =>
-                conn.unsafe(pgSql, args as any[]) as Promise<
-                  ArrayLike<unknown> & { count?: number }
-                >,
-              timeoutMs,
-              () => {
-                timedOut = true;
-                disposePostgresPoolEventually(conn, "timed-out worker query");
-              },
-            );
-            return {
-              rows: Array.from(result),
-              rowsAffected: result.count ?? 0,
-            };
-          } finally {
-            if (!timedOut) {
-              await conn.end().catch((err: unknown) => {
-                console.warn(
-                  "[db/postgres] worker query cleanup failed:",
-                  err instanceof Error ? err.message : err,
-                );
-              });
-            }
-          }
-        },
-        async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-          const conn = postgres(url, {
-            max: 1,
-            idle_timeout: 0,
-            onnotice: () => {},
-          });
-          try {
-            const result = await conn.begin(async (txSql: any) => {
-              const tx: DbExec = {
-                async execute(sql) {
-                  const { rawSql, args } = sqlAndArgs(sql);
-                  const { timeoutMs } = dbExecQueryBudget(sql);
-                  const pgSql = toPostgresParams(rawSql);
-                  const result = await withDbTimeout<
-                    ArrayLike<unknown> & { count?: number }
-                  >(
-                    "query",
-                    () =>
-                      txSql.unsafe(pgSql, args as any[]) as Promise<
-                        ArrayLike<unknown> & { count?: number }
-                      >,
-                    timeoutMs,
-                  );
-                  return {
-                    rows: Array.from(result),
-                    rowsAffected: result.count ?? 0,
-                  };
-                },
-              };
-              return fn(tx);
-            });
-            return result as T;
-          } finally {
-            await conn.end().catch((err: unknown) => {
-              console.warn(
-                "[db/postgres] worker transaction cleanup failed:",
-                err instanceof Error ? err.message : err,
-              );
-            });
-          }
-        },
-      };
-    } else {
-      // Node.js: reuse connection pool. pgPoolOptions caps the pool to a
-      // small size on serverless (Netlify/Vercel/Lambda/CF) so concurrent
-      // frozen instances don't exhaust Neon/Postgres' connection limit;
-      // idle_timeout also closes idle connections before Neon's ~5min
-      // server-side timeout, avoiding ECONNRESET when the server hangs up.
-      const createPool = () => postgres(url, pgPoolOptions(url));
-      type PostgresPool = ReturnType<typeof createPool>;
-      // Same rule as the Neon path: the singleton exec shares the process pool,
-      // `createDbExec()` callers own a `close()` and get a private one.
-      let pool = trackSingletonResources
-        ? sharedDbPool("postgres-js", url, createPool)
-        : createPool();
-      const recyclePool = (timedOutPool: PostgresPool) => {
-        if (pool === timedOutPool) {
-          pool = createPool();
-          if (trackSingletonResources) {
-            replaceSharedDbPool("postgres-js", url, timedOutPool, pool);
-          }
+    return {
+      async execute(sql) {
+        const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
+        if (bgHttp) {
+          // HTTP-per-query path: no pool.connect() and no persistent socket
+          // to survive a background-function freeze. Explicitly budgeted
+          // statements run with SET LOCAL inside the same HTTP transaction,
+          // so the server cancels the SQL before the fetch deadline without
+          // leaking session state into Neon's pooled backends.
+          return retryOnConnectionError<{
+            rows: unknown[];
+            rowsAffected: number;
+          }>(() => queryNeonHttp(sql), maxAttempts);
         }
-        disposePostgresPoolEventually(timedOutPool, "timed-out pooled query");
-      };
+        const result = await retryOnConnectionError<{
+          rows: unknown[];
+          rowsAffected: number;
+        }>(async () => {
+          const attemptStartedAt = Date.now();
+          const remainingAttemptMs = () =>
+            Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
+          // Bound the pooled-connection ACQUIRE, not just the query below.
+          // Neon's pooler can stall on `connect()` when cold or exhausted,
+          // and that happens BEFORE `client.query`, so the query-level
+          // timeout never fires — the request hangs until the platform kills
+          // the function (~"the site won't load" for authenticated users,
+          // whose every request runs a session/org lookup). Time the acquire
+          // out into a retryable CONNECT_TIMEOUT that retryOnConnectionError
+          // already handles, and release the connection if it resolves after
+          // we've given up so the scarce pool slot isn't leaked.
+          let acquireTimedOut = false;
+          const client = await withDbTimeout(
+            "connect",
+            () =>
+              pool.connect().then((c) => {
+                if (acquireTimedOut) c.release();
+                return c;
+              }),
+            remainingAttemptMs(),
+            () => {
+              acquireTimedOut = true;
+            },
+          );
+          let released = false;
+          const releaseClient = (err?: Error | boolean) => {
+            if (released) return;
+            released = true;
+            client.release(err);
+          };
+          let discardClient = false;
 
-      return {
-        async execute(sql) {
-          const { rawSql, args } = sqlAndArgs(sql);
-          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
-          const pgSql = toPostgresParams(rawSql);
-          const result = await retryOnConnectionError<
-            ArrayLike<unknown> & { count?: number }
-          >(() => {
-            const queryPool = pool;
-            const query = queryPool.unsafe(pgSql, args as any[]);
-            return withDbTimeout(
-              "query",
-              () => query,
-              timeoutMs,
-              () => recyclePool(queryPool),
+          try {
+            const result = hasExplicitDbTimeout(sql)
+              ? await queryNeonClientWithStatementTimeout(
+                  client,
+                  sql,
+                  remainingAttemptMs,
+                  () => {
+                    discardClient = true;
+                  },
+                )
+              : await queryNeonClient(client, sql, remainingAttemptMs());
+            releaseClient(discardClient ? true : undefined);
+            return result;
+          } catch (err) {
+            releaseClient(
+              discardClient || isConnectionError(err) ? true : undefined,
             );
-          }, maxAttempts);
+            throw err;
+          }
+        }, maxAttempts);
+        return {
+          rows: result.rows,
+          rowsAffected: result.rowsAffected,
+        };
+      },
+      async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
+        return retryOnConnectionError(async () => {
+          let acquireTimedOut = false;
+          const client = await withDbTimeout(
+            "connect",
+            () =>
+              pool.connect().then((c) => {
+                if (acquireTimedOut) c.release();
+                return c;
+              }),
+            dbOpTimeoutMs(),
+            () => {
+              acquireTimedOut = true;
+            },
+          );
+          let released = false;
+          const releaseClient = (err?: Error | boolean) => {
+            if (released) return;
+            released = true;
+            client.release(err);
+          };
+          const tx: DbExec = {
+            execute: async (sql) => {
+              if (!hasExplicitDbTimeout(sql)) {
+                return queryNeonClient(client, sql);
+              }
+              const { timeoutMs } = dbExecQueryBudget(sql);
+              const startedAt = Date.now();
+              const remainingMs = () =>
+                Math.max(1, timeoutMs - (Date.now() - startedAt));
+              const statementTimeoutMs =
+                postgresStatementTimeoutMs(remainingMs());
+              await queryNeonClient(
+                client,
+                `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
+                remainingMs(),
+              );
+              return queryNeonClient(client, sql, remainingMs());
+            },
+          };
+          try {
+            // Send the transaction start and idle reaper together. Neon
+            // transaction pooling can ignore startup parameters, and a
+            // worker can die between separate BEGIN and SET LOCAL calls.
+            await queryNeonClient(
+              client,
+              "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
+            );
+            const result = await fn(tx);
+            await queryNeonClient(client, "COMMIT");
+            releaseClient();
+            return result;
+          } catch (err) {
+            let rollbackFailed = false;
+            try {
+              await queryNeonClient(client, "ROLLBACK");
+            } catch {
+              rollbackFailed = true;
+            }
+            // A failed rollback can leave the backend inside the transaction.
+            // Do not return that client to PgBouncer as if it were clean.
+            releaseClient(
+              isConnectionError(err) || rollbackFailed ? true : undefined,
+            );
+            throw err;
+          }
+        }, 1);
+      },
+      async close() {
+        if (trackSingletonResources) return closeSharedDbPools();
+        await pool.end();
+      },
+    };
+  }
+
+  const { default: postgres } = await import("postgres");
+  const isWorkers =
+    "__cf_env" in globalThis ||
+    (typeof navigator !== "undefined" &&
+      navigator.userAgent === "Cloudflare-Workers");
+
+  if (isWorkers) {
+    // Workers: fresh connection per query — I/O can't be shared across requests
+    return {
+      async execute(sql) {
+        const conn = postgres(url, {
+          max: 1,
+          idle_timeout: 0,
+          onnotice: () => {},
+        });
+        let timedOut = false;
+        try {
+          const rawSql = typeof sql === "string" ? sql : sql.sql;
+          const args = typeof sql === "string" ? [] : sql.args || [];
+          const { timeoutMs } = dbExecQueryBudget(sql);
+          const pgSql = toPostgresParams(rawSql);
+          const result = await withDbTimeout<
+            ArrayLike<unknown> & { count?: number }
+          >(
+            "query",
+            () =>
+              conn.unsafe(pgSql, args as any[]) as Promise<
+                ArrayLike<unknown> & { count?: number }
+              >,
+            timeoutMs,
+            () => {
+              timedOut = true;
+              disposePostgresPoolEventually(conn, "timed-out worker query");
+            },
+          );
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,
           };
-        },
-        async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-          const result = await pool.begin(async (txSql: any) => {
+        } finally {
+          if (!timedOut) {
+            await conn.end().catch((err: unknown) => {
+              console.warn(
+                "[db/postgres] worker query cleanup failed:",
+                err instanceof Error ? err.message : err,
+              );
+            });
+          }
+        }
+      },
+      async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
+        const conn = postgres(url, {
+          max: 1,
+          idle_timeout: 0,
+          onnotice: () => {},
+        });
+        try {
+          const result = await conn.begin(async (txSql: any) => {
             const tx: DbExec = {
               async execute(sql) {
                 const { rawSql, args } = sqlAndArgs(sql);
@@ -1913,13 +1827,94 @@ async function createDbExecInternal(
             return fn(tx);
           });
           return result as T;
-        },
-        async close() {
-          if (trackSingletonResources) return closeSharedDbPools();
-          await pool.end();
-        },
-      };
-    }
+        } finally {
+          await conn.end().catch((err: unknown) => {
+            console.warn(
+              "[db/postgres] worker transaction cleanup failed:",
+              err instanceof Error ? err.message : err,
+            );
+          });
+        }
+      },
+    };
+  } else {
+    // Node.js: reuse connection pool. pgPoolOptions caps the pool to a
+    // small size on serverless (Netlify/Vercel/Lambda/CF) so concurrent
+    // frozen instances don't exhaust Neon/Postgres' connection limit;
+    // idle_timeout also closes idle connections before Neon's ~5min
+    // server-side timeout, avoiding ECONNRESET when the server hangs up.
+    const createPool = () => postgres(url, pgPoolOptions(url));
+    type PostgresPool = ReturnType<typeof createPool>;
+    // Same rule as the Neon path: the singleton exec shares the process pool,
+    // `createDbExec()` callers own a `close()` and get a private one.
+    let pool = trackSingletonResources
+      ? sharedDbPool("postgres-js", url, createPool)
+      : createPool();
+    const recyclePool = (timedOutPool: PostgresPool) => {
+      if (pool === timedOutPool) {
+        pool = createPool();
+        if (trackSingletonResources) {
+          replaceSharedDbPool("postgres-js", url, timedOutPool, pool);
+        }
+      }
+      disposePostgresPoolEventually(timedOutPool, "timed-out pooled query");
+    };
+
+    return {
+      async execute(sql) {
+        const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
+        const pgSql = toPostgresParams(rawSql);
+        const result = await retryOnConnectionError<
+          ArrayLike<unknown> & { count?: number }
+        >(() => {
+          const queryPool = pool;
+          const query = queryPool.unsafe(pgSql, args as any[]);
+          return withDbTimeout(
+            "query",
+            () => query,
+            timeoutMs,
+            () => recyclePool(queryPool),
+          );
+        }, maxAttempts);
+        return {
+          rows: Array.from(result),
+          rowsAffected: result.count ?? 0,
+        };
+      },
+      async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
+        const result = await pool.begin(async (txSql: any) => {
+          const tx: DbExec = {
+            async execute(sql) {
+              const { rawSql, args } = sqlAndArgs(sql);
+              const { timeoutMs } = dbExecQueryBudget(sql);
+              const pgSql = toPostgresParams(rawSql);
+              const result = await withDbTimeout<
+                ArrayLike<unknown> & { count?: number }
+              >(
+                "query",
+                () =>
+                  txSql.unsafe(pgSql, args as any[]) as Promise<
+                    ArrayLike<unknown> & { count?: number }
+                  >,
+                timeoutMs,
+              );
+              return {
+                rows: Array.from(result),
+                rowsAffected: result.count ?? 0,
+              };
+            },
+          };
+          return fn(tx);
+        });
+        return result as T;
+      },
+      async close() {
+        if (trackSingletonResources) return closeSharedDbPools();
+        await pool.end();
+      },
+    };
+  }
 }
 
 export async function createDbExec(config: DbExecConfig = {}): Promise<DbExec> {

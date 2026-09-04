@@ -2143,7 +2143,7 @@ async function createRun(
 }
 
 async function renewRunLease(run: ConnectorSyncRunLease) {
-  const renewed = await getDb()
+  const renewed = (await getDb()
     .update(schema.brainSyncRuns)
     .set({
       leaseExpiresAt: new Date(
@@ -2156,7 +2156,7 @@ async function renewRunLease(run: ConnectorSyncRunLease) {
         eq(schema.brainSyncRuns.leaseToken, run.leaseToken),
         eq(schema.brainSyncRuns.status, "running"),
       ),
-    );
+    )) as { rowsAffected: number };
   if (renewed.rowsAffected === 0) {
     throw new Error("Brain source sync lease was lost");
   }
@@ -2197,7 +2197,7 @@ async function finishRun(
   stats: Record<string, unknown>,
   error?: string | null,
 ) {
-  const finished = await getDb()
+  const finished = (await getDb()
     .update(schema.brainSyncRuns)
     .set({
       activeSourceId: null,
@@ -2213,7 +2213,7 @@ async function finishRun(
         eq(schema.brainSyncRuns.id, run.runId),
         eq(schema.brainSyncRuns.leaseToken, run.leaseToken),
       ),
-    );
+    )) as { rowsAffected: number };
   if (finished.rowsAffected === 0) {
     throw new Error("Brain source sync lease was lost");
   }

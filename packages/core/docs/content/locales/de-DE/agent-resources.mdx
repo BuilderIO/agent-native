@@ -1,15 +1,15 @@
 ---
 title: "Agent-Ressourcen"
-description: "Claude-Anpassung auf Codeebene pro Benutzer – skills, Speicher, Anweisungen, benutzerdefinierte Agenten, geplante Jobs, MCP-Server – unterstützt durch SQL, kein Dateisystem."
+description: "Claude-Anpassung auf Codeebene pro Benutzer – skills, Speicher, Anweisungen, benutzerdefinierte Agenten, geplante Jobs, MCP-Server – unterstützt durch PostgreSQL/PGlite, kein Dateisystem."
 ---
 
 # Agent-Ressourcen
 
 Jede agentennative App wird mit **Agent-Ressourcen** ausgeliefert: der Anpassungsebene, die den Agenten zu Ihrem macht. Es enthält Teamanweisungen (`AGENTS.md`), gemeinsame Erkenntnisse (`LEARNINGS.md`), persönliches strukturiertes Gedächtnis (`memory/MEMORY.md`), skills, das der Agent bei Bedarf einholt, benutzerdefinierte Subagenten, geplante Jobs und verbundene MCP-Server – alles, was Sie von einem Claude-Code-/Codex-Setup erwarten.
 
-Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhält seine eigenen Agent-Ressourcen, die in der Datenbank gespeichert werden. Es muss keine Entwicklungsbox gestartet werden, kein Container pro Benutzer, keine Dateien müssen gemountet werden. Ein mandantenfähiges SaaS kann jedem Benutzer praktisch kostenlos einen vollständig anpassbaren Agenten zur Verfügung stellen, da alles aus Zeilen besteht – persönlicher Speicher, persönliche MCP-Server, persönliche skills, persönliche Subagenten – und die gemeinsame Codebasis sie alle gleichzeitig hostet.
+Der Clou: **Es sind PostgreSQL/PGlite-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhält seine eigenen Agent-Ressourcen, die in der Datenbank gespeichert werden. Es muss keine Entwicklungsbox gestartet werden, kein Container pro Benutzer, keine Dateien müssen gemountet werden. Ein mandantenfähiges SaaS kann jedem Benutzer praktisch kostenlos einen vollständig anpassbaren Agenten zur Verfügung stellen, da alles aus Zeilen besteht – persönlicher Speicher, persönliche MCP-Server, persönliche skills, persönliche Subagenten – und die gemeinsame Codebasis sie alle gleichzeitig hostet.
 
-<Diagram id="doc-block-7j8xqp" title="Ein Claude-Code-Setup, aber als Agent-Ressourcen in SQL gespeichert" summary={"Dieselbe Anpassungsebene – Anweisungen, Fähigkeiten, Speicher, Agenten, Jobs, MCP – außer dass jede Datei eine Zeile in einer gemeinsam genutzten, mandantenfähigen Datenbank ist."}>
+<Diagram id="doc-block-7j8xqp" title="Ein Claude-Code-Setup, aber als Agent-Ressourcen in PostgreSQL/PGlite gespeichert" summary={"Dieselbe Anpassungsebene – Anweisungen, Fähigkeiten, Speicher, Agenten, Jobs, MCP – außer dass jede Datei eine Zeile in einer gemeinsam genutzten, mandantenfähigen Datenbank ist."}>
 
 ```html
 <div class="ws-map">
@@ -27,7 +27,7 @@ Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhä
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Agent-Native-Ressourcen</span
-    ><small class="diagram-muted">rows in one SQL-Datenbank</small>
+    ><small class="diagram-muted">rows in one PostgreSQL/PGlite-Datenbank</small>
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -73,7 +73,7 @@ Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhä
 
 | Claude-Code / Codex                                | Agent-Native Ressourcen                                            |
 | -------------------------------------------------- | ------------------------------------------------------------------ |
-| Dateien auf Ihrer lokalen Festplatte               | Zeilen in einer gemeinsam genutzten SQL-Datenbank                  |
+| Dateien auf Ihrer lokalen Festplatte               | Zeilen in einer gemeinsam genutzten PostgreSQL/PGlite-Datenbank                  |
 | Eine Codebasis pro Entwickler                      | Eine Codebasis, viele Benutzer                                     |
 | Benötigt eine Entwicklungsbox oder einen Container | Läuft auf jedem serverlosen/Edge-Host                              |
 | Anpassung bei `~/.claude/`                         | Anpassung pro Benutzer, mit Gültigkeitsbereich `u:<email>:…`       |
@@ -402,7 +402,7 @@ Das Ressourcensystem funktioniert in beiden Modi identisch. Der Unterschied best
 
 ## Workspace-Verbindungen {#workspace-connections}
 
-Workspace Connections ermöglichen Apps die gemeinsame Nutzung desselben Anbieterkontos (Slack, GitHub, HubSpot usw.), ohne dass Anmeldeinformationen dupliziert werden müssen. Eine Verbindung zeichnet Anbieteridentität, Kontobezeichnungen, Status, Bereiche, App-Zuweisungen und Anmeldeinformationsreferenzen in SQL auf. Geheimnisse bleiben im Zugangsdatenspeicher; Verbindungen verweisen nur auf Anmeldeinformationsschlüsselnamen wie `SLACK_BOT_TOKEN`.
+Workspace Connections ermöglichen Apps die gemeinsame Nutzung desselben Anbieterkontos (Slack, GitHub, HubSpot usw.), ohne dass Anmeldeinformationen dupliziert werden müssen. Eine Verbindung zeichnet Anbieteridentität, Kontobezeichnungen, Status, Bereiche, App-Zuweisungen und Anmeldeinformationsreferenzen in PostgreSQL/PGlite auf. Geheimnisse bleiben im Zugangsdatenspeicher; Verbindungen verweisen nur auf Anmeldeinformationsschlüsselnamen wie `SLACK_BOT_TOKEN`.
 
 Siehe [Workspace Connections](/docs/workspace-connections) für den Schnellstart, Connection/Grant/CredentialRef API und konkrete Slack-, HubSpot- und GitHub-Beispiele.
 
