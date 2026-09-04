@@ -128,6 +128,26 @@ describe("save-factory-automation", () => {
     expect(assertFactoryConnectorReadyMock).toHaveBeenCalled();
   });
 
+  it("removes a Slack channel when a disabled save clears it", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        prompt: "Watch Slack more closely.",
+        slackChannelId: "",
+        slackChannelName: "",
+        enabled: false,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, enabled: false });
+    const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    expect(saved).not.toContain("slackChannelId:");
+    expect(saved).not.toContain("slackChannelName:");
+  });
+
   it("rejects Slack saves that clear the channel", async () => {
     const { default: action } = await import("./save-factory-automation.js");
     await expect(

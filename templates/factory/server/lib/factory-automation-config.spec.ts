@@ -103,4 +103,23 @@ Observe Slack.
     expect(next).toContain("slackChannelId: C0BUK2293SA");
     expect(next).toContain("slackChannelName: feedback");
   });
+
+  it("deletes a stored Slack channel when the config clears it", () => {
+    const content = `---
+source: slack
+template: slack-feedback
+slackChannelId: C0BUK2293SA
+slackChannelName: feedback
+---
+
+Observe Slack.
+`;
+    const next = applyAutomationConfigFrontmatter(content, {
+      ...defaultAutomationConfig("slack", "slack-feedback"),
+      slackChannelId: "",
+      slackChannelName: "",
+    });
+    expect(next).not.toContain("slackChannelId:");
+    expect(next).not.toContain("slackChannelName:");
+  });
 });

@@ -246,6 +246,56 @@ describe("Factory graph history actions", () => {
     expect(tx.insert).not.toHaveBeenCalled();
   });
 
+  it("keeps the canonical default name on an AI save of the virtual Factory", async () => {
+    const insertValues = vi.fn().mockResolvedValue(undefined);
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+      update: vi.fn(),
+      insert: vi.fn(() => ({ values: insertValues })),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    });
+
+    const { default: action } = await import("./save-factory-graph.js");
+    const result = await action.run(
+      {
+        factoryId: "product-feedback",
+        name: "Renamed by a graph proposal",
+        description: "Should not stick.",
+        prompt: "",
+        source: "ai",
+        changeSummary: "Designed a Slack intake flow.",
+        expectedGraphVersion: 0,
+        graph,
+      },
+      { userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(result).toMatchObject({
+      factoryId: "product-feedback",
+      name: "Product feedback to shipped change",
+      graphVersion: 1,
+    });
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "product-feedback",
+        name: "Product feedback to shipped change",
+        description:
+          "Observe product signals, classify them safely, and keep a human in the loop before work starts.",
+      }),
+    );
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+
   it("keeps the current factory name on an AI graph save", async () => {
     const definition = {
       id: "company-demo",

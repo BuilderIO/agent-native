@@ -12,7 +12,10 @@ import {
   factoryGraphSchema,
   normalizeFactoryGraph,
 } from "../server/factory-graph/contracts.js";
-import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  DEFAULT_FACTORY_ID,
+  defaultFactoryDefinition,
+} from "../server/factory-graph/store.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -117,9 +120,13 @@ export default defineAction({
           "Factory changed while saving. Refresh the Factory and try again.",
         );
       }
-      const nextName = source === "ai" && existing ? existing.name : name;
+      const fallback = defaultFactoryDefinition();
+      const nextName =
+        source === "ai" ? (existing?.name ?? fallback.name) : name;
       const nextDescription =
-        source === "ai" && existing ? existing.description : description;
+        source === "ai"
+          ? (existing?.description ?? fallback.description)
+          : description;
       const nextVersion = (existing?.graphVersion ?? 0) + 1;
       const normalizedGraph = normalizeFactoryGraph({
         ...graph,
