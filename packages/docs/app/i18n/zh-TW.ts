@@ -2064,8 +2064,6 @@ const messages = {
     databaseProviders: "資料庫提供者",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "國際化",
     localFileMode: "本機檔案模式",

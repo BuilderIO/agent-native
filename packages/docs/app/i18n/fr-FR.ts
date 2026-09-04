@@ -2119,8 +2119,6 @@ const frFR = {
     databaseProviders: "Fournisseurs de bases de données",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalisation",
     localFileMode: "Mode fichiers locaux",

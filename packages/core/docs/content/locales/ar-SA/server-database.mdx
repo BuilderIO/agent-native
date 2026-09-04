@@ -91,11 +91,17 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
+# Amazon RDS لـ PostgreSQL
+DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
+
+# Cloud SQL لـ PostgreSQL
+DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
+
+# Azure Database لـ PostgreSQL
+DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
+
 # Plain Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
-
-# Turso (libSQL). Also requires DATABASE_AUTH_TOKEN.
-DATABASE_URL=libsql://my-db-org.turso.io
 ```
 
 يكتشف إطار العمل اللهجة تلقائيًا من بادئة الرابط ويهيئ Drizzle وفقًا لذلك.
@@ -438,7 +444,6 @@ const { rows } = await getDbExec().execute({
 | المتغير               | الغرض                                                                                                     |
 | --------------------- | --------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | سلسلة اتصال SQL مستمرة (غير مضبوط = SQLite محلي؛ `pglite:./data/pglite` = تفعيل اختياري لـ Postgres محلي) |
-| `DATABASE_AUTH_TOKEN` | رمز مصادقة للموفرين الذين يتطلبون رمزًا منفصلاً، مثل Turso/libSQL                                         |
 
 ## ما هي الخطوة التالية {#whats-next}
 
