@@ -538,8 +538,8 @@ const arSA = {
       stepOneBody:
         "استخدم حساب Builder الخاص بك للبناء في المتصفح. ابدأ مجانًا من دون إحضار مفاتيح API.",
       signUp: "شغّل Builder",
-      stepTwoTitle: "اطلب ما تريده",
-      stepTwoBody: "صِف ما تريد بناءه بلغة واضحة، وسيُنشئه Builder لك.",
+      stepTwoTitle: "ابدأ بكتابة طلبك",
+      stepTwoBody: "صِف ما تريد بناءه بلغة واضحة وسيُنشئه الوكيل لك.",
       stepThreeTitle: "النشر",
       stepThreeBody: "عندما تكون مستعدًا، انشر تطبيقك بنقرة واحدة في Builder.",
     },

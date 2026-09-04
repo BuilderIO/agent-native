@@ -530,8 +530,8 @@ const messages = {
       stepOneBody:
         "使用 Builder 帳號在瀏覽器中建置。免費開始，不必自備 API 金鑰。",
       signUp: "啟動 Builder",
-      stepTwoTitle: "描述您想要的內容",
-      stepTwoBody: "用自然語言描述您想建立的內容，Builder 會為您建立。",
+      stepTwoTitle: "開始輸入提示",
+      stepTwoBody: "用自然語言描述您想建立的內容，代理會為您建立。",
       stepThreeTitle: "部署",
       stepThreeBody: "準備好後，在 Builder 中一鍵部署您的應用程式。",
     },

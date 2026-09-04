@@ -541,9 +541,9 @@ const esES = {
       stepOneBody:
         "Usa tu cuenta de Builder para crear en el navegador. Empieza gratis y sin aportar claves de API.",
       signUp: "Abrir Builder",
-      stepTwoTitle: "Describe lo que quieres",
+      stepTwoTitle: "Escribe tu prompt",
       stepTwoBody:
-        "Describe en lenguaje sencillo lo que quieres crear y Builder lo hará por ti.",
+        "Describe en lenguaje sencillo lo que quieres crear y el agente lo hará por ti.",
       stepThreeTitle: "Publica",
       stepThreeBody:
         "Cuando estés listo, publica tu aplicación con un clic en Builder.",

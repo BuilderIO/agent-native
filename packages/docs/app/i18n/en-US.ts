@@ -540,9 +540,9 @@ const enUS = {
       stepOneBody:
         "Use your Builder account to build in the browser. Free to start, and no API keys to bring.",
       signUp: "Launch Builder",
-      stepTwoTitle: "Prompt for what you want",
+      stepTwoTitle: "Prompt away",
       stepTwoBody:
-        "Describe what you want to build in plain language, and Builder will create it for you.",
+        "Describe what you want to build in plain language and the agent will create it for you.",
       stepThreeTitle: "Deploy",
       stepThreeBody:
         "When you're ready, deploy your app with one click in Builder.",

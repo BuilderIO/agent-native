@@ -539,9 +539,9 @@ const ptBR = {
       stepOneBody:
         "Use sua conta do Builder para criar no navegador. Comece gratuitamente, sem precisar fornecer chaves de API.",
       signUp: "Abrir o Builder",
-      stepTwoTitle: "Descreva o que você quer",
+      stepTwoTitle: "Envie seu prompt",
       stepTwoBody:
-        "Descreva em linguagem simples o que você quer criar, e o Builder fará isso por você.",
+        "Descreva em linguagem simples o que você quer criar e o agente fará isso por você.",
       stepThreeTitle: "Publique",
       stepThreeBody:
         "Quando estiver pronto, publique seu aplicativo com um clique no Builder.",

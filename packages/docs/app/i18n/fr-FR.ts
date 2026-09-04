@@ -541,9 +541,9 @@ const frFR = {
       stepOneBody:
         "Utilisez votre compte Builder pour développer dans le navigateur. Commencez gratuitement, sans fournir de clés API.",
       signUp: "Lancer Builder",
-      stepTwoTitle: "Décrire ce que vous voulez",
+      stepTwoTitle: "À vous de prompter",
       stepTwoBody:
-        "Décrivez en langage courant ce que vous voulez créer et Builder le fera pour vous.",
+        "Décrivez en langage courant ce que vous voulez créer et l’agent le fera pour vous.",
       stepThreeTitle: "Déployer",
       stepThreeBody:
         "Quand vous êtes prêt, déployez votre application en un clic dans Builder.",

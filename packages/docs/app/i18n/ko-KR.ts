@@ -540,9 +540,9 @@ const koKR = {
       stepOneBody:
         "Builder 계정으로 브라우저에서 빌드합니다. API 키를 직접 준비하지 않아도 무료로 시작할 수 있습니다.",
       signUp: "Builder 실행",
-      stepTwoTitle: "원하는 것을 프롬프트하기",
+      stepTwoTitle: "프롬프트해 보세요",
       stepTwoBody:
-        "만들고 싶은 것을 자연어로 설명하면 Builder가 대신 만들어 줍니다.",
+        "만들고 싶은 것을 자연어로 설명하면 에이전트가 대신 만들어 줍니다.",
       stepThreeTitle: "배포",
       stepThreeBody:
         "준비가 되면 Builder에서 한 번의 클릭으로 앱을 배포하세요.",

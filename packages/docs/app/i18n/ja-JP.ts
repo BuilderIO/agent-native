@@ -540,9 +540,9 @@ const jaJP = {
       stepOneBody:
         "Builderアカウントを使ってブラウザで構築します。APIキーを用意せず、無料で始められます。",
       signUp: "Builderを起動",
-      stepTwoTitle: "作りたいものをプロンプトする",
+      stepTwoTitle: "プロンプトを入力",
       stepTwoBody:
-        "作りたいものを自然な言葉で説明すると、Builderが作成します。",
+        "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
       stepThreeTitle: "デプロイ",
       stepThreeBody:
         "準備ができたら、Builderでアプリをワンクリックでデプロイします。",

@@ -84,10 +84,10 @@ describe("GettingStartedPathsBlock", () => {
         "Use your Builder account to build in the browser. Free to start, and no API keys to bring.",
       ),
     ).toBeTruthy();
-    expect(screen.getByText("Prompt for what you want")).toBeTruthy();
+    expect(screen.getByText("Prompt away")).toBeTruthy();
     expect(
       screen.getByText(
-        "Describe what you want to build in plain language, and Builder will create it for you.",
+        "Describe what you want to build in plain language and the agent will create it for you.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Deploy")).toBeTruthy();

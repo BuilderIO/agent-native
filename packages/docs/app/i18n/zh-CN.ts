@@ -532,8 +532,8 @@ const zhCN = {
       stepOneBody:
         "使用 Builder 账号在浏览器中构建。免费开始，无需自带 API 密钥。",
       signUp: "启动 Builder",
-      stepTwoTitle: "描述你想要的内容",
-      stepTwoBody: "用自然语言描述你想构建的内容，Builder 会为你创建。",
+      stepTwoTitle: "开始输入提示",
+      stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
       stepThreeTitle: "部署",
       stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
     },

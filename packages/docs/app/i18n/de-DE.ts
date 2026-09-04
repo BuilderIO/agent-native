@@ -542,9 +542,9 @@ const deDE = {
       stepOneBody:
         "Verwenden Sie Ihr Builder-Konto, um im Browser zu entwickeln. Kostenlos starten, ohne eigene API-Schlüssel.",
       signUp: "Builder starten",
-      stepTwoTitle: "Beschreiben, was Sie möchten",
+      stepTwoTitle: "Legen Sie mit Ihrem Prompt los",
       stepTwoBody:
-        "Beschreiben Sie in klarer Sprache, was Sie bauen möchten, und Builder erstellt es für Sie.",
+        "Beschreiben Sie in klarer Sprache, was Sie bauen möchten, und der Agent erstellt es für Sie.",
       stepThreeTitle: "Bereitstellen",
       stepThreeBody:
         "Wenn Sie bereit sind, stellen Sie Ihre App mit einem Klick in Builder bereit.",
