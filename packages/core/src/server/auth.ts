@@ -2020,6 +2020,10 @@ function getOnboardingHtmlOptions(
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
+    identitySsoRequestHost: event ? getHeader(event, "host") : undefined,
+    identitySsoRequestProtocol: event
+      ? getHeader(event, "x-forwarded-proto")
+      : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
     initialPrompt: event ? requestHasInitialPrompt(event) : false,

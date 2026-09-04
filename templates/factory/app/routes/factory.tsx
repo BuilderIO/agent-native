@@ -1133,16 +1133,17 @@ function AutomationsView({
 
   return (
     <div className="space-y-4 p-4 lg:p-6">
-      <div className="grid gap-4 lg:grid-cols-[minmax(220px,.35fr)_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <div className="flex items-start justify-between gap-2">
-              <CardTitle className="text-base">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+              <CardTitle className="min-w-0 truncate text-base">
                 {t("factoryRoute.automationsTitle")}
               </CardTitle>
               <Button
                 type="button"
                 size="sm"
+                className="shrink-0"
                 onClick={() => setCreateOpen(true)}
               >
                 <IconPlus className="size-4" />
@@ -1156,14 +1157,9 @@ function AutomationsView({
                 {t("factoryRoute.automationsLoading")}
               </p>
             ) : automations.length === 0 ? (
-              <div className="grid gap-3 p-4">
-                <p className="text-sm text-muted-foreground">
-                  {t("factoryRoute.automationsEmpty")}
-                </p>
-                <Button type="button" onClick={() => setCreateOpen(true)}>
-                  {t("factoryRoute.createAutomation")}
-                </Button>
-              </div>
+              <p className="p-4 text-sm text-muted-foreground">
+                {t("factoryRoute.automationsEmpty")}
+              </p>
             ) : (
               <div
                 className="grid gap-1.5 p-2"

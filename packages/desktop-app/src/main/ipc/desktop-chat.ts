@@ -59,6 +59,7 @@ const RESTRICTED_RESPONSE_HEADERS = new Set([
 ]);
 const RELAY_FAILURE_MESSAGE =
   "Desktop app chat relay failed. Update or restart the desktop app, then try again.";
+const DESKTOP_APP_MCP_AUTH_TIMEOUT_MS = 10_000;
 
 interface RelayState {
   port: number;
@@ -565,6 +566,7 @@ export async function getDesktopAppMcpAuthorization(
     },
     body: JSON.stringify({ label: "Desktop terminal", ttlDays: 1 }),
     redirect: "manual",
+    signal: AbortSignal.timeout(DESKTOP_APP_MCP_AUTH_TIMEOUT_MS),
   });
   const text = (await response.text()).trim();
   let payload: unknown = null;
@@ -880,25 +882,33 @@ async function createDesktopTerminalSession(
     const appMcpServers: Record<string, DesktopTerminalMcpServer> = {};
     if (appConfig) {
       const baseUrl = resolveAppBaseUrl(appConfig);
-      if (!baseUrl) {
-        throw new Error(`The ${appConfig.name} app has no reachable URL.`);
+      if (baseUrl) {
+        try {
+          const authHeaders = await getDesktopAppMcpAuthorization(
+            appConfig,
+            baseUrl,
+          );
+          appMcpRelay = new DesktopTerminalMcpRelay(
+            desktopAppMcpUrl(baseUrl),
+            authHeaders,
+          );
+          const appMcpRegistration = await appMcpRelay.start();
+          appMcpServers[desktopTerminalMcpServerId(appConfig.id)] = {
+            type: "http",
+            url: appMcpRegistration.url,
+            headers: {
+              Authorization: `Bearer ${appMcpRegistration.bearerToken}`,
+            },
+          };
+        } catch (error) {
+          // App MCP is an optional capability. A signed-out or unavailable
+          // guest must not prevent the local desktop terminal from starting.
+          console.warn("[desktop-terminal] app tools unavailable", {
+            appId: appConfig.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+        }
       }
-      const authHeaders = await getDesktopAppMcpAuthorization(
-        appConfig,
-        baseUrl,
-      );
-      appMcpRelay = new DesktopTerminalMcpRelay(
-        desktopAppMcpUrl(baseUrl),
-        authHeaders,
-      );
-      const appMcpRegistration = await appMcpRelay.start();
-      appMcpServers[desktopTerminalMcpServerId(appConfig.id)] = {
-        type: "http",
-        url: appMcpRegistration.url,
-        headers: {
-          Authorization: `Bearer ${appMcpRegistration.bearerToken}`,
-        },
-      };
     }
     const surfaceMcpServer: DesktopTerminalMcpServer = {
       type: "http",

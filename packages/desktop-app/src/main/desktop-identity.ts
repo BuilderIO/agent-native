@@ -45,6 +45,7 @@ const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 // hosted endpoint sees them all at once and starts returning 429s.
 const APP_SESSION_MINT_CONCURRENCY = 3;
 const APP_SESSION_MINT_MAX_ATTEMPTS = 3;
+const APP_SESSION_MINT_MAX_RETRY_DELAY_MS = 5_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,7 +57,10 @@ function appSessionMintRetryDelayMs(
 ): number {
   const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
   if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
-    return retryAfterSeconds * 1000;
+    return Math.min(
+      retryAfterSeconds * 1000,
+      APP_SESSION_MINT_MAX_RETRY_DELAY_MS,
+    );
   }
   // ponytail: fixed exponential backoff with jitter, upgrade to a shared
   // retry util if another caller needs the same shape.
@@ -1755,6 +1759,9 @@ export class DesktopIdentityBroker {
         const response = await app.session.fetch(startUrl, {
           redirect: "follow",
           credentials: "include",
+          signal: AbortSignal.timeout(
+            this.options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS,
+          ),
           headers: { Accept: "text/html,application/xhtml+xml" },
         });
         if (response.status !== 429) return response;
@@ -1920,10 +1927,12 @@ export class DesktopIdentityBroker {
       },
       body: JSON.stringify({ app: target.id, path: "/", chrome: "minimal" }),
     };
-    let response = await this.options.identitySession.fetch(
-      requestUrl,
-      requestInit,
-    );
+    let response = await this.options.identitySession.fetch(requestUrl, {
+      ...requestInit,
+      signal: AbortSignal.timeout(
+        this.options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS,
+      ),
+    });
     let payload: { error?: unknown; startUrl?: unknown } | null = null;
     if (response.status !== 401) {
       try {
@@ -1946,7 +1955,12 @@ export class DesktopIdentityBroker {
       // Electron's isolated Session transport can reject a valid parent
       // cookie on this POST even though the same request succeeds through
       // the main-process fetch. Keep the explicit cookie boundary intact.
-      response = await fetch(requestUrl, requestInit);
+      response = await fetch(requestUrl, {
+        ...requestInit,
+        signal: AbortSignal.timeout(
+          this.options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS,
+        ),
+      });
       try {
         payload = (await response.json()) as {
           error?: unknown;

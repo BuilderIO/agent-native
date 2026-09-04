@@ -1977,6 +1977,7 @@ export async function createMCPServerForRequest(
               await entry.needsApproval(args, {
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
+                appId: config.appId,
                 caller: "mcp",
                 actionName: name,
               }),
@@ -2295,6 +2296,7 @@ export async function createMCPServerForRequest(
             {
               userEmail: getRequestUserEmail(),
               orgId: getRequestOrgId() ?? null,
+              appId: config.appId,
               caller: "mcp",
               actionName: name,
             },

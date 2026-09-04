@@ -27,7 +27,6 @@ import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkelet
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 import { Header } from "./Header";
 
@@ -36,7 +35,7 @@ const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
 const DEFAULT_SIDEBAR_WIDTH = 240;
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
-const NARROW_DESKTOP_QUERY = "(max-width: 1099px)";
+export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)";
 
 // Routes whose page renders its own custom toolbar (with AgentToggleButton).
 // Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
@@ -54,14 +53,14 @@ function loadSidebarWidth(): number {
   return DEFAULT_SIDEBAR_WIDTH;
 }
 
-function useIsNarrowDesktop() {
+function useIsCompactLayout() {
   const [isNarrow, setIsNarrow] = useState(
     () =>
       typeof window !== "undefined" &&
-      window.matchMedia(NARROW_DESKTOP_QUERY).matches,
+      window.matchMedia(COMPACT_LAYOUT_QUERY).matches,
   );
   useEffect(() => {
-    const media = window.matchMedia(NARROW_DESKTOP_QUERY);
+    const media = window.matchMedia(COMPACT_LAYOUT_QUERY);
     const update = () => setIsNarrow(media.matches);
     update();
     media.addEventListener("change", update);
@@ -128,8 +127,7 @@ export function Layout({ children }: LayoutProps) {
       },
     };
   }, [documentScope]);
-  const isMobile = useIsMobile();
-  const isNarrowDesktop = useIsNarrowDesktop();
+  const isCompactLayout = useIsCompactLayout();
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     usePersistentSidebarCollapsed({
       storageKey: SIDEBAR_COLLAPSED_KEY,
@@ -168,22 +166,26 @@ export function Layout({ children }: LayoutProps) {
   }, [createPage]);
 
   useEffect(() => {
-    if (isNarrowDesktop) {
+    if (isCompactLayout) {
       window.dispatchEvent(new Event("agent-panel:close"));
     }
-  }, [isNarrowDesktop]);
+  }, [isCompactLayout]);
 
-  const mobileSidebarTrigger = isMobile ? (
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [location.key]);
+
+  const mobileSidebarTrigger = isCompactLayout ? (
     <button
       type="button"
       aria-label={t("navigation.openSidebar")}
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       onClick={() => setMobileSidebarOpen(true)}
     >
       <IconMenu2 size={18} />
     </button>
   ) : null;
-  const contentSidebarWidth = isMobile
+  const contentSidebarWidth = isCompactLayout
     ? 0
     : sidebarCollapsed
       ? 48
@@ -192,13 +194,13 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
-        {isMobile ? (
+        {isCompactLayout ? (
           <>
             <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
               <SheetContent
                 side="left"
                 showClose={false}
-                className="w-[85vw] max-w-[85vw] sm:max-w-[85vw] p-0"
+                className="w-[85vw] max-w-80 p-0"
               >
                 <DocumentSidebar
                   activeDocumentId={activeDocumentId}
@@ -212,7 +214,7 @@ export function Layout({ children }: LayoutProps) {
               <button
                 type="button"
                 aria-label={t("navigation.openSidebar")}
-                className="fixed start-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground md:hidden"
+                className="fixed start-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
                 onClick={() => setMobileSidebarOpen(true)}
               >
                 <IconMenu2 size={18} />

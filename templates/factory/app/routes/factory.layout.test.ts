@@ -38,6 +38,15 @@ describe("Factory route factory switching", () => {
     expect(source).toContain('next.delete("createAutomation")');
   });
 
+  it("keeps one labeled create control that wraps beside chat", () => {
+    const source = readSource();
+    expect(source).toContain("lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]");
+    expect(source).toContain("flex-wrap items-center justify-between");
+    expect(source).toContain('{t("factoryRoute.createAutomation")}');
+    expect(source).toContain("shrink-0");
+    expect(source.match(/setCreateOpen\(true\)/g)?.length).toBe(1);
+  });
+
   it("keeps the automation editor flush without a wrapping card", () => {
     const source = readSource();
     expect(source).toContain('id="factory-automation-panel"');

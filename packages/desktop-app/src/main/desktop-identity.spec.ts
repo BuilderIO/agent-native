@@ -4298,7 +4298,7 @@ describe("DesktopIdentityBroker", () => {
         .mockResolvedValueOnce(
           new Response(null, {
             status: 429,
-            headers: { "retry-after": "1" },
+            headers: { "retry-after": "60" },
           }),
         )
         .mockResolvedValueOnce(new Response(null, { status: 429 }))
@@ -4354,9 +4354,8 @@ describe("DesktopIdentityBroker", () => {
 
       await expect(result).resolves.toBe(false);
       expect(mail.session.fetch).toHaveBeenCalledTimes(3);
-      // The first retry must have honored the 1s Retry-After header rather
-      // than falling straight to exponential backoff.
-      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+      // A hosted Retry-After must not strand every app tab for minutes.
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
       expect(warn).toHaveBeenCalledWith(
         "[desktop identity] workspace app session mint rate limited",
         expect.objectContaining({ appId: "mail", attempts: 3 }),
