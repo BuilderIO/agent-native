@@ -300,11 +300,11 @@ Run an unbounded reaction search across identities as well:
 slack_search: has:reaction in:<#CHANNEL>
 ```
 
-Read each matching parent and its reaction metadata, retaining active `👀`
-claims from any valid workflow identity - `hasmy:eyes` optimizes the current
-identity's scan but is never the only cursor. An active claim stays in the
-worklist until it reaches a verified fix, targeted clarification, or a release
-under the Phase 0 contract.
+Read each matching parent and its reaction metadata. Use other valid workflow
+identities' eyes only to detect **Owned elsewhere**; leave those items out of
+your worklist. `hasmy:eyes` optimizes the current identity's scan but is never
+the only cursor. Keep your active claims in the worklist until a verified fix,
+targeted clarification, or Phase 0 release.
 
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.

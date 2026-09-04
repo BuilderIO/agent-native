@@ -145,8 +145,9 @@ an open ownership state for a thread
 where `@agent-native` or another participant already found the cause, linked a
 fix, or said the work is being fixed; use it to acknowledge the existing work,
 never to replace verification or to create a vague status update. The next run
-must revisit **In progress** and resolve it to **Fixed** or
-**Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and
+must revisit **In progress** and resolve it to **Fixed**, **Clarification
+needed**, or evidence-backed **Open - no reply** when no safe fix or
+reproduction remains. `Blocked`, `not fixed yet`, `still needs a fix`, and
 similar phrases are internal notes, never a complete Slack reply. **Open - no
 reply** is terminal only after removing the eye. If a reply
 does not say the fix is complete, acknowledge concrete existing ownership, or
