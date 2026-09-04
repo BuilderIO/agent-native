@@ -144,7 +144,8 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   signal. After classifying the parent, re-read the complete thread and, for
   an actionable in-scope item, require a verified disposition from the
   invoking Slack identity - **Fixed**, **In progress**, or **Clarification
-  needed**; an eye-only or stale eye-only item remains actionable for that
+  needed** while the eye is held, or **Open - no reply** after the eye has been
+  removed. An eye-only or stale eye-only item remains actionable for that
   handoff check. For items
   routed to Sid or Alice, or classified as external, duplicate, deferred, or
   informational, honor that owning disposition and do not turn the eye into a
@@ -213,14 +214,16 @@ The ship report and PR description must keep source-tested, built, and merged
 claims separate. A green test or PR does not prove that beta or production is
 live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
-review item has a fix or a concise reply and that no new evidence has been left
+review item has a fix, a concise reply, or an explicit **Open - no reply**
+disposition with its `👀` removed, and that no new evidence has been left
 without a disposition. Items routed to Sid or Alice remain outside this
 workflow's ownership. External, duplicate, deferred, and informational items
 also follow their recorded disposition rather than blocking this workflow. A
 parent marked with `👀` is not thereby complete or non-actionable: preserve the
 reaction without duplicating it, and for actionable in-scope items do not merge
-while an eye-only or stale eye-only item lacks a verified disposition from the
-invoking Slack identity.
+while an active eye-only or stale eye-only item lacks a verified disposition
+from the invoking Slack identity. A released **Open - no reply** item is not a
+merge blocker.
 
 ## Worktree and branch setup
 

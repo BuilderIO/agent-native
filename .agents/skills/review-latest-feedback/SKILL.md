@@ -29,8 +29,18 @@ posts three messages beats a run that posts thirty.
 ## Phase 0: claim what you are taking
 
 Other agents work this channel concurrently, so an unclaimed report is one
-someone else is about to start investigating. The eye is a lock, not a
-bookmark, and a lock taken after the work is worthless.
+someone else is about to start investigating. The eye is a temporary
+exclusive-work lock, not a bookmark or a status marker, and a lock taken after
+the work is worthless.
+
+Keep the eye only while actively investigating or fixing the item, or while
+waiting on one targeted reporter clarification that could unblock that work.
+If the investigation ends without a verified reproduction or safe fix, remove
+the `👀`, record **Open - no reply** with the evidence, and post nothing.
+Releasing the eye is the handoff; do not reply just to say another owner should
+act. Ask for reporter input only when a specific missing detail, such as a
+browser-console screenshot, would let you reproduce and fix the issue. Keep the
+eye while that clarification is pending.
 
 Enumerate with `slack_read_channel` from newest backwards, following its
 `next_cursor` until you reach a parent already carrying your `👀` or one older
@@ -76,9 +86,10 @@ run left six eyed and unworked, a data-loss report among them, then rotated
 off its branch; all six looked handled.
 
 **The eye means "I have this," not "I owe you a message."** It carries no
-reply obligation — that coupling is what produced 23 questions in one hour.
+reply obligation - that coupling is what produced 23 questions in one hour.
 Every item gets a recap row; carried-over claims count there too, and only some
-get a Slack reply.
+get a Slack reply. An eye is not required for **Open - no reply**: that
+disposition always releases the eye.
 
 Claim only what the classification rules below put in scope, with one
 clarification: "duplicate" means the same message twice, a re-post or
@@ -154,9 +165,11 @@ Then identify the latest disposition from
 this workflow or its companion. Keep every unanswered **Clarification needed**
 question in the pending-question set until it is answered, explicitly
 resolved, or aged out at four days. **Fixed**, **Shipped**, and **In progress**
-are not pending questions. Treat **Open - no reply** as terminal only for an
-eye-only item with no outstanding clarification; it never replaces an
-unanswered clarification question that is still inside its four-day window.
+are not pending questions. Treat **Open - no reply** as terminal only after the
+`👀` has been removed and no outstanding clarification remains; it never
+replaces an unanswered clarification question that is still inside its
+four-day window. If an older **Open - no reply** row still has the eye, remove
+the reaction before treating it as terminal.
 
 Only an unanswered **Clarification needed** thread enters the age branches
 below — never one whose latest reply is **Fixed**, **Shipped**, or **In
@@ -279,7 +292,8 @@ improvement, and let the reporter react to something real.
 
 For every authorized upvoted improvement, add `👀` before investigation or
 delegation and read the reaction back. Audit it in the same ledger as a clear
-bug, using **Shipped** or **Open - no reply** as its terminal disposition.
+bug, using **Shipped** or **Open - no reply** as its terminal disposition;
+**Open - no reply** requires removing the eye.
 This is the required eye-reaction procedure for upvoted improvements, not an
 optional reminder.
 
@@ -292,11 +306,13 @@ Run an unbounded reaction search across identities as well:
 slack_search: has:reaction in:<#CHANNEL>
 ```
 
-Read each matching parent and its reaction metadata, retaining `👀` from any
-valid workflow identity — `hasmy:eyes` optimizes the current identity's scan
-but is never the only cursor. An eye-only clear bug or upvoted improvement
-stays in the worklist until it reaches a terminal disposition, rediscovered
-through that durable marker rather than dropping out with the scan window.
+Read each matching parent and its reaction metadata, retaining active `👀`
+claims from any valid workflow identity - `hasmy:eyes` optimizes the current
+identity's scan but is never the only cursor. A clear bug with an active eye or
+upvoted improvement stays in the worklist until it reaches a verified fix,
+targeted clarification, or an explicit release with the eye removed. A stale
+eye on an item that cannot be reproduced or fixed is cleanup, not durable
+ownership.
 
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.
@@ -407,9 +423,12 @@ have. Three kinds qualify:
   PR, a person actively working it). Acknowledge it; ask nothing.
 - **A question** — subject to the budget below.
 
-Everything else gets an eye, an internal recap row, and **no message**.
-Silence is a valid disposition. A clear bug you investigated and could not
-crack is recorded internally as open, not broadcast as a status update.
+Everything else gets an internal recap row and **no message**. Keep the eye
+only while actively investigating, fixing, or waiting on a targeted
+clarification. If a clear bug cannot be reproduced or fixed after the
+investigation, remove the eye and record it as **Open - no reply**. Silence and
+releasing the eye are the handoff; do not message the thread just to say
+someone else should handle it.
 Never post the same sentence into multiple threads: if three reports share one
 cause, reply in one and record the rest as clustered.
 
@@ -522,7 +541,7 @@ not shipping blockers.
 ## Recap
 
 Every item inspected gets a row, including ones you deliberately stayed silent
-on — that is how silence stays auditable.
+on - that is how silence stays auditable.
 
 ```md
 ## Feedback sweep
@@ -532,17 +551,19 @@ Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Source / item | Disposition | Replied? | Why and evidence |
-| --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Resolved elsewhere / Skipped / Abandoned - no answer in 4 days | yes / no | ... |
+| Source / item | Disposition | Replied? | Eye | Why and evidence |
+| --- | --- | --- | --- | --- |
+| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Resolved elsewhere / Skipped / Abandoned - no answer in 4 days | yes / no | held / removed | ... |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Unavailable or unverified: ...
 ```
 
-`Open - no reply` is a success state when the item is genuinely blocked on
-investigation rather than on the reporter. "Nothing matched" is valid only
-after each source was queried successfully, with the cursor stated.
+`Open - no reply` is a success state when investigation ended without a
+verified reproduction or safe fix and no reporter detail would unblock it. It
+always means the `👀` was removed - do not use it to hold a claim. "Nothing
+matched" is valid only after each source was queried successfully, with the
+cursor stated.
 
 ## Related skills
 

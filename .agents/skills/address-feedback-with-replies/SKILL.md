@@ -52,11 +52,13 @@ gate before any external write.
 
 Every clear-bug parent or upvoted improvement that receives `👀`
 enters the reply ledger. The reaction is not a reply or completion marker.
-Before finishing, re-read each eye-marked item and verify the invoking identity
+Before finishing, re-read each claimed item and verify the invoking identity
 posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
 recorded **Open - no reply** or **Abandoned - no answer in 4 days** with a
-concrete reason. An expired question leaves the ledger with its `👀` removed
-and no reply owed. **In progress** requires
+concrete reason and the `👀` removed for any terminal no-reply disposition. An
+expired question leaves the ledger with its `👀` removed and no reply owed.
+**Clarification needed** may retain the eye only while the targeted question is
+pending. **In progress** requires
 concrete existing ownership or active fixing and must be revisited; a bot
 forward, another person's reply, or `👀` alone does not qualify. Mistaken
 out-of-scope eyes use the cleanup rule above, not a new reply.
@@ -125,18 +127,17 @@ informational, bot-forward, status-only, non-repo-owned, and Design items
 without reaction, reply, or code unless the invoking identity's `:upvote:` put
 them in scope; Design goes to Sid unless upvoted or explicitly assigned.
 
-`👀` is an investigation marker, not a handled marker. An eye-only clear bug
-remains open until verification and its final user-facing status are complete.
-Keep internal verification gaps internal and do not claim **Fixed**.
+`👀` is a temporary exclusive-work lock, not a handled marker. Keep it while
+actively investigating or fixing, or while waiting on one targeted reporter
+clarification that could unblock the fix. Keep internal verification gaps
+internal and do not claim **Fixed**.
 
-Do not end a run with an eye-only clear bug **unfinished**. Keep working it.
-But finishing the work and posting a message are different obligations:
-internal test, deployment, and tooling gaps are never reporter questions, and
-an item you investigated without cracking is recorded internally as open, not
-broadcast as a status update. Reply where the reply carries information the
-thread does not already have; otherwise leave the eye and the recap row and
-post nothing. Record **Open - no reply** with the concrete reason. Silence is a
-disposition.
+If the investigation cannot produce a verified reproduction or safe fix,
+remove the `👀` and record **Open - no reply** with the concrete evidence. Post
+nothing: releasing the eye is the handoff, and a reply saying another owner
+should act adds no value. Ask for reporter input only when a specific missing
+detail, such as a browser-console screenshot, would let you reproduce and fix
+the issue.
 
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
@@ -153,7 +154,8 @@ fix, or said the work is being fixed; use it to acknowledge the existing work,
 never to replace verification or to create a vague status update. The next run
 must revisit **In progress** and resolve it to **Fixed** or
 **Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and
-similar phrases are internal notes, never a complete Slack reply. If a reply
+similar phrases are internal notes, never a complete Slack reply. **Open - no
+reply** is terminal only after removing the eye. If a reply
 does not say the fix is complete, acknowledge concrete existing ownership, or
 ask what is needed to fix it, do not post it. These are ledger states, not
 mandatory headings: keep the reporter-facing wording natural instead of
@@ -262,9 +264,10 @@ non-repeating question only if one specific required detail still blocks it.
    reply timestamp and whether it is **Fixed**, **Shipped**, **In progress**, or
    **Clarification needed**, or **Open - no reply** with the reason. For a
    mistakenly eyed out-of-scope item, record reaction removal and no new reply
-   instead. An eye-only clear bug means keep working the fix — it does not mean
-   manufacture a message to close the row. Do not create new reactions or
-   questions for out-of-scope items.
+   instead. Keep an eye-only clear bug while actively working it; if the
+   investigation cannot reproduce or fix it, remove the eye and record
+   **Open - no reply** without posting a status message. Do not create new
+   reactions or questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
@@ -331,7 +334,9 @@ identity:
   prompt, run ID, session, or file already present or available through an
   accessible source, and never write “not fixed yet” without a real question
   that unblocks the fix. If a linked source is inaccessible, ask for access or
-  a fresh/replacement link instead of requesting its contents again.
+  a fresh/replacement link instead of requesting its contents again. If no
+  reporter detail would unblock the work, remove the `👀`, record **Open - no
+  reply**, and post nothing.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a
