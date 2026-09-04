@@ -239,6 +239,19 @@ describe("ChatRoute AgentKit surface", () => {
     expect(markHandoff).toHaveBeenCalledWith("chat");
   });
 
+  it("starts the handoff only once under Strict Mode", async () => {
+    await act(async () =>
+      root.render(
+        <React.StrictMode>
+          <ChatHomeRoute />
+        </React.StrictMode>,
+      ),
+    );
+
+    expect(routeState.navigate).toHaveBeenCalledTimes(1);
+    expect(markHandoff).toHaveBeenCalledTimes(1);
+  });
+
   it("enters durable chat mode and exposes the workspace toolbar", () => {
     routeState.threadId = "thread-one";
     routeState.messages = [{ id: "user-1" }];
