@@ -88,6 +88,7 @@ import {
   hasMcpOAuthScope,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
 
@@ -2088,10 +2089,7 @@ export async function createMCPServerForRequest(
               description: hasLink
                 ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                 : baseDescription,
-              inputSchema: entry.tool.parameters ?? {
-                type: "object" as const,
-                properties: {},
-              },
+              inputSchema: mcpToolInputSchema(name, entry.tool.parameters),
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;
