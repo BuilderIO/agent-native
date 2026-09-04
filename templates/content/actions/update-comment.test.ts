@@ -9,6 +9,7 @@ type Row = {
   threadId: string;
   parentId: string | null;
   content: string;
+  mentionsJson?: string | null;
   authorEmail: string;
   resolved: number;
   updatedAt: string;
@@ -107,6 +108,7 @@ function run(args: {
   id: string;
   documentId?: string;
   content?: string;
+  mentions?: string;
   resolved?: boolean;
 }) {
   return (action as any).run(args);
@@ -152,7 +154,7 @@ beforeEach(() => {
 describe("update-comment (action) — reopen permission", () => {
   it("rejects an update without a mutation", async () => {
     await expect(run({ id: "c-1" })).rejects.toThrow(
-      "Provide content or resolved to update a comment",
+      "Provide content, mentions, or resolved to update a comment",
     );
     expect(mockAssertAccess).not.toHaveBeenCalled();
   });
@@ -255,5 +257,54 @@ describe("update-comment (action) — reopen permission", () => {
       "doc-1",
       "commenter",
     );
+  });
+
+  it("matches comment authorship case-insensitively for commenter access", async () => {
+    state.rows[0].authorEmail = "Author@Example.COM";
+    mockGetUserEmail.mockReturnValue("author@example.com");
+
+    await run({ id: "c-1", content: "Updated with mixed-case identity" });
+
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "commenter",
+    );
+    expect(mockAssertAccess).not.toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "editor",
+    );
+    expect(state.rows[0].content).toBe("Updated with mixed-case identity");
+  });
+
+  it("updates mention metadata with edited content and clears removed mentions", async () => {
+    await run({
+      id: "c-1",
+      content: "Hello @Sam",
+      mentions: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+    });
+
+    expect(state.rows[0]).toMatchObject({
+      content: "Hello @Sam",
+      mentionsJson: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+    });
+
+    await run({ id: "c-1", content: "Hello", mentions: "[]" });
+    expect(state.rows[0].mentionsJson).toBeNull();
+  });
+
+  it("rejects malformed mention metadata instead of silently clearing it", async () => {
+    state.rows[0].mentionsJson = JSON.stringify([
+      { email: "sam@example.com", name: "Sam" },
+    ]);
+
+    await expect(
+      run({ id: "c-1", content: "Broken", mentions: "{not-json" }),
+    ).rejects.toThrow("Comment mentions metadata is not valid JSON");
+    expect(state.rows[0]).toMatchObject({
+      content: "Original text",
+      mentionsJson: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+    });
   });
 });
