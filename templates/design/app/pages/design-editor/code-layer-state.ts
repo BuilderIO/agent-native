@@ -292,6 +292,7 @@ export function codeLayerTreeToPanelNodes(
       id: node.id,
       name: resolvedLayerName(node),
       type: layerTypeForCodeLayer(node),
+      isComponent: node.isComponent,
       tagName: node.tag,
       layout: node.layout,
       detail: node.detail,
