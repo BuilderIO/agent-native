@@ -47,7 +47,6 @@ async function withPgliteMigrationLock<T>(
     }
   }
 }
-
 let migrationExecPromise: Promise<DbExec> | null = null;
 let migrationExecRefCount = 0;
 
@@ -441,4 +440,3 @@ export function runMigrations(
   return async () =>
     withPgliteMigrationLock(getMigrationDatabaseUrl(), migrate);
 }
-
