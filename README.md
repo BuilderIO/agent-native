@@ -1,34 +1,29 @@
+<picture>
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5476444e54ee4a958966c90caca468e3"
+  />
+  <source
+    media="(prefers-color-scheme: light)"
+    srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7628600bc10a4940b78f42c5df7628b0"
+  />
+  <img
+    alt="Agent-Native: The agentic application framework"
+    src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7628600bc10a4940b78f42c5df7628b0"
+  />
+</picture>
+
 # Agent-Native
-
-**The agentic application framework**
-
-Build autonomous agents with intuitive UIs.
-
-[Documentation](https://agent-native.com/docs) · [Getting started](https://agent-native.com/docs/getting-started) · [Examples](https://agent-native.com/apps) · [Discord](https://discord.gg/qm82StQ2NC)
-
-[![npm version](https://img.shields.io/npm/v/%40agent-native%2Fcore)](https://www.npmjs.com/package/@agent-native/core)
-[![Node.js compatibility](https://img.shields.io/node/v/%40agent-native%2Fcore)](https://nodejs.org)
 
 Agent-Native is an open-source TypeScript framework for building agents that pair autonomous work with a purpose-built UI. Define each capability once as an [action](https://agent-native.com/docs/actions-overview): the agent uses it as a tool, and the UI calls it from code.
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org) 22.22 or later, [pnpm](https://pnpm.io), and an LLM connection.
-
 ```bash
 npx @agent-native/core@latest create my-agent --standalone --template chat
-cd my-agent
-pnpm install
-pnpm dev
 ```
 
-The browser UI opens at `http://localhost:8080`. Select **Continue as local dev**, then connect Builder.io, your Anthropic or OpenAI API key, or a local Ollama model.
-
-Ask the agent:
-
-> Call the hello action for Alex.
-
-The agent runs the included `hello` action and replies with `Hello, Alex!`. Follow the [getting started guide](https://agent-native.com/docs/getting-started) to call the same action from the UI and create your own.
+Follow the [getting started guide](https://agent-native.com/docs/getting-started) for a full intro to the framework.
 
 ## Why build agents with UIs?
 
