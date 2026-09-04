@@ -214,6 +214,12 @@ function publishRegistrationStatus(
     if (!statuses?.size) {
       registrationStatuses.delete(host);
       delete host[WEBMCP_STATUS_KEY];
+      settleReadyWaiters(host, {
+        state: "failed",
+        registered: 0,
+        total: 0,
+        error: "WebMCP registration stopped",
+      });
       return;
     }
   } else {
@@ -591,6 +597,7 @@ export function createAgentNativeWebMcpClient(
 /** Where {@link installAgentNativeWebMcpPageHelper} publishes the page helper. */
 const WEBMCP_HELPER_KEY = "__agentNativeWebMcp";
 const HELPER_MAX_ATTEMPTS = 10;
+const HELPER_MAX_OUTCOMES = 200;
 const HELPER_DEFAULT_WAIT_MS = 20_000;
 const HELPER_SUMMARY_DESCRIPTION_CHARS = 240;
 const STALE_DESCRIPTOR_RE =
@@ -685,7 +692,12 @@ function toolMatches(
   const haystack = `${tool.name} ${tool.title ?? ""} ${tool.description}`;
   // Test the bare name first so anchored patterns like /^get-deck$/ match.
   if (filter instanceof RegExp) {
-    return filter.test(tool.name) || filter.test(haystack);
+    // A /g or /y pattern carries lastIndex between tests; copy it without.
+    const pattern = new RegExp(
+      filter.source,
+      filter.flags.replace(/[gy]/g, ""),
+    );
+    return pattern.test(tool.name) || pattern.test(haystack);
   }
   return haystack.toLowerCase().includes(filter.toLowerCase());
 }
@@ -749,12 +761,30 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   // wake-up per listing. Reuse the last listing until the registry says it
   // changed; hosts without toolchange events always list fresh.
   let listing: AgentNativeWebMcpTool[] | undefined;
+  let listingGeneration = 0;
   const cacheable = typeof client.onToolChange === "function";
-  if (cacheable) client.onToolChange?.(() => (listing = undefined));
+  const invalidateListing = () => {
+    listing = undefined;
+    listingGeneration += 1;
+  };
+  if (cacheable) client.onToolChange?.(invalidateListing);
   async function list(): Promise<AgentNativeWebMcpTool[]> {
     if (!cacheable) return client.listTools();
-    listing ??= await client.listTools();
-    return listing;
+    if (listing) return listing;
+    // A toolchange during the await outdates this listing before it lands;
+    // the generation check keeps a stale result out of the cache.
+    const generation = listingGeneration;
+    const tools = await client.listTools();
+    if (generation === listingGeneration) listing = tools;
+    return tools;
+  }
+  function remember(id: string, outcome: AgentNativeWebMcpCallOutcome): void {
+    outcomes.set(id, outcome);
+    while (outcomes.size > HELPER_MAX_OUTCOMES) {
+      const oldest = outcomes.keys().next().value;
+      if (oldest === undefined) break;
+      outcomes.delete(oldest);
+    }
   }
 
   const status = () => getAgentNativeWebMcpStatus(targetDocument);
@@ -797,12 +827,26 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     let attempts = 0;
     let lastError = "";
     for (; attempts < HELPER_MAX_ATTEMPTS; attempts += 1) {
-      const tools = await list();
+      let tools: AgentNativeWebMcpTool[];
+      try {
+        tools = await list();
+      } catch (error) {
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: "execution-failed",
+          error: error instanceof Error ? error.message : String(error),
+          ...(status() ? { status: status() } : {}),
+        };
+      }
       const tool = tools.find((candidate) => candidate.name === name);
       if (!tool) {
         const current = status() ?? settledStatus;
         const registering = current.state === "registering";
-        listing = undefined;
+        invalidateListing();
         return {
           id,
           state: "done",
@@ -831,7 +875,7 @@ export function createAgentNativeWebMcpPageHelper(options?: {
         // A descriptor from an earlier listing dies when the registry
         // restarts under it; the next listing is live again, so retry now.
         if (STALE_DESCRIPTOR_RE.test(lastError)) {
-          listing = undefined;
+          invalidateListing();
           continue;
         }
         attempts += 1;
@@ -868,11 +912,23 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     async call(name, args = {}, callOptions) {
       const id = `webmcp-call-${++sequence}`;
       const waitMs = callOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS;
-      outcomes.set(id, { id, state: "pending", tool: name });
-      const promise = run(id, name, args, waitMs).then((outcome) => {
-        outcomes.set(id, outcome);
-        return outcome;
-      });
+      remember(id, { id, state: "pending", tool: name });
+      const promise = run(id, name, args, waitMs)
+        .catch(
+          (error): AgentNativeWebMcpCallOutcome => ({
+            id,
+            state: "done",
+            ok: false,
+            tool: name,
+            attempts: 0,
+            code: "execution-failed",
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        )
+        .then((outcome) => {
+          remember(id, outcome);
+          return outcome;
+        });
       const settled = await settleWithin(promise, waitMs);
       if (settled.settled) return settled.value;
       const current = status();

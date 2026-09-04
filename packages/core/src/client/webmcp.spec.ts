@@ -1116,4 +1116,156 @@ describe("WebMCP page helper", () => {
       window.removeEventListener("agentNative:refresh-data", onRefresh);
     }
   });
+  it("reports execution-failed instead of hanging pending when getTools() rejects", async () => {
+    readyStatus(1);
+    const getTools = vi.fn(async () => {
+      throw new Error("registry unavailable");
+    });
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool: vi.fn(async () => ""),
+      }),
+    });
+
+    const outcome = await helper.call("get-order");
+    expect(outcome).toEqual({
+      id: "webmcp-call-1",
+      state: "done",
+      ok: false,
+      tool: "get-order",
+      attempts: 1,
+      code: "execution-failed",
+      error: "registry unavailable",
+      status: { state: "ready", registered: 1, total: 1 },
+    });
+    expect(helper.result("webmcp-call-1")).toEqual(outcome);
+  });
+
+  it("settles a pending ready() when the last registration stops instead of waiting for the bound", async () => {
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const modelContext = {
+      registerTool: vi.fn(async () => {
+        await gate;
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const doc = documentWithModelContext(modelContext);
+    const registration = createAgentNativeWebMcpRegistration({
+      document: doc,
+      actions: [
+        {
+          name: "one",
+          description: "Do one",
+          parameters: { type: "object", properties: {} },
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        } as unknown as AgentNativeClientAction,
+      ],
+    });
+
+    const startPromise = registration.start();
+    const helper = createAgentNativeWebMcpPageHelper({ document: doc });
+    const readyPromise = helper.ready();
+
+    registration.stop();
+
+    await expect(readyPromise).resolves.toEqual({
+      state: "failed",
+      registered: 0,
+      total: 0,
+      error: "WebMCP registration stopped",
+    });
+
+    releaseGate();
+    await expect(startPromise).resolves.toBeUndefined();
+  });
+
+  it("lists fresh after a toolchange fires while a cached listing is still in flight", async () => {
+    readyStatus(1);
+    const firstTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    let resolveFirstList!: (tools: unknown[]) => void;
+    let toolchangeListener: EventListener | undefined;
+    const getTools = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstList = resolve;
+          }),
+      )
+      .mockImplementation(async () => [firstTool]);
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool: vi.fn(async () => ""),
+        addEventListener: (type: string, listener: EventListener) => {
+          if (type === "toolchange") toolchangeListener = listener;
+        },
+        removeEventListener: vi.fn(),
+      }),
+    });
+
+    const firstCall = helper.tools();
+    // toolchange fires while the first (cacheable) listing is still pending.
+    toolchangeListener?.(new Event("toolchange"));
+    resolveFirstList([firstTool]);
+    await firstCall;
+    expect(getTools).toHaveBeenCalledTimes(1);
+
+    await helper.tools();
+    expect(getTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("matches every tool for a global RegExp filter instead of alternating misses via shared lastIndex", async () => {
+    readyStatus(3);
+    // Each description avoids repeating "deck" so a stale, carried-over
+    // lastIndex from a prior successful match has nothing later to fall
+    // back onto — the classic true/false/true alternation this guards.
+    const tools = [
+      {
+        name: "get-deck",
+        description: "Read it",
+        window,
+        origin: "https://shop.example",
+      },
+      {
+        name: "update-deck",
+        description: "Change it",
+        window,
+        origin: "https://shop.example",
+      },
+      {
+        name: "delete-deck",
+        description: "Remove it",
+        window,
+        origin: "https://shop.example",
+      },
+    ];
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => tools),
+        executeTool: vi.fn(async () => ""),
+      }),
+    });
+
+    const matches = await helper.tools(/deck/g);
+    expect(matches.map((tool) => tool.name)).toEqual([
+      "get-deck",
+      "update-deck",
+      "delete-deck",
+    ]);
+  });
 });

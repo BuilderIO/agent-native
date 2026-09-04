@@ -447,6 +447,7 @@ class SyncTransport {
   private subscribers = new Map<symbol, TransportSubscription>();
   private cursorRef: SyncCursor = { ...INITIAL_SYNC_CURSOR };
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private refreshRequested = false;
   private removeVisibilityListener?: () => void;
   private stopped = false;
   private inFlight = false;
@@ -1161,7 +1162,12 @@ class SyncTransport {
       // Network error — retried on the next (backed-off) interval.
     } finally {
       this.inFlight = false;
-      this.schedulePoll();
+      if (this.refreshRequested && !this.stopped) {
+        this.refreshRequested = false;
+        void this.poll(true);
+      } else {
+        this.schedulePoll();
+      }
     }
   }
 
@@ -1210,6 +1216,12 @@ class SyncTransport {
     // evaluator, a host bridge command) proves someone is driving this page
     // even when the document reports hidden, so this one poll skips the idle
     // gate; schedulePoll still honors it, so nothing keeps polling after.
+    // A poll already in flight may predate the write, so remember the request
+    // and run again when it settles instead of dropping it.
+    if (this.inFlight) {
+      this.refreshRequested = true;
+      return;
+    }
     void this.poll(true);
   };
 
