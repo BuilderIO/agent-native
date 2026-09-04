@@ -417,6 +417,7 @@ const koKR = {
   },
   common: {
     copied: "복사됨",
+    copyFailed: "복사하지 못했습니다",
     copyCommand: "복사 명령",
     copyCode: "코드 복사",
     tryIt: "사용해 보기",

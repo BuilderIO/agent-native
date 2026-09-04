@@ -59,6 +59,7 @@ const enUS = {
   },
   common: {
     copied: "Copied",
+    copyFailed: "Copy failed",
     copyCommand: "Copy command",
     copyCode: "Copy code",
     tryIt: "Try It",

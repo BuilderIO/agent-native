@@ -418,6 +418,7 @@ const frFR = {
   },
   common: {
     copied: "Copié",
+    copyFailed: "Échec de la copie",
     copyCommand: "Commande Copier",
     copyCode: "Copier le code",
     tryIt: "Essayer",

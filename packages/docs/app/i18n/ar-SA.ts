@@ -415,6 +415,7 @@ const arSA = {
   },
   common: {
     copied: "منقول",
+    copyFailed: "فشل النسخ",
     copyCommand: "أمر النسخ",
     copyCode: "نسخ الرمز",
     tryIt: "جرّب",

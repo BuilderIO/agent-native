@@ -408,6 +408,7 @@ const messages = {
   },
   common: {
     copied: "已複製",
+    copyFailed: "複製失敗",
     copyCommand: "複製指令",
     copyCode: "複製程式碼",
     tryIt: "試用",
