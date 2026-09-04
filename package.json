@@ -130,6 +130,8 @@
     "guard:dead-settings-keys": "node scripts/guard-dead-settings-keys.mjs",
     "guard:serverless-function-payload": "node scripts/guard-serverless-function-payload.mjs",
     "guard:doc-budgets": "node scripts/guard-doc-budgets.mjs",
+    "guard:e2e-quarantine": "node scripts/guard-e2e-quarantine.mjs",
+    "guard:e2e-harness": "node scripts/guard-e2e-harness.mjs",
     "mcp-registry:write": "node --experimental-strip-types scripts/mcp-registry.ts --write",
     "guards": "tsx scripts/run-guards.ts",
     "ship:push": "node scripts/ship-push.mjs",

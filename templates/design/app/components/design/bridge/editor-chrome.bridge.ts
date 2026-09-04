@@ -9414,10 +9414,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // A target whose resolved container is body is the freeform screen/root,
-    // not an auto-layout list. Reparent inside body and preserve the release
-    // point with absolute positioning instead of inserting before/after a
-    // top-level frame as another flow child.
+    // Body has no node-id, so persist cannot resolve `html > body` as an
+    // inside-anchor. After the current parent lands the same freeform root
+    // sibling and gives persist a real node-id.
     if (
       currentParent !== document.body &&
       (container === document.body ||
@@ -9425,8 +9424,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         target?.anchor === document.body)
     ) {
       return {
-        anchor: document.body,
-        placement: "inside",
+        anchor: currentParent,
+        placement: "after",
         axis: "y",
         dropMode: "absolute-container",
       };
@@ -9549,7 +9548,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var hit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
     if (!hit || hit === document.documentElement || hit === document.body) {
-      return null;
+      return unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
     var cursor = hit;
     while (cursor && cursor !== document.body) {
@@ -9711,7 +9710,103 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       cursor = parent;
     }
-    return null;
+    return unnestAbsoluteToScreenRoot(el, clientX, clientY);
+  }
+
+  // After-the-parent (not inside body): body often has no node-id, so persist
+  // cannot resolve it and the style-only write leaves the child clipped.
+  function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
+    var parent = el && el.parentElement;
+    if (
+      !parent ||
+      parent === document.body ||
+      parent === document.documentElement
+    ) {
+      return null;
+    }
+    var parentRect = parent.getBoundingClientRect();
+    if (
+      clientX >= parentRect.left &&
+      clientX <= parentRect.right &&
+      clientY >= parentRect.top &&
+      clientY <= parentRect.bottom
+    ) {
+      return null;
+    }
+    return {
+      anchor: parent,
+      placement: "after",
+      axis: "y",
+      dropMode: "absolute-container",
+    };
+  }
+
+  function clipsOverflow(value: string) {
+    return (
+      value === "hidden" ||
+      value === "clip" ||
+      value === "auto" ||
+      value === "scroll"
+    );
+  }
+
+  function liftOverflowOnAncestors(els: Element[]) {
+    var captured: {
+      el: HTMLElement;
+      overflow: string;
+      overflowX: string;
+      overflowY: string;
+    }[] = [];
+    var seen: HTMLElement[] = [];
+    els.forEach(function (el) {
+      var cursor = el.parentElement;
+      while (
+        cursor &&
+        cursor !== document.body &&
+        cursor !== document.documentElement
+      ) {
+        var htmlEl = cursor as HTMLElement;
+        if (seen.indexOf(htmlEl) === -1) {
+          var cs = window.getComputedStyle(htmlEl);
+          // `auto` and `scroll` clip absolutely-positioned descendants to the
+          // padding box exactly as `hidden` does, so a child dragged out of a
+          // scrollable frame vanishes unless they are lifted too.
+          if (
+            clipsOverflow(cs.overflow) ||
+            clipsOverflow(cs.overflowX) ||
+            clipsOverflow(cs.overflowY)
+          ) {
+            captured.push({
+              el: htmlEl,
+              overflow: htmlEl.style.overflow,
+              overflowX: htmlEl.style.overflowX,
+              overflowY: htmlEl.style.overflowY,
+            });
+            htmlEl.style.overflow = "visible";
+            htmlEl.style.overflowX = "visible";
+            htmlEl.style.overflowY = "visible";
+          }
+          seen.push(htmlEl);
+        }
+        cursor = cursor.parentElement;
+      }
+    });
+    return captured;
+  }
+
+  function restoreOverflowOnAncestors(
+    captured: {
+      el: HTMLElement;
+      overflow: string;
+      overflowX: string;
+      overflowY: string;
+    }[],
+  ) {
+    captured.forEach(function (entry) {
+      entry.el.style.overflow = entry.overflow;
+      entry.el.style.overflowX = entry.overflowX;
+      entry.el.style.overflowY = entry.overflowY;
+    });
   }
 
   function showInsertionGuideFor(target) {
@@ -9916,7 +10011,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // apply the parent-origin delta twice.
     if (target.absoluteCoordinatesPrepared) return;
     var container = dropContainerForTarget(target);
-    if (!container || container === document.body || container === el) return;
+    if (!container || container === el) return;
     if (el.contains && el.contains(container)) return;
     var htmlEl = el as HTMLElement;
     var cs = window.getComputedStyle(htmlEl);
@@ -9931,16 +10026,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var boardOffsetY = designCanvasBoardSurface
       ? designCanvasContentOffsetY
       : 0;
-    var newOriginX =
-      containerRect.left -
-      boardOffsetX +
-      readPx(containerCS.borderLeftWidth) -
-      container.scrollLeft;
-    var newOriginY =
-      containerRect.top -
-      boardOffsetY +
-      readPx(containerCS.borderTopWidth) -
-      container.scrollTop;
+    // Body's children carry the board translate; subtracting it from body's
+    // origin double-counts and parks an un-nested child one chunk off-world.
+    var bodyIsContainingBlock =
+      container !== document.body ||
+      containerCS.position !== "static" ||
+      containerCS.transform !== "none" ||
+      (containerCS.getPropertyValue("translate") || "none") !== "none";
+    var newOriginBoardOffsetX = container === document.body ? 0 : boardOffsetX;
+    var newOriginBoardOffsetY = container === document.body ? 0 : boardOffsetY;
+    var newOriginX = bodyIsContainingBlock
+      ? containerRect.left -
+        newOriginBoardOffsetX +
+        readPx(containerCS.borderLeftWidth) -
+        container.scrollLeft
+      : -(window.scrollX || 0);
+    var newOriginY = bodyIsContainingBlock
+      ? containerRect.top -
+        newOriginBoardOffsetY +
+        readPx(containerCS.borderTopWidth) -
+        container.scrollTop
+      : -(window.scrollY || 0);
     // Current containing block origin: the member's offsetParent when it is
     // a real containing block, else the initial containing block (client
     // 0,0 minus page scroll). offsetParent falls back to <body> even when
@@ -12118,6 +12224,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       snapshot.originTop = readPx(m.style.top || mcs.top);
       return snapshot;
     });
+    var liftedClippingAncestors = liftOverflowOnAncestors(groupEls);
     var gestureState =
       memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
 
@@ -12406,6 +12513,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);
       clearActiveDragCancel(cancelMoveDrag);
+      restoreOverflowOnAncestors(liftedClippingAncestors);
       // Drop any rAF-scheduled "move" tick so it can never fire and post
       // after this gesture's "end"/"cancel" phase has already gone out.
       crossScreenDragMoveScheduled = false;
