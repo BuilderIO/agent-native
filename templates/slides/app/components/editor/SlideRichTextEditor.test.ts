@@ -43,6 +43,7 @@ describe("slide rich text normalization", () => {
     expect(items[0]?.textContent).toBe("First");
     expect(items[0]?.style.fontSize).toBe("24px");
     expect(items[0]?.style.color).toBe("red");
+    expect(list.style.getPropertyValue("--slide-legacy-list")).toBe("1");
     expect(html).not.toContain("<p></p>");
   });
 
@@ -91,6 +92,23 @@ describe("slide rich text normalization", () => {
     expect(style.listStylePosition).toBe("outside");
     expect(style.listStyleType).toBe("disc");
     expect(style.paddingLeft).toBe("24px");
+  });
+
+  it("scales headings from the text block in both canvas states", () => {
+    document.body.innerHTML = `
+      <div class="slide-content">
+        <div class="fmd-slide">
+          <div style="font-size:14px"><h1>Canvas</h1></div>
+          <div class="slide-shared-rich-editor">
+            <div class="an-rich-md-prose" style="font-size:14px"><h1>Editor</h1></div>
+          </div>
+        </div>
+      </div>
+    `;
+    const headings = document.querySelectorAll("h1");
+
+    expect(getComputedStyle(headings[0]!).fontSize).toBe("28px");
+    expect(getComputedStyle(headings[1]!).fontSize).toBe("28px");
   });
 
   it("preserves styled imported trailing paragraphs", () => {

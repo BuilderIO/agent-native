@@ -493,6 +493,20 @@ const LEGACY_ROW_TEXT_STYLE_PROPERTIES = [
   "text-align",
   "text-decoration",
 ];
+const LEGACY_ROW_LAYOUT_STYLE_PROPERTIES = [
+  "align-items",
+  "display",
+  "flex-shrink",
+  "gap",
+  "justify-content",
+  "row-gap",
+  "column-gap",
+];
+const LEGACY_MARKER_STYLE_PROPERTIES = [
+  ["font-size", "--slide-legacy-marker-size"],
+  ["color", "--slide-legacy-marker-color"],
+  ["top", "--slide-legacy-marker-top"],
+] as const;
 
 function listItemContent(item: HTMLElement): string {
   const firstChild = item.firstElementChild;
@@ -530,6 +544,7 @@ function restoreLegacyBulletRow(
     row.style.removeProperty(property);
   }
   copyRowTextStyles(item, row);
+  copyLegacyRowLayoutStyles(item, row);
   return row;
 }
 
@@ -609,19 +624,49 @@ function restoreLegacyBulletRows(
 }
 
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {
-  for (const property of [
-    "color",
-    "font-family",
-    "font-size",
-    "font-style",
-    "font-weight",
-    "letter-spacing",
-    "line-height",
-    "text-align",
-    "text-decoration",
-  ]) {
+  for (const property of LEGACY_ROW_TEXT_STYLE_PROPERTIES) {
     const value = row.style.getPropertyValue(property);
     if (value) item.style.setProperty(property, value);
+  }
+}
+
+function copyLegacyRowLayoutStyles(row: HTMLElement, item: HTMLElement): void {
+  for (const property of LEGACY_ROW_LAYOUT_STYLE_PROPERTIES) {
+    const value = row.style.getPropertyValue(property);
+    if (value) item.style.setProperty(property, value);
+  }
+}
+
+function copyLegacyListLayoutStyles(
+  container: Element,
+  list: HTMLUListElement,
+): void {
+  list.style.setProperty("--slide-legacy-list", "1");
+  list.style.setProperty("list-style", "none");
+  list.style.setProperty("padding-left", "0");
+  for (const property of [
+    "display",
+    "flex-direction",
+    "gap",
+    "row-gap",
+    "column-gap",
+  ]) {
+    const value = (container as HTMLElement).style.getPropertyValue(property);
+    if (value) list.style.setProperty(property, value);
+  }
+}
+
+function copyLegacyMarkerStyles(marker: HTMLElement, item: HTMLElement): void {
+  const glyph = marker.textContent?.trim();
+  if (glyph) {
+    item.style.setProperty(
+      "--slide-legacy-marker-content",
+      JSON.stringify(glyph),
+    );
+  }
+  for (const [property, variable] of LEGACY_MARKER_STYLE_PROPERTIES) {
+    const value = marker.style.getPropertyValue(property);
+    if (value) item.style.setProperty(variable, value);
   }
 }
 
@@ -640,6 +685,7 @@ export function normalizeSlideEditorContent(html: string): string {
         if (isLegacyBulletRow(child)) {
           if (!list) {
             list = doc.createElement("ul");
+            copyLegacyListLayoutStyles(container, list);
             converted.push(list);
           }
           const item = doc.createElement("li");
@@ -652,6 +698,9 @@ export function normalizeSlideEditorContent(html: string): string {
             }
           }
           copyRowTextStyles(child as HTMLElement, item);
+          copyLegacyRowLayoutStyles(child as HTMLElement, item);
+          item.style.setProperty("list-style", "none");
+          copyLegacyMarkerStyles(child.firstElementChild as HTMLElement, item);
           list.appendChild(item);
         } else {
           list = null;
