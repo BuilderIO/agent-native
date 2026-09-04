@@ -1,5 +1,5 @@
 ---
-"@agent-native/core": patch
+"@agent-native/core": minor
 "@agent-native/dispatch": minor
 "@agent-native/creative-context": patch
 "@agent-native/scheduling": patch

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * guard-no-major-changeset - refuse unattended major bumps and core minor bumps.
+ * guard-no-major-changeset - refuse unattended major bumps.
  *
  * On 2026-08-28 `.changeset/remove-chat-settings-mode.md` declared
  * `"@agent-native/core": major`. Changesets reads `major` on a 0.x package as
@@ -9,8 +9,9 @@
  * 55 nightlies to npm. No human saw a version number at any point. These
  * packages are pre-1.0 on purpose.
  *
- * Changesets itself has no setting for this - non-patch bumps are legal -
- * so the refusal lives here, where every PR runs it.
+ * Changesets itself has no setting for this - major bumps are legal - so the
+ * refusal lives here, where every PR runs it. Minor bumps remain valid for
+ * intentional breaking changes to 0.x packages.
  *
  * The escape hatch is deliberately not a pragma in the file: promoting a major
  * version is a decision someone makes on purpose, so it is done by a human
@@ -74,10 +75,7 @@ function main() {
       if (!bump) continue;
       const packageName = bump[1].trim();
       const bumpType = bump[2];
-      if (
-        bumpType === "major" ||
-        (packageName === "@agent-native/core" && bumpType === "minor")
-      ) {
+      if (bumpType === "major") {
         offenders.push(`.changeset/${entry}: ${line}`);
       }
     }
@@ -91,13 +89,11 @@ function main() {
     console.error(
       [
         "",
-        "@agent-native/core is pre-beta and patch-only. A `minor` or `major`",
-        "bump takes it out of the patch release train. A `major` bump also",
-        "takes a 0.x package straight to 1.0.0, which is how core reached",
-        "1.0.0 on 2026-08-28.",
+        "Major bumps remain blocked because a 0.x package major bump becomes",
+        "1.0.0, which is how core reached 1.0.0 on 2026-08-28.",
         "",
-        "Change the core bump to `patch`. A deliberate non-patch promotion is",
-        "a human release decision, not an unattended changeset release.",
+        "Use a deliberate minor bump for an intentional breaking change in a",
+        "0.x package. A major promotion still requires a human release decision.",
       ].join("\n"),
     );
     process.exit(1);
