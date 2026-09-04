@@ -201,7 +201,6 @@ describe("org handlers", () => {
         return { rows: [] };
       }
       if (sql.includes("SELECT name, identity_authority")) {
-        mockEvaluateFeatureFlagStrict.mockResolvedValue(true);
         return {
           rows: [
             {
@@ -217,6 +216,7 @@ describe("org handlers", () => {
       }
       return { rows: [], rowsAffected: 1 };
     });
+    mockEvaluateFeatureFlagStrict.mockResolvedValue(true);
     mockAddFederatedOrganizationMember.mockImplementation(async () => {
       expect(
         mockExecute.mock.calls.some(([input]) =>

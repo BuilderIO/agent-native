@@ -793,13 +793,6 @@ export const acceptInvitationHandler = defineEventHandler(
     const linked =
       String(organization?.identity_authority ?? "").trim() ||
       String(organization?.identity_id ?? "").trim();
-    const federationEnabled = linked
-      ? await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
-          userEmail: email,
-          userKey: email,
-          orgId: invOrgId,
-        })
-      : false;
 
     if (existingMembership.rows.length > 0) {
       await e.execute({
@@ -823,6 +816,29 @@ export const acceptInvitationHandler = defineEventHandler(
       args: [invOrgId, inviterEmail.toLowerCase()],
     });
     const inviterRole = String((inviterRes.rows[0] as any)?.role ?? "");
+
+    let federationEnabled = false;
+    if (linked) {
+      try {
+        federationEnabled = await evaluateFeatureFlagStrict(
+          CROSS_APP_ORG_FEDERATION_FLAG.key,
+          {
+            userEmail: email,
+            userKey: email,
+            orgId: invOrgId,
+          },
+        );
+      } catch (error) {
+        // A linked invitation cannot safely fall back while rollout state is
+        // unreadable, but should report a retryable authority failure.
+        void error;
+        throw createError({
+          statusCode: 503,
+          message:
+            "Could not determine whether identity federation is enabled.",
+        });
+      }
+    }
 
     if (federationEnabled) {
       try {
