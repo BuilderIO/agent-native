@@ -621,6 +621,7 @@ export function useEmails(
   // Placeholder InfiniteData includes the previous query's page token. Keep
   // pagination disabled until the new query owns the pages.
   const canPaginate = !q.isPlaceholderData;
+  const hasCurrentQueryData = Boolean(q.data) && !q.isPlaceholderData;
 
   return {
     data,
@@ -630,8 +631,8 @@ export function useEmails(
     // Keep stale data visible when a background refetch fails (usually Gmail
     // quota cooldown). Showing the full error state while data exists makes
     // the inbox appear to flash/reload even though the old page is usable.
-    isError: q.isError && !q.data,
-    error: q.isError && !q.data ? toError(q.error) : null,
+    isError: q.isError && !hasCurrentQueryData,
+    error: q.isError && !hasCurrentQueryData ? toError(q.error) : null,
     totalEstimate: q.data?.pages[0]?.totalEstimate,
     refetch: q.refetch,
     hasNextPage: canPaginate && q.hasNextPage,
