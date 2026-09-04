@@ -2,11 +2,19 @@ import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { setActiveOrgId } from "./active-org.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
+import { isMissingOrganizationTableError } from "./membership.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function isMissingInvitationTableError(error: unknown): boolean {
+  const candidate = error as { message?: unknown };
+  return /no such table:\s*["'`]?org_invitations["'`]?|relation\s+["'`]?org_invitations["'`]?\s+does not exist/i.test(
+    String(candidate?.message ?? error),
+  );
+}
 
 export interface AcceptPendingResult {
   accepted: Array<{ invitationId: string; orgId: string }>;
@@ -62,9 +70,27 @@ export async function acceptPendingInvitationsForEmail(
         String(r.identityId ?? r.identity_id ?? "").trim(),
       ),
     }));
-  } catch {
-    // Template doesn't use the org module / tables not migrated yet.
-    return { accepted: [], activeOrgId: null };
+  } catch (error) {
+    if (isMissingOrganizationTableError(error)) {
+      const res = await db.execute({
+        sql: `SELECT i.id, i.org_id AS "orgId", i.role
+              FROM org_invitations i
+              WHERE LOWER(i.email) = ? AND i.status = 'pending'
+              ORDER BY i.created_at DESC`,
+        args: [email],
+      });
+      rows = res.rows.map((r: any) => ({
+        id: String(r.id),
+        orgId: String(r.orgId ?? r.org_id),
+        role: r.role == null ? null : String(r.role),
+        federated: false,
+      }));
+    } else if (isMissingInvitationTableError(error)) {
+      // Template doesn't use the org module.
+      return { accepted: [], activeOrgId: null };
+    } else {
+      throw error;
+    }
   }
 
   if (rows.length === 0) {
