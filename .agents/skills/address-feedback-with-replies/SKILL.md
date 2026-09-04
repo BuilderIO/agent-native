@@ -159,9 +159,12 @@ Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
 
 A tracked clear-bug or authorized upvoted improvement receives at most one
-external disposition per run: **Fixed**, **Shipped**, **In progress**,
-**Clarification needed**, or **Open - no reply** with a reason. An already-eyed
-item later found to be out of scope gets reaction cleanup and no new reply; if
+disposition per run. Active dispositions are **In progress** and
+**Clarification needed**; terminal dispositions are **Fixed**, **Shipped**,
+**Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**, and
+**Abandoned - no answer in 4 days**, each with the required evidence and eye
+state. An already-eyed item later found to be out of scope gets reaction
+cleanup and no new reply; if
 this workflow already replied, delete that reply when safe or edit it to one
 concise **Skipped** disposition. **Fixed** closes the current issue. **In progress** is
 an open ownership state for a thread
@@ -276,10 +279,12 @@ non-repeating question only if one specific required detail still blocks it.
    afterward to confirm the reply landed under the intended parent. Use the
    exact parent timestamp as `thread_ts`; never reply to a search-result
    timestamp or an adjacent thread. Before ending the run, mechanically
-   audit the reply ledger: for every `👀` parent, record the invoking user's
-   reply timestamp and whether it is **Fixed**, **Shipped**, **In progress**, or
-   **Clarification needed**, **Open - no reply**, **Resolved elsewhere**,
-   **Skipped**, or **Clustered** with the reason. For a foreign eye, record
+   audit the reply ledger: for every claimed parent, record the invoking user's
+   reply timestamp when one exists, its disposition, and its eye state. The
+   disposition may be **Fixed**, **Shipped**, **In progress**, **Clarification
+   needed**, **Open - no reply**, **Resolved elsewhere**, **Skipped**, or
+   **Clustered** with the reason; silent terminal states intentionally have no
+   reply timestamp. For a foreign eye, record
    **Owned elsewhere** and leave the reaction untouched. For a
    mistakenly eyed out-of-scope item, record reaction removal and no new reply
    instead. Keep an eye-only clear bug while actively working it; if the
