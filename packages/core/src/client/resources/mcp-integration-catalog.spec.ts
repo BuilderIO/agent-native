@@ -147,6 +147,7 @@ describe("MCP integration catalog", () => {
     expect(filterMcpIntegrations("sigma").map((item) => item.id)).toEqual([
       "sigma",
     ]);
+    expect(findMcpIntegrationForText("Connect Sigma")?.id).toBe("sigma");
     expect(findMcpIntegrationForText("Connect Sigma dashboard")?.id).toBe(
       "sigma",
     );

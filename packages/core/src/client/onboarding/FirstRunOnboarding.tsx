@@ -400,6 +400,11 @@ export function FirstRunOnboarding({
       return;
     }
 
+    if (!integration.url.trim()) {
+      setIntegrationDialogId(integration.id);
+      return;
+    }
+
     if (
       integration.authMode === "none" &&
       integration.connectionMode === "direct"

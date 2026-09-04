@@ -205,6 +205,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     // "Sigma" is also a math term, so only suggest the connection for a
     // qualified provider or dashboard/workbook request.
     promptAliases: [
+      "Connect Sigma",
       "Sigma Computing",
       "Sigma dashboard",
       "Sigma dashboards",
