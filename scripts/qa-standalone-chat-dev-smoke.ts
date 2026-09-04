@@ -2616,9 +2616,9 @@ async function main(): Promise<void> {
         network.navigationCancellationUntil = Date.now() + 2_000;
         void page
           .evaluate(() => {
-            const navigation = performance.getEntriesByType(
-              "navigation",
-            )[0] as PerformanceNavigationTiming | undefined;
+            const navigation = performance.getEntriesByType("navigation")[0] as
+              | PerformanceNavigationTiming
+              | undefined;
             return navigation?.type ?? "unknown";
           })
           .then((type) => {
