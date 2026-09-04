@@ -21,8 +21,8 @@ const pgliteMigrationLocks =
     Promise<void>
   >());
 
-// ponytail: one process-local lock; cross-process coordination belongs to the
-// hosted Postgres database, while PGlite storage is local to this process.
+// A PGlite process lock owns the persistent directory before this in-process
+// mutex serializes the shared client's boot-time DDL.
 async function withPgliteMigrationLock<T>(
   url: string,
   run: () => Promise<T>,

@@ -314,33 +314,232 @@ export async function loadPgliteDrizzle(): Promise<{
 }
 
 type PgliteClientRegistry = Map<string, Promise<any>>;
+type PgliteProcessLock = {
+  fd: number;
+  fs: typeof import("fs");
+  path: string;
+  contents: string;
+};
+type PgliteProcessLockRegistry = Map<string, PgliteProcessLock>;
 
 const pgliteGlobal = globalThis as typeof globalThis & {
   __agentNativePgliteClients?: PgliteClientRegistry;
+  __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
+  __agentNativePgliteProcessExitCleanupRegistered?: boolean;
 };
 const _pgliteClients = (pgliteGlobal.__agentNativePgliteClients ??= new Map<
   string,
   Promise<any>
 >());
+const _pgliteProcessLocks = (pgliteGlobal.__agentNativePgliteProcessLocks ??=
+  new Map<string, PgliteProcessLock>());
+
+function pgliteClientKey(dataDir: string): string {
+  return dataDir === "memory://" ? dataDir : path.resolve(dataDir);
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException | undefined)?.code === "EPERM";
+  }
+}
+
+function readPgliteProcessLockOwner(
+  fs: typeof import("fs"),
+  lockPath: string,
+  dataDir: string,
+): { pid: number; token: string } {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(lockPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `PGlite database directory "${dataDir}" has an unreadable process lock at "${lockPath}". ` +
+        "Confirm no local process owns it before removing the lock.",
+      { cause: error },
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `PGlite database directory "${dataDir}" has an invalid process lock at "${lockPath}". ` +
+        "Confirm no local process owns it before removing the lock.",
+      { cause: error },
+    );
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !Number.isInteger((parsed as { pid?: unknown }).pid) ||
+    typeof (parsed as { token?: unknown }).token !== "string"
+  ) {
+    throw new Error(
+      `PGlite database directory "${dataDir}" has an invalid process lock at "${lockPath}". ` +
+        "Confirm no local process owns it before removing the lock.",
+    );
+  }
+  return parsed as { pid: number; token: string };
+}
+
+function releasePgliteProcessLock(lock: PgliteProcessLock): void {
+  try {
+    lock.fs.closeSync(lock.fd);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code !== "EBADF") {
+      console.warn(
+        "[db/pglite] process lock descriptor cleanup failed:",
+        error,
+      );
+    }
+  }
+  try {
+    if (lock.fs.readFileSync(lock.path, "utf8") === lock.contents) {
+      lock.fs.unlinkSync(lock.path);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
+      console.warn("[db/pglite] process lock cleanup failed:", error);
+    }
+  }
+}
+
+function registerPgliteProcessExitCleanup(): void {
+  if (pgliteGlobal.__agentNativePgliteProcessExitCleanupRegistered) return;
+  pgliteGlobal.__agentNativePgliteProcessExitCleanupRegistered = true;
+  process.once("exit", () => {
+    for (const lock of _pgliteProcessLocks.values()) {
+      releasePgliteProcessLock(lock);
+    }
+    _pgliteProcessLocks.clear();
+  });
+}
+
+async function acquirePgliteProcessLock(
+  dataDir: string,
+): Promise<PgliteProcessLock | undefined> {
+  if (dataDir === "memory://") return undefined;
+
+  let fs: typeof import("fs");
+  try {
+    fs = await import("fs");
+  } catch (error) {
+    throw new Error(
+      "PGlite persistent database access requires filesystem support.",
+      { cause: error },
+    );
+  }
+
+  const clientKey = pgliteClientKey(dataDir);
+  const existing = _pgliteProcessLocks.get(clientKey);
+  if (existing) return existing;
+
+  const lockPath = `${clientKey}.agent-native-pglite.lock`;
+  const contents = JSON.stringify({
+    pid: process.pid,
+    token: `${process.pid}:${Date.now()}:${Math.random()}`,
+  });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(lockPath, "wx", 0o600);
+      fs.writeFileSync(fd, contents, "utf8");
+      const lock = { fd, fs, path: lockPath, contents };
+      _pgliteProcessLocks.set(clientKey, lock);
+      registerPgliteProcessExitCleanup();
+      return lock;
+    } catch (error) {
+      if (fd !== undefined) {
+        try {
+          fs.closeSync(fd);
+        } catch (cleanupError) {
+          console.warn(
+            "[db/pglite] process lock descriptor cleanup failed:",
+            cleanupError,
+          );
+        }
+        try {
+          fs.unlinkSync(lockPath);
+        } catch (cleanupError) {
+          console.warn(
+            "[db/pglite] process lock file cleanup failed:",
+            cleanupError,
+          );
+        }
+      }
+
+      if ((error as NodeJS.ErrnoException | undefined)?.code !== "EEXIST") {
+        throw error;
+      }
+
+      const owner = readPgliteProcessLockOwner(fs, lockPath, dataDir);
+      if (isProcessAlive(owner.pid)) {
+        throw new Error(
+          `PGlite database directory "${dataDir}" is already owned by process ${owner.pid}. ` +
+            "Stop that local process before opening this directory from another process.",
+        );
+      }
+      fs.unlinkSync(lockPath);
+    }
+  }
+
+  throw new Error(
+    `Could not acquire the PGlite process lock for database directory "${dataDir}".`,
+  );
+}
 
 export async function getPgliteClient(url: string): Promise<any> {
   const dataDir = await preparePgliteDataDir(pgliteDataDirFromUrl(url));
-  let ready = _pgliteClients.get(dataDir);
+  const clientKey = pgliteClientKey(dataDir);
+  let ready = _pgliteClients.get(clientKey);
   if (!ready) {
-    ready = loadPglitePackage().then(({ PGlite }) => PGlite.create(dataDir));
-    _pgliteClients.set(dataDir, ready);
+    ready = (async () => {
+      const lock = await acquirePgliteProcessLock(dataDir);
+      try {
+        const { PGlite } = await loadPglitePackage();
+        return await PGlite.create(clientKey);
+      } catch (error) {
+        if (lock) {
+          _pgliteProcessLocks.delete(clientKey);
+          releasePgliteProcessLock(lock);
+        }
+        throw error;
+      }
+    })();
+    _pgliteClients.set(clientKey, ready);
+    ready.catch(() => {
+      if (_pgliteClients.get(clientKey) === ready) {
+        _pgliteClients.delete(clientKey);
+      }
+    });
   }
   return ready;
 }
 
 export async function closePgliteClients(): Promise<void> {
-  const clients = await Promise.allSettled(_pgliteClients.values());
+  const clients = [..._pgliteClients.entries()];
   _pgliteClients.clear();
-  for (const result of clients) {
-    if (result.status === "fulfilled") {
-      await result.value.close().catch(() => {});
-    }
-  }
+  await Promise.allSettled(
+    clients.map(async ([clientKey, ready]) => {
+      try {
+        const client = await ready;
+        await client.close().catch(() => {});
+      } finally {
+        const lock = _pgliteProcessLocks.get(clientKey);
+        if (lock) {
+          _pgliteProcessLocks.delete(clientKey);
+          releasePgliteProcessLock(lock);
+        }
+      }
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
