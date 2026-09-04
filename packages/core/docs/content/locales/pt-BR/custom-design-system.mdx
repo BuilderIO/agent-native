@@ -9,8 +9,6 @@ O Agent-Native pode renderizar telas pertencentes ao aplicativo e experiências 
 
 O contrato do adaptador não exige Tailwind, shadcn, Radix, `className` ou qualquer runtime de estilização específico. Um componente pode usar um provedor de tema, CSS-in-JS, CSS Modules, React Aria ou CSS comum. `className` e `style` são ganchos opcionais de interoperabilidade, não requisitos de estilização.
 
-Consulte o [exemplo executável de Chat com Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) e o [exemplo de Chat com Ant Design](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) para ver adaptadores completos, integração do provedor de tema, modo escuro e lacunas documentadas da v1.
-
 ## Escolha o menor nível de personalização
 
 | Nível                      | Use para                                                                                               | O que permanece compartilhado                                                |
@@ -84,8 +82,6 @@ export function AppToolkitProvider({
 ```
 
 Adaptadores parciais são compatíveis. Qualquer componente omitido usa o adaptador padrão do Agent-Native. Se um componente personalizado lançar um erro durante a renderização, um error boundary por componente registra a falha e renderiza o componente padrão para aquele controle; o restante do sistema personalizado continua ativo.
-
-Dois aplicativos completos de Chat mantêm esse contrato honesto diante de sistemas de design reais: [o exemplo Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) usa Emotion, `ThemeProvider` e a pilha de overlays do MUI, enquanto [o exemplo Ant Design](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) usa `ConfigProvider` e as primitivas de formulário e overlay do Ant Design. Os arquivos `app/design-system.tsx` deles são as referências principais de integração; o fixture Acme acima permanece intencionalmente pequeno e é usado em testes unitários.
 
 A API de provedor antiga `components={{ Button }}` continua compatível e é tratada como o adaptador `ActionButton` de menor precedência. Se ambos forem fornecidos, `designSystem.components.ActionButton` vence e os builds de desenvolvimento registram um aviso.
 
@@ -223,8 +219,6 @@ A evolução do contrato segue versionamento semântico:
 
 ### Sistemas de provedor de tema no estilo MUI
 
-O [exemplo Chat + Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) é a principal referência prática. Seu único módulo `app/design-system.tsx` exporta o adaptador semântico, os valores `createTheme` claro e escuro do MUI e a fonte de tokens `defineTheme`. O `AppToolkitProvider` do aplicativo mantém o `ThemeProvider` do MUI acima das superfícies compartilhadas do Toolkit, enquanto `vite.config.ts` importa o mesmo valor `theme` para a geração de CSS em tempo de build. Assim, estilos Emotion, portais MUI e tokens do Agent-Native usam uma única fonte de verdade.
-
 Mantenha o provedor de tema da empresa acima de `AppToolkitProvider` e adapte props semânticas na fronteira do pacote. Mapeie `intent`, `emphasis` e `size` para o vocabulário do seu sistema dentro do adaptador — não no código de recursos do Agent-Native. Para overlays, encaminhe `portalContainer` para o contêiner ou prop de portal do sistema de design e implemente `initialFocusRef`/`restoreFocusRef` com o gerenciador de foco dele.
 
 ```tsx
@@ -249,8 +243,6 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 ```
 
 Não copie o provedor de tema de um recurso para cada componente adaptador. Instale-o uma vez na fronteira do aplicativo para que portais e overlays herdem o mesmo contexto.
-
-O [adaptador Chat MUI](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) é o exemplo prático: exporta um único valor `defineTheme`, importa esse valor em `defineDesignSystem` e importa o mesmo módulo de `vite.config.ts`. Essa única fonte de verdade mantém alinhados os tokens do provedor MUI claro/escuro e os tokens CSS semânticos de build sem geração de tema em runtime.
 
 ### Sistemas baseados em React Aria
 
@@ -317,9 +309,3 @@ Esses limites são explícitos para que um pacote adaptador possa fazer afirmaç
 - [**Primitivas de UI do Toolkit**](/docs/toolkit-ui) — adaptadores locais, integração do provedor e imports de primitivas compartilhadas.
 - [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — propriedade de recursos reutilizáveis e limites de pacotes.
 - [**Kit de configurações**](/docs/toolkit-settings) e [**Kit de compartilhamento**](/docs/toolkit-sharing) — controladores de recursos compartilhados que preservam as actions do aplicativo e os contratos de acesso.
-
-## Cobertura dos exemplos de Chat
-
-Os exemplos executáveis [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) e [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) registram todos os 17 componentes do contrato e renderizam 16/17 por meio dos adaptadores. `Menu` continua sendo a lacuna explícita porque o cabeçalho do agent-panel contém um submenu composto ativo que o contrato v1 somente de dados não consegue expressar. O composer/renderizador de mensagens do assistant-ui, os internos do cmdk e o editor Tiptap continuam fora dos objetivos da v1.
-
-O botão cotidiano de compartilhamento do Chat continua sendo o popover legado. A rota fornecida `/design-system-proof` torna o `ShareDialog` completo do Core acessível sem apresentar esse popover como um diálogo do design system.
