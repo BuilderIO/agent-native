@@ -148,7 +148,6 @@ function dataRouteUrlForHref(href: string): string | null {
   if (!url || !isWarmableRouteUrl(url)) return null;
 
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
-  if (pathname === "/") return null;
   url.pathname = `${pathname}.data`;
   url.hash = "";
   return url.href;
@@ -583,6 +582,7 @@ export const __routeWarmupInternalsForTests = {
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
   parseBuildTimeRouteWarmupConfig,
+  dataRouteUrlForHref,
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,

@@ -9,6 +9,7 @@ const {
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
   parseBuildTimeRouteWarmupConfig,
+  dataRouteUrlForHref,
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
@@ -32,6 +33,10 @@ describe("route warmup runtime helpers", () => {
       "render",
     );
     expect(parseBuildTimeRouteWarmupConfig("render")).toBe("render");
+  });
+
+  it("warms the root route data endpoint", () => {
+    expect(new URL(dataRouteUrlForHref("/")!).pathname).toBe("/.data");
   });
 
   it("refreshes the route tree when React Router patches manifest routes in place", () => {
