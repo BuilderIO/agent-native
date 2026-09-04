@@ -908,7 +908,8 @@ hr {
   transition: opacity 150ms;
 }
 
-.docs-content a:not([class*="text-"]):not(.heading-anchor).getting-started-cloud-cta {
+.docs-content
+  a:not([class*="text-"]):not(.heading-anchor).getting-started-cloud-cta {
   color: var(--bg);
   text-decoration: none;
 }
