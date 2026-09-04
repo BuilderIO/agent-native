@@ -214,9 +214,14 @@ function publishRegistrationStatus(
     if (!statuses?.size) {
       registrationStatuses.delete(host);
       delete host[WEBMCP_STATUS_KEY];
-      // The helper's client captured this page's model context; the next
-      // registration installs a fresh one instead of reviving this one.
-      delete host[WEBMCP_HELPER_KEY];
+      // A helper this registration installed captured the page's model
+      // context; the next registration installs a fresh one instead of
+      // reviving it. A helper an app installed itself is left alone.
+      const helper = host[WEBMCP_HELPER_KEY];
+      if (isRecord(helper) && registrationOwnedHelpers.has(helper)) {
+        helperDisposers.get(helper)?.();
+        delete host[WEBMCP_HELPER_KEY];
+      }
       settleReadyWaiters(host, {
         state: "failed",
         registered: 0,
@@ -599,6 +604,10 @@ export function createAgentNativeWebMcpClient(
 
 /** Where {@link installAgentNativeWebMcpPageHelper} publishes the page helper. */
 const WEBMCP_HELPER_KEY = "__agentNativeWebMcp";
+/** Helpers a registration installed, so teardown only removes its own. */
+const registrationOwnedHelpers = new WeakSet<object>();
+/** Unsubscribes the helper's toolchange listener when it is torn down. */
+const helperDisposers = new WeakMap<object, () => void>();
 const HELPER_MAX_ATTEMPTS = 10;
 const HELPER_MAX_OUTCOMES = 200;
 const HELPER_DEFAULT_WAIT_MS = 20_000;
@@ -788,7 +797,9 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     inflight = undefined;
     listingGeneration += 1;
   };
-  if (cacheable) client.onToolChange?.(invalidateListing);
+  const unsubscribe = cacheable
+    ? client.onToolChange?.(invalidateListing)
+    : undefined;
   const pageOrigin =
     getDocument(targetDocument)?.defaultView?.location?.origin ??
     (typeof location === "undefined" ? undefined : location.origin);
@@ -1013,6 +1024,7 @@ export function createAgentNativeWebMcpPageHelper(options?: {
       return outcomes.get(id) ?? { id, state: "unknown" };
     },
   };
+  if (unsubscribe) helperDisposers.set(helper, unsubscribe);
   return helper;
 }
 
@@ -1020,14 +1032,24 @@ export function createAgentNativeWebMcpPageHelper(options?: {
 export function installAgentNativeWebMcpPageHelper(options?: {
   document?: Document;
 }): AgentNativeWebMcpPageHelper | undefined {
-  const host = statusHost(options?.document);
+  return installPageHelper(options?.document, false);
+}
+
+function installPageHelper(
+  targetDocument: Document | undefined,
+  ownedByRegistration: boolean,
+): AgentNativeWebMcpPageHelper | undefined {
+  const host = statusHost(targetDocument);
   if (!host) return undefined;
   const existing = host[WEBMCP_HELPER_KEY];
   if (isRecord(existing) && typeof existing.call === "function") {
     return existing as unknown as AgentNativeWebMcpPageHelper;
   }
-  const helper = createAgentNativeWebMcpPageHelper(options);
+  const helper = createAgentNativeWebMcpPageHelper(
+    targetDocument ? { document: targetDocument } : undefined,
+  );
   host[WEBMCP_HELPER_KEY] = helper;
+  if (ownedByRegistration) registrationOwnedHelpers.add(helper);
   return helper;
 }
 
@@ -1331,9 +1353,7 @@ export function createAgentNativeWebMcpRegistration(
         options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
       );
       total = actions.length;
-      installAgentNativeWebMcpPageHelper(
-        options.document ? { document: options.document } : undefined,
-      );
+      installPageHelper(options.document, true);
       publishRegistrationStatus(options.document, registrationId, {
         state: "registering",
         registered: 0,

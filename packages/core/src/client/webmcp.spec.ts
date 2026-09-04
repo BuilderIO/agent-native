@@ -1542,4 +1542,73 @@ describe("WebMCP page helper", () => {
       fromOrigins: ["https://other.example"],
     });
   });
+  it("leaves an app-installed helper in place across a registration's start() and stop()", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const doc = documentWithModelContext(modelContext);
+
+    const appHelper = installAgentNativeWebMcpPageHelper({ document: doc });
+    expect(appHelper).toBeDefined();
+
+    const registration = createAgentNativeWebMcpRegistration({
+      document: doc,
+      actions: [
+        {
+          name: "one",
+          description: "Do one",
+          parameters: { type: "object", properties: {} },
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        } as unknown as AgentNativeClientAction,
+      ],
+    });
+    await registration.start();
+    expect(getAgentNativeWebMcpPageHelper(doc)).toBe(appHelper);
+
+    registration.stop();
+    expect(getAgentNativeWebMcpPageHelper(doc)).toBe(appHelper);
+    expect(modelContext.removeEventListener).not.toHaveBeenCalled();
+  });
+
+  it("unsubscribes the registration-owned helper's toolchange listener on stop", async () => {
+    let addedHandler: EventListener | undefined;
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === "toolchange") addedHandler = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    const doc = documentWithModelContext(modelContext);
+
+    const registration = createAgentNativeWebMcpRegistration({
+      document: doc,
+      actions: [
+        {
+          name: "one",
+          description: "Do one",
+          parameters: { type: "object", properties: {} },
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        } as unknown as AgentNativeClientAction,
+      ],
+    });
+    await registration.start();
+    expect(getAgentNativeWebMcpPageHelper(doc)).toBeDefined();
+    expect(addedHandler).toBeDefined();
+
+    registration.stop();
+    expect(modelContext.removeEventListener).toHaveBeenCalledWith(
+      "toolchange",
+      addedHandler,
+    );
+    expect(getAgentNativeWebMcpPageHelper(doc)).toBeUndefined();
+  });
 });
