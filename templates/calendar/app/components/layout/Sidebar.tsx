@@ -82,7 +82,6 @@ import {
 import { useSettings } from "@/hooks/use-settings";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { CALENDAR_COLORS } from "@/lib/calendar-view-preferences";
-import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import { cn } from "@/lib/utils";
 
@@ -369,21 +368,6 @@ function GoogleConnectSidebarButton() {
         </Button>
       </div>
     </div>
-  );
-}
-
-/** A conic-gradient dot indicating "multiple colors" (by-type mode) */
-function MultiColorDot({ className }: { className?: string }) {
-  const colors = Object.values(EVENT_CATEGORY_COLORS).filter((_, i) => i < 4);
-  const pct = 100 / colors.length;
-  const stops = colors
-    .map((c, i) => `${c} ${i * pct}% ${(i + 1) * pct}%`)
-    .join(", ");
-  return (
-    <span
-      className={cn("inline-block shrink-0 rounded-full", className)}
-      style={{ background: `conic-gradient(${stops})` }}
-    />
   );
 }
 
