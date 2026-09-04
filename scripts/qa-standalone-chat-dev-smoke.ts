@@ -1576,16 +1576,30 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
 
 async function fillAndSubmitComposer(page: Page, text: string): Promise<void> {
   const editor = page.locator('[data-agent-composer-slot="editor-input"]');
-  await editor.waitFor({ state: "visible" });
-  await editor.click();
-  await editor.fill(text);
-  await editor.press("Enter");
-  await page.waitForFunction(() => {
-    const editor = document.querySelector(
-      '[data-agent-composer-slot="editor-input"]',
-    );
-    return (editor?.textContent ?? "").trim() === "";
+  await retryAfterNavigation("prepare composer", async () => {
+    await editor.waitFor({ state: "visible" });
+    await editor.evaluate((node, value) => {
+      node.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (!document.execCommand("insertText", false, value)) {
+        throw new Error("Could not insert text into the Chat composer");
+      }
+    }, text);
   });
+  await editor.press("Enter");
+  await retryAfterNavigation("confirm composer submission", () =>
+    page.waitForFunction(() => {
+      const editor = document.querySelector(
+        '[data-agent-composer-slot="editor-input"]',
+      );
+      return (editor?.textContent ?? "").trim() === "";
+    }),
+  );
 }
 
 async function assertComposerFocused(page: Page): Promise<void> {
