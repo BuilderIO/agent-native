@@ -324,6 +324,30 @@ describe("analytics data request classification", () => {
         "What was the signup conversion rate for the pull request landing page last week?",
       ),
     ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest("How many calls did our reviewers handle?"),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest("How many signups came from each PR?"),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Which pull request had the most conversion?",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an explicit code-review request out of the guard even when it carries a date", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Review the signup changelog from last week.",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Check the PR diff for the sessions migration from last month.",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -338,6 +362,11 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     expect(
       draftClaimsAnalyticsMetrics("Revenue spiked after the launch."),
     ).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Signups rose last week.")).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Sessions went up this month.")).toBe(
+      true,
+    );
+    expect(draftClaimsAnalyticsMetrics("Revenue is down.")).toBe(true);
   });
 
   it("treats a metric stated before its figure as a claim", () => {
