@@ -452,6 +452,10 @@ function GoogleCalendarsSections({
   );
   function renderCalendarRow(calendar: (typeof readableCalendars)[number]) {
     const preferenceKey = calendar.canonicalKey;
+    const displayName =
+      section === "owned" && calendar.primary
+        ? calendar.accountEmail
+        : calendar.name;
     const visible =
       googleCalendarVisibility[preferenceKey] ??
       (calendar.primary || calendar.selected);
@@ -468,7 +472,7 @@ function GoogleCalendarsSections({
           <PopoverTrigger asChild>
             <button
               type="button"
-              aria-label={`${t("eventForm.color")}: ${calendar.name}`}
+              aria-label={`${t("eventForm.color")}: ${displayName}`}
               className="shrink-0 cursor-pointer rounded-full p-0.5 hover:ring-2 hover:ring-border focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span
@@ -524,7 +528,7 @@ function GoogleCalendarsSections({
             visible ? "text-muted-foreground" : "text-muted-foreground/40",
           )}
         >
-          {calendar.name}
+          {displayName}
         </span>
         <button
           type="button"
