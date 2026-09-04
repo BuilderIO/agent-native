@@ -332,12 +332,37 @@ class EmailProviderError extends Error {
 }
 
 /**
- * Serialize a provider payload for the audit log, stripping attachment bytes.
- * Attachment `content` is base64 file data with no diagnostic value for "who
- * did this go to" and would otherwise bloat every logged send that has one.
+ * Serialize a provider payload for the audit log, stripping attachment bytes
+ * and message bodies. Attachment `content` is base64 file data with no
+ * diagnostic value for "who did this go to". The HTML/text body is omitted
+ * too: transactional emails routinely embed a one-time magic-link, password-
+ * reset, or verification URL, which is bearer-token-equivalent — logging it
+ * verbatim would let anyone with `email_log` read access sign in as the
+ * recipient. `subject` and `templateId` already identify what was sent.
  */
+const MAX_LOGGED_TEXT_LENGTH = 8_000;
+
+function truncateForLog(value: string): string {
+  if (value.length <= MAX_LOGGED_TEXT_LENGTH) return value;
+  const omitted = value.length - MAX_LOGGED_TEXT_LENGTH;
+  return `${value.slice(0, MAX_LOGGED_TEXT_LENGTH)}<truncated, ${omitted} more characters>`;
+}
+
+function omittedBodyMarker(value: unknown): unknown {
+  return typeof value === "string" ? `<omitted, ${value.length} chars>` : value;
+}
+
 function redactPayloadForLog(payload: Record<string, unknown>): string {
   const loggable: Record<string, unknown> = { ...payload };
+  // Resend shape: top-level `html` / `text` fields.
+  if ("html" in loggable) loggable.html = omittedBodyMarker(loggable.html);
+  if ("text" in loggable) loggable.text = omittedBodyMarker(loggable.text);
+  // SendGrid shape: `content: [{ type, value }]`.
+  if (Array.isArray(loggable.content)) {
+    loggable.content = (loggable.content as Record<string, unknown>[]).map(
+      (entry) => ({ ...entry, value: omittedBodyMarker(entry.value) }),
+    );
+  }
   if (Array.isArray(loggable.attachments) && loggable.attachments.length) {
     loggable.attachments = (
       loggable.attachments as Record<string, unknown>[]
@@ -346,7 +371,7 @@ function redactPayloadForLog(payload: Record<string, unknown>): string {
       contentOmitted: true,
     }));
   }
-  return JSON.stringify(loggable);
+  return truncateForLog(JSON.stringify(loggable));
 }
 
 /**
@@ -410,7 +435,9 @@ async function deliverEmail(
       body: JSON.stringify(payload),
       signal,
     });
-    const responseBody = await res.text().catch(unreadableResponseBody);
+    const responseBody = truncateForLog(
+      await res.text().catch(unreadableResponseBody),
+    );
     if (!res.ok) {
       throw new EmailProviderError(`Resend error ${res.status}: ${responseBody}`, {
         provider,
@@ -492,7 +519,9 @@ async function deliverEmail(
       body: JSON.stringify(sgPayload),
       signal,
     });
-    const responseBody = await res.text().catch(unreadableResponseBody);
+    const responseBody = truncateForLog(
+      await res.text().catch(unreadableResponseBody),
+    );
     if (!res.ok) {
       throw new EmailProviderError(
         `SendGrid error ${res.status}: ${responseBody}`,
