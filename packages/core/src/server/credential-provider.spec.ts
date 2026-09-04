@@ -16,12 +16,36 @@ const mockGetRequestContext = vi.fn<
 const mockIsLocalDatabase = vi.fn<[], boolean>();
 const mockResolveOrgIdForEmail = vi.fn<[string], Promise<string | null>>();
 const mockGetDbExec = vi.fn();
+const mockHasBuilderOAuthSession = vi.fn<
+  [string, string | null | undefined],
+  Promise<boolean>
+>();
+const mockGetBuilderOAuthSession = vi.fn<
+  [string, string | null | undefined, string | undefined],
+  Promise<{
+    accessToken: string;
+    expiresAt?: number;
+    scopes: string[];
+    scope: "user" | "org";
+  } | null>
+>();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
   readAppSecrets: (...args: any[]) => mockReadAppSecrets(...args),
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
+}));
+vi.mock("./builder-oauth.js", () => ({
+  BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
+  hasBuilderOAuthSession: (...args: any[]) =>
+    mockHasBuilderOAuthSession(
+      ...(args as [string, string | null | undefined]),
+    ),
+  getBuilderOAuthSession: (...args: any[]) =>
+    mockGetBuilderOAuthSession(
+      ...(args as [string, string | null | undefined, string | undefined]),
+    ),
 }));
 vi.mock("./request-context.js", () => ({
   getRequestContext: () => mockGetRequestContext(),
@@ -70,7 +94,6 @@ import {
   resolveBuilderCredentialsDetailed,
   resolveBuilderCredentialSource,
   resolveBuilderGatewayAuth,
-  resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
   resolveHasBuilderGatewayCredential,
   resolveHasBuilderPrivateKey,
@@ -175,6 +198,8 @@ beforeEach(() => {
   mockGetDbExec.mockReturnValue({
     execute: vi.fn().mockResolvedValue({ rows: [] }),
   });
+  mockHasBuilderOAuthSession.mockResolvedValue(false);
+  mockGetBuilderOAuthSession.mockResolvedValue(null);
 });
 
 describe("resolveCredentialWriteScope", () => {
@@ -2008,14 +2033,14 @@ describe("Builder gateway credential lane", () => {
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
 
-    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
       privateKey: "btk-site-token",
       publicKey: "space-abc",
       userId: null,
+      lane: "gateway-deploy",
     });
-    await expect(
-      resolveBuilderGatewayCredentialsDetailed(),
-    ).resolves.toMatchObject({ lane: "gateway-deploy" });
     expect(isBuilderGatewayDeployConfigured()).toBe(true);
   });
 
@@ -2045,13 +2070,13 @@ describe("Builder gateway credential lane", () => {
     process.env.BUILDER_PRIVATE_KEY = "bpk-owner";
     process.env.BUILDER_PUBLIC_KEY = "space-owner";
 
-    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
-      privateKey: "bpk-owner",
-      publicKey: "space-owner",
-    });
     await expect(
       resolveBuilderGatewayCredentialsDetailed(),
-    ).resolves.toMatchObject({ lane: "identity" });
+    ).resolves.toMatchObject({
+      privateKey: "bpk-owner",
+      publicKey: "space-owner",
+      lane: "identity",
+    });
   });
 
   // Half a legacy pair cannot authenticate anything, so it must not shadow a
@@ -2071,7 +2096,9 @@ describe("Builder gateway credential lane", () => {
     hostedVisitor();
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
 
-    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
       privateKey: null,
       publicKey: null,
     });
@@ -2118,7 +2145,9 @@ describe("Builder gateway credential lane", () => {
         : null,
     );
 
-    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
       privateKey: null,
       publicKey: null,
     });
@@ -2143,6 +2172,76 @@ describe("Builder gateway credential lane", () => {
     await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
       authorization: "Bearer bpk-legacy",
       spaceId: null,
+      userId: null,
+    });
+  });
+
+  it("uses the request owner's Builder OAuth token over any key lane", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockHasBuilderOAuthSession.mockResolvedValue(true);
+    mockGetBuilderOAuthSession.mockResolvedValue({
+      accessToken: "oauth-access-token",
+      scopes: ["builder:ai:invoke"],
+      scope: "user",
+    });
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
+      authorization: "Bearer oauth-access-token",
+      spaceId: null,
+      userId: null,
+    });
+    expect(mockHasBuilderOAuthSession).toHaveBeenCalledWith(
+      "visitor@example.com",
+      "org-1",
+    );
+    expect(mockGetBuilderOAuthSession).toHaveBeenCalledWith(
+      "visitor@example.com",
+      "org-1",
+      "builder:ai:invoke",
+    );
+  });
+
+  it("skips the OAuth lookup when the request has no owner email", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "bpk-legacy";
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
+      authorization: "Bearer bpk-legacy",
+      spaceId: null,
+      userId: null,
+    });
+    expect(mockHasBuilderOAuthSession).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the key lane when OAuth custody exists but the session is unusable", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    mockHasBuilderOAuthSession.mockResolvedValue(true);
+    mockGetBuilderOAuthSession.mockRejectedValue(
+      new Error("Builder OAuth connection does not grant builder:ai:invoke"),
+    );
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
+      authorization: "Bearer btk-site-token",
+      spaceId: "space-abc",
+      userId: null,
+    });
+  });
+
+  it("falls back to the key lane when OAuth custody exists but returns no session", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    mockHasBuilderOAuthSession.mockResolvedValue(true);
+    mockGetBuilderOAuthSession.mockResolvedValue(null);
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
+      authorization: "Bearer btk-site-token",
+      spaceId: "space-abc",
       userId: null,
     });
   });

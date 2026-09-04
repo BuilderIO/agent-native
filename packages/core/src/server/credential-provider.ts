@@ -33,6 +33,11 @@ import {
 import { getOrgSetting } from "../settings/org-settings.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
+  BUILDER_OAUTH_SCOPE,
+  getBuilderOAuthSession,
+  hasBuilderOAuthSession,
+} from "./builder-oauth.js";
+import {
   getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
@@ -1117,54 +1122,14 @@ export async function resolveBuilderGatewayCredentialsDetailed(
   return { ...scoped, lane: scoped.source ? "identity" : null };
 }
 
-/**
- * Gateway-lane credentials in the same shape as `resolveBuilderCredentials`, so
- * a consumer moves lane by changing which resolver it calls and nothing else.
- */
-export async function resolveBuilderGatewayCredentials(
-  identity?: BuilderCredentialLookupIdentity,
-): Promise<{
-  privateKey: string | null;
-  publicKey: string | null;
-  userId: string | null;
-  orgName: string | null;
-  orgKind: string | null;
-  subscription: string | null;
-  subscriptionLevel: string | null;
-  subscriptionName: string | null;
-  isEnterprise: boolean | null;
-  isFreeAccount: boolean | null;
-}> {
-  const {
-    privateKey,
-    publicKey,
-    userId,
-    orgName,
-    orgKind,
-    subscription,
-    subscriptionLevel,
-    subscriptionName,
-    isEnterprise,
-    isFreeAccount,
-  } = await resolveBuilderGatewayCredentialsDetailed(identity);
-  return {
-    privateKey,
-    publicKey,
-    userId,
-    orgName,
-    orgKind,
-    subscription,
-    subscriptionLevel,
-    subscriptionName,
-    isEnterprise,
-    isFreeAccount,
-  };
-}
-
 export interface BuilderGatewayAuth {
   /** `Bearer <token>` for the `Authorization` header. */
   authorization: string;
-  /** Send as `x-builder-api-key`. Null only for a legacy single-key deployment. */
+  /**
+   * Send as `x-builder-api-key`. Null for a legacy single-key deployment, or
+   * for an OAuth access token: the token itself carries the caller's identity,
+   * so the gateway does not require a space id alongside it.
+   */
   spaceId: string | null;
   /** Send as `x-builder-user-id` when the lane carries a Builder user. */
   userId: string | null;
@@ -1178,8 +1143,36 @@ export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
   return Boolean(await resolveBuilderGatewayAuth());
 }
 
-/** Gateway-lane `resolveBuilderAuthHeader`, same fall-through order. */
+/**
+ * Gateway-lane `resolveBuilderAuthHeader`, same fall-through order, with the
+ * request owner's Builder OAuth grant checked first. Mirrors
+ * `resolveBuilderRequestAuthorization`'s OAuth-before-legacy-key precedence in
+ * builder-api-auth.ts; unlike that helper, a broken OAuth grant here falls
+ * through to the key lane instead of throwing, since gateway callers already
+ * treat a null result as "not configured" rather than a reconnect prompt.
+ */
 export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
+  const ownerEmail = getRequestUserEmail();
+  const orgId = getRequestOrgId() ?? null;
+  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+    try {
+      const session = await getBuilderOAuthSession(
+        ownerEmail,
+        orgId,
+        BUILDER_OAUTH_SCOPE,
+      );
+      if (session) {
+        return {
+          authorization: `Bearer ${session.accessToken}`,
+          spaceId: null,
+          userId: null,
+        };
+      }
+    } catch {
+      // Custody exists but the grant is unusable (expired, missing scope, needs
+      // reconnect) -- fall through to the key lane below rather than throw.
+    }
+  }
   const creds = await resolveBuilderGatewayCredentialsDetailed();
   const token = creds.privateKey?.trim();
   const spaceId = creds.publicKey?.trim();

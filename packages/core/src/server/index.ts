@@ -577,8 +577,8 @@ export {
   // identity — image and video generation, realtime transcription. Falls
   // through to the identity credential first, so a consumer moves lane by
   // swapping the resolver and changing nothing else.
-  resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveBuilderGatewayAuth,
   resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,

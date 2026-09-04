@@ -45,9 +45,10 @@ export interface WebSearchToolOptions {
    */
   getCredentialContext?: () => CredentialContext | null;
   /**
-   * Resolve connected Builder credentials for managed web search.
+   * Resolve connected Builder gateway auth for managed web search. Null means
+   * no usable credential (no connection, no deploy fallback, nothing).
    */
-  resolveBuilderCredentials?: () => Promise<BuilderWebSearchCredentials>;
+  resolveBuilderCredentials?: () => Promise<BuilderWebSearchAuth | null>;
   /**
    * Base URL for Builder-managed web search.
    */
@@ -61,10 +62,10 @@ export interface WebSearchToolOptions {
 const DEFAULT_COUNT = 5;
 const MAX_COUNT = 10;
 
-interface BuilderWebSearchCredentials {
-  privateKey: string | null;
-  publicKey: string | null;
-  userId?: string | null;
+interface BuilderWebSearchAuth {
+  authorization: string;
+  spaceId: string | null;
+  userId: string | null;
 }
 
 async function resolveSearchKey(
@@ -104,16 +105,15 @@ async function resolveSearchKey(
 
 async function resolveBuilderSearchCredentials(
   opts: WebSearchToolOptions,
-): Promise<BuilderWebSearchCredentials | null> {
+): Promise<BuilderWebSearchAuth | null> {
   if (!opts.resolveBuilderCredentials) return null;
   try {
-    const creds = await opts.resolveBuilderCredentials();
-    if (creds.privateKey && creds.publicKey) return creds;
+    return await opts.resolveBuilderCredentials();
   } catch {
     // Builder credential lookup failures are non-fatal; BYOK backends or the
     // setup hint below can still handle the tool call.
+    return null;
   }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +261,7 @@ async function searchFirecrawl(
 async function searchBuilderManaged(
   query: string,
   count: number,
-  credentials: BuilderWebSearchCredentials,
+  credentials: BuilderWebSearchAuth,
   opts: WebSearchToolOptions,
 ): Promise<string> {
   const baseUrl =
@@ -276,8 +276,10 @@ async function searchBuilderManaged(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${credentials.privateKey}`,
-      "x-builder-api-key": credentials.publicKey ?? "",
+      Authorization: credentials.authorization,
+      ...(credentials.spaceId
+        ? { "x-builder-api-key": credentials.spaceId }
+        : {}),
       ...(credentials.userId
         ? { "x-builder-user-id": credentials.userId }
         : {}),
