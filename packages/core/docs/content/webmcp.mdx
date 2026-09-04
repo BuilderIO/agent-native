@@ -6,7 +6,7 @@ search: "WebMCP browser tools modelContext registerTool getTools executeTool bro
 
 # WebMCP
 
-<!-- i18n-copy-ignore: technical-only evaluator example; localized summaries link to the English reference. -->
+<!-- i18n-copy-ignore: technical-only evaluator and page-helper examples; localized summaries link to the English reference. -->
 
 WebMCP is a proposed browser API for making page capabilities available to an
 agent running in that browser. It is client-side and page-local: a page
@@ -55,6 +55,10 @@ without `document.modelContext` simply keep the normal app behavior.
 No per-app WebMCP list or new `defineAction` metadata is required. Change the
 existing action definition when its exposure should change.
 
+When a non-read-only WebMCP action finishes, the framework dispatches an
+`agentNative:refresh-data` event on `window` so the app's sync transport
+re-polls and the UI repaints without a reload.
+
 ## Use WebMCP from Claude Code or Cowork
 
 The ChatGPT app has named framework host tools for browser-session WebMCP.
@@ -62,8 +66,30 @@ Other agents may expose the same capability through an MCP-B local relay or a
 browser JavaScript evaluator instead. The `/webmcp` skill tries the host bridge
 first, then the relay, then the evaluator.
 
-When a browser evaluator is the available path, it can call the live page API
-directly. The evaluator must run in the requested tab:
+When a browser evaluator is the available path, call the page helper the
+framework publishes at `window.__agentNativeWebMcp` instead of driving
+`document.modelContext` directly:
+
+```js
+const an = window.__agentNativeWebMcp;
+await an.ready({ waitMs: 5000 });
+const tools = await an.tools("slide");
+const outcome = await an.call("update-slide", { id, title });
+```
+
+`call()` picks the input contract the active host expects, always executes a
+descriptor from a fresh listing, and retries a stale-descriptor error
+automatically instead of surfacing it to the caller. A write that outlives the
+evaluator's own timeout returns `{ state: "pending", id }` right away; poll
+`an.result(id)` on a later evaluator call to pick up the outcome, and pass
+`waitMs: 0` on hosts whose evaluator times out in a few seconds, such as
+Codex's CDP `Runtime.evaluate`. `window.__agentNativeWebMcp` is `undefined`
+until an Agent-Native page starts registering WebMCP tools — the user may be
+signed out, the page still loading, or the deployed app older than this
+helper — so treat its absence as "not ready yet," not "unsupported."
+
+The raw `document.modelContext` call remains available as a fallback when the
+helper is not present:
 
 ```js
 const tools = await document.modelContext.getTools();
@@ -85,12 +111,9 @@ actions, that callback uses the shared action dispatcher with the current
 browser session. Agents should list tools immediately before each mutation and
 pass the descriptor returned by that listing. They should not call an internal
 action `run()` function, hand-build an authenticated HTTP request, or use the
-visible developer console as the transport.
-
-Native WebMCP and the polyfill accept JSON-stringified input. The Codex page
-adapter identifies itself with `codexExecuteTool` or `codexGetTools` and accepts
-the schema-shaped object. Follow the active host contract instead of trying
-both input formats.
+visible developer console as the transport. Native WebMCP and the polyfill
+accept JSON-stringified input, while the Codex page adapter (identified by
+`codexExecuteTool`/`codexGetTools`) accepts the schema-shaped object directly.
 
 For agents that use the MCP-B local relay, the page also needs the relay's
 browser embed script and the local MCP server must be configured in the agent
