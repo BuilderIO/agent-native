@@ -2534,14 +2534,18 @@ function emitRecorderSession(
   serverUrl: string | null,
   recordingId: string | null,
   localOnly: boolean,
+  microphoneEnabled: boolean,
 ) {
   const viewUrl =
     serverUrl && recordingId
       ? `${serverUrl.replace(/\/+$/, "")}/r/${recordingId}`
       : null;
-  emit("clips:recorder-session", { viewUrl, recordingId, localOnly }).catch(
-    () => {},
-  );
+  emit("clips:recorder-session", {
+    viewUrl,
+    recordingId,
+    localOnly,
+    microphoneEnabled,
+  }).catch(() => {});
 }
 
 async function clearRecordingState() {
@@ -3246,6 +3250,7 @@ async function tryStartRewindFullscreenRecording(
         localOnly ? null : params.serverUrl,
         id || null,
         localOnly,
+        params.micOn,
       );
       emitState();
     }),
@@ -3257,6 +3262,7 @@ async function tryStartRewindFullscreenRecording(
     localOnly ? null : params.serverUrl,
     id || null,
     localOnly,
+    params.micOn,
   );
   emitState();
   return handle;
@@ -3601,6 +3607,7 @@ async function startNativeFullscreenRecording(
       localOnly ? null : params.serverUrl,
       id || null,
       localOnly,
+      params.micOn,
     );
     emit("clips:recorder-state", {
       paused: false,
@@ -4118,6 +4125,7 @@ async function startNativeFullscreenRecording(
         localOnly ? null : params.serverUrl,
         id || null,
         localOnly,
+        params.micOn,
       );
       emitState();
     }),
@@ -4131,6 +4139,7 @@ async function startNativeFullscreenRecording(
     localOnly ? null : params.serverUrl,
     id || null,
     localOnly,
+    params.micOn,
   );
   emitState();
 
@@ -4811,7 +4820,7 @@ async function startRecordingInner(
           emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
             () => {},
           );
-          emitRecorderSession(null, null, true);
+          emitRecorderSession(null, null, true, params.micOn);
           emitState(pausedAt != null);
         }),
       ]);
@@ -4824,7 +4833,7 @@ async function startRecordingInner(
       startedAt = Date.now();
       tickHandle = setInterval(() => emitState(pausedAt != null), 500);
       emit("clips:toolbar-enabled", true).catch(() => {});
-      emitRecorderSession(null, null, true);
+      emitRecorderSession(null, null, true, params.micOn);
       emitState(false);
 
       const detachCombinedStream = () => {
@@ -5248,7 +5257,7 @@ async function startRecordingInner(
         emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
           () => {},
         );
-        emitRecorderSession(params.serverUrl, id, false);
+        emitRecorderSession(params.serverUrl, id, false, params.micOn);
         emitState(pausedAt != null);
       }),
     ]);
@@ -5265,7 +5274,7 @@ async function startRecordingInner(
     // Now that MediaRecorder is actually ticking, flip the toolbar's
     // Stop / Pause buttons to enabled so the user can drive the recorder.
     emit("clips:toolbar-enabled", true).catch(() => {});
-    emitRecorderSession(params.serverUrl, id, false);
+    emitRecorderSession(params.serverUrl, id, false, params.micOn);
     // Seed the initial recorder-state so the time / paused styling match
     // MediaRecorder's real state (before the first 500ms tick).
     emitState(false);

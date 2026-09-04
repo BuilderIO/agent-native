@@ -384,6 +384,17 @@
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
+.record-pill-audio-warning {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--status-warn);
+  color: var(--pill-chrome);
+}
+
 .record-pill-card-in {
   animation: record-pill-card-in 220ms var(--pill-ease);
 }

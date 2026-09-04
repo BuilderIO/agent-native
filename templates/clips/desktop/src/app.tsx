@@ -3875,8 +3875,8 @@ export function App({
     };
   }, []);
 
-  // Show the mic-off explanation once, then let the user continue without
-  // audio instead of trapping the start flow behind the toggle.
+  // Require an explicit choice before starting without voice audio. The
+  // capture-mode controls intentionally leave this independent.
   function beginRecording(
     options?: Parameters<typeof handleStartRecording>[0],
     beginOptions?: { revealPopoverIfMicOff?: boolean },
@@ -4624,11 +4624,7 @@ export function App({
         />
       ) : null}
 
-      <div
-        className="recorder-home-content"
-        hidden={micOffConfirmOpen}
-        aria-hidden={micOffConfirmOpen}
-      >
+      <div className="recorder-home-content">
         <Header mode={mode} onModeChange={selectCaptureMode} />
         <UpdateBanner />
 

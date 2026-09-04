@@ -6,6 +6,8 @@ import {
   createWaveformState,
   EMPTY_METER_SOURCES,
   foldMeterSources,
+  micSignalWarning,
+  MIC_SILENCE_WARNING_MS,
   nextMeterLevel,
   nextWaveformState,
   WAVEFORM_BAR_COUNT,
@@ -86,9 +88,61 @@ describe("advanceWaveform", () => {
     expect(state.gain).toBe(WAVEFORM_GAIN_FLOOR);
   });
 
+  it("holds a completely silent input perfectly still", () => {
+    let state = createWaveformState();
+    for (let i = 0; i < 100; i += 1) state = advanceWaveform(state, 0);
+    expect(state.history).toEqual([0, 0, 0, 0, 0]);
+  });
+
   it("treats a malformed sample as silence rather than a spike", () => {
     const state = advanceWaveform(createWaveformState(), Number.NaN);
     expect(state.history[state.history.length - 1]).toBe(0);
+  });
+});
+
+describe("micSignalWarning", () => {
+  it("warns immediately when the microphone is disabled", () => {
+    expect(
+      micSignalWarning({
+        microphoneEnabled: false,
+        paused: false,
+        silentForMs: 0,
+      }),
+    ).toBe("muted");
+  });
+
+  it("warns only after sustained silence from an enabled microphone", () => {
+    expect(
+      micSignalWarning({
+        microphoneEnabled: true,
+        paused: false,
+        silentForMs: MIC_SILENCE_WARNING_MS - 1,
+      }),
+    ).toBeNull();
+    expect(
+      micSignalWarning({
+        microphoneEnabled: true,
+        paused: false,
+        silentForMs: MIC_SILENCE_WARNING_MS,
+      }),
+    ).toBe("silent");
+  });
+
+  it("does not warn while paused or before mic state is known", () => {
+    expect(
+      micSignalWarning({
+        microphoneEnabled: true,
+        paused: true,
+        silentForMs: MIC_SILENCE_WARNING_MS,
+      }),
+    ).toBeNull();
+    expect(
+      micSignalWarning({
+        microphoneEnabled: null,
+        paused: false,
+        silentForMs: MIC_SILENCE_WARNING_MS,
+      }),
+    ).toBeNull();
   });
 });
 

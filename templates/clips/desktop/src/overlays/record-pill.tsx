@@ -2,6 +2,7 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconCopy,
+  IconExclamationMark,
   IconLink,
   IconLoader2,
   IconX,
@@ -14,6 +15,12 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
+import {
+  MIC_AUDIBLE_LEVEL,
+  MIC_SILENCE_WARNING_MS,
+  micSignalWarning,
+  type MicSignalWarning,
+} from "../../../shared/audio-meter";
 import { RecordingPlayhead } from "../../../shared/recording-playhead";
 import type {
   RecordingPlayheadConfirmChange,
@@ -63,10 +70,19 @@ type RecorderSession = {
   viewUrl?: string | null;
   recordingId?: string | null;
   localOnly?: boolean;
+  microphoneEnabled?: boolean;
 };
 
 const hasTauri = "__TAURI_INTERNALS__" in window;
 const demoMode = import.meta.env.DEV && !hasTauri;
+const demoMicWarning: MicSignalWarning = demoMode
+  ? new URLSearchParams(window.location.search).get("mic-warning") === "muted"
+    ? "muted"
+    : new URLSearchParams(window.location.search).get("mic-warning") ===
+        "silent"
+      ? "silent"
+      : null
+  : null;
 
 function safeEmit(event: string, payload?: unknown): Promise<void> {
   if (!hasTauri) return Promise.resolve();
@@ -151,6 +167,9 @@ export function RecordingPill() {
   const [toolbarVisible, setToolbarVisible] = useState(true);
   /** Demo harness only: the meter reads capture events in the real app. */
   const [demoLevel, setDemoLevel] = useState<number | null>(null);
+  const [micLevel, setMicLevel] = useState(0);
+  const [micWarning, setMicWarning] =
+    useState<MicSignalWarning>(demoMicWarning);
   const [announcement, setAnnouncement] = useState("");
   const [doneStage, setDoneStage] = useState<DoneStage>("finishing");
   const [doneDurationMs, setDoneDurationMs] = useState(0);
@@ -734,6 +753,38 @@ export function RecordingPill() {
     const unlistens: Array<() => void> = [];
     const registrations: Array<Promise<() => void>> = [];
     let stopped = false;
+    let recordingActive = false;
+    let recordingPaused = false;
+    let microphoneEnabled: boolean | null = null;
+    let lastAudibleAt = performance.now();
+    let micSilenceTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearMicSilenceTimer = () => {
+      if (!micSilenceTimer) return;
+      clearTimeout(micSilenceTimer);
+      micSilenceTimer = null;
+    };
+    const syncMicWarning = () => {
+      clearMicSilenceTimer();
+      if (!recordingActive) {
+        setMicWarning(null);
+        setMicLevel(0);
+        return;
+      }
+      const now = performance.now();
+      const warning = micSignalWarning({
+        microphoneEnabled,
+        paused: recordingPaused,
+        silentForMs: now - lastAudibleAt,
+      });
+      setMicWarning(warning);
+      if (warning || recordingPaused || microphoneEnabled !== true) {
+        return;
+      }
+      micSilenceTimer = setTimeout(
+        syncMicWarning,
+        Math.max(0, MIC_SILENCE_WARNING_MS - (now - lastAudibleAt)),
+      );
+    };
     const track = (p: Promise<() => void>) => {
       registrations.push(
         p.then((u) => {
@@ -748,6 +799,11 @@ export function RecordingPill() {
         "clips:recorder-state",
         (payload) => {
           const nextPaused = !!payload.paused;
+          const resumed = recordingPaused && !nextPaused;
+          recordingPaused = nextPaused;
+          if (resumed) lastAudibleAt = performance.now();
+          if (nextPaused) setMicLevel(0);
+          syncMicWarning();
           const pending = pauseTransitionRef.current;
           const reached =
             (pending === "pause" && nextPaused) ||
@@ -764,6 +820,10 @@ export function RecordingPill() {
     );
     track(
       safeListen("clips:toolbar-preparing", () => {
+        recordingActive = false;
+        recordingPaused = false;
+        microphoneEnabled = null;
+        syncMicWarning();
         if (modeRef.current === "done") {
           if (stallTimerRef.current) {
             clearTimeout(stallTimerRef.current);
@@ -791,6 +851,10 @@ export function RecordingPill() {
     );
     track(
       safeListen<boolean>("clips:toolbar-enabled", (payload) => {
+        recordingActive = !!payload;
+        if (recordingActive) lastAudibleAt = performance.now();
+        else microphoneEnabled = null;
+        syncMicWarning();
         setEnabled(!!payload);
         setPendingAction(null);
         if (payload && !toolbarDismissedRef.current) {
@@ -831,9 +895,42 @@ export function RecordingPill() {
     );
     track(
       safeListen<RecorderSession>("clips:recorder-session", (payload) => {
+        const nextMicrophoneEnabled =
+          typeof payload?.microphoneEnabled === "boolean"
+            ? payload.microphoneEnabled
+            : null;
+        if (
+          payload?.recordingId !== sessionRef.current.recordingId ||
+          nextMicrophoneEnabled !== microphoneEnabled
+        ) {
+          lastAudibleAt = performance.now();
+        }
+        microphoneEnabled = nextMicrophoneEnabled;
         sessionRef.current = payload ?? {};
         if (payload?.viewUrl) setViewUrl(payload.viewUrl);
+        syncMicWarning();
       }),
+    );
+    track(
+      safeListen<{ level?: number; source?: "mic" | "system" }>(
+        "voice:audio-level",
+        (payload) => {
+          if (payload?.source === "system") return;
+          const incoming = Number(payload?.level);
+          if (!Number.isFinite(incoming)) return;
+          const level = Math.max(0, Math.min(1, incoming));
+          setMicLevel(level);
+          if (
+            recordingActive &&
+            !recordingPaused &&
+            microphoneEnabled === true &&
+            level >= MIC_AUDIBLE_LEVEL
+          ) {
+            lastAudibleAt = performance.now();
+          }
+          syncMicWarning();
+        },
+      ),
     );
     track(
       safeListen<{
@@ -894,6 +991,7 @@ export function RecordingPill() {
     });
     return () => {
       stopped = true;
+      clearMicSilenceTimer();
       unlistens.forEach((u) => {
         try {
           u();
@@ -1199,6 +1297,16 @@ export function RecordingPill() {
     if (cardTitle) setAnnouncement(cardTitle);
   }, [cardTitle]);
 
+  const micWarningLabel =
+    micWarning === "muted"
+      ? "Microphone is off"
+      : micWarning === "silent"
+        ? "No microphone audio detected"
+        : null;
+  useEffect(() => {
+    if (micWarningLabel) setAnnouncement(micWarningLabel);
+  }, [micWarningLabel]);
+
   return (
     <div
       data-tw-surface
@@ -1299,11 +1407,22 @@ export function RecordingPill() {
           enabled={enabled}
           pendingAction={pendingAction}
           meter={
-            <LiveWaveform
-              sources="mic"
-              dimmed={paused || !enabled}
-              level={demoMode ? demoLevel : null}
-            />
+            micWarningLabel && !paused ? (
+              <span
+                className="record-pill-audio-warning"
+                role="img"
+                aria-label={micWarningLabel}
+                title={micWarningLabel}
+              >
+                <IconExclamationMark size={15} stroke={3} aria-hidden />
+              </span>
+            ) : (
+              <LiveWaveform
+                sources="mic"
+                dimmed={paused || !enabled}
+                level={demoMode ? demoLevel : micLevel}
+              />
+            )
           }
           labels={{
             controls: "Recording controls",
