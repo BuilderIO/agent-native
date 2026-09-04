@@ -228,28 +228,37 @@ type MailPrefetchTarget = {
 };
 
 const MAIL_TAB_PREFETCH_CONCURRENCY = 2;
+let mailTabPrefetchGeneration = 0;
+let mailTabPrefetchTail: Promise<unknown> = Promise.resolve();
 
 export function prefetchMailTabTargets(
   targets: readonly MailPrefetchTarget[],
   prefetch: (target: MailPrefetchTarget) => Promise<unknown>,
 ) {
-  const queue = [...targets];
-  const worker = async () => {
-    while (queue.length > 0) {
-      const target = queue.shift();
-      if (!target) return;
-      await Promise.allSettled([prefetch(target)]);
-    }
-  };
+  const generation = ++mailTabPrefetchGeneration;
+  const run = mailTabPrefetchTail.then(async () => {
+    const queue = [...targets];
+    const worker = async () => {
+      while (generation === mailTabPrefetchGeneration && queue.length > 0) {
+        const target = queue.shift();
+        if (!target) return;
+        await Promise.allSettled([
+          Promise.resolve().then(() => prefetch(target)),
+        ]);
+      }
+    };
 
-  return Promise.all(
-    Array.from(
-      {
-        length: Math.min(MAIL_TAB_PREFETCH_CONCURRENCY, queue.length),
-      },
-      worker,
-    ),
-  );
+    return Promise.all(
+      Array.from(
+        {
+          length: Math.min(MAIL_TAB_PREFETCH_CONCURRENCY, queue.length),
+        },
+        worker,
+      ),
+    );
+  });
+  mailTabPrefetchTail = run;
+  return run;
 }
 
 export function getTabPrefetchTarget(

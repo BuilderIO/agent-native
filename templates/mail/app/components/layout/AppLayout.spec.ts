@@ -281,6 +281,40 @@ describe("prefetchMailTabTargets", () => {
     expect(started).toEqual(["pitch", "github", "other", "important"]);
     expect(maxActive).toBe(2);
   });
+
+  it("does not overlap a superseded queue when tabs change", async () => {
+    const started: string[] = [];
+    const releases: Array<() => void> = [];
+    let resolveStarted!: () => void;
+    const twoStarted = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+
+    const previous = prefetchMailTabTargets(
+      [{ view: "stale-1" }, { view: "stale-2" }, { view: "stale-3" }],
+      async (target) => {
+        started.push(target.view);
+        await new Promise<void>((resolve) => {
+          releases.push(resolve);
+          if (releases.length === 2) resolveStarted();
+        });
+      },
+    );
+    await twoStarted;
+
+    const current = prefetchMailTabTargets(
+      [{ view: "current" }],
+      async (target) => {
+        started.push(target.view);
+      },
+    );
+    expect(started).not.toContain("current");
+
+    for (const release of releases) release();
+    await Promise.all([previous, current]);
+
+    expect(started).toEqual(["stale-1", "stale-2", "current"]);
+  });
 });
 
 describe("buildLabelDisplayNames", () => {
