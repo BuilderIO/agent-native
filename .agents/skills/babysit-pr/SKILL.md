@@ -222,9 +222,11 @@ cursor, grouped reports, evidence links, and disposition table as part of the
 PR's review state. At the first tick, record that handoff. On every later tick
 before the merge gate, re-read the handoff and check for new Slack replies,
 GitHub feedback, and Sentry findings after its cursor using the configured
-connectors. A new actionable report resets the soak timer and needs a fix or a
-concise reply before merge. If a connector is unavailable, record it as
-unavailable in the recap rather than treating it as no findings.
+connectors. A new actionable report resets the soak timer and needs a fix, a
+concise reply, or an explicit terminal ledger disposition with the invoking
+workflow's eye removed before merge. Silent terminal states need no reply. If
+a connector is unavailable, record it as unavailable in the recap rather than
+treating it as no findings.
 
 **Then proceed with PR checks:**
 
