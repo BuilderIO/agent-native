@@ -1108,9 +1108,6 @@ async function waitForChatPage(
   let lastUrl = "";
 
   while (Date.now() < deadline) {
-    browserErrors.length = 0;
-    httpErrors.length = 0;
-
     try {
       await waitForViteDepsQuiet(running.viteReload, running.logs, {
         timeoutMs: 60_000,
