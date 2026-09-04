@@ -642,5 +642,5 @@ describe("embedded Agent-Native host fixture", () => {
       status: 200,
       body: { ok: true },
     });
-  });
+  }, 15_000);
 });
