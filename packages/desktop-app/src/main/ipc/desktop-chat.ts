@@ -880,25 +880,33 @@ async function createDesktopTerminalSession(
     const appMcpServers: Record<string, DesktopTerminalMcpServer> = {};
     if (appConfig) {
       const baseUrl = resolveAppBaseUrl(appConfig);
-      if (!baseUrl) {
-        throw new Error(`The ${appConfig.name} app has no reachable URL.`);
+      if (baseUrl) {
+        try {
+          const authHeaders = await getDesktopAppMcpAuthorization(
+            appConfig,
+            baseUrl,
+          );
+          appMcpRelay = new DesktopTerminalMcpRelay(
+            desktopAppMcpUrl(baseUrl),
+            authHeaders,
+          );
+          const appMcpRegistration = await appMcpRelay.start();
+          appMcpServers[desktopTerminalMcpServerId(appConfig.id)] = {
+            type: "http",
+            url: appMcpRegistration.url,
+            headers: {
+              Authorization: `Bearer ${appMcpRegistration.bearerToken}`,
+            },
+          };
+        } catch (error) {
+          // App MCP is an optional capability. A signed-out or unavailable
+          // guest must not prevent the local desktop terminal from starting.
+          console.warn("[desktop-terminal] app tools unavailable", {
+            appId: appConfig.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+        }
       }
-      const authHeaders = await getDesktopAppMcpAuthorization(
-        appConfig,
-        baseUrl,
-      );
-      appMcpRelay = new DesktopTerminalMcpRelay(
-        desktopAppMcpUrl(baseUrl),
-        authHeaders,
-      );
-      const appMcpRegistration = await appMcpRelay.start();
-      appMcpServers[desktopTerminalMcpServerId(appConfig.id)] = {
-        type: "http",
-        url: appMcpRegistration.url,
-        headers: {
-          Authorization: `Bearer ${appMcpRegistration.bearerToken}`,
-        },
-      };
     }
     const surfaceMcpServer: DesktopTerminalMcpServer = {
       type: "http",
