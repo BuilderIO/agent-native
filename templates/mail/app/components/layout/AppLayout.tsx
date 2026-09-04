@@ -227,6 +227,31 @@ type MailPrefetchTarget = {
   label?: string;
 };
 
+const MAIL_TAB_PREFETCH_CONCURRENCY = 2;
+
+export function prefetchMailTabTargets(
+  targets: readonly MailPrefetchTarget[],
+  prefetch: (target: MailPrefetchTarget) => Promise<unknown>,
+) {
+  const queue = [...targets];
+  const worker = async () => {
+    while (queue.length > 0) {
+      const target = queue.shift();
+      if (!target) return;
+      await Promise.allSettled([prefetch(target)]);
+    }
+  };
+
+  return Promise.all(
+    Array.from(
+      {
+        length: Math.min(MAIL_TAB_PREFETCH_CONCURRENCY, queue.length),
+      },
+      worker,
+    ),
+  );
+}
+
 export function getTabPrefetchTarget(
   tab: {
     id: string;
@@ -837,10 +862,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       if (!target) continue;
       targets.set(JSON.stringify(target), target);
     }
-    void Promise.allSettled(
-      [...targets.values()].map((target) =>
-        prefetchEmails(queryClient, target.view, target.search, target.label),
-      ),
+    void prefetchMailTabTargets([...targets.values()], (target) =>
+      prefetchEmails(queryClient, target.view, target.search, target.label),
     );
   }, [queryClient, savedFilters, tabsLoading, visibleTabs]);
 

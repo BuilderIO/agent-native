@@ -6,6 +6,7 @@ import {
   buildLabelDisplayNames,
   getTabPrefetchTarget,
   labelTabHref,
+  prefetchMailTabTargets,
 } from "./AppLayout";
 
 function appLayoutSource(): string {
@@ -257,6 +258,28 @@ describe("getTabPrefetchTarget", () => {
         [],
       ),
     ).toEqual({ view: "inbox" });
+  });
+});
+
+describe("prefetchMailTabTargets", () => {
+  it("warms every target with bounded concurrency", async () => {
+    const targets = ["pitch", "github", "other", "important"].map((view) => ({
+      view,
+    }));
+    const started: string[] = [];
+    let active = 0;
+    let maxActive = 0;
+
+    await prefetchMailTabTargets(targets, async (target) => {
+      started.push(target.view);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+    });
+
+    expect(started).toEqual(["pitch", "github", "other", "important"]);
+    expect(maxActive).toBe(2);
   });
 });
 
