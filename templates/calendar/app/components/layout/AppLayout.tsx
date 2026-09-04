@@ -70,8 +70,8 @@ interface CalendarContextValue {
   setPeopleSearchOpen: (open: boolean) => void;
   addCalendarOpen: boolean;
   setAddCalendarOpen: (open: boolean) => void;
-  addCalendarDefaultTab: "people" | "url";
-  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  addCalendarDefaultTab: "people" | "url" | "google";
+  setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
@@ -102,7 +102,7 @@ interface CalendarSettersValue {
   setViewMode: (mode: ViewMode) => void;
   setPeopleSearchOpen: (open: boolean) => void;
   setAddCalendarOpen: (open: boolean) => void;
-  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   setEventDetailSidebar: (sidebar: boolean) => void;
   setSidebarEvent: (event: CalendarEvent | null) => void;
@@ -117,7 +117,7 @@ interface CalendarRareValuesContextValue {
   viewMode: ViewMode;
   peopleSearchOpen: boolean;
   addCalendarOpen: boolean;
-  addCalendarDefaultTab: "people" | "url";
+  addCalendarDefaultTab: "people" | "url" | "google";
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
   eventDetailSidebar: boolean;
@@ -246,7 +246,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
   const [addCalendarOpen, setAddCalendarOpen] = useState(false);
   const [addCalendarDefaultTab, setAddCalendarDefaultTab] = useState<
-    "people" | "url"
+    "people" | "url" | "google"
   >("people");
   const {
     hidden: hiddenCalendars,
@@ -388,6 +388,11 @@ export function AppLayout({ children }: AppLayoutProps) {
             open={addCalendarOpen}
             onOpenChange={setAddCalendarOpen}
             defaultTab={addCalendarDefaultTab}
+            visibleTabs={
+              addCalendarDefaultTab === "google"
+                ? ["google"]
+                : ["people", "url"]
+            }
           />
           <KeyboardShortcutsHelp
             open={shortcutsHelpOpen}

@@ -15,7 +15,7 @@ import {
   cliBoolean,
   isBookedOnAccount,
   mapWithConcurrency,
-  normalizeGoogleEventId,
+  normalizeWritableGoogleEventId,
   requireActionUserEmail,
   requireExplicitBound,
   resolveOwnedAccountEmail,
@@ -153,7 +153,7 @@ export default defineAction({
         ownerEmail,
       );
       const requested = Array.from(
-        new Set(args.ids!.map(normalizeGoogleEventId)),
+        new Set(args.ids!.map(normalizeWritableGoogleEventId)),
       );
       for (const id of requested) {
         try {

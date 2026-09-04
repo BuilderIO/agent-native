@@ -25,6 +25,7 @@ export const SHARED_CALENDAR_DEMO_STATUS: GoogleAuthStatus = {
 export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   {
     sourceKey: "demo:builder-primary",
+    canonicalKey: "demo:builder-primary",
     accountEmail: "alice@builder.io",
     calendarId: "alice@builder.io",
     name: "Alice · Builder",
@@ -36,6 +37,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   },
   {
     sourceKey: "demo:personal-primary",
+    canonicalKey: "demo:personal-primary",
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     name: "Alice Alexandra",
@@ -47,6 +49,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   },
   {
     sourceKey: "demo:friends",
+    canonicalKey: "demo:friends",
     accountEmail: "emdistal@gmail.com",
     calendarId: "friends@example.com",
     name: "Friends",
@@ -58,6 +61,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   },
   {
     sourceKey: "demo:tempo-primary",
+    canonicalKey: "demo:tempo-primary",
     accountEmail: "tempoimmaterial@gmail.com",
     calendarId: "tempoimmaterial@gmail.com",
     name: "Tempo Immaterial",
@@ -69,6 +73,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
   },
   {
     sourceKey: "demo:studio",
+    canonicalKey: "demo:studio",
     accountEmail: "tempoimmaterial@gmail.com",
     calendarId: "studio@example.com",
     name: "Studio schedule",
@@ -91,7 +96,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "alice@builder.io",
     calendarId: "alice@builder.io",
     calendarName: "Alice · Builder",
-    color: CALENDAR_COLORS[1],
+    calendarColor: CALENDAR_COLORS[1],
   }),
   demoEvent({
     id: "google-personal-dermatology",
@@ -101,7 +106,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     calendarName: "Alice Alexandra",
-    color: CALENDAR_COLORS[2],
+    calendarColor: CALENDAR_COLORS[2],
   }),
   demoEvent({
     id: "google-friends-cottage",
@@ -113,7 +118,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Friends",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: CALENDAR_COLORS[3],
+    calendarColor: CALENDAR_COLORS[3],
   }),
   demoEvent({
     id: "google-friends-birthday",
@@ -125,7 +130,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Friends",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: CALENDAR_COLORS[3],
+    calendarColor: CALENDAR_COLORS[3],
   }),
   demoEvent({
     id: "google-personal-dinner",
@@ -135,7 +140,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     calendarName: "Alice Alexandra",
-    color: CALENDAR_COLORS[2],
+    calendarColor: CALENDAR_COLORS[2],
   }),
   demoEvent({
     id: "google-tempo-studio",
@@ -147,7 +152,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Studio schedule",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: CALENDAR_COLORS[4],
+    calendarColor: CALENDAR_COLORS[4],
   }),
 ];
 
@@ -163,7 +168,7 @@ function demoEvent(
     | "calendarName"
     | "calendarAccessRole"
     | "calendarReadOnly"
-    | "color"
+    | "calendarColor"
   >,
 ): CalendarEvent {
   const source = SHARED_CALENDAR_DEMO_SOURCES.find(
@@ -174,6 +179,7 @@ function demoEvent(
   return {
     ...event,
     calendarSourceKey: source?.sourceKey ?? "",
+    canonicalKey: source?.canonicalKey,
     calendarPrimary: source?.primary,
     description: "",
     location: "",
