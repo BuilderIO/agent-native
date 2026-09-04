@@ -1416,6 +1416,7 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
             : []),
           ...(hasDep("@agent-native/core", cwd)
             ? [
+                "@agent-native/core/client/agent-native-icon",
                 "@agent-native/core/client/agentkit-chat/composer",
                 "@agent-native/core/client/agentkit-chat/connections",
                 "@agent-native/core/client/agentkit-chat/questions",
@@ -1428,6 +1429,7 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
                 "@agent-native/core/client/hooks",
                 "@agent-native/core/client/i18n",
                 "@agent-native/core/client/navigation",
+                "@agent-native/core/client/org-switcher",
                 "@agent-native/core/client/route-chunk-recovery",
                 "@agent-native/core/client/theme",
               ]
@@ -1440,6 +1442,11 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
                 "@agent-native/toolkit/chat-history/ChatHistoryList",
                 "@agent-native/toolkit/composer/runtime-adapters",
                 "@agent-native/toolkit/provider",
+                "@agent-native/toolkit/ui/button",
+                "@agent-native/toolkit/ui/hover-card",
+                "@agent-native/toolkit/ui/sheet",
+                "@agent-native/toolkit/ui/sonner",
+                "@agent-native/toolkit/ui/tooltip",
               ]
             : []),
         ]
@@ -1465,6 +1472,21 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
     ...(hasDep("@radix-ui/react-tooltip", cwd)
       ? ["@radix-ui/react-tooltip"]
       : []),
+    ...(hasDep("@radix-ui/react-dialog", cwd)
+      ? ["@radix-ui/react-dialog"]
+      : []),
+    ...(hasDep("@radix-ui/react-hover-card", cwd)
+      ? ["@radix-ui/react-hover-card"]
+      : []),
+    ...(hasDep("@radix-ui/react-popover", cwd)
+      ? ["@radix-ui/react-popover"]
+      : []),
+    ...(hasDep("@radix-ui/react-slot", cwd) ? ["@radix-ui/react-slot"] : []),
+    ...(hasDep("@tabler/icons-react", cwd) ? ["@tabler/icons-react"] : []),
+    ...(hasDep("class-variance-authority", cwd)
+      ? ["class-variance-authority"]
+      : []),
+    ...(hasDep("sonner", cwd) ? ["sonner"] : []),
     "@agent-native/core > @assistant-ui/react",
     "@agent-native/core > @assistant-ui/react > assistant-stream > secure-json-parse",
     "@agent-native/core > react-markdown > void-elements",
