@@ -419,10 +419,11 @@ export function AppLayout({ children }: AppLayoutProps) {
                 isMobile
                   ? undefined
                   : (nextCollapsed) => {
-                      setSidebarCollapsed(nextCollapsed);
                       if (perAppChatOpen) {
                         setSidebarExpandedWhileChatOpen(!nextCollapsed);
+                        return;
                       }
+                      setSidebarCollapsed(nextCollapsed);
                     }
               }
             />

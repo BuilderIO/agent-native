@@ -33,6 +33,9 @@ describe("Calendar app navigation", () => {
     expect(source).toContain(
       "(perAppChatOpen && !sidebarExpandedWhileChatOpen)",
     );
+    expect(source).toContain(
+      "if (perAppChatOpen) {\n                        setSidebarExpandedWhileChatOpen(!nextCollapsed);\n                        return;\n                      }\n                      setSidebarCollapsed(nextCollapsed)",
+    );
     expect(source).toContain("setSidebarExpandedWhileChatOpen(!nextCollapsed)");
   });
 });
