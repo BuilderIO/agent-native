@@ -1,5 +1,6 @@
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
+import { cdpTimeSinceEpochMs } from "./cdp-time";
 import {
   MediaPermissionRequiredError,
   mediaPermissionErrorFromResponse,
@@ -1737,7 +1738,6 @@ async function finishSaving(
   recording.error = null;
   if (recordingIdFromStatus) recording.recordingId = recordingIdFromStatus;
   recording.recordingUrl = recordingUrl(recording);
-  await saveNativeDiagnostics(recording);
   await deleteSession(recording.sessionId);
   await broadcastUnmount();
   broadcastOverlayState();
@@ -1758,6 +1758,8 @@ async function stopRecording() {
   // overlay. The popup stays disabled so the icon can't interrupt the save.
   overlayPhase = "saving";
   countdownEndsAtMs = 0;
+  const diagnostics = await stopNativeDiagnostics(recording);
+  const diagnosticsSave = saveNativeDiagnostics(recording, diagnostics);
   await saveActiveNativeRecording();
   await broadcastMount();
   broadcastOverlayState();
@@ -1770,6 +1772,7 @@ async function stopRecording() {
       sessionId: recording.sessionId,
     });
     if (response.result && response.result.status === "cancelled") {
+      await diagnosticsSave;
       // Stopped during the pre-roll countdown: no media was captured. Treat it
       // as an aborted take — discard the empty recording instead of opening a
       // playback tab for a finished-but-empty clip.
@@ -1787,6 +1790,7 @@ async function stopRecording() {
       response.result && typeof response.result.recordingId === "string"
         ? response.result.recordingId
         : undefined;
+    await diagnosticsSave;
     await finishSaving(recording, recordingId);
     return {
       ok: true,
@@ -1794,6 +1798,7 @@ async function stopRecording() {
       recordingUrl: recording.recordingUrl,
     };
   } catch (err) {
+    await diagnosticsSave;
     recording.status = "error";
     recording.error = friendlyRecordingError(
       err instanceof Error ? err.message : null,
@@ -1830,11 +1835,12 @@ async function cancelRecording() {
 
 async function saveNativeDiagnostics(
   recording: NativeRecording,
+  diagnostics?: BrowserDiagnosticsData | null,
 ): Promise<void> {
   if (!recording.includeDeveloperLogs) return;
   const session = sessions.get(recording.sessionId);
-  if (!session) return;
-  const diagnostics = snapshotSession(session);
+  const snapshot = diagnostics ?? (session ? snapshotSession(session) : null);
+  if (!snapshot) return;
   await postAction(
     settingsFromRecording(recording),
     "save-browser-diagnostics",
@@ -1843,16 +1849,29 @@ async function saveNativeDiagnostics(
       sessionId: recording.sessionId,
       source: "extension",
       phase: "recording",
-      pageUrl: diagnostics.pageUrl,
-      userAgent: diagnostics.userAgent,
-      startedAt: diagnostics.startedAt,
-      endedAt: diagnostics.endedAt,
-      consoleLogs: diagnostics.consoleLogs,
-      networkRequests: diagnostics.networkRequests,
+      pageUrl: snapshot.pageUrl,
+      userAgent: snapshot.userAgent,
+      startedAt: snapshot.startedAt,
+      endedAt: snapshot.endedAt,
+      consoleLogs: snapshot.consoleLogs,
+      networkRequests: snapshot.networkRequests,
     },
   ).catch((err) => {
     console.warn("[clips-extension] diagnostics save failed:", err);
   });
+}
+
+async function stopNativeDiagnostics(
+  recording: NativeRecording,
+): Promise<BrowserDiagnosticsData | null> {
+  if (!recording.includeDeveloperLogs) return null;
+  const session = sessions.get(recording.sessionId);
+  if (!session) return null;
+  const diagnostics = snapshotSession(session);
+  await deleteSession(recording.sessionId).catch((err) => {
+    console.warn("[clips-extension] diagnostics detach failed:", err);
+  });
+  return diagnostics;
 }
 
 async function clearNativeRecording(): Promise<void> {
@@ -2160,8 +2179,7 @@ function handleConsoleEvent(session: CaptureSession, params: unknown): void {
     level: consoleLevel(event.type),
     message,
     stack: stackTraceText(event.stackTrace),
-    timestampMs:
-      typeof event.timestamp === "number" ? event.timestamp : undefined,
+    timestampMs: cdpTimeSinceEpochMs(event.timestamp),
   });
 }
 
@@ -2194,8 +2212,7 @@ function handleLogEntryEvent(session: CaptureSession, params: unknown): void {
   pushConsole(session, {
     level: consoleLevel(item.level),
     message: `${source}${text}`,
-    timestampMs:
-      typeof item.timestamp === "number" ? item.timestamp : undefined,
+    timestampMs: cdpTimeSinceEpochMs(item.timestamp),
   });
 }
 
@@ -2206,9 +2223,7 @@ function trackedNetworkType(value: unknown): NetworkType | null {
 }
 
 function requestTimestampMs(params: Record<string, unknown>): number {
-  return typeof params.wallTime === "number"
-    ? Math.round(params.wallTime * 1000)
-    : nowMs();
+  return cdpTimeSinceEpochMs(params.wallTime) ?? nowMs();
 }
 
 function handleRequestWillBeSent(
