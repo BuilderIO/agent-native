@@ -1471,13 +1471,32 @@ async function snapshotDashboardRevision(
   ctx: AccessCtx,
   chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
 ): Promise<string> {
+  const config = JSON.stringify(dashboard.config);
+  const [latest] = await db
+    .select({
+      kind: schema.dashboardRevisions.kind,
+      title: schema.dashboardRevisions.title,
+      config: schema.dashboardRevisions.config,
+      id: schema.dashboardRevisions.id,
+    })
+    .from(schema.dashboardRevisions)
+    .where(eq(schema.dashboardRevisions.dashboardId, dashboard.id))
+    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .limit(1);
+  if (
+    latest?.kind === dashboard.kind &&
+    latest.title === dashboard.title &&
+    latest.config === config
+  ) {
+    return latest.id;
+  }
   const id = `dashrev-${Date.now()}-${nanoidFallback()}`;
   await db.insert(schema.dashboardRevisions).values({
     id,
     dashboardId: dashboard.id,
     kind: dashboard.kind,
     title: dashboard.title,
-    config: JSON.stringify(dashboard.config),
+    config,
     createdAt: nowIso(),
     createdBy: ctx.email,
     ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
@@ -1547,6 +1566,12 @@ export async function upsertDashboard(
       orgId: ctx.orgId ?? undefined,
     });
   }
+  const changed =
+    !existing ||
+    existing.kind !== kind ||
+    existing.title !== title ||
+    JSON.stringify(existing.config) !== configJson;
+  if (existing && !changed) return existing;
   const nameChanged =
     !existing ||
     normalizeDashboardName(existing.title) !== normalizeDashboardName(title);
@@ -1555,10 +1580,6 @@ export async function upsertDashboard(
   }
   const persist = async (writeDb: any): Promise<void> => {
     if (existing) {
-      const changed =
-        existing.kind !== kind ||
-        existing.title !== title ||
-        JSON.stringify(existing.config) !== configJson;
       const setValues = {
         kind,
         title,
@@ -2492,6 +2513,36 @@ async function snapshotAnalysisRevision(
   ctx: AccessCtx,
   chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
 ): Promise<void> {
+  const dataSources = JSON.stringify(analysis.dataSources);
+  const resultData = analysis.resultData
+    ? JSON.stringify(analysis.resultData)
+    : null;
+  const [latest] = await db
+    .select({
+      id: schema.analysisRevisions.id,
+      name: schema.analysisRevisions.name,
+      description: schema.analysisRevisions.description,
+      question: schema.analysisRevisions.question,
+      instructions: schema.analysisRevisions.instructions,
+      dataSources: schema.analysisRevisions.dataSources,
+      resultMarkdown: schema.analysisRevisions.resultMarkdown,
+      resultData: schema.analysisRevisions.resultData,
+    })
+    .from(schema.analysisRevisions)
+    .where(eq(schema.analysisRevisions.analysisId, analysis.id))
+    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .limit(1);
+  if (
+    latest?.name === analysis.name &&
+    latest.description === analysis.description &&
+    latest.question === analysis.question &&
+    latest.instructions === analysis.instructions &&
+    latest.dataSources === dataSources &&
+    latest.resultMarkdown === analysis.resultMarkdown &&
+    latest.resultData === resultData
+  ) {
+    return;
+  }
   await db.insert(schema.analysisRevisions).values({
     id: `analysisrev-${Date.now()}-${nanoidFallback()}`,
     analysisId: analysis.id,
@@ -2499,11 +2550,9 @@ async function snapshotAnalysisRevision(
     description: analysis.description,
     question: analysis.question,
     instructions: analysis.instructions,
-    dataSources: JSON.stringify(analysis.dataSources),
+    dataSources,
     resultMarkdown: analysis.resultMarkdown,
-    resultData: analysis.resultData
-      ? JSON.stringify(analysis.resultData)
-      : null,
+    resultData,
     createdAt: nowIso(),
     createdBy: ctx.email,
     ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
@@ -2615,6 +2664,7 @@ export async function upsertAnalysis(
         JSON.stringify(existing.dataSources) ||
       next.resultMarkdown !== existing.resultMarkdown ||
       JSON.stringify(next.resultData) !== JSON.stringify(existing.resultData);
+    if (!changed) return existing;
     if (expectedUpdatedAt !== undefined) {
       // Fenced write. Snapshot the revision only after we know this exact
       // write actually landed — otherwise a lost race would record a

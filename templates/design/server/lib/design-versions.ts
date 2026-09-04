@@ -452,24 +452,71 @@ async function captureDesignVersion(
   const designData = parseDesignData(designId, design.data);
   const liveSnapshot = await buildDesignSnapshot(designId, designData);
   const createdAt = new Date().toISOString();
+  const designTitle = typeof design.title === "string" ? design.title : "";
+  const designDescription =
+    typeof design.description === "string" || design.description === null
+      ? design.description
+      : null;
+  const projectType =
+    typeof design.projectType === "string" ? design.projectType : "prototype";
+  const designSystemId =
+    typeof design.designSystemId === "string" || design.designSystemId === null
+      ? design.designSystemId
+      : null;
+  const currentFiles = liveSnapshot.files.map(
+    ({ id, filename, fileType, content }) => ({
+      id,
+      filename,
+      fileType,
+      content,
+    }),
+  );
+  const [latest] = await getDb()
+    .select({
+      id: schema.designVersions.id,
+      snapshot: schema.designVersions.snapshot,
+      createdAt: schema.designVersions.createdAt,
+      label: schema.designVersions.label,
+    })
+    .from(schema.designVersions)
+    .where(eq(schema.designVersions.designId, designId))
+    .orderBy(desc(schema.designVersions.createdAt))
+    .limit(1);
+  if (latest) {
+    try {
+      const previous = await readDesignVersionSnapshot(
+        latest.snapshot,
+        designId,
+      );
+      if (
+        previous.designData === designData &&
+        previous.designTitle === designTitle &&
+        previous.designDescription === designDescription &&
+        previous.projectType === projectType &&
+        previous.designSystemId === designSystemId &&
+        JSON.stringify(previous.files) === JSON.stringify(currentFiles)
+      ) {
+        return {
+          id: latest.id,
+          createdAt: latest.createdAt ?? createdAt,
+          label: latest.label ?? options.label,
+        };
+      }
+      // coercion-ok: unreadable history cannot suppress a new autosave.
+    } catch {
+      // An unreadable checkpoint cannot establish equality; preserve autosave.
+    }
+  }
   const id = nanoid();
   const snapshot = JSON.stringify({
     schemaVersion: 1,
     snapshotKind: "design-history",
     designId,
     designData,
-    designTitle: typeof design.title === "string" ? design.title : "",
-    designDescription:
-      typeof design.description === "string" || design.description === null
-        ? design.description
-        : null,
-    projectType:
-      typeof design.projectType === "string" ? design.projectType : "prototype",
-    designSystemId:
-      typeof design.designSystemId === "string" ||
-      design.designSystemId === null
-        ? design.designSystemId
-        : null,
+    designTitle,
+    designDescription,
+    projectType,
+    designSystemId,
     files: liveSnapshot.files,
     tweaks: liveSnapshot.tweaks,
     appliedTweaks: liveSnapshot.appliedTweaks,

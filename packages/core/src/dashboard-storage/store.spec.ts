@@ -40,13 +40,31 @@ function row(updatedAt = "2026-07-21T10:00:00.000Z") {
   };
 }
 
-function fakeDb(options: { updateCount: number }) {
+function queryResult(rows: unknown[]) {
+  const result: any = Promise.resolve(rows);
+  result.orderBy = () => result;
+  result.limit = () => result;
+  return result;
+}
+
+function fakeDb(options: {
+  updateCount: number;
+  latestRevision?: Record<string, unknown>;
+}) {
   const selected = [[row()], [row("2026-07-21T11:00:00.000Z")]];
   const inserted: Array<Record<string, unknown>> = [];
+  let updateCalls = 0;
+  const transactionSelections = [
+    options.latestRevision ? [options.latestRevision] : [],
+    [],
+  ];
   const tx = {
     update: () => ({
       set: () => ({
-        where: async () => ({ rowsAffected: options.updateCount }),
+        where: async () => {
+          updateCalls += 1;
+          return { rowsAffected: options.updateCount };
+        },
       }),
     }),
     insert: () => ({
@@ -56,9 +74,7 @@ function fakeDb(options: { updateCount: number }) {
     }),
     select: () => ({
       from: () => ({
-        where: () => ({
-          orderBy: async () => [],
-        }),
+        where: () => queryResult(transactionSelections.shift() ?? []),
       }),
     }),
     delete: () => ({ where: async () => undefined }),
@@ -73,7 +89,13 @@ function fakeDb(options: { updateCount: number }) {
     }),
     transaction: vi.fn(async (run: (value: typeof tx) => unknown) => run(tx)),
   };
-  return { db, inserted };
+  return {
+    db,
+    inserted,
+    get updateCalls() {
+      return updateCalls;
+    },
+  };
 }
 
 function storage(db: any) {
@@ -135,6 +157,24 @@ describe("dashboard storage", () => {
     expect(fake.inserted).toEqual([]);
   });
 
+  it("skips an identical write without touching the dashboard or history", async () => {
+    const fake = fakeDb({ updateCount: 1 });
+    const result = await storage(fake.db).write(
+      {
+        id: "dash_1",
+        kind: "pipeline",
+        title: "Pipeline",
+        config: { version: 1 },
+      },
+      { userEmail: "owner@example.com", orgId: "org_1" },
+    );
+
+    expect(result.updatedAt).toBe("2026-07-21T10:00:00.000Z");
+    expect(fake.db.transaction).not.toHaveBeenCalled();
+    expect(fake.updateCalls).toBe(0);
+    expect(fake.inserted).toEqual([]);
+  });
+
   it("can snapshot the current dashboard after an agent turn", async () => {
     const fake = fakeDb({ updateCount: 1 });
     const result = await storage(fake.db).createRevisionSnapshot("dash_1", {
@@ -151,6 +191,19 @@ describe("dashboard storage", () => {
         ownerEmail: "owner@example.com",
       }),
     ]);
+  });
+
+  it("coalesces a snapshot when the latest revision is unchanged", async () => {
+    const fake = fakeDb({
+      updateCount: 1,
+      latestRevision: row(),
+    });
+    await storage(fake.db).createRevisionSnapshot("dash_1", {
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+
+    expect(fake.inserted).toEqual([]);
   });
 
   it("registers the per-app resource policy", () => {

@@ -264,12 +264,30 @@ export function createDashboardStorage<
     writer: string,
     chatContext: DashboardRevisionChatContext | null = requestDashboardChatContext(),
   ) {
+    const config = serializeConfig(dashboard.config);
+    const [latest] = await db
+      .select({
+        kind: dashboardRevisions.kind,
+        title: dashboardRevisions.title,
+        config: dashboardRevisions.config,
+      })
+      .from(dashboardRevisions)
+      .where(eq(dashboardRevisions.dashboardId, dashboard.id))
+      .orderBy(desc(dashboardRevisions.createdAt))
+      .limit(1);
+    if (
+      latest?.kind === dashboard.kind &&
+      latest.title === dashboard.title &&
+      latest.config === config
+    ) {
+      return;
+    }
     await db.insert(dashboardRevisions).values({
       id: `dashboard-revision-${randomUUID()}`,
       dashboardId: dashboard.id,
       kind: dashboard.kind,
       title: dashboard.title,
-      config: serializeConfig(dashboard.config),
+      config,
       createdBy: writer,
       ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
       ownerEmail: dashboard.ownerEmail,
@@ -302,10 +320,18 @@ export function createDashboardStorage<
       });
     } else {
       await assertAccess(options.resourceType, input.id, "editor", ctx);
+      const config = serializeConfig(input.config);
+      if (
+        existing.kind === input.kind &&
+        existing.title === input.title &&
+        serializeConfig(existing.config) === config
+      ) {
+        return existing;
+      }
       const values = {
         kind: input.kind,
         title: input.title,
-        config: serializeConfig(input.config),
+        config,
         updatedAt: new Date().toISOString(),
         updatedBy: writer,
       };
