@@ -4,9 +4,14 @@ const executeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  intType: () => "BIGINT",
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 async function loadDevicesStore() {

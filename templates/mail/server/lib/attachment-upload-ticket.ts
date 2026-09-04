@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { getUserSetting } from "@agent-native/core/settings";
 import { nanoid } from "nanoid";
 
@@ -55,7 +55,7 @@ function settingStorageKey(ownerEmail: string): string {
 }
 
 function settingsTable(): string {
-  return isPostgres() ? "public.settings" : "settings";
+  return "public.settings";
 }
 
 function parseTickets(raw: string | null): AttachmentUploadTickets {
@@ -121,9 +121,7 @@ async function compareAndSwapTickets(
   const client = getDbExec();
   if (expectedRaw === null) {
     const result = await client.execute({
-      sql: isPostgres()
-        ? `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
-        : `INSERT OR IGNORE INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`,
       args: [key, value, Date.now()],
     });
     return result.rowsAffected === 1;

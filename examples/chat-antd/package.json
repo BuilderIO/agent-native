@@ -17,7 +17,6 @@
     "@agent-native/core": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
-    "@libsql/client": "^0.15.8",
     "@tabler/icons-react": "catalog:",
     "antd": "6.5.1",
     "h3": "catalog:",

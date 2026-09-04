@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -98,7 +98,7 @@ export async function ensureHealthTable(): Promise<void> {
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, createSql);
         await ensureColumnExists(
           TABLE,
@@ -149,41 +149,6 @@ export async function ensureHealthTable(): Promise<void> {
         return;
       }
 
-      const client = getDbExec();
-      await client.execute(createSql);
-      const { rows } = await client.execute(`PRAGMA table_info("${TABLE}")`);
-      const columns = new Set(
-        rows.map((row) => String((row as Record<string, unknown>).name)),
-      );
-      for (const [name, definition] of [
-        ["app_id", "TEXT NOT NULL DEFAULT 'default'"],
-        ["org_id", "TEXT"],
-        ["last_checked_at", `${intType()}`],
-        ["last_dispatched_at", `${intType()}`],
-        ["last_error", "TEXT"],
-        ["runtime", "TEXT"],
-        ["updated_at", `${intType()} NOT NULL DEFAULT 0`],
-        ["lease_owner", "TEXT"],
-        ["lease_expires_at", `${intType()}`],
-      ] as const) {
-        if (columns.has(name)) continue;
-        try {
-          await client.execute(
-            `ALTER TABLE ${TABLE} ADD COLUMN ${name} ${definition}`,
-          );
-        } catch (error) {
-          const message = String(
-            (error as { message?: unknown } | null)?.message ?? error,
-          );
-          if (
-            !/duplicate column name/i.test(message) &&
-            !/column .* already exists/i.test(message)
-          ) {
-            throw error;
-          }
-        }
-      }
-      await client.execute(indexSql);
     })().catch((error) => {
       initPromise = undefined;
       throw error;

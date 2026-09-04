@@ -1,9 +1,8 @@
 /**
  * Scratch storage for staged provider-API datasets.
  *
- * Rows are stored as JSON text — no dialect-specific JSON-column types needed.
- * Aggregation is done in TypeScript server-side (portable across Postgres and
- * SQLite) rather than via JSON SQL fragments. See `staged-datasets-aggregate.ts`.
+ * Rows are stored as JSON text. Aggregation is done in TypeScript server-side
+ * rather than via JSON SQL fragments. See `staged-datasets-aggregate.ts`.
  *
  * Storage caps:
  *   - MAX_ROWS_PER_APP: 200 000 rows
@@ -13,7 +12,7 @@
  * different users never share or cross-read each other's scratch data.
  */
 
-import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, intType, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
 // ---------------------------------------------------------------------------
@@ -55,35 +54,17 @@ export async function ensureTables(): Promise<void> {
           PRIMARY KEY (dataset_id, row_index)
         )
       `;
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("staged_datasets", createDatasetsSql);
-        await ensureTableExists("staged_dataset_rows", createRowsSql);
-        await widenPostgresIntegerColumns(db); // best-effort type widening — unchanged
-        await ensureIndexExists(
-          "staged_datasets_scope_idx",
-          `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
-        );
-        await ensureIndexExists(
-          "staged_dataset_rows_dataset_idx",
-          `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await db.execute(createDatasetsSql);
-      await db.execute(createRowsSql);
-      // Note: widenPostgresIntegerColumns is Postgres-only, skip on SQLite
-      for (const ddl of [
+      await ensureTableExists("staged_datasets", createDatasetsSql);
+      await ensureTableExists("staged_dataset_rows", createRowsSql);
+      await widenPostgresIntegerColumns(db);
+      await ensureIndexExists(
+        "staged_datasets_scope_idx",
         `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
+      );
+      await ensureIndexExists(
+        "staged_dataset_rows_dataset_idx",
         `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,
-      ]) {
-        try {
-          await db.execute(ddl);
-        } catch {
-          // Index already exists — harmless.
-        }
-      }
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -275,9 +256,7 @@ export async function upsertStagedDataset(
     }
 
     await tx.execute({
-      sql: isPostgres()
-        ? `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at`
-        : `INSERT OR REPLACE INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO staged_datasets (id, app_id, owner_email, name, columns, row_count, byte_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, columns=EXCLUDED.columns, row_count=EXCLUDED.row_count, byte_size=EXCLUDED.byte_size, updated_at=EXCLUDED.updated_at`,
       args: [
         id,
         options.appId,

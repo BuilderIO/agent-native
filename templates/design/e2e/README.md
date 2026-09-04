@@ -14,13 +14,13 @@ E2E_BROWSER_CHANNEL=chrome pnpm e2e  # run the suite in installed Google Chrome
 ```
 
 - `playwright.config.ts` starts its own dev server on **:9333** backed by a
-  throwaway SQLite db (`data/e2e.db`) — `APP_NAME=design` +
-  `DESIGN_DATABASE_URL=file:...` so a `.env` Postgres URL can never leak in.
+  throwaway PGlite database (`data/pglite/e2e`) — `APP_NAME=design` +
+  `DESIGN_DATABASE_URL=pglite:...` so a `.env` database URL can never leak in.
 - Locally, if a server is already running on :9333 it is **reused**
   (`reuseExistingServer`). The most reliable local loop is to keep a server up
   yourself and run against it:
   ```bash
-  APP_NAME=design DESIGN_DATABASE_URL="file:./data/e2e.db" PORT=9333 pnpm dev   # one terminal
+  APP_NAME=design DESIGN_DATABASE_URL="pglite:./data/pglite/e2e" PORT=9333 pnpm dev   # one terminal
   E2E_BASE_URL=http://localhost:9333 pnpm e2e                                   # another
   ```
   `E2E_BASE_URL` makes Playwright skip server management entirely and just use

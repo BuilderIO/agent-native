@@ -5,8 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * E2E config for the Design visual editor.
  *
- * Runs real Chromium against a dev server backed by a throwaway local SQLite
- * database (`data/e2e.db`). `global-setup.ts` signs up a test user, saves the
+ * Runs real Chromium against a dev server backed by a throwaway local PGlite
+ * database (`data/e2e-pglite`). `global-setup.ts` signs up a test user, saves the
  * signed session as `storageState`, and seeds one design with a known fixture.
  *
  * Run: `pnpm e2e` (headless), `pnpm e2e:headed`, `pnpm e2e:ui`.
@@ -20,7 +20,7 @@ const AUTH_DIR = process.env.E2E_AUTH_DIR
   : path.join(import.meta.dirname, "e2e", ".auth");
 const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
-  `file:${path.join(import.meta.dirname, "data", "e2e.db")}`;
+  `pglite:${path.join(import.meta.dirname, "data", "e2e-pglite")}`;
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const SHOW_SECONDARY_PANELS_IN_E2E =
   process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0";
@@ -68,7 +68,7 @@ export default defineConfig({
     ? undefined
     : {
         // APP_NAME + the app-prefixed DESIGN_DATABASE_URL is checked BEFORE the
-        // generic DATABASE_URL, but set both to an absolute SQLite URL so a
+        // generic DATABASE_URL, but set both to an absolute PGlite URL so a
         // `.env` Postgres URL or a changed command cwd can never override this
         // throwaway local db.
         command: `APP_NAME=design ${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,

@@ -26,7 +26,7 @@ Ejecuta varias aplicaciones bajo un mismo origen con inicio de sesión compartid
 
 ## Antes de implementar: elige una base de datos persistente {#persistent-database}
 
-Cada aplicación implementada necesita una base de datos SQL persistente. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción. Usa `DATABASE_AUTH_TOKEN` si tu proveedor requiere un token separado.
+Cada aplicación implementada necesita una base de datos PostgreSQL persistente. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción.
 
 Las aplicaciones independientes necesitan un `BETTER_AUTH_SECRET` estable. Los espacios de trabajo con solicitudes firmadas entre aplicaciones necesitan `A2A_SECRET`.
 

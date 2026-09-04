@@ -11,7 +11,7 @@ import createVisualPlan from "./create-visual-plan.js";
  * diff-aware block (change-aware data-model + api-endpoint, annotated unified +
  * split diffs, file-tree badges, annotated-code) and makes it public so it can
  * be opened at /plans/<id> without a session. Run against a throwaway local
- * SQLite DB; safe to delete.
+ * PGlite database; safe to delete.
  */
 
 const DM_FIELD_BEFORE = `export interface DataModelField {

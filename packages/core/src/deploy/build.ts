@@ -234,7 +234,6 @@ const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
   "APP_URL",
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
-  "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "DATABASE_URL_UNPOOLED",
   "DB_OP_TIMEOUT_MS",
@@ -283,7 +282,6 @@ function appScopedRuntimeEnvKeys(appName: string | undefined): string[] {
     ...(databasePrefix
       ? [
           `${databasePrefix}_DATABASE_URL`,
-          `${databasePrefix}_DATABASE_AUTH_TOKEN`,
           `${databasePrefix}_DATABASE_URL_UNPOOLED`,
         ]
       : []),
@@ -406,7 +404,6 @@ async function loadHandler() {
 
 function initializeBindings(env) {
   if (!env) return;
-  globalThis.__cf_env = env;
   globalThis.__env__ = env;
   globalThis.process = globalThis.process || { env: {} };
   globalThis.process.env = globalThis.process.env || {};
@@ -584,8 +581,6 @@ export const CLOUDFLARE_WORKER_ESBUILD_EXTERNALS = [
   "fsevents",
 ];
 export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
-  "better-sqlite3":
-    "export default {}; export const Database = class {}; export const watch = () => ({ close() {} });\n",
   "node-pty":
     "export default {}; export const watch = () => ({ close() {} });\n",
   chokidar: "export default {}; export const watch = () => ({ close() {} });\n",
@@ -1002,7 +997,6 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
     "moveCursor",
   ]),
   repl: cloudflareNodeBuiltinStubSource("repl", ["start"]),
-  sqlite: cloudflareNodeBuiltinStubSource("sqlite", ["DatabaseSync"]),
   sys: cloudflareNodeBuiltinStubSource("sys", [
     "debug",
     "deprecate",
@@ -2157,8 +2151,6 @@ export default {
     if (env) {
       globalThis.process = globalThis.process || { env: {} };
       globalThis.process.env = globalThis.process.env || {};
-      // Expose D1/KV/R2 bindings on globalThis.__cf_env for the db layer
-      globalThis.__cf_env = env;
       for (const [key, value] of Object.entries(env)) {
         if (typeof value === "string") {
           globalThis.process.env[key] = value;
@@ -2831,7 +2823,6 @@ const NODE_BUILTINS = [
   "querystring",
   "readline",
   "repl",
-  "sqlite",
   "stream",
   "stream/web",
   "string_decoder",
@@ -2964,17 +2955,6 @@ function getDirSize(dir: string): number {
 
 export { copyDir };
 
-const LIBSQL_NATIVE_PACKAGE_NAMES = [
-  "darwin-arm64",
-  "darwin-x64",
-  "linux-arm-gnueabihf",
-  "linux-arm-musleabihf",
-  "linux-arm64-gnu",
-  "linux-arm64-musl",
-  "linux-x64-gnu",
-  "linux-x64-musl",
-  "win32-x64-msvc",
-];
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
@@ -3331,32 +3311,6 @@ export function copyInstalledBrowserRuntimePackages(
     `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle (required by ${consumer}).`,
   );
   return copiedCount;
-}
-
-function findInstalledLibsqlNativePackage(
-  nodeModulesRoots: string[],
-  packageName: string,
-): string | null {
-  for (const root of nodeModulesRoots) {
-    const direct = path.join(root, "@libsql", packageName);
-    if (fs.existsSync(path.join(direct, "index.node"))) return direct;
-
-    const pnpmRoot = path.join(root, ".pnpm");
-    if (!fs.existsSync(pnpmRoot)) continue;
-    const pnpmPrefix = `@libsql+${packageName}@`;
-    for (const entry of fs.readdirSync(pnpmRoot)) {
-      if (!entry.startsWith(pnpmPrefix)) continue;
-      const nested = path.join(
-        pnpmRoot,
-        entry,
-        "node_modules",
-        "@libsql",
-        packageName,
-      );
-      if (fs.existsSync(path.join(nested, "index.node"))) return nested;
-    }
-  }
-  return null;
 }
 
 function hasFfmpegStaticBinary(packageDir: string): boolean {
@@ -4215,59 +4169,6 @@ function walkServerJavaScriptFiles(
 }
 
 /**
- * A host-side prebuilt Netlify output can accidentally carry the native
- * better-sqlite3 binary from the developer's machine. Netlify functions run
- * on Linux, so fail before publication unless every copied binary is an ELF
- * object produced by the Linux build.
- */
-export function findNonLinuxBetterSqlite3Binaries(serverDir: string): string[] {
-  const failures: string[] = [];
-
-  const walk = (dir: string) => {
-    if (!fs.existsSync(dir)) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const entryPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(entryPath);
-        continue;
-      }
-      if (entry.name !== "better_sqlite3.node") continue;
-      const normalizedPath = entryPath.split(path.sep).join("/");
-      if (
-        !normalizedPath.includes(
-          "/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
-        )
-      ) {
-        continue;
-      }
-      const header = fs.readFileSync(entryPath).subarray(0, 20);
-      const isLittleEndian = header[5] === 1;
-      const machine =
-        header.length >= 20 && header[5] === 1
-          ? header.readUInt16LE(18)
-          : header.length >= 20 && header[5] === 2
-            ? header.readUInt16BE(18)
-            : null;
-      if (
-        header.length < 20 ||
-        header[0] !== 0x7f ||
-        header[1] !== 0x45 ||
-        header[2] !== 0x4c ||
-        header[3] !== 0x46 ||
-        header[4] !== 2 ||
-        !isLittleEndian ||
-        machine !== 62
-      ) {
-        failures.push(entryPath);
-      }
-    }
-  };
-
-  walk(serverDir);
-  return failures;
-}
-
-/**
  * Nitro receives the React Router SSR build as prebuilt chunks, so its normal
  * dependency resolver cannot reliably fold the preserved bare `yjs` imports
  * into the same module instance used by core's server collaboration code.
@@ -4428,146 +4329,6 @@ function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
       "chromium.br",
     ),
   );
-}
-
-/**
- * Replace the bundled `better-sqlite3` with a throwing stub in serverless
- * output.
- *
- * The package is 27MB — a 9.1MB `sqlite3.c`, its object files, and a static
- * archive, none of which a function can use: every consumer is gated on a
- * `file:` or schemeless `DATABASE_URL`, and a serverless container holding a
- * file-backed SQLite database is already broken, since the filesystem is
- * ephemeral and each container gets its own copy.
- *
- * It cannot simply be deleted. Drizzle's bundled `_libs/drizzle-orm+postgres`
- * chunk imports it at module scope, so removing the package turns every cold
- * start into `ERR_MODULE_NOT_FOUND` — which is how this was first written, and
- * what the SSR cold-start smoke caught. The stub keeps the specifier
- * resolvable and moves the failure to the only place it can be acted on: a
- * deploy that actually tries to open a file-backed database, which now throws
- * with the reason instead of quietly serving an empty one.
- */
-export function stubLocalOnlySqliteDriverForServerless(
-  serverDir: string,
-): number {
-  const packageDir = path.join(serverDir, "node_modules", "better-sqlite3");
-  if (!fs.existsSync(packageDir)) return 0;
-
-  const manifestPath = path.join(packageDir, "package.json");
-  if (!fs.existsSync(manifestPath)) {
-    throw new Error(
-      `[deploy] ${path.relative(serverDir, packageDir)} has no package.json; ` +
-        "refusing to stub a package tree this build does not understand.",
-    );
-  }
-  const version = (
-    JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { version?: string }
-  ).version;
-  if (!version) {
-    throw new Error(
-      `[deploy] ${path.relative(serverDir, manifestPath)} declares no version; ` +
-        "refusing to stub a package tree this build does not understand.",
-    );
-  }
-
-  const saved = getDirSize(packageDir);
-  fs.rmSync(packageDir, { recursive: true, force: true });
-  fs.mkdirSync(packageDir, { recursive: true });
-  fs.writeFileSync(
-    manifestPath,
-    `${JSON.stringify(
-      {
-        name: "better-sqlite3",
-        version,
-        main: "index.js",
-        // Read by the CLI's native-dependency preflight, which would otherwise
-        // probe the stub, see its deliberate throw, and try to rebuild it.
-        agentNativeServerlessStub: true,
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  // CommonJS, matching the real package: Drizzle default-imports it from ESM
-  // and relies on the interop default being the constructor.
-  fs.writeFileSync(
-    path.join(packageDir, "index.js"),
-    [
-      "// Replaced at build time by @agent-native/core: better-sqlite3 is a",
-      "// local-development driver and cannot back a serverless deployment,",
-      "// whose filesystem is ephemeral and per-container.",
-      "module.exports = class BetterSqlite3NotAvailableInServerless {",
-      "  constructor() {",
-      "    throw new Error(",
-      '      "better-sqlite3 is not available in a serverless deployment. " +',
-      '        "DATABASE_URL resolved to a file-backed SQLite database, whose " +',
-      '        "filesystem is ephemeral and not shared between containers. " +',
-      '        "Point DATABASE_URL at Postgres or libSQL/Turso."',
-      "    );",
-      "  }",
-      "};",
-      "",
-    ].join("\n"),
-  );
-
-  const freed = saved - getDirSize(packageDir);
-  console.log(
-    `[deploy] Stubbed better-sqlite3 in ${path.basename(serverDir)}: ` +
-      `${(freed / 1024 / 1024).toFixed(1)}MB of local-only SQLite driver removed.`,
-  );
-  return freed;
-}
-
-/**
- * Nitro bundles the Vite SSR driver's dynamic import into a private `_libs`
- * chunk when Amplify uses `noExternals: true`, so the package-tree stub above
- * cannot see it. Replace that generated chunk after Nitro emits it.
- */
-export function stubBundledLocalOnlySqliteDriverForServerless(
-  serverDir: string,
-): number {
-  const libsDir = path.join(serverDir, "_libs");
-  if (!fs.existsSync(libsDir)) return 0;
-
-  const stubSource = [
-    "class BetterSqlite3NotAvailableInServerless {",
-    "  constructor() {",
-    "    throw new Error(",
-    '      "better-sqlite3 is not available in a serverless deployment. " +',
-    '        "DATABASE_URL resolved to a file-backed SQLite database, whose " +',
-    '        "filesystem is ephemeral and not shared between containers. " +',
-    '        "Point DATABASE_URL at Postgres or libSQL/Turso."',
-    "    );",
-    "  }",
-    "}",
-    "const BetterSqlite3Module = BetterSqlite3NotAvailableInServerless;",
-    "BetterSqlite3Module.SqliteError = class SqliteError extends Error {};",
-    "export const t = () => BetterSqlite3Module;",
-    "export default BetterSqlite3Module;",
-    "export const Database = BetterSqlite3Module;",
-    "",
-  ].join("\n");
-
-  let replaced = 0;
-  for (const entry of fs.readdirSync(libsDir, { withFileTypes: true })) {
-    if (
-      !entry.isFile() ||
-      !entry.name.startsWith("better-sqlite3") ||
-      !entry.name.endsWith(".mjs")
-    ) {
-      continue;
-    }
-    fs.writeFileSync(path.join(libsDir, entry.name), stubSource);
-    replaced++;
-  }
-
-  if (replaced > 0) {
-    console.log(
-      `[deploy] Stubbed ${replaced} bundled better-sqlite3 chunk(s) for serverless output.`,
-    );
-  }
-  return replaced;
 }
 
 function netlifyFunctionSizeBudget(functionDir: string): number {
@@ -4835,18 +4596,6 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
-  const nonLinuxBetterSqlite3Binaries =
-    findNonLinuxBetterSqlite3Binaries(serverDir);
-  if (nonLinuxBetterSqlite3Binaries.length > 0) {
-    failures.push(
-      `Netlify server bundle contains non-Linux better-sqlite3 native binaries: ${nonLinuxBetterSqlite3Binaries
-        .map((filePath) => path.relative(projectCwd, filePath))
-        .join(
-          ", ",
-        )}; build in Netlify's Linux environment instead of uploading a host-native prebuilt output`,
-    );
-  }
-
   // React Router's filesystem route discovery can accidentally treat a
   // co-located *.test.ts route as production code. That bundles Vitest into
   // SSR and only fails when the first request executes the test helpers.
@@ -4998,77 +4747,6 @@ export function removeNetlifyStaticRootShell(publishDir: string): void {
   console.log("[deploy] Removed static Netlify root shell; / is SSR-owned.");
 }
 
-/**
- * Whether the emitted bundle actually imports the `libsql` native addon.
- *
- * The `@libsql/client` node entry `require`s it; `@libsql/client/web` and
- * `better-sqlite3` do not. Probing the emitted output is the only gate that
- * cannot be wrong: `getDialect()` reads `DATABASE_URL` at RUNTIME, and neither
- * the docs nor the beta deploy workflow sets it at build time, so build-time
- * dialect is unknowable. This mirrors `findServerlessBrowserRuntimeConsumer`,
- * which already gates the Chromium copy the same way — the asymmetry is why a
- * 9.3MB Linux SQLite driver shipped in the docs function, a deployment that
- * runs Postgres and can never load it.
- */
-export function bundleImportsLibsqlNativeAddon(serverDir: string): boolean {
-  const bareImport = /(?:require\(|from\s*)["']libsql["']/;
-  const stack: string[] = [serverDir];
-  while (stack.length > 0) {
-    const dir = stack.pop() as string;
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        // The copied native package itself is the thing being gated; its own
-        // files must never count as a consumer.
-        if (entry.name === "node_modules" || entry.name === "@libsql") continue;
-        stack.push(full);
-        continue;
-      }
-      if (!/\.(?:mjs|cjs|js)$/.test(entry.name)) continue;
-      try {
-        if (bareImport.test(fs.readFileSync(full, "utf8"))) return true;
-      } catch {
-        continue;
-      }
-    }
-  }
-  return false;
-}
-
-function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
-  if (!serverDir || !fs.existsSync(serverDir)) return;
-  if (!bundleImportsLibsqlNativeAddon(serverDir)) {
-    console.log(
-      "[deploy] Skipped the libsql native package: the emitted bundle never imports the `libsql` addon.",
-    );
-    return;
-  }
-  const nodeModulesRoots = nodeModulesAncestors(cwd);
-  const destScopeDir = path.join(serverDir, "node_modules", "@libsql");
-  let copied = 0;
-
-  for (const packageName of LIBSQL_NATIVE_PACKAGE_NAMES) {
-    if (!isServerlessNativePlatformPackage(packageName)) continue;
-    const src = findInstalledLibsqlNativePackage(nodeModulesRoots, packageName);
-    if (!src) continue;
-
-    copyDir(src, path.join(destScopeDir, packageName));
-    copied += 1;
-  }
-
-  if (copied > 0) {
-    console.log(
-      `[deploy] Copied ${copied} installed libsql native package(s) into the server bundle.`,
-    );
-  }
-}
-
 function copyInstalledResvgPackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   // `resvg-js` itself is the JS wrapper that gets imported; everything else in
@@ -5189,7 +4867,7 @@ export function sanitizeServerlessFunctionPackageManifest(
  * full.
  *
  * Only prunes inside a directory that still holds a runnable prebuild under the
- * `isServerlessNativePlatformPackage` naming (`@libsql`, `@resvg`). Packages
+ * `isServerlessNativePlatformPackage` naming (`@resvg`). Packages
  * that name prebuilds differently — `@img/sharp-linux-x64` has no gnu/musl
  * suffix — read as entirely dead and must be left alone.
  */
@@ -5291,149 +4969,6 @@ export function pruneServerlessFunctionDeadWeight(
   return removedBytes;
 }
 
-/**
- * Create stub directories for dangling platform-specific optional dependency
- * symlinks in the pnpm store.
- *
- * pnpm's store at `node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>/<dep>`
- * contains symlinks for ALL optional deps declared by a package, but only
- * installs the ones matching the current OS/CPU as real packages. The other
- * symlinks dangle — their targets at `.pnpm/<scope>+<pkg>@<ver>/node_modules/...`
- * don't exist.
- *
- * Nitro's `nitro:externals` plugin (via nf3 / @vercel/nft) walks
- * optionalDependencies when tracing files and calls `realpath` on them, which
- * throws ENOENT on dangling targets. This blocks builds with presets like
- * netlify / vercel / aws-lambda on macOS when packages like `libsql` declare
- * Linux-only platform variants as optional deps.
- *
- * Fix: walk `node_modules/.pnpm/` and for every dangling symlink under
- * `<pkg>/node_modules/<scope>/<dep>`, create the symlink's target as a tiny
- * stub directory containing just a valid `package.json`. The tracer can now
- * `realpath` and read the package.json without throwing — the stub is empty
- * so no binary is bundled (which is what we want: we're building from macOS,
- * the target deploy platform will install its own native binary).
- */
-function createDanglingOptionalDepStubs() {
-  // In pnpm monorepos, the store may live at the workspace root rather than
-  // in the template dir. Walk up from `cwd` to find every `.pnpm` directory.
-  const pnpmRoots: string[] = [];
-  let dir = cwd;
-  while (true) {
-    const candidate = path.join(dir, "node_modules", ".pnpm");
-    if (fs.existsSync(candidate)) pnpmRoots.push(candidate);
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  if (pnpmRoots.length === 0) return;
-
-  let stubsCreated = 0;
-
-  for (const pnpmRoot of pnpmRoots) {
-    let pkgDirs: string[];
-    try {
-      pkgDirs = fs.readdirSync(pnpmRoot);
-    } catch {
-      continue;
-    }
-
-    for (const pkgDir of pkgDirs) {
-      // e.g. `libsql@0.5.29`, `@libsql+client@0.15.15`
-      const innerNm = path.join(pnpmRoot, pkgDir, "node_modules");
-      if (!fs.existsSync(innerNm)) continue;
-
-      let innerEntries: fs.Dirent[];
-      try {
-        innerEntries = fs.readdirSync(innerNm, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-
-      for (const entry of innerEntries) {
-        // Top-level entry: either `foo` (unscoped) or `@scope` (scoped)
-        const entryPath = path.join(innerNm, entry.name);
-        const candidates: { symlinkPath: string; pkgName: string }[] = [];
-        if (entry.name.startsWith("@")) {
-          // Scoped — iterate children
-          let scopedChildren: fs.Dirent[];
-          try {
-            scopedChildren = fs.readdirSync(entryPath, {
-              withFileTypes: true,
-            });
-          } catch {
-            continue;
-          }
-          for (const child of scopedChildren) {
-            candidates.push({
-              symlinkPath: path.join(entryPath, child.name),
-              pkgName: `${entry.name}/${child.name}`,
-            });
-          }
-        } else {
-          candidates.push({ symlinkPath: entryPath, pkgName: entry.name });
-        }
-
-        for (const { symlinkPath, pkgName } of candidates) {
-          let isSymlink = false;
-          try {
-            isSymlink = fs.lstatSync(symlinkPath).isSymbolicLink();
-          } catch {
-            continue;
-          }
-          if (!isSymlink) continue;
-
-          // Check if the symlink target exists
-          try {
-            fs.statSync(symlinkPath);
-            continue; // Target exists — nothing to do
-          } catch {
-            // Dangling symlink — create a stub at the target
-          }
-
-          let linkTarget: string;
-          try {
-            linkTarget = fs.readlinkSync(symlinkPath);
-          } catch {
-            continue;
-          }
-          const resolvedTarget = path.resolve(
-            path.dirname(symlinkPath),
-            linkTarget,
-          );
-
-          try {
-            fs.mkdirSync(resolvedTarget, { recursive: true });
-            const stubPkgJson = {
-              name: pkgName,
-              version: "0.0.0-stub",
-              description:
-                "Empty stub created by @agent-native/core deploy build to satisfy nitro's file tracer on platforms where this optional dep is not installed.",
-            };
-            fs.writeFileSync(
-              path.join(resolvedTarget, "package.json"),
-              JSON.stringify(stubPkgJson, null, 2),
-            );
-            stubsCreated++;
-          } catch {
-            // Best-effort — ignore failures
-          }
-        }
-      }
-    }
-  }
-
-  if (stubsCreated > 0) {
-    console.log(
-      `[deploy] Created ${stubsCreated} stub package dir(s) for dangling optional deps (platform-specific binaries not installed on this host).`,
-    );
-  }
-}
-
-/**
- * Build for any non-Cloudflare preset using Nitro's programmatic build API.
- * Handles netlify, vercel, deno_deploy, aws-lambda, and all other targets.
- */
 export interface NitroBuildHooks {
   prepare: (nitro: any) => Promise<void>;
   copyPublicAssets: (nitro: any) => Promise<void>;
@@ -5579,7 +5114,6 @@ export const CLOUDFLARE_MODULE_STUB_MODULES = [
   "@resvg/resvg-js",
   "@sentry/node",
   "@sparticuz/chromium-min",
-  "better-sqlite3",
   "chartjs-node-canvas",
   "chokidar",
   "fsevents",
@@ -5782,10 +5316,6 @@ async function buildWithNitro() {
   // here as well so deploy builds are not coupled to a previous Vite run or to
   // ignored local .generated files being present.
   generateActionRegistryForProject(cwd);
-
-  // Work around pnpm + nitro:externals (nf3) bug where dangling symlinks for
-  // platform-specific optional deps cause realpath ENOENT during file tracing.
-  createDanglingOptionalDepStubs();
 
   const {
     createNitro,
@@ -5994,17 +5524,10 @@ export default bundle;
     isAwsLambdaPreset(preset) ||
     isAwsAmplifyPreset(preset)
   ) {
-    copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
-    stubLocalOnlySqliteDriverForServerless(nitro.options.output.serverDir);
-    if (isAwsAmplifyPreset(preset)) {
-      stubBundledLocalOnlySqliteDriverForServerless(
-        nitro.options.output.serverDir,
-      );
-    }
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
@@ -6130,7 +5653,6 @@ export default bundle;
             "child_process",
             "module",
             "process",
-            "sqlite",
             "worker_threads",
             "querystring",
             "zlib",
@@ -6350,7 +5872,6 @@ export default bundle;
           "child_process",
           "module",
           "process",
-          "sqlite",
           "worker_threads",
           "string_decoder",
           "diagnostics_channel",
@@ -6400,7 +5921,7 @@ export default bundle;
       "_libs",
     );
     if (fs.existsSync(libsDir2)) {
-      const NATIVE_STUBS = ["better-sqlite3", "node-pty", "cron-parser"];
+      const NATIVE_STUBS = ["node-pty", "cron-parser"];
       for (const mod of NATIVE_STUBS) {
         const libFiles = fs
           .readdirSync(libsDir2)

@@ -2019,7 +2019,6 @@ function formatRuntimeDebugDetails(payload: unknown): string {
       ? `db_configured: ${database.configured}`
       : "",
     stringValue(database.source) ? `db_source: ${database.source}` : "",
-    stringValue(database.dialect) ? `db_dialect: ${database.dialect}` : "",
     stringValue(database.protocol) ? `db_protocol: ${database.protocol}` : "",
     stringValue(database.host) ? `db_host: ${database.host}` : "",
     stringValue(database.database) ? `db_database: ${database.database}` : "",

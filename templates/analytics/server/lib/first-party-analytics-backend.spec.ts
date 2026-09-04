@@ -562,7 +562,7 @@ describe("first-party BigQuery backend", () => {
     vi.unstubAllGlobals();
   });
 
-  it("chunks SQLite hydration keys without changing selected event order", async () => {
+  it("chunks hydration keys without changing selected event order", async () => {
     const indexedRows = Array.from({ length: 901 }, (_, index) => ({
       id: `event-${index}`,
       received_at: new Date(Date.UTC(2026, 6, 25, 0, 0, index)).toISOString(),

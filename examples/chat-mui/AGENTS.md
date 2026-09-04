@@ -37,7 +37,7 @@ workflow needs durable UI around the conversation.
   model (distinct from `toolCallable: false`, which only gates the extension
   iframe), and delete or hide actions the UI no longer uses. See the `actions`
   skill.
-- Keep database code provider-agnostic and additive.
+- Keep database code PostgreSQL-specific and additive.
 - Use `view-screen` or application state when the active page/selection is
   unclear.
 - For new features, update UI, actions, skills/instructions, and application

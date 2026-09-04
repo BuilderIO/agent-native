@@ -904,8 +904,8 @@ jobs:
       - name: Import SSR handler — must not crash at cold-start
         # External timeout is a backstop against a pathological synchronous hang;
         # the script itself races module eval against a 30s window and force-exits.
-        # Match the deployed Netlify environment so failed best-effort local
-        # SQLite setup cannot call process.exit during this import-only probe.
+        # Match the deployed Netlify environment so local setup cannot call
+        # process.exit during this import-only probe.
         # This lane intentionally probes the three built representatives above.
         # The smoke script's optional `--report-uncovered` mode is fail-closed;
         # use it only when the caller intends to gate on full template coverage.

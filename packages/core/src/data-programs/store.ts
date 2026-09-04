@@ -5,14 +5,14 @@
  *
  * Follows the boot-DDL pattern from `../extensions/store.ts`: a memoized
  * init promise, Postgres probe-then-guarded-DDL via `ensureTableExists` /
- * `ensureIndexExists`, and a plain create-then-catch on SQLite.
+ * `ensureIndexExists`.
  */
 
 import { randomUUID } from "node:crypto";
 
 import { and, eq, isNull } from "drizzle-orm";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureTableExists,
@@ -24,9 +24,7 @@ import { registerShareableResource } from "../sharing/registry.js";
 import {
   dataPrograms,
   dataProgramShares,
-  DATA_PROGRAMS_CREATE_SQL,
   DATA_PROGRAMS_CREATE_SQL_PG,
-  DATA_PROGRAM_SHARES_CREATE_SQL,
   DATA_PROGRAM_SHARES_CREATE_SQL_PG,
   DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
   DATA_PROGRAMS_APP_NAME_INDEX_SQL,
@@ -56,88 +54,41 @@ const getDb = createGetDb({ dataPrograms, dataProgramShares });
 
 let _initPromise: Promise<void> | undefined;
 
-function isDuplicateColumnError(err: unknown): boolean {
-  const codeValue = (err as { code?: unknown })?.code;
-  const code = typeof codeValue === "string" ? codeValue : "";
-  const message = String((err as { message?: unknown })?.message ?? err)
-    .toLowerCase()
-    .trim();
-  return (
-    code === "42701" ||
-    message.includes("duplicate column") ||
-    message.includes("already exists")
-  );
-}
-
-async function ensureSqliteDataProgramRunsColumns(): Promise<void> {
-  const client = getDbExec();
-  try {
-    await client.execute(
-      `ALTER TABLE data_program_runs ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0`,
-    );
-  } catch (err) {
-    if (!isDuplicateColumnError(err)) throw err;
-  }
-}
-
 export async function ensureDataProgramTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
-      const pg = isPostgres();
       const integerType = intType();
       const runsCreateSql = dataProgramRunsCreateSql(integerType);
 
-      if (pg) {
-        // PG guard: probe via information_schema, only issue DDL if missing,
-        // bounded lock_timeout — see ../db/ddl-guard.js.
-        await ensureTableExists("data_programs", DATA_PROGRAMS_CREATE_SQL_PG);
-        await ensureTableExists(
-          "data_program_shares",
-          DATA_PROGRAM_SHARES_CREATE_SQL_PG,
-        );
-        await ensureTableExists("data_program_runs", runsCreateSql);
-        await ensureColumnExists(
-          "data_program_runs",
-          "truncated",
-          DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL,
-        );
-        await ensureIndexExists(
-          "data_programs_app_owner_idx",
-          DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "data_programs_app_name_idx",
-          DATA_PROGRAMS_APP_NAME_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "data_program_shares_resource_idx",
-          DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "data_program_runs_lookup_idx",
-          DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
-        );
-        return;
-      }
-
-      // SQLite (local dev): plain create-then-catch, matching staged-datasets-store.ts.
-      await client.execute(DATA_PROGRAMS_CREATE_SQL);
-      await client.execute(DATA_PROGRAM_SHARES_CREATE_SQL);
-      await client.execute(runsCreateSql);
-      await ensureSqliteDataProgramRunsColumns();
-      for (const ddl of [
+      // Probe before DDL so normal initialization stays a read-only path.
+      await ensureTableExists("data_programs", DATA_PROGRAMS_CREATE_SQL_PG);
+      await ensureTableExists(
+        "data_program_shares",
+        DATA_PROGRAM_SHARES_CREATE_SQL_PG,
+      );
+      await ensureTableExists("data_program_runs", runsCreateSql);
+      await ensureColumnExists(
+        "data_program_runs",
+        "truncated",
+        DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL,
+      );
+      await ensureIndexExists(
+        "data_programs_app_owner_idx",
         DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "data_programs_app_name_idx",
         DATA_PROGRAMS_APP_NAME_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "data_program_shares_resource_idx",
         DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "data_program_runs_lookup_idx",
         DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
-      ]) {
-        try {
-          await client.execute(ddl);
-        } catch {
-          // Index already exists — harmless.
-        }
-      }
+      );
+
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -728,8 +679,7 @@ export async function getActiveRun(
  * Delete all but the `keep` most-recent run rows for (programId, paramsHash).
  * Called on every write (prune-on-write, no sweep job). Fetches all ids
  * ordered newest-first and slices in TypeScript rather than `LIMIT ... OFFSET`
- * so the query stays byte-identical across SQLite and Postgres (SQLite's
- * `LIMIT -1 OFFSET n` idiom has no direct Postgres equivalent).
+ * so the query stays bounded with PostgreSQL pagination.
  */
 export async function pruneDataProgramRuns(
   programId: string,

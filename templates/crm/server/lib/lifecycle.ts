@@ -347,10 +347,9 @@ async function readCurrentStatuses(
  * clause, so a target somebody else moved in between does not come back and is
  * therefore never written with a decision made about its old state.
  *
- * ponytail: inside one transaction this is exact on SQLite/libSQL, which
- * serializes writers. On Postgres read-committed a writer could still commit
- * between this SELECT and the write; move to `SELECT … FOR UPDATE` behind a
- * dialect helper in core if a hosted deployment shows clobbered stage history.
+ * ponytail: on Postgres read-committed a writer could still commit between
+ * this SELECT and the write; move to `SELECT … FOR UPDATE` if a hosted
+ * deployment shows clobbered stage history.
  */
 export async function claimCrmStatusTransition(input: {
   db: CrmFieldWriteDb;

@@ -1,16 +1,10 @@
 import type { A2AArtifactIdentity } from "../a2a/artifact-response.js";
-import {
-  getDbExec,
-  isPostgres,
-  intType,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
-import { isDuplicateColumnError } from "../db/migrations.js";
 import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -20,9 +14,7 @@ const TERMINAL_HISTORY_FINALIZATION_LEASE_MS = 60 * 1000;
 const MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS = 16_000;
 const MAX_TERMINAL_HISTORY_PAYLOAD_CHARS = 64_000;
 
-// Build the CREATE SQL lazily (not at module scope) so intType() runs at
-// RUNTIME, not import time — a module-scope call breaks any consumer whose
-// db/client mock doesn't stub intType (e.g. db-admin specs).
+// Build the CREATE SQL lazily so intType() is resolved at runtime.
 function buildCreateSql(): string {
   return `
   CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
@@ -61,112 +53,68 @@ export async function ensureTable(): Promise<void> {
     _initPromise = (async () => {
       const client = getDbExec();
       const createSql = buildCreateSql();
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("integration_a2a_continuations", createSql);
-        await ensureIndexExists(
-          "idx_a2a_continuations_status_next",
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
-        );
-        await ensureIndexExists(
-          "idx_a2a_continuations_integration_task",
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
-        );
-        await ensureIndexExists(
-          "idx_a2a_continuations_remote_task",
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "a2a_auth_token",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "dedupe_key",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "progress_ref",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "progress_ref_claimed",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed ${intType()} NOT NULL DEFAULT 0`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "verified_artifact_checkpoint",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "terminal_delivery_kind",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_kind TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "terminal_delivery_confirmed_at",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at ${intType()}`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "terminal_history_payload",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_history_payload TEXT`,
-        );
-        await backfillLegacyCompletedDeliveries(client);
-        await backfillProgressRefOwners(client);
-        await ensureIndexExists(
-          "idx_a2a_continuations_dedupe_key",
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
-        );
-        await ensureIndexExists(
-          "idx_a2a_continuations_one_progress_owner",
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
-        ),
+      await ensureTableExists("integration_a2a_continuations", createSql);
+      await ensureIndexExists(
+        "idx_a2a_continuations_status_next",
+        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
-        ),
+      await ensureIndexExists(
+        "idx_a2a_continuations_integration_task",
+        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
-        ),
+      await ensureIndexExists(
+        "idx_a2a_continuations_remote_task",
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
       );
-      await addColumnIfMissing("a2a_auth_token", "TEXT");
-      await addColumnIfMissing("dedupe_key", "TEXT");
-      await addColumnIfMissing("progress_ref", "TEXT");
-      await addColumnIfMissing(
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "a2a_auth_token",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "dedupe_key",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "progress_ref",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
         "progress_ref_claimed",
-        `${intType()} NOT NULL DEFAULT 0`,
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed ${intType()} NOT NULL DEFAULT 0`,
       );
-      await addColumnIfMissing("verified_artifact_checkpoint", "TEXT");
-      await addColumnIfMissing("terminal_delivery_kind", "TEXT");
-      await addColumnIfMissing("terminal_delivery_confirmed_at", intType());
-      await addColumnIfMissing("terminal_history_payload", "TEXT");
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "verified_artifact_checkpoint",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "terminal_delivery_kind",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_kind TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "terminal_delivery_confirmed_at",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at ${intType()}`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "terminal_history_payload",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_history_payload TEXT`,
+      );
       await backfillLegacyCompletedDeliveries(client);
       await backfillProgressRefOwners(client);
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
-        ),
+      await ensureIndexExists(
+        "idx_a2a_continuations_dedupe_key",
+        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
-        ),
+      await ensureIndexExists(
+        "idx_a2a_continuations_one_progress_owner",
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
       );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
@@ -179,19 +127,6 @@ export async function ensureTable(): Promise<void> {
 
 export async function ensureA2AContinuationsTable(): Promise<void> {
   await ensureTable();
-}
-
-async function addColumnIfMissing(name: string, definition: string) {
-  try {
-    await retryOnDdlRace(() =>
-      getDbExec().execute(
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN ${name} ${definition}`,
-      ),
-    );
-  } catch (err) {
-    if (isDuplicateColumnError(err)) return;
-    throw err;
-  }
 }
 
 async function backfillProgressRefOwners(
@@ -703,8 +638,7 @@ export async function claimA2AContinuation(
   const processingCutoff = now - PROCESSING_STUCK_AFTER_MS;
   const staleNextCheckCutoff = now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS;
   const result = await client.execute({
-    sql: isPostgres()
-      ? `UPDATE integration_a2a_continuations
+    sql: `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ?
            AND (
@@ -714,30 +648,13 @@ export async function claimA2AContinuation(
                AND (updated_at <= ? OR next_check_at <= ?)
              )
            )
-         RETURNING *`
-      : `UPDATE integration_a2a_continuations
-           SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ?
-           AND (
-             status = 'pending'
-             OR (
-               status = 'processing'
-               AND (updated_at <= ? OR next_check_at <= ?)
-             )
-           )`,
+         RETURNING *`,
     args: ["processing", now, id, processingCutoff, staleNextCheckCutoff],
   });
   const rows = result.rows ?? [];
-  if (isPostgres()) {
-    return rows[0]
-      ? rowToContinuation(rows[0] as Record<string, unknown>)
-      : null;
-  }
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
-  if (affected === 0) return null;
-  const fetched = await getA2AContinuation(id);
-  if (!fetched || fetched.status !== "processing") return null;
-  return fetched;
+  return rows[0]
+    ? rowToContinuation(rows[0] as Record<string, unknown>)
+    : null;
 }
 
 export async function claimDueA2AContinuations(
@@ -897,27 +814,16 @@ export async function claimA2AContinuationDelivery(
   const client = getDbExec();
   const now = Date.now();
   const result = await client.execute({
-    sql: isPostgres()
-      ? `UPDATE integration_a2a_continuations
+    sql: `UPDATE integration_a2a_continuations
            SET status = ?, updated_at = ?
          WHERE id = ? AND status = 'processing'
-         RETURNING *`
-      : `UPDATE integration_a2a_continuations
-           SET status = ?, updated_at = ?
-         WHERE id = ? AND status = 'processing'`,
+         RETURNING *`,
     args: ["delivering", now, id],
   });
   const rows = result.rows ?? [];
-  if (isPostgres()) {
-    return rows[0]
-      ? rowToContinuation(rows[0] as Record<string, unknown>)
-      : null;
-  }
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
-  if (affected === 0) return null;
-  const fetched = await getA2AContinuation(id);
-  if (!fetched || fetched.status !== "delivering") return null;
-  return fetched;
+  return rows[0]
+    ? rowToContinuation(rows[0] as Record<string, unknown>)
+    : null;
 }
 
 export async function rescheduleA2AContinuation(

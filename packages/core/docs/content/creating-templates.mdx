@@ -127,9 +127,9 @@ Every template follows the same broad layout:
 
 Do not add a `data/` directory for application state. Durable app data belongs in SQL, and the UI reads it through actions or typed server handlers.
 
-The four areas of every template wire together through one shared action surface and one SQL database — the agent and the UI are equal partners over the same operations:
+The four areas of every template wire together through one shared action surface and one PostgreSQL/PGlite database — the agent and the UI are equal partners over the same operations:
 
-<Diagram id="doc-block-1rbf8wn" title={"How a template's four areas connect"} summary={"The UI and the agent both reach SQL through the same actions; application state and polling sync keep them aligned."}>
+<Diagram id="doc-block-1rbf8wn" title={"How a template's four areas connect"} summary={"The UI and the agent both reach PostgreSQL/PGlite through the same actions; application state and polling sync keep them aligned."}>
 
 ```html
 <div class="diagram-tmpl">
@@ -183,7 +183,7 @@ The four areas of every template wire together through one shared action surface
 
 ## Model Data In SQL {#data-models}
 
-Define domain tables with the framework Drizzle helpers so schemas stay portable across SQLite, Postgres, D1, Turso, Supabase, Neon, and other supported backends:
+Define domain tables with the framework Drizzle helpers for PostgreSQL compatibility. Use local PGlite during development and hosted Postgres in deployed environments:
 
 ```ts filename="server/db/schema.ts"
 import {
@@ -216,14 +216,15 @@ Schema changes must be additive. For new app-owned tables and columns, use
 `drizzle-kit generate` to create reviewed SQL under
 `server/db/migrations/<id_name>.sql`, then load it through
 `runDrizzleMigrations()` from the release migration command on Node.js
-deployments. Cloudflare Workers/Pages and D1 have no deployable filesystem, so
-keep generated SQL in entries embedded in the worker bundle and pass them to
-`runMigrations()`. Keep using `runMigrations()` for existing handwritten history
-and cases that need dialect-specific SQL, D1-specific behavior, data backfills,
-or deferred JavaScript steps. Never use destructive SQL, `drizzle-kit push`,
+deployments. Keep generated SQL in entries embedded in the deployment bundle
+and pass them to `runMigrations()`. Keep using `runMigrations()` for existing
+handwritten history, data backfills, or deferred JavaScript steps. Never use
+destructive SQL, `drizzle-kit push`,
 table renames, or column drops.
 
-For app reads and writes, use Drizzle's query builder and portable operators from `drizzle-orm`. Do not write product code with raw SQL when Drizzle can express the query, and do not import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in templates.
+For app reads and writes, use Drizzle's query builder and operators from
+`drizzle-orm`. Do not write product code with raw SQL when Drizzle can express
+the query, and import schema helpers from `@agent-native/core/db/schema`.
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";

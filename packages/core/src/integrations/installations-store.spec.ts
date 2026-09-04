@@ -79,9 +79,9 @@ async function execute(input: string | { sql: string; args?: unknown[] }) {
       state.insertRace = null;
       throw Object.assign(
         new Error(
-          "UNIQUE constraint failed: integration_installations.platform, integration_installations.installation_key",
+          "duplicate key value violates unique constraint integration_installations_platform_installation_key",
         ),
-        { code: "SQLITE_CONSTRAINT_UNIQUE" },
+        { code: "23505" },
       );
     }
     state.rows.push(row);
@@ -168,13 +168,11 @@ async function execute(input: string | { sql: string; args?: unknown[] }) {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  intType: () => "BIGINT",
   isUniqueViolation: (error: unknown) => {
     const value = error as { code?: string; message?: string } | null;
     return (
       value?.code === "23505" ||
-      value?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
       /unique constraint/i.test(String(value?.message ?? ""))
     );
   },

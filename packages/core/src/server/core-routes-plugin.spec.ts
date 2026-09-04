@@ -820,6 +820,8 @@ describe("runDbHealthProbe", () => {
     expect(result.ok).toBe(true);
     expect(result.db).toBe(true);
     expect(result.ms).toBeGreaterThanOrEqual(0);
+    expect(result.database).not.toHaveProperty("dialect");
+    expect(result.database).not.toHaveProperty("authTokenConfigured");
   });
 
   it("answers within a deadline when the query HANGS, and says so distinctly", async () => {
@@ -868,42 +870,11 @@ describe("runDbHealthProbe", () => {
     expect(queries).toEqual([
       "SELECT 1",
       {
-        sql: "SELECT value FROM settings WHERE key = ?",
+        sql: "SELECT value FROM public.settings WHERE key = ?",
         args: ["framework.database_identity"],
       },
     ]);
     expect(result.pressure).toBeUndefined();
-  });
-
-  // This suite's dialect is sqlite, which has no pg_stat_activity. The probe
-  // must report that as unmeasured rather than running the query anyway — and
-  // the monitor must not read unmeasured as healthy. The measured path is
-  // covered in db-pressure.spec.ts.
-  it("reports pressure as unmeasured on a dialect that cannot answer", async () => {
-    const queries: unknown[] = [];
-    const result = await runDbHealthProbe(
-      () => ({
-        execute: async (sql: unknown) => {
-          queries.push(sql);
-          return { rows: [], rowsAffected: 0 };
-        },
-      }),
-      { pressure: true },
-    );
-    expect(queries).toEqual([
-      "SELECT 1",
-      {
-        sql: "SELECT value FROM settings WHERE key = ?",
-        args: ["framework.database_identity"],
-      },
-    ]);
-    expect(result.pressure).toEqual({
-      measured: false,
-      reason: "dialect sqlite has no pg_stat_activity",
-    });
-    // Pressure never moves `ready`. Folding it in would page every uptime
-    // monitor on a warning and teach everyone to mute the route.
-    expect(result.ready).toBe(true);
   });
 
   it("says pressure is unmeasured when the database is unreachable", async () => {

@@ -11,19 +11,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
-// DB mock — use in-memory Map instead of real SQLite
+// DB mock — use in-memory Maps instead of a live database
 // ---------------------------------------------------------------------------
 
 const _metaStore = new Map<string, Record<string, unknown>>();
 const _rowStore = new Map<string, Record<string, unknown>[]>();
 const _executedSql: string[] = [];
-let _isPostgres = false;
 
 vi.mock("../db/client.js", () => ({
-  getDialect: () => (_isPostgres ? "postgres" : "sqlite"),
   isProductionServerlessFunctionRuntime: () => false,
-  isPostgres: () => _isPostgres,
-  intType: () => (_isPostgres ? "BIGINT" : "INTEGER"),
+  intType: () => "BIGINT",
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
@@ -260,7 +257,6 @@ const { createProviderApiRuntime } = await import("./index.js");
 import type { ProviderApiRequestArgs } from "./index.js";
 
 beforeEach(() => {
-  _isPostgres = false;
   _executedSql.length = 0;
 });
 
@@ -400,8 +396,6 @@ describe("staged dataset DDL", () => {
   });
 
   it("uses 64-bit integer columns and widens existing Postgres tables", async () => {
-    _isPostgres = true;
-
     await upsertStagedDataset({
       id: "ds_postgres_ddl",
       appId: "analytics",

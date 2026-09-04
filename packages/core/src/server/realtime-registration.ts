@@ -26,7 +26,7 @@
 
 import { createHash } from "node:crypto";
 
-import { getDatabaseUrl, isPgliteUrl, isPostgres } from "../db/client.js";
+import { getDatabaseUrl, isPgliteUrl } from "../db/client.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSetting, putSetting } from "../settings/store.js";
@@ -212,9 +212,9 @@ function fingerprintOf(
 /**
  * A database the gateway could actually dial from its own network.
  *
- * `isPostgres()` alone is too generous: it reports true for PGlite and for any
- * `postgres://` host including localhost and VPC-private addresses. The server
- * refuses those, so registering one only fails — but it fails *after* the
+ * A URL check alone is too generous: it accepts PGlite and any Postgres host
+ * including localhost and VPC-private addresses. The server refuses those, so
+ * registering one only fails - but it fails *after* the
  * connection string has already left the machine, and a credential we know is
  * unusable should never be sent at all.
  *
@@ -227,7 +227,7 @@ function fingerprintOf(
  * credential we already know is unusable from leaving the machine.
  */
 function isRegisterableDatabase(databaseUrl: string): boolean {
-  if (!isPostgres() || isPgliteUrl(databaseUrl)) return false;
+  if (isPgliteUrl(databaseUrl)) return false;
   let host: string;
   try {
     // Strip the fully-qualified trailing dot before matching. `localhost.` and

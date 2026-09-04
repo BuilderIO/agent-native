@@ -1,4 +1,4 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import type { JobFrontmatter } from "../jobs/frontmatter.js";
 import type { Resource } from "../resources/store.js";
@@ -54,7 +54,7 @@ export async function ensureTable(): Promise<void> {
   updated_at ${intType()} NOT NULL
 )`;
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("automation_webhook_tokens", createSql);
         return;
       }

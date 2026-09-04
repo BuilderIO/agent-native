@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createClient } from "@libsql/client";
 import { chromium, type FullConfig } from "@playwright/test";
 
 /**
@@ -22,9 +21,6 @@ const AUTH_DIR = process.env.E2E_AUTH_DIR
 const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
-const E2E_DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  `file:${path.join(import.meta.dirname, "..", "data", "e2e.db")}`;
 
 /**
  * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
@@ -106,63 +102,6 @@ async function postAction(
   return res.json();
 }
 
-function componentIndexId(designId: string, name: string): string {
-  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-}
-
-export async function seedComponentVariantMetadata(
-  designId: string,
-): Promise<void> {
-  const client = createClient({ url: E2E_DATABASE_URL });
-  const name = "E2EButton";
-  const now = new Date().toISOString();
-  const variants = JSON.stringify({
-    variant: ["primary", "secondary", "ghost"],
-    size: ["sm", "md", "lg"],
-  });
-  const props = JSON.stringify([
-    { name: "variant", type: "primary | secondary | ghost" },
-    { name: "size", type: "sm | md | lg" },
-  ]);
-
-  try {
-    const result = await client.execute({
-      sql: `
-        UPDATE component_index
-        SET variants = ?, props = ?, file_path = ?, export_name = ?, updated_at = ?
-        WHERE design_id = ? AND name = ?
-      `,
-      args: [variants, props, "index.html", name, now, designId, name],
-    });
-
-    if (result.rowsAffected > 0) return;
-
-    await client.execute({
-      sql: `
-        INSERT INTO component_index (
-          id, design_id, name, file_path, export_name, props, variants,
-          runtime_selectors, owner_email, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      args: [
-        componentIndexId(designId, name),
-        designId,
-        name,
-        "index.html",
-        name,
-        props,
-        variants,
-        JSON.stringify(['[data-agent-native-node-id="e2e-component-button"]']),
-        E2E_EMAIL,
-        now,
-        now,
-      ],
-    });
-  } finally {
-    client.close();
-  }
-}
-
 export default async function globalSetup(config: FullConfig) {
   const baseURL =
     (config.projects[0]?.use?.baseURL as string | undefined) ??
@@ -233,7 +172,6 @@ export default async function globalSetup(config: FullConfig) {
     await postAction(context.request, baseURL, "index-components", {
       designId,
     });
-    await seedComponentVariantMetadata(designId);
 
     await writeFile(SEED_PATH, JSON.stringify({ designId }, null, 2));
     // eslint-disable-next-line no-console

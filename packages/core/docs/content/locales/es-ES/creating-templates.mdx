@@ -177,7 +177,7 @@ Las cuatro áreas de cada plantilla se conectan a través de una superficie de a
 
 ## Datos del modelo en SQL {#data-models}
 
-Defina tablas de dominio con los asistentes del marco Drizzle para que los esquemas sigan siendo portátiles en SQLite, Postgres, D1, Turso, Supabase, Neon y otros backends compatibles:
+Defina tablas de dominio con los asistentes del marco Drizzle para que los esquemas utilicen PostgreSQL y PGlite:
 
 ```ts filename="server/db/schema.ts"
 import {
@@ -210,13 +210,13 @@ Los cambios de esquema deben ser aditivos. Para nuevas tablas y columnas propias
 la aplicación, use `drizzle-kit generate` para crear SQL revisable en
 `server/db/migrations/<id_name>.sql` y cárguelo con
 `runDrizzleMigrations()` desde el paso de release en despliegues Node.js.
-Cloudflare Workers/Pages y D1 no tienen un sistema de archivos desplegable. Allí,
+Cloudflare Workers/Pages y otros runtimes edge no tienen un sistema de archivos desplegable. Allí,
 integre el SQL generado en el bundle del worker y páselo a `runMigrations()`.
 Mantenga `runMigrations()` para el historial escrito a mano y casos especiales.
 Nunca utilice SQL destructivo, `drizzle-kit push`, cambios de nombre de tablas ni
 eliminación de columnas.
 
-Para lecturas y escrituras de aplicaciones, utilice el generador de consultas de Drizzle y los operadores portátiles de `drizzle-orm`. No escriba código de producto con SQL sin formato cuando Drizzle pueda expresar la consulta y no importe desde `drizzle-orm/sqlite-core` o `drizzle-orm/pg-core` en plantillas.
+Para lecturas y escrituras de aplicaciones, utilice el generador de consultas de Drizzle y los operadores compatibles con PostgreSQL de `drizzle-orm`. No escriba código de producto con SQL sin formato cuando Drizzle pueda expresar la consulta y use en las plantillas los ayudantes de esquema de `@agent-native/core/db/schema`.
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";

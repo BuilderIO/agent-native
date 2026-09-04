@@ -19,7 +19,7 @@ function appDatabaseUrl(): string {
 
 function isLikelyLocalDatabase(): boolean {
   const url = appDatabaseUrl();
-  return url === "" || url.startsWith("file:") || !url.includes("://");
+  return url === "" || url.startsWith("pglite:");
 }
 
 export function requiresConfiguredVideoStorage(): boolean {

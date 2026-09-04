@@ -33,7 +33,6 @@ function fromB64(s: string): Uint8Array {
 const loadRecordCalls: string[] = [];
 
 vi.mock("../db/client.js", () => ({
-  isPostgres: () => false,
   getDbExec: () => ({
     execute: async (query: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -90,6 +89,11 @@ vi.mock("../db/client.js", () => ({
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   }),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./emitter.js", () => ({

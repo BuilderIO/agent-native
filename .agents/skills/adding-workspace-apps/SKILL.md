@@ -72,12 +72,11 @@ agent-edited records appear without a manual refresh.
 
 ## Database Portability
 
-App database code must be provider-agnostic. Define schemas with
+App database code targets local PGlite and hosted Postgres. Define schemas with
 `@agent-native/core/db/schema` helpers and write app reads/writes with Drizzle's
-query builder and portable `drizzle-orm` operators. Do not import from
-`drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Keep raw SQL
-for additive migrations, health checks, or carefully scoped maintenance, and
-never write SQLite-only or Postgres-only product code. Do not use SQL as object
+PostgreSQL query builder and `drizzle-orm` operators. Do not import raw schema
+drivers in app templates. Keep raw SQL
+for additive migrations, health checks, or carefully scoped maintenance. Do not use SQL as object
 storage; file bytes belong in upload/private-blob providers with only references
 saved to app tables.
 
@@ -103,5 +102,5 @@ app.
 - **workspace-conventions** — Shared workspace rules this workflow assumes.
 - **actions** — How to define the app operations the agent and UI share.
 - **composable-mini-apps** — Splitting work across focused sibling apps.
-- **portability** — Keeping database and hosting assumptions provider-agnostic.
+- **portability** — Keeping PostgreSQL and hosting assumptions explicit.
 - **shadcn-ui** — Adding and upgrading the UI primitives.

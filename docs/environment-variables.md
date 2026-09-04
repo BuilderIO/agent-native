@@ -71,9 +71,8 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 
 | Variable                                                                       | Purpose                                                                                                                                                                     |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                                 | Primary SQL connection URL. Local development falls back to SQLite when it is unset; production also accepts `<APP_NAME>_DATABASE_URL` or `NETLIFY_DATABASE_URL`.           |
+| `DATABASE_URL`                                                                 | Primary PostgreSQL connection URL. Local development falls back to PGlite when it is unset; production also accepts `<APP_NAME>_DATABASE_URL` or `NETLIFY_DATABASE_URL`. |
 | `FORMS_DATABASE_URL_UNPOOLED`                                                  | Forms template's direct request-time SQL connection URL, preferred over pooled database URLs when configured.                                                               |
-| `DATABASE_AUTH_TOKEN`                                                          | Separate database auth token for providers such as Turso/libSQL.                                                                                                            |
 | `DB_CONNECT_COOLDOWN_MS`                                                       | How long an endpoint stops attempting new connections after one attempt fails (default 2000, jittered). Prevents a refused attempt from immediately producing the next one. |
 | `APP_URL`                                                                      | Optional canonical public origin for auth, OAuth, A2A, webhooks, and generated links; hosting metadata is inferred when unset.                                              |
 | `IDENTITY_SSO_APP_REGISTRY_JSON`                                               | Optional exact JSON registry of custom workspace apps that explicitly opt into Desktop cross-app SSO.                                                                       |
@@ -122,7 +121,8 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                                          | Tool-specific configuration and package-manager home directories.                                                                                                           |
 
 Database-specific `<APP_NAME>_DATABASE_URL` and
-`<APP_NAME>_DATABASE_AUTH_TOKEN` overrides are supported for workspace apps.
+Workspace apps use their `<APP_NAME>_DATABASE_URL` override for database
+selection.
 
 Production readiness is checked without returning secret values. The public
 `/_agent-native/ping?configuration=1` probe reports missing or weak auth/A2A

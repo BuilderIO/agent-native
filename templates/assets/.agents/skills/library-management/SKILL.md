@@ -98,7 +98,7 @@ made:
   clears from the tray and comes back in `assetsRetained`. The delete itself is
   conditional on the state that was authorized, so an editor's save always beats
   an in-flight dismissal, and the outcome is confirmed by re-reading rather than
-  by an adapter-specific row count.
+  by a confirming Postgres read.
 
 `assertCanDraft` returns `{ role, canApprove }`. Generation actions report `draftPendingApproval: true` when `canApprove` is false so the caller can say the images are waiting on an editor instead of claiming they were saved. `get-library-access` exposes the same answer to the UI and to other agents.
 

@@ -13,9 +13,8 @@ panel as an Agent-page tab and keeps its native generation workflow.
 - Originals, screenshots, renders, and other large or private payloads live in
   configured private blob storage. SQL stores opaque handles, never file bodies.
 - PostgreSQL adds a `tsvector` candidate lane and pgvector HNSW indexes in the
-  same `DATABASE_URL` database. There is no separate vector service or SQLite
-  index. SQLite retains portable lexical and caption search; visual similarity
-  fails with explicit PostgreSQL and pgvector setup guidance.
+  same `DATABASE_URL` database. There is no separate vector service or index;
+  visual similarity fails with explicit PostgreSQL and pgvector setup guidance.
 - Items have a mutable current-version pointer, but item versions and context
   pack membership are append-only. A generation can therefore resolve the exact
   evidence it used even after a source is synchronized again.

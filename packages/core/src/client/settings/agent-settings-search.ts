@@ -132,7 +132,7 @@ const SETTINGS_SECTION_SEARCH_META: Record<
   },
   database: {
     label: "Database",
-    keywords: "postgres sqlite neon supabase turso storage sql pglite",
+    keywords: "postgres neon supabase storage sql pglite",
   },
   uploads: {
     label: "File uploads",

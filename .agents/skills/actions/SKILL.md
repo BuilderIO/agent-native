@@ -50,7 +50,7 @@ export default defineAction({
 
 `schema` (Zod or Standard Schema-compatible) gives runtime validation, TS inference for `run()` args, and an auto-generated JSON Schema for the tool. `.describe()` each param, `.optional()` for optional ones, `z.enum([...])` for constrained values, `z.coerce.number()` for numeric HTTP params — but write an explicit boolean parser instead of `z.coerce.boolean()`, which treats `"false"` as truthy.
 
-Use Drizzle's query builder, not raw SQL/`getDbExec()`/dialect-specific imports, unless Drizzle can't express the query. Never hardcode API keys/tokens/secrets — read via `readAppSecret` / `resolveCredential` / OAuth helpers; `process.env` is deploy-level config only.
+Use Drizzle's PostgreSQL query builder, not raw SQL/`getDbExec()` or direct driver imports, unless Drizzle can't express the query. Never hardcode API keys/tokens/secrets - read via `readAppSecret` / `resolveCredential` / OAuth helpers; `process.env` is deploy-level config only.
 
 **Decision order:** existing action → extend/create a `defineAction` → custom route as last resort (*Custom `/api/` Routes* below). Actions are already callable by agents, CLIs, hooks, HTTP, and MCP/A2A — don't wrap them in an umbrella REST API.
 

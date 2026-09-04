@@ -10,9 +10,8 @@
  * `../extensions/schema.ts`) so it can be registered with the framework
  * sharing registry. `data_program_runs` is a run-result CACHE, not a
  * shareable/ownable resource — it is created via raw portable DDL exactly
- * like `../provider-api/staged-datasets-store.ts` (JSON-as-TEXT, no
- * dialect-specific column types, so the schema stays Postgres/SQLite
- * portable).
+ * like `../provider-api/staged-datasets-store.ts` (JSON-as-TEXT with
+ * Postgres column types).
  */
 
 import { table, text, integer, now } from "../db/schema.js";
@@ -21,13 +20,12 @@ import { ownableColumns, createSharesTable } from "../sharing/schema.js";
 /**
  * `refreshMode`: `'manual'` (cached until an explicit refresh) or `'ttl'`
  * (re-run automatically once `refreshTtlMs` has elapsed). Validated in TS
- * (see `execute.ts` / `actions.ts`) — stored as plain text for portability.
+ * (see `execute.ts` / `actions.ts`) — stored as plain text.
  */
 export const dataPrograms = table("data_programs", {
   id: text("id").primaryKey(), // "dp_" + random id
   appId: text("app_id").notNull(),
-  // Slug, unique per (appId, ownerEmail) — enforced in store.ts, not the DB,
-  // to stay dialect-portable (no partial/expression unique indexes needed).
+  // Slug, unique per (appId, ownerEmail) — enforced in store.ts.
   name: text("name").notNull(),
   title: text("title").notNull(),
   description: text("description").notNull().default(""),
@@ -59,8 +57,8 @@ export const DATA_PROGRAMS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_program
   refresh_mode TEXT NOT NULL DEFAULT 'ttl',
   refresh_ttl_ms INTEGER NOT NULL DEFAULT 300000,
   background INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   archived_at TEXT,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
@@ -95,7 +93,7 @@ export const DATA_PROGRAM_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_p
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
 export const DATA_PROGRAM_SHARES_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS data_program_shares (
@@ -115,10 +113,8 @@ export const DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXIST
 // ---------------------------------------------------------------------------
 // data_program_runs — run-result cache. Not shareable/ownable; scoped only by
 // program_id (access to the run cache is governed by access to the parent
-// program). Raw portable DDL (no Drizzle table) mirroring
-// ../provider-api/staged-datasets-store.ts — rows/schema stored as JSON TEXT,
-// row_count/byte_size/timestamps use `intType()` (INTEGER on SQLite, BIGINT
-// on Postgres) so the schema stays dialect-portable.
+// program). Raw DDL mirroring ../provider-api/staged-datasets-store.ts —
+// rows/schema stored as JSON TEXT.
 // ---------------------------------------------------------------------------
 
 export function dataProgramRunsCreateSql(integerType: string): string {

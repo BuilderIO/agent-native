@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { isDuplicateColumnError } from "../db/migrations.js";
 import type { IncomingMessage } from "./types.js";
 
 let initPromise: Promise<void> | undefined;
@@ -51,7 +50,7 @@ export async function ensureTable(): Promise<void> {
         created_at ${intType()} NOT NULL,
         claimed_at ${intType()}
       )`;
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_controls", sql);
         await ensureColumnExists(
           "integration_controls",
@@ -60,18 +59,6 @@ export async function ensureTable(): Promise<void> {
         );
         await ensureIndexExists(
           "idx_integration_controls_expiry",
-          "CREATE INDEX IF NOT EXISTS idx_integration_controls_expiry ON integration_controls(status, expires_at)",
-        );
-      } else {
-        await getDbExec().execute(sql);
-        try {
-          await getDbExec().execute(
-            "ALTER TABLE integration_controls ADD COLUMN api_app_id TEXT",
-          );
-        } catch (error) {
-          if (!isDuplicateColumnError(error)) throw error;
-        }
-        await getDbExec().execute(
           "CREATE INDEX IF NOT EXISTS idx_integration_controls_expiry ON integration_controls(status, expires_at)",
         );
       }

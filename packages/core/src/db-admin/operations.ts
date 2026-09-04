@@ -1,28 +1,21 @@
 /**
  * Database admin operations.
  *
- * Pure, dialect-agnostic, RAW/UNSCOPED helpers backing the Supabase-Studio-like
+ * Pure, raw, unscoped helpers backing the Supabase-Studio-like
  * DB admin. These run the FULL database with no per-user `accessFilter`
  * scoping. Callers MUST gate access before invoking them. The built-in core
  * route gates this to dev + localhost; production-reachable surfaces must pass
  * an explicit runtime for the target database and enforce their own admin-only
  * checks before reading or mutating.
  *
- * All access goes through the unified `getDbExec()` client, which uses `?`
- * placeholders (auto-converted to `$1,$2,…` for Postgres) and returns rows
+ * All access goes through the unified `getDbExec()` client and returns rows
  * keyed by column name. Identifiers are validated against a strict pattern and
- * always double-quoted; values are ALWAYS parameterized — never interpolated.
+ * always double-quoted; values are always parameterized - never interpolated.
  */
-import {
-  getDbExec,
-  getDialect,
-  type DbExec,
-  type Dialect,
-} from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { notifyActionChange } from "../server/action-change.js";
 import type {
   DbAdminColumn,
-  DbAdminDialect,
   DbAdminFilter,
   DbAdminForeignKey,
   DbAdminIndex,
@@ -46,7 +39,6 @@ const LARGE_CELL_SUFFIX =
 
 export interface DbAdminRuntime {
   db?: DbExec;
-  dialect?: Dialect;
   notifyChange?: () => Promise<void>;
 }
 
@@ -58,21 +50,13 @@ function assertIdent(name: string, kind = "identifier"): string {
   return name;
 }
 
-/** Double-quote an already-validated identifier (valid in PG and SQLite). */
+/** Double-quote an already-validated identifier. */
 function quoteIdent(name: string): string {
   return `"${assertIdent(name)}"`;
 }
 
 function db(runtime?: DbAdminRuntime): DbExec {
   return runtime?.db ?? getDbExec();
-}
-
-function dialect(runtime?: DbAdminRuntime): DbAdminDialect {
-  return (runtime?.dialect ?? getDialect()) as DbAdminDialect;
-}
-
-function isPostgresRuntime(runtime?: DbAdminRuntime): boolean {
-  return dialect(runtime) === "postgres";
 }
 
 function isPreviewableLargeColumn(column: DbAdminColumn): boolean {
@@ -195,10 +179,7 @@ async function notifyDbAdminChange(runtime?: DbAdminRuntime): Promise<void> {
 export async function listTables(
   runtime?: DbAdminRuntime,
   options: { maxRowCounts?: number } = {},
-): Promise<{
-  dialect: DbAdminDialect;
-  tables: DbAdminTableSummary[];
-}> {
+): Promise<{ tables: DbAdminTableSummary[] }> {
   const client = db(runtime);
   const summaries: DbAdminTableSummary[] = [];
   const maxRowCounts = Number.isFinite(options.maxRowCounts)
@@ -214,42 +195,24 @@ export async function listTables(
     return safeRowCount(name, runtime);
   };
 
-  if (isPostgresRuntime(runtime)) {
-    const res = await client.execute(
-      `SELECT table_name AS name, table_type AS type
-       FROM information_schema.tables
-       WHERE table_schema = 'public'
-         AND table_type IN ('BASE TABLE', 'VIEW')
-       ORDER BY table_name`,
-    );
-    for (const row of res.rows) {
-      const name = String((row as any).name);
-      const type = (row as any).type === "VIEW" ? "view" : "table";
-      summaries.push({
-        name,
-        type,
-        rowCount: await rowCount(name, type),
-      });
-    }
-  } else {
-    const res = await client.execute(
-      `SELECT name, type FROM sqlite_master
-       WHERE type IN ('table', 'view')
-         AND name NOT LIKE 'sqlite_%'
-       ORDER BY name`,
-    );
-    for (const row of res.rows) {
-      const name = String((row as any).name);
-      const type = (row as any).type === "view" ? "view" : "table";
-      summaries.push({
-        name,
-        type,
-        rowCount: await rowCount(name, type),
-      });
-    }
+  const res = await client.execute(
+    `SELECT table_name AS name, table_type AS type
+     FROM information_schema.tables
+     WHERE table_schema = 'public'
+       AND table_type IN ('BASE TABLE', 'VIEW')
+     ORDER BY table_name`,
+  );
+  for (const row of res.rows) {
+    const name = String((row as any).name);
+    const type = (row as any).type === "VIEW" ? "view" : "table";
+    summaries.push({
+      name,
+      type,
+      rowCount: await rowCount(name, type),
+    });
   }
 
-  return { dialect: dialect(runtime), tables: summaries };
+  return { tables: summaries };
 }
 
 async function safeRowCount(
@@ -278,9 +241,7 @@ export async function getTableSchema(
   runtime?: DbAdminRuntime,
 ): Promise<DbAdminTableSchema> {
   assertIdent(table, "table name");
-  return isPostgresRuntime(runtime)
-    ? getTableSchemaPostgres(table, runtime)
-    : getTableSchemaSqlite(table, runtime);
+  return getTableSchemaPostgres(table, runtime);
 }
 
 async function getTableSchemaPostgres(
@@ -396,86 +357,6 @@ async function getTableSchemaPostgres(
   };
 }
 
-async function getTableSchemaSqlite(
-  table: string,
-  runtime?: DbAdminRuntime,
-): Promise<DbAdminTableSchema> {
-  const client = db(runtime);
-
-  const typeRes = await client.execute({
-    sql: `SELECT type FROM sqlite_master WHERE name = ? AND type IN ('table','view')`,
-    args: [table],
-  });
-  const type = (typeRes.rows[0] as any)?.type === "view" ? "view" : "table";
-
-  const colRes = await client.execute(
-    `PRAGMA table_info(${quoteIdent(table)})`,
-  );
-  const columns: DbAdminColumn[] = colRes.rows.map((r) => {
-    const name = String((r as any).name);
-    const dflt = (r as any).dflt_value;
-    return {
-      name,
-      type: String((r as any).type ?? "ANY") || "ANY",
-      nullable: Number((r as any).notnull) === 0,
-      pk: Number((r as any).pk) > 0,
-      defaultValue: dflt == null ? null : String(dflt),
-    };
-  });
-
-  // PK order follows the pk index from table_info (1-based, 0 = not pk).
-  const primaryKey = colRes.rows
-    .filter((r) => Number((r as any).pk) > 0)
-    .sort((a, b) => Number((a as any).pk) - Number((b as any).pk))
-    .map((r) => String((r as any).name));
-
-  // INTEGER PRIMARY KEY in SQLite is an alias for the rowid (autoincrementing).
-  if (primaryKey.length === 1) {
-    const pkCol = columns.find((c) => c.name === primaryKey[0]);
-    if (pkCol && /^integer$/i.test(pkCol.type)) {
-      pkCol.autoIncrement = true;
-    }
-  }
-
-  const fkRes = await client.execute(
-    `PRAGMA foreign_key_list(${quoteIdent(table)})`,
-  );
-  const foreignKeys: DbAdminForeignKey[] = fkRes.rows.map((r) => ({
-    column: String((r as any).from),
-    refTable: String((r as any).table),
-    refColumn: String((r as any).to),
-  }));
-
-  const idxListRes = await client.execute(
-    `PRAGMA index_list(${quoteIdent(table)})`,
-  );
-  const indexes: DbAdminIndex[] = [];
-  for (const idx of idxListRes.rows) {
-    const idxName = String((idx as any).name);
-    if (idxName.startsWith("sqlite_")) continue;
-    const infoRes = await client.execute(
-      `PRAGMA index_info(${quoteIdent(idxName)})`,
-    );
-    indexes.push({
-      name: idxName,
-      unique: Number((idx as any).unique) === 1,
-      columns: infoRes.rows
-        .map((c) => (c as any).name)
-        .filter((n): n is string => typeof n === "string"),
-    });
-  }
-
-  return {
-    name: table,
-    type,
-    columns,
-    primaryKey,
-    foreignKeys,
-    indexes,
-    rowCount: type === "view" ? null : await safeRowCount(table, runtime),
-  };
-}
-
 // ---------------------------------------------------------------------------
 // getRows
 // ---------------------------------------------------------------------------
@@ -507,7 +388,6 @@ const OP_SQL: Record<string, string> = {
 /** Build a parameterized WHERE clause + args from filters. */
 function buildWhere(
   filters: DbAdminFilter[] | undefined,
-  runtime?: DbAdminRuntime,
 ): {
   clause: string;
   args: unknown[];
@@ -539,13 +419,7 @@ function buildWhere(
         break;
       }
       case "ilike": {
-        // SQLite LIKE is case-insensitive for ASCII by default; Postgres has
-        // a dedicated ILIKE operator.
-        if (isPostgresRuntime(runtime)) {
-          parts.push(`${col} ILIKE ?`);
-        } else {
-          parts.push(`${col} LIKE ?`);
-        }
+        parts.push(`${col} ILIKE ?`);
         args.push(f.value);
         break;
       }
@@ -581,7 +455,7 @@ export async function getRows(
   const pageSize = Math.min(1000, Math.max(1, Math.floor(req.pageSize) || 50));
   const offset = (page - 1) * pageSize;
 
-  const where = buildWhere(req.filters, runtime);
+  const where = buildWhere(req.filters);
   const orderBy = buildOrderBy(req.sort);
   const quoted = quoteIdent(table);
   const includeLargeCells = req.includeLargeCells === true;
@@ -741,9 +615,7 @@ function stripComments(sql: string): string {
 
 function isMutatingSql(sql: string): boolean {
   const head = stripComments(sql).trim().toLowerCase();
-  return /^(insert|update|delete|replace|create|alter|drop|truncate|merge|pragma\s+\w+\s*=)/.test(
-    head,
-  );
+  return /^(insert|update|delete|create|alter|drop|truncate|merge)/.test(head);
 }
 
 /** Detect destructive ops on comment-stripped SQL. */

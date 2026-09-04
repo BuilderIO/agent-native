@@ -208,12 +208,12 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "architecture-sql-retrieval",
-    title: "Brain retrieval uses portable SQL before connector breadth",
+    title: "Brain retrieval uses Postgres SQL before connector breadth",
     summary:
-      "Brain retrieval starts with portable SQL over approved knowledge, uses raw-capture fallback only when policy allows, and does not require a vector database in V1.",
-    body: "Engineering architecture for Brain retrieval: start with portable SQL over brain_knowledge, then use raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs. V1 has no vector database requirement, which keeps connector pilots deterministic and portable.",
+      "Brain retrieval starts with Postgres SQL over approved knowledge, uses raw-capture fallback only when policy allows, and does not require a vector database in V1.",
+    body: "Engineering architecture for Brain retrieval: start with Postgres SQL over brain_knowledge, then use raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs. V1 has no vector database requirement, which keeps connector pilots deterministic.",
     quote:
-      "Start with portable SQL over brain_knowledge, then use raw capture fallback only when source policy allows; V1 has no vector database requirement.",
+      "Start with Postgres SQL over brain_knowledge, then use raw capture fallback only when source policy allows; V1 has no vector database requirement.",
     captureTitle: "#brain-pilot retrieval architecture",
     sourceUrl:
       "https://slack.example.com/archives/CBRAINPILOT/p1778888400001400",
@@ -404,9 +404,9 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
     id: "architecture-sql-retrieval",
     kind: "answer",
     question: "How does Brain retrieval work architecturally?",
-    expectedTitle: "Brain retrieval uses portable SQL before connector breadth",
+    expectedTitle: "Brain retrieval uses Postgres SQL before connector breadth",
     requiredTerms: [
-      "portable SQL",
+      "Postgres SQL",
       "brain_knowledge",
       "raw capture fallback",
       "no vector database requirement",

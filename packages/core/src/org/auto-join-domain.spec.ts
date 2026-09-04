@@ -202,7 +202,9 @@ describe("autoJoinDomainMatchingOrgs", () => {
     mockExecute.mockResolvedValueOnce({
       rows: [{ orgId: "orgA" }, { orgId: "orgB" }],
     });
-    mockExecute.mockRejectedValueOnce(new Error("UNIQUE constraint failed"));
+    mockExecute.mockRejectedValueOnce(
+      new Error("duplicate key value violates unique constraint"),
+    );
     mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT orgB succeeds
 
     const out = await autoJoinDomainMatchingOrgs("race@builder.io");

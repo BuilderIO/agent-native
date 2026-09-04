@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, gte, isNull } from "drizzle-orm";
 
 import { appStatePut } from "../application-state/store.js";
-import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureTableExists,
@@ -39,15 +39,10 @@ import {
   extensionHides,
   extensionShares,
   extensionHistory,
-  EXTENSIONS_CREATE_SQL,
   EXTENSIONS_CREATE_SQL_PG,
-  EXTENSION_SHARES_CREATE_SQL,
   EXTENSION_SHARES_CREATE_SQL_PG,
-  EXTENSION_DATA_CREATE_SQL,
   EXTENSION_DATA_CREATE_SQL_PG,
-  EXTENSION_DATA_ITEM_INDEX_SQL,
   EXTENSION_DATA_ITEM_INDEX_SQL_PG,
-  EXTENSION_DATA_DROP_OLD_INDEX_SQL,
   EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG,
   EXTENSIONS_OWNER_INDEX_SQL,
   EXTENSIONS_ORG_INDEX_SQL,
@@ -58,15 +53,12 @@ import {
   EXTENSIONS_HIDDEN_BY_COLUMN_SQL,
   EXTENSIONS_HIDDEN_AT_INDEX_SQL,
   EXTENSION_SHARES_RESOURCE_INDEX_SQL,
-  EXTENSION_HIDES_CREATE_SQL,
   EXTENSION_HIDES_CREATE_SQL_PG,
   EXTENSION_HIDES_UNIQUE_INDEX_SQL,
   EXTENSION_HIDES_OWNER_INDEX_SQL,
-  EXTENSION_HISTORY_CREATE_SQL,
   EXTENSION_HISTORY_CREATE_SQL_PG,
   EXTENSION_HISTORY_VERSION_INDEX_SQL,
   EXTENSION_HISTORY_CREATED_INDEX_SQL,
-  EXTENSION_CONSENTS_CREATE_SQL,
   EXTENSION_CONSENTS_CREATE_SQL_PG,
   EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
 } from "./schema.js";
@@ -84,15 +76,14 @@ export async function ensureExtensionsTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      const pg = isPostgres();
-      if (pg) {
+      {
         // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("tools", EXTENSIONS_CREATE_SQL_PG);
-        await migrateMisnamedExtensionsTable(client, pg); // data migration, not DDL — unchanged
+        await migrateMisnamedExtensionsTable(client); // data migration, not DDL - unchanged
         await ensureTableExists("tool_shares", EXTENSION_SHARES_CREATE_SQL_PG);
         await ensureTableExists("tool_data", EXTENSION_DATA_CREATE_SQL_PG);
-        await ensureExtensionDataItemId(client, pg); // ADD COLUMN — guarded inside
-        await ensureExtensionDataScope(client, pg); // ADD COLUMN — guarded inside
+        await ensureExtensionDataItemId(); // ADD COLUMN - guarded inside
+        await ensureExtensionDataScope(); // ADD COLUMN - guarded inside
         // DROP INDEX (for old index) — safe DDL, runs via client.execute; keep on both paths
         await client.execute(EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG);
         await ensureIndexExists(
@@ -105,12 +96,12 @@ export async function ensureExtensionsTables(): Promise<void> {
           "tools_updated_at_idx",
           EXTENSIONS_UPDATED_INDEX_SQL,
         );
-        await ensureExtensionsArchivedColumn(client, pg);
+        await ensureExtensionsArchivedColumn();
         await ensureIndexExists(
           "tools_archived_at_idx",
           EXTENSIONS_ARCHIVED_AT_INDEX_SQL,
         );
-        await ensureExtensionsGlobalHideColumns(client, pg); // ADD COLUMN — guarded inside
+        await ensureExtensionsGlobalHideColumns(); // ADD COLUMN - guarded inside
         await ensureIndexExists(
           "tools_hidden_at_idx",
           EXTENSIONS_HIDDEN_AT_INDEX_SQL,
@@ -153,82 +144,6 @@ export async function ensureExtensionsTables(): Promise<void> {
         );
         return;
       }
-      // SQLite (local dev): keep existing behavior
-      await retryOnDdlRace(() =>
-        client.execute(pg ? EXTENSIONS_CREATE_SQL_PG : EXTENSIONS_CREATE_SQL),
-      );
-      await migrateMisnamedExtensionsTable(client, pg);
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_SHARES_CREATE_SQL_PG : EXTENSION_SHARES_CREATE_SQL,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_DATA_CREATE_SQL_PG : EXTENSION_DATA_CREATE_SQL,
-        ),
-      );
-      await ensureExtensionDataItemId(client, pg);
-      await ensureExtensionDataScope(client, pg);
-      await client.execute(
-        pg
-          ? EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG
-          : EXTENSION_DATA_DROP_OLD_INDEX_SQL,
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_DATA_ITEM_INDEX_SQL_PG : EXTENSION_DATA_ITEM_INDEX_SQL,
-        ),
-      );
-      await retryOnDdlRace(() => client.execute(EXTENSIONS_OWNER_INDEX_SQL));
-      await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
-      await retryOnDdlRace(() => client.execute(EXTENSIONS_UPDATED_INDEX_SQL));
-      await ensureExtensionsArchivedColumn(client, pg);
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSIONS_ARCHIVED_AT_INDEX_SQL),
-      );
-      await ensureExtensionsGlobalHideColumns(client, pg);
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSIONS_HIDDEN_AT_INDEX_SQL),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_SHARES_RESOURCE_INDEX_SQL),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_HIDES_CREATE_SQL_PG : EXTENSION_HIDES_CREATE_SQL,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_HIDES_UNIQUE_INDEX_SQL),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_HIDES_OWNER_INDEX_SQL),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_HISTORY_CREATE_SQL_PG : EXTENSION_HISTORY_CREATE_SQL,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_HISTORY_VERSION_INDEX_SQL),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_HISTORY_CREATED_INDEX_SQL),
-      );
-      // tool_consents was introduced for an audit-C1 per-viewer consent
-      // gate that we removed once we settled on intra-org trust as the
-      // baseline. The table is kept (additive — never drop) so deploys
-      // that already created it stay healthy; the runtime consent code
-      // is gone. Idempotent CREATE IF NOT EXISTS for fresh schemas.
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_CONSENTS_CREATE_SQL_PG : EXTENSION_CONSENTS_CREATE_SQL,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_CONSENTS_VIEWER_INDEX_SQL),
-      );
     })();
   }
 
@@ -242,16 +157,11 @@ export async function ensureExtensionsTables(): Promise<void> {
 
 async function migrateMisnamedExtensionsTable(
   client: ReturnType<typeof getDbExec>,
-  pg: boolean,
 ): Promise<void> {
-  const sql = pg
-    ? `INSERT INTO tools (id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility)
+  const sql = `INSERT INTO tools (id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility)
        SELECT id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility
        FROM extensions
-       ON CONFLICT (id) DO NOTHING`
-    : `INSERT OR IGNORE INTO tools (id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility)
-       SELECT id, name, description, content, icon, created_at, updated_at, owner_email, org_id, visibility
-       FROM extensions`;
+       ON CONFLICT (id) DO NOTHING`;
 
   try {
     await client.execute(sql);
@@ -268,118 +178,48 @@ async function migrateMisnamedExtensionsTable(
   }
 }
 
-async function ensureExtensionDataItemId(
-  client: ReturnType<typeof getDbExec>,
-  pg: boolean,
-): Promise<void> {
-  if (pg) {
-    await ensureColumnExists(
-      "tool_data",
-      "item_id",
-      `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS item_id TEXT`,
-    );
-    return;
-  }
-
-  // Keep this additive: legacy rows with item_id=id are still read correctly
-  // through COALESCE(item_id, id), so SQLite never needs a table rebuild here.
-  try {
-    await client.execute(`ALTER TABLE tool_data ADD COLUMN item_id TEXT`);
-  } catch (err: any) {
-    if (
-      !String(err?.message ?? err)
-        .toLowerCase()
-        .includes("duplicate")
-    ) {
-      throw err;
-    }
-  }
+async function ensureExtensionDataItemId(): Promise<void> {
+  await ensureColumnExists(
+    "tool_data",
+    "item_id",
+    `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS item_id TEXT`,
+  );
 }
 
-async function ensureExtensionDataScope(
-  client: ReturnType<typeof getDbExec>,
-  pg: boolean,
-): Promise<void> {
-  const addCol = (name: string, def: string) => {
-    if (pg) {
-      return ensureColumnExists(
-        "tool_data",
-        name,
-        `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS ${name} ${def}`,
-      );
-    }
-    return client
-      .execute(`ALTER TABLE tool_data ADD COLUMN ${name} ${def}`)
-      .catch((err: any) => {
-        if (
-          !String(err?.message ?? err)
-            .toLowerCase()
-            .includes("duplicate")
-        )
-          throw err;
-      });
-  };
+async function ensureExtensionDataScope(): Promise<void> {
+  const addCol = (name: string, def: string) =>
+    ensureColumnExists(
+      "tool_data",
+      name,
+      `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS ${name} ${def}`,
+    );
   await addCol("scope", "TEXT NOT NULL DEFAULT 'user'");
   await addCol("org_id", "TEXT");
   await addCol("scope_key", "TEXT NOT NULL DEFAULT 'local@localhost'");
   // One-time backfill migration: replaces the dev-mode DEFAULT scope_key
   // with each row's real owner_email. Not a per-request fallback.
-  await client.execute(
+  await getDbExec().execute(
     // guard:allow-localhost-fallback — one-time backfill migration replacing dev-mode default scope_key with the row's real owner_email
     `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,
   );
 }
 
-async function ensureExtensionsGlobalHideColumns(
-  client: ReturnType<typeof getDbExec>,
-  pg: boolean,
-): Promise<void> {
+async function ensureExtensionsGlobalHideColumns(): Promise<void> {
   // Global (admin) hide columns on the `tools` row, distinct from the
   // per-user `tool_hidden_extensions` table. Additive — keep this idempotent
-  // for both dialects. Postgres supports `ADD COLUMN IF NOT EXISTS`; SQLite
-  // does not, so we drop the clause and swallow the duplicate-column error.
-  const addCol = (pgSql: string, name: string, def: string) => {
-    if (pg) {
-      return ensureColumnExists("tools", name, pgSql);
-    }
-    return client
-      .execute(`ALTER TABLE tools ADD COLUMN ${name} ${def}`)
-      .catch((err: any) => {
-        if (
-          !String(err?.message ?? err)
-            .toLowerCase()
-            .includes("duplicate")
-        )
-          throw err;
-      });
-  };
+  // for existing deployments. Postgres supports `ADD COLUMN IF NOT EXISTS`.
+  const addCol = (sql: string, name: string, _def: string) =>
+    ensureColumnExists("tools", name, sql);
   await addCol(EXTENSIONS_HIDDEN_AT_COLUMN_SQL, "hidden_at", "TEXT");
   await addCol(EXTENSIONS_HIDDEN_BY_COLUMN_SQL, "hidden_by", "TEXT");
 }
 
-async function ensureExtensionsArchivedColumn(
-  client: ReturnType<typeof getDbExec>,
-  pg: boolean,
-): Promise<void> {
-  if (pg) {
-    await ensureColumnExists(
-      "tools",
-      "archived_at",
-      EXTENSIONS_ARCHIVED_AT_COLUMN_SQL,
-    );
-    return;
-  }
-  await client
-    .execute("ALTER TABLE tools ADD COLUMN archived_at TEXT")
-    .catch((err: any) => {
-      if (
-        !String(err?.message ?? err)
-          .toLowerCase()
-          .includes("duplicate")
-      ) {
-        throw err;
-      }
-    });
+async function ensureExtensionsArchivedColumn(): Promise<void> {
+  await ensureColumnExists(
+    "tools",
+    "archived_at",
+    EXTENSIONS_ARCHIVED_AT_COLUMN_SQL,
+  );
 }
 
 export function registerExtensionsShareable() {
@@ -1302,7 +1142,7 @@ export async function getHiddenExtensionIdsForCurrentUser(): Promise<
     .select({ extensionId: extensionHides.extensionId })
     .from(extensionHides)
     .where(eq(extensionHides.ownerEmail, userEmail));
-  return new Set(rows.map((row) => row.extensionId));
+  return new Set(rows.map((row: { extensionId: string }) => row.extensionId));
 }
 
 export async function hideExtension(id: string): Promise<boolean> {

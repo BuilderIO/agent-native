@@ -335,12 +335,9 @@ const messages = {
     sharePubliclyDescription:
       "Para compartilhar conteúdo publicamente, conecte um banco de dados em nuvem.",
     providerDescriptions: {
-      turso: "SQLite na borda",
       neon: "Postgres sem servidor",
       supabase: "Alternativa open source ao Firebase",
-      d1: "SQLite na borda",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Etapas de configuração",
     authToken: "Token de autenticação",
     connectedReloading: "Conectado com sucesso. Recarregando...",

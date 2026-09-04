@@ -164,7 +164,6 @@ describe("file classification", () => {
       ".generated/actions-registry.js",
       ".react-router/types.d.ts",
       "app/app.tsbuildinfo",
-      "local.db",
     ]) {
       assert.equal(classifyRelPath(rel, opts).kind, "ignored", rel);
     }

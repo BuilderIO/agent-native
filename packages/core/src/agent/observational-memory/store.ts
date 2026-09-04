@@ -3,8 +3,8 @@
  *
  * Owner-scoped throughout: every read and write takes an `ownerEmail` and the
  * SQL always filters by it, so the ownable table is never read or written
- * cross-owner (per the `security` skill). Dialect-agnostic — only `getDbExec()`
- * and parameterized SQL, never raw SQLite/Postgres types or string interpolation
+ * cross-owner (per the `security` skill). Uses `getDbExec()` and
+ * parameterized SQL, never string interpolation of user data.
  * of user data.
  *
  * `ensureTable()` lazily creates the table on first use (the same belt-and-
@@ -12,7 +12,7 @@
  * runtime even before the migration plugin is registered.
  */
 
-import { getDbExec, isPostgres } from "../../db/client.js";
+import { getDbExec } from "../../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../../db/ddl-guard.js";
 import type {
   ObservationalMemoryEntry,
@@ -25,8 +25,7 @@ let tableReady: Promise<void> | null = null;
 export async function ensureTable(): Promise<void> {
   if (tableReady) return tableReady;
   tableReady = (async () => {
-    const client = getDbExec();
-    const intType = isPostgres() ? "BIGINT" : "INTEGER";
+    const intType = "BIGINT";
     const createSql = `CREATE TABLE IF NOT EXISTS observational_memory (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL,
@@ -43,7 +42,7 @@ export async function ensureTable(): Promise<void> {
         visibility TEXT NOT NULL DEFAULT 'private'
       )`;
 
-    if (isPostgres()) {
+    {
       // PG-guard: probe information_schema / pg_indexes before issuing DDL to
       // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
       await ensureTableExists("observational_memory", createSql);
@@ -60,26 +59,8 @@ export async function ensureTable(): Promise<void> {
       return;
     }
 
-    // SQLite (local dev): no lock problem — keep the original behaviour.
-    await client.execute(createSql);
-    try {
-      await client.execute(
-        `CREATE INDEX IF NOT EXISTS observational_memory_thread_tier_idx
-          ON observational_memory(thread_id, tier, created_at)`,
-      );
-    } catch {
-      // Index already exists.
-    }
-    try {
-      await client.execute(
-        `CREATE INDEX IF NOT EXISTS observational_memory_thread_owner_idx
-          ON observational_memory(thread_id, owner_email)`,
-      );
-    } catch {
-      // Index already exists.
-    }
   })().catch((err) => {
-    // Reset so a transient failure (e.g. SQLITE_BUSY on HMR) can retry.
+    // Reset so a transient failure can retry.
     tableReady = null;
     throw err;
   });

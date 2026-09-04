@@ -6,15 +6,7 @@ import {
 } from "./migrations.js";
 
 export type DrizzleMigrationsFolder = string | URL;
-export type DrizzleMigrationDialect = "postgresql" | "sqlite" | "turso";
-
-export interface LoadDrizzleMigrationsOptions {
-  dialect: DrizzleMigrationDialect;
-}
-
-export interface RunDrizzleMigrationsOptions extends RunMigrationsOptions {
-  dialect: DrizzleMigrationDialect;
-}
+export type RunDrizzleMigrationsOptions = RunMigrationsOptions;
 
 function isMissingPath(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
@@ -24,19 +16,18 @@ function isMissingPath(error: unknown): boolean {
  * Read Drizzle Kit's generated migration files as Agent-Native migrations.
  *
  * Drizzle Kit owns SQL generation. The Agent-Native runner remains the runtime
- * owner, so release authorization, dialect adaptation, and bookkeeping stay in
- * one place. The file name becomes the stable migration name.
+ * owner, so release authorization and bookkeeping stay in one place. The file
+ * name becomes the stable migration name.
  *
- * This filesystem loader is for Node.js runtimes. Cloudflare Workers and D1
- * callers must pass embedded entries to `runMigrations` instead.
+ * This filesystem loader is for Node.js runtimes. Edge callers must pass
+ * embedded entries to `runMigrations` instead.
  */
 export async function loadDrizzleMigrations(
   migrationsFolder: DrizzleMigrationsFolder,
-  options: LoadDrizzleMigrationsOptions,
 ): Promise<Array<MigrationEntry>> {
   if (!isNodeRuntime()) {
     throw new Error(
-      "loadDrizzleMigrations requires a Node.js filesystem. Cloudflare Workers and D1 must use runMigrations with embedded entries.",
+      "loadDrizzleMigrations requires a Node.js filesystem. Edge runtimes must use runMigrations with embedded entries.",
     );
   }
 
@@ -89,11 +80,7 @@ export async function loadDrizzleMigrations(
     migrations.push({
       version: index + 1,
       name: file.name,
-      sql:
-        options.dialect === "postgresql"
-          ? { postgres: trimmedSql }
-          : { sqlite: trimmedSql },
-      dialectSpecific: true,
+      sql: { postgres: trimmedSql },
     });
   }
 
@@ -111,9 +98,8 @@ export function runDrizzleMigrations(
   migrationsFolder: DrizzleMigrationsFolder,
   options: RunDrizzleMigrationsOptions,
 ): ReturnType<typeof runMigrations> {
-  const { dialect, ...migrationOptions } = options;
   return runMigrations(
-    () => loadDrizzleMigrations(migrationsFolder, { dialect }),
-    migrationOptions,
+    () => loadDrizzleMigrations(migrationsFolder),
+    options,
   );
 }

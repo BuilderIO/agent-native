@@ -29,7 +29,7 @@ Ceci s'appuie sur trois technologies éprouvées : **Yjs** (CRDT pour une fusio
 - **L'agent en tant qu'éditeur homologue** – Les modifications de l'agent passent par le même Yjs
   infrastructure sous forme de modifications humaines. Ils apparaissent en direct, sans perturber le curseur
   positions, sélections ou pile d'annulation.
-- **Fonctionne partout** – Toute base de données SQL prise en charge par Drizzle (SQLite, Postgres).
+- **Fonctionne partout** – Toute base de données SQL prise en charge par Drizzle (PGlite, Postgres).
   Toute cible d'hébergement prise en charge par Nitro, y compris sans serveur et Edge.
 
 ## Architecture {#architecture}
@@ -99,7 +99,7 @@ le même résultat quel que soit l'ordre.
 ### 2. Contenu canonique SQL (source de vérité durable)
 
 L'état Yjs est conservé dans une table `_collab_docs` en tant que binaire codé en base64.
-La table est gérée par le framework et indépendante du fournisseur (utilisation de SQLite et Postgres
+La table est gérée par le framework et indépendante du fournisseur (utilisation de PGlite et Postgres
 schémas identiques). Chaque ligne comporte une colonne de version à concurrence optimiste
 pour empêcher les courses d'écriture simultanées. Le compactage de Tombstone s'effectue de manière opportuniste
 Lorsque le blob stocké dépasse 4 fois l'état fraîchement codé – pas de tâche en arrière-plan
@@ -651,7 +651,7 @@ par une application de production normale :
 
 | Prérequis                                                                       | Pourquoi                                                                                                                                                                                                          | Comment vérifier                                                                                                                                                                                                |
 | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Postgres sur un hôte accessible publiquement**                                | La passerelle contacte la base de données depuis son propre réseau. PGlite, SQLite, `localhost`, `*.internal` et les adresses IP nues sont refusés avant même que la chaîne de connexion ne quitte votre machine. | `DATABASE_URL` pointe vers un Postgres géré tel que Neon                                                                                                                                                        |
+| **Postgres sur un hôte accessible publiquement**                                | La passerelle contacte la base de données depuis son propre réseau. PGlite, `localhost`, `*.internal` et les adresses IP nues sont refusés avant même que la chaîne de connexion ne quitte votre machine. | `DATABASE_URL` pointe vers un Postgres géré tel que Neon                                                                                                                                                        |
 | **`BUILDER_PRIVATE_KEY` définie comme variable d'environnement du DÉPLOIEMENT** | Elle authentifie l'enregistrement et détermine quelle organisation Builder possède le canal.                                                                                                                      | Voir la note ci-dessous — c'est l'étape que l'on oublie le plus souvent                                                                                                                                         |
 | **Un déploiement de production**                                                | Les préversions de déploiement conservent la synchronisation locale, si bien qu'un identifiant de branche jetable ne quitte jamais la machine et qu'un dépôt actif ne crée pas un canal par pull request.         | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production`                                                                                                                                          |
 | **La plateforme identifie le déploiement**                                      | L'enregistrement est indexé sur l'origine publique de l'application ; un processus qui n'est pas réellement le déploiement ne doit donc pas la revendiquer.                                                       | Netlify, Vercel, AWS Lambda, Cloud Run, Render et Cloudflare Pages se signalent d'eux-mêmes. Sur un simple conteneur ou une VM, définissez `AGENT_NATIVE_REALTIME_APP_URL` avec l'origine propre du déploiement |

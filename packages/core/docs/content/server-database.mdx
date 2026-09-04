@@ -1,15 +1,15 @@
 ---
 title: "Database"
-description: "Connect a portable SQL database to your agent-native app: schema helpers, migrations, and the hosted database options."
+description: "Connect PostgreSQL to your agent-native app: schema helpers, migrations, and local PGlite or hosted Postgres."
 ---
 
 # Database
 
 <!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant, including migration runner references. -->
 
-Every agent-native app stores its state in SQL. The UI and the agent both read and write the same tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. Live sync uses SSE with polling fallback, so changes appear in the other surface without a manual refresh.
+Every agent-native app stores its state in PostgreSQL. The UI and the agent both read and write the same PostgreSQL tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. Live sync uses SSE with polling fallback, so changes appear in the other surface without a manual refresh.
 
-<Diagram id="doc-block-9mtx2f" title="How data flows to the database" summary="The UI and the agent both reach the database through the same Actions layer. Both callers use the same getDb() client and the same SQL tables. There is no separate backend for each.">
+<Diagram id="doc-block-9mtx2f" title="How data flows to the database" summary="The UI and the agent both reach the database through the same Actions layer. Both callers use the same getDb() client and the same PostgreSQL tables. There is no separate backend for each.">
 
 ```html
 <div class="diagram-dbr">
@@ -25,8 +25,8 @@ Every agent-native app stores its state in SQL. The UI and the agent both read a
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL database<br /><small class="diagram-muted"
-      >dialect from DATABASE_URL</small
+    PostgreSQL database<br /><small class="diagram-muted"
+      >PostgreSQL from DATABASE_URL</small
     >
   </div>
 </div>
@@ -60,17 +60,14 @@ Every agent-native app stores its state in SQL. The UI and the agent both read a
 
 ## Hosting Options {#hosting}
 
-The app detects which backend to use from `DATABASE_URL`. When the variable is unset, it falls back to a local SQLite file so you can start without any setup.
-
-### Default: SQLite file {#default-sqlite}
-
-When `DATABASE_URL` is not set, the app creates a SQLite database at `data/app.db`. No configuration required. Start the dev server and the file is created on first run.
-
-This is for local development only. Containers, serverless functions, and preview environments may reset their filesystem between restarts, so a local SQLite file can disappear. Set `DATABASE_URL` to a persistent hosted database before deploying.
+Agent-Native uses PostgreSQL. Use local PGlite for development without a
+separate server, and a persistent hosted PostgreSQL database for shared or
+deployed environments.
 
 ### Local Postgres: PGlite {#local-pglite}
 
-To develop locally against the Postgres dialect without Docker or a hosted database, install the optional PGlite package and set `DATABASE_URL`:
+To develop locally without Docker or a hosted database, install the optional
+PGlite package and set `DATABASE_URL`:
 
 ```bash
 pnpm add @electric-sql/pglite@^0.5.3
@@ -80,7 +77,8 @@ pnpm add @electric-sql/pglite@^0.5.3
 DATABASE_URL=pglite:./data/pglite
 ```
 
-[PGlite](https://pglite.dev/) runs an in-process WASM Postgres database. It lets you catch Postgres-only schema issues before deploying, while keeping setup as simple as the SQLite default. Like SQLite, it is local-only storage. Do not use it for production or shared environments.
+[PGlite](https://pglite.dev/) runs an in-process WASM PostgreSQL database. It is
+local-only storage and must not be used for production or shared environments.
 
 ### Production database {#production}
 
@@ -93,14 +91,12 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Plain Postgres
+# Self-hosted Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
-
-# Turso (libSQL). Also requires DATABASE_AUTH_TOKEN.
-DATABASE_URL=libsql://my-db-org.turso.io
 ```
 
-The framework auto-detects the dialect from the URL prefix and configures Drizzle accordingly.
+Use a PostgreSQL URL for every hosted environment. The framework configures
+Drizzle for PostgreSQL from `DATABASE_URL`.
 
 ### Builder.io managed database {#builder-managed}
 
@@ -116,7 +112,7 @@ An app that uses the database needs three files:
 
 ### 1. Define your schema {#schema}
 
-Import schema helpers from `@agent-native/core/db/schema`. Never import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` directly. The framework helpers produce dialect-agnostic definitions that work across all supported backends.
+Import schema helpers from `@agent-native/core/db/schema`. The framework helpers produce PostgreSQL definitions.
 
 ```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
@@ -133,17 +129,17 @@ export const tasks = table("tasks", {
 
 | Helper    | Purpose                                                                |
 | --------- | ---------------------------------------------------------------------- |
-| `table`   | Define a table; dispatches to `pgTable` or `sqliteTable`               |
+| `table`   | Define a PostgreSQL table                                         |
 | `text`    | Text column, supports `{ enum: [...] }`                                |
 | `integer` | Integer column, `{ mode: "boolean" }` maps to Postgres boolean         |
-| `real`    | Float column. Maps to `real` on SQLite, `double precision` on Postgres |
-| `now`     | Dialect-agnostic current timestamp for `.default(now())`               |
+| `real`    | Floating-point column                                            |
+| `now`     | Current timestamp for `.default(now())`                          |
 
 <DataModel
   id="doc-block-3hbven"
   title="The tasks table"
   summary={
-    "Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+    "Defined once with the framework helpers for PostgreSQL and local PGlite."
   }
   entities={[
     {
@@ -204,7 +200,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-`createGetDb` returns a `getDb()` function that opens the database connection on first call and returns the same typed Drizzle instance on subsequent calls. It reads `DATABASE_URL` at runtime to determine which backend and dialect to use.
+`createGetDb` returns a `getDb()` function that opens the PostgreSQL connection on first call and returns the same typed Drizzle instance on subsequent calls.
 
 Import `getDb` from this template-local path in actions and routes. Do not import from `@agent-native/core` directly. The core export is untyped; the local export carries your schema types.
 
@@ -219,7 +215,7 @@ For local development, schema changes can run through a Nitro plugin in
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done BOOLEAN NOT NULL DEFAULT false,\n        owner_email TEXT NOT NULL,\n        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -238,9 +234,9 @@ For local development, schema changes can run through a Nitro plugin in
       note: "`ADD COLUMN IF NOT EXISTS` is the safe way to add columns after initial creation. Never drop or rename columns.",
     },
     {
-      lines: "22-25",
-      label: "Dialect gating",
-      note: "Pass an object keyed by dialect to run different SQL per backend. Use `SELECT 1` as a no-op on the dialect that doesn't need the change.",
+      lines: "22",
+      label: "PostgreSQL SQL",
+      note: "Migrations use PostgreSQL SQL directly and are applied in version order.",
     },
   ]}
 />
@@ -262,7 +258,7 @@ pnpm db:generate
 This creates `server/db/migrations/<id_name>.sql`. Commit the generated file and
 review its SQL before shipping it. `runDrizzleMigrations`
 loads those files into the shared Agent-Native runner on Node.js and Node-based
-serverless runtimes, so release authorization, dialect handling, and bookkeeping
+serverless runtimes, so release authorization, database handling, and bookkeeping
 stay in one place:
 
 ```ts filename="server/db/migrations.ts"
@@ -270,7 +266,6 @@ import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
 
 export default runDrizzleMigrations(new URL("./migrations", import.meta.url), {
   table: "my_app_migrations",
-  dialect: "postgresql",
 });
 ```
 
@@ -281,19 +276,15 @@ path works from source and from the emitted server bundle:
 export { default } from "../db/migrations.js";
 ```
 
-The filesystem-backed loader is not available in Cloudflare Workers/Pages or
-other filesystem-free edge runtimes, including D1. Keep using `runMigrations()`
-there with SQL entries embedded in the worker bundle. A single Drizzle output
-folder has one dialect-specific metadata baseline, so generate against the
-primary deployment dialect and do not switch the same folder between SQLite and
-PostgreSQL.
+The filesystem-backed loader is not available in filesystem-free edge runtimes.
+Keep migration files owned by the release step and use a hosted PostgreSQL
+connection.
 
 If an app already has handwritten entries, keep that history and load generated
 entries into the same `runMigrations()` source after it. Do not give one schema
-two independent migration owners. Generate against the primary deployment
-dialect and keep using handwritten `runMigrations()` entries for framework
-tables, D1-only or dialect-specific SQL, data backfills, and deferred JavaScript
-steps.
+two independent migration owners. Generate against PostgreSQL and keep using
+handwritten `runMigrations()` entries for framework
+tables, data backfills, and deferred JavaScript steps.
 
 <Callout tone="warning">
   For production or serverless deployments, run migrations in a release or
@@ -323,7 +314,7 @@ steps.
   drop them, causing immediate data loss.
 </Callout>
 
-`drizzle.config.ts` at the root of each app configures drizzle-kit for local development schema inspection and migration generation. If one migration folder serves multiple runtime backends, pass its primary dialect explicitly, for example `createDrizzleConfig({ dialect: "postgresql" })`:
+`drizzle.config.ts` at the root of each app configures drizzle-kit for local development schema inspection and migration generation:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -334,7 +325,7 @@ Use `pnpm db:generate` to create reviewed migration files and `pnpm db:push` aga
 
 ### 4. Query in actions {#querying}
 
-Call `getDb()` from your actions to get the typed Drizzle client. Use Drizzle's query builder and portable operators from `drizzle-orm`:
+Call `getDb()` from your actions to get the typed Drizzle client. Use Drizzle's query builder and operators from `drizzle-orm`:
 
 ```ts
 import { and, desc, eq } from "drizzle-orm";
@@ -400,13 +391,13 @@ const rows = await db
 
 See [Security — Data Scoping](/docs/security#data-scoping) and [Sharing](/docs/sharing#building) for the full model.
 
-## SQL-Backed Sync {#sync}
+## PostgreSQL-Backed Sync {#sync}
 
 Agent-Native does not rely on filesystem watchers or sticky in-memory state. When an action writes to the database, a sync version increments. The client `useDbSync()` hook polls `/_agent-native/poll` and invalidates React Query caches when it sees a higher version.
 
 This works across serverless and multi-instance deployments because the database is the coordination point. If you write custom mutations outside actions, use framework helpers or emit the appropriate sync invalidation so open UIs refresh.
 
-<Diagram id="doc-block-qhkdv8" title="SQL-backed sync loop" summary="No watchers, no sticky state. A write bumps a version in SQL; every client polls the version and refetches.">
+<Diagram id="doc-block-qhkdv8" title="PostgreSQL-backed sync loop" summary="No watchers, no sticky state. A write bumps a version in PostgreSQL; every client polls the version and refetches.">
 
 ```html
 <div class="diagram-db-sync">
@@ -415,7 +406,7 @@ This works across serverless and multi-instance deployments because the database
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>SQL database</strong
+    <strong>PostgreSQL database</strong
     ><small class="diagram-muted">sync version increments</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
@@ -467,7 +458,7 @@ This works across serverless and multi-instance deployments because the database
 For advanced queries, health checks, or one-off maintenance that the Drizzle query builder can't express, use `getDbExec` from `@agent-native/core/db`:
 
 ```ts
-import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 
 const { rows } = await getDbExec().execute({
   sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
@@ -475,14 +466,13 @@ const { rows } = await getDbExec().execute({
 });
 ```
 
-`getDbExec` auto-converts `?` params to `$1`, `$2`, etc. for Postgres. Use `isPostgres()` to branch on dialect, and `intType()` to return the correct integer type for the current backend. Prefer the Drizzle query builder for normal reads and writes. Raw SQL bypasses type safety and is harder to maintain.
+`getDbExec` auto-converts `?` params to `$1`, `$2`, etc. for PostgreSQL. Prefer the Drizzle query builder for normal reads and writes. Raw SQL bypasses type safety and is harder to maintain.
 
 ## Environment Variables {#environment-variables}
 
 | Variable              | Purpose                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Persistent SQL connection string (unset = local SQLite; `pglite:./data/pglite` = local Postgres opt-in) |
-| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL                            |
+| `DATABASE_URL` | Local `pglite:./data/pglite` URL or hosted PostgreSQL connection string |
 
 ## What's next {#whats-next}
 

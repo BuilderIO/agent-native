@@ -108,7 +108,7 @@ behind a picker or disclosure when a step has several equivalent providers.
   Builder for a one-click managed gateway, or open the secondary provider-key
   picker and paste your own LLM key.
 - **Database** (optional) — set `DATABASE_URL` when you want to use a specific
-  SQL database connection string.
+  PostgreSQL connection string.
 - **Authentication** (optional) — built-in email/password accounts work by
   default. Add OAuth or access-token sign-in only when you want those paths.
 - **Email delivery** (optional) — useful before deploy for password resets,
@@ -266,7 +266,7 @@ before it is available.
 | ID                  | Required | Description                                             |
 | ------------------- | -------- | ------------------------------------------------------- |
 | `llm`               | yes      | Builder connection or a provider LLM key                |
-| `database`          | no       | Default database or any SQL `DATABASE_URL`              |
+| `database`          | no       | Hosted PostgreSQL URL or unset for local PGlite            |
 | `auth`              | no       | Built-in accounts, optional OAuth or access token       |
 | `email`             | no       | Resend or SendGrid for transactional email              |
 | `github-repository` | no       | Scoped GitHub token for cloud/headless repo file access |

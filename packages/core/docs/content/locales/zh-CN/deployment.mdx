@@ -26,7 +26,7 @@ Agent-Native 应用运行在 Nitro 上。请选择适合你要发布内容的路
 
 ## 部署前：选择持久数据库 {#persistent-database}
 
-每个已部署应用都需要持久 SQL 数据库。在首次生产部署前，将 `DATABASE_URL` 设置到部署环境中。如果数据库提供商需要单独的令牌，也要设置 `DATABASE_AUTH_TOKEN`。
+每个已部署应用都需要持久 PostgreSQL 数据库。在首次生产部署前，将 `DATABASE_URL` 设置到部署环境中。
 
 独立应用需要稳定的 `BETTER_AUTH_SECRET`。使用签名跨应用请求的工作区需要 `A2A_SECRET`。
 

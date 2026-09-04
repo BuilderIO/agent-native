@@ -1,132 +1,56 @@
 import { getAppConfig } from "../app-config/index.js";
 import {
-  getDbExec,
   createDbExec,
-  isPostgres,
-  getDialect,
+  getDbExec,
   getMigrationDatabaseUrl,
-  getCloudflareD1Binding,
-  retrySqliteBusy,
+  retryOnDdlRace,
   type DbExec,
 } from "./client.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 
-interface D1PreparedStatementLike {
-  bind(...values: unknown[]): D1PreparedStatementLike;
-  all(): Promise<{ results: Record<string, unknown>[] }>;
-  first<T = Record<string, unknown>>(): Promise<T | null>;
-  run(): Promise<unknown>;
-}
-
-interface D1DatabaseLike {
-  prepare(query: string): D1PreparedStatementLike;
-  batch(statements: D1PreparedStatementLike[]): Promise<unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Shared direct-endpoint exec across concurrent migration runners per boot.
-//
-// On each serverless cold start THREE plugins call runMigrations (core,
-// org, context-xray). Without coordination each would open an independent
-// direct-endpoint Neon connection AND leave it idle for ~10 s after
-// migrations finish. We avoid that by sharing a single direct exec for
-// the duration of the migration window: the first caller opens it,
-// subsequent callers reuse the same promise, and the last caller closes it
-// via reference-counting. The exec is nulled out after the window so a
-// second cold start (e.g. after a Lambda thaw) gets a fresh connection.
-// ---------------------------------------------------------------------------
-
-let _migrationExecPromise: Promise<DbExec> | null = null;
-let _migrationExecRefCount = 0;
+// Core plugins share one direct connection while boot-time DDL is running.
+let migrationExecPromise: Promise<DbExec> | null = null;
+let migrationExecRefCount = 0;
 
 async function acquireMigrationExec(): Promise<DbExec> {
-  if (!_migrationExecPromise) {
+  if (!migrationExecPromise) {
     const opened = createDbExec({ url: getMigrationDatabaseUrl() });
-    _migrationExecPromise = opened;
+    migrationExecPromise = opened;
     opened.catch(() => {
-      // Opening the connection failed. Reset the shared state so the next
-      // caller retries with a fresh connection instead of awaiting this
-      // permanently rejected promise — and zero the ref count, because none
-      // of the awaiters that failed here will ever call release.
-      if (_migrationExecPromise === opened) {
-        _migrationExecPromise = null;
-        _migrationExecRefCount = 0;
+      if (migrationExecPromise === opened) {
+        migrationExecPromise = null;
+        migrationExecRefCount = 0;
       }
     });
   }
-  _migrationExecRefCount++;
-  return _migrationExecPromise;
+  migrationExecRefCount++;
+  return migrationExecPromise;
 }
 
 async function releaseMigrationExec(): Promise<void> {
-  _migrationExecRefCount--;
-  if (_migrationExecRefCount > 0) return;
-  // Last caller — close and reset so next boot gets a fresh connection.
-  const execPromise = _migrationExecPromise;
-  _migrationExecPromise = null;
-  _migrationExecRefCount = 0;
+  migrationExecRefCount--;
+  if (migrationExecRefCount > 0) return;
+  const execPromise = migrationExecPromise;
+  migrationExecPromise = null;
+  migrationExecRefCount = 0;
   if (!execPromise) return;
   try {
     const exec = await execPromise;
     await exec.close?.();
   } catch {
-    // Swallow close errors — the migrations themselves already succeeded or
-    // failed; a cleanup error should not surface as a boot crash.
+    // Migration failures already carry the useful error; cleanup is best effort.
   }
 }
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-/**
- * Rewrite SQLite-specific SQL to Postgres-compatible equivalents.
- * Handles: datetime('now') → CURRENT_TIMESTAMP, AUTOINCREMENT → GENERATED, etc.
- */
-function adaptSqlForPostgres(sql: string): string {
-  return sql
-    .replace(/datetime\s*\(\s*'now'\s*\)/gi, "CURRENT_TIMESTAMP")
-    .replace(/\bAUTOINCREMENT\b/gi, "")
-    .replace(/\bINTEGER\b/gi, "BIGINT");
-}
-
-const IF_NOT_EXISTS_ADD_COLUMN_RE = /ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/i;
-
-/**
- * Strip Postgres-only syntax that SQLite doesn't support.
- * Handles: ALTER TABLE ... ADD COLUMN IF NOT EXISTS → ADD COLUMN
- *
- * Note: SQLite does not have a native equivalent, so the idempotent
- * semantic is emulated at the executor level by swallowing the
- * "duplicate column name" error for statements that originally carried
- * the clause. See `hadIfNotExists` tracking in the run loop.
- */
-function adaptSqlForSqlite(sql: string): string {
-  return sql.replace(/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/gi, "ADD COLUMN");
-}
-
-/**
- * True when an error from `ALTER TABLE ... ADD COLUMN` indicates the
- * column already existed. Recognizes both SQLite ("duplicate column
- * name") and Postgres ("column ... already exists" — exact text varies
- * by error code 42701, but the substring is stable). Exported so other
- * idempotent column-upgrade loops in the codebase don't reinvent this
- * regex with subtly different shapes.
- */
+/** True when an ADD COLUMN statement reports an existing column. */
 export function isDuplicateColumnError(err: unknown): boolean {
   const msg = (err as Error | undefined)?.message ?? "";
-  return (
-    /duplicate column name/i.test(msg) || /column .* already exists/i.test(msg)
-  );
+  return /column .* already exists/i.test(msg) || /duplicate_object/i.test(msg);
 }
 
-/**
- * True when a migration statement failed because the connected DB ROLE lacks
- * privilege — e.g. a permission-limited dev/replica role that doesn't own the
- * table. Postgres raises SQLSTATE 42501 ("insufficient_privilege", routine
- * aclcheck_error, message "must be owner of table …"). We treat these as
- * NON-FATAL so a perms-limited database can't crash-loop the whole server: the
- * migration is skipped (left unrecorded) and a properly-privileged role applies
- * it later. Production, where the role owns its tables, never hits this path.
- */
+/** True when the connected Postgres role cannot apply the migration. */
 export function isPermissionError(err: unknown): boolean {
   const e = err as { code?: string; message?: string } | undefined;
   if (e?.code === "42501") return true;
@@ -138,16 +62,7 @@ export function isPermissionError(err: unknown): boolean {
   );
 }
 
-/**
- * Split a multi-statement SQL blob into individual statements.
- *
- * libsql's `execute(sql)` only runs the first statement in a multi-statement
- * string. This splitter is intentionally simple: it respects single-quoted
- * string literals (with `''` escaping) and `--` line comments, and splits on
- * top-level `;`. It does NOT attempt to parse `$$`-quoted Postgres function
- * bodies — migrations that define functions/triggers with `;` inside bodies
- * should pass a single-statement migration per entry instead.
- */
+/** Split a multi-statement SQL blob while preserving quoted semicolons. */
 function splitSqlStatements(sql: string): string[] {
   const out: string[] = [];
   let buf = "";
@@ -157,7 +72,6 @@ function splitSqlStatements(sql: string): string[] {
     const ch = sql[i];
     const next = sql[i + 1];
     if (!inSingle && ch === "-" && next === "-") {
-      // Skip to end of line
       while (i < sql.length && sql[i] !== "\n") i++;
       continue;
     }
@@ -188,52 +102,13 @@ function splitSqlStatements(sql: string): string[] {
 }
 
 export interface RunMigrationsOptions {
-  /**
-   * Run migrations even inside a serverless request runtime. Off by default:
-   * see the guard in {@link runMigrations} for why request-path DDL is what
-   * took analytics down. Only set this when the caller has no scheduled or
-   * background runtime that could migrate instead.
-   */
   runInServerlessRequest?: boolean;
-
-  /**
-   * Name of the migrations bookkeeping table. REQUIRED — there is intentionally
-   * no default. Two templates that share a database (e.g. via the same Neon URL)
-   * each have their own version space starting at v1, and a single shared
-   * `_migrations` table will silently skip the second template's migrations if
-   * the first has already advanced past those version numbers. This caused the
-   * design template's migrations to be skipped entirely on a Neon DB that
-   * slides had already populated up to v15 (PR #320 era).
-   *
-   * Use one bookkeeping table per template, e.g. `slides_migrations`. Core
-   * feature plugins (e.g. the org module) follow the same convention with
-   * their own prefix, e.g. `_org_migrations`.
-   */
+  /** Each template needs a private bookkeeping table. */
   table: string;
 }
 
-/**
- * A single migration entry.
- *
- * `sql` can be a string (runs on every dialect) or an object with dialect
- * keys for dialect-gated SQL. Useful when Postgres needs an ALTER that
- * SQLite can't parse.
- *
- *   { version: 14, sql: { postgres: "ALTER TABLE …" } }  // no-op on sqlite
- *   { version: 15, sql: { sqlite: "…", postgres: "…" } } // both dialects
- *
- * `name` is an optional stable, unique slug that opts a migration into
- * **name-based tracking** instead of the legacy version-number gate. See the
- * "Name-based tracking" section on `runMigrations` for why this exists and
- * exactly how the two gating strategies interact.
- */
-export type MigrationSql = string | { postgres?: string; sqlite?: string };
+export type MigrationSql = string | { postgres?: string };
 
-/**
- * A run-only migration can defer its work without recording itself as applied.
- * This is for serialized backfills where another instance owns the advisory
- * lock; throwing would turn an expected loser into a startup retry storm.
- */
 export const MIGRATION_DEFERRED = Symbol("migration-deferred");
 
 export function deferMigration(): typeof MIGRATION_DEFERRED {
@@ -245,113 +120,20 @@ export type MigrationRunResult = void | typeof MIGRATION_DEFERRED;
 export interface MigrationEntry {
   version: number;
   sql: MigrationSql;
-  /**
-   * SQL was generated for a specific dialect and must not be rewritten by the
-   * portable handwritten-migration adapter or advance the legacy version gate.
-   */
-  dialectSpecific?: boolean;
-  /**
-   * Stable, unique slug for this migration (e.g. `"analytics-alert-rules-table"`).
-   * When present, this migration is tracked by NAME instead of by version
-   * number — see the `runMigrations` doc comment for the full rationale and
-   * gating rules. Must be unique across the migration list; a duplicate name
-   * throws at startup (programmer error, not a runtime data problem).
-   */
+  /** Generated entries keep their stable name without advancing the legacy gate. */
   name?: string;
-  /**
-   * JS step for a backfill SQL cannot express — e.g. a repair whose value comes
-   * from application-level parsing of a stored blob. Runs BEFORE this entry's
-   * SQL and before the bookkeeping row is written, so a throw leaves the
-   * migration unrecorded and it retries on the next boot. Return
-   * `deferMigration()` when another instance owns a serialized backfill; the
-   * entry stays pending without logging a startup failure. Pass `sql: {}` for
-   * a run-only entry. Give run-only entries a `name`: the legacy version gate
-   * would otherwise mark them applied via any later migration's MAX advance.
-   */
   run?: () => Promise<MigrationRunResult>;
 }
 
-/**
- * A static migration list or a lazy loader for migration entries.
- *
- * Lazy sources are resolved only after the serverless request guard passes, so
- * release-only migration files do not become request-path work.
- */
 export type MigrationSource =
   | Array<MigrationEntry>
   | (() => Array<MigrationEntry> | Promise<Array<MigrationEntry>>);
 
-function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
+function resolveMigrationSql(sql: MigrationSql): string | null {
   if (typeof sql === "string") return sql;
-  const raw = pg ? sql.postgres : sql.sqlite;
-  return raw ?? null;
+  return sql.postgres ?? null;
 }
 
-/**
- * Runs a list of migrations against the configured database, gated by a
- * per-table bookkeeping row (`options.table`) so repeated boots only apply
- * new migrations.
- *
- * ## Name-based tracking (why it exists)
- *
- * The legacy gate is purely numeric: `SELECT MAX(version)` from the
- * bookkeeping table, then apply every entry whose `version` is greater. That
- * scheme silently breaks down when **two independent branches each extend the
- * same migration list with different DDL under the same version numbers** —
- * exactly what happened to the analytics template's v75-v83 range. Branch A
- * shipped alert-rule tables as v75-v78; branch B shipped unrelated DDL as its
- * own v75-v83. Whichever branch deployed first recorded "v75..v83 applied"
- * in the bookkeeping table. When the other branch merged and deployed, its
- * migrations at those same version numbers were never applied — `MAX(version)`
- * was already ≥ their version, so the gate treated them as done even though
- * their actual DDL had never run. The result: `analytics_migrations` showed
- * rows for 1..83 with no gaps, yet `analytics_alert_rules`,
- * `analytics_alert_incidents`, and `session_recordings.network_error_count`
- * did not exist in production. Version numbers are not a stable identity —
- * they're just sequence position, and sequence position collides across
- * branches.
- *
- * Name-based tracking fixes this by keying application on a stable, unique
- * **string slug** instead of a position in a shared integer sequence:
- *
- * - Entries with a `name` are recorded in a companion table,
- *   `${table}_named` (`name TEXT PRIMARY KEY`), and APPLY IFF their name is
- *   absent from that table — completely independent of version numbers or
- *   the legacy `MAX(version)` gate. Two branches can both ship a migration
- *   named `"analytics-alert-rules-table"` at version 75, or one at version 75
- *   and the other at version 90 after a rebase — either way it applies
- *   exactly once per database, keyed on the name.
- * - Entries WITHOUT a `name` keep the exact legacy behavior
- *   (`version > MAX(recorded version)`), so nothing changes for existing
- *   unnamed migrations.
- * - Named migrations still execute in list order, interleaved with unnamed
- *   ones exactly as written.
- * - When a named migration's DDL runs, we record the named row (always) and,
- *   unless it is dialect-specific, the legacy version row too when its
- *   `version` is greater than the current legacy max. The rows land in the
- *   SAME atomic batch/transaction as the DDL. This keeps the legacy
- *   `MAX(version)` gate monotonically advancing for handwritten migrations
- *   while generated dialect-specific entries stay in their name-only
- *   namespace.
- * - A duplicate `name` across the migration list throws at startup — that's
- *   a programmer error (copy-paste or merge mistake), not a runtime data
- *   problem, and failing loud beats silently tracking the wrong row.
- *
- * New migrations should always set a `name`. Legacy unnamed migrations don't
- * need to be renamed retroactively — the two gating strategies coexist in the
- * same list — but if a table is EVER at risk of being shared across parallel
- * branches (any template's own migrations qualify, since branches routinely
- * extend the same list concurrently), giving new entries a name is what makes
- * them immune to the collision class described above.
- */
-/**
- * True in a production serverless runtime that serves user REQUESTS.
- *
- * Deliberately mirrors the analytics template's own predicate rather than
- * importing it: `packages/core/src/db` must not depend on a template, and the
- * agent/background modules that carry the sibling predicates would introduce a
- * cycle here.
- */
 function isServerlessRequestRuntime(): boolean {
   if (process.env.NODE_ENV !== "production") return false;
   return (
@@ -364,28 +146,14 @@ function isServerlessRequestRuntime(): boolean {
   );
 }
 
-/**
- * Whether this deployment has a release-time migration runner. Request-path
- * migration skipping is safe only when that runner owns schema setup.
- */
 function appMigratesAtRelease(): boolean {
   const { migration } = getAppConfig();
-  if (migration.releaseMigrations) return true;
-
-  // Clips beta uses the production-owned schema but its masked prebuilt build
-  // must not run migrate:production against the fake build database. The
-  // owner marker is embedded into the deployed server bundle and therefore
-  // carries the same request-path skip decision without pretending the masked
-  // build performed the release migration.
-  return migration.betaSchemaOwner?.toLowerCase() === "production";
+  return (
+    migration.releaseMigrations ||
+    migration.betaSchemaOwner?.toLowerCase() === "production"
+  );
 }
 
-/**
- * Run an explicit release-time migration job with migration duty enabled.
- *
- * The flag is process-local and restored even when the job fails, so a build
- * step can opt in without creating a permanent escape hatch for request code.
- */
 export { withMigrationRuntime } from "./migration-runtime.js";
 
 function validateMigrationNames(
@@ -393,15 +161,15 @@ function validateMigrationNames(
   table: string,
 ): void {
   const seenNames = new Set<string>();
-  for (const m of migrations) {
-    if (!m.name) continue;
-    if (seenNames.has(m.name)) {
+  for (const migration of migrations) {
+    if (!migration.name) continue;
+    if (seenNames.has(migration.name)) {
       throw new Error(
-        `runMigrations: duplicate migration name "${m.name}" in the migration list for table "${table}". ` +
+        `runMigrations: duplicate migration name "${migration.name}" in the migration list for table "${table}". ` +
           "Migration names must be unique - pick a different stable slug.",
       );
     }
-    seenNames.add(m.name);
+    seenNames.add(migration.name);
   }
 }
 
@@ -416,43 +184,16 @@ export function runMigrations(
     !/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)
   ) {
     throw new Error(
-      "runMigrations: `table` option is required and must be a valid SQL identifier " +
-        '(e.g. `{ table: "slides_migrations" }`). See packages/core/src/db/migrations.ts ' +
-        "for why this is required (shared-DB version-collision bug).",
+      "runMigrations: `table` option is required and must be a valid SQL identifier.",
     );
   }
-
-  // Duplicate-name detection — programmer error, fail loud at startup rather
-  // than silently tracking the wrong migration's applied state. Lazy sources
-  // are validated after the request guard, when their entries are available.
   if (Array.isArray(migrationSource)) {
     validateMigrationNames(migrationSource, table);
-  }
-
-  // A plugin with no migrations is intentionally a no-op. Creating or reading
-  // a bookkeeping table here turns an empty app plugin into a database cold
-  // start on every serverless boot.
-  if (Array.isArray(migrationSource) && migrationSource.length === 0) {
-    return async () => {};
+    if (migrationSource.length === 0) return async () => {};
   }
 
   const namedTable = `${table}_named`;
-
   return async () => {
-    // Migrations are schema DDL plus an introspection pass. On serverless
-    // "first touch" is EVERY cold start, so this lands on the critical path of
-    // a user request — measured at ~5.5-8.6s for the version check alone on a
-    // 180-table database, with 4-6 copies running concurrently under load.
-    //
-    // Guarded HERE rather than at each call site on purpose. The analytics
-    // template guarded its own runner in #2708; three core plugins
-    // (org, context-xray, observational-memory) kept calling this unguarded,
-    // so the probe storm survived the fix that was supposed to end it. A
-    // fourth special case would have shipped the same bug a fourth time.
-    //
-    // Schema still has to exist: a scheduled/background runtime sets
-    // `__AGENT_NATIVE_MIGRATION_RUNTIME__`, and `runInServerlessRequest` is
-    // the explicit opt-in for a caller that genuinely cannot defer.
     if (
       options?.runInServerlessRequest !== true &&
       isServerlessRequestRuntime() &&
@@ -464,6 +205,7 @@ export function runMigrations(
       );
       return;
     }
+
     try {
       const migrations =
         typeof migrationSource === "function"
@@ -479,259 +221,60 @@ export function runMigrations(
       }
       if (migrations.length === 0) return;
 
-      // Check for Cloudflare D1 binding (only if DATABASE_URL not set)
-      const d1 =
-        getDialect() === "d1"
-          ? (getCloudflareD1Binding() as D1DatabaseLike | undefined)
-          : null;
-      if (d1) {
-        await d1
-          .prepare(
-            `CREATE TABLE IF NOT EXISTS ${table} (version INTEGER PRIMARY KEY)`,
-          )
-          .run();
-        await d1
-          .prepare(
-            `CREATE TABLE IF NOT EXISTS ${namedTable} (name TEXT PRIMARY KEY, version INTEGER, applied_at TEXT NOT NULL DEFAULT (datetime('now')))`,
-          )
-          .run();
-        const firstRow = await d1
-          .prepare(`SELECT MAX(version) as v FROM ${table}`)
-          .first<{ v?: number }>();
-        const current = (firstRow?.v as number) ?? 0;
-
-        const appliedNamesRows = await d1
-          .prepare(`SELECT name FROM ${namedTable}`)
-          .all();
-        const appliedNames = new Set(
-          (appliedNamesRows?.results ?? []).map((r) => String(r.name)),
-        );
-
-        const pending = migrations.filter((m) =>
-          m.name ? !appliedNames.has(m.name) : m.version > current,
-        );
-
-        for (const m of pending) {
-          try {
-            // D1 is SQLite-compatible
-            const raw = resolveMigrationSql(m.sql, false);
-            const runResult = m.run ? await m.run() : undefined;
-            if (runResult === MIGRATION_DEFERRED) {
-              console.info(
-                `[db] Deferred migration ${m.name ? `"${m.name}" ` : ""}v${m.version}; it remains pending for a later boot`,
-              );
-              continue;
-            }
-            const advancesLegacyVersion =
-              !m.dialectSpecific && m.version > current;
-            const recordStatements = [
-              m.name
-                ? d1
-                    .prepare(
-                      `INSERT OR IGNORE INTO ${namedTable} (name, version) VALUES (?, ?)`,
-                    )
-                    .bind(m.name, m.version)
-                : null,
-              advancesLegacyVersion
-                ? d1
-                    .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
-                    .bind(m.version)
-                : null,
-            ].filter((s): s is NonNullable<typeof s> => s != null);
-
-            if (raw == null) {
-              if (m.dialectSpecific) {
-                console.info(
-                  `[db] Skipping dialect-specific migration ${m.name ? `"${m.name}" ` : ""}v${m.version} on D1; generate a SQLite-compatible entry for this runtime`,
-                );
-                continue;
-              }
-              // Dialect-gated migration with no SQL for this dialect; still
-              // record it so we don't retry forever. Keep the name + legacy
-              // version rows atomic: if an isolate is interrupted between
-              // separate writes, the name row would suppress every retry even
-              // though the legacy bookkeeping row never landed.
-              if (recordStatements.length > 0) {
-                await d1.batch(recordStatements);
-              }
-              continue;
-            }
-            const originalStatements = splitSqlStatements(raw);
-            const statements = originalStatements.map((orig) => ({
-              sql: adaptSqlForSqlite(orig),
-              hadIfNotExists: IF_NOT_EXISTS_ADD_COLUMN_RE.test(orig),
-            }));
-            const hasIfNotExists = statements.some((s) => s.hadIfNotExists);
-            if (hasIfNotExists) {
-              // Per-statement path: we need to swallow "duplicate column"
-              // errors for statements that originally carried
-              // `ADD COLUMN IF NOT EXISTS`, which a batch() can't express.
-              // Loses atomicity, but the idempotent-ADD-COLUMN semantic
-              // means a partial re-run resolves cleanly on retry.
-              for (const { sql: stmt, hadIfNotExists } of statements) {
-                try {
-                  await d1.prepare(stmt).run();
-                } catch (err) {
-                  if (hadIfNotExists && isDuplicateColumnError(err)) continue;
-                  throw err;
-                }
-              }
-              for (const stmt of recordStatements) await stmt.run();
-            } else {
-              // Atomic batch: all statements + bookkeeping inserts land in
-              // the same transaction. A failing statement rolls the whole
-              // migration back, so we never record a half-applied migration.
-              await d1.batch([
-                ...statements.map((s) => d1.prepare(s.sql)),
-                ...recordStatements,
-              ]);
-            }
-            console.log(
-              `[db] Applied migration ${m.name ? `"${m.name}" ` : ""}v${m.version} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,
-            );
-          } catch (err) {
-            console.error(
-              `[db] Migration ${m.name ? `"${m.name}" ` : ""}v${m.version} FAILED:`,
-              (err as Error).message,
-              "\nSQL:",
-              JSON.stringify(m.sql),
-            );
-            throw err;
-          }
-        }
-        return;
-      }
-
-      // Generic path — works for libsql and Postgres
-      const pg = isPostgres();
-
-      // ---------------------------------------------------------------------------
-      // Fast-path: read migration state through the regular pooled singleton before
-      // opening the direct-endpoint connection.
-      //
-      // On Postgres every cold start previously opened a fresh direct-endpoint Neon
-      // connection (bypassing PgBouncer, which is needed only for DDL), ran
-      // CREATE TABLE IF NOT EXISTS + SELECT MAX(version) even with zero pending
-      // migrations, and never closed the pool — it idled for ~10 s. Three runners
-      // (core, org, context-xray) did this independently per boot.
-      //
-      // Now: use the pooled singleton (getDbExec) for the bookkeeping SELECT. If
-      // the migrations table does not yet exist we treat it as "all migrations
-      // pending" (current = -1). Pending SQL/DDL opens the direct-endpoint exec
-      // (DDL is the only thing Neon's PgBouncer blocks — documented at
-      // getMigrationDatabaseUrl); run-only entries stay on the pooled client once
-      // both bookkeeping tables are known to exist. The direct exec is shared
-      // across concurrent runners via acquireMigrationExec() and closed after the
-      // last caller via releaseMigrationExec().
-      // ---------------------------------------------------------------------------
-
-      let current = -1; // sentinel: "table missing" → treat all as pending
-      let namedRowsMissing = false; // sentinel: "named table missing" → no names applied yet
-
-      // Any migration with a `name` is a candidate regardless of version, so
-      // the fast-path "anything pending?" check must also account for names.
-      const hasNamedMigrations = migrations.some((m) => m.name);
+      let current = -1;
+      let namedRowsMissing = false;
+      const hasNamedMigrations = migrations.some((migration) => migration.name);
       let appliedNames = new Set<string>();
 
-      if (pg) {
+      try {
+        const { rows } = await getDbExec().execute(
+          `SELECT MAX(version) as v FROM ${table}`,
+        );
+        current = (rows[0]?.v as number) ?? 0;
+      } catch {
+        // A missing bookkeeping table means every migration is pending.
+      }
+      if (hasNamedMigrations) {
         try {
           const { rows } = await getDbExec().execute(
-            `SELECT MAX(version) as v FROM ${table}`,
+            `SELECT name FROM ${namedTable}`,
           );
-          current = (rows[0]?.v as number) ?? 0;
+          appliedNames = new Set(rows.map((row) => String(row.name)));
         } catch {
-          // Table doesn't exist yet — leave current = -1 so all migrations apply.
-        }
-        if (hasNamedMigrations) {
-          try {
-            const { rows } = await getDbExec().execute(
-              `SELECT name FROM ${namedTable}`,
-            );
-            appliedNames = new Set(rows.map((r) => String(r.name)));
-          } catch {
-            // Named table doesn't exist yet — leave appliedNames empty so all
-            // named migrations apply.
-            namedRowsMissing = true;
-          }
+          namedRowsMissing = true;
         }
       }
 
-      // For SQLite we still use getDbExec() as exec throughout (no pooler concern).
-      // For Postgres we only open the direct exec when there are pending migrations.
-      const pendingFast = pg
-        ? migrations.filter((m) =>
-            m.name ? !appliedNames.has(m.name) : m.version > current,
-          )
-        : null; // SQLite: compute after table creation below
+      const pendingFast = migrations.filter((migration) =>
+        migration.name
+          ? !appliedNames.has(migration.name)
+          : migration.version > current,
+      );
+      if (pendingFast.length === 0) return;
 
-      // Short-circuit: Postgres with nothing to do — skip the direct connection entirely.
-      if (pg && pendingFast !== null && pendingFast.length === 0) {
-        return;
-      }
-
-      // A run-only migration does not need the direct endpoint: the fast path
-      // already proved both bookkeeping tables exist, and its `run` callback is
-      // responsible for its own pooled database work. Keep the direct path for
-      // any pending SQL or for the first boot, where the tables still need DDL.
       const runOnlyPending =
-        pg &&
         current >= 0 &&
         !namedRowsMissing &&
-        pendingFast !== null &&
-        pendingFast.length > 0 &&
-        pendingFast.every((m) => resolveMigrationSql(m.sql, pg) === null);
-
-      // Acquire the exec appropriate for the dialect.
-      // For Postgres: the shared direct-endpoint exec (DDL-safe, closed on release).
-      // For SQLite/libsql: the singleton pooled exec (no pooler concern).
-      const exec = pg
-        ? runOnlyPending
-          ? getDbExec()
-          : await acquireMigrationExec()
-        : getDbExec();
+        pendingFast.every((migration) => resolveMigrationSql(migration.sql) === null);
+      const exec = runOnlyPending
+        ? getDbExec()
+        : await acquireMigrationExec();
 
       try {
         if (!runOnlyPending) {
-          // Retry initial table creation — SQLITE_BUSY_RECOVERY can occur on HMR
-          // restarts when WAL files from the previous process haven't been released yet.
-          await retrySqliteBusy(
-            () =>
-              exec.execute(
-                `CREATE TABLE IF NOT EXISTS ${table} (version INTEGER PRIMARY KEY)`,
-              ),
-            { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
+          await retryOnDdlRace(() =>
+            exec.execute(
+              `CREATE TABLE IF NOT EXISTS ${table} (version BIGINT PRIMARY KEY)`,
+            ),
           );
-          // Companion name-keyed bookkeeping table — never alters the existing
-          // `${table}`'s PRIMARY KEY, so legacy version rows keep working exactly
-          // as before. See the `runMigrations` doc comment for why this exists.
-          await retrySqliteBusy(
-            () =>
-              exec.execute(
-                `CREATE TABLE IF NOT EXISTS ${namedTable} (name TEXT PRIMARY KEY, version INTEGER, applied_at ${pg ? "TIMESTAMP NOT NULL DEFAULT now()" : "TEXT NOT NULL DEFAULT (datetime('now'))"})`,
-              ),
-            { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
+          await retryOnDdlRace(() =>
+            exec.execute(
+              `CREATE TABLE IF NOT EXISTS ${namedTable} (name TEXT PRIMARY KEY, version BIGINT, applied_at TIMESTAMP NOT NULL DEFAULT now())`,
+            ),
           );
         }
 
-        // For Postgres, current was already set by the fast-path SELECT above.
-        // For SQLite we run the SELECT now (via the same exec, which is the singleton).
-        if (!pg) {
-          const { rows } = await exec.execute(
-            `SELECT MAX(version) as v FROM ${table}`,
-          );
-          current = (rows[0]?.v as number) ?? 0;
-          if (hasNamedMigrations) {
-            const { rows: nameRows } = await exec.execute(
-              `SELECT name FROM ${namedTable}`,
-            );
-            appliedNames = new Set(nameRows.map((r) => String(r.name)));
-          }
-        } else if (
-          !runOnlyPending &&
-          (current === -1 || (hasNamedMigrations && namedRowsMissing))
-        ) {
-          // Fast-path read failed (table was absent on the pooler): re-read via the
-          // direct exec now that CREATE TABLE IF NOT EXISTS has ensured it exists.
+        if (current === -1 || (hasNamedMigrations && namedRowsMissing)) {
           if (current === -1) {
             const { rows } = await exec.execute(
               `SELECT MAX(version) as v FROM ${table}`,
@@ -739,58 +282,50 @@ export function runMigrations(
             current = (rows[0]?.v as number) ?? 0;
           }
           if (hasNamedMigrations && namedRowsMissing) {
-            const { rows: nameRows } = await exec.execute(
+            const { rows } = await exec.execute(
               `SELECT name FROM ${namedTable}`,
             );
-            appliedNames = new Set(nameRows.map((r) => String(r.name)));
+            appliedNames = new Set(rows.map((row) => String(row.name)));
           }
         }
 
-        const insertVersionSql = pg
-          ? `INSERT INTO ${table} VALUES (?) ON CONFLICT DO NOTHING`
-          : `INSERT OR IGNORE INTO ${table} VALUES (?)`;
-        const insertNamedSql = pg
-          ? `INSERT INTO ${namedTable} (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`
-          : `INSERT OR IGNORE INTO ${namedTable} (name, version) VALUES (?, ?)`;
-
+        const insertVersionSql =
+          `INSERT INTO ${table} (version) VALUES (?) ON CONFLICT DO NOTHING`;
+        const insertNamedSql =
+          `INSERT INTO ${namedTable} (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`;
         const pending = runOnlyPending
-          ? pendingFast!
-          : migrations.filter((m) =>
-              m.name ? !appliedNames.has(m.name) : m.version > current,
+          ? pendingFast
+          : migrations.filter((migration) =>
+              migration.name
+                ? !appliedNames.has(migration.name)
+                : migration.version > current,
             );
+
         if (pending.length > 0) {
-          console.log(
-            `[db] Applying ${pending.length} migration(s) on ${pg ? "Postgres" : "SQLite/libsql"}…`,
-          );
+          console.log(`[db] Applying ${pending.length} migration(s) on Postgres...`);
         }
 
-        for (const m of pending) {
-          const raw = resolveMigrationSql(m.sql, pg);
-          const label = m.name
-            ? `"${m.name}" (v${m.version})`
-            : `v${m.version}`;
-
-          // Record the named row (always, when named) and the legacy version
-          // row only for migrations that advance the legacy MAX. Generated
-          // dialect-specific entries stay in their name-only namespace so
-          // they cannot suppress later handwritten migrations.
-          const advancesLegacyVersion =
-            !m.dialectSpecific && m.version > current;
+        for (const migration of pending) {
+          const raw = resolveMigrationSql(migration.sql);
+          const label = migration.name
+            ? `"${migration.name}" (v${migration.version})`
+            : `v${migration.version}`;
+          const advancesLegacyVersion = migration.version > current;
           const recordSql: Array<{ sql: string; args: unknown[] }> = [];
-          if (m.name) {
+          if (migration.name) {
             recordSql.push({
               sql: insertNamedSql,
-              args: [m.name, m.version],
+              args: [migration.name, migration.version],
             });
           }
           if (advancesLegacyVersion) {
-            recordSql.push({ sql: insertVersionSql, args: [m.version] });
+            recordSql.push({
+              sql: insertVersionSql,
+              args: [migration.version],
+            });
           }
 
-          // A throw here escapes to the outer handler with nothing recorded,
-          // so the entry is retried on the next boot rather than being marked
-          // applied against work that never happened.
-          const runResult = m.run ? await m.run() : undefined;
+          const runResult = migration.run ? await migration.run() : undefined;
           if (runResult === MIGRATION_DEFERRED) {
             console.info(
               `[db] Deferred migration ${label}; it remains pending for a later boot`,
@@ -799,72 +334,32 @@ export function runMigrations(
           }
 
           if (raw == null) {
-            if (m.dialectSpecific) {
-              console.info(
-                `[db] Skipping dialect-specific migration ${label} on SQLite; generate a SQLite-compatible entry for this runtime`,
-              );
-              continue;
-            }
-            // Dialect-gated migration with no SQL for this dialect; still mark
-            // as applied so we don't retry forever.
-            for (const stmt of recordSql) await exec.execute(stmt);
-            if (advancesLegacyVersion) current = m.version;
-            if (m.name) appliedNames.add(m.name);
+            for (const statement of recordSql) await exec.execute(statement);
+            if (advancesLegacyVersion) current = migration.version;
+            if (migration.name) appliedNames.add(migration.name);
             continue;
           }
-          // Split BEFORE adapting so we can remember which original statements
-          // carried `ADD COLUMN IF NOT EXISTS` — SQLite drops the clause, so we
-          // emulate the idempotent semantic by swallowing duplicate-column
-          // errors only for those statements.
-          const originalStatements = splitSqlStatements(raw);
-          const statements = originalStatements.map((orig) => ({
-            sql: m.dialectSpecific
-              ? orig
-              : pg
-                ? adaptSqlForPostgres(orig)
-                : adaptSqlForSqlite(orig),
-            hadIfNotExists: IF_NOT_EXISTS_ADD_COLUMN_RE.test(orig),
-          }));
-          let currentStmt = "";
+
+          const statements = splitSqlStatements(raw);
+          let currentStatement = "";
           try {
-            for (const { sql: stmt, hadIfNotExists } of statements) {
-              currentStmt = stmt;
-              try {
-                await exec.execute(stmt);
-              } catch (err) {
-                if (!pg && hadIfNotExists && isDuplicateColumnError(err)) {
-                  // IF NOT EXISTS semantic: column already present, skip.
-                  continue;
-                }
-                throw err;
-              }
+            for (const statement of statements) {
+              currentStatement = statement;
+              await retryOnDdlRace(() => exec.execute(statement));
             }
-            for (const stmt of recordSql) await exec.execute(stmt);
-            if (advancesLegacyVersion) current = m.version;
-            if (m.name) appliedNames.add(m.name);
+            for (const statement of recordSql) await exec.execute(statement);
+            if (advancesLegacyVersion) current = migration.version;
+            if (migration.name) appliedNames.add(migration.name);
             console.log(
               `[db] Applied migration ${label} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,
             );
           } catch (err) {
-            if (pg && isPermissionError(err)) {
-              // The connected role lacks privilege for this migration (e.g. a
-              // permission-limited dev/replica role that doesn't own the table).
-              // Don't crash-loop the whole server over it — warn and STOP here.
-              // We must NOT continue to later migrations: unnamed pending work is
-              // computed as `version > MAX(recorded version)`, so applying a later
-              // unnamed migration would advance MAX past this unrecorded one and
-              // orphan it forever. Stopping leaves MAX at the last recorded
-              // version, so a properly-privileged role resumes from this exact
-              // migration, in order. (A named migration skipped here simply
-              // isn't recorded by name either, so it's retried next boot same as
-              // the legacy gate — no orphaning risk from name-based tracking.)
+            if (isPermissionError(err)) {
               console.warn(
-                `[db] Migration ${label} skipped — insufficient privilege: ${(err as Error).message}. ` +
-                  `Apply it with a DB role that owns the table. ` +
-                  `Halting further migrations so this one isn't orphaned. ` +
-                  `Set <APP_NAME>_DATABASE_URL (e.g. PLAN_DATABASE_URL) to a database this app owns — a file: URL uses local SQLite.`,
+                `[db] Migration ${label} skipped - insufficient privilege: ${(err as Error).message}. ` +
+                  "Apply it with a database role that owns the table. Halting further migrations.",
                 "\nStatement:",
-                currentStmt,
+                currentStatement,
               );
               break;
             }
@@ -872,35 +367,23 @@ export function runMigrations(
               `[db] Migration ${label} FAILED:`,
               (err as Error).message,
               "\nStatement:",
-              currentStmt,
+              currentStatement,
             );
             throw err;
           }
         }
       } finally {
-        // Release the direct-endpoint exec (Postgres only). Run-only migrations
-        // use the process-lifetime pooled singleton, so there is nothing to close
-        // in that branch.
-        if (pg && !runOnlyPending) await releaseMigrationExec();
+        if (!runOnlyPending) await releaseMigrationExec();
       }
     } catch (err) {
       console.error("[db] Migration failed:", (err as Error).message);
-      // In local dev, hard-fail so the developer catches errors immediately.
-      // On serverless runtimes (Netlify Functions, Vercel, CF Workers) we
-      // keep the process alive — the app will return 500s for routes that
-      // depend on the missing tables, but at least other routes still work.
-      // Note: Node.js 21+ defines globalThis.navigator, so we check for
-      // serverless env vars instead of navigator presence.
+      if (isMigrationAuthorizedRuntime()) throw err;
       const isServerless =
         !!globalThis.process?.env?.NETLIFY ||
         !!globalThis.process?.env?.AWS_LAMBDA_FUNCTION_NAME ||
         !!globalThis.process?.env?.VERCEL ||
         "__cf_env" in globalThis ||
         "__env__" in globalThis;
-      // A release migration runs in the same Netlify environment as a request,
-      // but it must fail the deploy when DDL fails instead of publishing an
-      // app against an incomplete schema.
-      if (isMigrationAuthorizedRuntime()) throw err;
       if (typeof globalThis.process?.exit === "function" && !isServerless) {
         process.exit(1);
       }

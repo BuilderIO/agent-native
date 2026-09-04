@@ -6,8 +6,6 @@
  * runtime imports — it is a pure type module.
  */
 
-export type DbAdminDialect = "sqlite" | "postgres" | "d1";
-
 export interface DbAdminColumn {
   name: string;
   type: string;

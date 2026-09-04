@@ -16,7 +16,6 @@ vi.mock("../deploy/route-discovery.js", () => ({
 const ORIGINAL_ENV = {
   APP_NAME: process.env.APP_NAME,
   DATABASE_URL: process.env.DATABASE_URL,
-  DATABASE_AUTH_TOKEN: process.env.DATABASE_AUTH_TOKEN,
   NODE_ENV: process.env.NODE_ENV,
   AGENT_MODE: process.env.AGENT_MODE,
 };
@@ -143,7 +142,7 @@ describe("embedded Agent-Native host fixture", () => {
     };
     const nitroApp = createNitroApp();
     const plugin = createAgentNativeEmbeddedPlugin({
-      databaseUrl: `file:${join(tempDir, "embedded.db")}`,
+      databaseUrl: `pglite:${join(tempDir, "embedded")}`,
       auth: async () => currentUser,
       actions,
       agentChat: {
@@ -170,7 +169,7 @@ describe("embedded Agent-Native host fixture", () => {
         org_id TEXT NOT NULL,
         email TEXT NOT NULL,
         role TEXT NOT NULL,
-        joined_at INTEGER NOT NULL
+        joined_at BIGINT NOT NULL
       )
     `);
     await getDbExec().execute({

@@ -61,7 +61,7 @@ templates/crm/app/routes/setup.tsx|Open shared connections
 templates/crm/app/routes/setup.tsx|Optional, comma-separated
 templates/crm/app/routes/setup.tsx|Or connect an existing CRM
 templates/crm/app/routes/setup.tsx|Recent history
-templates/crm/app/routes/setup.tsx|Run accounts, people, opportunities, saved views, tasks, and cadence without connecting another CRM. Your CRM is local-authoritative and portable across SQLite, Postgres, and D1.
+templates/crm/app/routes/setup.tsx|Run accounts, people, opportunities, saved views, tasks, and cadence without connecting another CRM. Your CRM is local-authoritative and uses PostgreSQL.
 templates/crm/app/routes/setup.tsx|Salesforce objects
 templates/crm/app/routes/setup.tsx|Select HubSpot or Salesforce
 templates/crm/app/routes/setup.tsx|Start with Native SQL

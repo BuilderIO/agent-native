@@ -9,7 +9,7 @@
  * Physical table creation + indexes are applied by the isolated migration list
  * in server/plugins/uptime-monitor-jobs.ts (`uptime_monitor_migrations`), NOT
  * by drizzle-kit. These Drizzle definitions must stay in lockstep with that
- * DDL (snake_case column names, dialect-agnostic types).
+ * DDL (snake_case column names and Postgres types).
  *
  * All three tables carry `ownableColumns()` (owner_email / org_id / visibility)
  * and every read/write in server/lib/uptime-monitors.ts is scoped by

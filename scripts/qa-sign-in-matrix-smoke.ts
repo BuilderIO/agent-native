@@ -98,8 +98,8 @@ function cleanGeneratedFiles(): void {
   });
 }
 
-function appEnv(appUrl: string, basePath: string, dbPath: string) {
-  const databaseUrl = `file:${dbPath}`;
+function appEnv(appUrl: string, basePath: string, dataDir: string) {
+  const databaseUrl = `pglite:${dataDir}`;
   return {
     ...process.env,
     APP_NAME: "chat",
@@ -118,7 +118,6 @@ function appEnv(appUrl: string, basePath: string, dbPath: string) {
     AUTH_MAGIC_LINK: "0",
     BETTER_AUTH_SECRET: "sign-in-matrix-smoke-secret",
     DATABASE_URL: databaseUrl,
-    DATABASE_AUTH_TOKEN: "",
     VITE_APP_BASE_PATH: basePath,
     APP_BASE_PATH: basePath,
     NETLIFY: "",
@@ -157,7 +156,10 @@ async function waitForReady(appUrl: string, logs: string[]): Promise<void> {
 async function startApp(basePath: string): Promise<RunningApp> {
   const origin = `http://127.0.0.1:${appPort}`;
   const appUrl = `${origin}${basePath}`;
-  const dbPath = path.join(tmpRoot, `chat${basePath.replace(/\//g, "-")}.db`);
+  const dataDir = path.join(
+    tmpRoot,
+    `chat${basePath.replace(/\//g, "-")}-pglite`,
+  );
   const logs: string[] = [];
   const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   cleanGeneratedFiles();
@@ -170,7 +172,7 @@ async function startApp(basePath: string): Promise<RunningApp> {
     ["--host", "127.0.0.1", "--port", String(appPort), "--strictPort"],
     {
       cwd: templateDir,
-      env: appEnv(appUrl, basePath, dbPath),
+      env: appEnv(appUrl, basePath, dataDir),
       stdio: ["ignore", "pipe", "pipe"],
       // Vite starts Nitro as a child. Own the whole tree so the next base-path
       // deployment cannot accidentally talk to a surviving prior server.

@@ -33,7 +33,7 @@ import {
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
-import { type DbExec, getDbExec, isPostgres } from "../db/client.js";
+import { type DbExec, getDbExec } from "../db/client.js";
 import {
   ensureIndexExists,
   ensureIndexExistsConcurrently,
@@ -452,8 +452,6 @@ export interface AppSyncStateOptions {
    * `getDbExec`.
    */
   getDb?: () => DbExec;
-  /** Whether this app's DB is Postgres. Defaults to the process-global check. */
-  isPostgres?: () => boolean;
   /** Access-aware delivery resolver. Defaults to the framework registry. */
   resolveAccess?: AccessResolver;
   /**
@@ -482,7 +480,7 @@ export interface AppSyncStateOptions {
    * allocator row's lock, so version order equals commit order across all
    * writers. Versions stay on the epoch-ms scale (existing cursors, the
    * detector's timestamp-mixed seed, and lag metrics all assume it).
-   * Postgres only; ignored on SQLite.
+   * Postgres-only durable version allocation.
    */
   dbAssignedVersions?: boolean;
   /**
@@ -504,7 +502,6 @@ export interface AppSyncStateOptions {
  */
 export class AppSyncState {
   private readonly getDb: () => DbExec;
-  private readonly isPg: () => boolean;
   private readonly resolveAccessFn: AccessResolver;
   private readonly deterministicEventIds: boolean;
   private readonly dbAssignedVersions: boolean;
@@ -586,7 +583,6 @@ export class AppSyncState {
 
   constructor(options: AppSyncStateOptions = {}) {
     this.getDb = options.getDb ?? getDbExec;
-    this.isPg = options.isPostgres ?? isPostgres;
     this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
     this.deterministicEventIds = options.deterministicEventIds ?? false;
     this.dbAssignedVersions = options.dbAssignedVersions ?? false;
@@ -681,62 +677,35 @@ export class AppSyncState {
         )
       `;
 
-        if (this.isPg()) {
-          // Run DDL against THIS app's DB, not the process-global one — the
-          // gateway injects a per-app getDb, and ddl-guard otherwise probes/
-          // creates via the global exec. The dialect override matters for the
-          // same reason: ddl-guard's own isPostgres() reads the process-global
-          // DB config, which in a gateway process is not this app's dialect.
-          const guardOptions = {
-            injectedClient: client,
-            dialectIsPostgres: true,
-          };
-          await ensureTableExists("sync_events", createSql, guardOptions);
-          await ensureIndexExists(
-            "sync_events_version_idx",
-            "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-            guardOptions,
-          );
-          await ensureIndexExists(
-            "sync_events_owner_version_idx",
-            "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
-            guardOptions,
-          );
-          await ensureIndexExists(
-            "sync_events_org_version_idx",
-            "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-            guardOptions,
-          );
-          await ensureIndexExistsConcurrently(
-            "sync_events_created_at_id_idx",
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
-            guardOptions,
-          );
-          if (this.dbAssignedVersions) {
-            await ensureTableExists(
-              "sync_version",
-              "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
-              guardOptions,
-            );
-            // Seed at/above both the existing durable max and wall clock, so
-            // allocated versions never land below live client cursors.
-            await client.execute(SEED_SYNC_VERSION_SQL);
-          }
-          return true;
-        }
-
-        await client.execute(createSql);
-        for (const ddl of [
+        const guardOptions = { injectedClient: client };
+        await ensureTableExists("sync_events", createSql, guardOptions);
+        await ensureIndexExists(
+          "sync_events_version_idx",
           "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+          guardOptions,
+        );
+        await ensureIndexExists(
+          "sync_events_owner_version_idx",
           "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
+          guardOptions,
+        );
+        await ensureIndexExists(
+          "sync_events_org_version_idx",
           "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-          "CREATE INDEX IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
-        ]) {
-          try {
-            await client.execute(ddl);
-          } catch {
-            // Index already exists or the dialect rejected a duplicate.
-          }
+          guardOptions,
+        );
+        await ensureIndexExistsConcurrently(
+          "sync_events_created_at_id_idx",
+          "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
+          guardOptions,
+        );
+        if (this.dbAssignedVersions) {
+          await ensureTableExists(
+            "sync_version",
+            "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
+            guardOptions,
+          );
+          await client.execute(SEED_SYNC_VERSION_SQL);
         }
         return true;
       })().catch(() => {
@@ -781,37 +750,22 @@ export class AppSyncState {
     let deleted = 0;
     try {
       for (let batch = 0; batch < DURABLE_PRUNE_MAX_BATCHES; batch++) {
-        const runBatch = async (tx: DbExec): Promise<number> => {
-          // `id IN (...)` rather than ctid/rowid: both are dialect-specific,
-          // and the primary key is indexed on every dialect we ship.
-          const result = await tx.execute({
-            sql: `DELETE FROM sync_events WHERE id IN (
-                    SELECT id FROM sync_events WHERE created_at < ?
-                    ORDER BY created_at, id LIMIT ?
-                  )`,
-            args: [cutoff, DURABLE_PRUNE_BATCH],
-          });
-          return result.rowsAffected;
-        };
-
-        const rowsAffected = this.isPg()
-          ? (
-              await client.execute({
-                sql: `WITH prune_lease AS MATERIALIZED (
-                       SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired
-                     ), prune_batch AS MATERIALIZED (
-                       SELECT sync_events.id
-                       FROM sync_events CROSS JOIN prune_lease
-                       WHERE prune_lease.acquired AND sync_events.created_at < ?
-                       ORDER BY sync_events.created_at, sync_events.id LIMIT ?
-                     )
-                     DELETE FROM sync_events WHERE id IN (
-                       SELECT id FROM prune_batch
-                     )`,
-                args: [DURABLE_PRUNE_LOCK_KEY, cutoff, DURABLE_PRUNE_BATCH],
-              })
-            ).rowsAffected
-          : await runBatch(client);
+        const rowsAffected = (
+          await client.execute({
+            sql: `WITH prune_lease AS MATERIALIZED (
+                   SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired
+                 ), prune_batch AS MATERIALIZED (
+                   SELECT sync_events.id
+                   FROM sync_events CROSS JOIN prune_lease
+                   WHERE prune_lease.acquired AND sync_events.created_at < ?
+                   ORDER BY sync_events.created_at, sync_events.id LIMIT ?
+                 )
+                 DELETE FROM sync_events WHERE id IN (
+                   SELECT id FROM prune_batch
+                 )`,
+            args: [DURABLE_PRUNE_LOCK_KEY, cutoff, DURABLE_PRUNE_BATCH],
+          })
+        ).rowsAffected;
         deleted += rowsAffected;
         if (rowsAffected < DURABLE_PRUNE_BATCH) break;
       }
@@ -863,12 +817,9 @@ export class AppSyncState {
     if (!(await this.ensureSyncEventsTable())) return;
     const client = this.getDb();
     await client.execute({
-      sql: this.isPg()
-        ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO NOTHING`
-        : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ON CONFLICT (id) DO NOTHING`,
       args: [
         // presetId lets a gated fallback reuse the allocating attempt's id,
         // so a commit-then-timeout can't produce the same event twice.
@@ -1189,7 +1140,7 @@ export class AppSyncState {
     },
     opts?: { dedupeKey?: string },
   ): void {
-    if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+    if (this.dbAssignedVersions && !syncEventsDisabled()) {
       // No provisional version may reach clients: cursors are max-only, so an
       // emitted clock version above a later DB allocation would recreate the
       // skew bug. Buffer/emit happen only after the DB returns the version,
@@ -1464,7 +1415,7 @@ export class AppSyncState {
       // sharee, so resource-scoped rows must still flow through that check
       // regardless of who owns them). A caller with no org passes a null
       // `orgId` bind param, which makes `org_id = ?` match no row in both
-      // dialects — mirroring the `event.orgId && orgId` truthy check.
+      // mirroring the `event.orgId && orgId` truthy check.
       const result = await this.getDb().execute({
         sql: `SELECT id, version, event_json FROM sync_events WHERE ${compositeCursorSql}
               AND (
@@ -1739,7 +1690,7 @@ export class AppSyncState {
       // allocator (a skew-fast writer's rows). Lift the allocator to the seed
       // BEFORE the seed can reach this.version — and through it, client
       // cursors — so no later allocation lands below a seeded cursor.
-      if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+      if (this.dbAssignedVersions && !syncEventsDisabled()) {
         await this.alignVersionAllocator(seedMax);
       }
       // Seed version — never decrease an already-set value
@@ -1807,7 +1758,7 @@ export class AppSyncState {
         // land in the same response — drain the chain here to keep that
         // contract (and so a serverless instance frozen after responding
         // can't strand them). The chain never rejects (backstopped).
-        if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+        if (this.dbAssignedVersions && !syncEventsDisabled()) {
           return this.recordChain;
         }
       })

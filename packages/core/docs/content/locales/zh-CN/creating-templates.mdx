@@ -177,7 +177,7 @@ npx @agent-native/core@latest create my-platform
 
 ## SQL中的模型数据 {#data-models}
 
-使用框架 Drizzle 帮助程序定义域表，以便架构在 SQLite、Postgres、D1、Turso、Supabase、Neon 和其他支持的后端之间保持可移植性：
+使用框架 Drizzle 助手定义域表，让 schema 使用 PostgreSQL 和 PGlite：
 
 ```ts filename="server/db/schema.ts"
 import {
@@ -209,12 +209,12 @@ export const projectShares = createSharesTable("project_shares");
 架构更改必须是增量式的。对于新的应用自有表和列，请使用
 `drizzle-kit generate` 在 `server/db/migrations/<id_name>.sql` 中
 生成可审查的 SQL，并在 Node.js 部署的发布步骤中通过
-`runDrizzleMigrations()` 加载。Cloudflare Workers/Pages 和 D1 没有可部署的
+`runDrizzleMigrations()` 加载。Cloudflare Workers/Pages 和其他 edge runtime 没有可部署的
 文件系统。在这些环境中，请将生成的 SQL 嵌入 worker bundle 并传给
 `runMigrations()`。手写的历史记录和特殊场景继续使用 `runMigrations()`。
 切勿使用破坏性的 SQL、`drizzle-kit push`、表重命名或列删除。
 
-对于应用程序读取和写入，请使用 Drizzle 的查询生成器和 `drizzle-orm` 的可移植运算符。当Drizzle可以表达查询时，不要使用原始SQL编写产品代码，并且不要在模板中从`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`导入。
+对于应用程序读取和写入，请使用 Drizzle 的查询生成器和 `drizzle-orm` 的 PostgreSQL 兼容运算符。当 Drizzle 可以表达查询时，不要使用原始 SQL 编写产品代码，并在模板中使用 `@agent-native/core/db/schema` 的 schema 助手。
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";

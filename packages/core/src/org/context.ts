@@ -655,8 +655,8 @@ const CLAIM_TTL_MS = 5 * 60 * 1000;
  *
  * Race protection: claims the user's auto-create slot via an atomic
  * INSERT into the framework `settings` table (PRIMARY KEY (key) — so
- * concurrent inserts for the same key throw uniqueness violations on
- * both SQLite and Postgres). Only the request that wins the claim
+ * concurrent inserts for the same key throw a Postgres uniqueness violation.
+ * Only the request that wins the claim
  * proceeds to create the org; losers bail. By the time a losing
  * request retries on a subsequent navigation, the winner's org is in
  * `org_members` and the auto-create branch is skipped entirely.

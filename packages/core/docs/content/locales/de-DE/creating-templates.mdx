@@ -177,7 +177,7 @@ Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche un
 
 ## Modelldaten in SQL {#data-models}
 
-Definieren Sie Domänentabellen mit den Framework-Drizzle-Helfern, damit Schemata über SQLite, Postgres, D1, Turso, Supabase, Neon und andere unterstützte Backends hinweg portierbar bleiben:
+Definieren Sie Domänentabellen mit den Framework-Drizzle-Helfern, damit die Schemata PostgreSQL und PGlite verwenden:
 
 ```ts filename="server/db/schema.ts"
 import {
@@ -210,13 +210,13 @@ Schemaänderungen müssen additiv sein. Verwenden Sie für neue app-eigene Tabel
 und Spalten `drizzle-kit generate`, um prüfbares SQL unter
 `server/db/migrations/<id_name>.sql` zu erzeugen, und laden Sie es über
 `runDrizzleMigrations()` im Release-Schritt auf Node.js-Deployments. Cloudflare
-Workers/Pages und D1 haben kein bereitstellbares Dateisystem. Betten Sie dort das
+Workers/Pages und andere Edge-Runtimes haben kein bereitstellbares Dateisystem. Betten Sie dort das
 generierte SQL in das Worker-Bundle ein und übergeben Sie es an
 `runMigrations()`. Behalten Sie `runMigrations()` für handgeschriebene Historie
 und Sonderfälle. Verwenden Sie niemals destruktives SQL, `drizzle-kit push`,
 Tabellenumbenennungen oder Spaltenlöschungen.
 
-Für App-Lese- und Schreibvorgänge verwenden Sie den Abfrage-Builder von Drizzle und die portablen Operatoren von `drizzle-orm`. Schreiben Sie keinen Produktcode mit rohem SQL, wenn Drizzle die Abfrage ausdrücken kann, und importieren Sie nicht aus `drizzle-orm/sqlite-core` oder `drizzle-orm/pg-core` in Vorlagen.
+Für App-Lese- und Schreibvorgänge verwenden Sie den Abfrage-Builder von Drizzle und die PostgreSQL-kompatiblen Operatoren von `drizzle-orm`. Schreiben Sie keinen Produktcode mit rohem SQL, wenn Drizzle die Abfrage ausdrücken kann, und verwenden Sie in Vorlagen die Schema-Helfer von `@agent-native/core/db/schema`.
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";

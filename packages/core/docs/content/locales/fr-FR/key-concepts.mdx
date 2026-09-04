@@ -1,6 +1,6 @@
 ---
 title: "Concepts clés"
-description: "Comment les applications Agent-Native fonctionnent à travers trois couches : le framework Core, les briques Toolkit facultatives et les Templates facultatifs, ainsi que les actions partagées, la base de données SQL, la boucle application-agent et les règles de portabilité."
+description: "Comment les applications Agent-Native fonctionnent à travers trois couches : le framework Core, les briques Toolkit facultatives et les Templates facultatifs, ainsi que les actions partagées, la base de données PostgreSQL, la boucle application-agent et les règles pour PGlite et Postgres."
 ---
 
 # Concepts clés
@@ -167,11 +167,11 @@ Adopter le framework est utile surtout pour ce que vous arrêtez de devoir const
 | Client + serveur MCP, dans les deux sens        | L'application ingère des serveurs MCP (locaux, distants, partagés par hub) _et_ expose ses propres actions en tant que serveur MCP. Voir [MCP Clients](/docs/mcp-clients) et [MCP Protocol](/docs/mcp-protocol).                                                                                                                                                                                                                                 |
 | Délégation inter-applications                   | Les agents de différentes applications communiquent via [A2A](/docs/a2a-protocol). Les déploiements de même origine se passent de JWT ; l'origine croisée utilise un `A2A_SECRET` partagé.                                                                                                                                                                                                                                                       |
 | Équipes de sous-agents                          | Générez un sous-agent avec son propre fil et ses propres outils, présenté sous forme de puce en ligne dans le chat. Voir [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                                                       |
-| Portabilité                                     | N'importe quelle base de données SQL prise en charge par Drizzle, n'importe quel hôte compatible Nitro (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                                      |
+| Portabilité | PostgreSQL avec PGlite local et Postgres hébergé, ainsi que tout hôte compatible Nitro (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun). |
 
 ## Données en SQL {#data-in-sql}
 
-Tout l'état de l'application vit dans une base de données SQL via Drizzle ORM. Les schémas sont indépendants du fournisseur ; les bases de données prises en charge, la configuration `DATABASE_URL` et les règles de portabilité se trouvent dans [Database](/docs/server-database).
+Tout l’état de l’application vit dans PostgreSQL via Drizzle ORM. Les schémas utilisent les aides PostgreSQL et PGlite ; la configuration `DATABASE_URL` et les règles d’exécution se trouvent dans [Database](/docs/server-database).
 
 Les magasins SQL Core sont créés automatiquement et disponibles dans chaque template :
 
@@ -468,11 +468,11 @@ Pour la matrice complète des protocoles/surfaces (serveur MCP et OAuth, MCP App
 
 Le framework n'accorde pas à l'agent intégré un accès ambiant au code source de l'application. Dans une application déployée, l'agent travaille normalement via les actions, l'état adossé à SQL et les intégrations configurées. Il peut modifier des composants, des routes, des styles et des actions lorsque son cadre reçoit intentionnellement l'accès à l'espace de travail et des outils d'écriture. Les templates sont des applications complètes que vous pouvez forker et personnaliser dans votre propre dépôt et flux de développement, dans tous les cas. Pour une personnalisation à l'exécution sans modification du code source, utilisez [Extensions](/docs/extensions).
 
-## Portable par défaut {#hosting-agnostic}
+## PostgreSQL par défaut {#hosting-agnostic}
 
-Deux règles architecturales garantissent la portabilité des applications entre bases de données et hébergeurs :
+Deux règles d’architecture gardent les applications cohérentes entre PGlite, Postgres hébergé et les différentes cibles d’hébergement :
 
-- **Indépendant de la base de données.** Écrivez les schémas avec `@agent-native/core/db/schema` et les lectures/écritures avec le DSL de requête portable de Drizzle, afin que le même code s'exécute sur n'importe quel fournisseur pris en charge. N'utilisez du SQL brut que pour des migrations additives ou de la maintenance ponctuelle, en le gardant paramétré et indépendant du dialecte. Voir [Database](/docs/server-database).
+- **PostgreSQL.** Écrivez les schémas avec `@agent-native/core/db/schema` et utilisez Drizzle pour les lectures et écritures. Utilisez du SQL PostgreSQL brut uniquement pour les migrations additives ou la maintenance ponctuelle, en le gardant compatible avec PGlite. Voir [Database](/docs/server-database).
 - **Indépendant de l'hébergement.** Le serveur s'exécute sur Nitro et se compile vers n'importe quelle cible de déploiement. N'utilisez jamais d'API spécifiques à Node (`fs`, `child_process`, `path`) dans les routes ou plugins serveur, et ne supposez jamais un processus serveur persistant. Serverless et edge sont sans état, gardez donc tout l'état dans SQL. Voir [Deployment](/docs/deployment).
 
 ## Agent Resources {#workspace}

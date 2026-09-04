@@ -262,7 +262,7 @@ export const analyticsPublicKeys = table("analytics_public_keys", {
 /**
  * First-party product analytics events recorded via /track.
  * Common dimensions are mirrored as columns so dashboards can group/filter
- * without dialect-specific JSON operators.
+ * using those columns directly.
  */
 export const analyticsEvents = table("analytics_events", {
   id: text("id").primaryKey(),
@@ -436,7 +436,6 @@ export const analyticsDbAdminConnections = table(
     appId: text("app_id"),
     appUrl: text("app_url"),
     databaseUrlSecretKey: text("database_url_secret_key").notNull(),
-    databaseAuthTokenSecretKey: text("database_auth_token_secret_key"),
     createdBy: text("created_by").notNull(),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

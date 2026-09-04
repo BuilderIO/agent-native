@@ -120,7 +120,7 @@
 - f44279a: Fix WebMCP action execution when hosts omit an abort signal.
 - 3d73d24: Focus the agent sidebar composer when a user opens it.
 - 1670de6: `/_agent-native/health?strict=1&schema=1` no longer reports a deploy healthy
-  when it silently fell back to a local SQLite file, and its schema probe now
+  when it silently fell back to a local database, and its schema probe now
   covers Better Auth's own tables. `runDatabaseSchemaHealthCheck` requires
   `user`, `session`, `account`, `verification`, and `jwks` whenever auth is
   enabled (skipped only when `AUTH_DISABLED` is set), so a missing `jwks` table
@@ -130,7 +130,7 @@
   configured production host apart from the host actually being served.
 
   `getDbExec()` now throws a typed `HostedRuntimeLocalDatabaseError` instead of
-  silently opening `file:./data/app.db` when a hosted function invocation (not
+  silently opening a local PGlite data directory when a hosted function invocation (not
   a Netlify build step, which also sets `NETLIFY=true`) resolves no database
   URL — a serverless instance's local filesystem is ephemeral and per-instance,
   so this was a deploy that looked green while quietly running on throwaway
@@ -400,7 +400,7 @@
 - b7e1cc9: Fail a `CONTEXT=production` release migration whose database URL is local or
   unconnectable, instead of silently migrating a throwaway file. Netlify hands the
   CLI a masked secret outside its own build infra, so the prebuilt deploy lane
-  applied the whole schema to a SQLite file in the build container, logged
+  applied the whole schema to a local database in the build container, logged
   `Applied migration ...`, exited 0, and published green while the deployed
   functions kept using a remote database that never received the schema. A masked
   value is neither empty nor a `file:` URL, so a local-database check alone does
@@ -1081,7 +1081,7 @@
 
 ### Patch Changes
 
-- 200e63b: Make the harness-session generation migration idempotent on SQLite.
+- 200e63b: Make the harness-session generation migration idempotent on Postgres.
 
 ## 0.172.9
 
@@ -1296,12 +1296,10 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - 0dc3cdd: Add `mcpTool` and `important` to `defineAction`, so an action declares its external-agent exposure and its first-request tool slot beside itself instead of in a plugin-level name list. `mcpTool` defaults to `agentTool`, so hiding an action from the agent hides it from outside agents too; declaring it overrides that inheritance in both directions. `mcpTool: false` hides an action from every MCP tier and the direct A2A surface (including the `--full-catalog` opt-in) while the in-app agent keeps calling it, `mcpTool: true` is the action-owned form of `mcp.connectorCatalog` membership, and `agentTool: false` with `mcpTool: true` makes an action MCP-only — external agents get it, the app's own agent does not. `deferLoading: false` keeps an action in the agent's first tool list and narrows the derived default to the actions that opted out of deferral, the action-owned form of `initialToolNames`; `deferLoading: true` pushes one behind `tool-search`. Both name lists keep working, so an app can migrate one action at a time.
 - c595519: Fix the chat-first workspace apps rail's active app having no visible selection indicator in both the collapsed and expanded rail layouts.
 - af1b3bb: Stop a transient boot failure from permanently breaking sign-in. `getBetterAuth()` cached its init promise before that promise settled, so one failed
-  initialization — a busy SQLite file, a momentary pool error — was replayed as a rejection to every later caller for the life of the process, and the only
+  initialization — a busy database connection or a momentary pool error — was replayed as a rejection to every later caller for the life of the process, and the only
   recovery was a restart. The failed attempt is now cleared so the next request re-initializes.
 
-  Also in the local-SQLite boot path: Better Auth opens the database through the shared `prepareLocalSqliteUrl()` / `sqliteFilenameFromUrl()` pair instead of
-  trimming the `file:` prefix by hand, so on serverless runtimes it lands on the same writable file as the app; and the `journal_mode = WAL` pragma is retried
-  on `SQLITE_BUSY` the way its documented sibling in `db/client.ts` already is.
+  The local database boot path now uses the same URL and file-resolution helpers as the app, and transient initialization failures are retried consistently.
 
   Separately, the injected beta environment switcher opened its stylesheet with a bare `color-scheme: dark;` declaration. A declaration at stylesheet top level
   is not a parse error that ends at its semicolon — the next qualified rule's prelude absorbs it, so `.environment-switcher` was dropped entirely and the badge
@@ -1322,7 +1320,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - baedb60: Fetch the headless browser at launch instead of embedding it in every serverless function. `@agent-native/creative-context` now depends on `@sparticuz/chromium-min` (46KB) rather than `@sparticuz/chromium` (66.4MB), and passes a version-pinned pack URL to `executablePath()`. The hosted Builder Browser path is unchanged and still preferred; this only affects the local-launch fallback, which now downloads the pack once per container. Set `AGENT_NATIVE_CHROMIUM_PACK_URL` to serve the pack from your own mirror. Measured on slides: server function 126.0MB → 59.6MB, total upload 243.8MB → 111.0MB.
 - c595519: Fix the shared `code` and `code-tabs` block specs so inserting one from a slash menu seeds real content instead of an empty `__raw` string — previously the freshly inserted block got permanently stuck on "Loading code block…" (or a terminal load error) because neither spec had an `empty()` factory.
 - aba438a: docs: correct the Clips Rewind documentation. Rewind is Clips' own local rolling recording, not a rewind.ai integration, and the pre-roll section is renamed to the product's "Add what happened before" and nested under Rewind.
-- baedb60: Stop shipping `better-sqlite3` in serverless function bundles. It is a local-development driver: every consumer is gated on a `file:` or schemeless `DATABASE_URL`, and a serverless function holding a file-backed SQLite database is already broken, since the filesystem is ephemeral and each container gets its own copy. Denying the package turns that misconfiguration into a loud failure instead of a silently empty database. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
+- baedb60: Stop shipping the local database driver in serverless function bundles. Every consumer is gated on a local `DATABASE_URL`, and a serverless function holding a file-backed database is already broken because the filesystem is ephemeral and each container gets its own copy. Denying the package turns that misconfiguration into a loud failure instead of a silently empty database. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
 - c595519: Fix the dev-server speculation-rules endpoint 404ing on the browser's real `Sec-Fetch-Dest: speculationrules` auto-fetch, logging a console error on every page load in `pnpm dev`.
 - 43c4adb: Allow transactional email definitions to re-register after a development hot reload while still rejecting conflicting catalog metadata for the same id. Add atomic, app-owned snapshot registration so conflicting or deleted catalog entries cannot leave partial or stale definitions behind while owned metadata changes refresh safely.
 - c595519: Fix EnvironmentBadge causing a React hydration mismatch on public SSR pages by deferring its content to a post-mount effect instead of branching on `typeof window` during render.
@@ -1403,9 +1401,9 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 41aa6e2: Let a manual automation run target a resource path, including the generic `run-automation-now` action and manage-automations `run-now` tool, so automations nested under `jobs/` (such as per-factory jobs) can be run immediately instead of failing with "A valid automation name is required." Preserve application-owned frontmatter when automation status is written back after a run, and dispatch local runs back to the inbound request host when present.
 - efbde51: Cut and ratchet serverless function payload size.
-  - Replace `better-sqlite3` with a throwing stub in serverless function bundles.
-    Every consumer is gated on a `file:` or schemeless `DATABASE_URL`, and a
-    function holding a file-backed SQLite database is already broken — the
+  - Replace the local database driver with a throwing stub in serverless function bundles.
+    Every consumer is gated on a local `DATABASE_URL`, and a
+    function holding a file-backed database is already broken — the
     filesystem is ephemeral and each container gets its own copy. The stub drops
     the 1.9MB native binding from every emitted function and turns that
     misconfiguration into a loud, specific error instead of a silently empty
@@ -1440,7 +1438,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 4de4af3: Point missing-provider recovery errors to Settings > Agent > AI providers.
 - 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
-- 4de4af3: Stop shipping the 9.3MB libsql native driver to deployments that never load it. `copyInstalledLibsqlNativePackages` ran unconditionally for netlify/vercel/aws-lambda, unlike its Chromium sibling which is gated on a real consumer probe. It is now gated the same way, on whether the emitted bundle actually imports the bare `libsql` addon — the only gate that cannot be wrong, since `getDialect()` reads `DATABASE_URL` at runtime and build-time dialect is unknowable. The one importer in the server graph was the `db-check-scoping` maintenance script, which now uses the existing `createSqliteScriptClient` (dynamic `better-sqlite3` / `@libsql/client/web`) instead of the static node entry. Measured on the docs app: server function 55.9MB → 46.6MB.
+- 4de4af3: Stop shipping unused native database packages to deployments. The deploy bundler now includes only database code that the emitted bundle actually imports. Measured on the docs app: server function 55.9MB → 46.6MB.
 - Release all public npm packages with a patch version bump.
 - 4de4af3: Keep chat turns queued through transient server-run handoffs and delay missing-final warnings until the run state settles.
 - 4de4af3: Show the Connect AI setup for desktop chat relay failures and keep other recovery actions compact.
@@ -1917,7 +1915,7 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 ### Patch Changes
 
-- 7bb5be0: Reject host-native better-sqlite3 binaries in Netlify server bundles before publication.
+- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
 - 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
 
 ## 0.164.21

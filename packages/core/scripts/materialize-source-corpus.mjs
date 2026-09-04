@@ -91,6 +91,7 @@ const excludedDirNames = new Set([
   "coverage",
   "corpus",
   "dist",
+  "pglite",
   "node_modules",
   "playwright-report",
   "scratch",
@@ -107,10 +108,6 @@ const excludedFileNames = new Set([
 ]);
 
 const excludedFileSuffixes = [
-  ".db",
-  ".db-journal",
-  ".db-shm",
-  ".db-wal",
   ".log",
   ".tsbuildinfo",
 ];

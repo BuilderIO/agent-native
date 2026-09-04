@@ -494,9 +494,7 @@ name extensions" (تبويب View) وتأكد من أن الملف المحفو�
 - `templates/calendar/actions/` — أضف ملفًا جديدًا باستخدام `defineAction`
   لكشف قدرة جديدة لكل من الوكيل والواجهة الأمامية.
 - `templates/calendar/app/routes/` — واجهة المستخدم، المذكورة أعلاه.
-- `templates/calendar/server/db/schema.ts` — أضف أعمدة أو جداول باستخدام
-  Drizzle. حافظ على أن يكون الرمز مستقلًا عن اللهجة (dialect) حتى يعمل
-  القالب على SQLite وPostgres وTurso وD1 وNeon.
+- `templates/calendar/server/db/schema.ts` — أضف أعمدة أو جداول باستخدام Drizzle. حافظ على توافق الكود مع PostgreSQL ليعمل القالب مع PGlite وPostgres.
 - `templates/calendar/server/lib/` — تكاملات المزوّدين: `google-calendar.ts`،
   و`zoom.ts`، و`people-search.ts`، و`ical-fetcher.ts`، و`find-time.ts`،
   و`provider-api.ts`.

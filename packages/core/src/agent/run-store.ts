@@ -12,7 +12,7 @@ import {
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
@@ -359,10 +359,7 @@ export const IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS = 120_000;
 export async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
-
-      // Shared CREATE SQL strings — referenced by both the Postgres and SQLite
-      // branches so the column definitions stay in one place.
+      // Shared CREATE SQL strings keep the table definitions together.
       const agentRunsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_runs (
           id TEXT PRIMARY KEY,
@@ -424,7 +421,6 @@ export async function ensureRunTables(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
         // Hot path: in production the tables and all additive columns are
         // virtually always already present. Issuing `CREATE TABLE`/`ALTER TABLE
         // ADD COLUMN` still takes an ACCESS EXCLUSIVE lock — which, in a fresh
@@ -536,118 +532,6 @@ export async function ensureRunTables(): Promise<void> {
         await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
         await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
         return;
-      }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep the
-      // original create-then-additive-alter behaviour. SQLite has no
-      // `ADD COLUMN IF NOT EXISTS`, so the ALTERs stay wrapped in try/catch.
-      await client.execute(agentRunsCreateSql);
-      // Backfill heartbeat_at on older deployments.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_runs ADD COLUMN heartbeat_at ${intType()}`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      try {
-        await client.execute(
-          `ALTER TABLE agent_runs ADD COLUMN abort_reason TEXT`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      // Backfill last_progress_at — this is distinct from heartbeat_at.
-      // heartbeat_at = "the producer process is alive" (bumped on a timer).
-      // last_progress_at = "the agent is actually emitting events" (bumped on
-      // each emit). The gap between them is the stuck-detector signal.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_runs ADD COLUMN last_progress_at ${intType()}`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      // Backfill in_flight_since — ms epoch when run-manager's in-memory
-      // `inFlightWorkCount` last transitioned 0->1, NULL once back to 0. Lets
-      // the cross-isolate stale reapers grant a bounded grace to a
-      // demonstrably-alive run even when the heartbeat write itself has
-      // failed. See `IN_FLIGHT_RUN_STALE_GRACE_MS` and `setRunInFlightMarker`.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_runs ADD COLUMN in_flight_since ${intType()}`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      // Backfill turn_id / error_code / error_detail.
-      //   turn_id    = stable identity for one logical assistant turn that may
-      //                span several continuation runs, so the durable record
-      //                can be folded across runs instead of dropped per-run.
-      //   error_code / error_detail = terminal failure classification captured
-      //                at completion so errored/cut-off runs are queryable for
-      //                pattern analysis (see listErroredRuns).
-      // dispatch_mode marks how a run was started: NULL/"foreground" for the
-      // normal client-continued synchronous path, "foreground-self-chain" for
-      // a foreground run whose continuation boundary is server-driven, and
-      // "background" for a run dispatched into a Netlify background function.
-      // The reaper/claim widen the stale window for background rows so a slow
-      // cold-start isn't falsely reaped.
-      // diag_stage records the last reached pipeline stage (+ any error) for a
-      // background-dispatched run so a silent worker death is DIAGNOSABLE from
-      // the client (/runs/active surfaces it) without reading the unreadable
-      // Netlify background-function logs. See recordRunDiagnostic.
-      for (const col of [
-        "turn_id",
-        "error_code",
-        "error_detail",
-        "terminal_reason",
-        "dispatch_mode",
-        "diag_stage",
-        "worker_stage",
-        "dispatch_payload",
-      ] as const) {
-        try {
-          await client.execute(`ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`);
-        } catch {
-          // Column already exists — ignore
-        }
-      }
-      await client.execute(agentRunEventsCreateSql);
-      try {
-        await client.execute(
-          `ALTER TABLE agent_run_events ADD COLUMN event_at ${intType()}`,
-        );
-      } catch {
-        // Column already exists — ignore
-      }
-      await client.execute(agentToolLedgerCreateSql);
-      try {
-        await client.execute(
-          `ALTER TABLE agent_tool_ledger ADD COLUMN artifacts_json TEXT`,
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/duplicate column name|column .* already exists/i.test(message)) {
-          throw error;
-        }
-      }
-      await client.execute(agentRunOutcomeDailyCreateSql);
-      // Widen millisecond-timestamp columns that older deployments created as
-      // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
-      // on every turn, so an int4 column makes every agent prompt fail on
-      // Postgres with "value … is out of range for type integer". No-op once
-      // widened (and on fresh DBs that already use BIGINT). See
-      // widenIntColumnsToBigInt.
-      await widenIntColumnsToBigInt("agent_runs", [
-        "started_at",
-        "completed_at",
-        "heartbeat_at",
-        "last_progress_at",
-        "in_flight_since",
-      ]);
-      await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
-      await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -837,9 +721,8 @@ export async function insertRun(
  * background states get the wider window via a LIKE-prefix match.
  */
 function backgroundAwareStaleCutoffSql(): string {
-  // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as
-  // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
-  // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
+  // `CAST(? AS BIGINT)` is required because the bound `Date.now()` millisecond
+  // epoch must stay 64-bit in Postgres.
   // The tight post-claim window buys ONE thing: reaching the durable successor
   // sooner (see BACKGROUND_PROCESSING_RUN_STALE_MS). A row with no
   // `dispatch_payload` has no successor to reach — `attemptStaleRunRecovery`
@@ -954,8 +837,7 @@ function terminalRunEventExclusionSql(runIdColumn = "id"): string {
  * reaped mid-tool. It can only make reaping MORE conservative — a genuinely dead
  * producer emits neither signal — so a truly-dead run is still reaped.
  *
- * Portable across SQLite and Postgres (CASE + COALESCE only; no GREATEST or
- * scalar MAX, which differ between engines).
+ * CASE + COALESCE keep the liveness expression explicit for Postgres.
  */
 function livenessBasisSql(): string {
   return `(CASE WHEN COALESCE(last_progress_at, started_at) > COALESCE(heartbeat_at, started_at) THEN COALESCE(last_progress_at, started_at) ELSE COALESCE(heartbeat_at, started_at) END)`;
@@ -1180,8 +1062,7 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
         id,
         startedAt:
           typeof startedAt === "number" ? startedAt : Number(startedAt) || 0,
-        // SQLite returns 1/0 where Postgres returns a boolean.
-        hasDispatchPayload: hasPayload === true || hasPayload === 1,
+        hasDispatchPayload: hasPayload === true,
       });
     }
   }
@@ -1252,9 +1133,8 @@ export async function getRunOwnerEmail(runId: string): Promise<string | null> {
 /**
  * Atomically acquire a run lease for a thread. Succeeds (returns true) only
  * when no other run for the same thread is currently status='running' with a
- * fresh heartbeat. Works for both Postgres and SQLite: the stale-cutoff
- * comparison lets a dead producer's run be replaced without waiting for the
- * reaper, mirroring the logic in `reapIfStale`.
+ * fresh heartbeat. The stale-cutoff comparison lets a dead producer's run be
+ * replaced without waiting for the reaper, mirroring `reapIfStale`.
  *
  * Callers that win the claim then insert the run row normally; callers that
  * lose skip the run and return the existing active runId to the caller.
@@ -1741,7 +1621,7 @@ export async function bumpRunProgress(runId: string): Promise<boolean> {
     // Multiple event-persistence paths and serverless isolates can bump the
     // same run concurrently. A slower, older write must never land after a
     // newer one and move the user-visible no-progress clock backwards.
-    // CASE keeps this portable across SQLite and Postgres.
+    // CASE preserves the newer progress timestamp under concurrent writes.
     sql: `UPDATE agent_runs SET last_progress_at = CASE WHEN last_progress_at IS NULL OR last_progress_at < ? THEN ? ELSE last_progress_at END WHERE id = ? AND status = 'running'`,
     args: [now, now, runId],
   });
@@ -3061,7 +2941,7 @@ const RUN_OUTCOME_PRUNE_LOCK_KEY = "agent-native:run-outcome-prune";
  * Postgres callers take a transaction-scoped advisory lease before the claim.
  * The bounded DELETE ... RETURNING is still the source of truth for which rows
  * this invocation owns. Grouping the returned rows in TypeScript avoids
- * dialect-specific date SQL.
+ * PostgreSQL date SQL.
  * Counter upserts run in the same transaction as the delete; a failed upsert
  * rolls back the claim so the source rows remain available for a retry.
  */
@@ -3071,7 +2951,7 @@ async function pruneAndRollUpPrunedRunOutcomes(
   erroredCutoff: number,
 ): Promise<void> {
   const prune = async (tx: ReturnType<typeof getDbExec>): Promise<void> => {
-    if (isPostgres()) {
+    {
       const lockResult = await tx.execute({
         sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
         args: [RUN_OUTCOME_PRUNE_LOCK_KEY],
@@ -3151,7 +3031,7 @@ async function pruneAndRollUpPrunedRunOutcomes(
       return;
     }
 
-    await client.execute(isPostgres() ? "BEGIN" : "BEGIN IMMEDIATE");
+    await client.execute("BEGIN");
     try {
       await prune(client);
       await client.execute("COMMIT");

@@ -21,7 +21,6 @@
     "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/outfit": "^5.2.8",
-    "@libsql/client": "^0.15.8",
     "@supabase/supabase-js": "^2.101.1",
     "@tabler/icons-react": "catalog:",
     "drizzle-orm": "^0.45.2",

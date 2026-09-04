@@ -1249,7 +1249,7 @@ function createLocalProjectIr(sourceRoot: string): ProjectIRLike {
       });
     }
     if (
-      /\b(drizzle|prisma|postgres|supabase|mysql|sqlite|mongoose)\b/i.test(text)
+      /\b(drizzle|prisma|postgres|supabase)\b/i.test(text)
     ) {
       behavior.dataStores.push({
         id: stableId(`${file}:data`),

@@ -37,7 +37,7 @@ If Dispatch synced the vault into a different organization, set
 Connect providers in Dispatch or in Settings -> Integrations. Factory resolves
 Slack, GitHub, Sentry, and other supported provider credentials from
 the shared workspace vault. Hosted Factory does not read provider keys from
-deployment environment variables. Local sqlite development (`pnpm dev`) may
+deployment environment variables. Local development (`pnpm dev`) may
 use `.env` Slack, GitHub, and Sentry tokens when no connection or vault row
 exists. To migrate an existing deployment, add the provider
 connection in the standard workspace integration surface, verify it, and then

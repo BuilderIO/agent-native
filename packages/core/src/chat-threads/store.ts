@@ -5,7 +5,7 @@ import {
   normalizeThreadRepository,
   normalizeThreadTitle,
 } from "../agent/thread-data-builder.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
@@ -21,7 +21,6 @@ import { emitChatThreadChange } from "./emitter.js";
 import {
   chatThreads,
   chatThreadShares,
-  CHAT_THREAD_SHARES_CREATE_SQL,
   CHAT_THREAD_SHARES_CREATE_SQL_PG,
   CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
 } from "./schema.js";
@@ -70,7 +69,6 @@ export function withThreadDataLock<T>(
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS chat_threads (
           id TEXT PRIMARY KEY,
@@ -95,7 +93,7 @@ async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
+      {
         // Hot path: the `chat_threads` table and its indexes are virtually
         // always already present in production. Issuing `CREATE TABLE`/
         // `CREATE INDEX` still takes a lock that, in a fresh background-worker
@@ -192,68 +190,6 @@ async function ensureTable(): Promise<void> {
         return;
       }
 
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Additive migration for existing tables. Both SQLite and Postgres
-      // accept `ALTER TABLE ADD COLUMN` and will raise when the column
-      // already exists; the try/catch makes the call idempotent across
-      // both dialects without requiring an information_schema probe.
-      for (const [col, type] of [
-        ["scope_type", "TEXT"],
-        ["scope_id", "TEXT"],
-        ["scope_label", "TEXT"],
-        ["pinned_at", intType()],
-        ["archived_at", intType()],
-        ["share_token_hash", "TEXT"],
-        ["source_platform", "TEXT"],
-        ["source_app_id", "TEXT"],
-        ["source_url", "TEXT"],
-        ["org_id", "TEXT"],
-        ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
-      ] as const) {
-        try {
-          await client.execute(
-            `ALTER TABLE chat_threads ADD COLUMN ${col} ${type}`,
-          );
-        } catch {
-          // Column already exists.
-        }
-      }
-      try {
-        await client.execute(CHAT_THREAD_SHARES_CREATE_SQL);
-      } catch {
-        // Table already exists.
-      }
-      // Widen millisecond-timestamp columns that older deployments created as
-      // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
-      // overflows int4. No-op once widened / on fresh BIGINT databases.
-      await widenIntColumnsToBigInt("chat_threads", [
-        "created_at",
-        "updated_at",
-        "pinned_at",
-        "archived_at",
-      ]);
-      // Indexes for the hot read paths. Both the sidebar list and the
-      // scoped/per-resource list filter on owner_email (and optionally
-      // scope) and sort by updated_at. Keep these dialect-agnostic (no
-      // DESC, partial, or PG-only syntax) so they apply identically on
-      // SQLite and the configured Postgres. `IF NOT EXISTS` makes them
-      // idempotent across restarts.
-      for (const ddl of [
-        `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_source_updated_idx ON chat_threads (owner_email, source_app_id, updated_at)`,
-        `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
-        CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
-      ]) {
-        try {
-          await client.execute(ddl);
-        } catch {
-          // Index already exists or the dialect rejected a duplicate.
-        }
-      }
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

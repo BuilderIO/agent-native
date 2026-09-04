@@ -1,9 +1,4 @@
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  isUniqueViolation,
-} from "../db/client.js";
+import { getDbExec, intType, isUniqueViolation } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
@@ -42,7 +37,6 @@ export interface QueryResourceVersionsInput {
 export async function ensureResourceVersionsTable(): Promise<void> {
   if (!historyTableInitPromise) {
     historyTableInitPromise = (async () => {
-      const client = getDbExec();
       const createSql = `CREATE TABLE IF NOT EXISTS agent_resource_versions (
       id TEXT PRIMARY KEY,
       resource_type TEXT NOT NULL,
@@ -68,7 +62,7 @@ export async function ensureResourceVersionsTable(): Promise<void> {
            ON agent_resource_versions (org_id, created_at)`,
       ];
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("agent_resource_versions", createSql);
         await ensureIndexExists(
           "idx_agent_resource_versions_resource_number",
@@ -79,11 +73,6 @@ export async function ensureResourceVersionsTable(): Promise<void> {
           indexes[1],
         );
         await ensureIndexExists("idx_agent_resource_versions_org", indexes[2]);
-      } else {
-        await client.execute(createSql);
-        for (const indexSql of indexes) {
-          await client.execute(indexSql);
-        }
       }
     })();
   }

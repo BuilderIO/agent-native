@@ -1,9 +1,4 @@
-import {
-  getDbExec,
-  isPostgres,
-  intType,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 import { serializeBoundedRemoteJson } from "./remote-json-safety.js";
 import type { RemoteLiveViewEvent, RemoteRunEvent } from "./remote-types.js";
@@ -31,32 +26,15 @@ function buildCreateSql(): string {
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = buildCreateSql();
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("integration_remote_run_events", createSql);
-        await ensureIndexExists(
-          "idx_remote_run_events_unique",
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_run_events_unique ON integration_remote_run_events(device_id, remote_run_id, seq)`,
-        );
-        await ensureIndexExists(
-          "idx_remote_run_events_run",
-          `CREATE INDEX IF NOT EXISTS idx_remote_run_events_run ON integration_remote_run_events(device_id, remote_run_id, seq)`,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_run_events_unique ON integration_remote_run_events(device_id, remote_run_id, seq)`,
-        ),
+      await ensureTableExists("integration_remote_run_events", createSql);
+      await ensureIndexExists(
+        "idx_remote_run_events_unique",
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_run_events_unique ON integration_remote_run_events(device_id, remote_run_id, seq)`,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_run_events_run ON integration_remote_run_events(device_id, remote_run_id, seq)`,
-        ),
+      await ensureIndexExists(
+        "idx_remote_run_events_run",
+        `CREATE INDEX IF NOT EXISTS idx_remote_run_events_run ON integration_remote_run_events(device_id, remote_run_id, seq)`,
       );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.

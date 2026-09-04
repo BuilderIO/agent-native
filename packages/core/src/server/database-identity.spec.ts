@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => {
   return {
     rows,
     getAppConfig: vi.fn(() => ({ app: {} as { slug?: string; id?: string } })),
-    isPostgres: vi.fn(() => false),
     mutateSetting: vi.fn(
       async (
         key: string,
@@ -33,7 +32,6 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../app-config/index.js", () => ({ getAppConfig: mocks.getAppConfig }));
-vi.mock("../db/client.js", () => ({ isPostgres: mocks.isPostgres }));
 vi.mock("../settings/store.js", () => ({
   mutateSetting: mocks.mutateSetting,
   getSetting: mocks.getSetting,
@@ -50,7 +48,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.rows.clear();
   mocks.getAppConfig.mockReturnValue({ app: {} });
-  mocks.isPostgres.mockReturnValue(false);
 });
 
 describe("resolveRunningAppIdentity", () => {

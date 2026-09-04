@@ -324,12 +324,9 @@ const messages = {
     sharePubliclyDescription:
       "सामग्री को सार्वजनिक रूप से साझा करने के लिए क्लाउड डेटाबेस कनेक्ट करें।",
     providerDescriptions: {
-      turso: "एज पर SQLite",
       neon: "सर्वरलेस Postgres",
       supabase: "Firebase का ओपन सोर्स विकल्प",
-      d1: "एज पर SQLite",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "सेटअप चरण",
     authToken: "प्रमाणीकरण टोकन",
     connectedReloading: "सफलतापूर्वक कनेक्ट हुआ। फिर से लोड हो रहा है...",

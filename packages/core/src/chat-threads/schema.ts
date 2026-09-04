@@ -30,7 +30,7 @@ export const CHAT_THREAD_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS chat_th
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
 export const CHAT_THREAD_SHARES_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS chat_thread_shares (

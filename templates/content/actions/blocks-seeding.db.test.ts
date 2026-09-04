@@ -1,6 +1,6 @@
 // Integration tests for the DB-enforced single-primary Blocks invariant and the
-// independent block-field content store. Boots a real libsql (SQLite) database
-// in-memory, runs the actual versioned migrations, then drives the store-layer
+// independent block-field content store. Boots a real PGlite database, runs the
+// actual versioned migrations, then drives the store-layer
 // functions directly — the seam where review findings 1, 4, 5, and 7 live.
 
 import { rmSync } from "node:fs";
@@ -24,12 +24,11 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
-// A unique on-disk SQLite file in the OS temp dir, removed after the run. Kept
-// out of the repo working tree and isolated from the process-wide getDbExec
-// singleton other test files share.
+// A unique on-disk PGlite directory in the OS temp dir, removed after the run.
+// It is isolated from the process-wide getDbExec singleton other test files share.
 const TEST_DB_PATH = join(
   tmpdir(),
-  `blocks-seeding-test-${process.pid}-${Date.now()}.sqlite`,
+  `blocks-seeding-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -54,7 +53,7 @@ let deleteDocumentPropertyAction: typeof import("./delete-document-property.js")
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -86,9 +85,7 @@ beforeAll(async () => {
 }, 60000); // cold-import of the db module + migrations exceeds the default 10s hook timeout
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;

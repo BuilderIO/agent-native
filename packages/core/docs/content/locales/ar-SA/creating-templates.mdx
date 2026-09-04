@@ -177,7 +177,7 @@ npx @agent-native/core@latest create my-platform
 
 ## بيانات النموذج في SQL {#data-models}
 
-حدد جداول المجال باستخدام إطار العمل المساعد Drizzle بحيث تظل المخططات قابلة للنقل عبر SQLite، وPostgres، وD1، وTurso، وSupabase، وNeon، والواجهات الخلفية المدعومة الأخرى:
+حدد جداول المجال باستخدام مساعدات Drizzle في إطار العمل بحيث تستخدم المخططات PostgreSQL وPGlite:
 
 ```ts filename="server/db/schema.ts"
 import {
@@ -210,12 +210,12 @@ export const projectShares = createSharesTable("project_shares");
 بالتطبيق، استخدم `drizzle-kit generate` لإنشاء SQL قابل للمراجعة ضمن
 `server/db/migrations/<id_name>.sql`، ثم حمّله عبر
 `runDrizzleMigrations()` من خطوة الإصدار في عمليات نشر Node.js. لا يوفر
-Cloudflare Workers/Pages وD1 نظام ملفات قابلًا للنشر، لذا ضمّن SQL المُنشأ في
+Cloudflare Workers/Pages وبيئات edge الأخرى لا توفر نظام ملفات قابلًا للنشر، لذا ضمّن SQL المُنشأ في
 حزمة العامل ومرّره إلى `runMigrations()` هناك. احتفظ بـ `runMigrations()` للتاريخ
 المكتوب يدويًا والحالات الخاصة. لا تستخدم مطلقًا SQL أو `drizzle-kit push` أو
 إعادة تسمية الجداول أو إسقاط الأعمدة.
 
-لقراءة التطبيق وكتابته، استخدم منشئ الاستعلامات والمشغلات المحمولة Drizzle من `drizzle-orm`. لا تكتب رمز المنتج باستخدام SQL الخام عندما يتمكن Drizzle من التعبير عن الاستعلام، ولا تستورد من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core` في القوالب.
+لقراءة التطبيق وكتابته، استخدم منشئ الاستعلامات والمشغلات المحمولة Drizzle من `drizzle-orm`. لا تكتب رمز المنتج باستخدام SQL الخام عندما يتمكن Drizzle من التعبير عن الاستعلام، واستخدم مساعدات المخطط من `@agent-native/core/db/schema` في القوالب.
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";

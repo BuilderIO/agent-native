@@ -3,7 +3,7 @@ import type { DbAdminColumn } from "../../db-admin/types.js";
 /**
  * Type-aware cell formatting and parsing helpers for the DB admin grid.
  *
- * These are intentionally dialect-agnostic: they look at the column's `type`
+ * These are intentionally type-driven: they look at the column's `type`
  * string and normalize it into one of a small set of editor "kinds" that drive
  * which editor UI is rendered and how values are parsed back into the mutation
  * payload.
@@ -42,7 +42,6 @@ const JSON_TYPES = ["json", "jsonb"];
 const TIMESTAMP_TYPES = [
   "timestamp",
   "timestamptz",
-  "datetime",
   "date",
   "time",
   "timetz",
@@ -57,8 +56,8 @@ function normalizeType(col: DbAdminColumn): string {
  * Try to pull allowed enum values out of a column definition.
  *
  * The base contract column shape (`DbAdminColumn`) only carries a `type`
- * string, but introspection may attach extra fields per dialect. We probe a
- * few likely shapes and also parse a Postgres/MySQL-style inline list embedded
+ * string, but introspection may attach extra fields. We probe a
+ * few likely shapes and also parse a Postgres-style inline list embedded
  * in the type string, e.g. `enum('a','b')`.
  */
 export function inferEnumValues(col: DbAdminColumn): string[] | null {

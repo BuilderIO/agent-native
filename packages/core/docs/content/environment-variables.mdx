@@ -66,8 +66,7 @@ public app behavior, use the config paths above instead.
 
 | Variable                                       | What it controls                                                                                                                                                        | Supported values or format                                                                                              |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                 | Primary SQL connection. Local development falls back to SQLite when it is unset. Production also accepts `<APP_NAME>_DATABASE_URL` or Netlify's `NETLIFY_DATABASE_URL`. | A provider-specific SQL URL, or unset for local SQLite.                                                                 |
-| `DATABASE_AUTH_TOKEN`                          | Separate database token when the database provider requires one.                                                                                                        | An opaque provider token, or unset when the URL includes authentication.                                                |
+| `DATABASE_URL`                                 | Primary PostgreSQL connection. Local development falls back to PGlite when it is unset. Production also accepts `<APP_NAME>_DATABASE_URL` or Netlify's `NETLIFY_DATABASE_URL`. | A PostgreSQL URL, or unset for local PGlite.                                                                            |
 | `APP_URL`                                      | Optional canonical public origin used for auth, OAuth, A2A, webhooks, and generated links. Netlify and Vercel metadata are inferred when it is unset.                   | An absolute public `http(s)` origin.                                                                                    |
 | `BETTER_AUTH_URL`                              | Optional Better Auth origin override. Known template or request context, `APP_URL`, and platform metadata such as Netlify or Vercel are used when it is unset.          | An absolute public `http(s)` origin.                                                                                    |
 | `BETTER_AUTH_TRUSTED_ORIGINS`                  | Exact browser origins trusted by Better Auth, including configured host aliases.                                                                                        | A comma-separated list of absolute `http(s)` origins; wildcards are not accepted.                                       |
@@ -121,11 +120,11 @@ Do not copy a five-variable auth checklist into every app. The framework
 defaults `AUTH_DISABLED` to false and infers `BETTER_AUTH_URL` from known
 template/request context and hosting platform metadata. A standalone production app normally
 needs only one auth-specific deploy secret, `BETTER_AUTH_SECRET`, plus a
-persistent SQL URL. Workspace deployments can use the already-required
+persistent PostgreSQL URL. Workspace deployments can use the already-required
 `A2A_SECRET` to derive the Better Auth secret and trusted internal signing
 keys.
 
-Local development intentionally uses SQLite when no database URL is present
+Local development intentionally uses PGlite when no database URL is present
 and an ephemeral Better Auth secret when no local secret is configured. Those
 fallbacks keep `pnpm dev` zero-setup, but they are not silently accepted as
 production configuration. The build and runtime diagnostics report missing or
@@ -211,11 +210,10 @@ uppercase it, and replace non-alphanumeric characters with `_`:
 ```bash
 APP_NAME=mail
 MAIL_DATABASE_URL=<MAIL_DATABASE_URL>
-MAIL_DATABASE_AUTH_TOKEN=<MAIL_DATABASE_AUTH_TOKEN>
 MAIL_SECRETS_ENCRYPTION_KEY=<MAIL_SECRETS_ENCRYPTION_KEY>
 ```
 
-The prefix form is supported for database URLs/tokens and app-local secret
+The prefix form is supported for database URLs and app-local secret
 encryption. Do not invent a prefix for an arbitrary variable; use
 `apps/<name>/.env` or the shared root `.env` according to the variable's scope.
 

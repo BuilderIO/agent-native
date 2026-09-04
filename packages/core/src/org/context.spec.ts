@@ -12,7 +12,6 @@ vi.mock("../db/client.js", async (importOriginal) => ({
   // behavior under test, so it must not be stubbed.
   ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => ({ execute: mockExecute }),
-  isPostgres: () => false,
   isLocalDatabase: () => true,
 }));
 vi.mock("../server/auth.js", () => ({
@@ -773,7 +772,9 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rows: [] }); // memberships
       mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockRejectedValueOnce(
-        new Error("UNIQUE constraint failed: settings.key"),
+        new Error(
+          "duplicate key value violates unique constraint settings_pkey",
+        ),
       );
       mockExecute.mockResolvedValueOnce({ rowsAffected: 0 }); // stale UPDATE, no match
       const ctx = await getOrgContext(EVENT);
@@ -795,7 +796,9 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rows: [] }); // memberships
       mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockRejectedValueOnce(
-        new Error("UNIQUE constraint failed: settings.key"),
+        new Error(
+          "duplicate key value violates unique constraint settings_pkey",
+        ),
       ); // acquireClaim INSERT conflicts
       mockExecute.mockResolvedValueOnce({ rowsAffected: 1 }); // stale UPDATE wins
       mockExecute.mockResolvedValueOnce({ rows: [] }); // hasPendingInvitation -> none

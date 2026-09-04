@@ -2028,7 +2028,6 @@ function postProcessStandalone(
       : "";
     const sections: Record<string, Record<string, string>> = {
       allowBuilds: {
-        "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
         "tesseract.js": "true",
@@ -4122,5 +4121,8 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   ) {
     return true;
   }
-  return name.endsWith(".tmp.json") || /\.db(?:-shm|-wal)?$/.test(name);
+  return (
+    name === "pglite" &&
+    pathParts?.at(-2) === "data"
+  ) || name.endsWith(".tmp.json");
 }

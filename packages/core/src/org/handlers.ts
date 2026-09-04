@@ -36,7 +36,7 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppProductionUrl } from "../server/app-url.js";
@@ -842,7 +842,7 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const settingsTable = isPostgres() ? "public.settings" : "settings";
+  const settingsTable = "public.settings";
   const settingsPrefix = `o:${ctx.orgId}:`.replace(
     /[!%_]/g,
     (character) => `!${character}`,

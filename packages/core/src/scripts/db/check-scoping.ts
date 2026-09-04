@@ -1,54 +1,31 @@
 /**
  * Core script: db-check-scoping
  *
- * Validates that all template tables have the required ownership columns
- * (owner_email, org_id) for per-user and per-org data scoping.
- *
- * Tables without these columns are denied to raw db-* tools by default. If a
- * table should be queryable/writable through raw DB tools, add explicit
- * owner_email/org_id scoping columns and an additive migration.
- *
- * Usage:
- *   pnpm action db-check-scoping [--db path] [--require-org] [--format json]
+ * Validate that application tables expose owner_email and, when requested,
+ * org_id for raw database-tool scoping.
  */
 
-import path from "path";
+import path from "node:path";
 
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs } from "../utils.js";
-// The `@libsql/client` node entry pulls the `libsql` native addon into whatever
-// graph imports it, and this maintenance script was its only importer in the
-// server bundle — which is how a 9.3MB Linux SQLite driver reached the docs
-// function, a deployment that runs Postgres. `createSqliteScriptClient` reaches
-// the same two backends through dynamic imports instead, so nothing static
-// depends on the native package.
-import { createSqliteScriptClient } from "./sqlite-client.js";
-
-function isPostgresUrl(url: string): boolean {
-  return url.startsWith("postgres://") || url.startsWith("postgresql://");
-}
+import { createPostgresScriptClient } from "./postgres-client.js";
 
 interface TableColumn {
   table: string;
   column: string;
 }
 
-// Core tables that have their own scoping — skip these in validation
 const CORE_TABLES = new Set([
   "settings",
   "application_state",
   "oauth_tokens",
   "sessions",
-  // framework internal tables
   "resources",
   "chat_threads",
   "chat_messages",
   "chat_tasks",
   "recurring_jobs",
-  // drizzle/migration tables
-  "__drizzle_migrations",
-  "_litestream_lock",
-  "_litestream_seq",
 ]);
 
 interface ValidationResult {
@@ -59,156 +36,84 @@ interface ValidationResult {
 }
 
 function validate(
-  allColumns: TableColumn[],
+  columns: TableColumn[],
   requireOrg: boolean,
 ): ValidationResult[] {
-  const columnsByTable = new Map<string, string[]>();
-  for (const { table, column } of allColumns) {
-    const cols = columnsByTable.get(table) || [];
-    cols.push(column);
-    columnsByTable.set(table, cols);
+  const byTable = new Map<string, string[]>();
+  for (const { table, column } of columns) {
+    byTable.set(table, [...(byTable.get(table) ?? []), column]);
   }
-
   const results: ValidationResult[] = [];
-
-  for (const [table, columns] of columnsByTable) {
-    // Skip core/framework tables
-    if (CORE_TABLES.has(table)) continue;
-    // Skip migration-related tables
-    if (table.startsWith("_")) continue;
-
-    const hasOwnerEmail = columns.includes("owner_email");
-    const hasOrgId = columns.includes("org_id");
-    const issues: string[] = [];
-
-    if (!hasOwnerEmail) {
-      issues.push("missing owner_email column — not scoped per-user");
-    }
-    if (requireOrg && !hasOrgId) {
-      issues.push("missing org_id column — not scoped per-org");
-    }
-
+  for (const [table, tableColumns] of byTable) {
+    if (CORE_TABLES.has(table) || table.startsWith("_")) continue;
+    const hasOwnerEmail = tableColumns.includes("owner_email");
+    const hasOrgId = tableColumns.includes("org_id");
+    const issues = [
+      hasOwnerEmail ? null : "missing owner_email column",
+      requireOrg && !hasOrgId ? "missing org_id column" : null,
+    ].filter((issue): issue is string => issue !== null);
     results.push({ table, hasOwnerEmail, hasOrgId, issues });
   }
-
   return results;
 }
 
-async function discoverColumnsPostgres(pgSql: any): Promise<TableColumn[]> {
-  const rows: any[] = await pgSql`
-    SELECT table_name, column_name
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-    ORDER BY table_name, ordinal_position
-  `;
-  return rows.map((r) => ({ table: r.table_name, column: r.column_name }));
-}
-
-async function discoverColumnsSqlite(client: any): Promise<TableColumn[]> {
-  const tablesResult = await client.execute(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
-  );
-  const tables = tablesResult.rows.map((r: any) => (r.name ?? r[0]) as string);
-
-  const result: TableColumn[] = [];
-  for (const table of tables) {
-    const escaped = table.replace(/"/g, '""');
-    const colsResult = await client.execute(`PRAGMA table_info("${escaped}")`);
-    for (const row of colsResult.rows) {
-      result.push({
-        table,
-        column: (row.name ?? row[1]) as string,
-      });
-    }
-  }
-  return result;
+async function discoverColumns(client: {
+  unsafe(sql: string, args?: unknown[]): Promise<unknown[]>;
+}): Promise<TableColumn[]> {
+  const rows = (await client.unsafe(
+    `SELECT table_name, column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+      ORDER BY table_name, ordinal_position`,
+  )) as Array<{ table_name: string; column_name: string }>;
+  return rows.map((row) => ({ table: row.table_name, column: row.column_name }));
 }
 
 export default async function dbCheckScoping(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
-
   if (parsed.help === "true") {
     console.log(`Usage: pnpm action db-check-scoping [options]
 
 Options:
-  --db <path>       Path to SQLite database (default: data/app.db)
-  --require-org     Also check for org_id column (for multi-org apps)
+  --db <path>       PGlite data directory (default: data/pglite)
+  --require-org     Also check for org_id columns
   --format json     Output as JSON
   --help            Show this help message`);
     return;
   }
-
-  const requireOrg = parsed["require-org"] === "true";
-  const format = parsed.format;
-
-  // Resolve database URL
-  let url: string;
-  if (parsed.db) {
-    url = "file:" + path.resolve(parsed.db);
-  } else if (getDatabaseUrl()) {
-    url = getDatabaseUrl();
-  } else {
-    url = "file:" + path.resolve(process.cwd(), "data", "app.db");
-  }
-
-  let allColumns: TableColumn[];
-
-  if (isPostgresUrl(url)) {
-    const { default: pg } = await import("postgres");
-    const pgSql = pg(url);
-    try {
-      allColumns = await discoverColumnsPostgres(pgSql);
-    } finally {
-      await pgSql.end();
+  const url = parsed.db
+    ? `pglite:${path.resolve(parsed.db)}`
+    : getDatabaseUrl("pglite:./data/pglite");
+  const client = await createPostgresScriptClient(url);
+  try {
+    const results = validate(
+      await discoverColumns(client),
+      parsed["require-org"] === "true",
+    );
+    if (parsed.format === "json") {
+      console.log(JSON.stringify({ tables: results }, null, 2));
+      return;
     }
-  } else {
-    const client = await createSqliteScriptClient(url);
-    try {
-      allColumns = await discoverColumnsSqlite(client);
-    } finally {
-      void client.close();
-    }
-  }
-
-  const results = validate(allColumns, requireOrg);
-
-  if (format === "json") {
-    console.log(JSON.stringify({ tables: results }, null, 2));
-    return;
-  }
-
-  const withIssues = results.filter((r) => r.issues.length > 0);
-  const ok = results.filter((r) => r.issues.length === 0);
-
-  if (ok.length > 0) {
-    console.log("Scoped tables:");
-    for (const r of ok) {
-      const scopes = [
-        r.hasOwnerEmail ? "owner_email" : null,
-        r.hasOrgId ? "org_id" : null,
-      ]
-        .filter(Boolean)
-        .join(", ");
-      console.log(`  ✓ ${r.table} (${scopes})`);
-    }
-    console.log();
-  }
-
-  if (withIssues.length > 0) {
-    console.log("Tables denied to raw DB tools:");
-    for (const r of withIssues) {
-      for (const issue of r.issues) {
-        console.log(`  ✗ ${r.table} — ${issue}`);
+    const issues = results.filter((result) => result.issues.length > 0);
+    for (const result of results) {
+      if (result.issues.length === 0) {
+        const scopes = [
+          result.hasOwnerEmail ? "owner_email" : null,
+          result.hasOrgId ? "org_id" : null,
+        ].filter(Boolean).join(", ");
+        console.log(`  ✓ ${result.table} (${scopes})`);
       }
     }
-    console.log();
-    console.log(
-      `${withIssues.length} table(s) lack scoping columns. Raw db-* tools ` +
-        `will fail closed for these tables; use scoped actions or add ` +
-        `owner_email/org_id when raw DB access is intended.`,
-    );
-    process.exitCode = 1;
-  } else {
-    console.log("All template tables have proper scoping columns.");
+    if (issues.length > 0) {
+      console.log("Tables denied to raw database tools:");
+      for (const result of issues) {
+        for (const issue of result.issues) console.log(`  ✗ ${result.table}: ${issue}`);
+      }
+      process.exitCode = 1;
+    } else {
+      console.log("All application tables have proper scoping columns.");
+    }
+  } finally {
+    await client.end();
   }
 }

@@ -90,7 +90,7 @@ export function assertNoSensitiveFrameworkTables(
 //
 // Two complementary detectors run on the comment/string-stripped SQL:
 //   1. The schemas that actually HOLD base tables and so defeat scoping when
-//      named explicitly: `public` (Neon Postgres prod), `main` (SQLite desktop),
+//      named explicitly: `public` (Postgres deployments),
 //      and the Postgres system catalogs. This fires in ANY position, so it also
 //      catches comma-joins (`FROM notes, public.other`) and `USING public.x`.
 //      `temp` / `pg_temp` are intentionally NOT listed — temporary objects (our

@@ -562,12 +562,10 @@ export interface DbHealthProbeResult {
   database: {
     configured: boolean;
     source: string;
-    dialect: string;
     urlHash?: string;
     /** Pooler-agnostic identity of the physical database — see getDatabaseRuntimeFingerprint(). */
     fingerprint?: string;
     appName?: string;
-    authTokenConfigured: boolean;
     netlifyDatabaseUrlConfigured: boolean;
     /**
      * Which app first recorded owning this database (the `beta.<app>`/`<app>`
@@ -792,7 +790,7 @@ export async function runDbHealthProbe(
   let pressure: DbPressure | undefined;
   if (options.pressure) {
     pressure = db
-      ? await probeDbPressure(dbExec, database.dialect, { trivialQueryMs })
+      ? await probeDbPressure(dbExec, { trivialQueryMs })
       : { measured: false, reason: "database unreachable" };
   }
   // Same deadline, same reason as the `SELECT 1` above. `resolveRealtimeHealth`
@@ -816,11 +814,9 @@ export async function runDbHealthProbe(
     database: {
       configured: database.configured,
       source: database.source,
-      dialect: database.dialect,
       urlHash: database.urlHash,
       fingerprint: database.fingerprint,
       appName: database.appName,
-      authTokenConfigured: database.authTokenConfigured,
       netlifyDatabaseUrlConfigured: database.netlifyDatabaseUrlConfigured,
       ...(identity ? { identity, identityMismatch, runningApp } : {}),
     },
@@ -2606,7 +2602,6 @@ export function createCoreRoutesPlugin(
           const schema = await runDatabaseSchemaHealthCheck().catch((err) => ({
             ok: false,
             checked: false,
-            dialect: getDatabaseRuntimeFingerprint().dialect,
             missingTables: [],
             missingColumns: [],
             error: err instanceof Error ? err.message : String(err),

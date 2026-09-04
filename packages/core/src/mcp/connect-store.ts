@@ -1,7 +1,7 @@
 /**
  * Framework-table store for the "connect external agents" feature.
  *
- * Two additive, dialect-agnostic tables back the browser **Connect** page and
+ * Two additive tables back the browser **Connect** page and
  * the OAuth-style **device-code flow** a CLI drives:
  *
  *   - `mcp_connect_tokens`  — one row per minted MCP token. We never store the
@@ -19,12 +19,7 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  isConnectionError,
-  intType,
-  isPostgres,
-} from "../db/client.js";
+import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -62,7 +57,6 @@ export const DEVICE_START_WINDOW_MS = 60_000;
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       // Additive only. Never DROP / ALTER — this DB is shared across every
       // deploy context (preview/branch/prod) for hosted templates.
       const createTokensSql = `
@@ -94,69 +88,23 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
-        // PG-guard: probe information_schema first (no lock) and only issue
-        // DDL when the table/column is actually missing, wrapped in a
-        // transaction-scoped lock_timeout so a contended lock fails fast.
-        await ensureTableExists("mcp_connect_tokens", createTokensSql);
-        // Additive columns for org service tokens — added after initial
-        // deployment; ensureColumnExists probes before ALTERing.
-        await ensureColumnExists(
-          "mcp_connect_tokens",
-          "kind",
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'personal'`,
-        );
-        await ensureColumnExists(
-          "mcp_connect_tokens",
-          "service_name",
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS service_name TEXT`,
-        );
-        await ensureColumnExists(
-          "mcp_connect_tokens",
-          "created_by",
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS created_by TEXT`,
-        );
-        await ensureTableExists("mcp_device_codes", createDeviceCodesSql);
-        return;
-      }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
-      // create-then-additive-alter behaviour.
-      await client.execute(createTokensSql);
-      // Additive columns for org service tokens (deployments that created the
-      // table before these columns existed; fresh DBs get them via the CREATE
-      // TABLE above). kind='personal' (default) preserves the original
-      // per-user token; kind='service' marks tokens minted for an org service
-      // principal (e.g. CI) rather than a person. service_name is the
-      // human-readable service label (e.g. "ci"); created_by records the
-      // human who minted it, for audit.
-      for (const [withIfNotExists, plain] of [
-        [
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'personal'`,
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'personal'`,
-        ],
-        [
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS service_name TEXT`,
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN service_name TEXT`,
-        ],
-        [
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS created_by TEXT`,
-          `ALTER TABLE mcp_connect_tokens ADD COLUMN created_by TEXT`,
-        ],
-      ]) {
-        try {
-          await client.execute(withIfNotExists);
-        } catch {
-          // SQLite doesn't support "ADD COLUMN IF NOT EXISTS" — retry the
-          // plain form and swallow "duplicate column" when it already exists.
-          try {
-            await client.execute(plain);
-          } catch {
-            // Column already exists (or was created by CREATE TABLE above).
-          }
-        }
-      }
-      await client.execute(createDeviceCodesSql);
+      await ensureTableExists("mcp_connect_tokens", createTokensSql);
+      await ensureColumnExists(
+        "mcp_connect_tokens",
+        "kind",
+        `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'personal'`,
+      );
+      await ensureColumnExists(
+        "mcp_connect_tokens",
+        "service_name",
+        `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS service_name TEXT`,
+      );
+      await ensureColumnExists(
+        "mcp_connect_tokens",
+        "created_by",
+        `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS created_by TEXT`,
+      );
+      await ensureTableExists("mcp_device_codes", createDeviceCodesSql);
     })().catch((err) => {
       // Don't cache a rejected init. A transient DB blip should let the next
       // connect/mint/revoke call retry rather than wedging the process.

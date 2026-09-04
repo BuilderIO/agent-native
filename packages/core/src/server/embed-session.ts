@@ -10,7 +10,7 @@ import {
 } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
@@ -188,18 +188,10 @@ export async function ensureTable(): Promise<void> {
           consumed_at ${intType()}
         )
       `;
-      if (isPostgres()) {
-        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
-        await ensureTableExists(
-          "agent_native_embed_tickets",
-          embedTicketsCreateSql,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      const client = getDbExec();
-      await client.execute(embedTicketsCreateSql);
+      await ensureTableExists(
+        "agent_native_embed_tickets",
+        embedTicketsCreateSql,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

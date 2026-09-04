@@ -465,7 +465,7 @@ Todo `defineAction` é auto-montado em `/_agent-native/actions/<name>`. O corpo 
 
 </Endpoint>
 
-Este não é um modo sem banco de dados nem sem estado. O loop app-agent armazena sessões, threads, runs, configurações, credenciais, estado da aplicação e registros de compartilhamento no SQL. O desenvolvimento local usa SQLite por padrão; apps automação-primeiro hospedados devem usar um banco de dados SQL persistente.
+Este não é um modo sem banco de dados nem sem estado. O loop app-agent armazena sessões, threads, runs, configurações, credenciais, estado da aplicação e registros de compartilhamento no SQL. O desenvolvimento local usa PGlite por padrão; apps automação-primeiro hospedados devem usar um banco de dados SQL persistente.
 
 Se você precisar de todo o loop do agente de forma headless a partir da pasta do projeto, use:
 

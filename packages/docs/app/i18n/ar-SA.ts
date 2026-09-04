@@ -156,8 +156,8 @@ const arSA = {
           body: "عرّف العمل مرة واحدة واستخدمه من UI وagent وHTTP وMCP وA2A وCLI.",
         },
         sqlStateOrm: {
-          title: "حالة SQL وORM",
-          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات غير مرتبطة بالمزود.",
+          title: "حالة PostgreSQL وORM",
+          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات PostgreSQL وPGlite.",
         },
         dbAdmin: {
           title: "إدارة قاعدة البيانات",
@@ -210,7 +210,7 @@ const arSA = {
       body1:
         "Agent-Native هو framework مفتوح المصدر لبناء agentic applications: ابدأ مع Chat، وعرّف actions مشتركة، ثم أضف UI و jobs والتعاون حول نفس state.",
       body2:
-        "استخدم قاعدة بياناتك ومزود الاستضافة و model stack وكود app الخاص بك.",
+        "استخدم PGlite المحلي أو PostgreSQL المستضاف، ومزوّد الاستضافة وmodel stack وكود app الخاص بك.",
       cta: "اقرأ دليل framework",
       primitives: {
         actions: {
@@ -221,17 +221,17 @@ const arSA = {
         sharedState: {
           title: "حالة مشتركة",
           description:
-            "يحافظ SQL-backed app state على تزامن البشر و agents و sessions.",
+            "تحافظ حالة التطبيق المدعومة بـPostgreSQL وPGlite على تزامن البشر و agents و sessions.",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "يتم شحن app-agent loop و tools و skills و memory و jobs و observability معا.",
         },
-        backendAgnostic: {
-          title: "غير مرتبط بbackend معين",
+        postgresSpecific: {
+          title: "خاص بـPostgreSQL",
           description:
-            "وصّل أي قاعدة بيانات SQL مدعومة من Drizzle وأي host متوافق مع Nitro.",
+            "استخدم مساعدات مخطط PostgreSQL في إطار العمل مع PGlite المحلي أو Postgres المستضاف على أي مضيف متوافق مع Nitro.",
         },
       },
     },
@@ -310,7 +310,7 @@ const arSA = {
     },
     quickStart: {
       title: "ابدأ مع أمر واحد",
-      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و SQLite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
+      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و PGlite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
     },
     finalCta: {
       title: "software مبني لعصر agentic era",
@@ -467,7 +467,7 @@ const arSA = {
           body: "الوكيل يعرف ما يشاهده المستخدمون وما يحددونه وما يحررونه.",
         },
         sharedSql: {
-          title: "بيانات SQL مشتركة",
+          title: "بيانات PostgreSQL المشتركة",
           body: "المستخدمون والوكلاء يقرأون ويحدّثون المصدر الموثوق نفسه.",
         },
         skillsMemory: {
@@ -2090,8 +2090,6 @@ const arSA = {
     databaseProviders: "موفرو قواعد البيانات",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "التدويل",
     localFileMode: "Local File Mode",

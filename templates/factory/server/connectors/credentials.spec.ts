@@ -167,18 +167,6 @@ describe("resolveConnectorSecret", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("reads provider keys from env on a local sqlite database", async () => {
-    mocks.isLocalDatabase.mockReturnValue(true);
-    vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("SLACK_BOT_TOKEN", " xoxb-local-token ");
-
-    await expect(
-      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
-        orgId: "active-org",
-      }),
-    ).resolves.toBe("xoxb-local-token");
-  });
-
   it("does not use provider env on production even with a file database", async () => {
     mocks.isLocalDatabase.mockReturnValue(true);
     vi.stubEnv("NODE_ENV", "production");
@@ -317,7 +305,7 @@ describe("resolveConnectorSecret", () => {
     expect(mocks.select).not.toHaveBeenCalled();
   });
 
-  it("does not use provider env when NODE_ENV is unset even with sqlite", async () => {
+  it("does not use provider env when NODE_ENV is unset in local development", async () => {
     mocks.isLocalDatabase.mockReturnValue(true);
     vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-unset-node-env");
@@ -441,21 +429,6 @@ describe("resolveFactoryConnectorReadiness", () => {
         ? { value: "xoxb-vault" }
         : null,
     );
-
-    await expect(
-      resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
-    ).resolves.toEqual({
-      slack: true,
-      slackSecondary: false,
-      github: false,
-      sentry: false,
-    });
-  });
-
-  it("reads local sqlite .env only in pnpm dev", async () => {
-    mocks.isLocalDatabase.mockReturnValue(true);
-    vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-local-token");
 
     await expect(
       resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),

@@ -239,7 +239,7 @@
 - 52cce19: Shrink the dispatch and pinpoint install footprint by removing code and
   dependencies nothing could reach. Dispatch drops the unused pre-auth routing
   helper — `rootDispatchRedirect` had no callers and was not re-exported from
-  `./server` or any other published subpath — along with the `@libsql/client` and
+  `./server` or any other published subpath — along with the unused database client and
   `h3` dependencies, which had no imports in the package but were still installed
   for every consumer. Pinpoint drops the `HistoryDropdown` and `SettingsPanel`
   overlay components, which were never rendered by the overlay and were not
@@ -558,7 +558,7 @@
 
 - d967304: Apply app final-response guards to delegated A2A turns and resolve Slack sender profiles with request-scoped configured credentials.
 - d967304: Preserve canonical Slack and Telegram request context across A2A delegation, resolve structured intake and domain workflows through workspace instructions and app capabilities, and return verified destination links for saved Content records, Analytics monitors, and published Forms.
-- d967304: Redact provider request audit targets and harden managed integration persistence against concurrent callbacks and SQLite migration failures.
+- d967304: Redact provider request audit targets and harden managed integration persistence against concurrent callbacks and migration failures.
 - d967304: Harden integration tenant isolation, service-principal identity, shared job routing, audit visibility, and usage-budget settlement.
 - d967304: Add a shared integration catalog with accurate built-in messaging metadata and reusable client helpers for integration setup routes.
 
@@ -1086,7 +1086,7 @@
 - 79a0eb9: Link the local Dispatch package during framework-development workspace creation and build Dispatch before local packing.
 - 79a0eb9: Inherit Dispatch-managed workspace instructions, skills, and reference resources at runtime; seed and restore starter company, brand, messaging, guardrail, and voice resources; show and inspect each app's effective workspace context stack; gate All-app resource edits through Dispatch approvals when enabled; preview global impact and overrides before save; and expose read-only inherited workspace resources in app panels.
 - 79a0eb9: Remove legacy workspace-resource sync actions and clarify runtime inheritance docs.
-- 79a0eb9: Align local Drizzle peer resolution with the framework's libsql driver version.
+- 79a0eb9: Align local Drizzle peer resolution with the framework's database driver version.
 - 79a0eb9: Route Telegram `/code` commands from Dispatch to the remote code-agent relay.
 
 ## 0.7.0

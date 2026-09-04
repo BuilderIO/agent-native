@@ -26,7 +26,7 @@ Exécutez plusieurs applications sous une même origine avec une session partag�
 
 ## Avant le déploiement : choisissez une base persistante {#persistent-database}
 
-Chaque application déployée a besoin d'une base SQL persistante. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production. Ajoutez `DATABASE_AUTH_TOKEN` si votre fournisseur utilise un jeton séparé.
+Chaque application déployée a besoin d'une base PostgreSQL persistante. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production.
 
 Une application autonome a besoin d'un `BETTER_AUTH_SECRET` stable. Un workspace avec des requêtes signées entre applications a besoin de `A2A_SECRET`.
 

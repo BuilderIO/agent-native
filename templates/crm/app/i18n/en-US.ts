@@ -61,7 +61,7 @@ const messages = {
   settings: {
     title: "CRM settings",
     description:
-      "Native SQL keeps CRM-owned records local and portable. HubSpot and Salesforce use workspace Connections; their mirrors store only allow-listed fields, scoped metadata, and bounded evidence references.",
+      "Native SQL keeps CRM-owned records in Postgres. HubSpot and Salesforce use workspace Connections; their mirrors store only allow-listed fields, scoped metadata, and bounded evidence references.",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",

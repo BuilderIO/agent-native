@@ -3,8 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const cooldownRows = new Map<string, Record<string, unknown>>();
 
 vi.mock("../db/client.js", () => ({
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  intType: () => "BIGINT",
   getDbExec: () => ({
     execute: async (input: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof input === "string" ? input : input.sql;
@@ -50,6 +49,11 @@ vi.mock("../db/client.js", () => ({
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   }),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 const {

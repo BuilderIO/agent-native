@@ -129,9 +129,13 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  intType: () => "BIGINT",
   retryOnDdlRace: (fn: () => unknown) => fn(),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 const queue = await import("./agent-teams-run-queue.js");

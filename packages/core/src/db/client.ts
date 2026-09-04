@@ -1,14 +1,10 @@
 import path from "path";
 
 /**
- * Central database client abstraction.
+ * Central Postgres client.
  *
- * Detects the database backend from the environment (D1, Postgres, or SQLite/libsql)
- * and returns a unified `DbExec` interface that all core stores use.
- *
- * Imports for postgres, better-sqlite3, and @libsql/client/web are lazy
- * (dynamic import) so this module can be loaded in any runtime (Node.js,
- * Cloudflare Workers, edge) without failing on missing native deps.
+ * The local runtime uses PGlite and hosted runtimes use PostgreSQL. Both
+ * expose PostgreSQL semantics to the rest of the framework.
  */
 import { getAppConfig } from "../app-config/index.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
@@ -23,8 +19,6 @@ const loggedNeonPools = new WeakSet<object>();
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export type Dialect = "sqlite" | "postgres" | "d1";
 
 export interface DbExecQuery {
   sql: string;
@@ -60,21 +54,9 @@ export interface DbExec {
 
 export interface DbExecConfig {
   url?: string;
-  authToken?: string;
-  d1Binding?: any;
 }
 
-/** Read the request-scoped Cloudflare binding without requiring every
- * consuming app's TypeScript program to include core's ambient Worker globals. */
-export function getCloudflareD1Binding(): unknown {
-  const runtime = globalThis as typeof globalThis & {
-    __cf_env?: { DB?: unknown };
-    __env__?: { DB?: unknown };
-  };
-  return runtime.__cf_env?.DB ?? runtime.__env__?.DB;
-}
-
-function hasCloudflareRuntimeBinding(): boolean {
+function hasCloudflareRuntime(): boolean {
   const runtime = globalThis as typeof globalThis & {
     __cf_env?: unknown;
     __env__?: unknown;
@@ -87,7 +69,7 @@ function hasCloudflareRuntimeBinding(): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the database URL for the current app.
+ * Resolve the PostgreSQL URL for the current app.
  *
  * Checks for `<APP_NAME>_DATABASE_URL` first (e.g. `MAIL_DATABASE_URL`),
  * then falls back to `DATABASE_URL`, then Netlify's managed database env. This
@@ -216,18 +198,6 @@ export function getRuntimeDatabaseSource(fallback = ""): string {
   return resolveRuntimeDatabase(fallback).source;
 }
 
-/** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */
-export function getDatabaseAuthToken(): string | undefined {
-  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
-  if (appName) {
-    const prefixed = process.env[`${appName}_DATABASE_AUTH_TOKEN`];
-    if (prefixed) return prefixed;
-  }
-  return (
-    process.env.DATABASE_AUTH_TOKEN || process.env.NETLIFY_DATABASE_AUTH_TOKEN
-  );
-}
-
 function getAppEnvPrefix(): string | undefined {
   return process.env.APP_NAME?.toUpperCase().replace(/-/g, "_") || undefined;
 }
@@ -251,10 +221,6 @@ export function getMigrationDatabaseUrl(): string {
   // must allow dots — `[a-z0-9.-]+` — not just a single label. Anchoring on the
   // stable `.neon.tech` suffix keeps this from touching non-Neon hosts.
   return stripNeonPooler(url);
-}
-
-export function isLocalSqliteUrl(url: string): boolean {
-  return url === "" || url.startsWith("file:") || !url.includes("://");
 }
 
 export function isPgliteUrl(url: string): boolean {
@@ -326,9 +292,8 @@ export async function loadPglitePackage(): Promise<{ PGlite: any }> {
   } catch (err) {
     if (isMissingPackageError(err, packageName)) {
       throw new Error(
-        "PGlite database support requires the optional @electric-sql/pglite package. " +
-          "Install it with `pnpm add @electric-sql/pglite@^0.5.3`, then set " +
-          "`DATABASE_URL=pglite:./data/pglite`.",
+        "PGlite database support requires @electric-sql/pglite. " +
+          "Install dependencies and set `DATABASE_URL=pglite:./data/pglite`.",
       );
     }
     throw err;
@@ -385,37 +350,6 @@ export async function closePgliteClient(url: string): Promise<void> {
   }
 }
 
-export async function prepareLocalSqliteUrl(url: string): Promise<string> {
-  if (!url.startsWith("file:")) return url;
-
-  // On serverless runtimes (Netlify / Vercel / AWS Lambda / CF Pages) the
-  // working directory is read-only. Detect this and redirect local SQLite to
-  // /tmp which IS writable (ephemeral per invocation, but the server stays
-  // alive for the request). Shares the canonical isServerlessRuntime() check.
-  const isServerless = isServerlessRuntime();
-  try {
-    const fs = await import("fs");
-    if (isServerless && url === "file:./data/app.db") {
-      fs.mkdirSync("/tmp/data", { recursive: true });
-      return "file:///tmp/data/app.db";
-    }
-    fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
-  } catch {
-    // Edge runtime — no filesystem.
-  }
-  return url;
-}
-
-export function sqliteFilenameFromUrl(url: string): string {
-  if (url.startsWith("file://")) {
-    return decodeURIComponent(new URL(url).pathname);
-  }
-  if (url.startsWith("file:")) {
-    return url.slice("file:".length) || ":memory:";
-  }
-  return url || "./data/app.db";
-}
-
 // ---------------------------------------------------------------------------
 // Safe JSON column parsing
 // ---------------------------------------------------------------------------
@@ -436,50 +370,6 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
 }
 
 // ---------------------------------------------------------------------------
-// SQLite retry helper
-// ---------------------------------------------------------------------------
-
-/**
- * Retry an async operation when it fails with SQLITE_BUSY.
- * Used during WAL initialization and migrations where a stale WAL from a
- * previous crash or HMR restart can briefly lock the database.
- */
-export function isSqliteBusyError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
-  const code = typeof candidate?.code === "string" ? candidate.code : "";
-  const message =
-    typeof candidate?.message === "string"
-      ? candidate.message
-      : String(error ?? "");
-  return (
-    code === "SQLITE_BUSY" ||
-    code.startsWith("SQLITE_BUSY_") ||
-    /database is locked|SQLITE_BUSY/i.test(message)
-  );
-}
-
-export async function retrySqliteBusy<T>(
-  fn: () => Promise<T>,
-  opts: { maxAttempts?: number; baseDelayMs?: number; rethrow?: boolean } = {},
-): Promise<T> {
-  const { maxAttempts = 5, baseDelayMs = 500, rethrow = false } = opts;
-  let last: unknown;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      last = e;
-      if (isSqliteBusyError(e) && attempt < maxAttempts - 1) {
-        await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
-      } else {
-        break;
-      }
-    }
-  }
-  if (rethrow) throw last;
-  return undefined as unknown as T; // caller handles undefined (e.g. PRAGMA setup)
-}
-
 /**
  * Retry a DDL statement (CREATE TABLE, CREATE INDEX) once when it fails due
  * to a Postgres pg_catalog race.
@@ -519,21 +409,9 @@ function isPgCatalogRace(e: any): boolean {
   );
 }
 
-/**
- * True when `e` is a UNIQUE / PRIMARY KEY constraint violation from any
- * supported driver (Postgres 23505, SQLite SQLITE_CONSTRAINT_PRIMARYKEY /
- * _UNIQUE, D1). Used by stores that accept caller-provided ids and want to
- * surface a clean "already exists" error instead of the raw SQL text.
- */
+/** True when an error is a Postgres UNIQUE / PRIMARY KEY violation. */
 export function isUniqueViolation(e: any): boolean {
   if (e?.code === "23505") return true;
-  const code = String(e?.code ?? "");
-  if (
-    code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
-    code === "SQLITE_CONSTRAINT_UNIQUE"
-  ) {
-    return true;
-  }
   const msg = String(e?.message ?? "").toLowerCase();
   return (
     msg.includes("unique constraint") ||
@@ -543,95 +421,33 @@ export function isUniqueViolation(e: any): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Dialect detection
+// Database identity
 // ---------------------------------------------------------------------------
 
-let _dialect: Dialect | undefined;
-
-export function getDialect(): Dialect {
-  if (_dialect !== undefined) return _dialect;
-
-  // The effective runtime URL takes priority over D1 when set.
-  const url = getRuntimeDatabaseUrl();
-  if (
-    url.startsWith("postgres://") ||
-    url.startsWith("postgresql://") ||
-    isPgliteUrl(url)
-  ) {
-    _dialect = "postgres";
-    return _dialect;
-  }
-  if (url && !url.startsWith("file:")) {
-    // Remote libsql (e.g. Turso)
-    _dialect = "sqlite";
-    return _dialect;
-  }
-
-  const d1 = getCloudflareD1Binding();
-  if (d1) {
-    _dialect = "d1";
-    return _dialect;
-  }
-
-  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env/__env__)
-  // aren't
-  // available at import time. If we cache "sqlite" here, D1 will never be
-  // detected once the bindings are set in the fetch handler.
-  return "sqlite";
-}
-
-export function isPostgres(): boolean {
-  return getDialect() === "postgres";
-}
-
-function dialectForConfig(config: DbExecConfig): Dialect {
-  const url = config.url ?? "";
-  if (
-    url.startsWith("postgres://") ||
-    url.startsWith("postgresql://") ||
-    isPgliteUrl(url)
-  ) {
-    return "postgres";
-  }
-  if (url && !url.startsWith("file:")) {
-    return "sqlite";
-  }
-  if (config.d1Binding) {
-    return "d1";
-  }
-  return "sqlite";
-}
-
 /**
- * Returns true when the database is a local-only SQLite file (or unset, which
- * defaults to a local SQLite file). Returns false for Postgres, remote libsql
- * (Turso), and D1 — any backend that could be shared across developers.
+ * Returns true when the database is the local PGlite instance.
  *
  * Used to gate local@localhost mode: that mode uses a single shared virtual
  * user with no per-machine scoping, so on any shared database two developers
  * would read and write each other's settings, oauth tokens, and app state.
  */
 export function isLocalDatabase(): boolean {
-  const url = getRuntimeDatabaseUrl();
-  if (isPgliteUrl(url)) return true;
-  if (getDialect() !== "sqlite") return false;
-  return url === "" || url.startsWith("file:");
+  return isPgliteUrl(getRuntimeDatabaseUrl("pglite:./data/pglite"));
 }
 
-/** Returns BIGINT for Postgres (64-bit), INTEGER for SQLite (already 64-bit). */
+/** Returns the Postgres integer type used for framework counters and ids. */
 export function intType(): string {
-  return isPostgres() ? "BIGINT" : "INTEGER";
+  return "BIGINT";
 }
 
-// `widenIntColumnsToBigInt` lives in `./widen-columns.js` (it depends only on
-// `isPostgres`/`getDbExec` from here) so stores can import it without every
-// `vi.mock("./client.js")` test having to stub the export.
+// `widenIntColumnsToBigInt` lives in `./widen-columns.js` so stores can import
+// it without every `vi.mock("./client.js")` test having to stub the export.
 
 // ---------------------------------------------------------------------------
 // Parameter conversion: ? -> $1, $2, $3
 // ---------------------------------------------------------------------------
 
-export function sqliteToPostgresParams(sql: string): string {
+export function toPostgresParams(sql: string): string {
   let out = "";
   let param = 0;
   let i = 0;
@@ -913,7 +729,7 @@ export function isTransientDatabaseError(err: unknown): boolean {
     .join(" ");
   return (
     isConnectionError(error) &&
-    /@neondatabase|@libsql|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
+    /@neondatabase|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
       databaseSurface,
     )
   );
@@ -1063,7 +879,7 @@ export function isServerlessRuntime(): boolean {
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.LAMBDA_TASK_ROOT ||
     !!process.env.CF_PAGES ||
-    hasCloudflareRuntimeBinding()
+    hasCloudflareRuntime()
   );
 }
 
@@ -1122,17 +938,14 @@ export function isHostedFunctionInvocationRuntime(
 }
 
 /**
- * Thrown instead of silently serving requests off a local SQLite file on a
- * hosted function invocation. A serverless instance's local filesystem is
- * ephemeral and per-instance — every warm instance would read and write its
- * own separate database, invisible to every other instance and gone on the
- * next cold start. This has shipped as a deploy that looked green while the
- * app quietly ran on throwaway data.
+ * Thrown instead of silently serving requests off local PGlite on a hosted
+ * function invocation. A serverless instance's local filesystem is ephemeral
+ * and per-instance, so local data is not shared across instances.
  */
 export class HostedRuntimeLocalDatabaseError extends Error {
   constructor(source: string) {
     super(
-      `Hosted function invocation resolved to a local SQLite database (source: ${source}). ` +
+      `Hosted function invocation resolved to local PGlite (source: ${source}). ` +
         "DATABASE_URL, DATABASE_URL_UNPOOLED, NETLIFY_DATABASE_URL, NETLIFY_DATABASE_URL_UNPOOLED " +
         "(and their <APP_NAME>_ prefixed variants) were all empty or masked — refusing to serve " +
         "requests off an ephemeral per-instance file instead of the shared database.",
@@ -1609,7 +1422,6 @@ function disposePostgresPoolEventually(
 // ---------------------------------------------------------------------------
 
 let _exec: DbExec | undefined;
-let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
 async function executePglite(
@@ -1622,7 +1434,7 @@ async function executePglite(
   sql: Parameters<DbExec["execute"]>[0],
 ): ReturnType<DbExec["execute"]> {
   const { rawSql, args } = sqlAndArgs(sql);
-  const pgSql = sqliteToPostgresParams(rawSql);
+  const pgSql = toPostgresParams(rawSql);
   const result = await client.query(pgSql, args as any[]);
   return {
     rows: Array.from(result.rows ?? []),
@@ -1634,42 +1446,15 @@ async function createDbExecInternal(
   config: DbExecConfig = {},
   trackSingletonResources = false,
 ): Promise<DbExec> {
-  const dialect = dialectForConfig(config);
-
-  // Cloudflare D1
-  if (dialect === "d1") {
-    const d1 = config.d1Binding;
-    const execute: DbExec["execute"] = async (sql) => {
-      if (typeof sql === "string") {
-        const r = await d1.prepare(sql).all();
-        return {
-          rows: r.results || [],
-          rowsAffected: r.meta?.changes ?? 0,
-        };
-      }
-      const r = await d1
-        .prepare(sql.sql)
-        .bind(...(sql.args ?? []))
-        .all();
-      return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
-    };
-    return {
-      execute,
-      async atomicBatch(statements) {
-        const prepared = statements.map((statement) => {
-          if (typeof statement === "string") return d1.prepare(statement);
-          return d1.prepare(statement.sql).bind(...(statement.args ?? []));
-        });
-        const results = await d1.batch(prepared);
-        return results.map((result: any) => ({
-          rows: result.results || [],
-          rowsAffected: result.meta?.changes ?? 0,
-        }));
-      },
-    };
+  const url = config.url || "pglite:./data/pglite";
+  if (
+    !isPgliteUrl(url) &&
+    !/^postgres(?:ql)?:\/\//i.test(url)
+  ) {
+    throw new Error(
+      "DATABASE_URL must be a PostgreSQL URL or a pglite: URL.",
+    );
   }
-
-  let url = config.url || "file:./data/app.db";
 
   if (isPgliteUrl(url)) {
     const client = await getPgliteClient(url);
@@ -1693,8 +1478,7 @@ async function createDbExecInternal(
   // On Workers, connections can't be shared across requests, so we create a
   // fresh connection per query (max:1) to avoid the "I/O on behalf of a
   // different request" error.
-  if (dialect === "postgres") {
-    const { isNeonUrl } = await import("./create-get-db.js");
+  const { isNeonUrl } = await import("./create-get-db.js");
 
     // Neon over @neondatabase/serverless (WebSocket upgrade on port 443).
     // postgres-js uses a raw TCP socket on 5432 that frequently fails on
@@ -1724,7 +1508,7 @@ async function createDbExecInternal(
       ) {
         const { rawSql, args } = sqlAndArgs(sql);
         const { timeoutMs } = dbExecQueryBudget(sql);
-        const pgSql = sqliteToPostgresParams(rawSql);
+        const pgSql = toPostgresParams(rawSql);
         // Neon only accepts multiple SQL commands through its simple protocol;
         // the transaction start has no parameters, so use that overload.
         const runQuery = () =>
@@ -1777,7 +1561,7 @@ async function createDbExecInternal(
         }
         const { rawSql, args } = sqlAndArgs(sql);
         const { timeoutMs } = dbExecQueryBudget(sql);
-        const pgSql = sqliteToPostgresParams(rawSql);
+        const pgSql = toPostgresParams(rawSql);
         const controller = new AbortController();
         const run = async () => {
           if (!hasExplicitDbTimeout(sql)) {
@@ -1986,7 +1770,7 @@ async function createDbExecInternal(
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
             const { timeoutMs } = dbExecQueryBudget(sql);
-            const pgSql = sqliteToPostgresParams(rawSql);
+            const pgSql = toPostgresParams(rawSql);
             const result = await withDbTimeout<
               ArrayLike<unknown> & { count?: number }
             >(
@@ -2028,7 +1812,7 @@ async function createDbExecInternal(
                 async execute(sql) {
                   const { rawSql, args } = sqlAndArgs(sql);
                   const { timeoutMs } = dbExecQueryBudget(sql);
-                  const pgSql = sqliteToPostgresParams(rawSql);
+                  const pgSql = toPostgresParams(rawSql);
                   const result = await withDbTimeout<
                     ArrayLike<unknown> & { count?: number }
                   >(
@@ -2085,7 +1869,7 @@ async function createDbExecInternal(
         async execute(sql) {
           const { rawSql, args } = sqlAndArgs(sql);
           const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
-          const pgSql = sqliteToPostgresParams(rawSql);
+          const pgSql = toPostgresParams(rawSql);
           const result = await retryOnConnectionError<
             ArrayLike<unknown> & { count?: number }
           >(() => {
@@ -2109,7 +1893,7 @@ async function createDbExecInternal(
               async execute(sql) {
                 const { rawSql, args } = sqlAndArgs(sql);
                 const { timeoutMs } = dbExecQueryBudget(sql);
-                const pgSql = sqliteToPostgresParams(rawSql);
+                const pgSql = toPostgresParams(rawSql);
                 const result = await withDbTimeout<
                   ArrayLike<unknown> & { count?: number }
                 >(
@@ -2136,85 +1920,6 @@ async function createDbExecInternal(
         },
       };
     }
-  }
-
-  // SQLite / libsql (default). Local file databases use better-sqlite3 so
-  // serverless bundles do not need libsql's platform-specific native package.
-  if (isLocalSqliteUrl(url)) {
-    url = await prepareLocalSqliteUrl(
-      url.startsWith("file:") ? url : `file:${url}`,
-    );
-    const { default: Database } = await import("better-sqlite3");
-    const sqlite = new Database(sqliteFilenameFromUrl(url));
-    sqlite.pragma("busy_timeout = 10000");
-    try {
-      // Vite can start a replacement Nitro runtime while the previous instance
-      // is still releasing app.db. The 10s busy_timeout can expire during that
-      // handoff, so retry the idempotent WAL negotiation before declaring the
-      // whole auth/database bootstrap failed.
-      await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
-        rethrow: true,
-      });
-    } catch (error) {
-      sqlite.close();
-      throw error;
-    }
-    if (trackSingletonResources) _sqlite = sqlite;
-    const execute: DbExec["execute"] = async (sql) => {
-      const { rawSql, args } = sqlAndArgs(sql);
-      const stmt = sqlite.prepare(rawSql);
-      if (stmt.reader) {
-        return {
-          rows: stmt.all(...args),
-          rowsAffected: 0,
-        };
-      }
-      const result = stmt.run(...args);
-      return {
-        rows: [],
-        rowsAffected: result.changes ?? 0,
-      };
-    };
-
-    return {
-      execute,
-      transaction: explicitTransaction(execute, "BEGIN IMMEDIATE"),
-      async close() {
-        sqlite.close();
-      },
-    };
-  }
-
-  const { createClient } = await import("@libsql/client/web");
-  const client = createClient({
-    url,
-    authToken: config.authToken,
-  });
-  const execute: DbExec["execute"] = async (sql) => {
-    if (typeof sql === "string") {
-      const r = await client.execute(sql);
-      return {
-        rows: r.rows as any[],
-        rowsAffected: r.rowsAffected,
-      };
-    }
-    const r = await client.execute({
-      sql: sql.sql,
-      args: sql.args as any[],
-    });
-    return {
-      rows: r.rows as any[],
-      rowsAffected: r.rowsAffected,
-    };
-  };
-
-  return {
-    execute,
-    transaction: explicitTransaction(execute),
-    async close() {
-      client.close();
-    },
-  };
 }
 
 export async function createDbExec(config: DbExecConfig = {}): Promise<DbExec> {
@@ -2260,16 +1965,8 @@ async function initClient(): Promise<void> {
     throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
 
-  const dialect = getDialect();
-  const url = getRuntimeDatabaseUrl("file:./data/app.db");
-  _exec = await createDbExecInternal(
-    {
-      url,
-      authToken: getDatabaseAuthToken(),
-      d1Binding: dialect === "d1" ? getCloudflareD1Binding() : undefined,
-    },
-    true,
-  );
+  const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
+  _exec = await createDbExecInternal({ url }, true);
 }
 
 /**
@@ -2308,7 +2005,7 @@ export function annotateMissingTable(err: unknown, sql: unknown): unknown {
 export function getDbExec(): DbExec {
   if (_exec) return _exec;
 
-  // Sanitize args: replace undefined with null (libsql rejects undefined)
+  // Sanitize args because PostgreSQL parameters cannot be undefined.
   function sanitize(
     sql: string | { sql: string; args?: unknown[] },
   ): string | { sql: string; args?: unknown[] } {
@@ -2452,13 +2149,9 @@ export function getDbExec(): DbExec {
 
 /** Close the database connection (for scripts that need cleanup). */
 export async function closeDbExec(): Promise<void> {
-  // Both Postgres pools live in the shared registry, which also notifies the
-  // Drizzle / Better Auth consumers bound to them.
+  // Closing shared pools also notifies Drizzle and Better Auth consumers bound
+  // to them.
   await closeSharedDbPools();
-  if (_sqlite) {
-    _sqlite.close();
-    _sqlite = undefined;
-  }
   await closePgliteClients();
   _exec = undefined;
   _initPromise = undefined;

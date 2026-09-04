@@ -43,8 +43,8 @@ export const runBrainMigrations = runMigrations(
   cursor_json TEXT NOT NULL DEFAULT '{}',
   last_synced_at TEXT,
   last_error TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
@@ -59,7 +59,7 @@ export const runBrainMigrations = runMigrations(
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 )`,
     },
     {
@@ -77,8 +77,8 @@ export const runBrainMigrations = runMigrations(
   imported_by TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued',
   distilled_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 )`,
     },
     {
@@ -103,8 +103,8 @@ export const runBrainMigrations = runMigrations(
   publish_tier TEXT NOT NULL DEFAULT 'private',
   created_by TEXT NOT NULL,
   published_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
@@ -119,7 +119,7 @@ export const runBrainMigrations = runMigrations(
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 )`,
     },
     {
@@ -140,8 +140,8 @@ export const runBrainMigrations = runMigrations(
   created_by TEXT NOT NULL,
   reviewed_by TEXT,
   reviewed_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
@@ -156,7 +156,7 @@ export const runBrainMigrations = runMigrations(
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 )`,
     },
     {
@@ -186,8 +186,8 @@ export const runBrainMigrations = runMigrations(
   lease_token TEXT,
   error TEXT,
   run_after TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 )`,
     },
     {
@@ -234,7 +234,7 @@ export const runBrainMigrations = runMigrations(
       version: 20,
       // Performance indexes for the ownable list/read hot paths and the
       // shares-table EXISTS subqueries in `accessFilter`. All plain
-      // CREATE INDEX IF NOT EXISTS — portable across Postgres and SQLite
+      // CREATE INDEX IF NOT EXISTS is idempotent.
       // (no DESC, partial, or PG-only syntax). Existing indexes
       // (brain_raw_captures_source_external_idx covering source_id, and
       // brain_sources_signed_ingest_idx) are not duplicated here.

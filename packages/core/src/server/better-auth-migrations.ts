@@ -1,34 +1,11 @@
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 
 async function assertBetterAuthUserIdentityColumns(): Promise<void> {
-  const { getCloudflareD1Binding, getDbExec, getDialect, isPostgres } =
-    await import("../db/client.js");
-  const dialect = getDialect();
-  let columnNames: string[];
-
-  if (dialect === "d1") {
-    const d1 = getCloudflareD1Binding() as
-      | { prepare(sql: string): { all(): Promise<{ results: unknown[] }> } }
-      | undefined;
-    if (!d1) {
-      throw new Error(
-        'Cannot inspect the Better Auth "user" table because the D1 binding is unavailable.',
-      );
-    }
-    const result = await d1.prepare("PRAGMA table_info(user)").all();
-    columnNames = result.results.map((column) => {
-      const record = column as { name?: unknown };
-      return typeof record.name === "string" ? record.name : "";
-    });
-  } else if (isPostgres()) {
-    const { rows } = await getDbExec().execute(
-      `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user' AND column_name IN ('id', 'email')`,
-    );
-    columnNames = rows.map((row) => String(row.column_name ?? row[0] ?? ""));
-  } else {
-    const { rows } = await getDbExec().execute("PRAGMA table_info(user)");
-    columnNames = rows.map((row) => String(row.name ?? row[1] ?? ""));
-  }
+  const { getDbExec } = await import("../db/client.js");
+  const { rows } = await getDbExec().execute(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user' AND column_name IN ('id', 'email')`,
+  );
+  const columnNames = rows.map((row) => String(row.column_name ?? row[0] ?? ""));
 
   const missing = ["id", "email"].filter(
     (column) => !columnNames.includes(column),
@@ -54,11 +31,10 @@ async function assertBetterAuthUserIdentityColumns(): Promise<void> {
  * database, so the release-time pass alone cannot be relied on.
  */
 export async function expireJwksKeysAfterAuthSecretRotation(): Promise<void> {
-  const { getDbExec, isPostgres } = await import("../db/client.js");
-  const now = isPostgres() ? new Date().toISOString() : Date.now();
-  const table = isPostgres() ? '"jwks"' : "jwks";
+  const { getDbExec } = await import("../db/client.js");
+  const now = new Date().toISOString();
   const result = await getDbExec().execute({
-    sql: `UPDATE ${table} SET expires_at = ? WHERE expires_at IS NULL OR expires_at > ?`,
+    sql: `UPDATE "jwks" SET expires_at = ? WHERE expires_at IS NULL OR expires_at > ?`,
     args: [now, now],
   });
   if (result.rowsAffected > 0) {
@@ -158,86 +134,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
           expires_at TIMESTAMPTZ
         )
       `,
-      sqlite: `
-        CREATE TABLE IF NOT EXISTS user (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          email TEXT NOT NULL UNIQUE,
-          email_verified INTEGER NOT NULL DEFAULT 0,
-          image TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS session (
-          id TEXT PRIMARY KEY,
-          expires_at INTEGER NOT NULL,
-          token TEXT NOT NULL UNIQUE,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
-          ip_address TEXT,
-          user_agent TEXT,
-          user_id TEXT NOT NULL,
-          active_organization_id TEXT
-        );
-        CREATE TABLE IF NOT EXISTS account (
-          id TEXT PRIMARY KEY,
-          account_id TEXT NOT NULL,
-          provider_id TEXT NOT NULL,
-          user_id TEXT NOT NULL,
-          access_token TEXT,
-          refresh_token TEXT,
-          id_token TEXT,
-          access_token_expires_at INTEGER,
-          refresh_token_expires_at INTEGER,
-          scope TEXT,
-          password TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS verification (
-          id TEXT PRIMARY KEY,
-          identifier TEXT NOT NULL,
-          value TEXT NOT NULL,
-          expires_at INTEGER NOT NULL,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS organization (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          slug TEXT NOT NULL UNIQUE,
-          logo TEXT,
-          metadata TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS member (
-          id TEXT PRIMARY KEY,
-          organization_id TEXT NOT NULL,
-          user_id TEXT NOT NULL,
-          role TEXT NOT NULL DEFAULT 'member',
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS invitation (
-          id TEXT PRIMARY KEY,
-          organization_id TEXT NOT NULL,
-          email TEXT NOT NULL,
-          role TEXT,
-          status TEXT NOT NULL DEFAULT 'pending',
-          expires_at INTEGER NOT NULL,
-          inviter_id TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS jwks (
-          id TEXT PRIMARY KEY,
-          public_key TEXT NOT NULL,
-          private_key TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          expires_at INTEGER
-        )
-      `,
     },
   },
   {
@@ -254,13 +150,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "image" TEXT;
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-      `,
-      sqlite: `
-        ALTER TABLE user ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
-        ALTER TABLE user ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE user ADD COLUMN IF NOT EXISTS image TEXT;
-        ALTER TABLE user ADD COLUMN IF NOT EXISTS created_at INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE user ADD COLUMN IF NOT EXISTS updated_at INTEGER NOT NULL DEFAULT 0
       `,
     },
     run: assertBetterAuthUserIdentityColumns,
@@ -279,13 +168,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
           created_at BIGINT NOT NULL
         )
       `,
-      sqlite: `
-        CREATE TABLE IF NOT EXISTS sessions (
-          token TEXT PRIMARY KEY,
-          email TEXT,
-          created_at INTEGER NOT NULL
-        )
-      `,
     },
   },
   {
@@ -301,9 +183,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
       postgres: `
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "onboarding_role" TEXT
       `,
-      sqlite: `
-        ALTER TABLE user ADD COLUMN IF NOT EXISTS onboarding_role TEXT
-      `,
     },
   },
   {
@@ -312,8 +191,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     sql: {
       postgres:
         'CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON "user" (LOWER(email))',
-      sqlite:
-        "CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON user (LOWER(email))",
     },
   },
 ];

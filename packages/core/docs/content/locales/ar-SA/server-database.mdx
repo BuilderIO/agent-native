@@ -1,13 +1,13 @@
 ---
 title: "قاعدة البيانات"
-description: "قم بتوصيل قاعدة بيانات SQL محمولة بتطبيقك الأصلي للوكيل: مساعدات المخطط، والترحيلات، وخيارات قواعد البيانات المستضافة."
+description: "وصّل PostgreSQL بتطبيق Agent-Native الخاص بك: مساعدات المخطط، والترحيلات، وPGlite المحلي أو Postgres المستضاف."
 ---
 
 # قاعدة البيانات
 
-يخزّن كل تطبيق أصلي للوكيل حالته في SQL. تقرأ واجهة المستخدم والوكيل الجداول نفسها وتكتبان إليها عبر Actions نفسها، باستخدام عميل [Drizzle ORM](https://orm.drizzle.team) نفسه. تستخدم المزامنة الحية SSE مع الاستطلاع كخيار احتياطي، لذلك تظهر التغييرات في السطح الآخر دون تحديث يدوي.
+يخزّن كل تطبيق أصلي للوكيل حالته في PostgreSQL. تقرأ واجهة المستخدم والوكيل الجداول نفسها وتكتبان إليها عبر Actions نفسها، باستخدام عميل [Drizzle ORM](https://orm.drizzle.team) نفسه. تستخدم المزامنة الحية SSE مع الاستطلاع كخيار احتياطي، لذلك تظهر التغييرات في السطح الآخر دون تحديث يدوي.
 
-<Diagram id="doc-block-9mtx2f" title="كيف تتدفق البيانات إلى قاعدة البيانات" summary="تصل كل من واجهة المستخدم والوكيل إلى قاعدة البيانات عبر طبقة Actions نفسها. يستخدم كلا المستدعيين عميل getDb() نفسه وجداول SQL نفسها. لا توجد خلفية منفصلة لكل منهما.">
+<Diagram id="doc-block-9mtx2f" title="كيف تتدفق البيانات إلى قاعدة البيانات" summary="تصل كل من واجهة المستخدم والوكيل إلى قاعدة البيانات عبر طبقة Actions نفسها. يستخدم كلا المستدعيين عميل getDb() نفسه وجداول PostgreSQL نفسها. لا توجد خلفية منفصلة لكل منهما.">
 
 ```html
 <div class="diagram-dbr">
@@ -23,8 +23,8 @@ description: "قم بتوصيل قاعدة بيانات SQL محمولة بتط�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    قاعدة بيانات SQL<br /><small class="diagram-muted"
-      >اللهجة من DATABASE_URL</small
+    قاعدة بيانات PostgreSQL<br /><small class="diagram-muted"
+      >PostgreSQL من DATABASE_URL</small
     >
   </div>
 </div>
@@ -58,17 +58,17 @@ description: "قم بتوصيل قاعدة بيانات SQL محمولة بتط�
 
 ## خيارات الاستضافة {#hosting}
 
-يكتشف التطبيق الواجهة الخلفية التي سيستخدمها من `DATABASE_URL`. وعندما يكون هذا المتغير غير مضبوط، يعود التطبيق إلى ملف SQLite محلي حتى تتمكن من البدء دون أي إعداد.
+يستخدم التطبيق PostgreSQL. وعند عدم ضبط `DATABASE_URL`، يستخدم PGlite المحلي لتتمكن من البدء دون إعداد.
 
-### الافتراضي: ملف SQLite {#default-sqlite}
+### الافتراضي: ملف PGlite {#default-pglite}
 
-عند عدم ضبط `DATABASE_URL`، ينشئ التطبيق قاعدة بيانات SQLite في `data/app.db`. لا يتطلب أي تكوين. شغّل خادم التطوير وسيُنشأ الملف عند أول تشغيل.
+عند عدم ضبط `DATABASE_URL`، ينشئ التطبيق قاعدة بيانات PGlite في `data/pglite`. لا يتطلب أي تكوين. شغّل خادم التطوير وسيُنشأ الملف عند أول تشغيل.
 
-هذا مخصص للتطوير المحلي فقط. قد تعيد الحاويات، والوظائف بدون خادم، وبيئات المعاينة ضبط نظام الملفات الخاص بها بين عمليات إعادة التشغيل، مما يعني أن ملف SQLite المحلي يمكن أن يختفي. اضبط `DATABASE_URL` على قاعدة بيانات مستضافة ومستمرة قبل النشر.
+هذا مخصص للتطوير المحلي فقط. قد تعيد الحاويات، والوظائف بدون خادم، وبيئات المعاينة ضبط نظام الملفات الخاص بها بين عمليات إعادة التشغيل، مما يعني أن ملف PGlite المحلي يمكن أن يختفي. اضبط `DATABASE_URL` على قاعدة PostgreSQL مستضافة ومستمرة قبل النشر.
 
 ### Postgres محلي: PGlite {#local-pglite}
 
-للتطوير محليًا مقابل لهجة Postgres دون Docker أو قاعدة بيانات مستضافة، ثبّت حزمة PGlite الاختيارية واضبط `DATABASE_URL`:
+للتطوير محليًا باستخدام PostgreSQL دون Docker أو قاعدة بيانات مستضافة، ثبّت حزمة PGlite الاختيارية واضبط `DATABASE_URL`:
 
 ```bash
 pnpm add @electric-sql/pglite@^0.5.3
@@ -78,7 +78,7 @@ pnpm add @electric-sql/pglite@^0.5.3
 DATABASE_URL=pglite:./data/pglite
 ```
 
-يُشغّل [PGlite](https://pglite.dev/) قاعدة بيانات Postgres مبنية بتقنية WASM داخل العملية نفسها. يتيح لك اكتشاف مشكلات المخطط الخاصة بـ Postgres فقط قبل النشر، مع إبقاء الإعداد بسيطًا مثل الإعداد الافتراضي لـ SQLite. وهو، مثل SQLite، تخزين محلي فقط. لا تستخدمه في الإنتاج أو البيئات المشتركة.
+يُشغّل [PGlite](https://pglite.dev/) قاعدة بيانات Postgres مبنية بتقنية WASM داخل العملية نفسها. يتيح لك اكتشاف مشكلات المخطط الخاصة بـ Postgres فقط قبل النشر، مع إبقاء الإعداد بسيطًا مثل الإعداد الافتراضي لـ PGlite. وهو، مثل PGlite، تخزين محلي فقط. لا تستخدمه في الإنتاج أو البيئات المشتركة.
 
 ### قاعدة بيانات الإنتاج {#production}
 
@@ -94,8 +94,7 @@ DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6
 # Plain Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
-# Turso (libSQL). Also requires DATABASE_AUTH_TOKEN.
-DATABASE_URL=libsql://my-db-org.turso.io
+DATABASE_URL=pglite:./data/pglite
 ```
 
 يكتشف إطار العمل اللهجة تلقائيًا من بادئة الرابط ويهيئ Drizzle وفقًا لذلك.
@@ -114,7 +113,7 @@ _مخطط له (غير متاح بعد):_ عند الاتصال بـ Builder.io�
 
 ### 1. عرّف مخططك {#schema}
 
-استورد مساعدات المخطط من `@agent-native/core/db/schema`. لا تستورد أبدًا مباشرةً من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core`. تنتج مساعدات إطار العمل تعريفات محايدة اللهجة تعمل عبر جميع الواجهات الخلفية المدعومة.
+استورد مساعدات المخطط من `@agent-native/core/db/schema`. تنتج مساعدات الإطار تعريفات خاصة بـ PostgreSQL وPGlite.
 
 ```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
@@ -131,17 +130,17 @@ export const tasks = table("tasks", {
 
 | المساعد   | الغرض                                                                    |
 | --------- | ------------------------------------------------------------------------ |
-| `table`   | تحديد جدول؛ يُفوَّض إلى `pgTable` أو `sqliteTable`                       |
+| `table`   | تحديد جدول؛ يستخدم مساعد PostgreSQL                            |
 | `text`    | عمود نصي، يدعم `{ enum: [...] }`                                         |
 | `integer` | عمود صحيح، `{ mode: "boolean" }` يُعيَّن إلى قيمة منطقية في Postgres     |
-| `real`    | عمود عائم. يُعيَّن إلى `real` في SQLite، و`double precision` في Postgres |
-| `now`     | طابع زمني حالي محايد اللهجة لاستخدامه في `.default(now())`               |
+| `real`    | عمود عائم. يُعيَّن إلى `real` في PGlite، و`double precision` في Postgres |
+| `now`     | يضع الطابع الزمني الحالي لاستخدامه مع `.default(now())`                 |
 
 <DataModel
   id="doc-block-3hbven"
   title="جدول tasks"
   summary={
-    "يُعرَّف مرة واحدة باستخدام مساعدات إطار العمل؛ وتُختار اللهجة وقت التشغيل من DATABASE_URL."
+    "يُعرَّف مرة واحدة باستخدام مساعدات إطار العمل لـ PostgreSQL وPGlite المحلي."
   }
   entities={[
     {
@@ -202,7 +201,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-يُرجع `createGetDb` دالة `getDb()` تفتح اتصال قاعدة البيانات عند أول استدعاء، وتُرجع نفس مثيل Drizzle المكتوب (typed) في الاستدعاءات اللاحقة. وهي تقرأ `DATABASE_URL` وقت التشغيل لتحديد الواجهة الخلفية واللهجة المستخدمتين.
+يُرجع `createGetDb` دالة `getDb()` تفتح اتصال PostgreSQL عند أول استدعاء، وتُرجع نفس مثيل Drizzle المكتوب في الاستدعاءات اللاحقة. وهي تقرأ `DATABASE_URL` للاتصال بـ PostgreSQL المستضاف أو PGlite المحلي.
 
 استورد `getDb` من هذا المسار المحلي للقالب في actions والمسارات. لا تستورد مباشرةً من `@agent-native/core`. التصدير الأساسي (core) غير مكتوب النوع؛ بينما يحمل التصدير المحلي أنواع مخططك.
 
@@ -219,7 +218,7 @@ export const getDb = createGetDb(schema);
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -239,8 +238,8 @@ export const getDb = createGetDb(schema);
     },
     {
       lines: "22-25",
-      label: "بوابة اللهجة",
-      note: "مرّر كائنًا مفهرسًا حسب اللهجة لتشغيل SQL مختلف لكل واجهة خلفية. استخدم `SELECT 1` كعملية بلا تأثير على اللهجة التي لا تحتاج إلى التغيير.",
+      label: "SQL لـ PostgreSQL",
+      note: "تستخدم الترحيلات SQL الخاص بـ PostgreSQL مباشرةً وتُطبّق بترتيب الإصدار.",
     },
   ]}
 />
@@ -260,15 +259,13 @@ export const getDb = createGetDb(schema);
 قابل للمراجعة. ينشئ ذلك `server/db/migrations/<id_name>.sql`، ويحمّل
 `runDrizzleMigrations` هذه الملفات إلى مشغّل Agent-Native المشترك في بيئات Node.js
 وبيئات serverless المستندة إلى Node. تبقى خطوة الإصدار هي المسؤولة عن تغييرات
-الإنتاج. احتفظ بـ `runMigrations()` للحالات الخاصة باللهجات أو D1، وعمليات ملء
+الإنتاج. احتفظ بـ `runMigrations()` لجداول PostgreSQL، وعمليات ملء
 البيانات، وخطوات JavaScript المؤجلة.
 
 لا يتوفر محمّل نظام الملفات في Cloudflare Workers/Pages أو بيئات edge الأخرى
-التي لا توفر نظام ملفات، بما في ذلك D1. استخدم `runMigrations()` هناك مع إدخالات
-SQL مضمّنة في حزمة العامل. يحتوي مجلد إخراج Drizzle الواحد على خط أساس واحد
-خاص باللهجة للبيانات الوصفية، لذا أنشئ الترحيلات باستخدام لهجة النشر الأساسية
-ولا تبدّل مجلدًا واحدًا بين SQLite وPostgreSQL.
-
+التي لا توفر نظام ملفات. استخدم `runMigrations()` هناك مع إدخالات SQL الخاصة بـ PostgreSQL المضمّنة
+في حزمة العامل. أنشئ الترحيلات لـ PostgreSQL ولا تبدّل مجلدًا واحدًا بين
+PGlite وPostgreSQL.
 <Callout tone="risk">
   لا تقم أبدًا بتشغيل `drizzle-kit push` مقابل قاعدة بيانات إنتاج. تُعرّف مخططات
   القالب جداول التطبيق الخاصة فقط؛ ولا تتضمن جداول إطار العمل المركزية (`user`،
@@ -277,7 +274,7 @@ SQL مضمّنة في حزمة العامل. يحتوي مجلد إخراج Driz
   يتسبب في فقدان فوري للبيانات.
 </Callout>
 
-يُهيئ `drizzle.config.ts` الموجود في جذر كل تطبيق أداة drizzle-kit لفحص المخطط أثناء التطوير المحلي. إذا خدم مجلد ترحيل واحد عدة واجهات خلفية، فمرّر لهجة النشر الأساسية صراحةً، مثل `createDrizzleConfig({ dialect: "postgresql" })`:
+يهيئ `drizzle.config.ts` الموجود في جذر كل تطبيق drizzle-kit لفحص مخطط PostgreSQL أثناء التطوير المحلي. اضبط قاعدة PostgreSQL صراحةً، مثل `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -354,13 +351,13 @@ const rows = await db
 
 راجع [الأمان — تحديد نطاق البيانات](/docs/security#data-scoping) و[المشاركة](/docs/sharing#building) للاطلاع على النموذج الكامل.
 
-## المزامنة المدعومة بـ SQL {#sync}
+## المزامنة المدعومة بـ PostgreSQL {#sync}
 
 لا يعتمد Agent-Native على مراقبي نظام الملفات أو الحالة اللاصقة في الذاكرة. فعندما يكتب action إلى قاعدة البيانات، يزداد إصدار المزامنة. يستطلع خطاف العميل `useDbSync()` نقطة النهاية `/_agent-native/poll` ويُبطل ذاكرات React Query المؤقتة عندما يرى إصدارًا أعلى.
 
 يعمل هذا عبر عمليات النشر بدون خادم ومتعددة المثيلات لأن قاعدة البيانات هي نقطة التنسيق. إذا كتبت عمليات تغيير مخصصة خارج actions، استخدم مساعدات إطار العمل أو أصدر إبطال المزامنة المناسب حتى تتحدث واجهات المستخدم المفتوحة.
 
-<Diagram id="doc-block-qhkdv8" title="حلقة المزامنة المدعومة بـ SQL" summary="لا مراقبون، ولا حالة لاصقة. تؤدي عملية الكتابة إلى زيادة إصدار في SQL؛ ويستطلع كل عميل الإصدار ويعيد الجلب.">
+<Diagram id="doc-block-qhkdv8" title="حلقة المزامنة المدعومة بـ PostgreSQL" summary="لا مراقبون، ولا حالة لاصقة. تؤدي عملية الكتابة إلى زيادة إصدار في PostgreSQL؛ ويستطلع كل عميل الإصدار ويعيد الجلب.">
 
 ```html
 <div class="diagram-db-sync">
@@ -369,7 +366,7 @@ const rows = await db
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>قاعدة بيانات SQL</strong
+    <strong>قاعدة بيانات PostgrePostgreSQL</strong
     ><small class="diagram-muted">يزداد إصدار المزامنة</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
@@ -418,12 +415,12 @@ const rows = await db
 
 </Endpoint>
 
-## SQL الخام {#raw-sql}
+## PostgreSQL الخام {#raw-sql}
 
 بالنسبة للاستعلامات المتقدمة، أو فحوصات السلامة، أو الصيانة لمرة واحدة التي لا يمكن لمنشئ استعلامات Drizzle التعبير عنها، استخدم `getDbExec` من `@agent-native/core/db`:
 
 ```ts
-import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 
 const { rows } = await getDbExec().execute({
   sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
@@ -431,14 +428,13 @@ const { rows } = await getDbExec().execute({
 });
 ```
 
-يحوّل `getDbExec` تلقائيًا معلمات `?` إلى `$1`، و`$2`، وهكذا بالنسبة لـ Postgres. استخدم `isPostgres()` للتفرع حسب اللهجة، و`intType()` لإرجاع نوع العدد الصحيح الصحيح للواجهة الخلفية الحالية. يُفضَّل استخدام منشئ استعلامات Drizzle لعمليات القراءة والكتابة العادية. يتجاوز SQL الخام أمان الأنواع (type safety) ويصعب صيانته.
+يحوّل `getDbExec` تلقائيًا معلمات `?` إلى `$1`، و`$2`، وهكذا بالنسبة إلى Postgres. يُفضّل استخدام منشئ استعلامات Drizzle لعمليات القراءة والكتابة العادية. يتجاوز SQL الخام أمان الأنواع (type safety) ويصعب صيانته.
 
 ## متغيرات البيئة {#environment-variables}
 
 | المتغير               | الغرض                                                                                                     |
 | --------------------- | --------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | سلسلة اتصال SQL مستمرة (غير مضبوط = SQLite محلي؛ `pglite:./data/pglite` = تفعيل اختياري لـ Postgres محلي) |
-| `DATABASE_AUTH_TOKEN` | رمز مصادقة للموفرين الذين يتطلبون رمزًا منفصلاً، مثل Turso/libSQL                                         |
+| `DATABASE_URL`        | سلسلة اتصال PostgreSQL مستمرة (غير مضبوط = PGlite محلي؛ `pglite:./data/pglite` = تفعيل اختياري لـ Postgres محلي) |
 
 ## ما هي الخطوة التالية {#whats-next}
 

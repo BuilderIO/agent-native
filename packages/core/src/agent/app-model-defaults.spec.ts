@@ -45,7 +45,6 @@ const execute = vi.fn(async () => {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
-  isPostgres: () => false,
 }));
 
 // Request-context resolver values for getAgentAppModelDefaultForCurrentRequest.

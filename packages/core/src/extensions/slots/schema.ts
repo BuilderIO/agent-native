@@ -44,7 +44,7 @@ export const EXTENSION_SLOTS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_slots
   tool_id TEXT NOT NULL,
   slot_id TEXT NOT NULL,
   config TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
 export const EXTENSION_SLOTS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_slots (
@@ -67,8 +67,8 @@ export const EXTENSION_SLOT_INSTALLS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS to
   org_id TEXT,
   position INTEGER NOT NULL DEFAULT 0,
   config TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
 export const EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_slot_installs (

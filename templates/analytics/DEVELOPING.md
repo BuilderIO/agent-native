@@ -6,7 +6,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 
 - **Frontend**: React 19 + React Router 8 (SPA) + TypeScript + Vite + TailwindCSS 3
 - **Backend**: Nitro (via @agent-native/core) — file-based API routing
-- **Database**: Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
+- **Database**: Drizzle ORM over PostgreSQL SQL (`DATABASE_URL`; local dev uses PGlite)
 - **Testing**: Vitest
 - **UI Components**: Radix UI + TailwindCSS 3 + Lucide React icons
 - **Package Manager**: pnpm
@@ -148,13 +148,13 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 ## Build & Dev Commands
 
 ```bash
-pnpm dev        # Start dev server with local SQLite (frontend + backend, port 8080)
+pnpm dev        # Start dev server with local PGlite (frontend + backend, port 8080)
 pnpm build      # Production build
 pnpm typecheck  # TypeScript validation
 pnpm test       # Run Vitest tests
 ```
 
-`pnpm dev` pins `DATABASE_URL` to `file:./data/app.db` so local work does not
+`pnpm dev` pins `DATABASE_URL` to `pglite:./data/pglite` so local work does not
 accidentally touch a production database from `.env`. To intentionally test
 against another local database, set `ANALYTICS_DATABASE_URL` for that command:
 

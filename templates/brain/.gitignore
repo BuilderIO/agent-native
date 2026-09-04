@@ -5,8 +5,6 @@ build
 .netlify
 .react-router
 .generated
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/pglite/
 .env
 .env.local

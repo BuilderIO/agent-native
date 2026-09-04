@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDbExec: vi.fn(),
-  isPostgres: vi.fn(),
   runWithRequestContext: vi.fn(),
   backfill: vi.fn(),
   saveBackend: vi.fn(),
@@ -10,7 +9,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: mocks.getDbExec,
-  isPostgres: mocks.isPostgres,
 }));
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: mocks.runWithRequestContext,
@@ -70,7 +68,6 @@ const shard = {
 beforeEach(() => {
   vi.unstubAllEnvs();
   mocks.getDbExec.mockReset();
-  mocks.isPostgres.mockReset().mockReturnValue(true);
   mocks.runWithRequestContext
     .mockReset()
     .mockImplementation(async (_context: unknown, fn: () => Promise<unknown>) =>

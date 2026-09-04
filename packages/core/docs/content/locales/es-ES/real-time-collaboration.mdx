@@ -29,7 +29,7 @@ Esto se basa en tres tecnologías probadas en batalla: **Yjs** (CRDT para fusió
 - **El agente como editor par**: las ediciones del agente fluyen a través del mismo Yjs
   infraestructura como ediciones humanas. Aparecen en vivo, sin alterar el cursor
   posiciones, selecciones o la pila de deshacer.
-- **Funciona en todas partes**: cualquier base de datos SQL compatible con Drizzle (SQLite, Postgres).
+- **Funciona en todas partes**: cualquier base de datos SQL compatible con Drizzle (PGlite, Postgres).
   Cualquier objetivo de hosting que admita Nitro, incluidos serverless y edge.
 
 ## Arquitectura {#architecture}
@@ -101,7 +101,7 @@ el mismo resultado independientemente del orden.
 ### 2. Contenido canónico SQL (fuente de verdad duradera)
 
 El estado de Yjs persiste en una tabla `_collab_docs` como binario codificado en base64.
-La tabla está administrada por el marco y es independiente del proveedor (uso SQLite y Postgres
+La tabla está administrada por el marco y es independiente del proveedor (uso PGlite y Postgres
 esquemas idénticos). Cada fila lleva una columna de versión de simultaneidad optimista
 para evitar carreras de escritura simultáneas. La compactación de Tombstone se realiza de forma oportunista
 cuando el blob almacenado excede 4 veces el estado recién codificado: sin trabajo en segundo plano
@@ -651,7 +651,7 @@ una aplicación de producción normal:
 
 | Requisito                                                                  | Por qué                                                                                                                                                                                                              | Cómo comprobarlo                                                                                                                                                                                              |
 | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Postgres en un host accesible públicamente**                             | La puerta de enlace marca la base de datos desde su propia red. PGlite, SQLite, `localhost`, `*.internal` y las direcciones IP desnudas se rechazan antes de que la cadena de conexión salga siquiera de tu máquina. | `DATABASE_URL` apunta a un Postgres gestionado como Neon                                                                                                                                                      |
+| **Postgres en un host accesible públicamente**                             | La puerta de enlace marca la base de datos desde su propia red. PGlite, `localhost`, `*.internal` y las direcciones IP desnudas se rechazan antes de que la cadena de conexión salga siquiera de tu máquina. | `DATABASE_URL` apunta a un Postgres gestionado como Neon                                                                                                                                                      |
 | **`BUILDER_PRIVATE_KEY` definida como variable de entorno del DESPLIEGUE** | Autentica el registro y decide qué organización de Builder es propietaria del canal.                                                                                                                                 | Consulta la nota siguiente: este es el paso que más se pasa por alto                                                                                                                                          |
 | **Un despliegue de producción**                                            | Las vistas previas de despliegue conservan la sincronización local, de modo que una credencial de rama desechable nunca sale de la máquina y un repositorio activo no genera un canal por cada pull request.         | `CONTEXT=production` / `BRANCH=production`, o `VERCEL_ENV=production`                                                                                                                                         |
 | **La plataforma identifica el despliegue**                                 | El registro se indexa por el origen público de la aplicación, así que un proceso que no es realmente el despliegue no debe reclamarlo.                                                                               | Netlify, Vercel, AWS Lambda, Cloud Run, Render y Cloudflare Pages se identifican solos. En un contenedor o máquina virtual simple, define `AGENT_NATIVE_REALTIME_APP_URL` con el origen propio del despliegue |

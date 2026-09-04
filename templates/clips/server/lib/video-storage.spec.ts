@@ -24,7 +24,7 @@ describe("video storage policy", () => {
 
   it("allows SQL recording chunk scratch only for local database mode", () => {
     vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
     expect(requiresConfiguredVideoStorage()).toBe(false);
     expect(allowsSqlRecordingChunkScratch()).toBe(true);
 
@@ -35,7 +35,7 @@ describe("video storage policy", () => {
 
   it("disables SQL recording chunk scratch in production", () => {
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
     expect(requiresConfiguredVideoStorage()).toBe(true);
     expect(allowsSqlRecordingChunkScratch()).toBe(false);
   });

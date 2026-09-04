@@ -287,18 +287,8 @@ describe("database source helpers", () => {
     }
   });
 
-  it("sizes bulk chunks from the D1 parameter budget and column count", () => {
-    expect(bulkChunkSizeForColumnCount(15, "d1")).toBe(6);
-    expect(bulkChunkSizeForColumnCount(13, "d1")).toBe(6);
-    expect(bulkChunkSizeForColumnCount(2, "d1")).toBe(45);
-    expect(bulkChunkSizeForColumnCount(1, "d1")).toBe(90);
-    expect(bulkChunkSizeForColumnCount(15, "postgres")).toBe(60);
-  });
-
   it("uses one fewer transaction for the 584-row Postgres hydration case", () => {
-    expect(builderBodyHydrationBulkChunkLimit("postgres")).toBe(200);
-    expect(builderBodyHydrationBulkChunkLimit("sqlite")).toBe(112);
-    expect(builderBodyHydrationBulkChunkLimit("d1")).toBe(11);
+    expect(builderBodyHydrationBulkChunkLimit()).toBe(200);
   });
 
   it("serializes queued Builder body hydration with an unset item status as pending", () => {
@@ -343,11 +333,7 @@ describe("database source helpers", () => {
   });
 
   it("strips heavy Builder bodies in the database snapshot projection", () => {
-    const sqliteProjection = sourceSnapshotValuesJsonProjectionSql("sqlite");
-    const postgresProjection =
-      sourceSnapshotValuesJsonProjectionSql("postgres");
-
-    expect(sqliteProjection).toContain("json_remove");
+    const postgresProjection = sourceSnapshotValuesJsonProjectionSql();
     expect(postgresProjection).toContain("::jsonb");
     for (const key of [
       BUILDER_CMS_BODY_CONTENT_KEY,
@@ -355,7 +341,6 @@ describe("database source helpers", () => {
       BUILDER_CMS_BODY_READABLE_MAP_KEY,
       BUILDER_CMS_BODY_SIDECARS_KEY,
     ]) {
-      expect(sqliteProjection).toContain(key);
       expect(postgresProjection).toContain(key);
     }
   });

@@ -141,16 +141,19 @@ the UI and agent share the same capability.
 
 ## Database
 
-Local development defaults to a SQLite file at `data/app.db`. If you want local development to use the Postgres dialect without running a database server, install `@electric-sql/pglite` and set `DATABASE_URL=pglite:./data/pglite`. Both local SQLite and local PGlite are for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
+Local development uses PGlite at `pglite:./data/pglite`, which provides
+PostgreSQL semantics without a separate server. Containers, previews, and
+serverless deploys can reset their filesystem, so production deployments must
+set `DATABASE_URL` to a persistent PostgreSQL database such as Neon, Supabase,
+Railway, or RDS.
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Do not import dialect-specific schema helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`, and do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
+When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's PostgreSQL query builder for reads/writes. Do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
 
 | Variable              | Required                        | Description                                                                                                               |
 | --------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`; local Postgres opt-in: `pglite:./data/pglite`) |
-| `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                                                                             |
+| `DATABASE_URL` | Production yes, local dev no | PostgreSQL connection string (`pglite:./data/pglite` locally) |
 
 ## Tech Stack
 

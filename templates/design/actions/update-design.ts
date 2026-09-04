@@ -91,8 +91,7 @@ type DataOperation = z.infer<typeof dataOperationSchema>;
 type DataOperationRevisions = Record<string, number>;
 
 /**
- * Normalize affected-row metadata from every createGetDb backend: libSQL,
- * PGlite, Neon, postgres.js, better-sqlite3, and D1.
+ * Normalize affected-row metadata from PGlite and hosted Postgres.
  */
 function affectedRowCount(result: unknown): number | undefined {
   const candidate = result as
@@ -496,7 +495,7 @@ export default defineAction({
       const affected = affectedRowCount(updateResult);
       if (affected === undefined) {
         throw new Error(
-          "The database driver did not report an affected-row count for the design data update.",
+          "The Postgres update did not report an affected-row count for the design data update.",
         );
       }
 

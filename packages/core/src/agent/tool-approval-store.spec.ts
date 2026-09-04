@@ -2,13 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMocks = vi.hoisted(() => ({
   execute: vi.fn(),
-  isPostgres: vi.fn(() => false),
 }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: dbMocks.execute }),
-  intType: () => "INTEGER",
-  isPostgres: dbMocks.isPostgres,
+  intType: () => "BIGINT",
   retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
 }));
 
@@ -34,8 +32,6 @@ describe("agent tool approval store", () => {
     vi.resetModules();
     dbMocks.execute.mockReset();
     dbMocks.execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
-    dbMocks.isPostgres.mockReset();
-    dbMocks.isPostgres.mockReturnValue(false);
     ddlMocks.ensureIndexExists.mockReset();
     ddlMocks.ensureIndexExists.mockResolvedValue(undefined);
     ddlMocks.ensureTableExists.mockReset();
@@ -49,7 +45,7 @@ describe("agent tool approval store", () => {
     await createAgentToolApproval(binding);
 
     expect(dbMocks.execute).toHaveBeenNthCalledWith(
-      5,
+      1,
       expect.objectContaining({
         sql: expect.stringContaining("INSERT INTO agent_tool_approvals"),
         args: expect.arrayContaining([
@@ -57,7 +53,7 @@ describe("agent tool approval store", () => {
         ]),
       }),
     );
-    expect(dbMocks.execute.mock.calls[4]?.[0].args).not.toContain(
+    expect(dbMocks.execute.mock.calls[0]?.[0].args).not.toContain(
       binding.approvalKey,
     );
   });
@@ -73,22 +69,17 @@ describe("agent tool approval store", () => {
     await createAgentToolApproval(binding);
     const after = Date.now();
 
-    const insertArgs = dbMocks.execute.mock.calls[4]?.[0].args as unknown[];
+    const insertArgs = dbMocks.execute.mock.calls[0]?.[0].args as unknown[];
     const expiresAt = insertArgs[8] as number;
     expect(expiresAt - after).toBeGreaterThanOrEqual(30 * 60_000);
     expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000 + 1_000);
   });
 
   it("recovers a unique pending turn when a continuation omits its turn id", async () => {
-    dbMocks.execute
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({
-        rows: [{ turn_id: "turn-1" }],
-        rowsAffected: 0,
-      });
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [{ turn_id: "turn-1" }],
+      rowsAffected: 0,
+    });
     const { resolveAgentToolApprovalTurnId } =
       await import("./tool-approval-store.js");
 
@@ -104,15 +95,10 @@ describe("agent tool approval store", () => {
   });
 
   it("does not guess between pending approvals from different turns", async () => {
-    dbMocks.execute
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({
-        rows: [{ turn_id: "turn-1" }, { turn_id: "turn-2" }],
-        rowsAffected: 0,
-      });
+    dbMocks.execute.mockResolvedValueOnce({
+      rows: [{ turn_id: "turn-1" }, { turn_id: "turn-2" }],
+      rowsAffected: 0,
+    });
     const { resolveAgentToolApprovalTurnId } =
       await import("./tool-approval-store.js");
 
@@ -132,12 +118,7 @@ describe("agent tool approval store", () => {
   ])(
     "returns $expected when the atomic consume affects $rowsAffected row(s)",
     async ({ rowsAffected, expected }) => {
-      dbMocks.execute
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected });
+      dbMocks.execute.mockResolvedValueOnce({ rows: [], rowsAffected });
       const { consumeAgentToolApproval } =
         await import("./tool-approval-store.js");
 
@@ -166,12 +147,7 @@ describe("agent tool approval store", () => {
   );
 
   it("propagates database failures instead of authorizing", async () => {
-    dbMocks.execute
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-      .mockRejectedValueOnce(new Error("consume unavailable"));
+    dbMocks.execute.mockRejectedValueOnce(new Error("consume unavailable"));
     const { consumeAgentToolApproval } =
       await import("./tool-approval-store.js");
 
@@ -182,8 +158,6 @@ describe("agent tool approval store", () => {
 
   it("stores and reads an action-type policy in the owner/org scope", async () => {
     dbMocks.execute
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [{ allowed: 1 }], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
@@ -213,7 +187,7 @@ describe("agent tool approval store", () => {
       }),
     ).resolves.toBe(false);
 
-    const policyRead = dbMocks.execute.mock.calls[3]?.[0] as {
+    const policyRead = dbMocks.execute.mock.calls[1]?.[0] as {
       sql: string;
       args: unknown[];
     };
@@ -227,10 +201,7 @@ describe("agent tool approval store", () => {
   });
 
   it("fails closed when the policy store cannot be read", async () => {
-    dbMocks.execute
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
-      .mockRejectedValueOnce(new Error("policy unavailable"));
+    dbMocks.execute.mockRejectedValueOnce(new Error("policy unavailable"));
     const { isAgentToolAlwaysAllowed } =
       await import("./tool-approval-store.js");
 

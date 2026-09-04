@@ -286,7 +286,7 @@ with `mode: "retrieval"`.
 
 The repository-level `pnpm test` command includes `pnpm test:brain-evals`, which
 runs Brain's product-demo and retrieval action evals against a disposable local
-SQLite database. `pnpm test:brain-privacy-evals` is a separate CI lane with
+PGlite database. `pnpm test:brain-privacy-evals` is a separate CI lane with
 must-block sensitive fixtures and must-allow benign false-positive fixtures
 (such as API-limit raises, bonus features, and medical-device customers). Both
 paths are fully seeded and offline; neither requires production Slack, Granola,

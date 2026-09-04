@@ -29,7 +29,6 @@
     "@agent-native/creative-context": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
-    "@libsql/client": "^0.15.8",
     "@noble/hashes": "^2.3.0",
     "@paper-design/shaders-react": "0.0.76",
     "@tabler/icons-react": "catalog:",

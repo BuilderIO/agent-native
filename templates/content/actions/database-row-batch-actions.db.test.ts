@@ -10,7 +10,7 @@ import type { ContentDatabaseItem } from "../shared/api.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `database-row-batch-actions-${process.pid}-${Date.now()}.sqlite`,
+  `database-row-batch-actions-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -33,7 +33,7 @@ const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -86,9 +86,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;

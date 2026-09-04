@@ -24,8 +24,8 @@ export async function getContentOrganizationMembership(
   options: { db?: any } = {},
 ): Promise<{ role: string; name: string; createdBy: string } | null> {
   if (options.db) {
-    // The canonical tables carry the active database dialect. Loading them only
-    // for transaction-scoped checks avoids initializing auth timers elsewhere.
+    // Load the canonical tables only for transaction-scoped checks to avoid
+    // initializing auth timers elsewhere.
     const { organizations, orgMembers } =
       await import("@agent-native/core/org");
     const [row] = await options.db

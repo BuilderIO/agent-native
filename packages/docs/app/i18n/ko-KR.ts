@@ -158,8 +158,8 @@ const koKR = {
           body: "작업을 한 번 정의하고 UI, agent, HTTP, MCP, A2A, CLI에서 사용합니다.",
         },
         sqlStateOrm: {
-          title: "SQL 상태와 ORM",
-          body: "지속되는 앱 데이터, application state, migration, 공급자 독립 schema.",
+          title: "PostgreSQL 상태와 ORM",
+          body: "지속되는 앱 데이터, application state, migration, PostgreSQL/PGlite schema.",
         },
         dbAdmin: {
           title: "데이터베이스 관리",
@@ -212,7 +212,7 @@ const koKR = {
       body1:
         "Agent-Native 는 agentic applications를 만들기 위한 오픈소스 framework 입니다. Chat에서 시작하고, shared actions를 정의한 뒤, 같은 state를 중심으로 UI, jobs, 협업을 추가하세요.",
       body2:
-        "자체 데이터베이스, 호스팅 제공자, 모델 스택, app 코드를 가져오세요.",
+        "로컬 PGlite 또는 호스팅 PostgreSQL과 호스팅 제공자, 모델 스택, app 코드를 사용하세요.",
       cta: "framework 가이드 읽기",
       primitives: {
         actions: {
@@ -223,17 +223,17 @@ const koKR = {
         sharedState: {
           title: "공유 상태",
           description:
-            "SQL-backed app state 가 사람, agents, sessions 를 동기화된 상태로 유지합니다.",
+            "PostgreSQL/PGlite로 뒷받침되는 app state가 사람, agents, sessions를 동기화된 상태로 유지합니다.",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop, tools, skills, memory, jobs, observability 가 함께 제공됩니다.",
         },
-        backendAgnostic: {
-          title: "백엔드 독립적",
+        postgresSpecific: {
+          title: "PostgreSQL 전용",
           description:
-            "Drizzle 이 지원하는 어떤 SQL 데이터베이스와 Nitro 호환 호스트든 연결할 수 있습니다.",
+            "프레임워크의 PostgreSQL 스키마 도우미를 로컬 PGlite 또는 Nitro 호환 호스트의 호스팅 Postgres와 함께 사용하세요.",
         },
       },
     },
@@ -312,7 +312,7 @@ const koKR = {
     },
     quickStart: {
       title: "명령으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
+      body: "명령 하나가 actions, durable threads, PGlite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
     },
     finalCta: {
       title: "agentic era 를 위해 구축된 소프트웨어",
@@ -469,7 +469,7 @@ const koKR = {
           body: "에이전트가 사용자가 무엇을 보고, 선택하고, 편집하는지 알고 있습니다.",
         },
         sharedSql: {
-          title: "공유 SQL 데이터",
+          title: "공유 PostgreSQL 데이터",
           body: "사용자와 에이전트가 동일한 신뢰 출처를 읽고 업데이트합니다.",
         },
         skillsMemory: {
@@ -2096,8 +2096,6 @@ const koKR = {
     databaseProviders: "데이터베이스 프로바이더",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "국제화",
     localFileMode: "로컬 파일 모드",

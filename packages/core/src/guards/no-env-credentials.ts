@@ -51,7 +51,6 @@ const ALLOWLIST_EXACT = new Set([
   // FUSION_STRIPE_SECRET_KEY through, and this is the only FUSION_ key any
   // generated app code reads.
   "FUSION_BRANCH_KIND",
-  "DATABASE_AUTH_TOKEN",
   "NODE_ENV",
   "CI",
   "DEBUG",

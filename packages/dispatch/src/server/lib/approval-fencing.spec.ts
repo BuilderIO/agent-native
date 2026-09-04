@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Each test runs real migrations against a fresh SQLite file; under full
+// Each test runs real migrations against a fresh PGlite database; under full
 // workspace concurrency (and a shared machine running other suites) that
 // setup can far exceed the 5s default, so give it generous headroom. The
 // tests themselves complete in a few seconds uncontended.
@@ -18,9 +18,7 @@ const otherOrgId = "org_approval_fencing_other";
 const originalEnv = {
   APP_NAME: process.env.APP_NAME,
   DATABASE_URL: process.env.DATABASE_URL,
-  DATABASE_AUTH_TOKEN: process.env.DATABASE_AUTH_TOKEN,
   DISPATCH_DATABASE_URL: process.env.DISPATCH_DATABASE_URL,
-  DISPATCH_DATABASE_AUTH_TOKEN: process.env.DISPATCH_DATABASE_AUTH_TOKEN,
 };
 
 let tempDir: string | null = null;
@@ -36,11 +34,9 @@ beforeEach(async () => {
   tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "dispatch-approval-fencing-"),
   );
-  process.env.DATABASE_URL = `file:${path.join(tempDir, "app.db")}`;
+  process.env.DATABASE_URL = `pglite:${tempDir}`;
   delete process.env.APP_NAME;
-  delete process.env.DATABASE_AUTH_TOKEN;
   delete process.env.DISPATCH_DATABASE_URL;
-  delete process.env.DISPATCH_DATABASE_AUTH_TOKEN;
   vi.resetModules();
 
   const [{ runMigrations }, { dispatchMigrations }] = await Promise.all([
@@ -50,6 +46,7 @@ beforeEach(async () => {
   await runMigrations(dispatchMigrations, {
     table: "dispatch_migrations",
   })({});
+  await (await import("@agent-native/core/db")).closeDbExec();
 
   const { getDbExec } = await import("@agent-native/core/db");
   const exec = getDbExec();
@@ -59,7 +56,7 @@ beforeEach(async () => {
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL
+      joined_at BIGINT NOT NULL
     )`,
     args: [],
   });

@@ -41,7 +41,7 @@ describe("runtime configuration diagnostics", () => {
       {
         NODE_ENV: "production",
         AUTH_DISABLED: "true",
-        DATABASE_URL: "file:./data/app.db",
+        DATABASE_URL: "pglite:./data/pglite",
       },
       {},
       { phase: "runtime", appName: "chat" },
@@ -54,7 +54,7 @@ describe("runtime configuration diagnostics", () => {
       "local-database-in-production",
     ]);
     expect(report.prompt).toContain("BETTER_AUTH_SECRET");
-    expect(report.prompt).not.toContain("file:./data/app.db");
+    expect(report.prompt).not.toContain("pglite:./data/pglite");
     expect(formatRuntimeConfigReport(report)).toContain(
       "Copy the prompt below to an AI coding agent",
     );

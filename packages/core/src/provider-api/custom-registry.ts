@@ -20,7 +20,7 @@
  * cannot be expressed in the simple header/key model.
  */
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { isBlockedExtensionUrlWithDns } from "../extensions/url-safety.js";
@@ -87,8 +87,8 @@ const CREATE_SQL = `CREATE TABLE IF NOT EXISTS custom_api_providers (
   allowed_host_suffixes_json TEXT NOT NULL,
   default_headers_json TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
   PRIMARY KEY (scope, scope_id, id)
 )`;
 
@@ -97,24 +97,7 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
-
-      if (isPostgres()) {
-        const pgSql = CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("custom_api_providers", pgSql);
-        // Widen any pre-existing int4 timestamp columns to BIGINT (no-op once done)
-        await widenIntColumnsToBigInt("custom_api_providers", [
-          "created_at",
-          "updated_at",
-        ]);
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await client.execute(CREATE_SQL);
-      // Fresh Postgres tables get BIGINT via the replace above, but tables
-      // created before that compat existed kept int4 timestamp columns; widen
-      // them so `Date.now()` writes don't overflow. No-op once done.
+      await ensureTableExists("custom_api_providers", CREATE_SQL);
       await widenIntColumnsToBigInt("custom_api_providers", [
         "created_at",
         "updated_at",

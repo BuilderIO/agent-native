@@ -4,7 +4,6 @@ import {
   createDbExec,
   getDbExec,
   getDatabaseUrl,
-  isPostgres,
   MIGRATION_DEFERRED,
   runMigrations,
   withMigrationRuntime,
@@ -41,14 +40,6 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // this list independently — see the v75-v83 incident documented on v75 below.
 const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
 
-function isDuplicateColumnError(err: unknown): boolean {
-  const message = (err as { message?: string } | undefined)?.message ?? "";
-  return (
-    /duplicate column name/i.test(message) ||
-    /column .* already exists/i.test(message)
-  );
-}
-
 function getAnalyticsMigrationDatabaseUrl(): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
   const directUrl = appName
@@ -66,24 +57,12 @@ const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK =
   "hashtext('agent-native:analytics-event-cursor-index-repair')";
 
 async function ensureAnalyticsDashboardCreatedByColumn(): Promise<void> {
-  if (isPostgres()) return;
-
-  const db = getDbExec();
-  const { rows } = await db.execute(`PRAGMA table_info("dashboards")`);
-  if (rows.some((row) => String(row.name) === "created_by")) return;
-
-  try {
-    await db.execute("ALTER TABLE dashboards ADD COLUMN created_by TEXT");
-  } catch (err) {
-    if (!isDuplicateColumnError(err)) throw err;
-  }
+  return;
 }
 
 async function repairAnalyticsEventCursorIndexes(): Promise<
   void | typeof MIGRATION_DEFERRED
 > {
-  if (!isPostgres()) return;
-
   const repairIndexes = [
     {
       name: "analytics_events_org_received_id_non_http_idx",
@@ -184,9 +163,9 @@ export const runAnalyticsMigrations = runMigrations(
       kind TEXT NOT NULL,
       title TEXT NOT NULL DEFAULT 'Untitled',
       config TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       created_by TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -201,7 +180,7 @@ export const runAnalyticsMigrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -212,7 +191,7 @@ export const runAnalyticsMigrations = runMigrations(
       name TEXT NOT NULL,
       filters TEXT NOT NULL DEFAULT '{}',
       created_by TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -227,8 +206,8 @@ export const runAnalyticsMigrations = runMigrations(
       result_markdown TEXT NOT NULL DEFAULT '',
       result_data TEXT,
       author TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -243,7 +222,7 @@ export const runAnalyticsMigrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -265,7 +244,7 @@ export const runAnalyticsMigrations = runMigrations(
       name TEXT NOT NULL,
       public_key TEXT NOT NULL,
       public_key_prefix TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       last_used_at TEXT,
       revoked_at TEXT,
       replay_allowed_origins TEXT NOT NULL DEFAULT '[]',
@@ -295,7 +274,7 @@ export const runAnalyticsMigrations = runMigrations(
       session_id TEXT,
       timestamp TEXT NOT NULL,
       event_date TEXT,
-      received_at TEXT NOT NULL DEFAULT (datetime('now')),
+      received_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       url TEXT,
       path TEXT,
       hostname TEXT,
@@ -390,63 +369,54 @@ export const runAnalyticsMigrations = runMigrations(
       version: 41,
       sql: {
         postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_event_date_idx; CREATE INDEX CONCURRENTLY analytics_events_org_event_date_idx ON analytics_events (org_id, event_date)`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_event_date_idx ON analytics_events (org_id, event_date)`,
       },
     },
     {
       version: 42,
       sql: {
         postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_event_name_date_idx; CREATE INDEX CONCURRENTLY analytics_events_org_event_name_date_idx ON analytics_events (org_id, event_name, event_date)`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_event_name_date_idx ON analytics_events (org_id, event_name, event_date)`,
       },
     },
     {
       version: 43,
       sql: {
         postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_date_user_idx; CREATE INDEX CONCURRENTLY analytics_events_org_date_user_idx ON analytics_events (org_id, event_date, user_key)`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_date_user_idx ON analytics_events (org_id, event_date, user_key)`,
       },
     },
     {
       version: 44,
       sql: {
         postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_date_template_idx; CREATE INDEX CONCURRENTLY analytics_events_org_date_template_idx ON analytics_events (org_id, event_date, template)`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_date_template_idx ON analytics_events (org_id, event_date, template)`,
       },
     },
     {
       version: 45,
       sql: {
         postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_event_date_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_event_date_idx ON analytics_events (owner_email, event_date) WHERE org_id IS NULL`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_event_date_idx ON analytics_events (owner_email, event_date) WHERE org_id IS NULL`,
       },
     },
     {
       version: 46,
       sql: {
         postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_event_name_date_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_event_name_date_idx ON analytics_events (owner_email, event_name, event_date) WHERE org_id IS NULL`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_event_name_date_idx ON analytics_events (owner_email, event_name, event_date) WHERE org_id IS NULL`,
       },
     },
     {
       version: 47,
       sql: {
         postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_date_user_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_date_user_idx ON analytics_events (owner_email, event_date, user_key) WHERE org_id IS NULL`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_date_user_idx ON analytics_events (owner_email, event_date, user_key) WHERE org_id IS NULL`,
       },
     },
     {
       version: 48,
       sql: {
         postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_date_template_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_date_template_idx ON analytics_events (owner_email, event_date, template) WHERE org_id IS NULL`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_date_template_idx ON analytics_events (owner_email, event_date, template) WHERE org_id IS NULL`,
       },
     },
     {
       version: 49,
       sql: {
         postgres: `UPDATE analytics_events SET event_date = COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)), user_key = COALESCE(NULLIF(user_key, ''), NULLIF(user_id, ''), NULLIF(anonymous_id, '')) WHERE (event_date IS NULL OR event_date = '' OR user_key IS NULL OR user_key = '') AND timestamp >= to_char(CURRENT_DATE - INTERVAL '400 days', 'YYYY-MM-DD')`,
-        sqlite: `UPDATE analytics_events SET event_date = COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)), user_key = COALESCE(NULLIF(user_key, ''), NULLIF(user_id, ''), NULLIF(anonymous_id, '')) WHERE (event_date IS NULL OR event_date = '' OR user_key IS NULL OR user_key = '') AND timestamp >= date('now', '-400 days')`,
       },
     },
     {
@@ -468,25 +438,6 @@ export const runAnalyticsMigrations = runMigrations(
       last_error TEXT,
       created_at TEXT NOT NULL DEFAULT (now()::text),
       updated_at TEXT NOT NULL DEFAULT (now()::text),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT
-    )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_report_subscriptions (
-      id TEXT PRIMARY KEY,
-      dashboard_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      recipients TEXT NOT NULL DEFAULT '[]',
-      filters TEXT NOT NULL DEFAULT '{}',
-      frequency TEXT NOT NULL DEFAULT 'daily',
-      time_of_day TEXT NOT NULL DEFAULT '09:00',
-      timezone TEXT NOT NULL DEFAULT 'UTC',
-      enabled INTEGER NOT NULL DEFAULT 1,
-      next_run_at TEXT,
-      last_run_at TEXT,
-      last_status TEXT,
-      last_error TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
@@ -529,8 +480,8 @@ export const runAnalyticsMigrations = runMigrations(
       template TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       metadata TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       last_ingested_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
@@ -551,7 +502,7 @@ export const runAnalyticsMigrations = runMigrations(
       storage_kind TEXT NOT NULL,
       storage_ref TEXT,
       inline_data TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
@@ -565,7 +516,7 @@ export const runAnalyticsMigrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -633,7 +584,7 @@ export const runAnalyticsMigrations = runMigrations(
       public_key_id TEXT NOT NULL,
       recording_id TEXT NOT NULL,
       byte_length INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
@@ -650,21 +601,18 @@ export const runAnalyticsMigrations = runMigrations(
       version: 72,
       sql: {
         postgres: `UPDATE analytics_events SET timestamp = COALESCE(NULLIF(received_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), event_date = substr(COALESCE(NULLIF(received_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), 1, 10) WHERE COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) > to_char(CURRENT_DATE, 'YYYY-MM-DD')`,
-        sqlite: `UPDATE analytics_events SET timestamp = COALESCE(NULLIF(received_at, ''), datetime('now')), event_date = substr(COALESCE(NULLIF(received_at, ''), date('now')), 1, 10) WHERE COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) > date('now')`,
       },
     },
     {
       version: 73,
       sql: {
         postgres: `UPDATE session_recordings SET started_at = CASE WHEN substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(last_ingested_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(last_ingested_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE ended_at END WHERE (owner_email IS NOT NULL OR org_id IS NOT NULL) AND (substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD')))`,
-        sqlite: `UPDATE session_recordings SET started_at = CASE WHEN substr(started_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(last_ingested_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(last_ingested_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE ended_at END WHERE (owner_email IS NOT NULL OR org_id IS NOT NULL) AND (substr(started_at, 1, 10) > date('now') OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now')))`,
       },
     },
     {
       version: 74,
       sql: {
         postgres: `UPDATE session_replay_chunks SET started_at = CASE WHEN started_at IS NOT NULL AND substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD') THEN LEAST(COALESCE(NULLIF(created_at, ''), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ELSE ended_at END WHERE (started_at IS NOT NULL AND substr(started_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD')) OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > to_char(CURRENT_DATE, 'YYYY-MM-DD'))`,
-        sqlite: `UPDATE session_replay_chunks SET started_at = CASE WHEN started_at IS NOT NULL AND substr(started_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE started_at END, ended_at = CASE WHEN ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now') THEN min(COALESCE(NULLIF(created_at, ''), datetime('now')), datetime('now')) ELSE ended_at END WHERE (started_at IS NOT NULL AND substr(started_at, 1, 10) > date('now')) OR (ended_at IS NOT NULL AND substr(ended_at, 1, 10) > date('now'))`,
       },
     },
     // v75-v83: a parallel branch shipped unrelated DDL under these SAME version
@@ -707,32 +655,6 @@ export const runAnalyticsMigrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS analytics_alert_rules (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      event_name TEXT,
-      filters TEXT NOT NULL DEFAULT '[]',
-      threshold_mode TEXT NOT NULL DEFAULT 'event_count',
-      distinct_by TEXT,
-      threshold INTEGER NOT NULL DEFAULT 1,
-      window_minutes INTEGER NOT NULL DEFAULT 10,
-      cooldown_minutes INTEGER NOT NULL DEFAULT 30,
-      severity TEXT NOT NULL DEFAULT 'warning',
-      channels TEXT NOT NULL DEFAULT '["inbox"]',
-      email_recipients TEXT NOT NULL DEFAULT '[]',
-      slack_webhook_url TEXT,
-      webhook_url TEXT,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      last_evaluated_at TEXT,
-      last_triggered_at TEXT,
-      last_status TEXT,
-      last_error TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT
-    )`,
       },
     },
     {
@@ -753,23 +675,6 @@ export const runAnalyticsMigrations = runMigrations(
       sample_events TEXT NOT NULL DEFAULT '[]',
       notification_id TEXT,
       created_at TEXT NOT NULL DEFAULT (now()::text),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT
-    )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS analytics_alert_incidents (
-      id TEXT PRIMARY KEY,
-      rule_id TEXT NOT NULL,
-      triggered_at TEXT NOT NULL,
-      window_start TEXT NOT NULL,
-      window_end TEXT NOT NULL,
-      threshold INTEGER NOT NULL,
-      observed_value INTEGER NOT NULL,
-      event_count INTEGER NOT NULL,
-      severity TEXT NOT NULL,
-      channels TEXT NOT NULL DEFAULT '[]',
-      sample_events TEXT NOT NULL DEFAULT '[]',
-      notification_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
@@ -812,22 +717,9 @@ export const runAnalyticsMigrations = runMigrations(
       app_id TEXT,
       app_url TEXT,
       database_url_secret_key TEXT NOT NULL,
-      database_auth_token_secret_key TEXT,
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (now()::text),
       updated_at TEXT NOT NULL DEFAULT (now()::text),
-      org_id TEXT NOT NULL
-    )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS analytics_db_admin_connections (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      app_id TEXT,
-      app_url TEXT,
-      database_url_secret_key TEXT NOT NULL,
-      database_auth_token_secret_key TEXT,
-      created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       org_id TEXT NOT NULL
     )`,
       },
@@ -867,29 +759,6 @@ export const runAnalyticsMigrations = runMigrations(
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS error_issues (
-      id TEXT PRIMARY KEY,
-      fingerprint TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'Error',
-      title TEXT NOT NULL,
-      culprit TEXT,
-      level TEXT NOT NULL DEFAULT 'error',
-      status TEXT NOT NULL DEFAULT 'unresolved',
-      first_seen_at TEXT NOT NULL,
-      last_seen_at TEXT NOT NULL,
-      event_count INTEGER NOT NULL DEFAULT 0,
-      users_affected INTEGER NOT NULL DEFAULT 0,
-      sample_event_id TEXT,
-      last_session_recording_id TEXT,
-      assignee TEXT,
-      app TEXT,
-      template TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private'
-    )`,
       },
     },
     {
@@ -904,15 +773,6 @@ export const runAnalyticsMigrations = runMigrations(
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (now()::text)
-    )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS error_issue_shares (
-      id TEXT PRIMARY KEY,
-      resource_id TEXT NOT NULL,
-      principal_type TEXT NOT NULL,
-      principal_id TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'viewer',
-      created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
       },
     },
@@ -945,34 +805,6 @@ export const runAnalyticsMigrations = runMigrations(
       breadcrumbs TEXT NOT NULL DEFAULT '[]',
       occurred_at TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (now()::text),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT
-    )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS error_events (
-      id TEXT PRIMARY KEY,
-      issue_id TEXT NOT NULL,
-      fingerprint TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'Error',
-      message TEXT NOT NULL DEFAULT '',
-      culprit TEXT,
-      level TEXT NOT NULL DEFAULT 'error',
-      stack TEXT NOT NULL DEFAULT '[]',
-      raw_stack TEXT,
-      handled INTEGER NOT NULL DEFAULT 1,
-      url TEXT,
-      user_id TEXT,
-      anonymous_id TEXT,
-      user_key TEXT,
-      session_id TEXT,
-      client_recording_id TEXT,
-      session_recording_id TEXT,
-      release TEXT,
-      environment TEXT,
-      tags TEXT NOT NULL DEFAULT '{}',
-      extra TEXT NOT NULL DEFAULT '{}',
-      breadcrumbs TEXT NOT NULL DEFAULT '[]',
-      occurred_at TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
@@ -1044,36 +876,6 @@ export const runAnalyticsMigrations = runMigrations(
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS monitors (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      url TEXT NOT NULL,
-      method TEXT NOT NULL DEFAULT 'GET',
-      request_headers TEXT NOT NULL DEFAULT '{}',
-      request_body TEXT,
-      interval_seconds INTEGER NOT NULL DEFAULT 300,
-      timeout_ms INTEGER NOT NULL DEFAULT 10000,
-      expected_status TEXT NOT NULL DEFAULT '{"mode":"class","classes":["2xx"]}',
-      assertions TEXT NOT NULL DEFAULT '[]',
-      follow_redirects INTEGER NOT NULL DEFAULT 1,
-      severity TEXT NOT NULL DEFAULT 'critical',
-      channels TEXT NOT NULL DEFAULT '["inbox"]',
-      email_recipients TEXT NOT NULL DEFAULT '[]',
-      cooldown_minutes INTEGER NOT NULL DEFAULT 15,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      last_status TEXT,
-      last_checked_at TEXT,
-      last_success_at TEXT,
-      last_error TEXT,
-      last_latency_ms INTEGER,
-      last_status_code INTEGER,
-      consecutive_failures INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private'
-    )`,
       },
     },
     {
@@ -1091,21 +893,6 @@ export const runAnalyticsMigrations = runMigrations(
       error TEXT,
       failed_assertions TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (now()::text),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private'
-    )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS monitor_check_results (
-      id TEXT PRIMARY KEY,
-      monitor_id TEXT NOT NULL,
-      checked_at TEXT NOT NULL,
-      ok INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'up',
-      status_code INTEGER,
-      latency_ms INTEGER,
-      error TEXT,
-      failed_assertions TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -1129,23 +916,6 @@ export const runAnalyticsMigrations = runMigrations(
       notification_delivered BOOLEAN NOT NULL DEFAULT false,
       checks_failed INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (now()::text),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private'
-    )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS monitor_incidents (
-      id TEXT PRIMARY KEY,
-      monitor_id TEXT NOT NULL,
-      started_at TEXT NOT NULL,
-      resolved_at TEXT,
-      status TEXT NOT NULL DEFAULT 'down',
-      severity TEXT NOT NULL DEFAULT 'critical',
-      cause TEXT NOT NULL DEFAULT '',
-      last_error TEXT,
-      notification_id TEXT,
-      notification_delivered INTEGER NOT NULL DEFAULT 0,
-      checks_failed INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -1217,24 +987,6 @@ export const runAnalyticsMigrations = runMigrations(
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS status_pages (
-      id TEXT PRIMARY KEY,
-      slug TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      published INTEGER NOT NULL DEFAULT 0,
-      show_uptime_bars INTEGER NOT NULL DEFAULT 1,
-      show_overall_uptime INTEGER NOT NULL DEFAULT 1,
-      show_response_time INTEGER NOT NULL DEFAULT 0,
-      density TEXT NOT NULL DEFAULT 'comfortable',
-      alignment TEXT NOT NULL DEFAULT 'left',
-      monitors TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private'
-    )`,
       },
     },
     {
@@ -1287,17 +1039,6 @@ export const runAnalyticsMigrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_revisions (
-      id TEXT PRIMARY KEY,
-      dashboard_id TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      title TEXT NOT NULL,
-      config TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_by TEXT,
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT
-    )`,
       },
     },
     {
@@ -1324,21 +1065,6 @@ export const runAnalyticsMigrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS analysis_revisions (
-      id TEXT PRIMARY KEY,
-      analysis_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      question TEXT NOT NULL DEFAULT '',
-      instructions TEXT NOT NULL DEFAULT '',
-      data_sources TEXT NOT NULL DEFAULT '[]',
-      result_markdown TEXT NOT NULL DEFAULT '',
-      result_data TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_by TEXT,
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT
-    )`,
       },
     },
     {
@@ -1356,11 +1082,6 @@ export const runAnalyticsMigrations = runMigrations(
         SET timeout_ms = 10000, updated_at = COALESCE(NULLIF(updated_at, ''), now()::text)
         WHERE timeout_ms IS NULL OR timeout_ms < 10000 OR timeout_ms = 15000
       `,
-        sqlite: `
-        UPDATE monitors
-        SET timeout_ms = 10000, updated_at = COALESCE(NULLIF(updated_at, ''), datetime('now'))
-        WHERE timeout_ms IS NULL OR timeout_ms < 10000 OR timeout_ms = 15000
-      `,
       },
     },
     {
@@ -1373,7 +1094,6 @@ export const runAnalyticsMigrations = runMigrations(
       name: "uptime-monitor-incident-notification-delivered",
       sql: {
         postgres: `ALTER TABLE monitor_incidents ADD COLUMN IF NOT EXISTS notification_delivered BOOLEAN NOT NULL DEFAULT false`,
-        sqlite: `ALTER TABLE monitor_incidents ADD COLUMN IF NOT EXISTS notification_delivered INTEGER NOT NULL DEFAULT 0`,
       },
     },
     {
@@ -1516,14 +1236,6 @@ export const runAnalyticsMigrations = runMigrations(
       lease_expires_at TEXT,
       updated_at TEXT NOT NULL DEFAULT (now()::text)
     )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS analytics_rollup_backfill_state (
-      id TEXT PRIMARY KEY,
-      status TEXT NOT NULL DEFAULT 'pending',
-      completed_at TEXT,
-      lease_token TEXT,
-      lease_expires_at TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`,
       },
     },
     {
@@ -1547,7 +1259,6 @@ export const runAnalyticsMigrations = runMigrations(
       name: "analytics-events-backfill-cursor-indexes",
       sql: {
         postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
       },
     },
     {
@@ -1557,10 +1268,6 @@ export const runAnalyticsMigrations = runMigrations(
         postgres: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
           name_key TEXT PRIMARY KEY,
           created_at TEXT NOT NULL DEFAULT (now()::text)
-        )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
-          name_key TEXT PRIMARY KEY,
-          created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )`,
       },
     },
@@ -1591,29 +1298,6 @@ export const runAnalyticsMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS dashboard_folders_owner_org_idx ON dashboard_folders (owner_email, org_id);
         CREATE INDEX IF NOT EXISTS dashboard_folder_shares_resource_idx ON dashboard_folder_shares (resource_id);
         CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
-        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_folders (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          scope TEXT NOT NULL,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-          org_id TEXT,
-          visibility TEXT NOT NULL DEFAULT 'private'
-        );
-        CREATE TABLE IF NOT EXISTS dashboard_folder_shares (
-          id TEXT PRIMARY KEY,
-          resource_id TEXT NOT NULL,
-          principal_type TEXT NOT NULL,
-          principal_id TEXT NOT NULL,
-          role TEXT NOT NULL DEFAULT 'viewer',
-          created_by TEXT NOT NULL,
-          created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS folder_id TEXT;
-        CREATE INDEX IF NOT EXISTS dashboard_folders_owner_org_idx ON dashboard_folders (owner_email, org_id);
-        CREATE INDEX IF NOT EXISTS dashboard_folder_shares_resource_idx ON dashboard_folder_shares (resource_id);
-        CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
       },
     },
     {
@@ -1638,24 +1322,6 @@ export const runAnalyticsMigrations = runMigrations(
     );
     CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_jobs_due_idx
       ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
-        sqlite: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_jobs (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL,
-      owner_email TEXT NOT NULL,
-      table_ref TEXT NOT NULL,
-      batch_size INTEGER NOT NULL DEFAULT 250,
-      backfill_cursor TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      copied_count INTEGER NOT NULL DEFAULT 0,
-      lease_token TEXT,
-      lease_expires_at TEXT,
-      next_run_at TEXT NOT NULL DEFAULT (datetime('now')),
-      last_error TEXT,
-      completed_at TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_jobs_due_idx
-      ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
       },
     },
     {
@@ -1663,7 +1329,6 @@ export const runAnalyticsMigrations = runMigrations(
       name: "analytics-events-backfill-filtered-cursor-indexes",
       sql: {
         postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx ON analytics_events (org_id, received_at, id) WHERE event_name IS DISTINCT FROM 'http.response'; CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_non_http_idx ON analytics_events (org_id, received_at, id) WHERE event_name IS NOT 'http.response'; CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_non_http_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL AND event_name IS NOT 'http.response'`,
       },
     },
     {
@@ -1679,20 +1344,6 @@ export const runAnalyticsMigrations = runMigrations(
       event_count INTEGER NOT NULL DEFAULT 0,
       event_limit INTEGER NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (now()::text)
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_volume_usage_tenant_window_idx
-      ON analytics_event_volume_usage (tenant_key, window_start);
-    CREATE INDEX IF NOT EXISTS analytics_event_volume_usage_updated_at_idx
-      ON analytics_event_volume_usage (updated_at)`,
-        sqlite: `CREATE TABLE IF NOT EXISTS analytics_event_volume_usage (
-      id TEXT PRIMARY KEY,
-      tenant_key TEXT NOT NULL,
-      owner_email TEXT NOT NULL,
-      org_id TEXT,
-      window_start TEXT NOT NULL,
-      event_count INTEGER NOT NULL DEFAULT 0,
-      event_limit INTEGER NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_volume_usage_tenant_window_idx
       ON analytics_event_volume_usage (tenant_key, window_start);
@@ -1732,34 +1383,6 @@ export const runAnalyticsMigrations = runMigrations(
       ON analytics_bigquery_backfill_shards (status, next_run_at, lease_expires_at, updated_at);
     CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_scope_time_idx
       ON analytics_bigquery_backfill_shards (org_id, owner_email, start_at, end_at)`,
-        sqlite: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_shards (
-      shard_id TEXT PRIMARY KEY,
-      job_id TEXT,
-      org_id TEXT NOT NULL,
-      owner_email TEXT NOT NULL,
-      table_ref TEXT NOT NULL,
-      start_at TEXT NOT NULL,
-      start_id TEXT NOT NULL DEFAULT '',
-      end_at TEXT NOT NULL,
-      end_id TEXT NOT NULL DEFAULT '',
-      end_inclusive INTEGER NOT NULL DEFAULT 0,
-      batch_size INTEGER NOT NULL DEFAULT 250,
-      backfill_cursor TEXT,
-      backfill_cursor_at TEXT,
-      backfill_cursor_id TEXT,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed')),
-      copied_count INTEGER NOT NULL DEFAULT 0,
-      lease_token TEXT,
-      lease_expires_at TEXT,
-      next_run_at TEXT NOT NULL DEFAULT (datetime('now')),
-      last_error TEXT,
-      completed_at TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_due_idx
-      ON analytics_bigquery_backfill_shards (status, next_run_at, lease_expires_at, updated_at);
-    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_scope_time_idx
-      ON analytics_bigquery_backfill_shards (org_id, owner_email, start_at, end_at)`,
       },
     },
     {
@@ -1770,14 +1393,6 @@ export const runAnalyticsMigrations = runMigrations(
         ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS start_id TEXT NOT NULL DEFAULT '';
         ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_id TEXT NOT NULL DEFAULT '';
         ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_inclusive BOOLEAN NOT NULL DEFAULT FALSE;
-        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_at TEXT;
-        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_id TEXT;
-        CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_job_due_idx
-          ON analytics_bigquery_backfill_shards (job_id, status, next_run_at, lease_expires_at, start_at);`,
-        sqlite: `ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS job_id TEXT;
-        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS start_id TEXT NOT NULL DEFAULT '';
-        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_id TEXT NOT NULL DEFAULT '';
-        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_inclusive INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_at TEXT;
         ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_id TEXT;
         CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_job_due_idx
@@ -1796,12 +1411,6 @@ export const runAnalyticsMigrations = runMigrations(
         CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
           ON analytics_events (owner_email, received_at, id)
           WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response';`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_non_http_idx
-          ON analytics_events (org_id, received_at, id)
-          WHERE event_name IS NOT 'http.response';
-        CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
-          ON analytics_events (owner_email, received_at, id)
-          WHERE org_id IS NULL AND event_name IS NOT 'http.response';`,
       },
     },
     {
@@ -1810,7 +1419,6 @@ export const runAnalyticsMigrations = runMigrations(
       run: repairAnalyticsEventCursorIndexes,
       sql: {
         postgres: "SELECT 1",
-        sqlite: "SELECT 1",
       },
     },
     {
@@ -1819,7 +1427,6 @@ export const runAnalyticsMigrations = runMigrations(
       run: repairAnalyticsEventCursorIndexes,
       sql: {
         postgres: "SELECT 1",
-        sqlite: "SELECT 1",
       },
     },
     {
@@ -1829,7 +1436,6 @@ export const runAnalyticsMigrations = runMigrations(
       sql: {
         postgres:
           "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
-        sqlite: "SELECT 1",
       },
     },
     {

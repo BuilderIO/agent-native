@@ -490,7 +490,7 @@ describe("listWorkspaceApps", () => {
       { id: "private-app", name: "Private app", path: "/private-app" },
     ]);
     mocks.resolveAccess.mockRejectedValueOnce(
-      new Error("no such table: workspace_app_shares"),
+      new Error('relation "workspace_app_shares" does not exist'),
     );
 
     const apps = await runWithRequestContext(

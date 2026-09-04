@@ -18,7 +18,6 @@ let existingTokens: Record<string, unknown> | null = null;
 let existingRevision = 100;
 let existingLegacyRevision = 100;
 let existingStorageVersion = JSON.stringify({});
-let mockPostgres = false;
 let conflictOwnerAfterUpsert: string | null = null;
 let upsertAttempted = false;
 
@@ -120,8 +119,12 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => (mockPostgres ? "BIGINT" : "INTEGER"),
-  isPostgres: () => mockPostgres,
+  intType: () => "BIGINT",
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 const {
@@ -148,7 +151,6 @@ describe("oauth token store", () => {
     existingRevision = 100;
     existingLegacyRevision = 100;
     existingStorageVersion = JSON.stringify({});
-    mockPostgres = false;
     conflictOwnerAfterUpsert = null;
     upsertAttempted = false;
     vi.clearAllMocks();
@@ -204,9 +206,9 @@ describe("oauth token store", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(lastInsert().sql).toContain("SET owner=excluded.owner");
+    expect(lastInsert().sql).toContain("SET owner=EXCLUDED.owner");
     expect(lastInsert().sql).toContain(
-      "LOWER(oauth_tokens.owner) = LOWER(excluded.owner)",
+      "LOWER(public.oauth_tokens.owner) = LOWER(EXCLUDED.owner)",
     );
     expect(lastInsert().args[2]).toBe("user:alice@example.com");
   });
@@ -261,7 +263,7 @@ describe("oauth token store", () => {
     });
 
     expect(lastInsert().sql).toContain(
-      "WHERE oauth_tokens.owner = excluded.owner",
+      "WHERE public.oauth_tokens.owner = EXCLUDED.owner",
     );
   });
 
@@ -444,8 +446,6 @@ describe("oauth token store", () => {
   });
 
   it("qualifies the real oauth_tokens table on Postgres so temp scoped views cannot shadow OAuth callbacks", async () => {
-    mockPostgres = true;
-
     await saveOAuthTokens(
       "google",
       "steve@builder.io",
@@ -500,12 +500,11 @@ describe("oauth token store", () => {
     );
 
     expect(lastInsert().sql).toContain(
-      "revision=MAX(COALESCE(oauth_tokens.revision, 0) + 1, excluded.revision)",
+      "revision=GREATEST(COALESCE(public.oauth_tokens.revision, 0) + 1, EXCLUDED.revision)",
     );
   });
 
   it("advances a null legacy revision atomically on Postgres", async () => {
-    mockPostgres = true;
     existingOwner = "user:alice@example.com";
 
     await saveOAuthTokens(

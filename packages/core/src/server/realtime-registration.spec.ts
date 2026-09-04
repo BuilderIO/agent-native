@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockIsPostgres = vi.hoisted(() => vi.fn());
 const mockGetDatabaseUrl = vi.hoisted(() => vi.fn());
 const mockGetSetting = vi.hoisted(() => vi.fn());
 const mockPutSetting = vi.hoisted(() => vi.fn());
@@ -10,7 +9,6 @@ const mockPlatformMarker = vi.hoisted(() => vi.fn());
 const mockDeployEnv = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
-  isPostgres: mockIsPostgres,
   getDatabaseUrl: mockGetDatabaseUrl,
   isPgliteUrl: (url: string) => url.startsWith("pglite:"),
 }));
@@ -62,7 +60,6 @@ beforeEach(() => {
   vi.stubEnv("DEPLOY_PRIME_URL", "https://slides.agent-native.com");
   process.env.AGENT_NATIVE_REALTIME_TRANSPORT = "hosted";
   process.env.BUILDER_PRIVATE_KEY = "bpk-test";
-  mockIsPostgres.mockReturnValue(true);
   mockGetDatabaseUrl.mockReturnValue(DB_URL);
   mockSelfUrl.mockReturnValue("https://slides.agent-native.com");
   mockHostedWorkspace.mockReturnValue(false);
@@ -206,12 +203,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
       () => {
         process.env.AGENT_NATIVE_REALTIME_TRANSPORT = "local";
       },
-    ],
-    [
-      // The gateway binds its runtime with isPostgres: () => true, so a channel
-      // here would register fine and then never serve a read.
-      "the database is not Postgres",
-      () => mockIsPostgres.mockReturnValue(false),
     ],
     [
       "there is no deployment-level Builder key",

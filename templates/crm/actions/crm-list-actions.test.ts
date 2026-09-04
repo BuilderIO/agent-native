@@ -1,4 +1,4 @@
-// Integration tests for the CRM list actions against a real libsql (SQLite)
+// Integration tests for the CRM list actions against a real PGlite
 // database with the app's own migrations applied. Lists are the workflow
 // overlay: entry attribute values live on the entry, one record may hold more
 // than one entry in a list, and a stage move is a bitemporal write — none of
@@ -22,7 +22,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-list-actions-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-list-actions-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -100,7 +100,7 @@ function entryFieldRows(entryId: string, apiSlug: string) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -137,9 +137,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function newList(name: string, parentObjectType = "companies") {

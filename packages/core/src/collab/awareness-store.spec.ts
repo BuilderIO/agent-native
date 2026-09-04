@@ -10,7 +10,6 @@ function rowKey(docId: string, clientId: number): string {
 }
 
 vi.mock("../db/client.js", () => ({
-  isPostgres: () => false,
   getDbExec: () => {
     if (!dbAvailable.value) throw new Error("db not configured");
     return {
@@ -83,6 +82,10 @@ vi.mock("../db/client.js", () => ({
       },
     };
   },
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {

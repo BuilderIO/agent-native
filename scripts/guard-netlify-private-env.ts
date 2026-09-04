@@ -18,7 +18,6 @@ const mustReject = [
 const mustAllow = [
   "APP_URL",
   "AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
-  "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "FIGMA_ACCESS_TOKEN",
   "GA_MEASUREMENT_ID",

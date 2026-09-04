@@ -5,9 +5,13 @@ const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  getDialect: () => "sqlite",
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  intType: () => "BIGINT",
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./emitter.js", () => ({

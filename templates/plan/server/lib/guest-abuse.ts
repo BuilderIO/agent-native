@@ -6,7 +6,7 @@
  * `./public-plans.ts`). This module is retained for legacy helpers/tests and as
  * a guard if a guest identity reaches a create path.
  *
- * This module adds three additive, dialect-agnostic guards. EVERY guard is a
+ * This module adds three additive guards. EVERY guard is a
  * no-op unless the resolved owner is a guest identity (`isGuestAuthorIdentity`),
  * so authenticated real users and local single-user mode keep byte-identical
  * behavior:

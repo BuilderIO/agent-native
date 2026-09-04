@@ -5,13 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  isUniqueViolation,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, intType, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 const TABLE = "integration_identity_links";
@@ -59,7 +53,7 @@ export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, createSql());
         for (const [name, sql] of INDEXES) {
           await ensureIndexExists(name, sql);

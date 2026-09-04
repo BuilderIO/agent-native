@@ -5,7 +5,7 @@ import { AgentActionStopError, type ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { readResource } from "../resources/script-helpers.js";
 import {
   getRequestOrgId,
@@ -884,7 +884,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const now = new Date().toISOString();
         const scopeKey = scope === "org" ? `org:${orgId}` : userEmail;
         const client = getDbExec();
-        const pg = isPostgres();
+        const pg = true;
         const conflictClause = pg
           ? `ON CONFLICT (tool_id, collection, scope_key, item_id)
              DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`

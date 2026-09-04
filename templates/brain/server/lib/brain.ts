@@ -654,10 +654,7 @@ function isUniqueConflict(error: unknown): boolean {
     message?: unknown;
     cause?: unknown;
   };
-  if (
-    candidate.code === "23505" ||
-    candidate.code === "SQLITE_CONSTRAINT_UNIQUE"
-  ) {
+  if (candidate.code === "23505") {
     return true;
   }
   if (typeof candidate.message === "string") {

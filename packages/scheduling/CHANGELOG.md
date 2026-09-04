@@ -448,7 +448,7 @@
 
 ### Patch Changes
 
-- 79a0eb9: Align local Drizzle peer resolution with the framework's libsql driver version.
+- 79a0eb9: Align local Drizzle peer resolution with the framework's Postgres driver version.
 
 ## 0.1.4
 

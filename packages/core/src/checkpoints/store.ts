@@ -1,4 +1,4 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -6,7 +6,6 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureCheckpointTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS agent_checkpoints (
           id TEXT PRIMARY KEY,
@@ -22,22 +21,12 @@ export async function ensureCheckpointTable(): Promise<void> {
       const threadIdxSql = `CREATE INDEX IF NOT EXISTS agent_checkpoints_thread_created_idx ON agent_checkpoints (thread_id, created_at)`;
       const runIdxSql = `CREATE INDEX IF NOT EXISTS agent_checkpoints_run_idx ON agent_checkpoints (run_id)`;
 
-      if (isPostgres()) {
-        // PG-guard: probe information_schema before issuing DDL to avoid ACCESS
-        // EXCLUSIVE lock contention in fresh background-worker processes.
-        await ensureTableExists("agent_checkpoints", createSql);
-        await ensureIndexExists(
-          "agent_checkpoints_thread_created_idx",
-          threadIdxSql,
-        );
-        await ensureIndexExists("agent_checkpoints_run_idx", runIdxSql);
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      await client.execute(threadIdxSql);
-      await client.execute(runIdxSql);
+      await ensureTableExists("agent_checkpoints", createSql);
+      await ensureIndexExists(
+        "agent_checkpoints_thread_created_idx",
+        threadIdxSql,
+      );
+      await ensureIndexExists("agent_checkpoints_run_idx", runIdxSql);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

@@ -1,12 +1,6 @@
 import crypto from "crypto";
 
-import {
-  getDbExec,
-  isPostgres,
-  intType,
-  retryOnDdlRace,
-  type DbExec,
-} from "../db/client.js";
+import { getDbExec, intType, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -495,31 +489,6 @@ async function migrateDefaultResourcePath({
   }
 }
 
-function isDuplicateColumnError(err: unknown): boolean {
-  const code = (err as { code?: string })?.code;
-  const message = String((err as { message?: unknown })?.message ?? err)
-    .toLowerCase()
-    .trim();
-  return (
-    code === "42701" ||
-    message.includes("duplicate column") ||
-    message.includes("already exists")
-  );
-}
-
-async function ensureResourceColumn(
-  client: DbExec,
-  definition: string,
-): Promise<void> {
-  try {
-    await retryOnDdlRace(() =>
-      client.execute(`ALTER TABLE resources ADD COLUMN ${definition}`),
-    );
-  } catch (err) {
-    if (!isDuplicateColumnError(err)) throw err;
-  }
-}
-
 function normalizeCreatedBy(value: unknown): ResourceCreatedBy {
   return value === "agent" || value === "system" || value === "user"
     ? value
@@ -820,7 +789,7 @@ async function selectGrantedWorkspaceResourceRows(
 
   const contentSelect =
     options.includeContent === false
-      ? `${isPostgres() ? "octet_length(wr.content)" : "length(CAST(wr.content AS BLOB))"} AS content_size`
+      ? `${"octet_length(wr.content)"} AS content_size`
       : "wr.content";
   const client = getDbExec();
   const { rows } = await client.execute({
@@ -965,7 +934,7 @@ async function _doEnsureTable(): Promise<void> {
     )
   `;
 
-  if (isPostgres()) {
+  {
     // Hot path: the `resources` table and its additive columns are virtually
     // always already present in production. Issuing `CREATE TABLE`/`ALTER
     // TABLE` still takes an ACCESS EXCLUSIVE lock that, in a fresh
@@ -993,22 +962,6 @@ async function _doEnsureTable(): Promise<void> {
         `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
       );
     }
-  } else {
-    // SQLite (local dev): no lock problem — keep the original behaviour using
-    // `retryOnDdlRace` + `ensureResourceColumn` (duplicate-column catch).
-    await retryOnDdlRace(() => client.execute(createSql));
-    await ensureResourceColumn(
-      client,
-      "created_by TEXT NOT NULL DEFAULT 'user'",
-    );
-    await ensureResourceColumn(
-      client,
-      "visibility TEXT NOT NULL DEFAULT 'workspace'",
-    );
-    await ensureResourceColumn(client, "thread_id TEXT");
-    await ensureResourceColumn(client, "run_id TEXT");
-    await ensureResourceColumn(client, `expires_at ${intType()}`);
-    await ensureResourceColumn(client, "metadata TEXT");
   }
 
   // Older deployments have 32-bit timestamp columns; on Postgres the
@@ -1025,7 +978,7 @@ async function _doEnsureTable(): Promise<void> {
   // template and read from agent discovery, docs, chat scratch and remote-agent
   // manifests. Its 60s throttle is a module-scope timestamp that starts at 0 in
   // a fresh isolate, so the first resource read after EVERY cold start pays
-  // that scan. Idempotent and dialect-agnostic, per the `performance` skill.
+  // that scan. Idempotent and backed by a Postgres expression index.
   await ensureIndexExists(
     "resources_visibility_expires_idx",
     `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
@@ -1056,9 +1009,7 @@ async function _doEnsureTable(): Promise<void> {
   if (await alreadySeeded(SHARED_SEED_KEY)) return;
 
   const now = Date.now();
-  const seedSql = isPostgres()
-    ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
-    : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+  const seedSql = `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`;
 
   // AGENTS.md — shared agent instructions
   const agentsSize = Buffer.byteLength(DEFAULT_AGENTS_SHARED_MD, "utf8");
@@ -1273,9 +1224,7 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
 
   const client = getDbExec();
   const now = Date.now();
-  const seedSql = isPostgres()
-    ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
-    : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+  const seedSql = `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`;
 
   const agentsSize = Buffer.byteLength(DEFAULT_AGENTS_PERSONAL_MD, "utf8");
   await client.execute({
@@ -1540,9 +1489,7 @@ export async function resourcePut(
       : nullableString(existingRow?.metadata);
 
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`
-      : `INSERT OR REPLACE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO UPDATE SET id=EXCLUDED.id, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at, created_by=EXCLUDED.created_by, visibility=EXCLUDED.visibility, thread_id=EXCLUDED.thread_id, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, metadata=EXCLUDED.metadata`,
     args: [
       id,
       path,
@@ -1622,9 +1569,7 @@ export async function resourcePutIfAbsent(
   }
   const metadata = serializeMetadata(options?.metadata) ?? null;
   const result = await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
-      : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`,
     args: [
       id,
       path,

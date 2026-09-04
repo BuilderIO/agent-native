@@ -2,12 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => ({
   execute: vi.fn(),
-  isPostgres: vi.fn(() => false),
 }));
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: dbMock.execute }),
-  isPostgres: () => dbMock.isPostgres(),
 }));
 
 import {
@@ -21,8 +19,6 @@ import {
 describe("recording upload state helpers", () => {
   beforeEach(() => {
     dbMock.execute.mockReset();
-    dbMock.isPostgres.mockReset();
-    dbMock.isPostgres.mockReturnValue(false);
   });
 
   it("lists chunk keys without selecting base64 chunk values", async () => {
@@ -64,7 +60,7 @@ describe("recording upload state helpers", () => {
     ).resolves.toBe(7_340_032);
 
     const query = dbMock.execute.mock.calls[0]?.[0];
-    expect(query.sql).toContain("SUM(json_extract(value, '$.bytes'))");
+    expect(query.sql).toContain("(value::jsonb ->> 'bytes')::bigint");
     expect(query.sql).toContain("length(key) = ?");
     expect(query.sql).not.toContain("SELECT key, value");
   });
@@ -86,21 +82,6 @@ describe("recording upload state helpers", () => {
         "recording-chunks-rec_1-999999",
       ],
     });
-  });
-
-  it("uses the Postgres JSON extraction when deployed on Postgres", async () => {
-    dbMock.isPostgres.mockReturnValue(true);
-    dbMock.execute.mockResolvedValue({
-      rows: [{ bytes: "4194304" }],
-      rowsAffected: 0,
-    });
-
-    await expect(
-      sumRecordingChunkBytes("owner@example.com", "rec-1"),
-    ).resolves.toBe(4_194_304);
-
-    const query = dbMock.execute.mock.calls[0]?.[0];
-    expect(query.sql).toContain("(value::jsonb ->> 'bytes')::bigint");
   });
 
   it("parses and sorts a complete contiguous chunk sequence", () => {

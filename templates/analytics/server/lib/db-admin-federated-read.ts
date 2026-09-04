@@ -528,13 +528,12 @@ export async function runDbAdminFederatedRead(
           const sql = boundedSourceSql(source.sql);
           const read = (dbRuntime: DbAdminRuntime) =>
             runSql(sql, source.params, {}, dbRuntime);
-          const result =
-            runtime.dialect === "postgres" && runtime.db?.transaction
-              ? await runtime.db.transaction(async (tx) => {
-                  await tx.execute("SET TRANSACTION READ ONLY");
-                  return read({ ...runtime, db: tx });
-                })
-              : await read(runtime as DbAdminRuntime);
+          const result = runtime.db?.transaction
+            ? await runtime.db.transaction(async (tx) => {
+                await tx.execute("SET TRANSACTION READ ONLY");
+                return read({ ...runtime, db: tx });
+              })
+            : await read(runtime);
           return {
             sourceId: sourceIds[index],
             connectionId: connection.id,

@@ -362,7 +362,7 @@ export function seriesValueFormatter(
 /**
  * Format a single metric value for display. Coerces Postgres numeric/bigint
  * columns (returned as strings, e.g. a rate of "0.00000000000000000000") to a
- * number so the formatter applies — SQLite returns JS numbers, so this only
+ * number so the formatter applies - Postgres numeric values may arrive as strings, so this only
  * bites on Postgres/Neon, where the raw high-scale decimal would otherwise be
  * dumped verbatim. A configured `valueLabels` mapping wins; a non-numeric
  * string falls through unformatted.

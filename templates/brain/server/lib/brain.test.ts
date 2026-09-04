@@ -4991,7 +4991,7 @@ describe("Brain demo eval", () => {
       kind: "message",
       content: [
         "Slack #dev-fusion thread",
-        "Engineering architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+        "Engineering architecture: Brain retrieval starts with Postgres SQL over brain_knowledge.",
         "Raw capture fallback only runs when source policy allows.",
         "V1 has no vector database requirement.",
       ].join("\n"),

@@ -1,6 +1,6 @@
 ---
 title: "Kernkonzepte"
-description: "Wie Agent-Native-Apps über drei Ebenen hinweg funktionieren: das Core-Framework, optionale Toolkit-Bausteine und optionale Templates, sowie die gemeinsamen Aktionen, die SQL-Datenbank, die App-Agent-Schleife und die Portabilitätsregeln."
+description: "Wie Agent-Native-Apps über drei Ebenen hinweg funktionieren: das Core-Framework, optionale Toolkit-Bausteine und optionale Templates, sowie die gemeinsamen Aktionen, die PostgreSQL-Datenbank, die App-Agent-Schleife und die Regeln für PGlite und Postgres."
 ---
 
 # Kernkonzepte
@@ -168,11 +168,11 @@ Das Framework zu übernehmen ist vor allem deshalb wertvoll, weil man dadurch vi
 | MCP-Client + -Server, beide Richtungen     | Die App nimmt MCP-Server auf (lokal, remote, Hub-geteilt) _und_ stellt ihre eigenen Aktionen als MCP-Server bereit. Siehe [MCP Clients](/docs/mcp-clients) und [MCP Protocol](/docs/mcp-protocol).                                                                                                                                                                                                              |
 | App-übergreifende Delegation               | Agenten in unterschiedlichen Apps kommunizieren über [A2A](/docs/a2a-protocol). Same-Origin-Deployments überspringen JWT; Cross-Origin verwendet ein gemeinsames `A2A_SECRET`.                                                                                                                                                                                                                                  |
 | Sub-Agent-Teams                            | Erzeugen Sie einen Sub-Agenten mit eigenem Thread und eigenen Tools, dargestellt als Chip inline im Chat. Siehe [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                               |
-| Portabilität                               | Jede von Drizzle unterstützte SQL-Datenbank, jeder Nitro-kompatible Host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                                   |
+| Portabilität | PostgreSQL mit lokalem PGlite und gehostetem Postgres sowie jeder Nitro-kompatible Host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun). |
 
 ## Daten in SQL {#data-in-sql}
 
-Der gesamte Anwendungsstatus lebt in einer SQL-Datenbank via Drizzle ORM. Schemas sind anbieteragnostisch; die unterstützten Datenbanken, die `DATABASE_URL`-Konfiguration und die Portabilitätsregeln finden Sie unter [Database](/docs/server-database).
+Der gesamte Anwendungsstatus lebt über Drizzle ORM in PostgreSQL. Die Schemas verwenden die PostgreSQL- und PGlite-Helfer; `DATABASE_URL` und die Betriebsregeln finden Sie unter [Database](/docs/server-database).
 
 Core-SQL-Stores werden automatisch erstellt und sind in jedem Template verfügbar:
 
@@ -475,11 +475,11 @@ gewährt wird. Templates sind vollständige Apps, die Sie in Ihrem eigenen Repos
 Entwicklungsworkflow forken und anpassen können, so oder so. Für Laufzeitanpassung
 ohne Quellcodeänderungen verwenden Sie [Extensions](/docs/extensions).
 
-## Standardmäßig portabel {#hosting-agnostic}
+## PostgreSQL als Standard {#hosting-agnostic}
 
-Zwei architektonische Regeln halten Apps über Datenbanken und Hosts hinweg portabel:
+Zwei Architekturregeln halten Apps zwischen lokalem PGlite, gehostetem Postgres und den verschiedenen Hosting-Zielen konsistent:
 
-- **Datenbankagnostisch.** Schreiben Sie Schemas mit `@agent-native/core/db/schema` und Lese-/Schreibvorgänge mit Drizzles portabler Query-DSL, sodass derselbe Code auf jedem unterstützten Anbieter läuft. Verwenden Sie rohes SQL nur für additive Migrationen oder einmalige Wartung, parametrisiert und dialektagnostisch gehalten. Siehe [Database](/docs/server-database).
+- **PostgreSQL.** Schreiben Sie Schemas mit `@agent-native/core/db/schema` und erledigen Sie Lese- und Schreibvorgänge mit Drizzle. Verwenden Sie rohes PostgreSQL-SQL nur für additive Migrationen oder einmalige Wartung und halten Sie es mit PGlite kompatibel. Siehe [Database](/docs/server-database).
 - **Hosting-agnostisch.** Der Server läuft auf Nitro und kompiliert zu jedem Deployment-Ziel. Verwenden Sie in Server-Routen oder -Plugins niemals Node-spezifische APIs (`fs`, `child_process`, `path`), und gehen Sie niemals von einem dauerhaften Serverprozess aus. Serverless und Edge sind zustandslos, also halten Sie den gesamten Zustand in SQL. Siehe [Deployment](/docs/deployment).
 
 ## Agent Resources {#workspace}

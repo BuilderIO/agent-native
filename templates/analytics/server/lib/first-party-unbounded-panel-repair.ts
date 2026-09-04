@@ -1,10 +1,7 @@
-import type { Dialect } from "@agent-native/core/db";
-
 import type { DashboardPanelLike } from "./dashboard-time-scope.js";
 
 const POSTGRES_DATE_BOUND =
   "to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
-const SQLITE_DATE_BOUND = "date('now', '-365 days')";
 
 /**
  * Fixes for first-party dashboard panels found, via a full-org audit
@@ -23,12 +20,6 @@ export type UnboundedFirstPartyPanelFix = {
   legacySql: string;
   sql: string;
 };
-
-function dialectBoundedSql(sql: string, dialect: Dialect): string {
-  return dialect === "postgres"
-    ? sql
-    : sql.split(POSTGRES_DATE_BOUND).join(SQLITE_DATE_BOUND);
-}
 
 export const UNBOUNDED_FIRST_PARTY_PANEL_FIXES: readonly UnboundedFirstPartyPanelFix[] =
   [
@@ -145,7 +136,6 @@ export const UNBOUNDED_FIRST_PARTY_PANEL_FIXES: readonly UnboundedFirstPartyPane
 
 export function repairUnboundedFirstPartyPanels(
   config: Record<string, unknown>,
-  dialect: Dialect = "postgres",
 ): { config: Record<string, unknown>; changed: boolean } {
   if (!Array.isArray(config.panels)) return { config, changed: false };
 
@@ -162,7 +152,7 @@ export function repairUnboundedFirstPartyPanels(
     const fixedSql = fixBySql.get(panel.sql);
     if (fixedSql === undefined) return rawPanel;
     changed = true;
-    return { ...panel, sql: dialectBoundedSql(fixedSql, dialect) };
+    return { ...panel, sql: fixedSql };
   });
   if (!changed) return { config, changed: false };
   return { config: { ...config, panels }, changed: true };

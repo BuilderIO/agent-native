@@ -90,9 +90,9 @@ to use the stricter trusted-compiler and native-reassembly path.
   `regex`) and weighted title/summary/body scoring.
 - PostgreSQL adds a `tsvector`/GIN candidate lane and one configured multimodal
   embedding family backed by pgvector in the same database.
-- SQLite keeps corpus and lexical/caption search only. Visual queries fail with
+- PGlite keeps corpus and lexical/caption search only. Visual queries fail with
   a clear PostgreSQL+pgvector requirement; the package never creates another
-  SQLite or vector database.
+  PGlite or vector database.
 - Every context-backed generation resolves Default plus zero or one specialty,
   applies the specialty ranking boost, and snapshots exact
   `(itemId, itemVersionId)` evidence, lane scores, selection reason, and context

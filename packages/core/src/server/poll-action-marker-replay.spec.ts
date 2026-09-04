@@ -22,7 +22,7 @@ function makeDb(
           const sql = typeof query === "string" ? query : query.sql;
           const args = typeof query === "string" ? [] : (query.args ?? []);
 
-          // Postgres uses `INSERT INTO`, sqlite `INSERT OR IGNORE INTO`.
+          // The insert is idempotent for an existing marker.
           if (/insert(\s+or\s+ignore)?\s+into\s+sync_events/i.test(sql)) {
             persisted.push({
               id: String(args[0]),
@@ -89,7 +89,6 @@ describe("action marker replay on cold start", () => {
     ]);
     const state = new AppSyncState({
       getDb: () => db.exec as never,
-      isPostgres: () => false,
     });
     await state.seedVersionFromDb();
     await state.checkExternalDbChanges({ durableEvents: false });
@@ -118,7 +117,6 @@ describe("action marker replay on cold start", () => {
     ]);
     const state = new AppSyncState({
       getDb: () => db.exec as never,
-      isPostgres: () => false,
     });
     await state.seedVersionFromDb();
     await state.checkExternalDbChanges({ durableEvents: false });

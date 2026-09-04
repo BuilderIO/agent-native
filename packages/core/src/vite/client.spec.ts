@@ -1789,8 +1789,6 @@ describe("agentNative Vite plugin preset", () => {
     )) as any;
 
     expect(config.ssr.external).toContain("yjs");
-    expect(config.ssr.external).toContain("better-sqlite3");
-    expect(config.ssr.external).toContain("bindings");
     expect(config.ssr.external).toContain("custom-native-package");
   });
 

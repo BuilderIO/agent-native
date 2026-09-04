@@ -17,7 +17,6 @@ vi.mock("h3", () => ({
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute, transaction: mockTransaction }),
-  isPostgres: () => false,
 }));
 
 vi.mock("./context.js", () => ({

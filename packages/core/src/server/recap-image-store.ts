@@ -11,20 +11,14 @@
  * keyed by a long, unguessable token.
  *
  * Follows the same raw-SQL pattern as observability/store.ts and usage/store.ts
- * — framework-owned tables use `getDbExec()` with dialect-agnostic
+ * — framework-owned tables use `getDbExec()` with Postgres
  * `CREATE TABLE IF NOT EXISTS` DDL (additive only; never drops/renames/alters)
  * rather than Drizzle ORM, which is reserved for template-level schemas. The
- * PNG is stored as base64 TEXT so it is portable across SQLite, Neon/Postgres,
- * libSQL/Turso, and D1 without per-dialect blob/bytea handling.
+ * PNG is stored as base64 TEXT so it does not need binary column handling.
  */
 import { randomBytes } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
 /** Maximum stored image size (~5 MB of raw PNG bytes). */
@@ -70,15 +64,7 @@ export async function ensureRecapImageTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const recapImagesCreateSql = buildRecapImagesCreateSql();
-      if (isPostgres()) {
-        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
-        await ensureTableExists("recap_images", recapImagesCreateSql);
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      const client = getDbExec();
-      await retryOnDdlRace(() => client.execute(recapImagesCreateSql));
+      await ensureTableExists("recap_images", recapImagesCreateSql);
     })().catch((error) => {
       // Allow a later call to retry if the first init lost a DDL race.
       _initPromise = undefined;
@@ -91,7 +77,7 @@ export async function ensureRecapImageTable(): Promise<void> {
 /**
  * Delete recap images older than {@link RECAP_IMAGE_TTL_MS}. Called best-effort
  * after each write so the table stays bounded. Returns the number of rows
- * removed. Dialect-agnostic (a plain `DELETE ... WHERE created_at < ?`).
+ * removed with a plain `DELETE ... WHERE created_at < ?`.
  */
 export async function pruneExpiredRecapImages(
   now: number = Date.now(),

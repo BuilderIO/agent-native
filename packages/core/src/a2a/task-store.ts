@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
@@ -16,7 +16,6 @@ export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS a2a_tasks (
           id TEXT PRIMARY KEY,
@@ -55,70 +54,24 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
-        // PG-guard: probe information_schema before issuing DDL to avoid ACCESS
-        // EXCLUSIVE lock contention in fresh background-worker processes.
-        await ensureTableExists("a2a_tasks", createSql);
-        // Additive migration: owner_email column. Bound to the JWT-verified
-        // caller at task-creation time so handleGet / handleCancel can reject
-        // mismatched callers (the IDOR class fixed in PR #369). Existing rows
-        // have NULL owner_email and remain accessible to legacy callers via
-        // the legacy-token apiKeyEnv path; new rows are scoped from this point
-        // forward.
-        await ensureColumnExists(
-          "a2a_tasks",
-          "owner_email",
-          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
-        );
-        await ensureColumnExists(
-          "a2a_tasks",
-          "owner_scope",
-          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_scope TEXT NOT NULL DEFAULT ''`,
-        );
-        await ensureColumnExists(
-          "a2a_tasks",
-          "idempotency_key",
-          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
-        );
-        await ensureIndexExists(
-          A2A_IDEMPOTENCY_INDEX,
-          createIdempotencyIndexSql,
-        );
-        await ensureTableExists("a2a_approvals", createApprovalsSql);
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Additive migration: owner_email column. Bound to the JWT-verified
-      // caller at task-creation time so handleGet / handleCancel can reject
-      // mismatched callers (the IDOR class fixed in PR #369). Existing rows
-      // have NULL owner_email and remain accessible to legacy callers via
-      // the legacy-token apiKeyEnv path; new rows are scoped from this point
-      // forward.
-      try {
-        await client.execute(
-          `ALTER TABLE a2a_tasks ADD COLUMN owner_scope TEXT NOT NULL DEFAULT ''`,
-        );
-      } catch {
-        // Column already exists — expected on every restart after first run.
-      }
-      try {
-        await client.execute(
-          `ALTER TABLE a2a_tasks ADD COLUMN owner_email TEXT`,
-        );
-      } catch {
-        // Column already exists — expected on every restart after first run.
-      }
-      try {
-        await client.execute(
-          `ALTER TABLE a2a_tasks ADD COLUMN idempotency_key TEXT`,
-        );
-      } catch {
-        // Column already exists — expected on every restart after first run.
-      }
-      await client.execute(createIdempotencyIndexSql);
-      await client.execute(createApprovalsSql);
+      await ensureTableExists("a2a_tasks", createSql);
+      await ensureColumnExists(
+        "a2a_tasks",
+        "owner_email",
+        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
+      );
+      await ensureColumnExists(
+        "a2a_tasks",
+        "owner_scope",
+        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_scope TEXT NOT NULL DEFAULT ''`,
+      );
+      await ensureColumnExists(
+        "a2a_tasks",
+        "idempotency_key",
+        `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+      );
+      await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
+      await ensureTableExists("a2a_approvals", createApprovalsSql);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -147,7 +100,7 @@ async function withDbTransaction<T>(
   fn: (tx: ReturnType<typeof getDbExec>) => Promise<T>,
 ): Promise<T> {
   if (client.transaction) return client.transaction(fn);
-  await client.execute(isPostgres() ? "BEGIN" : "BEGIN IMMEDIATE");
+  await client.execute("BEGIN");
   try {
     const result = await fn(client);
     await client.execute("COMMIT");

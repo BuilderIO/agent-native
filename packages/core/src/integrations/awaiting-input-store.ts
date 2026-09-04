@@ -1,4 +1,4 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
 let initPromise: Promise<void> | undefined;
@@ -21,7 +21,7 @@ export async function ensureTable(): Promise<void> {
           PRIMARY KEY (platform, external_thread_id)
         )
       `;
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_awaiting_inputs", createSql);
         return;
       }
@@ -52,15 +52,12 @@ export async function setIntegrationAwaitingInput(input: {
   const expiresAt = input.expiresAt ?? now + INTEGRATION_AWAITING_INPUT_TTL_MS;
   const client = getDbExec();
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO integration_awaiting_inputs (platform, external_thread_id, requester_id, expires_at, created_at, updated_at)
+    sql: `INSERT INTO integration_awaiting_inputs (platform, external_thread_id, requester_id, expires_at, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT (platform, external_thread_id) DO UPDATE SET
              requester_id = EXCLUDED.requester_id,
              expires_at = EXCLUDED.expires_at,
-             updated_at = EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO integration_awaiting_inputs (platform, external_thread_id, requester_id, expires_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+             updated_at = EXCLUDED.updated_at`,
     args: [
       input.platform,
       input.externalThreadId,
@@ -85,18 +82,12 @@ export async function consumeIntegrationAwaitingInput(input: {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: isPostgres()
-      ? `DELETE FROM integration_awaiting_inputs
+    sql: `DELETE FROM integration_awaiting_inputs
            WHERE platform = ?
              AND external_thread_id = ?
              AND requester_id = ?
              AND expires_at > ?
-           RETURNING platform`
-      : `DELETE FROM integration_awaiting_inputs
-           WHERE platform = ?
-             AND external_thread_id = ?
-             AND requester_id = ?
-             AND expires_at > ?`,
+           RETURNING platform`,
     args: [
       input.platform,
       input.externalThreadId,
@@ -105,7 +96,7 @@ export async function consumeIntegrationAwaitingInput(input: {
     ],
   });
 
-  if (isPostgres()) return (result.rows ?? []).length > 0;
+  return (result.rows ?? []).length > 0;
   const affected =
     (result as { rowsAffected?: number; rowCount?: number }).rowsAffected ??
     (result as { rowsAffected?: number; rowCount?: number }).rowCount ??

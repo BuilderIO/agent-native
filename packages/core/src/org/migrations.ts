@@ -71,8 +71,8 @@ export const ORG_MIGRATIONS = [
     // via `LOWER(email)`. This keeps exactly one row per (org_id,
     // LOWER(email)) — the row with the oldest `joined_at` (ties broken by
     // `id` for determinism) — by deleting any row for which a strictly
-    // "older" row exists in the same group. Portable across SQLite and
-    // Postgres (plain correlated EXISTS subquery, no window functions).
+    // "older" row exists in the same group. The correlated EXISTS subquery
+    // avoids window functions.
     // Must run before the unique index below or that CREATE would fail on
     // any database that already has case-variant duplicates.
     version: 1009,

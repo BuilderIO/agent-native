@@ -29,7 +29,7 @@ Dies basiert auf drei kampferprobten Technologien: **Yjs** (CRDT für konfliktfr
 - **Der Agent als Peer-Editor** – Agentenbearbeitungen erfolgen über dieselben Yjs
   Infrastruktur als menschliche Bearbeitung. Sie erscheinen live, ohne den Cursor zu stören
   Positionen, Auswahlen oder der Rückgängig-Stapel.
-- **Funktioniert überall** – Jede SQL-Datenbank, die Drizzle unterstützt (SQLite, Postgres).
+- **Funktioniert überall** – Jede SQL-Datenbank, die Drizzle unterstützt (PGlite, Postgres).
   Jedes Hosting-Ziel, das Nitro unterstützt, einschließlich Serverless und Edge.
 
 ## Architektur {#architecture}
@@ -98,7 +98,7 @@ unabhängig von der Reihenfolge das gleiche Ergebnis.
 ### 2. SQL kanonischer Inhalt (dauerhafte Quelle der Wahrheit)
 
 Der Yjs-Status wird in einer `_collab_docs`-Tabelle als Base64-codierte Binärdatei beibehalten.
-Die Tabelle wird vom Framework verwaltet und ist anbieterunabhängig (Verwendung von SQLite und Postgres
+Die Tabelle wird vom Framework verwaltet und ist anbieterunabhängig (Verwendung von PGlite und Postgres
 identische Schemata). Jede Zeile enthält eine Versionsspalte für optimistische Parallelität
 um gleichzeitige Schreibrennen zu verhindern. Die Tombstone-Komprimierung erfolgt opportunistisch
 wenn der gespeicherte Blob das Vierfache des frisch codierten Zustands überschreitet – kein Hintergrundauftrag
@@ -649,7 +649,7 @@ Produktions-App ohnehin zutreffen:
 
 | Voraussetzung                                                      | Warum                                                                                                                                                                                                              | Wie prüfen                                                                                                                                                                                                                  |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Postgres auf einem öffentlich erreichbaren Host**                | Das Gateway wählt die Datenbank aus seinem eigenen Netz an. PGlite, SQLite, `localhost`, `*.internal` und nackte IP-Adressen werden abgelehnt, bevor die Verbindungszeichenfolge Ihre Maschine überhaupt verlässt. | `DATABASE_URL` zeigt auf ein verwaltetes Postgres wie Neon                                                                                                                                                                  |
+| **Postgres auf einem öffentlich erreichbaren Host**                | Das Gateway wählt die Datenbank aus seinem eigenen Netz an. PGlite, `localhost`, `*.internal` und nackte IP-Adressen werden abgelehnt, bevor die Verbindungszeichenfolge Ihre Maschine überhaupt verlässt. | `DATABASE_URL` zeigt auf ein verwaltetes Postgres wie Neon                                                                                                                                                                  |
 | **`BUILDER_PRIVATE_KEY` als DEPLOYMENT-Umgebungsvariable gesetzt** | Damit wird die Registrierung authentifiziert und entschieden, welcher Builder-Organisation der Kanal gehört.                                                                                                       | Siehe den Hinweis unten — dieser Schritt wird am häufigsten übersehen                                                                                                                                                       |
 | **Ein Produktions-Deployment**                                     | Deploy-Previews bleiben bei der lokalen Synchronisierung, damit ein kurzlebiges Branch-Credential die Maschine nie verlässt und ein aktives Repository nicht pro Pull Request einen Kanal erzeugt.                 | `CONTEXT=production` / `BRANCH=production` oder `VERCEL_ENV=production`                                                                                                                                                     |
 | **Die Plattform identifiziert das Deployment**                     | Die Registrierung ist an den öffentlichen Origin der App gebunden, daher darf ein Prozess, der nicht wirklich das Deployment ist, ihn nicht beanspruchen.                                                          | Netlify, Vercel, AWS Lambda, Cloud Run, Render und Cloudflare Pages kennzeichnen sich selbst. Auf einem einfachen Container oder einer VM setzen Sie `AGENT_NATIVE_REALTIME_APP_URL` auf den eigenen Origin des Deployments |

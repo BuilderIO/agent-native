@@ -8,7 +8,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Package manager**: pnpm
 - **Frontend**: React 19, React Router 8, TypeScript, Vite, TailwindCSS
 - **Backend**: Nitro (via @agent-native/core)
-- **Database**: Drizzle ORM over portable SQL (`DATABASE_URL`; local dev defaults to SQLite)
+- **Database**: Drizzle ORM over PostgreSQL SQL (`DATABASE_URL`; local dev uses PGlite)
 - **UI**: Radix UI + Lucide icons + shadcn/ui
 - **Captcha**: Cloudflare Turnstile (opt-in)
 - **Path aliases**: `@/*` → app/, `@shared/*` → shared/
@@ -33,12 +33,12 @@ server/
 shared/
   types.ts       # Form, FormField, FormResponse types
 actions/               # Shared app operations (defineAction; UI uses action hooks)
-data/            # Local development SQLite file only
+data/pglite/     # Local development PGlite data only
 ```
 
 ## Database Schema (Drizzle ORM)
 
-Form data lives in SQL via Drizzle ORM. Use `@agent-native/core/db/schema` helpers for schema and Drizzle's query builder for reads/writes so the same code runs across SQLite, Postgres, libSQL/Turso, D1, and other supported backends:
+Form data lives in PostgreSQL via Drizzle ORM. Use `@agent-native/core/db/schema` helpers for schema and Drizzle's query builder for reads/writes:
 
 | Table       | Contents                                                           |
 | ----------- | ------------------------------------------------------------------ |
@@ -102,20 +102,14 @@ If not set, captcha is silently skipped (works fine in dev without it).
 
 ### Local (default)
 
-Works out of the box with local SQLite via `@libsql/client`. This local file is for development only; containers, previews, and serverless deploys can reset their filesystem. Just set `ACCESS_TOKEN` for auth.
+Works out of the box with local PGlite at `data/pglite`. This local data is for development only; containers, previews, and serverless deploys can reset their filesystem. Just set `ACCESS_TOKEN` for auth.
 
 ### Persistent SQL Database
 
-Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
+Local development uses PGlite at `data/pglite`. For production and shared environments, set `DATABASE_URL` to a persistent hosted PostgreSQL database.
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-### Cloudflare Pages + D1
-
-1. Set `NITRO_PRESET=cloudflare_pages` in env
-2. Swap `server/db/index.ts` to use `drizzle-orm/d1` driver instead of `@libsql/client`
-3. Configure `wrangler.toml` with D1 binding
-4. Set `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY` in Cloudflare dashboard
 
 ## Build & Dev Commands
 

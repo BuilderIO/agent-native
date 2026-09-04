@@ -1,4 +1,4 @@
-import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, intType, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   getIntegrationScope,
@@ -154,7 +154,7 @@ export async function ensureTables(): Promise<void> {
         },
       ];
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_usage_budgets", budgetsSql);
         await ensureTableExists("integration_usage_budget_windows", windowsSql);
         await ensureTableExists(
@@ -343,7 +343,7 @@ async function withSerializedTransaction<T>(
   const db = getDbExec();
   try {
     if (db.transaction) return await db.transaction(fn);
-    await db.execute(isPostgres() ? "BEGIN" : "BEGIN IMMEDIATE");
+    await db.execute("BEGIN");
     try {
       const result = await fn(db);
       await db.execute("COMMIT");
@@ -380,8 +380,8 @@ async function ensureWindow(
   windowStart: number,
   now: number,
 ): Promise<void> {
-  // SQLite and Postgres both support this exact conflict target. It is used
-  // only as the atomic create-if-absent primitive for the counter row.
+  // Use one conflict target as the atomic create-if-absent primitive for the
+  // counter row.
   await db.execute({
     sql: `INSERT INTO integration_usage_budget_windows
       (budget_id, window_start, used_micros, reserved_micros, updated_at)

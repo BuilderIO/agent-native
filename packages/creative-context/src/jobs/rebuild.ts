@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { inArray } from "drizzle-orm";
 
 import { availableEmbeddingFamilies } from "../embeddings/providers.js";
@@ -95,7 +95,7 @@ export async function rebuildFtsBatch(
     indexed,
     afterChunkId: documents.at(-1)?.chunkId ?? null,
     hasMore: documents.length === rebuildLimit(job),
-    lane: isPostgres() ? "postgres-fts" : "portable-lexical",
+    lane: "postgres-fts",
   };
 }
 
@@ -141,7 +141,7 @@ function embeddingText(document: AccessibleSearchDocument): string {
 export async function rebuildVectorBatch(
   job: ContextJob,
 ): Promise<RebuildBatchResult> {
-  if (!isPostgres() || !getCreativeContext().vectorAdapter) {
+  if (!getCreativeContext().vectorAdapter) {
     throw new Error(PGVECTOR_REQUIRED_MESSAGE);
   }
   const documents = await loadBatch(job);

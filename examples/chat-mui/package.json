@@ -19,7 +19,6 @@
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@fontsource-variable/inter": "^5.2.8",
-    "@libsql/client": "^0.15.8",
     "@mui/material": "9.2.0",
     "@tabler/icons-react": "catalog:",
     "h3": "catalog:",

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import {
   getSettingsEmitter,
   getUserSetting,
@@ -33,7 +33,7 @@ interface LocalEmailLease {
 }
 
 function settingsTable(): string {
-  return isPostgres() ? "public.settings" : "settings";
+  return "public.settings";
 }
 
 function lockStorageKey(ownerEmail: string): string {
@@ -81,9 +81,7 @@ async function compareAndSwapLease(
   const key = lockStorageKey(ownerEmail);
   if (expectedRaw === null) {
     const result = await client.execute({
-      sql: isPostgres()
-        ? `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
-        : `INSERT OR IGNORE INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`,
       args: [key, nextRaw, Date.now()],
     });
     return result.rowsAffected === 1;
@@ -161,9 +159,7 @@ async function compareAndSwapMailbox(
   const key = mailboxStorageKey(ownerEmail);
   if (expectedRaw === null) {
     const result = await client.execute({
-      sql: isPostgres()
-        ? `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
-        : `INSERT OR IGNORE INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`,
       args: [key, nextRaw, Date.now()],
     });
     return result.rowsAffected === 1;

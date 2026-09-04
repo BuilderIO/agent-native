@@ -22,7 +22,7 @@ cross-cutting work and `self-modifying-code` when changing app source.
 - If you are about to add `server/routes/api/`, stop and write an action
   instead, except for uploads, streaming, webhooks, OAuth callbacks, public
   unauthenticated URLs, or non-JSON responses.
-- Keep database code provider-agnostic and migrations additive. Do not use
+- Keep database code PostgreSQL-specific and migrations additive. Do not use
   adapter-only database methods or production schema push commands.
 - All AI work goes through agent chat. UI/server code must not call models or
   hide multi-step AI in one action. Keep actions deterministic and focused; use

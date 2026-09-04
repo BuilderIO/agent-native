@@ -99,7 +99,7 @@ por trás de um seletor ou divulgação quando uma etapa tem vários provedores 
   Builder para um gateway gerenciado com um clique ou abra a chave do provedor secundário
   selecione e cole sua própria chave LLM.
 - **Banco de dados** (opcional) — defina `DATABASE_URL` quando quiser usar um
-  Sequência de conexão do banco de dados SQL.
+  String de conexão do PostgreSQL.
 - **Autenticação** (opcional) — contas de e-mail/senha integradas funcionam por
   padrão. Adicione OAuth ou login com token de acesso somente quando desejar esses caminhos.
 - **Entrega de e-mail** (opcional) — útil antes da implantação para redefinições de senha,
@@ -253,7 +253,7 @@ antes de estar disponível.
 | ID         | Obrigatório | Descrição                                            |
 | ---------- | ----------- | ---------------------------------------------------- |
 | `llm`      | sim         | Conexão Builder ou chave LLM do provedor             |
-| `database` | não         | Banco de dados padrão ou qualquer SQL `DATABASE_URL` |
+| `database` | não         | URL do PostgreSQL hospedado ou vazio para PGlite local |
 | `auth`     | não         | Contas integradas, OAuth opcional ou token de acesso |
 | `email`    | não         | Reenviar ou SendGrid para e-mail transacional        |
 

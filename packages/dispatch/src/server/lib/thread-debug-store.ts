@@ -20,9 +20,7 @@ interface ThreadDebugSourceConfig {
   label: string;
   kind: "current" | "env" | "configured";
   databaseUrl?: string;
-  databaseAuthToken?: string;
   databaseUrlEnv?: string | null;
-  databaseAuthTokenEnv?: string | null;
 }
 
 export interface ThreadDebugSource {
@@ -32,7 +30,6 @@ export interface ThreadDebugSource {
   current: boolean;
   connected: boolean;
   databaseUrlEnv: string | null;
-  databaseAuthTokenEnv: string | null;
   canInspectAll: boolean;
 }
 
@@ -134,11 +131,8 @@ function isEnvAdmin(email: string): boolean {
 function missingTableName(error: unknown): string | null {
   const message = String((error as Error)?.message ?? error);
   const patterns = [
-    /no such table:\s*(?:(?:main|public)\.)?["'`]?([a-zA-Z_][\w$]*)/i,
     /relation\s+["'`](?:(?:public)\.)?([a-zA-Z_][\w$]*)["'`]\s+does not exist/i,
     /table\s+["'`](?:[^"'`.]+\.)?([a-zA-Z_][\w$]*)["'`]\s+does(?:n't| not)\s+exist/i,
-    /unknown table\s+["'`]?(?:[^"'`.\s]+\.)?([a-zA-Z_][\w$]*)/i,
-    /undefined table[^a-zA-Z_]+(?:[^.\s]+\.)?([a-zA-Z_][\w$]*)/i,
   ];
   for (const pattern of patterns) {
     const match = message.match(pattern);
@@ -319,10 +313,6 @@ function parseConfiguredSources(): ThreadDebugSourceConfig[] {
         typeof entry.databaseUrlEnv === "string"
           ? entry.databaseUrlEnv.trim()
           : null;
-      const databaseAuthTokenEnv =
-        typeof entry.databaseAuthTokenEnv === "string"
-          ? entry.databaseAuthTokenEnv.trim()
-          : null;
       const databaseUrl =
         typeof entry.databaseUrl === "string" && entry.databaseUrl.trim()
           ? entry.databaseUrl.trim()
@@ -337,14 +327,7 @@ function parseConfiguredSources(): ThreadDebugSourceConfig[] {
             : labelFromSourceId(id),
         kind: "configured",
         databaseUrl,
-        databaseAuthToken:
-          typeof entry.databaseAuthToken === "string"
-            ? entry.databaseAuthToken
-            : databaseAuthTokenEnv
-              ? process.env[databaseAuthTokenEnv]
-              : undefined,
         databaseUrlEnv,
-        databaseAuthTokenEnv,
       };
     })
     .filter((source): source is ThreadDebugSourceConfig => Boolean(source));
@@ -368,15 +351,12 @@ function discoverEnvSources(): ThreadDebugSourceConfig[] {
     if (!prefix || prefix === "NETLIFY") continue;
     if (currentAppPrefix && prefix === currentAppPrefix) continue;
     const id = sourceIdFromEnvPrefix(prefix);
-    const tokenEnv = `${prefix}_DATABASE_AUTH_TOKEN`;
     sources.push({
       id,
       label: labelFromSourceId(id),
       kind: "env",
       databaseUrl: value,
-      databaseAuthToken: process.env[tokenEnv],
       databaseUrlEnv: key,
-      databaseAuthTokenEnv: process.env[tokenEnv] ? tokenEnv : null,
     });
   }
   return sources;
@@ -389,9 +369,6 @@ function sourceConfigs(): ThreadDebugSourceConfig[] {
     label: "Current Dispatch DB",
     kind: "current",
     databaseUrlEnv: currentDatabaseUrlEnv(),
-    databaseAuthTokenEnv: process.env.DATABASE_AUTH_TOKEN
-      ? "DATABASE_AUTH_TOKEN"
-      : null,
   });
   for (const source of discoverEnvSources()) byId.set(source.id, source);
   for (const source of parseConfiguredSources()) byId.set(source.id, source);
@@ -416,15 +393,12 @@ function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
   if (!databaseUrl) {
     throw new Error(`Thread debug source "${normalized}" is not configured.`);
   }
-  const tokenEnv = `${prefix}_DATABASE_AUTH_TOKEN`;
   return {
     id: normalized,
     label: labelFromSourceId(normalized),
     kind: "env",
     databaseUrl,
-    databaseAuthToken: process.env[tokenEnv],
     databaseUrlEnv,
-    databaseAuthTokenEnv: process.env[tokenEnv] ? tokenEnv : null,
   };
 }
 
@@ -435,13 +409,12 @@ async function execForSource(source: ThreadDebugSourceConfig): Promise<DbExec> {
       `Thread debug source "${source.id}" is configured but disconnected.`,
     );
   }
-  const cacheKey = `${source.databaseUrl ?? ""}\n${source.databaseAuthToken ?? ""}`;
+  const cacheKey = source.databaseUrl;
   if (!execCache.has(cacheKey)) {
     execCache.set(
       cacheKey,
       createDbExec({
         url: source.databaseUrl,
-        authToken: source.databaseAuthToken,
       }),
     );
   }
@@ -639,7 +612,6 @@ export async function listThreadDebugSources(): Promise<{
       current: source.kind === "current",
       connected: source.kind === "current" || Boolean(source.databaseUrl),
       databaseUrlEnv: source.databaseUrlEnv ?? null,
-      databaseAuthTokenEnv: source.databaseAuthTokenEnv ?? null,
       canInspectAll: access.canInspectAll,
     })),
   };

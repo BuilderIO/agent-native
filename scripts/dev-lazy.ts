@@ -20,7 +20,6 @@ import {
   normalizeOrigin,
   rewriteRedirectLocation,
 } from "../packages/core/src/cli/gateway-helpers.ts";
-import { ensureNativeDependencies } from "../packages/core/src/cli/native-dependencies.ts";
 
 interface TemplateApp {
   id: string;
@@ -1056,7 +1055,7 @@ function appDatabaseEnv(app: TemplateApp): NodeJS.ProcessEnv {
   if (process.env[databaseUrlKey]) return {};
 
   return {
-    [databaseUrlKey]: `file:${path.join(app.dir, "data", "app.db")}`,
+    [databaseUrlKey]: `pglite:${path.join(app.dir, "data", "pglite")}`,
   };
 }
 
@@ -1818,14 +1817,6 @@ function ensureElectronBinary() {
   }
 }
 
-function runNativeBindingPreflight(): void {
-  ensureNativeDependencies({
-    fromDirectory: ROOT,
-    label: "dev-lazy",
-    repair: true,
-  });
-}
-
 function electronLazyEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -1914,8 +1905,6 @@ async function main(): Promise<void> {
     }
     return;
   }
-
-  runNativeBindingPreflight();
 
   if (includeElectron) {
     ensureElectronBinary();

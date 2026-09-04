@@ -230,12 +230,10 @@ an additional locale or changelog.
   `server/routes/api/`, or middleware to guard one, stop and write a
   `defineAction` instead. Action-backed UI is what makes agent-created
   or agent-edited records appear without a manual refresh.
-- App database code must be provider-agnostic. Define schemas with
+- App database code is PostgreSQL-specific. Define schemas with
   `@agent-native/core/db/schema` helpers and write app reads/writes with
-  Drizzle's query builder and portable `drizzle-orm` operators. Do not import
-  from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates.
-  Keep raw SQL for additive migrations, health checks, or carefully scoped
-  maintenance, and never write SQLite-only or Postgres-only product code. Do
+  Drizzle's query builder and PostgreSQL operators. Keep raw SQL for additive
+  migrations, health checks, or carefully scoped maintenance. Do
   not use SQL as object storage; file bytes belong in upload/private-blob
   providers with only references saved to app tables.
 - In local development, scaffold the app from the workspace root with

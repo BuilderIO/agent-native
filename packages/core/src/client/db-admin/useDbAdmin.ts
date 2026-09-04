@@ -18,7 +18,6 @@ import {
 } from "@tanstack/react-query";
 
 import type {
-  DbAdminDialect,
   DbAdminTableSummary,
   DbAdminTableSchema,
   DbAdminRowsRequest,
@@ -166,13 +165,11 @@ function toState<T>(query: UseQueryResult<T, Error>): DbAdminQueryState<T> {
 // ─── Overview ──────────────────────────────────────────────────────────────
 
 export interface DbAdminOverview {
-  dialect: DbAdminDialect;
   tables: DbAdminTableSummary[];
 }
 
 interface OverviewResponse {
   ok: true;
-  dialect: DbAdminDialect;
   tables: DbAdminTableSummary[];
 }
 
@@ -188,7 +185,7 @@ export function useOverview(
     queryKey: ["db-admin", requestScopeKey(config), "overview", version],
     queryFn: async () => {
       const res = await dbAdminGet<OverviewResponse>("/overview", config);
-      return { dialect: res.dialect, tables: res.tables };
+      return { tables: res.tables };
     },
     placeholderData: keepPreviousData,
     staleTime: 2000,

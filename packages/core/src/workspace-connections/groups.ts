@@ -1,13 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-  safeJsonParse,
-  type DbExec,
-} from "../db/client.js";
+import { getDbExec, intType, retryOnDdlRace, safeJsonParse, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { isOrgMember } from "../org/membership.js";
 import {
@@ -41,9 +34,7 @@ export interface UpdateWorkspaceUserGroupMembersInput {
 }
 
 export function workspaceUserGroupsTable(): string {
-  return isPostgres()
-    ? "public.workspace_user_groups"
-    : "workspace_user_groups";
+  return "public.workspace_user_groups";
 }
 
 function isDuplicateObjectError(err: unknown): boolean {
@@ -147,9 +138,7 @@ async function ensureWorkspaceUserGroupColumns(
     try {
       await retryOnDdlRace(() =>
         client.execute(
-          isPostgres()
-            ? `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`
-            : `ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`,
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`,
         ),
       );
     } catch (error) {
@@ -177,7 +166,7 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("workspace_user_groups", createSql);
         await ensureWorkspaceUserGroupColumns(client, table);
         await ensureIndexExists(

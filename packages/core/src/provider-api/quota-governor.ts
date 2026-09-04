@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { CredentialContext } from "../credentials/index.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 import { parseRetryAfterMs } from "../shared/retry-after.js";
 
@@ -374,7 +374,6 @@ export async function ensureCooldownTable(): Promise<void> {
   if (persistenceTemporarilyUnavailable()) return;
   if (!state.initPromise) {
     state.initPromise = (async () => {
-      const db = getDbExec();
       const integerType = intType();
       const createSql = `
         CREATE TABLE IF NOT EXISTS provider_api_cooldowns (
@@ -388,24 +387,11 @@ export async function ensureCooldownTable(): Promise<void> {
           PRIMARY KEY (quota_key)
         )
       `;
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("provider_api_cooldowns", createSql);
-        await ensureIndexExists(
-          "provider_api_cooldowns_provider_idx",
-          `CREATE INDEX IF NOT EXISTS provider_api_cooldowns_provider_idx ON provider_api_cooldowns (provider_id, cooldown_until)`,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await db.execute(createSql);
-      try {
-        await db.execute(
-          `CREATE INDEX IF NOT EXISTS provider_api_cooldowns_provider_idx ON provider_api_cooldowns (provider_id, cooldown_until)`,
-        );
-      } catch {
-        // Index already exists or the backend rejected best-effort indexing.
-      }
+      await ensureTableExists("provider_api_cooldowns", createSql);
+      await ensureIndexExists(
+        "provider_api_cooldowns_provider_idx",
+        `CREATE INDEX IF NOT EXISTS provider_api_cooldowns_provider_idx ON provider_api_cooldowns (provider_id, cooldown_until)`,
+      );
     })().catch((err) => {
       state.initPromise = undefined;
       state.persistenceUnavailableUntil = Date.now() + PERSISTENCE_RETRY_MS;

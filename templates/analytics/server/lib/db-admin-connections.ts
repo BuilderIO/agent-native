@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { createDbExec, getDbExec, type Dialect } from "@agent-native/core/db";
+import { createDbExec, getDbExec } from "@agent-native/core/db";
 import type { DbAdminRuntime } from "@agent-native/core/db-admin";
 import { getOrgContext } from "@agent-native/core/org";
 import {
@@ -30,8 +30,6 @@ export interface DbAdminConnection {
   updatedAt: string;
   orgId: string;
   databaseUrlLast4: string | null;
-  hasDatabaseAuthToken: boolean;
-  databaseAuthTokenLast4: string | null;
 }
 
 export interface AnalyticsAdminContext {
@@ -152,8 +150,8 @@ export async function runWithDbAdminEventContext<T>(
   );
 }
 
-function secretKey(connectionId: string, kind: "url" | "auth-token"): string {
-  return `${SECRET_PREFIX}:${connectionId}:${kind}`;
+function secretKey(connectionId: string): string {
+  return `${SECRET_PREFIX}:${connectionId}:url`;
 }
 
 function normalizeOptionalString(value: unknown): string | null {
@@ -165,34 +163,16 @@ function normalizeDatabaseUrl(value: unknown): string {
   if (!raw) {
     throw new DbAdminConnectionError(400, "Database URL is required.");
   }
-  const lower = raw.toLowerCase();
-  if (
-    !lower.startsWith("postgres://") &&
-    !lower.startsWith("postgresql://") &&
-    !lower.startsWith("libsql://")
-  ) {
-    throw new DbAdminConnectionError(
-      400,
-      "Use a Postgres, PostgreSQL, or libSQL database URL.",
-    );
+  if (!/^postgres(?:ql)?:\/\//i.test(raw)) {
+    throw new DbAdminConnectionError(400, "Use a Postgres database URL.");
   }
   return raw;
-}
-
-function dialectForDatabaseUrl(url: string): Dialect {
-  const lower = url.toLowerCase();
-  if (lower.startsWith("postgres://") || lower.startsWith("postgresql://")) {
-    return "postgres";
-  }
-  return "sqlite";
 }
 
 function rowToConnection(
   row: Record<string, unknown>,
   secretMeta: {
     databaseUrlLast4: string | null;
-    hasDatabaseAuthToken: boolean;
-    databaseAuthTokenLast4: string | null;
   },
 ): DbAdminConnection {
   return {
@@ -217,11 +197,6 @@ async function secretMetadata(
     "databaseUrlSecretKey",
     "database_url_secret_key",
   );
-  const authSecretKey = readString(
-    row,
-    "databaseAuthTokenSecretKey",
-    "database_auth_token_secret_key",
-  );
   const databaseUrlMeta = urlSecretKey
     ? await getAppSecretMeta({
         key: urlSecretKey,
@@ -229,17 +204,8 @@ async function secretMetadata(
         scopeId: ctx.orgId,
       })
     : null;
-  const databaseAuthTokenMeta = authSecretKey
-    ? await getAppSecretMeta({
-        key: authSecretKey,
-        scope: "org",
-        scopeId: ctx.orgId,
-      })
-    : null;
   return {
     databaseUrlLast4: databaseUrlMeta?.last4 ?? null,
-    hasDatabaseAuthToken: Boolean(databaseAuthTokenMeta),
-    databaseAuthTokenLast4: databaseAuthTokenMeta?.last4 ?? null,
   };
 }
 
@@ -250,7 +216,6 @@ export async function listDbAdminConnections(
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, name, app_id AS "appId", app_url AS "appUrl",
                  database_url_secret_key AS "databaseUrlSecretKey",
-                 database_auth_token_secret_key AS "databaseAuthTokenSecretKey",
                  created_by AS "createdBy", created_at AS "createdAt",
                  updated_at AS "updatedAt", org_id AS "orgId"
           FROM ${CONNECTIONS_TABLE}
@@ -267,8 +232,6 @@ export async function listDbAdminConnections(
           ? await secretMetadata(ctx, row as Record<string, unknown>)
           : {
               databaseUrlLast4: null,
-              hasDatabaseAuthToken: false,
-              databaseAuthTokenLast4: null,
             },
       ),
     ),
@@ -283,19 +246,14 @@ export async function saveDbAdminConnection(
     appId?: string | null;
     appUrl?: string | null;
     databaseUrl: string;
-    databaseAuthToken?: string | null;
   },
 ): Promise<DbAdminConnection> {
   const name = normalizeOptionalString(input.name);
   if (!name)
     throw new DbAdminConnectionError(400, "Connection name is required.");
   const databaseUrl = normalizeDatabaseUrl(input.databaseUrl);
-  const authToken = normalizeOptionalString(input.databaseAuthToken);
   const id = normalizeOptionalString(input.id) ?? randomUUID();
-  const databaseUrlSecretKey = secretKey(id, "url");
-  const databaseAuthTokenSecretKey = authToken
-    ? secretKey(id, "auth-token")
-    : null;
+  const databaseUrlSecretKey = secretKey(id);
   const now = new Date().toISOString();
 
   await writeAppSecret({
@@ -305,33 +263,16 @@ export async function saveDbAdminConnection(
     value: databaseUrl,
     description: `${name} database URL`,
   });
-  if (authToken) {
-    await writeAppSecret({
-      key: databaseAuthTokenSecretKey!,
-      scope: "org",
-      scopeId: ctx.orgId,
-      value: authToken,
-      description: `${name} database auth token`,
-    });
-  } else {
-    await deleteAppSecret({
-      key: secretKey(id, "auth-token"),
-      scope: "org",
-      scopeId: ctx.orgId,
-    }).catch(() => false);
-  }
-
   await getDbExec().execute({
     sql: `INSERT INTO ${CONNECTIONS_TABLE}
             (id, name, app_id, app_url, database_url_secret_key,
-             database_auth_token_secret_key, created_by, created_at, updated_at, org_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             created_by, created_at, updated_at, org_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             app_id = excluded.app_id,
             app_url = excluded.app_url,
             database_url_secret_key = excluded.database_url_secret_key,
-            database_auth_token_secret_key = excluded.database_auth_token_secret_key,
             updated_at = excluded.updated_at
           WHERE ${CONNECTIONS_TABLE}.org_id = excluded.org_id`,
     args: [
@@ -340,7 +281,6 @@ export async function saveDbAdminConnection(
       normalizeOptionalString(input.appId),
       normalizeOptionalString(input.appUrl),
       databaseUrlSecretKey,
-      databaseAuthTokenSecretKey,
       ctx.userEmail,
       now,
       now,
@@ -371,18 +311,6 @@ export async function deleteDbAdminConnection(
     scope: "org",
     scopeId: ctx.orgId,
   }).catch(() => false);
-  const authKey = readString(
-    target,
-    "databaseAuthTokenSecretKey",
-    "database_auth_token_secret_key",
-  );
-  if (authKey) {
-    await deleteAppSecret({
-      key: authKey,
-      scope: "org",
-      scopeId: ctx.orgId,
-    }).catch(() => false);
-  }
   return { deleted: true };
 }
 
@@ -393,7 +321,6 @@ async function getConnectionRow(
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, name, app_id AS "appId", app_url AS "appUrl",
                  database_url_secret_key AS "databaseUrlSecretKey",
-                 database_auth_token_secret_key AS "databaseAuthTokenSecretKey",
                  created_by AS "createdBy", created_at AS "createdAt",
                  updated_at AS "updatedAt", org_id AS "orgId"
           FROM ${CONNECTIONS_TABLE}
@@ -441,28 +368,13 @@ export async function withDbAdminConnectionRuntime<T>(
     throw new DbAdminConnectionError(400, "Database URL secret is missing.");
   }
 
-  const authSecretKey = readString(
-    row,
-    "databaseAuthTokenSecretKey",
-    "database_auth_token_secret_key",
-  );
-  const authToken = authSecretKey
-    ? await readAppSecret({
-        key: authSecretKey,
-        scope: "org",
-        scopeId: ctx.orgId,
-      })
-    : null;
-
   const exec = await createDbExec({
     url: databaseUrl.value,
-    authToken: authToken?.value,
   });
   try {
     return await fn(
       {
         db: exec,
-        dialect: dialectForDatabaseUrl(databaseUrl.value),
       },
       rowToConnection(row, await secretMetadata(ctx, row)),
     );
@@ -473,7 +385,8 @@ export async function withDbAdminConnectionRuntime<T>(
 
 export function redactDbAdminError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  return message
-    .replace(/(postgres(?:ql)?:\/\/[^:\s/]+:)[^@\s]+@/gi, "$1[redacted]@")
-    .replace(/(libsql:\/\/[^?\s]+[?&]authToken=)[^&\s]+/gi, "$1[redacted]");
+  return message.replace(
+    /(postgres(?:ql)?:\/\/[^:\s/]+:)[^@\s]+@/gi,
+    "$1[redacted]@",
+  );
 }

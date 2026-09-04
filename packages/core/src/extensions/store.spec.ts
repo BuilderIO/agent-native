@@ -19,11 +19,10 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -66,7 +65,7 @@ describe("extensions/store", () => {
         async (input: string | { sql: string; args: unknown[] }) => {
           const sql = typeof input === "string" ? input : input.sql;
           if (/\bFROM\s+extensions\b/i.test(sql)) {
-            throw new Error("SQLITE_ERROR: no such table: extensions");
+            throw new Error('relation "extensions" does not exist');
           }
           return { rows: [], rowsAffected: 0 };
         },
@@ -75,11 +74,10 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -107,7 +105,7 @@ describe("extensions/store", () => {
             /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+tools/i.test(sql)
           ) {
             failCreateToolsOnce = false;
-            throw new Error("SQLITE_BUSY: database is locked");
+            throw new Error("database setup failed");
           }
           return { rows: [], rowsAffected: 0 };
         },
@@ -116,11 +114,10 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -132,7 +129,9 @@ describe("extensions/store", () => {
 
     const { ensureExtensionsTables } = await import("./store.js");
 
-    await expect(ensureExtensionsTables()).rejects.toThrow("SQLITE_BUSY");
+    await expect(ensureExtensionsTables()).rejects.toThrow(
+      "database setup failed",
+    );
     await expect(ensureExtensionsTables()).resolves.toBeUndefined();
     expect(
       statements.filter((sql) =>
@@ -156,11 +155,10 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -221,11 +219,10 @@ describe("extensions/store", () => {
     }));
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -316,11 +313,10 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -379,11 +375,10 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -446,11 +441,10 @@ describe("extensions/store", () => {
     }));
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -505,11 +499,10 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
@@ -540,11 +533,10 @@ describe("extensions/store", () => {
 
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => client,
-      getDialect: () => "sqlite",
-      intType: () => "INTEGER",
+      intType: () => "BIGINT",
+      isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
       isLocalDatabase: () => true,
-      isPostgres: () => false,
       retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({

@@ -99,7 +99,7 @@ detrás de un selector o divulgación cuando un paso tiene varios proveedores eq
   Builder para una puerta de enlace administrada con un solo clic o abra la clave del proveedor secundario
   selector y pega tu propia clave LLM.
 - **Base de datos** (opcional): configura `DATABASE_URL` cuando quieras usar una base de datos específica
-  Cadena de conexión a la base de datos SQL.
+  Cadena de conexión de PostgreSQL.
 - **Autenticación** (opcional): las cuentas de correo electrónico/contraseña integradas funcionan mediante
   predeterminado. Agregue OAuth o inicie sesión con token de acceso solo cuando desee esas rutas.
 - **Entrega de correo electrónico** (opcional): útil antes de la implementación para restablecer contraseñas,
@@ -253,7 +253,7 @@ antes de que esté disponible.
 | Identificación | Obligatorio | Descripción                                                 |
 | -------------- | ----------- | ----------------------------------------------------------- |
 | `llm`          | sí          | Conexión Builder o clave de proveedor LLM                   |
-| `database`     | no          | Base de datos predeterminada o cualquier SQL `DATABASE_URL` |
+| `database`     | no          | URL de PostgreSQL alojado o vacío para PGlite local |
 | `auth`         | no          | Cuentas integradas, OAuth opcional o token de acceso        |
 | `email`        | no          | Reenviar o SendGrid para correo electrónico transaccional   |
 

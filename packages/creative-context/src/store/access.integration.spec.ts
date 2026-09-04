@@ -13,8 +13,7 @@ let tempDir: string;
 
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "creative-context-access-"));
-  process.env.DATABASE_URL = `file:${path.join(tempDir, "app.db")}`;
-  delete process.env.DATABASE_AUTH_TOKEN;
+  process.env.DATABASE_URL = `pglite:${tempDir}`;
   vi.resetModules();
 });
 
@@ -27,7 +26,7 @@ afterEach(async () => {
 });
 
 async function setup() {
-  const [{ getDbExec, runMigrations }, { runWithRequestContext }] =
+  const [{ closeDbExec, getDbExec, runMigrations }, { runWithRequestContext }] =
     await Promise.all([
       import("@agent-native/core/db"),
       import("@agent-native/core/server"),
@@ -41,15 +40,16 @@ async function setup() {
   await runMigrations(creativeContextMigrations, {
     table: "creative_context_test_migrations",
   })({});
+  await closeDbExec();
   const exec = getDbExec();
   await exec.execute(`
     CREATE TABLE IF NOT EXISTS org_members (
       id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
-      role TEXT NOT NULL, joined_at INTEGER NOT NULL
+      role TEXT NOT NULL, joined_at BIGINT NOT NULL
     )
   `);
   await exec.execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)",
     args: [
       "member-alice",
       "org-1",
@@ -59,6 +59,16 @@ async function setup() {
       "member-bob",
       "org-1",
       "bob@example.test",
+      "member",
+      0,
+      "member-drew",
+      "org-1",
+      "drew@example.test",
+      "member",
+      0,
+      "member-carol",
+      "org-1",
+      "carol@example.test",
       "member",
       0,
     ],
@@ -1636,7 +1646,6 @@ describe("creative context access and revocation", () => {
       sql: "UPDATE creative_context_items SET thumbnail_blob_ref = ? WHERE id = ?",
       args: ["creative-context-blob:v1:pending-preview-opaque", "allowed"],
     });
-
     await expect(
       asCarol(() =>
         store.manageContextMembership({

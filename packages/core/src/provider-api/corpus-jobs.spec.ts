@@ -4,9 +4,8 @@ const jobs = new Map<string, Record<string, unknown>>();
 const hits = new Map<string, Record<string, unknown>[]>();
 
 vi.mock("../db/client.js", () => ({
-  getDialect: () => "sqlite",
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  intType: () => "BIGINT",
+  isProductionServerlessFunctionRuntime: () => false,
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {
       const rawSql = typeof sql === "string" ? sql : sql.sql;

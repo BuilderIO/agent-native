@@ -15,7 +15,7 @@
 
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
-import { isPostgres } from "../db/client.js";
+
 import { orgMembers } from "../org/schema.js";
 import {
   getRequestAuthCapability,
@@ -205,18 +205,12 @@ export function accessFilter(
 
   if (reg?.supportsGroupShares && normalizedUserEmail && orgId) {
     const groupTable = sql.raw(workspaceUserGroupsTable());
-    const groupMemberPredicate = isPostgres()
-      ? sql`exists (
+    const groupMemberPredicate = sql`exists (
           select 1
           from jsonb_array_elements_text(
             workspace_group.member_emails_json::jsonb
           ) as group_member(email)
           where lower(group_member.email) = ${normalizedUserEmail}
-        )`
-      : sql`exists (
-          select 1
-          from json_each(workspace_group.member_emails_json) as group_member
-          where lower(group_member.value) = ${normalizedUserEmail}
         )`;
     clauses.push(
       sql`exists (select 1 from ${sharesTable}
@@ -394,11 +388,8 @@ function missingColumnName(err: unknown): string | null {
   ) {
     return null;
   }
-  const quoted = message.match(/column\s+"([^"]+)"\s+does not exist/i)?.[1];
-  if (quoted) return quoted;
-  const sqlite = message.match(/no such column:\s+["`]?([\w.]+)["`]?/i)?.[1];
-  if (sqlite) return sqlite.split(".").pop() ?? sqlite;
-  return null;
+  const quoted = message.match(/column ["']?([\w.]+)["']?/i)?.[1];
+  return quoted ?? null;
 }
 
 function selectExistingColumns(

@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-files-${process.pid}-${Date.now()}.sqlite`,
+  `content-files-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "files-owner@example.com";
 const ORG_ID = "files-org";
@@ -28,7 +28,7 @@ let getContentDatabasePersonalViewAction: typeof import("./get-content-database-
 let getDocumentAction: typeof import("./get-document.js").default;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -70,8 +70,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function createLegacyDocument(args: {

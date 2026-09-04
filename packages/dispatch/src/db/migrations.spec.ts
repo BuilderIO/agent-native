@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const originalEnv = {
   DATABASE_URL: process.env.DATABASE_URL,
-  DATABASE_AUTH_TOKEN: process.env.DATABASE_AUTH_TOKEN,
 };
 
 let tempDir: string | null = null;
@@ -20,8 +19,7 @@ function restoreEnv() {
 
 async function setupTempDb() {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-migrations-"));
-  process.env.DATABASE_URL = `file:${path.join(tempDir, "app.db")}`;
-  delete process.env.DATABASE_AUTH_TOKEN;
+  process.env.DATABASE_URL = `pglite:${tempDir}`;
   vi.resetModules();
 }
 
@@ -71,14 +69,18 @@ describe("dispatch migrations", () => {
       table: "dispatch_migrations",
     })({});
 
+    await (await import("@agent-native/core/db")).closeDbExec();
+    const freshExec = (await import("@agent-native/core/db")).getDbExec();
     expect(consoleError).not.toHaveBeenCalled();
-    const { rows } = await exec.execute(
+    const { rows } = await freshExec.execute(
       "SELECT MAX(version) as version FROM dispatch_migrations",
     );
     expect(rows[0]?.version).toBe(5);
-    const { rows: identityRows } = await exec.execute(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'identity_sso_authorization_code'",
-    );
+    const { rows: identityRows } = await freshExec.execute({
+      sql: `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = ?`,
+      args: ["identity_sso_authorization_code"],
+    });
     expect(identityRows).toHaveLength(1);
   });
 });

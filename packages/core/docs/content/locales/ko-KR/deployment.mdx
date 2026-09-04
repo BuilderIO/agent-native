@@ -26,7 +26,7 @@ Agent-Native 앱은 Nitro에서 실행됩니다. 배포 대상에 맞는 경로�
 
 ## 배포 전: 영구 데이터베이스 선택 {#persistent-database}
 
-배포된 모든 앱에는 영구 SQL 데이터베이스가 필요합니다. 첫 프로덕션 배포 전에 배포 환경에 `DATABASE_URL`을 설정하세요. 공급자가 별도 토큰을 요구하면 `DATABASE_AUTH_TOKEN`도 설정합니다.
+배포된 모든 앱에는 영구 PostgreSQL 데이터베이스가 필요합니다. 첫 프로덕션 배포 전에 배포 환경에 `DATABASE_URL`을 설정하세요.
 
 독립 앱에는 안정적인 `BETTER_AUTH_SECRET`이 필요합니다. 서명된 앱 간 요청을 사용하는 워크스페이스에는 `A2A_SECRET`이 필요합니다.
 

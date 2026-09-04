@@ -149,7 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope
 ```
 
 The store layer creates this lazily on first use via `ensureTable()` and uses
-`intType()` from `db/client.ts` so it works on both SQLite and Postgres.
+`intType()` from `db/client.ts` for millisecond timestamps and counters.
 
 `claimPendingTask` is the critical concurrency primitive: it atomically flips
 `pending` → `processing` and increments `attempts`, returning `null` if another
@@ -292,8 +292,8 @@ so a normal long-running reply is safe.
 - **No persistent in-memory state.** The dedup map in the webhook handler is
   best-effort only; the SQL queue is the source of truth. Any cold start
   loses the dedup map but the queue stays consistent.
-- **Postgres + SQLite both supported.** `claimPendingTask` uses `RETURNING` on
-  Postgres and a re-read on SQLite. No platform-specific SQL.
+- **Postgres concurrency.** `claimPendingTask` uses one conditional update with
+  `RETURNING`, so the claim and read are one database operation.
 - **Self-webhook URL resolution.** The processor URL is built from
   `WEBHOOK_BASE_URL`, `APP_URL`, or `URL` env vars (with `localhost:3000` as
   the dev fallback). Templates that change their public URL must keep one of

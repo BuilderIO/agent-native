@@ -19,7 +19,6 @@ vi.mock("h3", () => ({
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
-  isPostgres: () => false,
 }));
 
 // Stub auth so the handler doesn't try to read a real session cookie. Tests

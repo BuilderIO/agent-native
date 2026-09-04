@@ -179,7 +179,7 @@ npx @agent-native/core@latest create my-platform
 
 ## SQL में मॉडल डेटा {#data-models}
 
-फ़्रेमवर्क Drizzle सहायकों के साथ डोमेन तालिकाओं को परिभाषित करें ताकि स्कीमा SQLite, Postgres, D1, Turso, Supabase, Neon और अन्य समर्थित बैकएंड पर पोर्टेबल रहें:
+फ़्रेमवर्क Drizzle सहायकों के साथ डोमेन तालिकाएँ परिभाषित करें ताकि स्कीमा PostgreSQL और PGlite का उपयोग करें:
 
 ```ts filename="server/db/schema.ts"
 import {
@@ -211,13 +211,13 @@ export const projectShares = createSharesTable("project_shares");
 स्कीमा परिवर्तन योगात्मक होने चाहिए। नए ऐप-स्वामित्व वाले टेबल और कॉलम के लिए
 `drizzle-kit generate` से `server/db/migrations/<id_name>.sql` में
 समीक्षा योग्य SQL बनाएं और Node.js deployment के release चरण से
-`runDrizzleMigrations()` के माध्यम से लोड करें। Cloudflare Workers/Pages और D1 में
+`runDrizzleMigrations()` के माध्यम से लोड करें। Cloudflare Workers/Pages और अन्य edge रनटाइम में
 deployable फ़ाइल-सिस्टम नहीं होता, इसलिए वहाँ generated SQL को worker bundle में
 embed करके `runMigrations()` को दें। हाथ से लिखे इतिहास और विशेष मामलों के लिए
 `runMigrations()` रखें। विनाशकारी SQL, `drizzle-kit push`, तालिका का नाम बदलने या
 कॉलम ड्रॉप का उपयोग न करें।
 
-ऐप पढ़ने और लिखने के लिए, Drizzle के क्वेरी बिल्डर और `drizzle-orm` के पोर्टेबल ऑपरेटरों का उपयोग करें। जब Drizzle क्वेरी को व्यक्त कर सकता है, तो कच्चे SQL के साथ उत्पाद कोड न लिखें, और टेम्पलेट्स में `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` से आयात न करें।
+ऐप पढ़ने और लिखने के लिए, Drizzle के क्वेरी बिल्डर और `drizzle-orm` के PostgreSQL-संगत ऑपरेटरों का उपयोग करें। जब Drizzle क्वेरी को व्यक्त कर सकता है, तो कच्चे SQL के साथ उत्पाद कोड न लिखें, और टेम्पलेट्स में `@agent-native/core/db/schema` के स्कीमा हेल्पर्स का उपयोग करें।
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";

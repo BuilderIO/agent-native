@@ -34,9 +34,7 @@ dist-ssr
 !.env.example
 
 # Data
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/pglite/
 data/uploads/
 data/settings.json
 data/.sessions.json

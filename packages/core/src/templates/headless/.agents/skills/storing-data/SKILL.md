@@ -13,9 +13,9 @@ metadata:
 
 ## Rule
 
-All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. SQL stores structured records, metadata, references, and searchable text — not large raw file payloads. Do not store durable app data in the filesystem unless the app is explicitly running a Local File Mode artifact flow described below.
+All application data lives in **SQL** (local PGlite, hosted Postgres in production). The agent and UI share the same database. SQL stores structured records, metadata, references, and searchable text — not large raw file payloads. Do not store durable app data in the filesystem unless the app is explicitly running a Local File Mode artifact flow described below.
 
-Large binary or file-like payloads (images, video/audio, PDFs, ZIPs, screenshots, session replay chunks, thumbnails, generated assets, `data:` URLs, and base64 file bodies) must go through configured file/blob storage such as `uploadFile()` or `putPrivateBlob()`. Persist only the returned URL, asset id, or opaque blob handle in SQL. If storage is unavailable in hosted or persistent-database mode, fail closed with setup guidance instead of falling back to base64 in `application_state`, `settings`, `resources`, or app tables. Local SQLite-only dev fallbacks may exist for tiny assets, but they must be capped, documented as dev-only, and kept off hot list/read paths.
+Large binary or file-like payloads (images, video/audio, PDFs, ZIPs, screenshots, session replay chunks, thumbnails, generated assets, `data:` URLs, and base64 file bodies) must go through configured file/blob storage such as `uploadFile()` or `putPrivateBlob()`. Persist only the returned URL, asset id, or opaque blob handle in SQL. If storage is unavailable in hosted or persistent-database mode, fail closed with setup guidance instead of falling back to base64 in `application_state`, `settings`, `resources`, or app tables.
 
 **Local File Mode exception:** some artifact apps (Content, Plans, Slides, Dashboards, Designs, etc.) can intentionally use repo files as the source of truth for the artifact itself. This must be explicit via `agent-native.json`, `AGENT_NATIVE_MODE=local-files`, or an app-owned local-file action helper. In that mode, the UI and agent still go through app actions, but those actions read/write scoped files through `@agent-native/core/local-artifacts` instead of SQL rows. App state, auth, settings, credentials, collaboration metadata, and hosted database mode remain SQL. File-to-database or file-to-provider synchronization is an explicit sync step, not an implicit side effect of editing.
 
@@ -23,7 +23,7 @@ When you add a data model, a list, or a read path, also follow the `performance`
 
 ## How It Works
 
-Agent-Native apps use Drizzle ORM over the configured SQL backend. Local development works out of the box with a SQLite file at `data/app.db`; production and shared preview deploys need a persistent `DATABASE_URL` because container/serverless filesystems can reset. The code should behave the same across backends, but the local SQLite file is not durable once deployed.
+Agent-Native apps use Drizzle ORM over PostgreSQL. Local development uses PGlite at `data/pglite`; production and shared preview deploys need a persistent hosted PostgreSQL `DATABASE_URL`.
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
@@ -66,7 +66,8 @@ export const tasks = table("tasks", {
 const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 ```
 
-Outside a managed Drizzle scaffold, never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
+Outside a managed Drizzle scaffold, use `@agent-native/core/db/schema` so app
+templates share the framework's Postgres definitions.
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |
@@ -120,13 +121,12 @@ Actions are the **preferred way** for the frontend to access data. You rarely ne
 
 ### Production / Cloud Deployment
 
-Local SQLite works out of the box for development. To deploy to production or any environment where data must survive restarts:
+Local PGlite works out of the box for development. To deploy to production or any environment where data must survive restarts:
 
-1. Set `DATABASE_URL` to a persistent SQL database.
-2. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
-3. No code changes should be needed when the schema and queries stay portable.
+1. Set `DATABASE_URL` to a persistent hosted PostgreSQL database.
+2. Keep schema and queries PostgreSQL-compatible.
 
-Turso is one valid option, not the required option. Common choices include Neon or Supabase Postgres, Turso/libSQL, plain Postgres, durable SQLite, Cloudflare D1 bindings, and managed platform SQL environments when available.
+
 
 ### Real-time Sync
 
@@ -153,7 +153,7 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Don't use Redis or any external state store for app data
 - Don't store large files, base64 blobs, `data:` URLs, screenshots, videos, audio, PDFs, ZIPs, or session replay chunks directly in SQL rows, `application_state`, `settings`, or `resources`
 - Don't implement product features with raw SQL or `getDbExec()` when Drizzle can express the query
-- Don't write SQLite-only or Postgres-only SQL in app code
+- Keep advanced SQL PostgreSQL-compatible
 - Don't interpolate user input directly into SQL queries — use Drizzle ORM's query builder
 
 ## Security

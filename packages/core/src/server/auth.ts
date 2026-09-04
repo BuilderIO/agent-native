@@ -76,9 +76,7 @@ function toWebRequest(event: H3Event): Request {
 type H3App = H3AppShim;
 import {
   getDbExec,
-  isPostgres,
   intType,
-  retryOnDdlRace,
   describeDbError,
 } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -1573,7 +1571,6 @@ let sessionMaxAge = DEFAULT_MAX_AGE;
 export async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
     _sessionInitPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
@@ -1584,7 +1581,7 @@ export async function ensureSessionTable(): Promise<void> {
 
       // PG guard: probe information_schema first (no lock), run DDL only when
       // missing, bounded by a transaction-scoped lock_timeout.
-      if (isPostgres()) {
+      {
         await ensureTableExists("sessions", createSql);
         await ensureColumnExists(
           "sessions",
@@ -1598,17 +1595,6 @@ export async function ensureSessionTable(): Promise<void> {
         return;
       }
 
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await retryOnDdlRace(() => client.execute(createSql));
-      try {
-        await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
-      } catch {
-        // Column already exists
-      }
-      // Older deployments have a 32-bit `created_at`; on Postgres the
-      // `Date.now()` written on session create overflows int4. Widen in place
-      // (no-op once done / on fresh DBs).
-      await widenIntColumnsToBigInt("sessions", ["created_at"]);
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _sessionInitPromise = undefined;
@@ -1647,9 +1633,7 @@ export async function addSession(token: string, email?: string): Promise<void> {
   const client = getDbExec();
   await retryIfSessionsMissing(() =>
     client.execute({
-      sql: isPostgres()
-        ? `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`
-        : `INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`,
       args: [token, email ?? null, Date.now()],
     }),
   );
@@ -2549,7 +2533,7 @@ async function consumeDesktopExchangeFromDB(
     const entry = packed ? parseDesktopExchangeStoredEntry(packed) : null;
     if (!entry) return { status: "malformed", packed };
 
-    // SQLite >=3.35 and PostgreSQL both support RETURNING. Matching the
+    // Postgres RETURNING keeps the read/claim pair atomic. Matching the
     // payload makes the read/claim pair safe against a concurrent replacement
     // of the same flow id, while the single DELETE makes concurrent pollers
     // one-time consumers.
@@ -3943,7 +3927,7 @@ async function createAutoDevAccountForSession(
       } catch (e) {
         // Another process can still win the create race after our SELECT.
         // In-process first-page races share this promise and do not issue a
-        // duplicate Better Auth signup, which keeps local SQLite logs quiet.
+        // duplicate Better Auth signup, which keeps local development logs quiet.
         if (await hasAutoDevAccountUser(db)) return null;
         if (!isExpectedAuthFailure(e)) throw e;
         return null;
@@ -4188,8 +4172,8 @@ async function maybeAutoCreateDevSession(
     // The dev account does not exist at this point (the devUsers check
     // above returned early otherwise). Concurrent in-process first page
     // loads share one signup promise so the losing request never asks Better
-    // Auth to insert the same email and therefore never emits a SQLite
-    // unique-constraint log.
+    // Auth to insert the same email and therefore never emits a duplicate-key
+    // log.
     const devPassword = await createAutoDevAccountForSession(auth, db);
     if (!devPassword) return null;
 
@@ -5884,9 +5868,7 @@ async function mountBetterAuthRoutes(
         try {
           const { getDbExec } = await import("../db/client.js");
           const db = getDbExec();
-          // Use boolean literals for cross-dialect portability: Postgres
-          // stores `email_verified` as BOOLEAN and rejects integer 1/0,
-          // SQLite accepts TRUE/FALSE as aliases for 1/0 (since 3.23).
+          // Use Postgres boolean literals for the BOOLEAN column.
           // Quote `"user"` because it's a reserved keyword in Postgres.
           await db.execute({
             sql: 'UPDATE "user" SET email_verified = TRUE WHERE id = ? AND (email_verified = FALSE OR email_verified IS NULL)',

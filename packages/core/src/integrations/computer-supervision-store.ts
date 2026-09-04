@@ -1,10 +1,5 @@
 import type { DbExec } from "../db/client.js";
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, intType, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   assertValidComputerCommandEnvelope,
@@ -70,7 +65,7 @@ export async function ensureComputerApprovalStore(): Promise<void> {
   created_at ${intType()} NOT NULL,
   updated_at ${intType()} NOT NULL
 )`;
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_computer_approvals", createSql);
         await ensureIndexExists(
           "idx_computer_approvals_owner",

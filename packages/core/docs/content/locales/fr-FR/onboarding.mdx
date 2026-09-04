@@ -99,7 +99,7 @@ derrière un sélecteur ou une divulgation lorsqu'une étape a plusieurs fournis
   Builder pour une passerelle gérée en un clic, ou ouvrez la clé du fournisseur secondaire
   sélectionnez et collez votre propre clé LLM.
 - **Base de données** (facultatif) — définissez `DATABASE_URL` lorsque vous souhaitez utiliser un fichier spécifique
-  Chaîne de connexion à la base de données SQL.
+  Chaîne de connexion PostgreSQL.
 - **Authentification** (facultatif) – les comptes de messagerie/mot de passe intégrés fonctionnent par
   par défaut. Ajoutez OAuth ou une connexion par jeton d'accès uniquement lorsque vous souhaitez ces chemins.
 - **Envoi par e-mail** (facultatif) — utile avant le déploiement pour la réinitialisation du mot de passe,
@@ -253,7 +253,7 @@ avant qu'il ne soit disponible.
 | ID         | Obligatoire | Description                                                     |
 | ---------- | ----------- | --------------------------------------------------------------- |
 | `llm`      | oui         | Connexion Builder ou clé LLM du fournisseur                     |
-| `database` | non         | Base de données par défaut ou n'importe quel SQL `DATABASE_URL` |
+| `database` | non         | URL PostgreSQL hébergée ou vide pour PGlite local |
 | `auth`     | non         | Comptes intégrés, OAuth ou jeton d'accès en option              |
 | `email`    | non         | Renvoyer ou SendGrid pour les e-mails transactionnels           |
 

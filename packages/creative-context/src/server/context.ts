@@ -1,4 +1,4 @@
-import { createGetDb, getDbExec, isPostgres } from "@agent-native/core/db";
+import { createGetDb, getDbExec } from "@agent-native/core/db";
 
 import {
   createDefaultContextConnectorExecutionContext,
@@ -99,7 +99,6 @@ type GlobalContext = {
 };
 
 function defaultVectorAdapter(): PgVectorAdapter | undefined {
-  if (!isPostgres()) return undefined;
   return {
     async upsert(input) {
       const vectorKey = input.embeddingId;

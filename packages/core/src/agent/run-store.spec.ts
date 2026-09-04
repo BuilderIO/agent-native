@@ -32,11 +32,10 @@ let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
   started_at: number;
-  has_dispatch_payload?: boolean | number;
+  has_dispatch_payload?: boolean;
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
 let prunedRunRows: Array<Record<string, unknown>> = [];
-let postgres = false;
 // claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
 // = 'background'` ONCE, so only the FIRST `claimBackgroundRun` UPDATE for a
 // given runId can match the WHERE clause; every subsequent attempt (a
@@ -195,8 +194,12 @@ const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "INTEGER",
-  isPostgres: () => postgres,
+  intType: () => "BIGINT",
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/capture-error.js", () => ({
@@ -274,7 +277,6 @@ describe("run store", () => {
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
     prunedRunRows = [];
-    postgres = false;
     insertEventBehavior = () => {};
     abortRowsAffected = 1;
     __resetNoRunningRunsProbeForTests();
@@ -978,8 +980,6 @@ describe("run store", () => {
   });
 
   it("uses a transaction-scoped lease for Postgres cleanup", async () => {
-    postgres = true;
-
     await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const lock = execCalls.find((call) =>
@@ -1477,8 +1477,6 @@ describe("run store", () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
       { id: "run-with-payload", started_at: 1, has_dispatch_payload: true },
       { id: "run-no-payload", started_at: 2, has_dispatch_payload: false },
-      // SQLite reports booleans as 1/0.
-      { id: "run-sqlite", started_at: 3, has_dispatch_payload: 1 },
     ];
 
     const rows = await listUnclaimedBackgroundRunRows();
@@ -1486,7 +1484,6 @@ describe("run store", () => {
     expect(rows).toEqual([
       { id: "run-with-payload", startedAt: 1, hasDispatchPayload: true },
       { id: "run-no-payload", startedAt: 2, hasDispatchPayload: false },
-      { id: "run-sqlite", startedAt: 3, hasDispatchPayload: true },
     ]);
   });
 

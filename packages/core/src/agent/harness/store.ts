@@ -1,4 +1,4 @@
-import { getDbExec, intType, isPostgres } from "../../db/client.js";
+import { getDbExec, intType } from "../../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -75,7 +75,6 @@ let initPromise: Promise<void> | undefined;
 export async function ensureAgentHarnessSessionTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS agent_harness_sessions (
           id TEXT PRIMARY KEY,
@@ -97,7 +96,7 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
+      {
         // PG-guard: probe information_schema / pg_indexes before issuing DDL to
         // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
         await ensureTableExists("agent_harness_sessions", createSql);
@@ -140,61 +139,6 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_owner ON agent_harness_sessions(owner_email, updated_at)`,
         );
         return;
-      }
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      try {
-        await client.execute(
-          `ALTER TABLE agent_harness_sessions ADD COLUMN generation ${intType()} NOT NULL DEFAULT 0`,
-        );
-      } catch (error) {
-        if (!isDuplicateColumnError(error)) throw error;
-      }
-      for (const col of [
-        "run_id",
-        "provider_session_id",
-        "resume_state",
-        "workspace_ref",
-        "pending_approval",
-        "resolved_approval_ids",
-        "owner_email",
-        "org_id",
-      ] as const) {
-        try {
-          await client.execute(
-            `ALTER TABLE agent_harness_sessions ADD COLUMN ${col} TEXT`,
-          );
-        } catch {
-          // Column already exists.
-        }
-      }
-      try {
-        await client.execute(
-          `ALTER TABLE agent_harness_sessions ADD COLUMN stopped_at ${intType()}`,
-        );
-      } catch {
-        // Column already exists.
-      }
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_thread ON agent_harness_sessions(thread_id, updated_at)`,
-        );
-      } catch {
-        // Index already exists.
-      }
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_status ON agent_harness_sessions(status, updated_at)`,
-        );
-      } catch {
-        // Index already exists.
-      }
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_owner ON agent_harness_sessions(owner_email, updated_at)`,
-        );
-      } catch {
-        // Index already exists.
       }
     })().catch((err) => {
       initPromise = undefined;
@@ -536,13 +480,4 @@ function stringOrNull(value: unknown): string | null {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" ? value : Number(value ?? 0);
-}
-
-function isDuplicateColumnError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const message = (error as { message?: unknown }).message;
-  return (
-    typeof message === "string" &&
-    /duplicate column name|column .* already exists/i.test(message)
-  );
 }

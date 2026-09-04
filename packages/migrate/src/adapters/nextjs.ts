@@ -275,7 +275,7 @@ async function extractBehaviorGraph(
     }
 
     if (
-      /\b(prisma|drizzle|mongoose|sequelize|supabase|neon|turso|postgres|mysql|sqlite)\b/i.test(
+      /\b(prisma|drizzle|supabase|neon|postgres)\b/i.test(
         text,
       )
     ) {
@@ -365,7 +365,7 @@ function inferLlmProvider(text: string): string {
 }
 
 function inferDataStoreName(text: string): string {
-  const names = ["prisma", "drizzle", "supabase", "neon", "turso", "postgres"];
+  const names = ["prisma", "drizzle", "supabase", "neon", "postgres"];
   return names.find((name) => text.toLowerCase().includes(name)) ?? "unknown";
 }
 

@@ -26,7 +26,7 @@ Mehrere Apps mit gemeinsamem Login unter einer Origin ausführen.
 
 ## Vor dem Deployment: dauerhafte Datenbank wählen {#persistent-database}
 
-Jede bereitgestellte App benötigt eine dauerhafte SQL-Datenbank. Setze `DATABASE_URL` vor dem ersten Produktions-Deployment in der Deployment-Umgebung. Verwende `DATABASE_AUTH_TOKEN`, wenn dein Anbieter ein separates Token verlangt.
+Jede bereitgestellte App benötigt eine dauerhafte PostgreSQL-Datenbank. Setze `DATABASE_URL` vor dem ersten Produktions-Deployment in der Deployment-Umgebung.
 
 Standalone-Apps benötigen ein stabiles `BETTER_AUTH_SECRET`. Workspaces mit signierten App-zu-App-Anfragen benötigen `A2A_SECRET`.
 

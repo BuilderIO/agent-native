@@ -1,6 +1,6 @@
 ---
 title: "Key Concepts"
-description: "How Agent-Native apps work across three layers: the Core framework, optional Toolkit building blocks, and optional Templates, plus the shared actions, SQL database, app-agent loop, and portability rules."
+description: "How Agent-Native apps work across three layers: the Core framework, optional Toolkit building blocks, and optional Templates, plus the shared actions, PostgreSQL database, local PGlite, app-agent loop, and portability rules."
 ---
 
 # Key Concepts
@@ -166,11 +166,11 @@ Adopting the framework is valuable mostly because of what you stop having to bui
 | MCP client + server, both directions | The app ingests MCP servers (local, remote, hub-shared) _and_ exposes its own actions as an MCP server. See [MCP Clients](/docs/mcp-clients) and [MCP Protocol](/docs/mcp-protocol).                                                                                                                                                                                                 |
 | Inter-app delegation                 | Agents in different apps talk over [A2A](/docs/a2a-protocol). Same-origin deploys skip JWT; cross-origin uses a shared `A2A_SECRET`.                                                                                                                                                                                                                                                 |
 | Sub-agent teams                      | Spawn a sub-agent with its own thread and tools, surfaced as a chip inline in chat. See [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                            |
-| Portability                          | Any Drizzle-supported SQL database, any Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                   |
+| Portability                          | PostgreSQL with local PGlite and hosted Postgres, any Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                   |
 
 ## Data in SQL {#data-in-sql}
 
-All application state lives in a SQL database via Drizzle ORM. Schemas are provider-agnostic; the supported databases, `DATABASE_URL` config, and portability rules live in [Database](/docs/server-database).
+All application state lives in PostgreSQL via Drizzle ORM. Local development uses PGlite; hosted deployments use the PostgreSQL connection in `DATABASE_URL`. See [Database](/docs/server-database).
 
 Core SQL stores are auto-created and available in every template:
 
@@ -482,11 +482,11 @@ tooling. Templates are complete apps that you can fork and customize in your
 own repository and development workflow either way. For runtime customization
 without source changes, use [Extensions](/docs/extensions).
 
-## Portable by default {#hosting-agnostic}
+## PostgreSQL by default {#hosting-agnostic}
 
-Two architectural rules keep apps portable across databases and hosts:
+Two architectural rules keep apps consistent across PostgreSQL and hosts:
 
-- **Database-agnostic.** Write schemas with `@agent-native/core/db/schema` and reads/writes with Drizzle's portable query DSL so the same code runs on any supported provider. Use raw SQL only for additive migrations or one-off maintenance, kept parameterized and dialect-agnostic. See [Database](/docs/server-database).
+- **PostgreSQL.** Write schemas with `@agent-native/core/db/schema` and reads/writes with Drizzle's query DSL. Use raw PostgreSQL SQL only for additive migrations or one-off maintenance. See [Database](/docs/server-database).
 - **Hosting-agnostic.** The server runs on Nitro and compiles to any deployment target. Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes or plugins, and never assume a persistent server process. Serverless and edge are stateless, so keep all state in SQL. See [Deployment](/docs/deployment).
 
 ## Agent Resources {#workspace}

@@ -99,7 +99,7 @@ hinter einem Picker oder einer Offenlegung, wenn ein Schritt mehrere gleichwerti
   Builder für ein mit einem Klick verwaltetes Gateway, oder öffnen Sie den sekundären Anbieterschlüssel
   Wählen Sie Ihren eigenen LLM-Schlüssel aus und fügen Sie ihn ein.
 - **Datenbank** (optional) – legen Sie `DATABASE_URL` fest, wenn Sie eine bestimmte verwenden möchten
-  SQL Datenbankverbindungszeichenfolge.
+  PostgreSQL-Verbindungszeichenfolge.
 - **Authentifizierung** (optional) – integrierte E-Mail-/Passwortkonten funktionieren per
   Standard. Fügen Sie OAuth oder die Zugriffstoken-Anmeldung nur hinzu, wenn Sie diese Pfade benötigen.
 - **E-Mail-Zustellung** (optional) – nützlich vor der Bereitstellung für das Zurücksetzen von Passwörtern
@@ -253,7 +253,7 @@ bevor es verfügbar ist.
 | ID         | Erforderlich | Beschreibung                                             |
 | ---------- | ------------ | -------------------------------------------------------- |
 | `llm`      | Ja           | Builder-Verbindung oder ein Provider-LLM-Schlüssel       |
-| `database` | nein         | Standarddatenbank oder eine beliebige SQL `DATABASE_URL` |
+| `database` | nein         | Gehostete PostgreSQL-URL oder leer für lokales PGlite |
 | `auth`     | nein         | Eingebaute Konten, optional OAuth oder Zugriffstoken     |
 | `email`    | nein         | Erneut senden oder SendGrid für Transaktions-E-Mails     |
 

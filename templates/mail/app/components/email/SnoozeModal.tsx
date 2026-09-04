@@ -227,8 +227,7 @@ export function SnoozeModal({
             const msg = err?.message ?? "";
             if (
               msg.includes("no such table") ||
-              msg.includes("scheduled_jobs") ||
-              msg.includes("SQLITE")
+              msg.includes("scheduled_jobs")
             ) {
               toast.error(t("mail.toasts.snoozeDbNotReady"));
             } else {

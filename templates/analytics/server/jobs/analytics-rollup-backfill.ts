@@ -1,4 +1,4 @@
-import { getDbExec, getDialect, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 
 import { FIRST_PARTY_ANALYTICS_ROLLUP_BACKFILL_LOCK_KEY } from "../lib/analytics-rollup-lock";
 
@@ -70,70 +70,6 @@ const POSTGRES_BACKFILL_STATEMENTS = [
   `,
 ] as const;
 
-const SQLITE_BACKFILL_STATEMENTS = [
-  `
-    INSERT INTO analytics_event_daily_rollups (
-      id, tenant_key, owner_email, org_id, event_date, event_name,
-      app, template, event_count
-    )
-    SELECT
-      lower(hex(randomblob(16))), tenant_key, MIN(owner_email), MIN(org_id),
-      event_date, event_name, app, template, COUNT(*)
-    FROM (
-      SELECT
-        CASE
-          WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
-          ELSE 'user:' || owner_email
-        END AS tenant_key,
-        owner_email,
-        org_id,
-        COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
-        event_name,
-        COALESCE(app, '') AS app,
-        COALESCE(template, '') AS template
-      FROM analytics_events
-    ) AS historical_events
-    WHERE event_date <> ''
-    GROUP BY tenant_key, event_date, event_name, app, template
-    ON CONFLICT (tenant_key, event_date, event_name, app, template)
-    DO UPDATE SET event_count = MAX(
-      analytics_event_daily_rollups.event_count,
-      excluded.event_count
-    )
-  `,
-  `
-    INSERT INTO analytics_user_days (
-      id, tenant_key, owner_email, org_id, event_date, user_key
-    )
-    SELECT
-      lower(hex(randomblob(16))), tenant_key, owner_email, org_id,
-      event_date, user_key
-    FROM (
-      SELECT DISTINCT
-        CASE
-          WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
-          ELSE 'user:' || owner_email
-        END AS tenant_key,
-        owner_email,
-        org_id,
-        COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
-        COALESCE(
-          NULLIF(user_key, ''),
-          NULLIF(user_id, ''),
-          NULLIF(anonymous_id, '')
-        ) AS user_key
-      FROM analytics_events
-      WHERE COALESCE(
-        NULLIF(user_key, ''),
-        NULLIF(user_id, ''),
-        NULLIF(anonymous_id, '')
-      ) IS NOT NULL
-    ) AS historical_user_days
-    WHERE event_date <> '' AND user_key <> ''
-    ON CONFLICT (tenant_key, event_date, user_key) DO NOTHING
-  `,
-] as const;
-
 type BackfillStatus =
   | "completed"
   | "already-complete"
@@ -149,17 +85,13 @@ export interface AnalyticsRollupBackfillResult {
 let running = false;
 
 function nowSql(): string {
-  return isPostgres() ? "now()::text" : "datetime('now')";
+  return "now()::text";
 }
 
 function ensureStateSql(): string {
-  return isPostgres()
-    ? `INSERT INTO analytics_rollup_backfill_state (id, status, updated_at)
+  return `INSERT INTO analytics_rollup_backfill_state (id, status, updated_at)
        VALUES (?, 'pending', ${nowSql()})
-       ON CONFLICT (id) DO NOTHING`
-    : `INSERT OR IGNORE INTO analytics_rollup_backfill_state
-       (id, status, updated_at)
-       VALUES (?, 'pending', ${nowSql()})`;
+       ON CONFLICT (id) DO NOTHING`;
 }
 
 function createBackfillLeaseToken(): string {
@@ -172,8 +104,8 @@ function createBackfillLeaseToken(): string {
 function claimStateSql(): string {
   return `UPDATE analytics_rollup_backfill_state
           SET status = 'running', lease_token = ?,
-              lease_expires_at = datetime('now', '+${BACKFILL_LEASE_MINUTES} minutes'),
-              updated_at = datetime('now')
+              lease_expires_at = now() + INTERVAL '${BACKFILL_LEASE_MINUTES} minutes',
+              updated_at = now()
         WHERE id = ?
           AND (
             status = 'pending'
@@ -181,7 +113,7 @@ function claimStateSql(): string {
               status = 'running'
               AND (
                 lease_expires_at IS NULL
-                OR lease_expires_at <= datetime('now')
+                OR lease_expires_at <= now()
               )
             )
           )`;
@@ -190,7 +122,7 @@ function claimStateSql(): string {
 function releaseStateLeaseSql(): string {
   return `UPDATE analytics_rollup_backfill_state
              SET status = 'pending', lease_token = NULL,
-                 lease_expires_at = NULL, updated_at = datetime('now')
+                 lease_expires_at = NULL, updated_at = now()
            WHERE id = ? AND lease_token = ?`;
 }
 
@@ -222,9 +154,7 @@ async function completeState(tx: {
 async function runBackfillStatements(tx: {
   execute: (query: string) => Promise<unknown>;
 }): Promise<void> {
-  const statements = isPostgres()
-    ? POSTGRES_BACKFILL_STATEMENTS
-    : SQLITE_BACKFILL_STATEMENTS;
+  const statements = POSTGRES_BACKFILL_STATEMENTS;
   for (const statement of statements) await tx.execute(statement);
 }
 
@@ -242,7 +172,7 @@ async function runTransactionalBackfill(
   }
 
   return db.transaction(async (tx) => {
-    if (isPostgres()) {
+    {
       // This scans all of analytics_events (41 GB in production) in one
       // GROUP BY, and the lease budgets 15 minutes for it. A role-level
       // statement_timeout — the thing that stops a runaway dashboard query
@@ -269,65 +199,10 @@ async function runTransactionalBackfill(
   });
 }
 
-async function runD1Backfill(
-  db: ReturnType<typeof getDbExec>,
-): Promise<BackfillStatus> {
-  if (!db.atomicBatch) {
-    throw new Error("D1 Analytics rollup backfill requires an atomic batch");
-  }
-
-  await db.execute({ sql: ensureStateSql(), args: [BACKFILL_STATE_ID] });
-  const leaseToken = createBackfillLeaseToken();
-  const claim = await db.execute({
-    sql: claimStateSql(),
-    args: [leaseToken, BACKFILL_STATE_ID],
-  });
-  if (claim.rowsAffected !== 1) {
-    return (await stateStatus(db)) === "completed"
-      ? "already-complete"
-      : "skipped-lock";
-  }
-
-  try {
-    const results = await db.atomicBatch([
-      ...SQLITE_BACKFILL_STATEMENTS,
-      {
-        sql: `UPDATE analytics_rollup_backfill_state
-                SET status = 'completed', completed_at = ${nowSql()},
-                    lease_token = NULL, lease_expires_at = NULL,
-                    updated_at = ${nowSql()}
-              WHERE id = ? AND status = 'running' AND lease_token = ?`,
-        args: [BACKFILL_STATE_ID, leaseToken],
-      },
-    ]);
-    if (results[results.length - 1]?.rowsAffected !== 1) {
-      throw new Error(
-        "Analytics rollup backfill lost its D1 lease before completion",
-      );
-    }
-    return "completed";
-  } catch (error) {
-    try {
-      await db.execute({
-        sql: releaseStateLeaseSql(),
-        args: [BACKFILL_STATE_ID, leaseToken],
-      });
-    } catch (releaseError) {
-      console.warn(
-        "[analytics-rollup-backfill] Failed to release D1 lease after backfill error:",
-        releaseError instanceof Error ? releaseError.message : releaseError,
-      );
-    }
-    throw error;
-  }
-}
-
 /**
  * Rebuild historical compact rollups outside the server boot path. The state
  * row is completed in the same transaction as both aggregates, so a timeout
  * or failed write leaves the job pending and a later scheduled run retries it.
- * D1 claims a short lease before its atomic batch so concurrent isolates do not
- * each scan the full event history.
  */
 export async function runAnalyticsRollupBackfillOnce(): Promise<AnalyticsRollupBackfillResult> {
   if (process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS?.trim() === "0") {
@@ -340,10 +215,7 @@ export async function runAnalyticsRollupBackfillOnce(): Promise<AnalyticsRollupB
 
   try {
     const db = getDbExec();
-    const status =
-      getDialect() === "d1"
-        ? await runD1Backfill(db)
-        : await runTransactionalBackfill(db);
+    const status = await runTransactionalBackfill(db);
     return {
       status,
       remaining:

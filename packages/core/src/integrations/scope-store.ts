@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -118,7 +118,7 @@ export async function ensureTable(): Promise<void> {
       const orgIndexSql =
         "CREATE INDEX IF NOT EXISTS idx_integration_scope_org ON integration_conversation_scopes(org_id, platform, tenant_id)";
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_conversation_scopes", createSql);
         await ensureColumnExists(
           "integration_conversation_scopes",

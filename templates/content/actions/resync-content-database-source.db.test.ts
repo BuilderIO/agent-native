@@ -1,5 +1,5 @@
 // Integration test for the row-union resync over-claim fix (slice 6b). Boots a
-// real in-memory libsql DB, simulates the PRE-FIX corrupted state where source
+// real PGlite database, simulates the PRE-FIX corrupted state where source
 // A over-claimed every database item (including source B's row), then resyncs
 // A against a mocked live Builder read and asserts the self-heal: A keeps only
 // its own remote-backed rows and never re-claims B's row.
@@ -7,7 +7,7 @@
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
+// guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -644,7 +644,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `resync-source-test-${process.pid}-${Date.now()}.sqlite`,
+  `resync-source-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 let getDb: () => any;
@@ -669,7 +669,7 @@ const OWNER = "owner@example.com";
 const IMPORT_SPACE_ID = "builder_import_test_space";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -742,9 +742,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 it("atomically grants one Builder continuation claim per persisted offset", async () => {

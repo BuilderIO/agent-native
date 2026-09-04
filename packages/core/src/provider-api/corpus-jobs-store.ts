@@ -7,7 +7,7 @@
  * scratch files.
  */
 
-import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, intType, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 
 export type ProviderCorpusJobStatus =
@@ -118,39 +118,21 @@ export async function ensureTables(): Promise<void> {
           PRIMARY KEY (job_id, hit_index)
         )
       `;
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("provider_corpus_jobs", createJobsSql);
-        await ensureTableExists("provider_corpus_job_hits", createHitsSql);
-        await widenPostgresIntegerColumns(db); // best-effort type widening — unchanged
-        await ensureIndexExists(
-          "provider_corpus_jobs_scope_idx",
-          `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_scope_idx ON provider_corpus_jobs (app_id, owner_email, updated_at)`,
-        );
-        await ensureIndexExists(
-          "provider_corpus_jobs_status_idx",
-          `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_status_idx ON provider_corpus_jobs (app_id, owner_email, status)`,
-        );
-        await ensureIndexExists(
-          "provider_corpus_job_hits_job_idx",
-          `CREATE INDEX IF NOT EXISTS provider_corpus_job_hits_job_idx ON provider_corpus_job_hits (job_id)`,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await db.execute(createJobsSql);
-      await db.execute(createHitsSql);
-      for (const ddl of [
+      await ensureTableExists("provider_corpus_jobs", createJobsSql);
+      await ensureTableExists("provider_corpus_job_hits", createHitsSql);
+      await widenPostgresIntegerColumns(db);
+      await ensureIndexExists(
+        "provider_corpus_jobs_scope_idx",
         `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_scope_idx ON provider_corpus_jobs (app_id, owner_email, updated_at)`,
+      );
+      await ensureIndexExists(
+        "provider_corpus_jobs_status_idx",
         `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_status_idx ON provider_corpus_jobs (app_id, owner_email, status)`,
+      );
+      await ensureIndexExists(
+        "provider_corpus_job_hits_job_idx",
         `CREATE INDEX IF NOT EXISTS provider_corpus_job_hits_job_idx ON provider_corpus_job_hits (job_id)`,
-      ]) {
-        try {
-          await db.execute(ddl);
-        } catch {
-          // Index already exists or the backend rejected best-effort indexing.
-        }
-      }
+      );
     })().catch((err) => {
       initPromise = undefined;
       throw err;
@@ -188,8 +170,7 @@ export async function createProviderCorpusJob(
   const db = getDbExec();
   const now = Date.now();
   await db.execute({
-    sql: isPostgres()
-      ? `
+    sql: `
         INSERT INTO provider_corpus_jobs
           (id, app_id, owner_email, name, mode, status, provider, request_json, pagination_json, batch_json, search_json, limits_json, checkpoint_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -217,35 +198,6 @@ export async function createProviderCorpusJob(
           updated_at = EXCLUDED.updated_at
         WHERE provider_corpus_jobs.app_id = EXCLUDED.app_id
           AND provider_corpus_jobs.owner_email = EXCLUDED.owner_email
-      `
-      : `
-        INSERT INTO provider_corpus_jobs
-          (id, app_id, owner_email, name, mode, status, provider, request_json, pagination_json, batch_json, search_json, limits_json, checkpoint_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          app_id = excluded.app_id,
-          owner_email = excluded.owner_email,
-          name = excluded.name,
-          mode = excluded.mode,
-          status = excluded.status,
-          provider = excluded.provider,
-          request_json = excluded.request_json,
-          pagination_json = excluded.pagination_json,
-          batch_json = excluded.batch_json,
-          search_json = excluded.search_json,
-          limits_json = excluded.limits_json,
-          checkpoint_json = excluded.checkpoint_json,
-          pages_processed = 0,
-          batches_processed = 0,
-          items_processed = 0,
-          matched_items = 0,
-          total_hits = 0,
-          stored_hits = 0,
-          error = NULL,
-          next_resume_at = NULL,
-          updated_at = excluded.updated_at
-        WHERE provider_corpus_jobs.app_id = excluded.app_id
-          AND provider_corpus_jobs.owner_email = excluded.owner_email
       `,
     args: [
       options.id,

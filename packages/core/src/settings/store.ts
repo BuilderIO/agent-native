@@ -1,6 +1,6 @@
 import type { EventEmitter } from "node:events";
 
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -67,13 +67,12 @@ export function getSettingsEmitter(): EventEmitter {
 }
 
 function settingsTable(): string {
-  return isPostgres() ? "public.settings" : "settings";
+  return "public.settings";
 }
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const table = settingsTable();
       const createSql = `
         CREATE TABLE IF NOT EXISTS ${table} (
@@ -83,48 +82,12 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
-        // Hot path: the `settings` table and its poll index are virtually
-        // always already present in production. Issuing `CREATE TABLE`/
-        // `CREATE INDEX` still takes a lock that, in a fresh background-worker
-        // process behind a concurrent connection on the shared Neon DB, can
-        // block ~indefinitely (ACCESS EXCLUSIVE for CREATE TABLE; a write-
-        // blocking SHARE lock for CREATE INDEX). `ensureTableExists` /
-        // `ensureIndexExists` probe `information_schema`/`pg_indexes` first
-        // (plain reads, no lock) and run DDL ONLY for what is actually missing,
-        // bounding any DDL with a transaction-scoped `lock_timeout`. They also
-        // re-probe after a swallowed lock-timeout and THROW if the schema is
-        // still missing, so a timed-out DDL never poisons this init memo with
-        // missing schema. `settingsTable()` is `public.settings` on Postgres;
-        // the existence checks use the unqualified table name.
-        await ensureTableExists("settings", createSql);
-        // Older deployments (pre BIGINT-compat) have a 32-bit `updated_at`; on
-        // Postgres the `Date.now()` written on every setSetting overflows int4.
-        // widenIntColumnsToBigInt already probes information_schema and only
-        // ALTERs columns that are still int4 — a no-op on fresh/widened DBs.
-        await widenIntColumnsToBigInt("settings", ["updated_at"]);
-        // Index for the poll watermark query: `SELECT MAX(updated_at)`.
-        await ensureIndexExists(
-          "settings_updated_at_idx",
-          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // No-op on SQLite (INTEGER is already 64-bit).
+      await ensureTableExists("settings", createSql);
       await widenIntColumnsToBigInt("settings", ["updated_at"]);
-      // Index for the poll watermark query: `SELECT MAX(updated_at) FROM settings`.
-      // MAX on an indexed column avoids a full-table scan on every poll cycle.
-      // IF NOT EXISTS makes it idempotent on existing databases.
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-        );
-      } catch {
-        // Index already exists or the dialect rejected a duplicate.
-      }
+      await ensureIndexExists(
+        "settings_updated_at_idx",
+        `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
+      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -169,7 +132,7 @@ const SETTINGS_MUTATION_ATTEMPTS = 25;
 
 /**
  * Atomically derive and persist one setting with an optimistic raw-value CAS.
- * This works across SQLite/libSQL and Postgres and remains safe across
+ * This remains safe across
  * horizontally scaled processes where an in-memory mutex would not.
  * The updater may run more than once after contention and must not perform
  * external side effects.
@@ -200,9 +163,7 @@ export async function mutateSetting(
     const result =
       raw == null
         ? await client.execute({
-            sql: isPostgres()
-              ? `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
-              : `INSERT OR IGNORE INTO ${table} (key, value, updated_at) VALUES (?, ?, ?)`,
+            sql: `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`,
             args: [key, nextRaw, timestamp],
           })
         : await client.execute({
@@ -232,9 +193,7 @@ export async function putSetting(
   const client = getDbExec();
   const table = settingsTable();
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO ${table} (key, value, updated_at) VALUES (?, ?, ?)`,
+    sql: `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
     args: [key, JSON.stringify(value), Date.now()],
   });
   requestSettingsCache()?.set(key, JSON.stringify(value));

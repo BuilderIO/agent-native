@@ -1,6 +1,6 @@
 ---
 title: "关键概念"
-description: "代理本机应用如何在三层架构中运作：Core 框架、可选的 Toolkit 构建块，以及可选的 Templates，加上共享的 actions、SQL 数据库、应用-代理循环，以及可移植性规则。"
+description: "代理本机应用如何在三层架构中运作：Core 框架、可选的 Toolkit 构建块，以及可选的 Templates，加上共享的 actions、PostgreSQL、应用-代理循环，以及PGlite 和 Postgres 的规则。"
 ---
 
 # 关键概念
@@ -166,11 +166,11 @@ Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 | MCP 客户端 + 服务器，双向 | 该应用摄取 MCP 服务器（本地、远程、hub 共享的），*同时*也将自己的 actions 暴露为一个 MCP 服务器。参见 [MCP Clients](/docs/mcp-clients) 和 [MCP Protocol](/docs/mcp-protocol)。                                                                                                                                                             |
 | 跨应用委托                | 不同应用中的代理通过 [A2A](/docs/a2a-protocol) 通信。同源部署跳过 JWT；跨域部署使用共享的 `A2A_SECRET`。                                                                                                                                                                                                                                   |
 | 子代理团队                | 生成一个拥有自己线程和工具的子代理，以聊天内联芯片的形式呈现。参见 [Agent Teams](/docs/agent-teams)。                                                                                                                                                                                                                                      |
-| 可移植性                  | 任何 Drizzle 支持的 SQL 数据库，任何 Nitro 兼容的主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。                                                                                                                                                                                                                               |
+| 可移植性 | 使用本地 PGlite 和托管 Postgres 的 PostgreSQL，以及任何 Nitro 兼容主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。 |
 
 ## SQL 中的数据 {#data-in-sql}
 
-所有应用状态都通过 Drizzle ORM 存在于一个 SQL 数据库中。Schema 与提供商无关；支持的数据库、`DATABASE_URL` 配置和可移植性规则见 [Database](/docs/server-database)。
+所有应用状态都通过 Drizzle ORM 存储在 PostgreSQL 中。Schema 使用 PostgreSQL 和 PGlite 助手；`DATABASE_URL` 配置和运行规则见 [Database](/docs/server-database)。
 
 Core 的 SQL 存储会自动创建，并在每个模板中可用：
 
@@ -461,11 +461,11 @@ UI 会在路由变化时写入这条数据；代理在采取任何行动之前�
 
 框架不会赋予嵌入式代理对应用源代码的环境访问权限。在一个已部署的应用中，代理通常通过 actions、SQL 支撑的状态和已配置的集成来工作。当它的框架被有意授予工作区和写入工具时，它可以编辑组件、路由、样式和 actions。无论哪种情况，Templates 都是完整的应用，你可以在自己的代码仓库和开发流程中 fork 并定制它们。如果需要在不修改源代码的情况下进行运行时定制，请使用 [Extensions](/docs/extensions)。
 
-## 默认可移植 {#hosting-agnostic}
+## 默认使用 PostgreSQL {#hosting-agnostic}
 
-两条架构规则让应用可以跨数据库和主机移植：
+两条架构规则让应用在 PGlite、托管 Postgres 和各种主机上保持一致：
 
-- **数据库无关。** 使用 `@agent-native/core/db/schema` 编写 schema，并使用 Drizzle 的可移植查询 DSL 进行读写，这样相同的代码可以在任何受支持的提供商上运行。仅将原始 SQL 用于增量迁移或一次性维护，且要保持参数化并与具体方言无关。参见 [Database](/docs/server-database)。
+- **PostgreSQL。** 使用 `@agent-native/core/db/schema` 编写 schema，并使用 Drizzle 进行读写。原始 PostgreSQL SQL 仅用于增量迁移或一次性维护，并保持与 PGlite 兼容。参见 [Database](/docs/server-database)。
 - **主机无关。** 服务器运行在 Nitro 之上，可以编译到任意部署目标。切勿在服务器路由或插件中使用 Node 特有的 API（`fs`、`child_process`、`path`），也不要假设存在一个持久化的服务器进程。无服务器和边缘环境都是无状态的，因此要把所有状态保存在 SQL 中。参见 [Deployment](/docs/deployment)。
 
 ## 代理资源 {#workspace}

@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { getDialect } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -71,20 +70,9 @@ function hasSourceFieldValue(
 
 function sourceFieldValueJsonProjection(sourceFieldKey: string) {
   const sourceValuesJson = schema.contentDatabaseSourceRows.sourceValuesJson;
-  if (getDialect() === "postgres") {
-    return sql<
-      string | null
-    >`(${sourceValuesJson}::jsonb -> ${sourceFieldKey})::text`;
-  }
-
-  const path = `$."${sourceFieldKey}"`;
-  const type = sql<string | null>`json_type(${sourceValuesJson}, ${path})`;
-  return sql<string | null>`CASE
-    WHEN ${type} IS NULL THEN NULL
-    WHEN ${type} = 'true' THEN 'true'
-    WHEN ${type} = 'false' THEN 'false'
-    ELSE json_quote(json_extract(${sourceValuesJson}, ${path}))
-  END`;
+  return sql<
+    string | null
+  >`(${sourceValuesJson}::jsonb -> ${sourceFieldKey})::text`;
 }
 
 function compactSourceValuesJson(

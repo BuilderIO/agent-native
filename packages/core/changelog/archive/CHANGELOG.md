@@ -955,7 +955,7 @@
   `x-cloak` overlay painted over the whole extension until the deferred Alpine
   CDN script resolved, and permanently when it failed to.
 - 89f194f: Keep feedback and other sibling overlays open when launched from the Agent panel overflow menu.
-- 89f194f: Repair and validate native SQLite bindings against the Node runtime used by development, builds, and production starts.
+- 89f194f: Repair and validate native database bindings against the Node runtime used by development, builds, and production starts.
 - 89f194f: Convert bare Slack user IDs in outbound agent responses into native mentions.
 - 89f194f: Add folder-backed agent packs with safe Claude/Cowork-style import, agent-owned
   references and skills, and a shared Factory Agents surface for managing simple
@@ -1053,7 +1053,7 @@ runId}`, identity is required to advance one, and a cursor outlives its run
   Extension content is a body snippet, so it cannot define the rule itself: an
   `x-cloak` overlay painted over the whole extension until the deferred Alpine
   CDN script resolved, and permanently when it failed to.
-- 2db503b: Repair and validate native SQLite bindings against the Node runtime used by development, builds, and production starts.
+- 2db503b: Repair and validate native database bindings against the Node runtime used by development, builds, and production starts.
 - 2db503b: Add an optional `submitContext` to the guided-questions payload, appended to the
   context of whichever message the card sends. A question card's answer opens a
   continuation turn that inherits nothing from the turn that posed it, so context
@@ -1289,7 +1289,7 @@ runId}`, identity is required to advance one, and a cursor outlives its run
 
 ### Patch Changes
 
-- 44ac2c4: Support Cloudflare D1 when initializing Better Auth.
+- 44ac2c4: Support hosted database initialization in Better Auth.
 - 44ac2c4: Prevent chat turns from getting stuck after active-run conflicts or delayed progress persistence, and keep completion controls synchronized with terminal state.
 - 44ac2c4: Require an explicit Slack mention for each channel agent turn so ordinary thread replies do not retrigger work.
 
@@ -1459,7 +1459,7 @@ runId}`, identity is required to advance one, and a cursor outlives its run
   Chromium/Playwright copy now runs only when the app itself depends on the
   browser runtime, instead of resolving a sibling workspace package's Chromium
   through the pnpm store. Serverless function dirs also drop prebuilds that cannot
-  execute on Linux x64/arm64 and any local `data/` SQLite database before the
+  execute on Linux x64/arm64 and any local `data/` database before the
   extra Netlify functions are cloned, and the Netlify deploy guard now reports
   per-function sizes and fails when one exceeds its budget.
 
@@ -2768,7 +2768,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
   refresh scanned the whole settings table every minute to diff a signature that
   had not moved since boot, and the Google Docs poller re-read its config every 30
   seconds even on deployments where the integration was never enabled. On local
-  SQLite that was free; on a remote or metered database each one is a network round
+  local database that was free; on a remote or metered database each one is a network round
   trip, forever, per app.
 
   Each of those now leads with a cheap existence probe or an in-process change
@@ -3010,7 +3010,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 
 - 279e855: Let a browser explicitly sign out of the shared `AUTH_DISABLED` development account so preview users can choose a real account.
 - 279e855: Add comment author editing to the Clips template corpus.
-- 279e855: Retry transient SQLite locks while a fresh local app enables WAL during startup.
+- 279e855: Retry transient database locks while a fresh local app initializes during startup.
 - 279e855: Prevent frontend action calls from failing with 405 errors when a mutating action declares PUT or DELETE and the caller uses the default mutation transport.
 - 279e855: Prevent sketch wireframes from overflowing the browser call stack when layout measurements contain non-finite coordinates.
 - 279e855: Fix the chat client telling users "the agent connection kept failing" when a
@@ -3256,7 +3256,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
   503 instead.
 
   **155MB function bundles.** Serverless builds copied every platform variant of
-  `@libsql` and `@resvg` into the output — darwin, win32, android and 32-bit arm
+  legacy database addons and `@resvg` into the output — darwin, win32, android and 32-bit arm
   binaries a Lambda can never execute, ~66MB of dead weight, paid again for each
   additional emitted function. Cold start scales with bundle size, and a page that
   opens several requests at once scales out to that many cold containers, which is
@@ -4189,7 +4189,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
   - Hosted SSE reconnect now sends the client's cursor (`&since=`) on the gateway stream URL, so the gateway's connect-time catch-up replays events written during the reconnect gap immediately instead of deferring them to the next poll. First connect (cursor 0) is unaffected. Because a `since=` only takes effect when a new `EventSource` is constructed (the browser's own auto-reconnect reuses the URL frozen at construction), the hosted transport now owns reconnects: on a stream error it closes the stream and schedules its own reconnect so the next connect rebuilds the URL from the current cursor, keeping the token on transient errors and reminting on a closed stream. A late error from a replaced (stale) stream is ignored so it cannot tear down the current one. Local mode keeps native EventSource reconnect.
   - New gateway access-check tokens (`signGatewayAccessToken`/`verifyGatewayAccessToken`, exported from `./server/short-lived-token`): per-project HMAC key, a `typ` discriminator (not interchangeable with subscribe or media tokens), and the full access query (`resourceType`/`resourceId`/`userEmail`/`orgId`) bound into the signature so the app authenticates the params, not just the caller. `verifyGatewayAccessToken` also accepts an optional expected `projectId` to bind the channel (mirroring `verifyRealtimeSubscribeToken`); the `can-see` endpoint passes its own project id when known.
   - New endpoint `GET /_agent-native/can-see` mounted by core-routes. The hosted Realtime Gateway has no copy of an app's shareable-resource registry, so it calls this to resolve sharee visibility: the endpoint verifies a gateway access-check token against the app's per-project secret, runs the app's registry-based `resolveAccess`, and returns `{ allowed }`. Fails closed (`allowed: false`) on an unknown resource type or lookup error; 404 when the app has no realtime secret; `Cache-Control: private, no-store`.
-  - New `AppSyncStateOptions.dbAssignedVersions` (default off): allocate durable-event versions from the app's Postgres DB — a one-row allocator advanced with `GREATEST(v + 1, epoch_ms_now)` inside the same autocommit insert statement — instead of the per-writer in-memory clock counter. Hosted realtime has multiple writers per app DB (the app's serverless instances plus gateway instances), where clock skew can assign a LOWER version to a LATER event and a client whose cursor passed the higher value filters the later event out permanently; DB allocation serializes on the allocator row's lock so version order equals commit order across all writers. Buffer/emit defer until the allocated version returns (no provisional version ever reaches clients); a deterministic-id dedupe loser adopts the winner's version via `ON CONFLICT DO UPDATE ... RETURNING`; on DB failure the writer falls back to clock allocation (logged) so the in-process fast path never stalls. Versions stay epoch-ms scale, so existing cursors, seeds, and lag metrics are unaffected. The default instance enables this automatically when `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` with a gateway URL; self-hosted apps are byte-identical. Postgres only; ignored on SQLite.
+  - New `AppSyncStateOptions.dbAssignedVersions` (default off): allocate durable-event versions from the app's Postgres DB — a one-row allocator advanced with `GREATEST(v + 1, epoch_ms_now)` inside the same autocommit insert statement — instead of the per-writer in-memory clock counter. Hosted realtime has multiple writers per app DB (the app's serverless instances plus gateway instances), where clock skew can assign a LOWER version to a LATER event and a client whose cursor passed the higher value filters the later event out permanently; DB allocation serializes on the allocator row's lock so version order equals commit order across all writers. Buffer/emit defer until the allocated version returns (no provisional version ever reaches clients); a deterministic-id dedupe loser adopts the winner's version via `ON CONFLICT DO UPDATE ... RETURNING`; on DB failure the writer falls back to clock allocation (logged) so the in-process fast path never stalls. Versions stay epoch-ms scale, so existing cursors, seeds, and lag metrics are unaffected. The default instance enables this automatically when `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` with a gateway URL; self-hosted apps are byte-identical. Postgres only.
 
 ### Patch Changes
 
@@ -4391,7 +4391,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 
 - d73eda3: Realtime sync: framework prerequisites for the hosted Realtime Sync Gateway. All new behavior is opt-in — apps without hosted-realtime config are unchanged.
   - Refactor `poll.ts` into an `AppSyncState` class holding all previously module-global change-tracking state (version counter, ring buffer, poll emitter, watermarks, and the access cache). Module-level exports (`recordChange`, `getVersion`, `getPollEmitter`, `getChangesSinceForUser`, `canSeeChangeForUser`, `createPollHandler`, `invalidateCollabAccessCache`) delegate to a lazily-created default instance bound to the process DB, so self-hosted apps are unchanged. `createPollHandler` and `createPollEventsHandler` accept an optional injected `AppSyncState`.
-  - `AppSyncState` accepts an injected DB accessor, Postgres check, and access resolver, and exposes `getCombinedChangesSinceForUser`/`checkExternalDbChanges`/`persistSyncEvent` for reuse. `ddl-guard` helpers accept a `dialectIsPostgres` override so injected per-app clients get the guarded Postgres DDL path regardless of the process-global DB.
+  - `AppSyncState` accepts an injected DB accessor and access resolver, and exposes `getCombinedChangesSinceForUser`/`checkExternalDbChanges`/`persistSyncEvent` for reuse. `ddl-guard` helpers keep the guarded Postgres DDL path for injected per-app clients.
   - The per-user access cache key now includes the active `orgId`, so a decision cached in one org is never reused under another org's session.
   - Add `readMinSyncEventVersion()` (oldest retained durable version) for stale-cursor detection, and an opt-in `deterministicEventIds` mode so multiple processes detecting the same out-of-band write collapse to one durable row. Both off/unused by default.
   - New public export subpaths: `./server/poll`, `./server/sse`, `./server/short-lived-token`.
@@ -5521,7 +5521,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 - d967304: Keep local development auto-login credentials out of terminal output while preserving zero-setup sign-in.
 - d967304: Keep authenticated local Design preview sessions shared across URL-backed screens and proxy same-origin app mutations safely.
 - d967304: Preserve canonical Slack and Telegram request context across A2A delegation, resolve structured intake and domain workflows through workspace instructions and app capabilities, and return verified destination links for saved Content records, Analytics monitors, and published Forms.
-- d967304: Redact provider request audit targets and harden managed integration persistence against concurrent callbacks and SQLite migration failures.
+- d967304: Redact provider request audit targets and harden managed integration persistence against concurrent callbacks and database migration failures.
 - d967304: Harden integration tenant isolation, service-principal identity, shared job routing, audit visibility, and usage-budget settlement.
 - d967304: Add a shared integration catalog with accurate built-in messaging metadata and reusable client helpers for integration setup routes.
 - d967304: Surface real remote liveness during cross-app agent calls (call-agent): while the A2A poll waits on another app, each successful poll that reports the remote still working now keeps progress moving, so a slow-but-healthy sub-agent no longer triggers a false "no progress" stuck warning whose Retry button aborts the healthy call and re-runs it from scratch. A hung or unresponsive remote still emits nothing, so the stuck warning correctly appears.
@@ -5577,7 +5577,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 - 02ff384: Add a budget-coordinated keepalive action helper for reliable unload-time writes.
 - 02ff384: Replace the managed and BYOK GPT model catalogs with GPT-5.6 Sol, Terra, and Luna.
 - 02ff384: Preserve prior continuation tool results when final-response guards validate a multi-chunk agent turn, recover failed durable handoffs through the client continuation path, and retain completed-side-effect metadata for journal-recovered writes. Successful data queries and dashboard mutations are no longer reported as missing after a background boundary.
-- 02ff384: Keep Cloudflare D1 runtime detection type-safe when core database helpers are compiled inside template applications.
+- 02ff384: Keep hosted database runtime detection type-safe when core database helpers are compiled inside template applications.
 - 02ff384: Fix a bug where a durable-background agent run could be killed by a single transient network blip during its soft-timeout chunk handoff. A worker proven to be running inside a real background function now gets a retry budget sized for its remaining wall-clock time (5 attempts / 15s timeout) instead of being silently demoted to the smaller foreground budget just because it was forced onto the same-process dispatch target.
 
 ## 0.92.7
@@ -5807,7 +5807,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 - d61ca0c: The collaborative reconcile applies external content on a timer task instead of a microtask, so `setContent` can no longer run inside a React lifecycle flush ("flushSync was called from inside a lifecycle method" console errors during collab reconciliation).
 - 66ffcd9: Treat client-aborted framework route requests as disconnects instead of logging and returning 500 errors.
 - a74a885: `useDbSync` batches consisting entirely of suppressed action events (via `suppressActionInvalidationFor`) now skip the fixed framework invalidation list (extension, slot, tool, and app-state keys) as well as the whole-action-cache invalidation — high-volume background mutations no longer refetch framework queries on every poll tick. Events are still forwarded to `onEvent` and per-source change versions still bump.
-- d44ad4e: Concurrent top-level async transactions on the better-sqlite3 driver are serialized per connection. Previously a transaction starting while another was open saw `inTransaction` and opened a savepoint inside the other task's transaction, which then committed out from under it ("no such savepoint" 500s under concurrent reads/writes). Same-task nesting is detected via AsyncLocalStorage and keeps the direct savepoint path.
+- d44ad4e: Concurrent top-level async transactions on the local database driver are serialized per connection. Previously a transaction starting while another was open saw `inTransaction` and opened a savepoint inside the other task's transaction, which then committed out from under it ("no such savepoint" 500s under concurrent reads/writes). Same-task nesting is detected via AsyncLocalStorage and keeps the direct savepoint path.
 
 ## 0.90.1
 
@@ -5838,7 +5838,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 
 ### Minor Changes
 
-- 9d8c83c: Add durable background executions to the sandboxed `run-code` tool so long compute survives the hosted serverless run ceiling: pass `background: true` (or set `AGENT_NATIVE_SANDBOX=background`) and the code is enqueued to a new additive, Postgres/SQLite-portable `sandbox_executions` table and executed out-of-band with a generous budget — self-dispatched to the new HMAC-verified `/_agent-native/sandbox/_process-execution` route on serverless, in-process on long-lived Node — with atomic single-claimer leasing, heartbeats, lease-expiry retries, owner-scoped status polling via `run-code {executionId}` (plus an exported `createGetCodeExecutionEntry` tool factory), opportunistic poll-time re-drives, and a warm-instance sweep so lost dispatches and dead executors are recovered instead of hanging; foreground `run-code` behavior is unchanged and the executor reuses the existing local sandbox adapter, bridge, and env-scrub machinery.
+- 9d8c83c: Add durable background executions to the sandboxed `run-code` tool so long compute survives the hosted serverless run ceiling: pass `background: true` (or set `AGENT_NATIVE_SANDBOX=background`) and the code is enqueued to a new additive Postgres `sandbox_executions` table and executed out-of-band with a generous budget — self-dispatched to the new HMAC-verified `/_agent-native/sandbox/_process-execution` route on serverless, in-process on long-lived Node — with atomic single-claimer leasing, heartbeats, lease-expiry retries, owner-scoped status polling via `run-code {executionId}` (plus an exported `createGetCodeExecutionEntry` tool factory), opportunistic poll-time re-drives, and a warm-instance sweep so lost dispatches and dead executors are recovered instead of hanging; foreground `run-code` behavior is unchanged and the executor reuses the existing local sandbox adapter, bridge, and env-scrub machinery.
 - 9d8c83c: Make long foreground agent-chat turns survivable without a durable-background deploy: add an opt-in, default-OFF `AGENT_CHAT_FOREGROUND_SELF_CHAIN` flag (same hosted + `A2A_SECRET` gating as durable background) that lets a foreground turn hitting its soft-timeout chunk boundary continue via a server-side self-dispatch to the `_process-run` route on the regular function — with the successor run row pre-inserted before the dispatch so `/runs/active` never shows an idle gap, the dispatch fully awaited with retry and the successor's atomic claim treated as acknowledgment, loud diag-stage + terminal-reason marking on failure that falls back to the existing client `auto_continue` path, ids-only dispatch payloads, and coverage by the existing unclaimed-background-run sweep; the thread-slot atomic claim makes a racing client continuation reconnect to the successor instead of double-running. Also show a subtle "Keep this tab open" notice (new `KeepTabOpenNotice` component mounted beside the run-stuck banner) while a long foreground turn is depending on the client for its next continuation chunk, and register the `get-code-execution` background-execution poll tool alongside `run-code` in every registry that gets it.
 - 9d8c83c: Let the embedded agent see images in tool results. Actions can attach screenshots or previews by returning a well-known optional `_agentImages` field (`{ url | data, mediaType, label }[]`, stripped from the JSON the model reads), and images returned by external MCP tools are converted instead of being collapsed to `[image: <mime>]` placeholders. Attached images ride the tool result as real vision blocks on the native Anthropic API and vision-capable AI-SDK providers (anthropic, openai, google, openrouter), and degrade to compact text notes everywhere else (Builder gateway, non-vision providers). Caps apply per result (max 4 images, ~2MB base64 each; oversize entries become explanatory notes), and the run ledger only ever stores the string result plus `[image: …]` notes — never base64 payloads. Also thread the model id into the direct-Anthropic max-output-token ceiling so 128K-capable models are no longer clamped to 64K on BYO-key deployments.
 
@@ -5866,7 +5866,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 - 9d8c83c: Reduce full-page reload churn while an agent (e.g. Builder Fusion) is editing app source in dev: coalesce the AGENTS.md / SKILL.md watcher's dev-server full-reload into a single reload per write burst (module invalidation still happens per event), and add a 2s cooldown to the host-bridge `hardReload` / `hard-reload` postMessage commands so an embedding host cannot keep the page permanently mid-reload.
 - 9d8c83c: Keep the shared Extensions create popover above raised app surfaces and within the viewport.
 - 9d8c83c: Prevent reconnect replay from showing duplicate agent tool-call rows while a run is still streaming.
-- 9d8c83c: Fix Vite dev i18n context sharing, self-hosted SQLite native SSR externalization, and rich editor collab seeding after initial Yjs sync.
+- 9d8c83c: Fix Vite dev i18n context sharing, self-hosted native SSR externalization, and rich editor collab seeding after initial Yjs sync.
 - 9d8c83c: Sync the headless scaffold's `agent-native-docs` skill with the canonical copy (restores the packaged source-corpus guidance and `source-search` usage it had missed), and extend the workspace-skills sync guard to cover `packages/core/src/templates/headless/.agents/skills` so it can no longer drift silently.
 - 9d8c83c: Keep shared app-shell header normalization scoped to tablet and desktop, and use dynamic viewport height for mobile shells so mobile top bars and content areas stay compact and stable.
 - 9d8c83c: `isOAuthConnected` no longer reports an account as connected when its stored token bundle parses to an empty object — the signature of an `oauth_tokens` row that failed to decrypt after a `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` rotation. Previously such rows kept the provider looking "connected" while every API call failed with an undefined bearer token, hiding the reconnect banner. Unusable rows are deliberately not deleted, since a decrypt failure can also mean the current process holds the wrong key (e.g. a dev server sharing a prod database) while the row is still decryptable by a correctly configured deployment.
@@ -5938,8 +5938,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
     now carry labels (`{ selector, label }`), and agent selection tags no longer
     render as "AI — AI".
   - Presence now survives multi-instance/serverless deployments: awareness
-    state is mirrored to a new `_collab_awareness` table (SQLite/Postgres
-    portable, additive, best-effort with throttled writes), so cursors and the
+    state is mirrored to a new additive Postgres `_collab_awareness` table, so cursors and the
     agent's presence written in one invocation are visible to clients polling
     any other instance.
   - Surgical reconcile: `useCollabReconcile` now applies authoritative external
@@ -5993,9 +5992,8 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
     instead of a `LIKE '%hash%'` scan over every thread's full message blob.
   - Queued-message saves no longer pre-read the full thread blob a second time
     on every debounced composer write.
-  - The Drizzle non-Neon Postgres path gets the same per-op timeout +
-    connection-error retry protection as every other Postgres path, and the
-    Drizzle SQLite path now sets `busy_timeout` like the raw exec path.
+  - The Drizzle Postgres path gets per-op timeout and connection-error retry
+    protection.
   - `agent_checkpoints` gains indexes on `(thread_id, created_at)` and `run_id`.
   - Schema-prompt introspection coalesces concurrent cache-miss rebuilds;
     recurring-job runs no longer leak a live 5-minute backstop timer; a failed
@@ -6481,7 +6479,7 @@ currentVersionHash }` instead of overwriting concurrent changes, and
   durable-background self-chaining path and interrupting once inline. The reapers
   now use the most recent of `heartbeat_at` and `last_progress_at` (falling back to
   `started_at`) as their liveness basis, so a demonstrably-progressing run is never
-  reaped mid-tool. Portable across SQLite and Postgres; can only make reaping more
+  reaped mid-tool. Postgres-only; can only make reaping more
   conservative (a dead producer emits neither signal).
 - 9032acb: Add a `trigger="label-icon"` option to `ShareButton` that renders a leading
   share glyph alongside the "Share" label, so the trigger matches adjacent
@@ -6500,7 +6498,7 @@ currentVersionHash }` instead of overwriting concurrent changes, and
 
 ### Patch Changes
 
-- a2ce30e: Improve local SQLite collab write robustness for Design editor workflows.
+- a2ce30e: Improve local Postgres collab write robustness for Design editor workflows.
 
 ## 0.84.10
 
@@ -7289,7 +7287,7 @@ currentVersionHash }` instead of overwriting concurrent changes, and
   background-function (durable agent-chat) workers hanging indefinitely on the
   first-touch DDL lock of any table on shared Neon. Shared helpers live in
   `db/ddl-guard.ts` (`ensureSchemaObject`/`ensureTableExists`/`ensureColumnExists`/
-  `ensureIndexExists`). SQLite (local dev) behavior is unchanged. CREATE SQL that
+  `ensureIndexExists`). Postgres behavior is unchanged. CREATE SQL that
   references `intType()` is built at runtime, not module scope.
 
 ## 0.77.8
@@ -7305,7 +7303,7 @@ currentVersionHash }` instead of overwriting concurrent changes, and
   connection). This fixes background-function workers hanging indefinitely on
   first-touch schema DDL behind a concurrent connection on shared Neon — observed as
   durable agent-chat workers stalling right after auth and never claiming the run.
-  SQLite (local dev) behavior is unchanged. Adds a shared `db/ddl-guard.ts` helper
+  Postgres behavior is unchanged. Adds a shared `db/ddl-guard.ts` helper
   (`pgTableExists`/`pgColumnExists`/`pgIndexExists`/`runGuardedDdl`). Also adds
   diagnostic-only worker setup sub-stage breadcrumbs to localize such stalls.
 
@@ -7944,8 +7942,7 @@ background-processing` UPDATE) before running inline, so the SQL atomic claim
   `widenIntColumnsToBigInt()` shim could never fix it.
 
   The cutoff now wraps the parameter in `CAST(? AS BIGINT)`, pinning it to int8 so
-  the subtraction stays 64-bit. SQLite treats `CAST(x AS BIGINT)` as INTEGER
-  affinity, so it is a no-op there. Fixes `tryClaimRunSlot`, `reapIfStale`,
+  the subtraction stays 64-bit. Fixes `tryClaimRunSlot`, `reapIfStale`,
   `reapAllStaleRuns`, and `cleanupOldRuns`, which all share the cutoff.
 
 ## 0.72.0
@@ -7980,7 +7977,7 @@ EXISTS` can't re-type an existing column, so those databases kept the int4
   columns in place to `BIGINT` once via each store's existing `ensureTable()`
   bootstrap. It is idempotent (only ALTERs columns still typed `integer`, so
   already-bigint tables are never rewritten), non-destructive (int4 → int8
-  widening), and a no-op on SQLite. Applied to the millisecond-timestamp columns
+  widening), and applies only to Postgres. Applied to the millisecond-timestamp columns
   of `agent_runs`, `agent_tool_ledger`, `chat_threads`, `application_state`,
   `token_usage`, `settings`, `oauth_tokens`, `resources`, `sessions`, and
   `custom_api_providers`. (`staged_datasets` already self-heals via its own
@@ -8714,7 +8711,7 @@ scorers, threshold })` and compose scorers with the Mastra-style 4-step
   "observations" → higher-level "reflections") so long-running threads cost far
   fewer tokens and stay prompt-cache stable.
 
-  This ships the store (a new ownable, dialect-agnostic `observational_memory`
+  This ships the store (a new ownable Postgres `observational_memory`
   table + additive migrations), the Observer and Reflector compaction passes
   (provider-agnostic internal agent calls — no hardcoded model), the
   `maybeCompactThread` compactor entry point, and the `buildObservationalContext`
@@ -9438,7 +9435,7 @@ visual-plan` / `visual-recap` likewise install only the named skill, while the
 - 3c1d3eb: Add server-side staging layer for provider-api responses.
   - **Staging primitive (P0)**: `provider-api-request` now accepts `stageAs` to write response items into a scoped scratch dataset (`staged_datasets` + `staged_dataset_rows`) instead of returning the raw body. Returns `{ dataset, rowCount, columns, sampleRows }` — keeping large payloads out of the context window and avoiding the 50 K-char truncation that silently biases aggregates.
   - **Paginated fetch-all (P1)**: Pass `pagination` alongside `stageAs` to fetch all pages server-side (cursor / page / offset modes). Handles 429 / Retry-After with exponential back-off. Caps at `maxPages` (default 50, up to 200) and returns `{ pages, rows, truncated, lastCursor }`.
-  - **New actions**: `query-staged-dataset` (in-process TypeScript aggregation — groupBy, sum/avg/count/min/max, where filters, orderBy/limit), `list-staged-datasets`, `delete-staged-dataset`. Portable across Postgres and SQLite — no dialect-specific JSON SQL.
+  - **New actions**: `query-staged-dataset` (in-process TypeScript aggregation — groupBy, sum/avg/count/min/max, where filters, orderBy/limit), `list-staged-datasets`, `delete-staged-dataset`. Postgres-compatible without dialect-specific JSON SQL.
   - **Storage caps**: 200 K rows / 50 MB per app. Dataset ownership is scoped to `(app_id, owner_email)`.
   - **Analytics template**: adds the three staging actions and updates `cross-source-analysis` + `provider-api` skills to teach the stage-then-aggregate flow.
 
@@ -9474,7 +9471,7 @@ visual-plan` / `visual-recap` likewise install only the named skill, while the
 - 3c1d3eb: Fix agent chat intermittently scrolling to the top when sending a prompt in an ongoing conversation. When the message list briefly shrank on a re-render (content swap, collapsing streaming/reconnect placeholder, message list remount), the browser-forced `scrollTop` clamp was misread as the user scrolling up, detaching auto-follow and stranding the conversation scrolled up — sometimes at the very top. The near-bottom autoscroll handler now ignores downward scroll jumps caused by content shrinking, so it stays anchored to the bottom; genuine user scroll-ups still detach.
 - 3c1d3eb: Reject SVG and non-raster MIME types on avatar write to prevent stored-XSS via data:image/svg+xml payloads.
 - 3c1d3eb: Consolidate 7 private copies of normalizeAppBasePath/getAppBasePath onto the canonical exported module in `server/app-base-path.ts`. Adds `getAppBasePathFromViteEnv` for SSR builds that need `import.meta.env` fallback, and `stripAppBasePath` as a shared helper. Template-literal copies inside the generated Cloudflare worker entry in `deploy/build.ts` are intentionally left in place as they cannot import at runtime.
-- 3c1d3eb: Fix db.transaction(async …) throwing on the default local-SQLite (better-sqlite3) database by replacing the sync-only native wrapper with a manual BEGIN IMMEDIATE / COMMIT / ROLLBACK path; nested async calls use SAVEPOINTs.
+- 3c1d3eb: Fix db.transaction(async …) throwing on the default local database by replacing the sync-only native wrapper with a manual transaction path; nested async calls use SAVEPOINTs.
 - 3c1d3eb: Prune orphaned \*.spec.js / \*.spec.d.ts files from dist in finalize-build.mjs; add incremental tsc across all tsc-built packages to speed up repeated builds.
 - 3c1d3eb: Raise coding agent maxIterations from 12 to the shared DEFAULT_AGENT_MAX_ITERATIONS (100) and inject AGENTS.md/CLAUDE.md + .agents/skills index into the system prompt so the coding agent respects repo instructions and knows what skills are available.
 - 3c1d3eb: code-agent-executor: structured multi-turn history and bash improvements
@@ -9915,7 +9912,7 @@ visual-plan` / `visual-recap` likewise install only the named skill, while the
     `(owner_email, updated_at)` and `(scope_type, scope_id, updated_at)` indexes on
     `chat_threads` so the list is an indexed lookup instead of a full table scan +
     sort. The thread detail/get path still returns the full `thread_data`, and the
-    compare-and-swap write path is unchanged. Indexes are dialect-agnostic.
+    compare-and-swap write path is unchanged. Indexes target Postgres.
   - **Change-detection poll** (`server/poll.ts`): the independent reads in
     `doCheckExternalDbChanges()` now run concurrently via `Promise.all` instead of
     sequential awaits, cutting per-poll round-trips on the common path from ~6 to
@@ -10350,9 +10347,9 @@ bearer or basic authentication in header` and the PR comment reported
     hex chars (no directory traversal); unknown tokens 404. The interactive plan
     stays login-gated.
 
-  Storage is a new additive, dialect-agnostic `recap_images` table created via
-  `CREATE TABLE IF NOT EXISTS` (PNG kept as base64 TEXT for portability across
-  SQLite / Neon-Postgres / libSQL / D1). Stored images are pruned on write past a
+  Storage is a new additive Postgres `recap_images` table created via
+    `CREATE TABLE IF NOT EXISTS` (PNG kept as base64 TEXT in Postgres). Stored
+  images are pruned on write past a
   30-day TTL so the table and the set of anonymously-fetchable image URLs stay
   bounded.
 
@@ -11254,7 +11251,7 @@ canToggle, isLoading, setCodeMode }`.
 - c3852e0: Security hardening for the agent's raw-SQL tools, cross-tenant run isolation,
   server-side SSRF, and CSRF:
   - **db-query / db-exec scope bypass (cross-tenant read/write):** schema-qualified
-    table references (`public.<table>` on Postgres, `main.<table>` on SQLite) now
+    schema-qualified table references (`public.<table>` on Postgres) now
     fail with a clear error, since a qualified name bypasses the per-user/per-org
     temporary views that isolate each tenant's rows. The same guard protects the
     extension SQL surface, which routes through the same tools.
@@ -12757,8 +12754,8 @@ workspace:*`, but the templates-meta entries were missing
 - 08d4113: Improve assistant chat embed previews and sub-agent task card labels.
 - 08d4113: Clear stale chat activity when corrective agent retries discard partial output.
 - 08d4113: Add Preview header bar to IframeEmbed showing the embed's title above the iframe.
-- c195ddd: Include installed libsql native packages in Node serverless bundles so hosted apps do not fail loading local SQLite/libsql fallbacks.
-- 08d4113: Use better-sqlite3 for local SQLite file URLs and `@libsql/client/web` for remote libsql/Turso URLs so serverless bundles no longer depend on libsql's platform-specific native packages. The deploy bundler still copies any installed `@libsql/<platform>` natives into Netlify/Vercel/Lambda outputs as a safety net.
+- c195ddd: Include installed database packages in Node serverless bundles so hosted apps do not fail loading local database fallbacks.
+- 08d4113: Use the local database driver for local URLs and the hosted database client for remote URLs so serverless bundles no longer depend on platform-specific native packages. The deploy bundler still copies required native packages into Netlify/Vercel/Lambda outputs as a safety net.
 - 08d4113: Bundle agent chat feedback controls with the main client entry so missing lazy chunks cannot crash the agent panel.
 - 08d4113: Show visible assistant error text for chat authentication failures instead of blank messages.
 

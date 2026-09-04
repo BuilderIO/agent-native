@@ -176,8 +176,8 @@ const enUS = {
           body: "Define work once and use it from the UI, agent, HTTP, MCP, A2A, and CLI.",
         },
         sqlStateOrm: {
-          title: "SQL state and ORM",
-          body: "Durable app data, application state, migrations, and provider-agnostic schemas.",
+          title: "PostgreSQL state and ORM",
+          body: "Durable app data, application state, migrations, and PostgreSQL/PGlite schemas.",
         },
         dbAdmin: {
           title: "DB admin",
@@ -230,7 +230,7 @@ const enUS = {
       body1:
         "Agent-Native is an open-source framework for building agentic applications: start with chat, define shared actions, then add UI, jobs, and collaboration around the same state.",
       body2:
-        "Bring your own database, hosting provider, model stack, and app code.",
+        "Use local PGlite or hosted PostgreSQL, your hosting provider, model stack, and app code.",
       cta: "Read the framework guide",
       primitives: {
         actions: {
@@ -241,17 +241,17 @@ const enUS = {
         sharedState: {
           title: "Shared state",
           description:
-            "SQL-backed app state keeps humans, agents, and sessions in sync.",
+            "PostgreSQL/PGlite-backed app state keeps humans, agents, and sessions in sync.",
         },
         agentRuntime: {
           title: "Agent runtime",
           description:
             "The app-agent loop, tools, skills, memory, jobs, and observability ship together.",
         },
-        backendAgnostic: {
-          title: "Backend agnostic",
+        postgresSpecific: {
+          title: "PostgreSQL-specific",
           description:
-            "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
+            "Use the framework’s PostgreSQL schema helpers with local PGlite or hosted Postgres on any Nitro-compatible host.",
         },
       },
     },
@@ -330,7 +330,7 @@ const enUS = {
     },
     quickStart: {
       title: "Start with a Command",
-      body: "One command creates a chat-first local app backed by actions, durable threads, and SQLite. Use `--headless` only for automation-first workflows with no browser UI yet.",
+      body: "One command creates a chat-first local app backed by actions, durable threads, and PGlite. Use `--headless` only for automation-first workflows with no browser UI yet.",
     },
     finalCta: {
       title: "Software built for the agentic era",
@@ -468,7 +468,7 @@ const enUS = {
           body: "The agent knows what users are viewing, selecting, and editing.",
         },
         sharedSql: {
-          title: "Shared SQL data",
+          title: "Shared PostgreSQL data",
           body: "Users and agents read and update the same source of truth.",
         },
         skillsMemory: {
@@ -2095,8 +2095,6 @@ const enUS = {
     databaseProviders: "Database providers",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalization",
     localFileMode: "Local File Mode",

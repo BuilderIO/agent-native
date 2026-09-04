@@ -75,8 +75,8 @@ The result is validated before it's persisted. `assertValidFields` rejects inval
 
 | Action       | What it does                                                                                                                                                                                                |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `db-status`  | Check the current database connection (local SQLite file vs. a configured remote `DATABASE_URL`).                                                                                                           |
-| `db-connect` | Explain how to configure `DATABASE_URL` / `DATABASE_AUTH_TOKEN` for a deployment. It does not write the connection itself, since those are deployment-level settings applied through your hosting provider. |
+| `db-status`  | Check the current PostgreSQL connection (`DATABASE_URL`).                                                                                                                                                |
+| `db-connect` | Explain how to configure `DATABASE_URL` for a deployment. It does not write the connection itself, since that is a deployment-level setting applied through your hosting provider.                         |
 
 ### Navigation and UI state
 

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -176,7 +176,6 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS ${TABLE} (
           id TEXT PRIMARY KEY,
@@ -199,7 +198,7 @@ export async function ensureTable(): Promise<void> {
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation ON ${TABLE} (owner, automation, started_at)`;
 
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, createSql);
         await ensureColumnExists(
           TABLE,
@@ -220,35 +219,6 @@ export async function ensureTable(): Promise<void> {
         return;
       }
 
-      await client.execute(createSql);
-      const { rows } = await client.execute(`PRAGMA table_info("${TABLE}")`);
-      const columns = new Set(
-        rows.map((row) => String((row as Record<string, unknown>).name)),
-      );
-      for (const [name, definition] of [
-        ["claimed_at", `${intType()}`],
-        ["dispatch_pending", `${intType()} NOT NULL DEFAULT 0`],
-        ["app_id", "TEXT"],
-        ["error_code", "TEXT"],
-      ] as const) {
-        if (columns.has(name)) continue;
-        try {
-          await client.execute(
-            `ALTER TABLE ${TABLE} ADD COLUMN ${name} ${definition}`,
-          );
-        } catch (error) {
-          const message = String(
-            (error as { message?: unknown } | null)?.message ?? error,
-          );
-          if (
-            !/duplicate column name/i.test(message) &&
-            !/column .* already exists/i.test(message)
-          ) {
-            throw error;
-          }
-        }
-      }
-      await client.execute(indexSql);
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

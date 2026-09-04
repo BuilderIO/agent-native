@@ -1,9 +1,4 @@
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -23,7 +18,6 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS integration_remote_devices (
           id TEXT PRIMARY KEY,
@@ -43,60 +37,39 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("integration_remote_devices", createSql);
-        await ensureColumnExists(
-          "integration_remote_devices",
-          "platform",
-          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS platform TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_remote_devices",
-          "app_version",
-          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS app_version TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_remote_devices",
-          "host_name",
-          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS host_name TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_remote_devices",
-          "metadata_json",
-          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS metadata_json TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_remote_devices",
-          "revoked_at",
-          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at ${intType()}`,
-        );
-        await ensureIndexExists(
-          "idx_remote_devices_token_hash",
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash ON integration_remote_devices(device_token_hash)`,
-        );
-        await ensureIndexExists(
-          "idx_remote_devices_owner",
-          `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior verbatim
-      await retryOnDdlRace(() => client.execute(createSql));
-      await addColumnIfMissing("platform", "TEXT");
-      await addColumnIfMissing("app_version", "TEXT");
-      await addColumnIfMissing("host_name", "TEXT");
-      await addColumnIfMissing("metadata_json", "TEXT");
-      await addColumnIfMissing("revoked_at", intType());
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash ON integration_remote_devices(device_token_hash)`,
-        ),
+      await ensureTableExists("integration_remote_devices", createSql);
+      await ensureColumnExists(
+        "integration_remote_devices",
+        "platform",
+        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS platform TEXT`,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
-        ),
+      await ensureColumnExists(
+        "integration_remote_devices",
+        "app_version",
+        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS app_version TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_remote_devices",
+        "host_name",
+        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS host_name TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_remote_devices",
+        "metadata_json",
+        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS metadata_json TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_remote_devices",
+        "revoked_at",
+        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at ${intType()}`,
+      );
+      await ensureIndexExists(
+        "idx_remote_devices_token_hash",
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash ON integration_remote_devices(device_token_hash)`,
+      );
+      await ensureIndexExists(
+        "idx_remote_devices_owner",
+        `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
       );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
@@ -105,34 +78,6 @@ export async function ensureTable(): Promise<void> {
     });
   }
   return _initPromise;
-}
-
-async function addColumnIfMissing(
-  name: string,
-  definition: string,
-): Promise<void> {
-  const sql = isPostgres()
-    ? `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS ${name} ${definition}`
-    : `ALTER TABLE integration_remote_devices ADD COLUMN ${name} ${definition}`;
-  try {
-    await retryOnDdlRace(() => getDbExec().execute(sql));
-  } catch (err) {
-    if (isDuplicateColumnError(err)) return;
-    throw err;
-  }
-}
-
-function isDuplicateColumnError(err: unknown): boolean {
-  const codeValue = (err as { code?: unknown })?.code;
-  const code = typeof codeValue === "string" ? codeValue : "";
-  const message = String((err as { message?: unknown })?.message ?? err)
-    .toLowerCase()
-    .trim();
-  return (
-    code === "42701" ||
-    message.includes("duplicate column") ||
-    message.includes("already exists")
-  );
 }
 
 function rowToDevice(row: Record<string, unknown>): RemoteDevice {

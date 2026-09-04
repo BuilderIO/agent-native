@@ -85,7 +85,9 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   }
   if (/^INSERT INTO identity_sso_jti/i.test(sql)) {
     if (jtis.has(args[0])) {
-      throw new Error("UNIQUE constraint failed: identity_sso_jti.jti");
+      throw new Error(
+        "duplicate key value violates unique constraint identity_sso_jti_pkey",
+      );
     }
     jtis.add(args[0]);
     return { rows: [], rowsAffected: 1 };
@@ -95,9 +97,8 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
-  intType: () => "INTEGER",
+  intType: () => "BIGINT",
   isConnectionError: () => false,
-  isPostgres: () => false,
   isProductionServerlessFunctionRuntime: () => false,
 }));
 

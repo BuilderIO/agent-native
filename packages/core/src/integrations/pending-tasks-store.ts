@@ -10,7 +10,7 @@
  * then dispatch a fresh HTTP POST to a separate processor endpoint. Each
  * invocation gets its own fresh function timeout budget.
  */
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
@@ -23,7 +23,6 @@ export const MAX_PENDING_TASK_ATTEMPTS = 3;
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `CREATE TABLE IF NOT EXISTS integration_pending_tasks (
   id TEXT PRIMARY KEY,
   platform TEXT NOT NULL,
@@ -43,7 +42,7 @@ async function ensureTable(): Promise<void> {
   completed_at ${intType()}
 )`;
 
-      if (isPostgres()) {
+      {
         // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("integration_pending_tasks", createSql);
         await ensureColumnExists(
@@ -86,24 +85,6 @@ async function ensureTable(): Promise<void> {
         return;
       }
 
-      await client.execute(createSql);
-      await client.execute(
-        `CREATE INDEX IF NOT EXISTS idx_pending_tasks_status_created ON integration_pending_tasks(status, created_at)`,
-      );
-      // Additive migration: add a stable per-event dedup key so duplicate
-      // webhook deliveries from the same platform get rejected at the SQL
-      // layer instead of via an in-memory Map (which doesn't survive
-      // serverless cold starts — H3 in the webhook security audit). The
-      // unique index ensures a duplicate INSERT raises an error we can
-      // catch as "already-enqueued".
-      await ensureExternalEventKey(client);
-      await ensureDispatchColumns(client);
-      await client.execute(
-        `CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope ON integration_pending_tasks(platform, dispatch_scope)`,
-      );
-      await client.execute(
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_tasks_event_key ON integration_pending_tasks(platform, external_event_key)`,
-      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -115,58 +96,6 @@ async function ensureTable(): Promise<void> {
 
 export async function ensurePendingTasksTable(): Promise<void> {
   await ensureTable();
-}
-
-async function ensureExternalEventKey(
-  client: ReturnType<typeof getDbExec>,
-): Promise<void> {
-  if (isPostgres()) {
-    await client.execute(
-      `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS external_event_key TEXT`,
-    );
-    return;
-  }
-  // SQLite doesn't support `ADD COLUMN IF NOT EXISTS` until 3.35; swallow
-  // the duplicate-column error so reruns are idempotent.
-  try {
-    await client.execute(
-      `ALTER TABLE integration_pending_tasks ADD COLUMN external_event_key TEXT`,
-    );
-  } catch (err: any) {
-    if (
-      !String(err?.message ?? err)
-        .toLowerCase()
-        .includes("duplicate")
-    ) {
-      throw err;
-    }
-  }
-}
-
-async function ensureDispatchColumns(
-  client: ReturnType<typeof getDbExec>,
-): Promise<void> {
-  const columns = [
-    `dispatch_attempts ${intType()} NOT NULL DEFAULT 0`,
-    `last_dispatch_at ${intType()}`,
-    "last_dispatch_outcome TEXT",
-    "dispatch_scope TEXT",
-  ];
-  for (const column of columns) {
-    try {
-      await client.execute(
-        `ALTER TABLE integration_pending_tasks ADD COLUMN ${column}`,
-      );
-    } catch (err: any) {
-      if (
-        !String(err?.message ?? err)
-          .toLowerCase()
-          .includes("duplicate")
-      ) {
-        throw err;
-      }
-    }
-  }
 }
 
 /** Status values for an integration pending task. */
@@ -267,8 +196,7 @@ export async function insertPendingTask(input: {
  * Returns whether a duplicate-event error from `insertPendingTask` looks
  * like a unique-constraint violation on `(platform, external_event_key)`.
  *
- * Postgres surfaces these as `error.code === "23505"`, while SQLite uses
- * a substring match on the error text. Used by the webhook handler to
+ * Postgres surfaces these as `error.code === "23505"`. Used by the webhook handler to
  * distinguish "already enqueued" (silently OK) from genuine insert failures.
  */
 export function isDuplicateEventError(err: unknown): boolean {
@@ -401,8 +329,7 @@ export async function claimPendingTask(
   // Conditional update: only flip if currently pending. Failed tasks are
   // terminal unless an explicit retry path resets them to pending first.
   const result = await client.execute({
-    sql: isPostgres()
-      ? `UPDATE integration_pending_tasks
+    sql: `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?,
              last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)
          WHERE id = ? AND status = 'pending'
@@ -426,49 +353,13 @@ export async function claimPendingTask(
                  )
                )
            )
-         RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, dispatch_scope, error_message, created_at, updated_at, completed_at`
-      : `UPDATE integration_pending_tasks
-         SET status = ?, attempts = attempts + 1, updated_at = ?,
-             last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)
-         WHERE id = ? AND status = 'pending'
-           AND NOT EXISTS (
-             SELECT 1 FROM integration_pending_tasks active
-             WHERE active.platform = integration_pending_tasks.platform
-               AND active.external_thread_id = integration_pending_tasks.external_thread_id
-               AND active.status = 'processing'
-               AND active.id <> integration_pending_tasks.id
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM integration_pending_tasks earlier
-             WHERE earlier.platform = integration_pending_tasks.platform
-               AND earlier.external_thread_id = integration_pending_tasks.external_thread_id
-               AND earlier.status = 'pending'
-               AND (
-                 earlier.created_at < integration_pending_tasks.created_at
-                 OR (
-                   earlier.created_at = integration_pending_tasks.created_at
-                   AND earlier.id < integration_pending_tasks.id
-                 )
-               )
-           )`,
+         RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, dispatch_scope, error_message, created_at, updated_at, completed_at`,
     args: ["processing", now, options?.dispatchOutcome ?? null, id],
   });
   const rows = result.rows ?? [];
 
-  if (isPostgres()) {
-    if (rows.length === 0) return null;
-    return rowToTask(rows[0] as Record<string, unknown>);
-  }
-
-  // SQLite: no RETURNING, so re-read after the update. Confirm we actually
-  // moved it into 'processing' (vs. lost the race).
-  const affected =
-    (result as { rowsAffected?: number; rowCount?: number }).rowsAffected ??
-    (result as { rowsAffected?: number; rowCount?: number }).rowCount;
-  if (affected === 0) return null;
-  const fetched = await getPendingTask(id);
-  if (!fetched || fetched.status !== "processing") return null;
-  return fetched;
+  if (rows.length === 0) return null;
+  return rowToTask(rows[0] as Record<string, unknown>);
 }
 
 export async function recordPendingTaskDispatchAttempt(

@@ -157,8 +157,8 @@ const ptBR = {
           body: "Defina o trabalho uma vez e use pela UI, agent, HTTP, MCP, A2A e CLI.",
         },
         sqlStateOrm: {
-          title: "Estado SQL e ORM",
-          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas independentes de provedor.",
+          title: "Estado PostgreSQL e ORM",
+          body: "Dados duráveis da app, estado da aplicação, migrações e esquemas PostgreSQL/PGlite.",
         },
         dbAdmin: {
           title: "Admin de banco de dados",
@@ -211,7 +211,7 @@ const ptBR = {
       body1:
         "Agent-Native é um framework open source para construir agentic applications: comece com Chat, defina actions compartilhadas e depois adicione UI, jobs e colaboração ao redor do mesmo estado.",
       body2:
-        "Traga seu próprio banco de dados, provedor de hospedagem, stack de modelos e código da app.",
+        "Use PGlite local ou PostgreSQL hospedado, seu provedor de hospedagem, stack de modelos e código da app.",
       cta: "Ler o guia do framework",
       primitives: {
         actions: {
@@ -229,10 +229,10 @@ const ptBR = {
           description:
             "O app-agent loop, tools, skills, memory, jobs e observabilidade são entregues juntos.",
         },
-        backendAgnostic: {
-          title: "Independente de backend",
+        postgresSpecific: {
+          title: "Específico de PostgreSQL",
           description:
-            "Conecte qualquer banco de dados SQL compatível com Drizzle e qualquer host compatível com Nitro.",
+            "Use os auxiliares de esquema PostgreSQL da estrutura com PGlite local ou Postgres hospedado em qualquer host compatível com Nitro.",
         },
       },
     },
@@ -311,7 +311,7 @@ const ptBR = {
     },
     quickStart: {
       title: "Comece com um comando",
-      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e SQLite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
+      body: "Um comando cria uma app local chat-first com suporte em actions, durable threads e PGlite. Use `--headless` apenas para workflows automation-first sem UI no navegador ainda.",
     },
     finalCta: {
       title: "Software feito para a era agentic",
@@ -468,7 +468,7 @@ const ptBR = {
           body: "O agente sabe o que os usuários estão vendo, selecionando e editando.",
         },
         sharedSql: {
-          title: "Dados SQL compartilhados",
+          title: "Dados PostgreSQL compartilhados",
           body: "Usuários e agentes leem e atualizam a mesma fonte de verdade.",
         },
         skillsMemory: {
@@ -2109,8 +2109,6 @@ const ptBR = {
     databaseProviders: "Provedores de banco de dados",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "Internacionalização",
     localFileMode: "Modo de arquivos locais",

@@ -69,8 +69,8 @@ const REPO_ROOT = path.resolve(
 const PRAGMA_RE = /^\s*(?:\/\/|--)\s*guard:allow-destructive-ddl\b/i;
 
 /**
- * The engine itself, not a migration list — its doc comments demonstrate
- * migration syntax (including dialect-gated ALTER examples) and would be a
+ * The engine itself, not a migration list - its doc comments demonstrate
+ * migration syntax (including conditional ALTER examples) and would be a
  * false-positive source if scanned as one.
  */
 const NOT_A_MIGRATION_LIST = new Set(["packages/core/src/db/migrations.ts"]);

@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// These helpers resolve `isPostgres()` through `./client.js`, which derives the
-// dialect from `process.env.DATABASE_URL`. The tests stub that env and pass an
-// injected fake client, so no real database is required.
+// The tests pass injected fake clients, so no real database is required.
 
 describe("ddl-guard", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -177,7 +175,6 @@ describe("ddl-guard", () => {
       expect(
         await ensureTableExists("late", `CREATE TABLE late (id TEXT)`, {
           injectedClient: client,
-          dialectIsPostgres: true,
         }),
       ).toBe(true);
       // A sibling probe in the same boot must see it, not the pre-DDL snapshot.
@@ -209,7 +206,6 @@ describe("ddl-guard", () => {
       expect(
         await ensureTableExists("settings", `CREATE TABLE settings (k TEXT)`, {
           injectedClient: client,
-          dialectIsPostgres: true,
         }),
       ).toBe(false);
       expect(calls).toEqual([]);
@@ -226,7 +222,6 @@ describe("ddl-guard", () => {
       await expect(
         ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
           injectedClient: client,
-          dialectIsPostgres: true,
         }),
       ).resolves.toBe(false);
       expect(calls).toEqual([]);
@@ -250,7 +245,6 @@ describe("ddl-guard", () => {
         withMigrationRuntime(() =>
           ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
             injectedClient: client,
-            dialectIsPostgres: true,
           }),
         ),
       ).resolves.toBe(true);
@@ -271,7 +265,6 @@ describe("ddl-guard", () => {
       await expect(
         ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
           injectedClient: client,
-          dialectIsPostgres: true,
         }),
       ).resolves.toBe(false);
       expect(calls).toEqual([]);
@@ -291,17 +284,6 @@ describe("ddl-guard", () => {
   });
 
   describe("pgTableExists / pgColumnExists / pgIndexExists", () => {
-    it("are no-ops on SQLite (never query)", async () => {
-      vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-      const { pgTableExists, pgColumnExists, pgIndexExists } =
-        await import("./ddl-guard.js");
-      const { client, calls } = recordingClient();
-      expect(await pgTableExists("settings", client)).toBe(false);
-      expect(await pgColumnExists("settings", "x", client)).toBe(false);
-      expect(await pgIndexExists("settings_idx", client)).toBe(false);
-      expect(calls).toEqual([]);
-    });
-
     it("report valid and ready index existence on Postgres", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { pgTableExists, pgColumnExists, pgIndexExists } =
@@ -350,17 +332,6 @@ describe("ddl-guard", () => {
   });
 
   describe("runGuardedDdl", () => {
-    it("runs DDL directly on SQLite (no transaction / lock_timeout)", async () => {
-      vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-      const { runGuardedDdl } = await import("./ddl-guard.js");
-      const { client, calls } = recordingClient();
-      const ran = await runGuardedDdl("CREATE TABLE foo (id TEXT)", {
-        injectedClient: client,
-      });
-      expect(ran).toBe(true);
-      expect(calls).toEqual(["CREATE TABLE foo (id TEXT)"]);
-    });
-
     it("wraps Postgres DDL in a transaction with SET LOCAL lock_timeout", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { runGuardedDdl } = await import("./ddl-guard.js");
@@ -608,33 +579,6 @@ describe("ddl-guard", () => {
       expect(probeCount).toBe(1);
     });
 
-    it("ensureTableExists / ensureColumnExists / ensureIndexExists are no-ops on SQLite", async () => {
-      vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-      const { ensureTableExists, ensureColumnExists, ensureIndexExists } =
-        await import("./ddl-guard.js");
-      // On SQLite the probes return false, so the wrappers run the DDL through
-      // runGuardedDdl, which on SQLite just executes it directly (returns true).
-      const { client, calls } = recordingClient();
-      expect(
-        await ensureTableExists("foo", "CREATE TABLE foo (id TEXT)", {
-          injectedClient: client,
-        }),
-      ).toBe(true);
-      expect(calls).toEqual(["CREATE TABLE foo (id TEXT)"]);
-      expect(
-        await ensureColumnExists(
-          "foo",
-          "bar",
-          "ALTER TABLE foo ADD COLUMN bar TEXT",
-          { injectedClient: client },
-        ),
-      ).toBe(true);
-      expect(
-        await ensureIndexExists("foo_idx", "CREATE INDEX foo_idx ON foo (id)", {
-          injectedClient: client,
-        }),
-      ).toBe(true);
-    });
   });
 
   describe("isLockTimeoutError", () => {
@@ -686,7 +630,7 @@ describe("ddl-guard", () => {
       ensureIndexExistsConcurrently(
         "sync_events_created_at_id_idx",
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
-        { injectedClient: client, dialectIsPostgres: true },
+        { injectedClient: client },
       ),
     ).resolves.toBe(true);
     expect(calls.some((sql) => /CREATE INDEX CONCURRENTLY/.test(sql))).toBe(
@@ -740,7 +684,6 @@ describe("ddl-guard", () => {
       "CREATE INDEX IF NOT EXISTS t_idx ON t (a)",
       {
         injectedClient: client,
-        dialectIsPostgres: true,
       },
     );
 
@@ -795,7 +738,7 @@ describe("ddl-guard", () => {
       ensureIndexExistsConcurrently(
         "sync_idx",
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_idx ON t (a)",
-        { injectedClient: concurrentClient, dialectIsPostgres: true },
+        { injectedClient: concurrentClient },
       ),
     ).resolves.toBe(true);
 
@@ -830,7 +773,6 @@ describe("ddl-guard", () => {
       "CREATE INDEX IF NOT EXISTS t_idx ON t (a)",
       {
         injectedClient: client,
-        dialectIsPostgres: true,
       },
     );
 

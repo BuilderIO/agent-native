@@ -491,8 +491,8 @@ export async function claimQueuedDraftForSending(
   const { ctx, draft: preClaimDraft } = await requireQueuedDraft(id, {
     ownerOnly: true,
   });
-  // Best portable witness of the pre-claim status: UPDATE ... RETURNING
-  // yields POST-update values on both Postgres and SQLite, so it can never
+  // Best post-update witness of the pre-claim status: UPDATE ... RETURNING
+  // yields POST-update values on Postgres and PGlite, so it can never
   // be used to recover the prior status. The WHERE clause below guarantees
   // this row was "queued" or "in_review" at claim time if the update
   // affects it, so the pre-read status (when it's one of those two) is

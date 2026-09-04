@@ -32,16 +32,8 @@ dist-ssr
 # Auth sessions (sensitive, never commit)
 data/.sessions.json
 
-# Local SQLite database
-data/app.db
-data/app.db-shm
-data/app.db-wal
-
-# Stray SQLite files at the template root (real DB lives under data/)
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
+# Local PGlite database
+data/pglite/
 
 # Ephemeral editor state
 .editor-selection.json

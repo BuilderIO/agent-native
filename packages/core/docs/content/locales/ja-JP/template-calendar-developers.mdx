@@ -499,7 +499,7 @@ URL スキームが変更される前に共有されたリンクのために、2
 
 - `templates/calendar/actions/` — `defineAction` を使った新しいファイルを追加して、エージェントとフロントエンドの両方に新しい機能を公開します。
 - `templates/calendar/app/routes/` — UI です。上に一覧があります。
-- `templates/calendar/server/db/schema.ts` — Drizzle で列やテーブルを追加します。テンプレートが SQLite、Postgres、Turso、D1、Neon で動作するように、コードは方言に依存しないようにしてください。
+- `templates/calendar/server/db/schema.ts` — Drizzle で列やテーブルを追加します。PGlite と Postgres で動作するよう、コードは PostgreSQL 対応にしてください。
 - `templates/calendar/server/lib/` — プロバイダー統合: `google-calendar.ts`、`zoom.ts`、`people-search.ts`、`ical-fetcher.ts`、`find-time.ts`、`provider-api.ts`。
 - `templates/calendar/AGENTS.md` — エージェントへの指示。エージェントに新しい機能や規則を教えるときはこれを更新してください。
 - `templates/calendar/.agents/skills/` — エージェントが従う詳細なパターン。関連する skills: `event-management`、`availability-booking`、`real-time-sync`、`storing-data`、`delegate-to-agent`、`frontend-design`。

@@ -20,7 +20,7 @@ export default defineAction({
 
 - **[Actions](https://agent-native.com/docs/actions)**: Define work once. Use it from every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 - **[Agent runtime](https://agent-native.com/docs/agent-surfaces)**: Chat, tools, skills, memory, jobs, observability, and handoffs ship together.
-- **[Backend agnostic](https://agent-native.com/docs/database)**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
+- **[PostgreSQL backend](https://agent-native.com/docs/server-database)**: Use PostgreSQL in production and PGlite for local development on any Nitro-compatible host.
 - **[Toolkits](https://agent-native.com/docs/agent-native-toolkit)**: Reusable building blocks for collaboration, sharing, settings, teams, and observability.
 
 https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c

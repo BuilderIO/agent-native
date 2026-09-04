@@ -14,7 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
@@ -36,75 +36,26 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       // Postgres version of the CREATE TABLE — the generic `INTEGER` maps to
       // BIGINT on Postgres, which we need for millisecond timestamps.
-      const createSql = isPostgres()
-        ? APP_SECRETS_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
-        : APP_SECRETS_CREATE_SQL;
+      const createSql = APP_SECRETS_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
 
-      if (isPostgres()) {
-        // Hot path: in production the table and both additive columns are
-        // virtually always already present. Issuing `CREATE`/`ALTER` would
-        // still take an ACCESS EXCLUSIVE lock — which, in a fresh background
-        // worker process behind a concurrent connection on the shared Neon DB,
-        // can block ~indefinitely. `ensureTableExists` / `ensureColumnExists`
-        // check `information_schema` first (a plain read, no lock) and run DDL
-        // ONLY for what is actually missing, wrapping any DDL that must run in a
-        // transaction-scoped `lock_timeout` so a contended lock fails fast. They
-        // also re-probe after a swallowed lock-timeout and THROW if the schema
-        // is still missing, so a timed-out DDL never poisons this init memo.
-        await ensureTableExists("app_secrets", createSql);
-        await ensureColumnExists(
-          "app_secrets",
-          "description",
-          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS description TEXT`,
-        );
-        await ensureColumnExists(
-          "app_secrets",
-          "url_allowlist",
-          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
-        );
-        await ensureColumnExists(
-          "app_secrets",
-          "shared_encrypted_value",
-          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS shared_encrypted_value TEXT`,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem, keep the original
-      // create-then-additive-alter behaviour. SQLite has no
-      // `ADD COLUMN IF NOT EXISTS`, so the ALTERs stay wrapped in try/catch.
-      await client.execute(createSql);
-
-      // Additive migration: description column (for ad-hoc keys)
-      try {
-        await client.execute(
-          `ALTER TABLE app_secrets ADD COLUMN description TEXT`,
-        );
-      } catch {
-        // Column already exists — expected
-      }
-
-      // Additive migration: url_allowlist column
-      try {
-        await client.execute(
-          `ALTER TABLE app_secrets ADD COLUMN url_allowlist TEXT`,
-        );
-      } catch {
-        // Column already exists — expected
-      }
-
-      // Additive migration: workspace-shared ciphertext. Keep the legacy
-      // encrypted_value column so older app versions remain readable.
-      try {
-        await client.execute(
-          `ALTER TABLE app_secrets ADD COLUMN shared_encrypted_value TEXT`,
-        );
-      } catch {
-        // Column already exists — expected
-      }
+      await ensureTableExists("app_secrets", createSql);
+      await ensureColumnExists(
+        "app_secrets",
+        "description",
+        `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS description TEXT`,
+      );
+      await ensureColumnExists(
+        "app_secrets",
+        "url_allowlist",
+        `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
+      );
+      await ensureColumnExists(
+        "app_secrets",
+        "shared_encrypted_value",
+        `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS shared_encrypted_value TEXT`,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -183,7 +134,7 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   // deliberately left out of the `DO UPDATE SET` list so an existing row
   // keeps its original id (any stored references stay stable); only a
   // genuinely new row gets the freshly generated `id`. This syntax is
-  // portable across SQLite (UPSERT since 3.24) and Postgres.
+  // Uses Postgres' atomic UPSERT to avoid a check-then-write race.
   //
   // shared_encrypted_value is overwritten with `excluded.shared_encrypted_value`
   // (NULL when this writer lacks shared key material) rather than preserved
@@ -220,23 +171,9 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
 
   invalidateRequestSecret(args);
 
-  if (isPostgres()) {
-    const { rows } = await client.execute({
-      sql: `${upsertSql} RETURNING id`,
-      args: upsertArgs,
-    });
-    return String(rows[0]?.id ?? id);
-  }
-
-  // SQLite: RETURNING support varies across better-sqlite3/libsql builds, so
-  // (matching the convention elsewhere in this codebase, e.g.
-  // integrations/pending-tasks-store.ts) re-read the id afterward instead of
-  // relying on it. The row is guaranteed to exist at this point, so this is
-  // a plain lookup rather than a TOCTOU-prone gate on the write itself.
-  await client.execute({ sql: upsertSql, args: upsertArgs });
   const { rows } = await client.execute({
-    sql: `SELECT id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
-    args: [scope, scopeId, key],
+    sql: `${upsertSql} RETURNING id`,
+    args: upsertArgs,
   });
   return String(rows[0]?.id ?? id);
 }

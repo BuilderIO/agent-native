@@ -1093,7 +1093,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   args: Array<string | null>,
   table: BigQueryTableRef,
 ): string {
-  // The Postgres/SQLite scope builder uses a text fallback for nullable event
+  // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
   // because the sink normalizes it before insert.
   const normalizedScopeSql = scopedSql.replace(
@@ -1491,7 +1491,7 @@ function backfillRowsByIdsSql(ids: string[]): {
   };
 }
 
-const MAX_SQLITE_BIND_VARIABLES = 900;
+const MAX_BIND_VARIABLES = 900;
 
 function backfillRowCursor(
   row: Record<string, unknown>,
@@ -1596,10 +1596,10 @@ export async function backfillFirstPartyAnalyticsBatch(
   for (
     let offset = 0;
     offset < selectedIds.length;
-    offset += MAX_SQLITE_BIND_VARIABLES
+    offset += MAX_BIND_VARIABLES
   ) {
     const hydratedQuery = backfillRowsByIdsSql(
-      selectedIds.slice(offset, offset + MAX_SQLITE_BIND_VARIABLES),
+      selectedIds.slice(offset, offset + MAX_BIND_VARIABLES),
     );
     const hydratedResult = await db.execute({
       sql: hydratedQuery.sql,

@@ -41,8 +41,8 @@ export const runDesignMigrations = runMigrations(
     data TEXT NOT NULL,
     project_type TEXT NOT NULL DEFAULT 'prototype',
     design_system_id TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -57,7 +57,7 @@ export const runDesignMigrations = runMigrations(
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -69,8 +69,8 @@ export const runDesignMigrations = runMigrations(
     data TEXT NOT NULL,
     assets TEXT,
     is_default INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -85,7 +85,7 @@ export const runDesignMigrations = runMigrations(
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -96,8 +96,8 @@ export const runDesignMigrations = runMigrations(
     filename TEXT NOT NULL,
     content TEXT NOT NULL,
     file_type TEXT NOT NULL DEFAULT 'html',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -107,7 +107,7 @@ export const runDesignMigrations = runMigrations(
     design_id TEXT NOT NULL,
     label TEXT,
     snapshot TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     // v7-v9: fix boolean columns on Postgres only. The adaptSqlForPostgres
@@ -142,8 +142,7 @@ export const runDesignMigrations = runMigrations(
     // updated_at was a full table scan. Composite indexes match accessFilter's
     // ownership predicate + the list sort, and the shares indexes cover the
     // EXISTS subquery's resource_id / principal_type / principal_id lookup.
-    // Additive only; portable across Postgres and SQLite (no DESC / partial /
-    // PG-only syntax).
+    // Additive only; supported by hosted Postgres and local PGlite.
     {
       version: 11,
       sql: `CREATE INDEX IF NOT EXISTS designs_owner_org_updated_idx ON designs (owner_email, org_id, updated_at);
@@ -168,8 +167,8 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     variants TEXT,
     stories TEXT,
     runtime_selectors TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -190,8 +189,8 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     duration_ms INTEGER NOT NULL DEFAULT 300,
     default_ease TEXT NOT NULL DEFAULT 'ease',
     compiled_hash TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -213,8 +212,8 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     fixture_data TEXT,
     capture_data TEXT,
     preview_ref TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -234,8 +233,8 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     a11y_findings TEXT,
     visual_diff TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -262,8 +261,8 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     bridge_token TEXT,
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   );
 ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS bridge_token TEXT;
 ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT;
@@ -274,7 +273,7 @@ CREATE TABLE IF NOT EXISTS design_localhost_write_grants (
     root_path TEXT NOT NULL,
     bridge_token TEXT NOT NULL,
     granted_until TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -318,8 +317,8 @@ CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timel
     batch_id TEXT,
     error TEXT,
     sent_at TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -356,8 +355,8 @@ ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_result_hash 
     width INTEGER,
     height INTEGER,
     locked_layer_count INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -369,7 +368,7 @@ CREATE TABLE IF NOT EXISTS design_template_shares (
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
 CREATE TABLE IF NOT EXISTS design_template_files (
     id TEXT PRIMARY KEY,
@@ -377,8 +376,8 @@ CREATE TABLE IF NOT EXISTS design_template_files (
     filename TEXT NOT NULL,
     content TEXT NOT NULL,
     file_type TEXT NOT NULL DEFAULT 'html',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   );
 CREATE INDEX IF NOT EXISTS design_templates_owner_org_updated_idx ON design_templates (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS design_template_shares_resource_principal_idx ON design_template_shares (resource_id, principal_type, principal_id);

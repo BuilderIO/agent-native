@@ -1,13 +1,13 @@
 ---
 title: "Base de données"
-description: "Connectez une base de données SQL portable à votre application native d'agent : assistants de schéma, migrations, et options de base de données hébergée."
+description: "Connectez PostgreSQL à votre application native d'agent : assistants de schéma, migrations et PGlite local ou Postgres hébergé."
 ---
 
 # Base de données
 
-Toute application native d'agent stocke son état en SQL. L'UI et l'agent lisent et écrivent tous deux dans les mêmes tables via les mêmes actions, en utilisant le même client [Drizzle ORM](https://orm.drizzle.team). La synchronisation en direct utilise SSE avec le polling en secours, de sorte que les changements apparaissent dans l'autre surface sans actualisation manuelle.
+Toute application native d'agent stocke son état en PostgreSQL. L'UI et l'agent lisent et écrivent tous deux dans les mêmes tables via les mêmes actions, en utilisant le même client [Drizzle ORM](https://orm.drizzle.team). La synchronisation en direct utilise SSE avec le polling en secours, de sorte que les changements apparaissent dans l'autre surface sans actualisation manuelle.
 
-<Diagram id="doc-block-9mtx2f" title="Comment les données circulent vers la base de données" summary="L'UI et l'agent atteignent tous deux la base de données via la même couche Actions. Les deux appelants utilisent le même client getDb() et les mêmes tables SQL. Il n'existe pas de backend distinct pour chacun.">
+<Diagram id="doc-block-9mtx2f" title="Comment les données circulent vers la base de données" summary="L'UI et l'agent atteignent tous deux la base de données via la même couche Actions. Les deux appelants utilisent le même client getDb() et les mêmes tables PostgreSQL. Il n'existe pas de backend distinct pour chacun.">
 
 ```html
 <div class="diagram-dbr">
@@ -23,8 +23,8 @@ Toute application native d'agent stocke son état en SQL. L'UI et l'agent lisent
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    Base de données SQL<br /><small class="diagram-muted"
-      >dialecte déterminé par DATABASE_URL</small
+    Base de données PostgreSQL<br /><small class="diagram-muted"
+      >PostgreSQL via DATABASE_URL</small
     >
   </div>
 </div>
@@ -58,17 +58,17 @@ Toute application native d'agent stocke son état en SQL. L'UI et l'agent lisent
 
 ## Options d'hébergement {#hosting}
 
-L'application détecte le backend à utiliser à partir de `DATABASE_URL`. Lorsque la variable n'est pas définie, elle revient à un fichier SQLite local afin que vous puissiez démarrer sans configuration.
+L'application utilise PostgreSQL. Lorsque `DATABASE_URL` n'est pas défini, elle utilise PGlite local afin que vous puissiez démarrer sans configuration.
 
-### Par défaut : fichier SQLite {#default-sqlite}
+### Par défaut : fichier PGlite {#default-pglite}
 
-Lorsque `DATABASE_URL` n'est pas défini, l'application crée une base de données SQLite sur `data/app.db`. Aucune configuration n'est requise. Démarrez le serveur de développement et le fichier est créé au premier lancement.
+Lorsque `DATABASE_URL` n'est pas défini, l'application crée une base de données PGlite sur `data/pglite`. Aucune configuration n'est requise. Démarrez le serveur de développement et le fichier est créé au premier lancement.
 
-Ceci est réservé au développement local. Les conteneurs, les fonctions sans serveur et les environnements de prévisualisation peuvent réinitialiser leur système de fichiers entre les redémarrages, ce qui signifie qu'un fichier SQLite local peut disparaître. Définissez `DATABASE_URL` sur une base de données hébergée persistante avant le déploiement.
+Ceci est réservé au développement local. Les conteneurs, les fonctions sans serveur et les environnements de prévisualisation peuvent réinitialiser leur système de fichiers entre les redémarrages, ce qui signifie qu'un fichier PGlite local peut disparaître. Définissez `DATABASE_URL` sur une base de données PostgreSQL hébergée et persistante avant le déploiement.
 
 ### Postgres local : PGlite {#local-pglite}
 
-Pour développer localement contre le dialecte Postgres sans Docker ni base de données hébergée, installez le paquet optionnel PGlite et définissez `DATABASE_URL` :
+Pour développer localement avec PostgreSQL sans Docker ni base de données hébergée, installez le paquet optionnel PGlite et définissez `DATABASE_URL` :
 
 ```bash
 pnpm add @electric-sql/pglite@^0.5.3
@@ -78,7 +78,7 @@ pnpm add @electric-sql/pglite@^0.5.3
 DATABASE_URL=pglite:./data/pglite
 ```
 
-[PGlite](https://pglite.dev/) exécute une base de données Postgres WASM en cours de processus. Elle vous permet de détecter les problèmes de schéma propres à Postgres avant le déploiement, tout en gardant une configuration aussi simple que le SQLite par défaut. Comme SQLite, il s'agit d'un stockage local uniquement. Ne l'utilisez pas pour la production ou des environnements partagés.
+[PGlite](https://pglite.dev/) exécute une base de données Postgres WASM en cours de processus. Elle vous permet de détecter les problèmes de schéma propres à Postgres avant le déploiement, tout en gardant une configuration aussi simple que le PGlite par défaut. Comme PGlite, il s'agit d'un stockage local uniquement. Ne l'utilisez pas pour la production ou des environnements partagés.
 
 ### Base de données de production {#production}
 
@@ -94,8 +94,7 @@ DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6
 # Postgres simple
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
-# Turso (libSQL). Nécessite également DATABASE_AUTH_TOKEN.
-DATABASE_URL=libsql://my-db-org.turso.io
+DATABASE_URL=pglite:./data/pglite
 ```
 
 Le framework détecte automatiquement le dialecte à partir du préfixe de l'URL et configure Drizzle en conséquence.
@@ -114,7 +113,7 @@ Une application qui utilise la base de données a besoin de trois fichiers :
 
 ### 1. Définissez votre schéma {#schema}
 
-Importez les assistants de schéma depuis `@agent-native/core/db/schema`. N'importez jamais directement depuis `drizzle-orm/sqlite-core` ou `drizzle-orm/pg-core`. Les assistants du framework produisent des définitions indépendantes du dialecte, qui fonctionnent sur tous les backends pris en charge.
+Importez les assistants de schéma depuis `@agent-native/core/db/schema`. Les assistants du framework produisent des définitions spécifiques à PostgreSQL et PGlite.
 
 ```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
@@ -131,17 +130,17 @@ export const tasks = table("tasks", {
 
 | Aide      | Objectif                                                                           |
 | --------- | ---------------------------------------------------------------------------------- |
-| `table`   | Définit une table ; délègue à `pgTable` ou `sqliteTable`                           |
+| `table`   | Définit une table avec les assistants PostgreSQL                   |
 | `text`    | Colonne de texte, prend en charge `{ enum: [...] }`                                |
 | `integer` | Colonne entière, `{ mode: "boolean" }` correspond au booléen Postgres              |
-| `real`    | Colonne flottante. Correspond à `real` sur SQLite, `double precision` sur Postgres |
-| `now`     | Horodatage actuel indépendant du dialecte pour `.default(now())`                   |
+| `real`    | Colonne flottante. Correspond à `real` sur PGlite, `double precision` sur Postgres |
+| `now`     | Définit l'horodatage actuel pour `.default(now())`                        |
 
 <DataModel
   id="doc-block-3hbven"
   title="La table tasks"
   summary={
-    "Définie une seule fois avec les assistants du framework ; le dialecte est choisi à l'exécution à partir de DATABASE_URL."
+    "Définie une seule fois avec les assistants du framework pour PostgreSQL et PGlite local."
   }
   entities={[
     {
@@ -202,7 +201,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-`createGetDb` renvoie une fonction `getDb()` qui ouvre la connexion à la base de données au premier appel et renvoie la même instance Drizzle typée lors des appels suivants. Elle lit `DATABASE_URL` à l'exécution pour déterminer quel backend et quel dialecte utiliser.
+`createGetDb` renvoie une fonction `getDb()` qui ouvre la connexion PostgreSQL au premier appel et renvoie la même instance Drizzle typée lors des appels suivants. Elle lit `DATABASE_URL` pour se connecter à PostgreSQL hébergé ou à PGlite local.
 
 Importez `getDb` depuis ce chemin local au modèle dans les actions et les routes. N'importez pas directement depuis `@agent-native/core`. L'export du cœur n'est pas typé ; l'export local porte vos types de schéma.
 
@@ -220,7 +219,7 @@ et non lors de la première requête. Utilisez `runMigrations` depuis
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -240,8 +239,8 @@ et non lors de la première requête. Utilisez `runMigrations` depuis
     },
     {
       lines: "22-25",
-      label: "Ouverture de dialecte",
-      note: "Passez un objet indexé par dialecte pour exécuter un SQL différent selon le backend. Utilisez `SELECT 1` comme no-op sur le dialecte qui n'a pas besoin de la modification.",
+      label: "SQL PostgreSQL",
+      note: "Les migrations utilisent directement le SQL PostgreSQL et sont appliquées dans l’ordre des versions.",
     },
   ]}
 />
@@ -263,15 +262,15 @@ Pour les nouvelles modifications du schéma de l'application, utilisez
 `server/db/migrations/<id_name>.sql`, que `runDrizzleMigrations` charge
 dans le runner Agent-Native partagé sur Node.js et les runtimes serverless basés
 sur Node. L'étape de release reste responsable des modifications de production.
-Conservez `runMigrations()` pour le SQL propre au dialecte, D1, les backfills et
+Conservez `runMigrations()` pour le SQL propre à PostgreSQL, Postgres, les backfills et
 les étapes JavaScript différées.
 
 Le chargeur basé sur le système de fichiers n'est pas disponible dans Cloudflare
 Workers/Pages ni dans les autres runtimes edge sans système de fichiers, y compris
-D1. Utilisez-y `runMigrations()` avec des entrées SQL intégrées au bundle du
+Postgres. Utilisez-y `runMigrations()` avec des entrées SQL intégrées au bundle du
 worker. Un dossier de sortie Drizzle possède une seule base de métadonnées propre
 au dialecte : générez pour le dialecte de déploiement principal et ne réutilisez
-pas le même dossier en alternant SQLite et PostgreSQL.
+pas le même dossier en alternant PGlite et PostgreSQL.
 
 <Callout tone="risk">
   N'exécutez jamais `drizzle-kit push` sur une base de données de production.
@@ -282,7 +281,7 @@ pas le même dossier en alternant SQLite et PostgreSQL.
   provoquant une perte de données immédiate.
 </Callout>
 
-`drizzle.config.ts` à la racine de chaque application configure drizzle-kit pour l'inspection du schéma en développement local. Si un dossier de migrations sert plusieurs backends, indiquez explicitement le dialecte de déploiement principal, par exemple `createDrizzleConfig({ dialect: "postgresql" })` :
+`drizzle.config.ts` à la racine de chaque application configure drizzle-kit pour l'inspection du schéma PostgreSQL en développement local. Configurez explicitement la base PostgreSQL, par exemple `createDrizzleConfig({ dialect: "postgresql" })` :
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -359,13 +358,13 @@ const rows = await db
 
 Voir [Security — Data Scoping](/docs/security#data-scoping) et [Sharing](/docs/sharing#building) pour le modèle complet.
 
-## Synchronisation appuyée sur SQL {#sync}
+## Synchronisation appuyée sur PostgreSQL {#sync}
 
 Agent-Native ne repose ni sur des observateurs de système de fichiers ni sur un état en mémoire persistant. Lorsqu'une action écrit dans la base de données, une version de synchronisation s'incrémente. Le hook client `useDbSync()` interroge `/_agent-native/poll` et invalide les caches React Query lorsqu'il détecte une version supérieure.
 
 Cela fonctionne aussi bien dans les déploiements sans serveur que multi-instances, car la base de données est le point de coordination. Si vous écrivez des mutations personnalisées en dehors des actions, utilisez les assistants du framework ou émettez l'invalidation de synchronisation appropriée afin que les UI ouvertes se rafraîchissent.
 
-<Diagram id="doc-block-qhkdv8" title="Boucle de synchronisation appuyée sur SQL" summary="Pas d'observateurs, pas d'état persistant. Une écriture incrémente une version en SQL ; chaque client interroge la version et récupère les données.">
+<Diagram id="doc-block-qhkdv8" title="Boucle de synchronisation appuyée sur PostgreSQL" summary="Pas d'observateurs, pas d'état persistant. Une écriture incrémente une version en PostgreSQL ; chaque client interroge la version et récupère les données.">
 
 ```html
 <div class="diagram-db-sync">
@@ -376,7 +375,7 @@ Cela fonctionne aussi bien dans les déploiements sans serveur que multi-instanc
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>Base de données SQL</strong
+    <strong>Base de données PostgrePostgreSQL</strong
     ><small class="diagram-muted"
       >la version de synchronisation s'incrémente</small
     >
@@ -427,12 +426,12 @@ Cela fonctionne aussi bien dans les déploiements sans serveur que multi-instanc
 
 </Endpoint>
 
-## SQL brut {#raw-sql}
+## PostgreSQL brut {#raw-sql}
 
 Pour les requêtes avancées, les contrôles de santé, ou la maintenance ponctuelle que le générateur de requêtes Drizzle ne peut pas exprimer, utilisez `getDbExec` depuis `@agent-native/core/db` :
 
 ```ts
-import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 
 const { rows } = await getDbExec().execute({
   sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
@@ -440,14 +439,13 @@ const { rows } = await getDbExec().execute({
 });
 ```
 
-`getDbExec` convertit automatiquement les paramètres `?` en `$1`, `$2`, etc. pour Postgres. Utilisez `isPostgres()` pour brancher selon le dialecte, et `intType()` pour renvoyer le type entier correct pour le backend actuel. Préférez le générateur de requêtes Drizzle pour les lectures et écritures normales. Le SQL brut contourne la sécurité de typage et est plus difficile à maintenir.
+`getDbExec` convertit automatiquement les paramètres `?` en `$1`, `$2`, etc. pour Postgres. Préférez le générateur de requêtes Drizzle pour les lectures et écritures normales. Le SQL brut contourne la sécurité de typage et est plus difficile à maintenir.
 
 ## Variables d'environnement {#environment-variables}
 
 | Variable              | Objectif                                                                                                            |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Chaîne de connexion SQL persistante (non défini = SQLite local ; `pglite:./data/pglite` = Postgres local optionnel) |
-| `DATABASE_AUTH_TOKEN` | Jeton d'authentification pour les fournisseurs qui exigent un jeton distinct, tel que Turso/libSQL                  |
+| `DATABASE_URL`        | Chaîne de connexion PostgreSQL persistante (non défini = PGlite local ; `pglite:./data/pglite` = Postgres local optionnel) |
 
 ## Quelle est la prochaine étape {#whats-next}
 

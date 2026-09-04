@@ -11,8 +11,8 @@
  *   - When both columns are present, owner_email is always required; org_id
  *     narrows to the current org while preserving legacy/personal NULL rows.
  *
- * Temp views take precedence over real tables in both SQLite and Postgres,
- * so the user's SQL runs unmodified against the filtered views.
+ * Temp views take precedence over real tables, so the user's SQL runs
+ * unmodified against the filtered views.
  */
 
 // Core tables with non-standard scoping (not owner_email).
@@ -72,34 +72,19 @@ interface TableColumn {
   column: string;
 }
 
-async function discoverColumnsPostgres(pgSql: any): Promise<TableColumn[]> {
-  const rows: any[] = await pgSql`
+async function discoverColumns(client: {
+  unsafe(sql: string, args?: unknown[]): Promise<unknown[]>;
+}): Promise<TableColumn[]> {
+  const rows = (await client.unsafe(`
     SELECT table_name, column_name
     FROM information_schema.columns
     WHERE table_schema = 'public'
     ORDER BY table_name, ordinal_position
-  `;
-  return rows.map((r) => ({ table: r.table_name, column: r.column_name }));
-}
-
-async function discoverColumnsSqlite(client: any): Promise<TableColumn[]> {
-  const tablesResult = await client.execute(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
-  );
-  const tables = tablesResult.rows.map((r: any) => (r.name ?? r[0]) as string);
-
-  const result: TableColumn[] = [];
-  for (const table of tables) {
-    const escaped = table.replace(/"/g, '""');
-    const colsResult = await client.execute(`PRAGMA table_info("${escaped}")`);
-    for (const row of colsResult.rows) {
-      result.push({
-        table,
-        column: (row.name ?? row[1]) as string,
-      });
-    }
-  }
-  return result;
+  `)) as Array<{ table_name: string; column_name: string }>;
+  return rows.map((row) => ({
+    table: row.table_name,
+    column: row.column_name,
+  }));
 }
 
 // ─── View generation ────────────────────────────────────────────────────────
@@ -117,7 +102,6 @@ function buildScopedTables(
   allColumns: TableColumn[],
   userEmail: string,
   orgId: string | null,
-  isPostgres: boolean,
 ): ScopedTable[] {
   // Group columns by table
   const columnsByTable = new Map<string, string[]>();
@@ -128,25 +112,20 @@ function buildScopedTables(
   }
 
   const scoped: ScopedTable[] = [];
-  const qualifiedPrefix = isPostgres ? "public." : "main.";
   const safeEmail = escapeSqlString(userEmail);
   const safeOrgId = orgId ? escapeSqlString(orgId) : null;
 
   // WITH CHECK OPTION ensures INSERTs/UPDATEs through the auto-updatable view
-  // can't write rows that violate the WHERE filter. Without it, an attacker
-  // could `INSERT INTO recordings (..., owner_email) VALUES (..., 'victim@x')`
-  // through the view and the row would land in the base table under the
-  // victim's identity. SQLite views are not auto-updatable in the same way
-  // (they require triggers), so this clause is a no-op there but harmless.
-  const checkOption = isPostgres ? " WITH LOCAL CHECK OPTION" : "";
+  // cannot write rows that violate the filter.
+  const checkOption = " WITH LOCAL CHECK OPTION";
 
   const viewFor = (table: string, whereSql: string): ScopedTable => {
     const escapedTable = escapeIdentifier(table);
-    const realTable = `${qualifiedPrefix}"${escapedTable}"`;
+    const realTable = `public."${escapedTable}"`;
     return {
       name: table,
       predicate: whereSql,
-      viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${escapedTable}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
+      viewSql: `CREATE OR REPLACE TEMPORARY VIEW "${escapedTable}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
     };
   };
 
@@ -256,12 +235,12 @@ export interface ScopingContext {
 }
 
 /**
- * Build scoping context for a Postgres connection.
+ * Build scoping context for a Postgres-shaped connection.
  * Returns setup/teardown SQL to run before/after the user's query.
  */
-export async function buildScopingPostgres(
-  pgSql: any,
-): Promise<ScopingContext> {
+export async function buildScopingPostgres(client: {
+  unsafe(sql: string, args?: unknown[]): Promise<unknown[]>;
+}): Promise<ScopingContext> {
   // getUserEmail() throws when there is no authenticated user (no request
   // context AND no AGENT_USER_EMAIL env) or when it resolves to the dev
   // sentinel `local@localhost`. We let that throw propagate: the script
@@ -270,8 +249,8 @@ export async function buildScopingPostgres(
   const userEmail = getUserEmail();
 
   const orgId = getOrgId();
-  const allColumns = await discoverColumnsPostgres(pgSql);
-  const scoped = buildScopedTables(allColumns, userEmail, orgId, true);
+  const allColumns = await discoverColumns(client);
+  const scoped = buildScopedTables(allColumns, userEmail, orgId);
 
   // Track which tables have owner_email / org_id for INSERT injection
   const columnsByTable = new Map<string, string[]>();
@@ -291,45 +270,6 @@ export async function buildScopingPostgres(
     setup: scoped.map((s) => s.viewSql),
     teardown: scoped.map(
       (s) => `DROP VIEW IF EXISTS pg_temp."${escapeIdentifier(s.name)}"`,
-    ),
-    active: scoped.length > 0,
-    userEmail,
-    orgId,
-    ownerEmailTables,
-    orgIdTables,
-    tablePredicates: new Map(scoped.map((s) => [s.name, s.predicate])),
-  };
-}
-
-/**
- * Build scoping context for a SQLite/libsql connection.
- * Returns setup/teardown SQL to run before/after the user's query.
- */
-export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
-  // See buildScopingPostgres: getUserEmail() throws on no user / dev sentinel.
-  const userEmail = getUserEmail();
-
-  const orgId = getOrgId();
-  const allColumns = await discoverColumnsSqlite(client);
-  const scoped = buildScopedTables(allColumns, userEmail, orgId, false);
-
-  const columnsByTable = new Map<string, string[]>();
-  for (const { table, column } of allColumns) {
-    const cols = columnsByTable.get(table) || [];
-    cols.push(column);
-    columnsByTable.set(table, cols);
-  }
-  const ownerEmailTables = new Set<string>();
-  const orgIdTables = new Set<string>();
-  for (const [table, columns] of columnsByTable) {
-    if (columns.includes(OWNER_COLUMN)) ownerEmailTables.add(table);
-    if (columns.includes(ORG_COLUMN)) orgIdTables.add(table);
-  }
-
-  return {
-    setup: scoped.map((s) => s.viewSql),
-    teardown: scoped.map(
-      (s) => `DROP VIEW IF EXISTS "${escapeIdentifier(s.name)}"`,
     ),
     active: scoped.length > 0,
     userEmail,

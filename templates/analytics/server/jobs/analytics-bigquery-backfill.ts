@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
@@ -826,7 +826,6 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
 async function pressureSnapshot(
   db: Executor,
 ): Promise<{ paused: boolean; degraded?: boolean; reason?: string }> {
-  if (!isPostgres()) return { paused: false };
   try {
     const result = await db.execute({
       sql: `SELECT

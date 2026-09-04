@@ -110,11 +110,10 @@ export default runMigrations(
 </Callout>
 
 对于新的应用自有表和列，优先在 Node.js 和基于 Node 的 serverless runtime 中
-使用 Drizzle Kit 生成的 SQL，并通过 `runDrizzleMigrations` 加载。需要方言专用
-SQL、D1 行为、数据回填或延迟 JavaScript 步骤时，使用 `runMigrations`。runner
+使用 Drizzle Kit 生成的 SQL，并通过 `runDrizzleMigrations` 加载。需要 PostgreSQL 专用 SQL 和行为、数据回填或延迟 JavaScript 步骤时，使用 `runMigrations`。runner
 会在通过共享请求守卫后读取 `server/db/migrations/<id_name>.sql`。
 
-Cloudflare Workers/Pages 和 D1 不提供可部署的文件系统。在这些环境中，请使用
+Cloudflare Workers/Pages 和其他 edge runtime 不提供可部署的文件系统。在这些环境中，请使用
 嵌入 worker bundle 的 SQL 条目调用 `runMigrations()`，不要使用文件 loader。
 
 ## 编写自定义插件 {#custom-plugins}

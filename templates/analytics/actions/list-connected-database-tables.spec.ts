@@ -40,10 +40,9 @@ beforeEach(() => {
     },
   ]);
   mocks.withDbAdminConnectionRuntime.mockImplementation(
-    async (_ctx, _id, callback) => callback({ dialect: "postgres" }),
+    async (_ctx, _id, callback) => callback({}),
   );
   mocks.listTables.mockResolvedValue({
-    dialect: "postgres",
     tables: [{ name: "clips", type: "table", rowCount: 2 }],
   });
 });
@@ -57,7 +56,6 @@ describe("list-connected-database-tables", () => {
           name: "Clips",
           appId: "clips",
           appUrl: "https://clips.example.test",
-          dialect: "postgres",
           tables: [{ name: "clips", type: "table", rowCount: 2 }],
         },
       ],

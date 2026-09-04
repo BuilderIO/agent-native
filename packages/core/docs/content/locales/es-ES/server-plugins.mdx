@@ -112,11 +112,11 @@ Cada entrada necesita un número de `version` y una cadena `sql`. La opción `ta
 
 Para las nuevas tablas y columnas propias de la aplicación, prefiera el SQL
 generado por Drizzle Kit mediante `runDrizzleMigrations` en runtimes Node.js y
-serverless basados en Node. Use `runMigrations` para SQL específico del dialecto,
-comportamiento de D1, backfills y pasos de JavaScript diferidos. El ejecutor lee
+serverless basados en Node. Use `runMigrations` para SQL y comportamiento específicos de PostgreSQL,
+backfills y pasos de JavaScript diferidos. El ejecutor lee
 `server/db/migrations/<id_name>.sql` después de pasar el guard común de solicitudes.
 
-Cloudflare Workers/Pages y D1 no proporcionan un sistema de archivos desplegable.
+Cloudflare Workers/Pages y otros runtimes edge no proporcionan un sistema de archivos desplegable.
 Use allí `runMigrations()` con entradas SQL integradas en el bundle del worker en
 lugar del cargador basado en archivos.
 

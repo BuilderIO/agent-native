@@ -348,12 +348,9 @@ tables below don't repeat what's already covered there.
 | Variable                                                  | What it does                                                                                                              |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `APP_NAME`                                                | Names the current app and enables prefixed lookups such as `MAIL_DATABASE_URL` when the app name is `mail`.               |
-| `DATABASE_URL`                                            | Persistent SQL connection. Unset uses local SQLite; `pglite:./data/pglite` opts into local Postgres semantics.            |
-| `DATABASE_AUTH_TOKEN`                                     | Separate auth token for providers such as Turso/libSQL.                                                                   |
+| `DATABASE_URL`                                            | Persistent PostgreSQL connection. Unset uses local PGlite at `pglite:./data/pglite`.                                    |
 | `<APP_NAME>_DATABASE_URL`                                 | Per-app database override in a multi-app workspace; it wins over `DATABASE_URL` and `NETLIFY_DATABASE_URL`.               |
-| `<APP_NAME>_DATABASE_AUTH_TOKEN`                          | Per-app auth-token override; it wins over `DATABASE_AUTH_TOKEN` and `NETLIFY_DATABASE_AUTH_TOKEN`.                        |
 | `NETLIFY_DATABASE_URL`                                    | Netlify-managed database fallback when no app-prefixed or generic `DATABASE_URL` is set.                                  |
-| `NETLIFY_DATABASE_AUTH_TOKEN`                             | Netlify-managed database auth-token fallback.                                                                             |
 | `<APP_NAME>_DATABASE_URL_UNPOOLED`                        | Per-app direct connection used for migrations where the provider exposes a pooled and unpooled endpoint.                  |
 | `DATABASE_URL_UNPOOLED` / `NETLIFY_DATABASE_URL_UNPOOLED` | Generic or Netlify direct migration connection fallback. The app-prefixed value wins when present.                        |
 | `ALLOW_DRIZZLE_PUSH_ON_NEON`                              | Set to `1` only for an intentional local schema push against Neon. Do not set it in CI or production.                     |

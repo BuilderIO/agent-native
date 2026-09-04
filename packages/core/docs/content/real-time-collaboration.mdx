@@ -1,6 +1,6 @@
 ---
 title: "Real-Time Collaboration"
-description: "Multi-user collaborative editing where the AI agent is a first-class peer: CRDT merging, live presence, SSE fast-path, and granular server-side merge — on any SQL database and any host."
+description: "Multi-user collaborative editing where the AI agent is a first-class peer: CRDT merging, live presence, SSE fast-path, and granular server-side merge — on PostgreSQL/PGlite and any host."
 ---
 
 # Real-Time Collaboration
@@ -34,7 +34,8 @@ deployment environments including serverless and edge).
 - **The agent as a peer editor** — Agent edits flow through the same Yjs
   infrastructure as human edits. They appear live, without disrupting cursor
   positions, selections, or the undo stack.
-- **Works everywhere** — Any SQL database Drizzle supports (SQLite, Postgres).
+- **PostgreSQL-backed** — Shared collaboration state uses PostgreSQL, including
+  local PGlite development.
   Any hosting target Nitro supports, including serverless and edge.
 
 <Callout tone="info">
@@ -107,8 +108,8 @@ the same result regardless of order.
 ### 2. SQL canonical content (durable source of truth)
 
 Yjs state is persisted in a `_collab_docs` table as base64-encoded binary.
-The table is framework-managed and provider-agnostic (SQLite and Postgres use
-identical schemas). Each row carries an optimistic-concurrency version column
+The table is framework-managed and uses PostgreSQL. Each row carries an
+optimistic-concurrency version column
 to prevent concurrent write races. Tombstone compaction runs opportunistically
 when the stored blob exceeds 4× the freshly encoded state — no background job
 required.
@@ -641,7 +642,7 @@ production app does:
 
 | Requirement                                                    | Why                                                                                                                                                                                     | How to check                                                                                                                                                                           |
 | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Postgres on a publicly reachable host**                      | The gateway dials the database from its own network. PGlite, SQLite, `localhost`, `*.internal` and bare IP addresses are refused before the connection string ever leaves your machine. | `DATABASE_URL` points at a managed Postgres such as Neon                                                                                                                               |
+| **Postgres on a publicly reachable host**                      | The gateway dials the database from its own network. PGlite, `localhost`, `*.internal` and bare IP addresses are refused before the connection string ever leaves your machine. | `DATABASE_URL` points at a managed Postgres such as Neon                                                                                                                               |
 | **`BUILDER_PRIVATE_KEY` set as a DEPLOY environment variable** | This authenticates the registration and decides which Builder organization owns the channel.                                                                                            | See the note below — this is the step people miss                                                                                                                                      |
 | **A production deploy**                                        | Deploy previews keep local sync, so a throwaway branch credential never leaves the machine and a busy repo does not mint one channel per pull request.                                  | `CONTEXT=production` / `BRANCH=production`, or `VERCEL_ENV=production`                                                                                                                 |
 | **The platform identifies the deployment**                     | Registration is keyed on the app's public origin, so a process that is not actually the deployment must not claim it.                                                                   | Netlify, Vercel, AWS Lambda, Cloud Run, Render and Cloudflare Pages all mark themselves. On a bare container or VM, set `AGENT_NATIVE_REALTIME_APP_URL` to the deployment's own origin |
@@ -701,7 +702,7 @@ above in order.
 
 ### What Builder stores, and the trust boundary {#hosted-gateway-trust}
 
-**Self-registration means sending Builder your database connection string.**
+**Self-registration means sending Builder your PostgreSQL connection string.**
 Builder stores it and connects to your database to tail `sync_events`. The
 connection is not read-only: version allocation and out-of-band change
 detection both write. If you do not want that, leave the transport variable
@@ -734,7 +735,7 @@ registration credential as organization-wide.
   staging. Unset, it derives from `BUILDER_GATEWAY_BASE_URL`.
 
 Every failure here is soft by design: no transport variable, no deployment-level
-Builder key, a non-Postgres database, or an unreachable gateway all leave the
+Builder key, an unavailable PostgreSQL connection, or an unreachable gateway all leave the
 app on local polling rather than erroring. `GET /_agent-native/realtime-token`
 returning 404 means no channel resolved.
 

@@ -1,13 +1,13 @@
 ---
 title: "数据库"
-description: "为你的代理本机应用连接一个便携式 SQL 数据库：schema 助手、迁移，以及托管数据库选项。"
+description: "将 PostgreSQL 连接到你的代理本机应用：schema 助手、迁移，以及本地 PGlite 或托管 Postgres。"
 ---
 
 # 数据库
 
-每个代理本机应用都把状态存储在 SQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。实时同步使用 SSE，并以轮询作为后备，因此无需手动刷新，变化就会显示在另一端。
+每个代理本机应用都把状态存储在 PostgreSQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。实时同步使用 SSE，并以轮询作为后备，因此无需手动刷新，变化就会显示在另一端。
 
-<Diagram id="doc-block-9mtx2f" title="数据如何流向数据库" summary="UI 和代理都通过同一个 Actions 层访问数据库。两个调用方使用同一个 getDb() 客户端和同一批 SQL 表，彼此之间没有各自独立的后端。">
+<Diagram id="doc-block-9mtx2f" title="数据如何流向数据库" summary="UI 和代理都通过同一个 Actions 层访问数据库。两个调用方使用同一个 getDb() 客户端和同一批 PostgreSQL 表，彼此之间没有各自独立的后端。">
 
 ```html
 <div class="diagram-dbr">
@@ -23,7 +23,7 @@ description: "为你的代理本机应用连接一个便携式 SQL 数据库：s
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL 数据库<br /><small class="diagram-muted">方言取决于 DATABASE_URL</small>
+    SQL 数据库<br /><small class="diagram-muted">PostgreSQL（DATABASE_URL）</small>
   </div>
 </div>
 ```
@@ -56,17 +56,17 @@ description: "为你的代理本机应用连接一个便携式 SQL 数据库：s
 
 ## 托管选项 {#hosting}
 
-应用会根据 `DATABASE_URL` 判断使用哪种后端。当该变量未设置时，会回退到本地 SQLite 文件，让你无需任何配置就能开始开发。
+应用使用 PostgreSQL。未设置 `DATABASE_URL` 时，应用会使用本地 PGlite，让你无需配置即可开始开发。
 
-### 默认：SQLite 文件 {#default-sqlite}
+### 默认：PGlite 文件 {#default-pglite}
 
-当未设置 `DATABASE_URL` 时，应用会在 `data/app.db` 处创建一个 SQLite 数据库，无需任何配置。启动开发服务器后，该文件会在首次运行时自动创建。
+当未设置 `DATABASE_URL` 时，应用会在 `data/pglite` 处创建一个 PGlite 数据库，无需任何配置。启动开发服务器后，该文件会在首次运行时自动创建。
 
-这仅适用于本地开发。容器、无服务器函数和预览环境可能会在重启之间重置文件系统，导致本地 SQLite 文件消失。部署之前请将 `DATABASE_URL` 设置为持久化的托管数据库。
+这仅适用于本地开发。容器、无服务器函数和预览环境可能会在重启之间重置文件系统，导致本地 PGlite 文件消失。部署之前请将 `DATABASE_URL` 设置为持久化的托管 PostgreSQL 数据库。
 
 ### 本地 Postgres：PGlite {#local-pglite}
 
-如果想在本地针对 Postgres 方言开发,又不想用 Docker 或托管数据库，可以安装可选的 PGlite 包并设置 `DATABASE_URL`：
+如果想在不使用 Docker 或托管数据库的情况下本地开发 PostgreSQL，可以安装可选的 PGlite 包并设置 `DATABASE_URL`：
 
 ```bash
 pnpm add @electric-sql/pglite@^0.5.3
@@ -76,7 +76,7 @@ pnpm add @electric-sql/pglite@^0.5.3
 DATABASE_URL=pglite:./data/pglite
 ```
 
-[PGlite](https://pglite.dev/) 在进程内运行一个基于 WASM 的 Postgres 数据库。它能让你在部署之前发现仅存在于 Postgres 的 schema 问题，同时保持和 SQLite 默认方案一样简单的搭建流程。与 SQLite 一样，它只是本地存储，不要用于生产或共享环境。
+[PGlite](https://pglite.dev/) 在进程内运行一个基于 WASM 的 Postgres 数据库。它能让你在部署之前发现仅存在于 Postgres 的 schema 问题，同时保持和 PGlite 默认方案一样简单的搭建流程。与 PGlite 一样，它只是本地存储，不要用于生产或共享环境。
 
 ### 生产数据库 {#production}
 
@@ -92,8 +92,7 @@ DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6
 # 普通 Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
-# Turso（libSQL）。还需要设置 DATABASE_AUTH_TOKEN。
-DATABASE_URL=libsql://my-db-org.turso.io
+DATABASE_URL=pglite:./data/pglite
 ```
 
 框架会根据 URL 前缀自动检测方言，并相应地配置 Drizzle。
@@ -112,7 +111,7 @@ _计划中（尚未提供）：_ 连接到 Builder.io 后，你的应用将能�
 
 ### 1. 定义你的 schema {#schema}
 
-从 `@agent-native/core/db/schema` 导入 schema 助手，永远不要直接从 `drizzle-orm/sqlite-core` 或 `drizzle-orm/pg-core` 导入。框架提供的助手会生成与方言无关的定义，可在所有受支持的后端上运行。
+从 `@agent-native/core/db/schema` 导入 schema 助手。框架助手会生成适用于 PostgreSQL 和 PGlite 的定义。
 
 ```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
@@ -129,16 +128,16 @@ export const tasks = table("tasks", {
 
 | 助手      | 用途                                                                         |
 | --------- | ---------------------------------------------------------------------------- |
-| `table`   | 定义一个表；会转发给 `pgTable` 或 `sqliteTable`                              |
+| `table`   | 定义一个表，使用 PostgreSQL 助手                              |
 | `text`    | 文本列，支持 `{ enum: [...] }`                                               |
 | `integer` | 整数列，`{ mode: "boolean" }` 会映射到 Postgres 的布尔类型                   |
-| `real`    | 浮点数列。在 SQLite 上映射为 `real`，在 Postgres 上映射为 `double precision` |
-| `now`     | 与方言无关的当前时间戳，用于 `.default(now())`                               |
+| `real`    | 浮点数列。在 PGlite 上映射为 `real`，在 Postgres 上映射为 `double precision` |
+| `now`     | 为 `.default(now())` 设置当前时间戳                                       |
 
 <DataModel
   id="doc-block-3hbven"
   title="tasks 表"
-  summary={"使用框架助手定义一次；具体方言在运行时根据 DATABASE_URL 选定。"}
+  summary={"使用框架助手为 PostgreSQL 和本地 PGlite 定义一次。"}
   entities={[
     {
       id: "tasks",
@@ -198,7 +197,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-`createGetDb` 返回一个 `getDb()` 函数，它在首次调用时打开数据库连接，之后每次调用都返回同一个类型化的 Drizzle 实例。它会在运行时读取 `DATABASE_URL`，以决定使用哪个后端和方言。
+`createGetDb` 返回一个 `getDb()` 函数，它在首次调用时打开 PostgreSQL 连接，之后每次调用都返回同一个类型化的 Drizzle 实例。它会读取 `DATABASE_URL`，连接托管 PostgreSQL 或本地 PGlite。
 
 在 Actions 和路由中都应从这个模板本地路径导入 `getDb`,不要直接从 `@agent-native/core` 导入。核心包导出的版本是无类型的；本地导出的版本携带了你的 schema 类型。
 
@@ -214,7 +213,7 @@ export const getDb = createGetDb(schema);
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -234,8 +233,8 @@ export const getDb = createGetDb(schema);
     },
     {
       lines: "22-25",
-      label: "按方言分支",
-      note: "传入一个以方言为键的对象，为每个后端运行不同的 SQL。对不需要该变更的方言使用 `SELECT 1` 作为空操作。",
+      label: "PostgreSQL SQL",
+      note: "迁移直接使用 PostgreSQL SQL，并按版本顺序应用。",
     },
   ]}
 />
@@ -254,14 +253,12 @@ export const getDb = createGetDb(schema);
 它会创建 `server/db/migrations/<id_name>.sql`，并由
 `runDrizzleMigrations` 在 Node.js 和基于 Node 的 serverless runtime 中将这些
 文件加载到共享的 Agent-Native runner。生产变更仍由发布步骤负责。方言专用
-SQL、D1 行为、数据回填和延迟 JavaScript 步骤继续使用 `runMigrations()`。
+SQL、Postgres 行为、数据回填和延迟 JavaScript 步骤继续使用 `runMigrations()`。
 
 基于文件系统的 loader 不适用于 Cloudflare Workers/Pages 或其他没有可部署
-文件系统的 edge runtime，包括 D1。在这些环境中，请使用嵌入 worker bundle
-的 SQL 条目调用 `runMigrations()`。一个 Drizzle 输出文件夹只有一个方言特定
-的 metadata baseline，因此请针对主要部署方言生成，不要在同一个文件夹中切换
-SQLite 和 PostgreSQL。
-
+文件系统的 edge runtime。在这些环境中，请使用 worker bundle 中嵌入的 PostgreSQL SQL 条目
+调用 `runMigrations()`。请针对 PostgreSQL 生成迁移，不要在同一文件夹中切换本地 PGlite
+和托管 PostgreSQL。
 <Callout tone="risk">
   切勿针对生产数据库运行 `drizzle-kit push`。模板 schema 只定义了应用特有的表；
   它们不包含中心框架表（`user`、`session`、`application_state` 等）。在生产环境
@@ -352,7 +349,7 @@ const rows = await db
 
 这种方式在无服务器和多实例部署下依然有效，因为数据库本身就是协调点。如果你在 Actions 之外编写自定义的写操作，请使用框架助手，或者自行触发相应的同步失效，以便打开的 UI 能够刷新。
 
-<Diagram id="doc-block-qhkdv8" title="基于 SQL 的同步循环" summary="没有监听器，没有粘性状态：一次写入会让 SQL 中的版本号递增；每个客户端轮询该版本号并重新拉取数据。">
+<Diagram id="doc-block-qhkdv8" title="基于 PostgreSQL 的同步循环" summary="没有监听器，没有粘性状态：一次写入会让 PostgreSQL 中的版本号递增；每个客户端轮询该版本号并重新拉取数据。">
 
 ```html
 <div class="diagram-db-sync">
@@ -361,7 +358,7 @@ const rows = await db
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>SQL 数据库</strong
+    <strong>PostgrePostgreSQL 数据库</strong
     ><small class="diagram-muted">同步版本号递增</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
@@ -408,12 +405,12 @@ const rows = await db
 
 </Endpoint>
 
-## 原始 SQL {#raw-sql}
+## 原始 PostgreSQL {#raw-sql}
 
 对于高级查询、健康检查，或 Drizzle 查询构建器无法表达的一次性维护操作，可以使用 `@agent-native/core/db` 中的 `getDbExec`：
 
 ```ts
-import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 
 const { rows } = await getDbExec().execute({
   sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
@@ -421,14 +418,13 @@ const { rows } = await getDbExec().execute({
 });
 ```
 
-`getDbExec` 会自动把 `?` 参数转换为 Postgres 所需的 `$1`、`$2` 等形式。使用 `isPostgres()` 按方言分支处理，使用 `intType()` 返回当前后端对应的正确整数类型。日常的读写请优先使用 Drizzle 查询构建器,原始 SQL 会绕过类型安全，也更难维护。
+`getDbExec` 会自动把 `?` 参数转换为 Postgres 所需的 `$1`、`$2` 等形式。日常的读写请优先使用 Drizzle 查询构建器。原始 SQL 会绕过类型安全，也更难维护。
 
 ## 环境变量 {#environment-variables}
 
 | 变量                  | 用途                                                                                          |
 | --------------------- | --------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | 持久化的 SQL 连接字符串（未设置 = 本地 SQLite；`pglite:./data/pglite` = 可选的本地 Postgres） |
-| `DATABASE_AUTH_TOKEN` | 供需要单独令牌的提供商使用的身份验证令牌，例如 Turso/libSQL                                   |
+| `DATABASE_URL`        | 持久化的 PostgreSQL 连接字符串（未设置 = 本地 PGlite；`pglite:./data/pglite` = 可选的本地 Postgres） |
 
 ## 下一步 {#whats-next}
 

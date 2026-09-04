@@ -32,20 +32,6 @@ describe("repairUnboundedFirstPartyPanels", () => {
     expect(panels[1]).toMatchObject({ id: "broken", sql: fixedSql });
   });
 
-  it("uses SQLite date syntax for SQLite dashboard databases", () => {
-    const [{ legacySql }] = UNBOUNDED_FIRST_PARTY_PANEL_FIXES;
-    const result = repairUnboundedFirstPartyPanels(
-      {
-        panels: [{ source: "first-party", sql: legacySql }],
-      },
-      "sqlite",
-    );
-
-    const panels = result.config.panels as Record<string, unknown>[];
-    expect(panels[0]?.sql).toContain("date('now', '-365 days')");
-    expect(panels[0]?.sql).not.toContain("to_char(CURRENT_DATE");
-  });
-
   it("is a no-op when no panel SQL matches a known-unbounded pattern", () => {
     const config = {
       panels: [{ id: "fine", source: "first-party", sql: "SELECT 1 AS one" }],

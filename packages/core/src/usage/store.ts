@@ -7,7 +7,7 @@
  *
  * Cost is stored as "centicents" (1/100th of a cent) for integer precision.
  */
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -229,7 +229,6 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureUsageTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS token_usage (
           id ${intType()} PRIMARY KEY,
@@ -272,7 +271,7 @@ export async function ensureUsageTable(): Promise<void> {
         ["source_id", "TEXT"],
       ];
 
-      if (isPostgres()) {
+      {
         // Hot path: the `token_usage` table and its index are virtually always
         // already present in production. Issuing `CREATE TABLE`/`ALTER TABLE`/
         // `CREATE INDEX` still takes a lock that, in a fresh background-worker
@@ -324,37 +323,6 @@ export async function ensureUsageTable(): Promise<void> {
         return;
       }
 
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Add columns on older deployments that pre-date the label/cache
-      // fields. Each ALTER is wrapped so a dialect without IF NOT EXISTS
-      // (SQLite) still makes progress if only some columns are missing.
-      for (const [col, def] of additions) {
-        try {
-          await client.execute(
-            `ALTER TABLE token_usage ADD COLUMN ${col} ${def}`,
-          );
-        } catch {
-          // Column already exists — ignore
-        }
-      }
-      // Older deployments created `created_at` as 32-bit `INTEGER`; on Postgres
-      // the `Date.now()` written per run by recordUsage() overflows int4. Widen
-      // it in place (no-op once done / on fresh BIGINT databases).
-      await widenIntColumnsToBigInt("token_usage", ["created_at"]);
-      for (const ddl of [
-        `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
-      ]) {
-        try {
-          await client.execute(ddl);
-        } catch {
-          // coercion-ok: index already exists, or this dialect rejected the
-          // duplicate. Local-dev SQLite only — the hosted path creates these
-          // through the Postgres branch above, which probes before creating.
-        }
-      }
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -678,9 +646,7 @@ export async function getUsageSummary(
     client.execute(bucketSql("app")),
   ]);
 
-  // By-day aggregation — done in JS so we don't depend on dialect-specific
-  // date functions (SQLite `strftime`, Postgres `to_char`). Cheap enough
-  // for a 30-day window; if this grows, swap for a dialect-aware query.
+  // By-day aggregation stays in JS to avoid database-specific date functions.
   const dayRows = await client.execute({
     sql: `SELECT created_at, cost_cents_x100, cost_source FROM token_usage
       WHERE owner_email = ? AND created_at >= ?`,

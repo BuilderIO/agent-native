@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
@@ -77,7 +77,6 @@ export interface UpsertReviewStatusInput {
 export async function ensureReviewTables(): Promise<void> {
   if (!reviewTablesInitPromise) {
     reviewTablesInitPromise = (async () => {
-      const client = getDbExec();
       const createCommentsSql = `CREATE TABLE IF NOT EXISTS agent_review_comments (
       id TEXT PRIMARY KEY,
       resource_type TEXT NOT NULL,
@@ -141,7 +140,7 @@ export async function ensureReviewTables(): Promise<void> {
            ON agent_review_statuses (resource_type, resource_id)`,
       ];
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("agent_review_comments", createCommentsSql);
         await ensureTableExists("agent_review_statuses", createStatusesSql);
         await ensureIndexExists(
@@ -156,12 +155,6 @@ export async function ensureReviewTables(): Promise<void> {
           "idx_agent_review_statuses_resource",
           indexes[5],
         );
-      } else {
-        await client.execute(createCommentsSql);
-        await client.execute(createStatusesSql);
-        for (const indexSql of indexes) {
-          await client.execute(indexSql);
-        }
       }
     })();
   }

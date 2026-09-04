@@ -2,16 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeMock = vi.hoisted(() => vi.fn());
 const transactionMock = vi.hoisted(() => vi.fn());
-const atomicBatchMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
-const isPostgresMock = vi.hoisted(() => vi.fn(() => false));
 const ensureTableExistsMock = vi.hoisted(() => vi.fn());
 const ensureIndexExistsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: getDbExecMock,
-  isPostgres: isPostgresMock,
-  intType: () => "INTEGER",
+  intType: () => "BIGINT",
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -57,12 +54,10 @@ function campaignRow(overrides: Record<string, unknown> = {}) {
 describe("integration campaigns store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    isPostgresMock.mockReturnValue(false);
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
     transactionMock.mockImplementation(async (fn) =>
       fn({ execute: executeMock }),
     );
-    atomicBatchMock.mockResolvedValue([]);
     getDbExecMock.mockReturnValue({
       execute: executeMock,
       transaction: transactionMock,
@@ -71,24 +66,23 @@ describe("integration campaigns store", () => {
     ensureIndexExistsMock.mockResolvedValue(undefined);
   });
 
-  it("creates portable additive DDL with one campaign per integration task", async () => {
+  it("creates additive DDL with one campaign per integration task", async () => {
     const { ensureIntegrationCampaignsTable } = await loadStore();
 
     await ensureIntegrationCampaignsTable();
 
-    const calls = executeMock.mock.calls.map(([query]) => sqlOf(query));
-    expect(calls[0]).toContain(
+    const createSql = ensureTableExistsMock.mock.calls[0]?.[1];
+    expect(createSql).toContain(
       "CREATE TABLE IF NOT EXISTS integration_campaigns",
     );
-    expect(calls[0]).toContain("integration_task_id TEXT NOT NULL UNIQUE");
-    expect(calls[0]).toContain("chunk_count INTEGER NOT NULL DEFAULT 0");
-    expect(calls).toContain(
+    expect(createSql).toContain("integration_task_id TEXT NOT NULL UNIQUE");
+    expect(createSql).toContain("chunk_count BIGINT NOT NULL DEFAULT 0");
+    expect(ensureIndexExistsMock.mock.calls.map(([, sql]) => sql)).toContain(
       "CREATE INDEX IF NOT EXISTS idx_integration_campaigns_due ON integration_campaigns(status, next_run_at)",
     );
   });
 
-  it("uses DDL guards and Postgres RETURNING only on the Postgres path", async () => {
-    isPostgresMock.mockReturnValue(true);
+  it("uses DDL guards and Postgres RETURNING", async () => {
     const { claimIntegrationCampaign } = await loadStore();
     executeMock.mockResolvedValue({ rows: [] });
 
@@ -118,7 +112,7 @@ describe("integration campaigns store", () => {
       const sql = sqlOf(query);
       if (sql.includes("INSERT INTO integration_campaigns")) {
         throw new Error(
-          "UNIQUE constraint failed: integration_campaigns.integration_task_id",
+          "duplicate key value violates unique constraint integration_campaigns.integration_task_id",
         );
       }
       if (sql.includes("WHERE integration_task_id = ?")) {
@@ -145,7 +139,17 @@ describe("integration campaigns store", () => {
     executeMock.mockImplementation(async (query: string | { sql: string }) => {
       const sql = sqlOf(query);
       if (sql.includes("UPDATE integration_campaigns")) {
-        return { rows: [], rowsAffected: 1 };
+        return {
+          rows: [
+            campaignRow({
+              status: "processing",
+              chunk_count: 1,
+              current_run_id: "run-1",
+              lease_token: "lease-1",
+            }),
+          ],
+          rowsAffected: 1,
+        };
       }
       if (sql.includes("WHERE id = ? LIMIT 1")) {
         return {
@@ -197,7 +201,6 @@ describe("integration campaigns store", () => {
 
   it("allows an expired processing lease to be reclaimed by a successor", async () => {
     const { claimIntegrationCampaign } = await loadStore();
-    isPostgresMock.mockReturnValue(true);
     executeMock.mockResolvedValue({
       rows: [
         campaignRow({
@@ -328,7 +331,16 @@ describe("integration campaigns store", () => {
     executeMock.mockImplementation(async (query: string | { sql: string }) => {
       const sql = sqlOf(query);
       if (sql.includes("UPDATE integration_campaigns")) {
-        return { rows: [], rowsAffected: 1 };
+        return {
+          rows: [
+            campaignRow({
+              status: "processing",
+              current_run_id: "delivery-run",
+              lease_token: "delivery-lease",
+            }),
+          ],
+          rowsAffected: 1,
+        };
       }
       if (sql.includes("integration_task_id = ? LIMIT 1")) {
         return {
@@ -362,7 +374,18 @@ describe("integration campaigns store", () => {
     executeMock.mockImplementation(async (query: string | { sql: string }) => {
       const sql = sqlOf(query);
       if (sql.includes("UPDATE integration_campaigns")) {
-        return { rows: [], rowsAffected: 1 };
+        return {
+          rows: [
+            campaignRow({
+              status: "processing",
+              chunk_count: 4,
+              current_run_id: "run-waiting",
+              lease_token: "lease-waiting",
+              checkpoint: JSON.stringify({ waitingForA2A: true }),
+            }),
+          ],
+          rowsAffected: 1,
+        };
       }
       if (sql.includes("WHERE id = ? LIMIT 1")) {
         return {
@@ -443,12 +466,9 @@ describe("integration campaigns store", () => {
   it("atomically completes a leased campaign with its pending task", async () => {
     getDbExecMock.mockReturnValue({
       execute: executeMock,
-      atomicBatch: atomicBatchMock,
+      transaction: transactionMock,
     });
-    atomicBatchMock.mockResolvedValue([
-      { rows: [], rowsAffected: 1 },
-      { rows: [], rowsAffected: 1 },
-    ]);
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
     const { completeIntegrationCampaignTask } = await loadStore();
 
     await expect(
@@ -459,29 +479,30 @@ describe("integration campaigns store", () => {
       }),
     ).resolves.toBe(true);
 
-    const statements = atomicBatchMock.mock.calls[0]![0];
+    const statements = executeMock.mock.calls.map(([query]) => query);
     expect(sqlOf(statements[0]!)).toContain("status = 'completed'");
     expect(sqlOf(statements[0]!)).toContain(
       "current_run_id = ? AND lease_token = ?",
     );
     expect(sqlOf(statements[1]!)).toContain("payload = '{}'");
-    expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
   });
 
   it("lets exactly one overlapping campaign completion keep lease custody", async () => {
     getDbExecMock.mockReturnValue({
       execute: executeMock,
-      atomicBatch: atomicBatchMock,
+      transaction: transactionMock,
     });
-    atomicBatchMock
-      .mockResolvedValueOnce([
-        { rows: [], rowsAffected: 1 },
-        { rows: [], rowsAffected: 1 },
-      ])
-      .mockResolvedValueOnce([
-        { rows: [], rowsAffected: 0 },
-        { rows: [], rowsAffected: 0 },
-      ]);
+    let campaignClaims = 0;
+    executeMock.mockImplementation(async (query) => {
+      const sql = sqlOf(query);
+      if (sql.includes("UPDATE integration_campaigns")) {
+        return {
+          rows: [],
+          rowsAffected: campaignClaims++ === 0 ? 1 : 0,
+        };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
     const { completeIntegrationCampaignTask } = await loadStore();
     const input = {
       integrationTaskId: "task-1",
@@ -520,12 +541,9 @@ describe("integration campaigns store", () => {
   it("atomically contains delivery failure and releases campaign custody", async () => {
     getDbExecMock.mockReturnValue({
       execute: executeMock,
-      atomicBatch: atomicBatchMock,
+      transaction: transactionMock,
     });
-    atomicBatchMock.mockResolvedValue([
-      { rows: [], rowsAffected: 1 },
-      { rows: [], rowsAffected: 1 },
-    ]);
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
     const { failIntegrationCampaignTaskDeliveryContainment } =
       await loadStore();
 
@@ -536,7 +554,7 @@ describe("integration campaigns store", () => {
       ),
     ).resolves.toBe(true);
 
-    const statements = atomicBatchMock.mock.calls[0]![0];
+    const statements = executeMock.mock.calls.map(([query]) => query);
     expect(sqlOf(statements[0]!)).toContain("status = 'failed'");
     expect(sqlOf(statements[0]!)).toContain(
       "status IN ('pending', 'processing', 'waiting')",
@@ -548,17 +566,13 @@ describe("integration campaigns store", () => {
   it("lets exactly one overlapping containment caller release task custody", async () => {
     getDbExecMock.mockReturnValue({
       execute: executeMock,
-      atomicBatch: atomicBatchMock,
+      transaction: transactionMock,
     });
-    atomicBatchMock
-      .mockResolvedValueOnce([
-        { rows: [], rowsAffected: 1 },
-        { rows: [], rowsAffected: 1 },
-      ])
-      .mockResolvedValueOnce([
-        { rows: [], rowsAffected: 0 },
-        { rows: [], rowsAffected: 0 },
-      ]);
+    executeMock
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
     const { failIntegrationCampaignTaskDeliveryContainment } =
       await loadStore();
 
@@ -643,43 +657,12 @@ describe("integration campaigns store", () => {
     );
   });
 
-  it("causally fences the D1 batch task update to the preceding lease update", async () => {
-    getDbExecMock.mockReturnValue({
-      execute: executeMock,
-      atomicBatch: atomicBatchMock,
-    });
-    atomicBatchMock.mockResolvedValue([
-      { rows: [], rowsAffected: 0 },
-      { rows: [], rowsAffected: 0 },
-    ]);
-    const { transitionIntegrationCampaignTaskToDeliveryRetry } =
-      await loadStore();
-
-    await expect(
-      transitionIntegrationCampaignTaskToDeliveryRetry("task-1", {
-        payload: '{"kind":"response-delivery"}',
-        errorMessage: "stale delivery",
-        campaignStatus: "completed",
-        campaignId: "campaign-1",
-        runId: "stale-run",
-        leaseToken: "stale-lease",
-      }),
-    ).resolves.toBe(false);
-
-    const statements = atomicBatchMock.mock.calls[0]![0];
-    expect(statements).toHaveLength(2);
-    expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
-  });
-
   it("atomically hands a partial A2A receipt from the campaign lease to the parent task", async () => {
     getDbExecMock.mockReturnValue({
       execute: executeMock,
-      atomicBatch: atomicBatchMock,
+      transaction: transactionMock,
     });
-    atomicBatchMock.mockResolvedValue([
-      { rows: [], rowsAffected: 1 },
-      { rows: [], rowsAffected: 1 },
-    ]);
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
     const { transitionIntegrationCampaignTaskToA2AReceiptRetry } =
       await loadStore();
 
@@ -694,13 +677,12 @@ describe("integration campaigns store", () => {
       }),
     ).resolves.toBe(true);
 
-    const statements = atomicBatchMock.mock.calls[0]![0];
+    const statements = executeMock.mock.calls.map(([query]) => query);
     expect(sqlOf(statements[0]!)).toContain("SET status = 'waiting'");
     expect(sqlOf(statements[0]!)).toContain(
       "current_run_id = ? AND lease_token = ?",
     );
     expect(sqlOf(statements[1]!)).toContain("status = 'processing'");
-    expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
   });
 
   it("refreshes a partial A2A receipt retry only while the campaign owns waiting custody", async () => {
@@ -724,46 +706,19 @@ describe("integration campaigns store", () => {
   it("atomically completes an A2A parent campaign and its processing task", async () => {
     getDbExecMock.mockReturnValue({
       execute: executeMock,
-      atomicBatch: atomicBatchMock,
+      transaction: transactionMock,
     });
-    atomicBatchMock.mockResolvedValue([
-      { rows: [], rowsAffected: 1 },
-      { rows: [], rowsAffected: 1 },
-    ]);
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
     const { completeIntegrationCampaignTaskAfterA2A } = await loadStore();
 
     await expect(
       completeIntegrationCampaignTaskAfterA2A("task-1"),
     ).resolves.toBe(true);
 
-    const statements = atomicBatchMock.mock.calls[0]![0];
+    const statements = executeMock.mock.calls.map(([query]) => query);
     expect(sqlOf(statements[0]!)).toContain("status = 'completed'");
     expect(sqlOf(statements[0]!)).toContain("status = 'waiting'");
     expect(sqlOf(statements[1]!)).toContain("payload = '{}'");
-    expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
-  });
-
-  it("uses an atomic batch when interactive transactions are unavailable", async () => {
-    getDbExecMock.mockReturnValue({
-      execute: executeMock,
-      atomicBatch: atomicBatchMock,
-    });
-    const { failDisabledIntegrationCampaignTask } = await loadStore();
-
-    await failDisabledIntegrationCampaignTask("task-d1");
-
-    expect(atomicBatchMock).toHaveBeenCalledOnce();
-    expect(atomicBatchMock.mock.calls[0]![0]).toHaveLength(2);
-    expect(transactionMock).not.toHaveBeenCalled();
-  });
-
-  it("fails closed when no atomic cancellation mechanism exists", async () => {
-    getDbExecMock.mockReturnValue({ execute: executeMock });
-    const { failDisabledIntegrationCampaignTask } = await loadStore();
-
-    await expect(
-      failDisabledIntegrationCampaignTask("task-unsafe"),
-    ).rejects.toThrow("does not support atomic campaign cancellation");
   });
 
   it("terminalizes a stale campaign that already exhausted its chunk ceiling", async () => {

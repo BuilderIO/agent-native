@@ -4,8 +4,8 @@
  * Every predicate here reads an INDEXABLE column that the attribute writer
  * already populated (`email_local`/`email_domain`, `email_root_domain`,
  * `domain_root`, `name_first`/`name_last`) rather than pattern-matching a JSON
- * blob at query time — `json_extract` in a WHERE clause is dialect-divergent,
- * and a full scan over `crm_record_fields` is not something a grid can afford.
+ * blob at query time, and a full scan over `crm_record_fields` is not something
+ * a grid can afford.
  *
  * Detection NEVER merges. It returns scored candidates with the reason each one
  * matched, because a duplicate the reviewer cannot see the reason for is a
@@ -163,8 +163,8 @@ interface SeedKeys {
 /**
  * Comparable form of a display name: diacritics folded, punctuation dropped,
  * legal-form suffixes removed. This IS the fuzz — trigram similarity is not
- * expressible in dialect-agnostic SQL, so candidates are narrowed by an indexed
- * prefix and compared here.
+ * expressible in one query, so candidates are narrowed by an indexed prefix and
+ * compared here.
  */
 export function normalizeCrmDisplayName(value: string): string {
   const words = value
@@ -646,8 +646,7 @@ async function matchNameAndLocation(
   const firstWord = keys.normalizedName.split(" ")[0];
   if (!firstWord) return;
 
-  // `lower(...)` on both sides: SQLite LIKE folds ASCII case, Postgres LIKE
-  // does not, and a match that differs by dialect is a bug.
+  // `lower(...)` on both sides makes the PostgreSQL match case-insensitive.
   //
   // ponytail: a leading-wildcard LIKE cannot use an index, so this is a bounded
   // scan capped at MAX_DEDUPE_SCAN rows of the same object type. The upgrade is

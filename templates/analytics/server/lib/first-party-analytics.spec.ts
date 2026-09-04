@@ -20,9 +20,6 @@ const backendMocks = vi.hoisted(() => ({
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
 }));
-const dialectMocks = vi.hoisted(() => ({
-  isPostgres: vi.fn(() => false),
-}));
 const analyticsDbMocks = vi.hoisted(() => {
   const getDb = vi.fn();
   const selectLimit = vi.fn();
@@ -68,7 +65,6 @@ const analyticsDbMocks = vi.hoisted(() => {
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({ execute }),
-  isPostgres: dialectMocks.isPostgres,
 }));
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
@@ -100,7 +96,6 @@ import {
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
-  toSqliteCompatibleFirstPartySql,
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
@@ -138,8 +133,6 @@ beforeEach(() => {
   backendMocks.insert.mockReset();
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
-  dialectMocks.isPostgres.mockReset();
-  dialectMocks.isPostgres.mockReturnValue(false);
   backendMocks.get.mockResolvedValue({
     sink: "postgres",
     table: null,
@@ -521,7 +514,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
   it("rejects comma-separated sources instead of leaving the extra table unscoped", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
-        "SELECT name FROM analytics_events, sqlite_master",
+        "SELECT name FROM analytics_events, information_schema.tables",
       ),
     ).toThrow("Comma-separated table sources");
   });
@@ -529,7 +522,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
   it("rejects quoted table sources that the scoping rewriter cannot replace", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
-        'SELECT name FROM analytics_events, "sqlite_master"',
+        'SELECT name FROM analytics_events, "information_schema"',
       ),
     ).toThrow("Comma-separated table sources");
     expect(() =>
@@ -823,97 +816,5 @@ describe("queryFirstPartyAnalytics", () => {
       rows: [{ count: "1" }],
       schema: [{ name: "count", type: "string" }],
     });
-  });
-
-  // Production evidence 2026-08-22: the seeded first-party dashboard's panel
-  // SQL is authored against Postgres (to_char/INTERVAL/::jsonb ->>), so on a
-  // local SQLite dev database every panel 500'd with
-  // `SqliteError: near "'7 days'": syntax error` /
-  // `SqliteError: unrecognized token: ":"`. This must translate before the
-  // query reaches a non-Postgres sql-store, and must leave Postgres SQL
-  // byte-for-byte alone.
-  it("translates seeded Postgres date/JSON panel SQL for a non-Postgres sql-store", async () => {
-    dialectMocks.isPostgres.mockReturnValue(false);
-    execute.mockResolvedValue({ rows: [{ signups: 0 }], rowsAffected: 0 });
-
-    await queryFirstPartyAnalytics(
-      "SELECT COUNT(*) AS signups FROM analytics_events WHERE event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), 'unknown')) = 'analytics'",
-      { userEmail: "dialect@example.com", orgId: null },
-    );
-
-    const sentSql = execute.mock.calls[0][0].sql as string;
-    expect(sentSql).not.toContain("to_char(");
-    expect(sentSql).not.toContain("INTERVAL");
-    expect(sentSql).not.toContain("::jsonb");
-    expect(sentSql).toContain("json_extract(properties, '$.\"templateId\"')");
-  });
-
-  it("leaves Postgres panel SQL untouched when the sql-store is Postgres", async () => {
-    dialectMocks.isPostgres.mockReturnValue(true);
-    execute.mockResolvedValue({ rows: [{ signups: 0 }], rowsAffected: 0 });
-
-    await queryFirstPartyAnalytics(
-      "SELECT COUNT(*) AS signups FROM analytics_events WHERE event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
-      { userEmail: "postgres@example.com", orgId: null },
-    );
-
-    const sentSql = execute.mock.calls[0][0].sql as string;
-    expect(sentSql).toContain(
-      "to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
-    );
-  });
-});
-
-describe("toSqliteCompatibleFirstPartySql", () => {
-  it("rewrites to_char(CURRENT_DATE - INTERVAL 'N days', ...) to julian-day arithmetic", () => {
-    expect(
-      toSqliteCompatibleFirstPartySql(
-        "event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
-      ),
-    ).toBe("event_date >= date(julianday('now') - 7)");
-  });
-
-  it("rewrites properties::jsonb ->> 'key' to json_extract, including PostHog-style $-prefixed keys", () => {
-    expect(
-      toSqliteCompatibleFirstPartySql("properties::jsonb ->> 'templateId'"),
-    ).toBe(`json_extract(properties, '$."templateId"')`);
-    expect(
-      toSqliteCompatibleFirstPartySql("properties::jsonb ->> '$ai_model'"),
-    ).toBe(`json_extract(properties, '$."$ai_model"')`);
-  });
-
-  it("keeps a date-arithmetic comparison in text form on both sides", () => {
-    // Regression: an earlier version left the left side as a bare
-    // julian-day number, which SQLite always treats as less than any text
-    // value — the WHERE clause silently matched everything.
-    const rewritten = toSqliteCompatibleFirstPartySql(
-      "bounds.start_date + offsets.n <= bounds.end_date",
-    );
-    expect(rewritten).toBe(
-      "date(julianday(bounds.start_date) + offsets.n) <= bounds.end_date",
-    );
-  });
-
-  it("rewrites to_char(date_trunc('week', X), 'YYYY-MM-DD') to a Monday-anchored date()", () => {
-    expect(
-      toSqliteCompatibleFirstPartySql(
-        "to_char(date_trunc('week', event_date), 'YYYY-MM-DD')",
-      ),
-    ).toBe("date(event_date, 'weekday 0', '-6 days')");
-  });
-
-  it("drops Postgres type casts other than ::jsonb", () => {
-    expect(toSqliteCompatibleFirstPartySql("cohort_date::date")).toBe(
-      "cohort_date",
-    );
-    expect(
-      toSqliteCompatibleFirstPartySql("SUM(retained)::float / count"),
-    ).toBe("SUM(retained) / count");
-  });
-
-  it("leaves ordinary SQL with no Postgres-only syntax unchanged", () => {
-    const sql =
-      "SELECT COUNT(*) AS n FROM analytics_events WHERE event_name = 'signup'";
-    expect(toSqliteCompatibleFirstPartySql(sql)).toBe(sql);
   });
 });

@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: mocks.execute }),
-  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -34,7 +33,7 @@ function installSettingsRowCas() {
         rowsAffected: 0,
       };
     }
-    if (/^INSERT OR IGNORE/.test(sql)) {
+    if (/^INSERT INTO/.test(sql)) {
       if (mocks.rows.has(args[0])) return { rows: [], rowsAffected: 0 };
       mocks.rows.set(args[0], args[1]);
       return { rows: [], rowsAffected: 1 };
@@ -86,12 +85,14 @@ describe("withLocalEmailMutationLock", () => {
     expect(mocks.rows.size).toBe(0);
     expect(
       mocks.execute.mock.calls.some(([query]) =>
-        /^INSERT OR IGNORE/.test(query.sql),
+        /^INSERT INTO/.test(query.sql),
       ),
     ).toBe(true);
     expect(
       mocks.execute.mock.calls.some(([query]) =>
-        /^DELETE FROM settings WHERE key = \? AND value = \?/.test(query.sql),
+        /^DELETE FROM (?:public\.)?settings WHERE key = \? AND value = \?/.test(
+          query.sql,
+        ),
       ),
     ).toBe(true);
   });
@@ -109,7 +110,7 @@ describe("withLocalEmailMutationLock", () => {
 
     expect(
       mocks.execute.mock.calls.some(([query]) =>
-        /^UPDATE settings SET value = \?, updated_at = \? WHERE key = \? AND value = \?/.test(
+        /^UPDATE (?:public\.)?settings SET value = \?, updated_at = \? WHERE key = \? AND value = \?/.test(
           query.sql,
         ),
       ),

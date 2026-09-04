@@ -605,7 +605,7 @@ export const calendarEvents = table("calendar_events", {
   externalId: text("external_id").notNull(),
   title: text("title").notNull().default(""),
   description: text("description").notNull().default(""),
-  // ISO timestamps; using TEXT keeps the column dialect-portable.
+  // ISO timestamps supplied by the calendar provider.
   start: text("start").notNull(),
   end: text("end").notNull(),
   organizerEmail: text("organizer_email"),

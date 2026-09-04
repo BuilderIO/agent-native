@@ -107,15 +107,6 @@ export const runPlanMigrations = runMigrations(
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (now())
 )`,
-        sqlite: `CREATE TABLE IF NOT EXISTS plan_shares (
-  id TEXT PRIMARY KEY,
-  resource_id TEXT NOT NULL,
-  principal_type TEXT NOT NULL,
-  principal_id TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'viewer',
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-)`,
       },
     },
     {
@@ -134,21 +125,18 @@ export const runPlanMigrations = runMigrations(
       version: 9,
       sql: {
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS content TEXT`,
-        sqlite: `ALTER TABLE plans ADD COLUMN content TEXT`,
       },
     },
     {
       version: 10,
       sql: {
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_id TEXT`,
-        sqlite: `ALTER TABLE plans ADD COLUMN hosted_plan_id TEXT`,
       },
     },
     {
       version: 11,
       sql: {
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS hosted_plan_url TEXT`,
-        sqlite: `ALTER TABLE plans ADD COLUMN hosted_plan_url TEXT`,
       },
     },
     {
@@ -207,8 +195,6 @@ CREATE INDEX IF NOT EXISTS plan_versions_plan_owner_created_idx ON plan_versions
       sql: {
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'plan';
 UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual recap review'`,
-        sqlite: `ALTER TABLE plans ADD COLUMN kind TEXT NOT NULL DEFAULT 'plan';
-UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual recap review'`,
       },
     },
     {
@@ -236,17 +222,6 @@ ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cache_write_tokens INTEGER;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cost_cents_x100 INTEGER;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_cost_source TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_recorded_at TEXT`,
-        // SQLite has no ADD COLUMN IF NOT EXISTS; runMigrations only runs this
-        // once (tracked in plans_migrations), so a plain ALTER per column is safe.
-        sqlite: `ALTER TABLE plans ADD COLUMN usage_agent TEXT;
-ALTER TABLE plans ADD COLUMN usage_model TEXT;
-ALTER TABLE plans ADD COLUMN usage_input_tokens INTEGER;
-ALTER TABLE plans ADD COLUMN usage_output_tokens INTEGER;
-ALTER TABLE plans ADD COLUMN usage_cache_read_tokens INTEGER;
-ALTER TABLE plans ADD COLUMN usage_cache_write_tokens INTEGER;
-ALTER TABLE plans ADD COLUMN usage_cost_cents_x100 INTEGER;
-ALTER TABLE plans ADD COLUMN usage_cost_source TEXT;
-ALTER TABLE plans ADD COLUMN usage_recorded_at TEXT`,
       },
     },
     {
@@ -307,8 +282,6 @@ CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_commen
       sql: {
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS recap_idempotency_key TEXT;
 CREATE INDEX IF NOT EXISTS plans_recap_idempotency_key_idx ON plans(recap_idempotency_key)`,
-        sqlite: `ALTER TABLE plans ADD COLUMN recap_idempotency_key TEXT;
-CREATE INDEX IF NOT EXISTS plans_recap_idempotency_key_idx ON plans(recap_idempotency_key)`,
       },
     },
     {
@@ -333,13 +306,6 @@ ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_state TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_pr_merged_at TEXT;
 CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type, source_pr_merged_at, updated_at);
 CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number)`,
-        sqlite: `ALTER TABLE plans ADD COLUMN source_type TEXT;
-ALTER TABLE plans ADD COLUMN source_repo TEXT;
-ALTER TABLE plans ADD COLUMN source_pr_number INTEGER;
-ALTER TABLE plans ADD COLUMN source_pr_state TEXT;
-ALTER TABLE plans ADD COLUMN source_pr_merged_at TEXT;
-CREATE INDEX IF NOT EXISTS plans_recap_pr_merged_idx ON plans(kind, source_type, source_pr_merged_at, updated_at);
-CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_number)`,
       },
     },
     {
@@ -348,9 +314,6 @@ CREATE INDEX IF NOT EXISTS plans_source_pr_idx ON plans(source_repo, source_pr_n
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_email TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_name TEXT;
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_login TEXT`,
-        sqlite: `ALTER TABLE plans ADD COLUMN source_author_email TEXT;
-ALTER TABLE plans ADD COLUMN source_author_name TEXT;
-ALTER TABLE plans ADD COLUMN source_author_login TEXT`,
       },
     },
     {
@@ -405,20 +368,6 @@ ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS section_count INTEGER;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_canvas BOOLEAN;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_prototype BOOLEAN;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS preview_text TEXT`,
-        // `ADD COLUMN IF NOT EXISTS` is required on BOTH dialects: this entry
-        // is tracked by `name:`, so it re-applies on any database that already
-        // ran it under the legacy version gate. SQLite has no native
-        // IF NOT EXISTS for ADD COLUMN, but the migration runner emulates it
-        // (strips the clause and swallows duplicate-column errors) only for
-        // statements that originally carry it — a plain ADD COLUMN would
-        // throw on re-apply and crash local dev boot.
-        sqlite: `ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_status TEXT;
-ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS summary_source TEXT;
-ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS block_count INTEGER;
-ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS section_count INTEGER;
-ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_canvas INTEGER;
-ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_prototype INTEGER;
-ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS preview_text TEXT`,
       },
     },
     {
@@ -426,8 +375,6 @@ ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS preview_text TEXT`,
       name: "plan-version-chat-context",
       sql: {
         postgres:
-          "ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS chat_context TEXT",
-        sqlite:
           "ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS chat_context TEXT",
       },
     },

@@ -65,8 +65,8 @@ export const EXTENSIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tools (
   description TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL DEFAULT '',
   icon TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   archived_at TEXT,
   hidden_at TEXT,
   hidden_by TEXT,
@@ -98,7 +98,7 @@ export const EXTENSION_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_shar
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
 export const EXTENSION_SHARES_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_shares (
@@ -135,8 +135,8 @@ export const EXTENSION_DATA_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_data (
   scope TEXT NOT NULL DEFAULT 'user',
   org_id TEXT,
   scope_key TEXT NOT NULL DEFAULT 'local@localhost',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
 export const EXTENSION_DATA_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_data (
@@ -180,7 +180,7 @@ export const EXTENSION_HIDES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_hidde
   id TEXT PRIMARY KEY,
   tool_id TEXT NOT NULL,
   owner_email TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
 export const EXTENSION_HIDES_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_hidden_extensions (
@@ -210,7 +210,7 @@ export const EXTENSION_HISTORY_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_his
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private',
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
 export const EXTENSION_HISTORY_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_history (
@@ -259,7 +259,7 @@ export const EXTENSION_CONSENTS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_co
   viewer_email TEXT NOT NULL,
   tool_id TEXT NOT NULL,
   content_hash TEXT NOT NULL,
-  granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+  granted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (viewer_email, tool_id, content_hash)
 )`;
 

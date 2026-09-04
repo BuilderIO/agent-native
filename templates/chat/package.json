@@ -24,7 +24,6 @@
     "@ai-sdk/mistral": "^3.0.40",
     "@ai-sdk/openai": "^3.0.53",
     "@fontsource-variable/inter": "^5.2.8",
-    "@libsql/client": "^0.15.8",
     "@openrouter/ai-sdk-provider": "^2.9.1",
     "@tabler/icons-react": "catalog:",
     "ai": "6.0.258",

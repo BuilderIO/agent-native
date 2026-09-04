@@ -119,10 +119,13 @@ const queueDb = {
 };
 vi.mock("../db/client.js", () => ({
   getDbExec: () => queueDb,
-  getDialect: () => "sqlite",
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  intType: () => "BIGINT",
   retryOnDdlRace: (fn: () => unknown) => fn(),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 // ── app_state (task records + thread reverse-lookup) ──────────────────────

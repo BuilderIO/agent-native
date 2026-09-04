@@ -8,12 +8,7 @@
 
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 
-import {
-  getDbExec,
-  isConnectionError,
-  intType,
-  isPostgres,
-} from "../db/client.js";
+import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { applicationTypeForRedirectUris } from "./oauth-client-metadata.js";
 
@@ -85,7 +80,6 @@ export const MCP_OAUTH_REGISTER_WINDOW_MS = 60_000;
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createClientsSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
           client_id TEXT PRIMARY KEY,
@@ -133,42 +127,17 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
-        // PG-guard: probe information_schema first (no lock) and only issue
-        // DDL when the table is actually missing, wrapped in a
-        // transaction-scoped lock_timeout so a contended lock fails fast.
-        await ensureTableExists("mcp_oauth_clients", createClientsSql);
-        await ensureColumnExists(
-          "mcp_oauth_clients",
-          "application_type",
-          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
-        );
-        await ensureTableExists("mcp_oauth_codes", createCodesSql);
-        await ensureTableExists(
-          "mcp_oauth_refresh_tokens",
-          createRefreshTokensSql,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
-      // create-then-execute behaviour.
-      await client.execute(createClientsSql);
-      try {
-        await client.execute(
-          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
-        );
-      } catch {
-        try {
-          await client.execute(
-            `ALTER TABLE mcp_oauth_clients ADD COLUMN application_type TEXT`,
-          );
-        } catch {
-          // Fresh and previously migrated databases already have the column.
-        }
-      }
-      await client.execute(createCodesSql);
-      await client.execute(createRefreshTokensSql);
+      await ensureTableExists("mcp_oauth_clients", createClientsSql);
+      await ensureColumnExists(
+        "mcp_oauth_clients",
+        "application_type",
+        `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
+      );
+      await ensureTableExists("mcp_oauth_codes", createCodesSql);
+      await ensureTableExists(
+        "mcp_oauth_refresh_tokens",
+        createRefreshTokensSql,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

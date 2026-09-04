@@ -1,8 +1,6 @@
 import {
   getDbExec,
-  getDialect,
   isLocalDatabase,
-  isPostgres,
   intType,
   type DbExec,
 } from "../db/client.js";
@@ -29,7 +27,6 @@ function escapeLike(s: string): string {
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS application_state (
           session_id TEXT NOT NULL,
@@ -40,58 +37,16 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
-        // Hot path: the `application_state` table and its poll indexes are
-        // virtually always already present in production. Issuing `CREATE
-        // TABLE`/ `CREATE INDEX` still takes a lock that, in a fresh
-        // background-worker process behind a concurrent connection on the
-        // shared Neon DB, can block ~indefinitely (ACCESS EXCLUSIVE for CREATE
-        // TABLE; a write-blocking SHARE lock for CREATE INDEX). The ensure*
-        // wrappers probe `information_schema`/`pg_indexes` first (plain reads,
-        // no lock) and run DDL ONLY for what is actually missing, bounded by a
-        // transaction-scoped `lock_timeout`. If a swallowed lock-timeout leaves
-        // the schema still missing they RE-PROBE and THROW rather than letting
-        // init memoize success against absent schema.
-        await ensureTableExists("application_state", createSql);
-        // Older deployments created `updated_at` as 32-bit `INTEGER`; on Postgres
-        // the `Date.now()` written by appStatePut() on every turn overflows int4.
-        // Widen it in place (no-op once done / on fresh BIGINT databases).
-        await widenIntColumnsToBigInt("application_state", ["updated_at"]);
-        // Indexes for the two hot poll paths. Probe pg_indexes first (no lock)
-        // and skip the SHARE-locking CREATE INDEX when already present.
-        await ensureIndexExists(
-          "app_state_updated_at_idx",
-          `CREATE INDEX IF NOT EXISTS app_state_updated_at_idx ON application_state (updated_at)`,
-        );
-        await ensureIndexExists(
-          "app_state_key_updated_idx",
-          `CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)`,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // Older deployments created `updated_at` as 32-bit `INTEGER`; on Postgres
-      // the `Date.now()` written by appStatePut() on every turn overflows int4.
-      // Widen it in place (no-op once done / on fresh BIGINT databases).
+      await ensureTableExists("application_state", createSql);
       await widenIntColumnsToBigInt("application_state", ["updated_at"]);
-      // Indexes for the two hot poll paths:
-      //  - `SELECT … WHERE updated_at > ?` (watermark scan, every poll cycle)
-      //  - `SELECT … WHERE key = ? … ORDER BY updated_at ASC` (marker lookups)
-      // Both are dialect-agnostic (no DESC/partial/PG-only syntax) so they
-      // apply identically on SQLite and Postgres. IF NOT EXISTS makes them
-      // idempotent across restarts on existing databases.
-      for (const ddl of [
+      await ensureIndexExists(
+        "app_state_updated_at_idx",
         `CREATE INDEX IF NOT EXISTS app_state_updated_at_idx ON application_state (updated_at)`,
+      );
+      await ensureIndexExists(
+        "app_state_key_updated_idx",
         `CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)`,
-      ]) {
-        try {
-          await client.execute(ddl);
-        } catch {
-          // Index already exists or the dialect rejected a duplicate.
-        }
-      }
+      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -177,9 +132,7 @@ export async function appStatePut(
     );
   }
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?)`,
+    sql: `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
     args: [sessionId, key, serialized, Date.now()],
   });
   emitAppStateChange(key, options?.requestSource, sessionId);
@@ -266,9 +219,7 @@ function buildAppStateCompareAndSetStatement(
     }
     const next = serializeAppStateValue(key, nextValue);
     return {
-      sql: isPostgres()
-        ? `INSERT INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?) ON CONFLICT (session_id, key) DO NOTHING`
-        : `INSERT OR IGNORE INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?)`,
+      sql: `INSERT INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?) ON CONFLICT (session_id, key) DO NOTHING`,
       args: [sessionId, key, next, Date.now(), sessionId, key],
     };
   }
@@ -286,39 +237,6 @@ function buildAppStateCompareAndSetStatement(
     sql: `UPDATE application_state SET value = ?, updated_at = ? WHERE session_id = ? AND key = ? AND value = ?`,
     args: [next, Date.now(), sessionId, key, expected],
   };
-}
-
-function buildD1CompareAndSetGuard(
-  sessionId: string,
-  guardKey: string,
-  operation: AppStateCompareAndSetOperation,
-): { sql: string; args: unknown[] } {
-  const expected = operation.expectedValue;
-  const condition =
-    expected === null
-      ? "NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?)"
-      : "EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ? AND value = ?)";
-  return {
-    sql: `INSERT INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, '{}', ? WHERE NOT (${condition})`,
-    args:
-      expected === null
-        ? [sessionId, guardKey, Date.now(), sessionId, operation.key]
-        : [
-            sessionId,
-            guardKey,
-            Date.now(),
-            sessionId,
-            operation.key,
-            JSON.stringify(expected),
-          ],
-  };
-}
-
-function isD1CompareAndSetMismatch(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /unique constraint failed:\s*application_state\.session_id,\s*application_state\.key/i.test(
-    message,
-  );
 }
 
 function serializeAppStateValue(
@@ -356,76 +274,25 @@ export async function appStateCompareAndSetMany(
 
   await ensureTable();
   const client = getDbExec();
-  if (getDialect() === "d1") {
-    if (!client.atomicBatch) {
-      throw new Error(
-        "D1 application-state CAS requires atomic batch support.",
-      );
-    }
-    const guardKey = `__agent_native_cas_guard__:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-    const guardInsert = {
-      sql: `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, '{}', ?)`,
-      args: [sessionId, guardKey, Date.now()],
-    };
-    const guards = orderedOperations.map((operation) =>
-      buildD1CompareAndSetGuard(sessionId, guardKey, operation),
-    );
-    const mutations = orderedOperations.map((operation) =>
-      buildAppStateCompareAndSetStatement(
-        sessionId,
-        operation.key,
-        operation.expectedValue,
-        operation.nextValue,
-      ),
-    );
-    let results;
-    try {
-      results = await client.atomicBatch([
-        guardInsert,
-        ...guards,
-        ...mutations,
-        {
-          sql: `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
-          args: [sessionId, guardKey],
-        },
-      ]);
-    } catch (error) {
-      if (isD1CompareAndSetMismatch(error)) return false;
-      throw error;
-    }
-    const mutationResults = results.slice(
-      1 + guards.length,
-      1 + guards.length + mutations.length,
-    );
-    if (
-      mutationResults.length !== mutations.length ||
-      mutationResults.some((result) => result.rowsAffected !== 1)
-    ) {
-      throw new Error(
-        "D1 application-state CAS completed without applying every mutation.",
-      );
-    }
-  } else {
-    if (!client.transaction) {
-      throw new Error("Application state multi-key CAS requires transactions.");
-    }
-    try {
-      await client.transaction(async (tx) => {
-        for (const operation of orderedOperations) {
-          const changed = await executeAppStateCompareAndSet(
-            tx,
-            sessionId,
-            operation.key,
-            operation.expectedValue,
-            operation.nextValue,
-          );
-          if (!changed) throw APP_STATE_CAS_MISMATCH;
-        }
-      });
-    } catch (error) {
-      if (error === APP_STATE_CAS_MISMATCH) return false;
-      throw error;
-    }
+  if (!client.transaction) {
+    throw new Error("Application state multi-key CAS requires transactions.");
+  }
+  try {
+    await client.transaction(async (tx) => {
+      for (const operation of orderedOperations) {
+        const changed = await executeAppStateCompareAndSet(
+          tx,
+          sessionId,
+          operation.key,
+          operation.expectedValue,
+          operation.nextValue,
+        );
+        if (!changed) throw APP_STATE_CAS_MISMATCH;
+      }
+    });
+  } catch (error) {
+    if (error === APP_STATE_CAS_MISMATCH) return false;
+    throw error;
   }
 
   for (const { key, nextValue } of operations) {

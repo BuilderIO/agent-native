@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-const { isPostgres } = vi.hoisted(() => ({ isPostgres: vi.fn(() => true) }));
-vi.mock("../db/index.js", () => ({ isPostgres }));
-
 import {
   queryPgVectorIndex,
   queryPostgresFts,

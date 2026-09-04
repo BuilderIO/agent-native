@@ -74,11 +74,8 @@ export default defineAction({
     // nulling, section delete/re-insert, comment re-anchor, and the restore
     // event) runs as a single atomic transaction. Without this, a
     // mid-sequence failure could leave the plan with zero sections and
-    // permanently detached comments. better-sqlite3's normally-sync-only
-    // transaction() is patched to support async callbacks in
-    // packages/core/src/db/create-get-db.ts (patchBetterSqliteTransactions,
-    // wired into createGetDb for local sqlite urls), so this is safe on the
-    // local driver as well as libsql/Postgres.
+    // permanently detached comments. createGetDb provides the same async
+    // transaction surface for local PGlite and hosted Postgres.
     await db.transaction(async (tx) => {
       const updatedRows = await tx
         .update(schema.plans)

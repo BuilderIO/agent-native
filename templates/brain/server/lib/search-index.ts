@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import {
   availableEmbeddingFamilies,
   defaultEmbeddingFamily,
@@ -276,7 +276,7 @@ async function indexExternalSearchLanes(input: {
     namespace: SEARCH_NAMESPACE,
   });
   const family = await configuredEmbeddingFamily();
-  if (!family || !isPostgres()) return;
+  if (!family || !true) return;
   const targets = [
     {
       targetType: "artifact" as const,
@@ -387,7 +387,7 @@ async function retireExternalSearchLanesForArtifacts(
         inArray(schema.brainSearchEmbeddings.targetId, targetIds),
       ),
     );
-  if (!isPostgres()) return;
+
   try {
     await deletePostgresFtsDocuments(
       getDbExec(),
@@ -686,7 +686,7 @@ export async function unindexBrainCapture(captureId: string): Promise<void> {
     .update(schema.brainSearchEmbeddings)
     .set({ status: "deleted", updatedAt: now })
     .where(inArray(schema.brainSearchEmbeddings.targetId, targetIds));
-  if (!isPostgres()) return;
+
   try {
     await deletePostgresFtsDocuments(
       getDbExec(),

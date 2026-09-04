@@ -73,8 +73,8 @@ function workspaceAppsManifest(baseUrl: string): string {
   });
 }
 
-function dispatchEnv(baseUrl: string, dbPath: string): NodeJS.ProcessEnv {
-  const databaseUrl = `file:${dbPath}`;
+function dispatchEnv(baseUrl: string, dataDir: string): NodeJS.ProcessEnv {
+  const databaseUrl = `pglite:${dataDir}`;
   return {
     ...process.env,
     APP_NAME: "dispatch",
@@ -86,9 +86,7 @@ function dispatchEnv(baseUrl: string, dbPath: string): NodeJS.ProcessEnv {
     AUTH_SKIP_EMAIL_VERIFICATION: "1",
     BETTER_AUTH_SECRET: "dispatch-automations-smoke-secret",
     DATABASE_URL: databaseUrl,
-    DATABASE_AUTH_TOKEN: "",
     DISPATCH_DATABASE_URL: databaseUrl,
-    DISPATCH_DATABASE_AUTH_TOKEN: "",
     AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsManifest(baseUrl),
     NETLIFY: "",
     VERCEL: "",
@@ -126,7 +124,7 @@ async function waitForReady(baseUrl: string, logs: string[]) {
 
 async function startDispatch(): Promise<RunningDispatch> {
   const baseUrl = `http://127.0.0.1:${port}`;
-  const dbPath = path.join(tmpRoot, "dispatch.db");
+  const dataDir = path.join(tmpRoot, "dispatch-pglite");
   const logs: string[] = [];
   const child = spawn(
     "pnpm",
@@ -143,7 +141,7 @@ async function startDispatch(): Promise<RunningDispatch> {
     ],
     {
       cwd: repoRoot,
-      env: dispatchEnv(baseUrl, dbPath),
+      env: dispatchEnv(baseUrl, dataDir),
       stdio: ["ignore", "pipe", "pipe"],
     },
   );

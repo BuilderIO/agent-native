@@ -6,18 +6,12 @@
  * run-store.ts and usage/store.ts — framework tables use getDbExec()
  * rather than Drizzle ORM (which is for template-level schemas).
  */
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
-import { isDuplicateColumnError } from "../db/migrations.js";
 import type {
   TraceSpan,
   TraceSummary,
@@ -73,8 +67,6 @@ let _initPromise: Promise<void> | undefined;
 export async function ensureObservabilityTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
-
       const traceSpansCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_trace_spans (
           id TEXT PRIMARY KEY,
@@ -209,7 +201,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
+      {
         // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
         await ensureTableExists("agent_trace_spans", traceSpansCreateSql);
         await ensureTableExists(
@@ -323,89 +315,6 @@ export async function ensureObservabilityTables(): Promise<void> {
         );
         return;
       }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await retryOnDdlRace(() => client.execute(traceSpansCreateSql));
-
-      await retryOnDdlRace(() => client.execute(traceSummariesCreateSql));
-
-      await retryOnDdlRace(() => client.execute(feedbackCreateSql));
-
-      await retryOnDdlRace(() => client.execute(satisfactionScoresCreateSql));
-
-      await retryOnDdlRace(() => client.execute(evalsCreateSql));
-
-      await retryOnDdlRace(() => client.execute(evalDatasetsCreateSql));
-
-      await retryOnDdlRace(() => client.execute(experimentsCreateSql));
-
-      // Additive migration for DBs created before the owner column shipped
-      // (any pre-existing rows have NULL owner — see `updateExperiment` for
-      // the migration semantics). Mutations on those rows fall back to the
-      // standard authentication gate but cannot enforce per-owner scoping
-      // until they're re-saved.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_experiments ADD COLUMN owner_email TEXT`,
-        );
-      } catch {
-        // Column already exists — expected after first run.
-      }
-
-      await retryOnDdlRace(() =>
-        client.execute(experimentAssignmentsCreateSql),
-      );
-
-      await retryOnDdlRace(() => client.execute(experimentResultsCreateSql));
-
-      // Idempotent column upgrades for DBs created before per-user
-      // isolation. SQLite has no `ADD COLUMN IF NOT EXISTS`; Postgres
-      // surfaces "column ... already exists". `isDuplicateColumnError`
-      // (from db/migrations.ts) recognizes both shapes.
-      for (const table of USER_SCOPED_TABLES) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
-        } catch (err) {
-          if (isDuplicateColumnError(err)) continue;
-          throw err;
-        }
-      }
-      try {
-        await client.execute(
-          `ALTER TABLE agent_feedback ADD COLUMN idempotency_key TEXT`,
-        );
-      } catch (err) {
-        if (!isDuplicateColumnError(err)) throw err;
-      }
-
-      // Indexes for common query patterns
-      const indexes = [
-        `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_spans_thread ON agent_trace_spans (thread_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_spans_created ON agent_trace_spans (created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_summaries_thread_user_created ON agent_trace_summaries (thread_id, user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_trace_spans_user ON agent_trace_spans (user_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_feedback_thread ON agent_feedback (thread_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_feedback_type_created ON agent_feedback (feedback_type, created_at)`,
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_idempotency ON agent_feedback (user_id, idempotency_key)`,
-        `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_satisfaction_user ON agent_satisfaction_scores (user_id, computed_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_evals_run ON agent_evals (run_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_evals_created ON agent_evals (created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
-      ];
-      for (const sql of indexes) {
-        try {
-          await client.execute(sql);
-        } catch {
-          // Index might already exist
-        }
-      }
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -452,43 +361,7 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
   const client = getDbExec();
   // user_id is intentionally NOT updated on conflict — once a run's
   // owner is recorded it shouldn't change under us.
-  if (isPostgres()) {
-    await client.execute({
-      sql: `INSERT INTO agent_trace_summaries
-        (run_id, thread_id, user_id, total_spans, llm_calls, tool_calls,
-         successful_tools, failed_tools, total_duration_ms,
-         total_cost_cents_x100, total_input_tokens, total_output_tokens,
-         model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (run_id) DO UPDATE SET
-          total_spans = EXCLUDED.total_spans,
-          llm_calls = EXCLUDED.llm_calls,
-          tool_calls = EXCLUDED.tool_calls,
-          successful_tools = EXCLUDED.successful_tools,
-          failed_tools = EXCLUDED.failed_tools,
-          total_duration_ms = EXCLUDED.total_duration_ms,
-          total_cost_cents_x100 = EXCLUDED.total_cost_cents_x100,
-          total_input_tokens = EXCLUDED.total_input_tokens,
-          total_output_tokens = EXCLUDED.total_output_tokens,
-          model = EXCLUDED.model`,
-      args: [
-        summary.runId,
-        summary.threadId,
-        summary.userId,
-        summary.totalSpans,
-        summary.llmCalls,
-        summary.toolCalls,
-        summary.successfulTools,
-        summary.failedTools,
-        summary.totalDurationMs,
-        summary.totalCostCentsX100,
-        summary.totalInputTokens,
-        summary.totalOutputTokens,
-        summary.model,
-        summary.createdAt,
-      ],
-    });
-  } else {
+  {
     await client.execute({
       sql: `INSERT INTO agent_trace_summaries
         (run_id, thread_id, user_id, total_spans, llm_calls, tool_calls,
@@ -746,32 +619,7 @@ export async function upsertSatisfactionScore(
 ): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  if (isPostgres()) {
-    await client.execute({
-      sql: `INSERT INTO agent_satisfaction_scores
-        (id, thread_id, user_id, frustration_score, rephrasing_score,
-         abandonment_score, sentiment_score, length_trend_score, computed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET
-          frustration_score = EXCLUDED.frustration_score,
-          rephrasing_score = EXCLUDED.rephrasing_score,
-          abandonment_score = EXCLUDED.abandonment_score,
-          sentiment_score = EXCLUDED.sentiment_score,
-          length_trend_score = EXCLUDED.length_trend_score,
-          computed_at = EXCLUDED.computed_at`,
-      args: [
-        score.id,
-        score.threadId,
-        score.userId,
-        score.frustrationScore,
-        score.rephrasingScore,
-        score.abandonmentScore,
-        score.sentimentScore,
-        score.lengthTrendScore,
-        score.computedAt,
-      ],
-    });
-  } else {
+  {
     await client.execute({
       sql: `INSERT INTO agent_satisfaction_scores
         (id, thread_id, user_id, frustration_score, rephrasing_score,
@@ -1075,7 +923,7 @@ export async function upsertAssignment(
 ): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  if (isPostgres()) {
+  {
     await client.execute({
       sql: `INSERT INTO agent_experiment_assignments
         (experiment_id, user_id, variant_id, assigned_at)
@@ -1083,18 +931,6 @@ export async function upsertAssignment(
         ON CONFLICT (experiment_id, user_id) DO UPDATE SET
           variant_id = EXCLUDED.variant_id,
           assigned_at = EXCLUDED.assigned_at`,
-      args: [
-        assignment.experimentId,
-        assignment.userId,
-        assignment.variantId,
-        assignment.assignedAt,
-      ],
-    });
-  } else {
-    await client.execute({
-      sql: `INSERT OR REPLACE INTO agent_experiment_assignments
-        (experiment_id, user_id, variant_id, assigned_at)
-        VALUES (?, ?, ?, ?)`,
       args: [
         assignment.experimentId,
         assignment.userId,

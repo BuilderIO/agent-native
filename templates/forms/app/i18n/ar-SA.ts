@@ -331,12 +331,9 @@ const messages = {
     sharePublicly: "مشاركة علنية",
     sharePubliclyDescription: "لمشاركة المحتوى علنًا، صِل قاعدة بيانات سحابية.",
     providerDescriptions: {
-      turso: "SQLite على الحافة",
       neon: "Postgres بلا خوادم",
       supabase: "بديل مفتوح المصدر لـ Firebase",
-      d1: "SQLite على الحافة",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "خطوات الإعداد",
     authToken: "رمز المصادقة",
     connectedReloading: "تم الاتصال بنجاح. جارٍ إعادة التحميل...",

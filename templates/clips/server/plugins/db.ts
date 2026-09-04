@@ -4,7 +4,6 @@ import {
   runMigrations,
   deferMigration,
   getDbExec,
-  isPostgres,
   ensureAdditiveColumns,
   type MigrationRunResult,
 } from "@agent-native/core/db";
@@ -42,20 +41,17 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
  * Post-migration fixup for Postgres: retype boolean-mode columns from bigint
  * to boolean.
  *
- * The early table-create migrations (v4–v14 below) used `INTEGER` because
- * `runMigrations` needs dialect-neutral SQL; `adaptSqlForPostgres` rewrites
- * INTEGER → BIGINT on Postgres. But the Drizzle schema declares these
+ * The early table-create migrations (v4–v14 below) used `INTEGER`, but the
+ * Drizzle schema declares these
  * columns as `integer(..., { mode: "boolean" })` — which on Postgres maps
  * to the `boolean` type. Drizzle then sends `true`/`false` at insert, which
  * Postgres rejects against a bigint column (`invalid input syntax for type
  * bigint: "true"`).
  *
- * This function runs the ALTERs needed to realign live DBs. It's a no-op on
- * SQLite (where booleans are just 0/1 INTEGERs natively) and on Postgres
- * installations where the columns are already BOOLEAN (idempotent check).
+ * This function runs the ALTERs needed to realign live databases and is
+ * idempotent when the columns are already BOOLEAN.
  */
 async function retypeBooleanColumnsOnPostgres(): Promise<void> {
-  if (!isPostgres()) return;
   const exec = getDbExec();
   const alters: Array<[string, string, boolean]> = [
     ["recordings", "has_audio", true],
@@ -250,8 +246,8 @@ export const migrations = runMigrations(
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
       default_visibility TEXT NOT NULL DEFAULT 'public',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -279,7 +275,7 @@ export const migrations = runMigrations(
       invited_by TEXT NOT NULL,
       expires_at TEXT,
       accepted_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -294,7 +290,7 @@ export const migrations = runMigrations(
       color TEXT NOT NULL DEFAULT '#18181B',
       icon_emoji TEXT,
       is_all_company BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -316,7 +312,7 @@ export const migrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       name TEXT NOT NULL DEFAULT 'Untitled folder',
       position INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -362,8 +358,8 @@ export const migrations = runMigrations(
       enable_downloads BOOLEAN NOT NULL DEFAULT TRUE,
       default_speed TEXT NOT NULL DEFAULT '1.2',
       animated_thumbnail_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -380,7 +376,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -405,8 +401,8 @@ export const migrations = runMigrations(
       full_text TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
       failure_reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -418,7 +414,7 @@ export const migrations = runMigrations(
       url TEXT NOT NULL,
       color TEXT NOT NULL DEFAULT '#18181B',
       placement TEXT NOT NULL DEFAULT 'throughout',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -438,8 +434,8 @@ export const migrations = runMigrations(
       video_timestamp_ms INTEGER NOT NULL DEFAULT 0,
       emoji_reactions_json TEXT NOT NULL DEFAULT '{}',
       resolved BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -451,7 +447,7 @@ export const migrations = runMigrations(
       viewer_name TEXT,
       emoji TEXT NOT NULL,
       video_timestamp_ms INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -464,8 +460,8 @@ export const migrations = runMigrations(
       recording_id TEXT NOT NULL,
       viewer_email TEXT,
       viewer_name TEXT,
-      first_viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
-      last_viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      first_viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      last_viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       total_watch_ms INTEGER NOT NULL DEFAULT 0,
       completed_pct INTEGER NOT NULL DEFAULT 0,
       counted_view BOOLEAN NOT NULL DEFAULT FALSE,
@@ -481,7 +477,7 @@ export const migrations = runMigrations(
       kind TEXT NOT NULL,
       timestamp_ms INTEGER NOT NULL DEFAULT 0,
       payload TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -500,8 +496,8 @@ export const migrations = runMigrations(
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
       default_visibility TEXT NOT NULL DEFAULT 'public',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -528,8 +524,8 @@ export const migrations = runMigrations(
       action_items_json TEXT NOT NULL DEFAULT '[]',
       source TEXT NOT NULL DEFAULT 'adhoc',
       reminder_fired_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -546,7 +542,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -558,7 +554,7 @@ export const migrations = runMigrations(
       name TEXT,
       is_organizer BOOLEAN NOT NULL DEFAULT FALSE,
       attended_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -570,7 +566,7 @@ export const migrations = runMigrations(
       text TEXT NOT NULL,
       due_date TEXT,
       completed_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -589,8 +585,8 @@ export const migrations = runMigrations(
       last_synced_at TEXT,
       last_sync_error TEXT,
       status TEXT NOT NULL DEFAULT 'connected',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -605,7 +601,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -624,8 +620,8 @@ export const migrations = runMigrations(
       attendees_json TEXT NOT NULL DEFAULT '[]',
       meeting_id TEXT,
       provider_updated_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -641,9 +637,9 @@ export const migrations = runMigrations(
       audio_url TEXT,
       source TEXT NOT NULL DEFAULT 'fn-hold',
       target_app TEXT,
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -658,7 +654,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -691,8 +687,8 @@ export const migrations = runMigrations(
       action_items_json TEXT NOT NULL DEFAULT '[]',
       source TEXT NOT NULL DEFAULT 'adhoc',
       reminder_fired_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -709,7 +705,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -722,9 +718,9 @@ export const migrations = runMigrations(
       audio_url TEXT,
       source TEXT NOT NULL DEFAULT 'fn-hold',
       target_app TEXT,
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -739,12 +735,11 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // -------------------------------------------------------------------------
-    // Indices for hot list-query paths on meetings + dictations. Additive only;
-    // CREATE INDEX IF NOT EXISTS works on both SQLite and Postgres.
+    // Indices for hot list-query paths on meetings + dictations. Additive only.
     // -------------------------------------------------------------------------
     {
       version: 30,
@@ -795,7 +790,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -818,8 +813,7 @@ export const migrations = runMigrations(
     // Indices for the hot recordings list/read paths, per-recording comment
     // loads, and the `accessFilter` share-lookup EXISTS subqueries that run on
     // every list/read of recordings, meetings, dictations, and calendar
-    // accounts. Strictly additive; `CREATE INDEX IF NOT EXISTS` works on both
-    // SQLite and Postgres. The composite share index matches the subquery's
+    // accounts. Strictly additive. The composite share index matches the subquery's
     // `(resource_id, principal_type, principal_id)` predicate exactly.
     //
     // `clips_vocabulary_shares` already has a `resource_id` index (v37) and is
@@ -875,8 +869,8 @@ export const migrations = runMigrations(
           console_logs_json TEXT NOT NULL DEFAULT '[]',
           network_requests_json TEXT NOT NULL DEFAULT '[]',
           redaction_version INTEGER NOT NULL DEFAULT 1,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_browser_diagnostics_owner_idx ON recording_browser_diagnostics (owner_email, updated_at)`,
       ].join("; "),
@@ -901,8 +895,8 @@ export const migrations = runMigrations(
           org_id TEXT,
           status TEXT NOT NULL DEFAULT 'connected',
           last_error TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS slack_installations_team_status_idx ON slack_installations (team_id, status)`,
         `CREATE INDEX IF NOT EXISTS slack_installations_team_app_status_idx ON slack_installations (team_id, api_app_id, status)`,
@@ -930,9 +924,9 @@ export const migrations = runMigrations(
           reporter_name TEXT,
           reporter_id TEXT,
           metadata_json TEXT NOT NULL DEFAULT '{}',
-          submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          submitted_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_owner_idx ON recording_bug_reports (owner_email, updated_at)`,
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_project_idx ON recording_bug_reports (project_id, updated_at)`,
@@ -962,7 +956,7 @@ export const migrations = runMigrations(
           view_session_id TEXT,
           viewer_email TEXT,
           viewer_name TEXT,
-          viewed_at TEXT NOT NULL DEFAULT (datetime('now'))
+          viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_views_recording_idx ON recording_views (recording_id, viewed_at)`,
       ].join("; "),
@@ -1015,8 +1009,8 @@ export const migrations = runMigrations(
           agent_key TEXT NOT NULL,
           agent_label TEXT,
           view_session_id TEXT NOT NULL,
-          first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
-          last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          first_seen_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          last_seen_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
           request_count INTEGER NOT NULL DEFAULT 1
         )`,
         `CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_views_session_unique_idx ON recording_agent_views (recording_id, agent_key, view_session_id)`,
@@ -1083,8 +1077,8 @@ export const migrations = runMigrations(
       viewer_key TEXT NOT NULL,
       viewer_email TEXT,
       position_ms INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
     CREATE UNIQUE INDEX IF NOT EXISTS recording_playback_positions_recording_viewer_key_unique_idx
       ON recording_playback_positions (recording_id, viewer_key)`,
@@ -1130,7 +1124,6 @@ export const migrations = runMigrations(
       // that predate BOOLEAN, and it probes information_schema to decide. Once
       // applied it can never have anything left to do, so recording it removes
       // the probe from the boot path entirely instead of paying it forever.
-      // No-ops on SQLite, which never had the wrong type.
       sql: {},
       run: retypeBooleanColumnsOnPostgres,
     },
@@ -1157,7 +1150,7 @@ export const migrations = runMigrations(
     {
       version: 65,
       name: "recording-media-updated-at",
-      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
     },
     {
       version: 66,
@@ -1179,8 +1172,8 @@ export const migrations = runMigrations(
           month TEXT,
           generated_summary TEXT,
           attempts INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
           ai_dispatched_at TEXT,
           ai_claimed_by TEXT,
           ready_at TEXT,
@@ -1233,7 +1226,6 @@ export const migrations = runMigrations(
  */
 async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   const exec = getDbExec();
-  const pg = isPostgres();
 
   // 0) Skip cleanly if either source or dest tables don't exist yet. The
   //    source may be missing on fresh installs after the workspace tables
@@ -1242,15 +1234,8 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //    very first boot.
   const hasTable = async (name: string): Promise<boolean> => {
     try {
-      if (pg) {
-        const r = await exec.execute({
-          sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
-          args: [name],
-        });
-        return (r.rows?.length ?? 0) > 0;
-      }
       const r = await exec.execute({
-        sql: `SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?`,
+        sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
         args: [name],
       });
       return (r.rows?.length ?? 0) > 0;
@@ -1509,20 +1494,11 @@ function assertSafeIdentifier(name: string): string {
 
 async function tableExists(name: string): Promise<boolean> {
   const exec = getDbExec();
-  const pg = isPostgres();
   assertSafeIdentifier(name);
 
   try {
-    if (pg) {
-      const result = await exec.execute({
-        sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
-        args: [name],
-      });
-      return (result.rows?.length ?? 0) > 0;
-    }
-
     const result = await exec.execute({
-      sql: `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
       args: [name],
     });
     return (result.rows?.length ?? 0) > 0;
@@ -1536,7 +1512,7 @@ async function tableHasColumns(
   columns: readonly string[],
 ): Promise<boolean> {
   const exec = getDbExec();
-  const pg = isPostgres();
+  const pg = true;
   assertSafeIdentifier(name);
 
   if (!(await tableExists(name))) return false;
@@ -1555,13 +1531,7 @@ async function tableHasColumns(
       return columns.every((column) => present.has(column));
     }
 
-    const result = await exec.execute(
-      `PRAGMA table_info(${assertSafeIdentifier(name)})`,
-    );
-    const present = new Set(
-      (result.rows as Array<{ name?: string }>).map((row) => row.name),
-    );
-    return columns.every((column) => present.has(column));
+    return false;
   } catch {
     return false;
   }

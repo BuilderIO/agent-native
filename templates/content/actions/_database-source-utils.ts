@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-import { getDialect, type Dialect } from "@agent-native/core/db";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -638,15 +637,11 @@ const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
 const SOURCE_VALUES_JSON_COLUMN =
   '"content_database_source_rows"."source_values_json"';
 
-export function sourceSnapshotValuesJsonProjectionSql(dialect: Dialect) {
+export function sourceSnapshotValuesJsonProjectionSql() {
   const keys = Array.from(HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS);
-  if (dialect === "postgres") {
-    return `COALESCE((${SOURCE_VALUES_JSON_COLUMN}::jsonb${keys
-      .map((key) => ` - '${key}'`)
-      .join("")})::text, '{}')`;
-  }
-  const paths = keys.map((key) => `'$."${key}"'`);
-  return `COALESCE(json_remove(${SOURCE_VALUES_JSON_COLUMN}, ${paths.join(", ")}), '{}')`;
+  return `COALESCE((${SOURCE_VALUES_JSON_COLUMN}::jsonb${keys
+    .map((key) => ` - '${key}'`)
+    .join("")})::text, '{}')`;
 }
 
 function sourceSnapshotRowSelection(args: {
@@ -663,9 +658,7 @@ function sourceSnapshotRowSelection(args: {
     sourceQualifiedId: row.sourceQualifiedId,
     sourceDisplayKey: row.sourceDisplayKey,
     sourceValuesJson: args.stripHeavyBuilderBodyValues
-      ? sql<string>`${sql.raw(
-          sourceSnapshotValuesJsonProjectionSql(getDialect()),
-        )}`
+      ? sql<string>`${sql.raw(sourceSnapshotValuesJsonProjectionSql())}`
       : row.sourceValuesJson,
     provenance: row.provenance,
     syncState: row.syncState,
@@ -2818,16 +2811,13 @@ async function persistPristineBuilderBodyHydrationsInBulk(
   return persistedJobIds;
 }
 
-export function builderBodyHydrationBulkChunkLimit(
-  dialect: Dialect = getDialect(),
-) {
-  const portableLimit = bulkChunkSizeForColumnCount(
-    BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW,
-    dialect,
+export function builderBodyHydrationBulkChunkLimit() {
+  return Math.max(
+    bulkChunkSizeForColumnCount(
+      BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW,
+    ),
+    BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT,
   );
-  return dialect === "postgres"
-    ? Math.max(portableLimit, BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT)
-    : portableLimit;
 }
 
 async function enqueueStaleBuilderBodyHydrationForOpenDocument(args: {
@@ -4140,9 +4130,7 @@ export function builderReviewSourceValueTextProjection(
   key: BuilderReviewSourceValueTextKey,
 ) {
   const sourceValuesJson = schema.contentDatabaseSourceRows.sourceValuesJson;
-  return getDialect() === "postgres"
-    ? sql<string>`COALESCE(${sourceValuesJson}::jsonb ->> ${key}, '')`
-    : sql<string>`COALESCE(json_extract(${sourceValuesJson}, ${`$."${key}"`}), '')`;
+  return sql<string>`COALESCE(${sourceValuesJson}::jsonb ->> ${key}, '')`;
 }
 
 async function findBuilderReviewBodyCandidateDocumentIds(args: {

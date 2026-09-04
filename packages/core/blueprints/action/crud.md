@@ -56,8 +56,8 @@ Read the `actions` skill. The rules that matter most here:
    });
    ```
 
-   - Use Drizzle's query builder and portable `drizzle-orm` operators — no raw
-     SQL, no dialect-specific imports, no `getDbExec()` for normal actions.
+   - Use Drizzle's PostgreSQL query builder and `drizzle-orm` operators - no raw
+     SQL, no direct schema-driver imports, no `getDbExec()` for normal actions.
    - Use `z.coerce.number()` for numeric HTTP params; for booleans use an
      explicit string parser (not `z.coerce.boolean()`).
    - If only the UI/HTTP needs it (not the model), set `agentTool: false` to

@@ -4,9 +4,7 @@
  *
  * Lives in its own module (like `./widen-columns.js`) so stores/plugins can
  * import it without every `vi.mock("../db/client.js")` test needing to stub
- * it: the helper resolves `isPostgres()` / `getDbExec()` through `client.js`,
- * so a test that mocks the client to SQLite makes the Postgres introspection
- * path a no-op automatically.
+ * it: the helper works directly against Postgres information_schema.
  *
  * ## Why
  *
@@ -56,7 +54,6 @@
  */
 
 import {
-  isPostgres,
   isProductionServerlessFunctionRuntime,
   type DbExec,
 } from "./client.js";
@@ -76,10 +73,7 @@ const defaultLogger: EnsureAdditiveColumnsLogger = {
 };
 
 /**
- * Minimal shape this module needs from a Drizzle column — matches both
- * `drizzle-orm/pg-core` and `drizzle-orm/sqlite-core` column instances (and
- * the dialect-agnostic wrappers in `./schema.js`, which delegate to one or
- * the other at runtime).
+ * Minimal shape this module needs from a Drizzle Postgres column.
  */
 interface DeclaredColumnLike {
   name: string;
@@ -97,7 +91,7 @@ interface DeclaredTableLike {
 
 export interface EnsureAdditiveColumnsOptions {
   db: DbExec;
-  /** Drizzle table objects (from `pgTable`/`sqliteTable`, or the dialect-agnostic `table()` helper). */
+  /** Drizzle table objects from `pgTable` or the shared Postgres table helper. */
   tables: unknown[];
   logger?: EnsureAdditiveColumnsLogger;
 }
@@ -117,23 +111,10 @@ function emptyResult(): EnsureAdditiveColumnsResult {
   return { mode: "checked", applied: [], skipped: [], errors: [] };
 }
 
-/**
- * Resolve `getTableConfig` for the dialect currently in effect. Both
- * `drizzle-orm/pg-core` and `drizzle-orm/sqlite-core` export a function with
- * this name and a compatible-enough shape (`{ columns, name, schema? }`), but
- * each only understands its own table class — calling the wrong one throws.
- * `table()` from `./schema.js` builds a `pgTable` on Postgres and a
- * `sqliteTable` everywhere else, so the same dialect switch used there
- * decides which `getTableConfig` to load here.
- */
 async function loadGetTableConfig(): Promise<
   (table: unknown) => DeclaredTableLike
 > {
-  if (isPostgres()) {
-    const { getTableConfig } = await import("drizzle-orm/pg-core");
-    return getTableConfig as unknown as (table: unknown) => DeclaredTableLike;
-  }
-  const { getTableConfig } = await import("drizzle-orm/sqlite-core");
+  const { getTableConfig } = await import("drizzle-orm/pg-core");
   return getTableConfig as unknown as (table: unknown) => DeclaredTableLike;
 }
 
@@ -179,32 +160,6 @@ async function introspectPostgresColumns(
   return columns;
 }
 
-/**
- * Live SQLite columns already present on `table`, keyed by column name.
- * Returns `null` when the table does not exist or introspection fails.
- */
-async function introspectSqliteLiveColumns(
-  db: DbExec,
-  table: string,
-): Promise<Set<string> | null> {
-  // SQLite: PRAGMA table_info returns zero rows for a non-existent table
-  // (no error), so we can't distinguish "missing table" from "no columns"
-  // that way — probe sqlite_master first.
-  try {
-    const { rows: existsRows } = await db.execute({
-      sql: `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
-      args: [table],
-    });
-    if (existsRows.length === 0) return null;
-    // PRAGMA doesn't support bound parameters; the table name is already
-    // validated against PLAIN_IDENTIFIER by the caller before we get here.
-    const { rows } = await db.execute(`PRAGMA table_info("${table}")`);
-    return new Set(rows.map((r) => String(r.name)));
-  } catch {
-    return null;
-  }
-}
-
 /** Quote a validated identifier for use in generated SQL. */
 function quoteIdent(name: string): string {
   return `"${name}"`;
@@ -226,14 +181,14 @@ function renderDefaultLiteral(column: DeclaredColumnLike): string | undefined {
     return String(value);
   }
   if (typeof value === "boolean") {
-    return isPostgres() ? (value ? "true" : "false") : value ? "1" : "0";
+    return value ? "true" : "false";
   }
   if (typeof value === "string") {
     // Escape single quotes for a plain string literal.
     return `'${value.replace(/'/g, "''")}'`;
   }
 
-  // Drizzle `sql` template defaults (e.g. `now()`, `(datetime('now'))`) carry
+  // Drizzle `sql` template defaults (for example `now()`) carry
   // a `queryChunks`/`toQuery`-style object rather than a plain scalar. Only
   // render the handful of known-safe constants used by this codebase's
   // `now()` helper (see ./schema.ts) — never stringify arbitrary SQL.
@@ -242,7 +197,6 @@ function renderDefaultLiteral(column: DeclaredColumnLike): string | undefined {
   const normalized = raw.trim().toLowerCase();
   const SAFE_SQL_DEFAULTS = new Set([
     "now()",
-    "(datetime('now'))",
     "current_timestamp",
     "current_date",
     "current_time",
@@ -284,11 +238,8 @@ function sqlDefaultText(value: unknown): string | undefined {
 /** True when an ALTER ... ADD COLUMN failure indicates the column already exists (race with a concurrent boot). */
 function isDuplicateColumnError(err: unknown): boolean {
   const msg = (err as { message?: string } | undefined)?.message ?? "";
-  return (
-    /duplicate column name/i.test(msg) ||
-    /column .* already exists/i.test(msg) ||
-    (err as { code?: string } | undefined)?.code === "42701"
-  );
+  return /column .* already exists/i.test(msg) ||
+    (err as { code?: string } | undefined)?.code === "42701";
 }
 
 /** Annotate a schema-drift-shaped Postgres error (42703/42P01) so logs read plainly. */
@@ -342,7 +293,7 @@ export async function ensureAdditiveColumns(
         declaredTables.push(config);
       }
     } catch (err) {
-      // Not a table this dialect's getTableConfig understands (e.g. a stray
+      // Not a table the getTableConfig helper understands (for example a stray
       // export that isn't a Drizzle table) — skip quietly rather than
       // erroring the whole run over one bad entry.
       logger.warn(
@@ -352,29 +303,26 @@ export async function ensureAdditiveColumns(
   }
 
   let postgresColumns: Map<string, Set<string>> | null = null;
-  if (isPostgres()) {
-    try {
-      postgresColumns = await introspectPostgresColumns(db, declaredTables);
-    } catch (err) {
-      // One batch probe now covers every table, so its failure means nothing
-      // was checked. Returning an empty-but-clean result here would be
-      // indistinguishable from "schema already correct".
-      result.errors.push({
-        column: "*",
-        error: describeSchemaDriftError(err),
-      });
-      return result;
-    }
+  try {
+    postgresColumns = await introspectPostgresColumns(db, declaredTables);
+  } catch (err) {
+    // One batch probe now covers every table, so its failure means nothing
+    // was checked. Returning an empty-but-clean result here would be
+    // indistinguishable from "schema already correct".
+    result.errors.push({
+      column: "*",
+      error: describeSchemaDriftError(err),
+    });
+    return result;
   }
 
   for (const config of declaredTables) {
     const tableName = config.name;
     let liveColumns: Set<string> | null;
     try {
-      liveColumns = isPostgres()
-        ? (postgresColumns?.get(`${config.schema || "public"}.${tableName}`) ??
-          null)
-        : await introspectSqliteLiveColumns(db, tableName);
+      liveColumns =
+        postgresColumns?.get(`${config.schema || "public"}.${tableName}`) ??
+        null;
     } catch (err) {
       result.errors.push({
         column: `${tableName}.*`,

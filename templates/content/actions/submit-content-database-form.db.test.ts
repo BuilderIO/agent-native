@@ -11,7 +11,7 @@ import { serializePropertyOptions } from "../shared/properties.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-database-form-${process.pid}-${Date.now()}.sqlite`,
+  `content-database-form-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "form-owner@example.com";
 
@@ -22,7 +22,7 @@ let submitForm: typeof import("./submit-content-database-form.js").default;
 let spaceId: string;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -56,9 +56,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function seedFormDatabase() {
@@ -379,11 +377,22 @@ describe("submit-content-database-form", () => {
   it("rolls back the document and item when an in-transaction property write fails", async () => {
     const seeded = await seedFormDatabase();
     const triggerName = `force_form_rollback_${Date.now()}`;
+    const functionName = `${triggerName}_fn`;
+    await getDbExec().execute(
+      `CREATE FUNCTION ${functionName}() RETURNS trigger
+       LANGUAGE plpgsql AS $form$
+       BEGIN
+         IF NEW.property_id = '${seeded.priorityId}' THEN
+           RAISE EXCEPTION 'forced form rollback';
+         END IF;
+         RETURN NEW;
+       END;
+       $form$`,
+    );
     await getDbExec().execute(
       `CREATE TRIGGER ${triggerName}
        BEFORE INSERT ON document_property_values
-       WHEN NEW.property_id = '${seeded.priorityId}'
-       BEGIN SELECT RAISE(ABORT, 'forced form rollback'); END`,
+       FOR EACH ROW EXECUTE FUNCTION ${functionName}()`,
     );
     try {
       await expect(
@@ -400,7 +409,10 @@ describe("submit-content-database-form", () => {
         ),
       ).rejects.toThrow("forced form rollback");
     } finally {
-      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+      await getDbExec().execute(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON document_property_values`,
+      );
+      await getDbExec().execute(`DROP FUNCTION IF EXISTS ${functionName}()`);
     }
 
     const db = getDb();

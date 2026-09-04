@@ -87,7 +87,6 @@ catalog:
 
 onlyBuiltDependencies:
   - "@swc/core"
-  - better-sqlite3
   - canvas
   - electron
   - esbuild
@@ -108,7 +107,6 @@ allowBuilds:
   "@google/genai": true
   "@parcel/watcher": true
   "@swc/core": true
-  better-sqlite3: true
   canvas: true
   core-js: true
   electron: true

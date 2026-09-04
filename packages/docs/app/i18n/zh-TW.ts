@@ -152,8 +152,8 @@ const messages = {
           body: "一次定義工作，然後從 UI、agent、HTTP、MCP、A2A 和 CLI 使用。",
         },
         sqlStateOrm: {
-          title: "SQL 狀態與 ORM",
-          body: "持久應用資料、application state、遷移，以及不綁供應商的 schema。",
+          title: "PostgreSQL 狀態與 ORM",
+          body: "持久應用資料、application state、遷移，以及 PostgreSQL/PGlite schema。",
         },
         dbAdmin: {
           title: "資料庫管理",
@@ -205,7 +205,8 @@ const messages = {
       title: "面向 agent-native apps 的框架",
       body1:
         "Agent-Native 是一個開放原始碼框架，用來建置 agentic applications：從 Chat 開始，定義共享 actions，再圍繞同一份 state 新增 UI、jobs 和協作。",
-      body2: "使用你自己的資料庫、託管服務、模型堆疊和 app 程式碼。",
+      body2:
+        "使用本機 PGlite 或託管 PostgreSQL，以及你自己的託管服務、模型堆疊和 app 程式碼。",
       cta: "閱讀框架指南",
       primitives: {
         actions: {
@@ -222,10 +223,10 @@ const messages = {
           description:
             "app-agent loop、tools、skills、memory、jobs 和可觀測性一起交付。",
         },
-        backendAgnostic: {
-          title: "後端無關",
+        postgresSpecific: {
+          title: "PostgreSQL 專用",
           description:
-            "接入任何 Drizzle 支援的 SQL 資料庫和 Nitro 相容的託管環境。",
+            "使用框架的 PostgreSQL schema 幫助程式，在本機使用 PGlite，或在任何 Nitro 相容主機上使用託管 Postgres。",
         },
       },
     },
@@ -303,7 +304,7 @@ const messages = {
     },
     quickStart: {
       title: "從一條指令開始",
-      body: "一條指令會建立一個聊天優先的本機 app，背後有 actions、durable threads 和 SQLite 支撐。只有 automation-first workflow 暫時不需要瀏覽器 UI 時才使用 `--headless`。",
+      body: "一條指令會建立一個聊天優先的本機 app，背後有 actions、durable threads 和 PGlite 支撐。只有 automation-first workflow 暫時不需要瀏覽器 UI 時才使用 `--headless`。",
     },
     finalCta: {
       title: "為 agentic 時代而建的軟體",
@@ -459,7 +460,7 @@ const messages = {
           body: "agent 知道使用者正在查看、選取和編輯的內容。",
         },
         sharedSql: {
-          title: "共用的 SQL 資料",
+          title: "共用的 PostgreSQL 資料",
           body: "使用者和 agent 讀取並更新同一份可信資料來源。",
         },
         skillsMemory: {
@@ -2064,8 +2065,6 @@ const messages = {
     databaseProviders: "資料庫提供者",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "國際化",
     localFileMode: "本機檔案模式",

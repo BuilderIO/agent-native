@@ -89,7 +89,9 @@ const mockDb = {
       ] = args;
       if (rows.some((r) => r.id === id)) {
         // Emulate a PK-collision throw so the .catch(() => {}) path is real.
-        throw new Error("UNIQUE constraint failed: agent_runs.id");
+        throw new Error(
+          "duplicate key value violates unique constraint agent_runs_pkey",
+        );
       }
       rows.push({
         id,
@@ -242,8 +244,12 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  intType: () => "BIGINT",
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/capture-error.js", () => ({

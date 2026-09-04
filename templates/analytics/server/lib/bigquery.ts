@@ -202,7 +202,7 @@ async function setL2(
     const now = new Date();
     const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
     const serialized = JSON.stringify(result);
-    // Upsert — use delete+insert to stay dialect-agnostic (SQLite/Postgres).
+    // Upsert - use delete+insert to keep the sink write semantics explicit.
     await db.execute({
       sql: "DELETE FROM bigquery_cache WHERE key = ?",
       args: [key],

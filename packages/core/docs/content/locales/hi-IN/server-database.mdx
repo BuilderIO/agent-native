@@ -1,13 +1,13 @@
 ---
 title: "डेटाबेस"
-description: "अपने एजेंट-नेटिव ऐप से एक पोर्टेबल SQL डेटाबेस कनेक्ट करें: स्कीमा हेल्पर्स, माइग्रेशन, और होस्ट किए गए डेटाबेस विकल्प।"
+description: "अपने Agent-Native ऐप को PostgreSQL से जोड़ें: स्कीमा हेल्पर्स, माइग्रेशन और local PGlite या hosted Postgres।"
 ---
 
 # डेटाबेस
 
-हर एजेंट-नेटिव ऐप अपनी स्थिति SQL में संग्रहीत करता है। UI और एजेंट दोनों एक ही [Drizzle ORM](https://orm.drizzle.team) क्लाइंट का उपयोग करते हुए, एक ही Actions के माध्यम से एक ही तालिकाओं को पढ़ते और लिखते हैं। लाइव सिंक SSE का उपयोग करता है और पोलिंग को fallback के रूप में रखता है, इसलिए बदलाव दूसरे surface में manual refresh के बिना दिखाई देते हैं।
+हर एजेंट-नेटिव ऐप अपनी स्थिति PostgreSQL में संग्रहीत करता है। UI और एजेंट दोनों एक ही [Drizzle ORM](https://orm.drizzle.team) क्लाइंट का उपयोग करते हुए, एक ही Actions के माध्यम से एक ही तालिकाओं को पढ़ते और लिखते हैं। लाइव सिंक SSE का उपयोग करता है और पोलिंग को fallback के रूप में रखता है, इसलिए बदलाव दूसरे surface में manual refresh के बिना दिखाई देते हैं।
 
-<Diagram id="doc-block-9mtx2f" title="डेटा डेटाबेस तक कैसे प्रवाहित होता है" summary="UI और एजेंट दोनों एक ही Actions परत के माध्यम से डेटाबेस तक पहुँचते हैं। दोनों कॉलर एक ही getDb() क्लाइंट और एक ही SQL तालिकाओं का उपयोग करते हैं। हर एक के लिए कोई अलग बैकएंड नहीं है।">
+<Diagram id="doc-block-9mtx2f" title="डेटा डेटाबेस तक कैसे प्रवाहित होता है" summary="UI और एजेंट दोनों एक ही Actions परत के माध्यम से डेटाबेस तक पहुँचते हैं। दोनों कॉलर एक ही getDb() क्लाइंट और एक ही PostgreSQL तालिकाओं का उपयोग करते हैं। हर एक के लिए कोई अलग बैकएंड नहीं है।">
 
 ```html
 <div class="diagram-dbr">
@@ -23,8 +23,8 @@ description: "अपने एजेंट-नेटिव ऐप से एक 
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL डेटाबेस<br /><small class="diagram-muted"
-      >DATABASE_URL से बोली (dialect)</small
+    PostgreSQL डेटाबेस<br /><small class="diagram-muted"
+      >PostgreSQL via DATABASE_URL</small
     >
   </div>
 </div>
@@ -58,17 +58,17 @@ description: "अपने एजेंट-नेटिव ऐप से एक 
 
 ## होस्टिंग विकल्प {#hosting}
 
-ऐप `DATABASE_URL` से पता लगाता है कि किस बैकएंड का उपयोग करना है। जब वेरिएबल सेट नहीं होता, तो यह एक स्थानीय SQLite फ़ाइल पर वापस आ जाता है ताकि आप बिना किसी सेटअप के शुरुआत कर सकें।
+`DATABASE_URL` से PostgreSQL उपयोग होता है। इसके सेट न होने पर ऐप local PGlite का उपयोग करता है, ताकि बिना कॉन्फ़िगरेशन के शुरुआत हो सके।
 
-### डिफ़ॉल्ट: SQLite फ़ाइल {#default-sqlite}
+### डिफ़ॉल्ट: PGlite फ़ाइल {#default-pglite}
 
-जब `DATABASE_URL` सेट नहीं है, तो ऐप `data/app.db` पर एक SQLite डेटाबेस बनाता है। किसी कॉन्फ़िगरेशन की आवश्यकता नहीं है। डेव सर्वर शुरू करें और फ़ाइल पहले रन पर बन जाती है।
+जब `DATABASE_URL` सेट नहीं है, तो ऐप `data/pglite` पर एक PGlite डेटाबेस बनाता है। किसी कॉन्फ़िगरेशन की आवश्यकता नहीं है। डेव सर्वर शुरू करें और फ़ाइल पहले रन पर बन जाती है।
 
-यह केवल स्थानीय विकास के लिए है। कंटेनर, सर्वर रहित फ़ंक्शन, और पूर्वावलोकन वातावरण पुनरारंभ के बीच अपने फ़ाइल सिस्टम को रीसेट कर सकते हैं, इसलिए स्थानीय SQLite फ़ाइल गायब हो सकती है। तैनाती से पहले `DATABASE_URL` को स्थायी होस्ट किए गए डेटाबेस पर सेट करें।
+यह केवल स्थानीय विकास के लिए है। कंटेनर, सर्वर रहित फ़ंक्शन, और पूर्वावलोकन वातावरण पुनरारंभ के बीच अपने फ़ाइल सिस्टम को रीसेट कर सकते हैं, इसलिए स्थानीय PGlite फ़ाइल गायब हो सकती है। तैनाती से पहले `DATABASE_URL` को स्थायी होस्ट किए गए डेटाबेस पर सेट करें।
 
 ### स्थानीय Postgres: PGlite {#local-pglite}
 
-Docker या होस्ट किए गए डेटाबेस के बिना Postgres बोली के विरुद्ध स्थानीय रूप से विकास करने के लिए, वैकल्पिक PGlite पैकेज इंस्टॉल करें और `DATABASE_URL` सेट करें:
+Docker या hosted database के बिना local PostgreSQL development के लिए optional PGlite package install करें और `DATABASE_URL` सेट करें:
 
 ```bash
 pnpm add @electric-sql/pglite@^0.5.3
@@ -78,7 +78,7 @@ pnpm add @electric-sql/pglite@^0.5.3
 DATABASE_URL=pglite:./data/pglite
 ```
 
-[PGlite](https://pglite.dev/) एक इन-प्रोसेस WASM Postgres डेटाबेस चलाता है। यह आपको तैनाती से पहले Postgres-केवल स्कीमा समस्याओं को पकड़ने देता है, जबकि सेटअप को SQLite डिफ़ॉल्ट जितना ही सरल रखता है। SQLite की तरह, यह भी केवल-स्थानीय संग्रहण है। इसे उत्पादन या साझा वातावरण के लिए उपयोग न करें।
+[PGlite](https://pglite.dev/) एक इन-प्रोसेस WASM Postgres डेटाबेस चलाता है। यह आपको तैनाती से पहले Postgres-केवल स्कीमा समस्याओं को पकड़ने देता है, जबकि सेटअप को PGlite डिफ़ॉल्ट जितना ही सरल रखता है। PGlite की तरह, यह भी केवल-स्थानीय संग्रहण है। इसे उत्पादन या साझा वातावरण के लिए उपयोग न करें।
 
 ### उत्पादन डेटाबेस {#production}
 
@@ -94,8 +94,7 @@ DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6
 # सादा Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
 
-# Turso (libSQL). इसके लिए DATABASE_AUTH_TOKEN भी आवश्यक है।
-DATABASE_URL=libsql://my-db-org.turso.io
+DATABASE_URL=pglite:./data/pglite
 ```
 
 फ्रेमवर्क URL प्रीफ़िक्स से बोली का स्वतः पता लगाता है और तदनुसार Drizzle को कॉन्फ़िगर करता है।
@@ -114,7 +113,7 @@ _योजनाबद्ध (अभी तक उपलब्ध नहीं):
 
 ### 1. अपनी स्कीमा परिभाषित करें {#schema}
 
-`@agent-native/core/db/schema` से स्कीमा हेल्पर्स इम्पोर्ट करें। कभी भी सीधे `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` से इम्पोर्ट न करें। फ्रेमवर्क हेल्पर्स बोली-अज्ञेयवादी परिभाषाएँ बनाते हैं जो सभी समर्थित बैकएंड पर काम करती हैं।
+`@agent-native/core/db/schema` से स्कीमा हेल्पर्स इम्पोर्ट करें। फ्रेमवर्क हेल्पर्स PostgreSQL और PGlite के लिए विशिष्ट परिभाषाएँ बनाते हैं।
 
 ```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
@@ -131,17 +130,17 @@ export const tasks = table("tasks", {
 
 | हेल्पर    | उद्देश्य                                                                    |
 | --------- | --------------------------------------------------------------------------- |
-| `table`   | एक तालिका परिभाषित करें; `pgTable` या `sqliteTable` को डिस्पैच करता है      |
+| `table`   | एक तालिका परिभाषित करता है; PostgreSQL हेल्पर्स का उपयोग करता है |
 | `text`    | टेक्स्ट कॉलम, `{ enum: [...] }` का समर्थन करता है                           |
 | `integer` | पूर्णांक कॉलम, `{ mode: "boolean" }` Postgres बूलियन से मैप होता है         |
-| `real`    | फ्लोट कॉलम। SQLite पर `real`, Postgres पर `double precision` से मैप होता है |
-| `now`     | `.default(now())` के लिए बोली-अज्ञेयवादी वर्तमान टाइमस्टैम्प                |
+| `real`    | फ्लोट कॉलम। PGlite पर `real`, Postgres पर `double precision` से मैप होता है |
+| `now`     | `.default(now())` के लिए वर्तमान टाइमस्टैम्प सेट करता है                   |
 
 <DataModel
   id="doc-block-3hbven"
   title="tasks तालिका"
   summary={
-    "फ्रेमवर्क हेल्पर्स के साथ एक बार परिभाषित; बोली को रनटाइम पर DATABASE_URL से चुना जाता है।"
+    "Framework helpers से PostgreSQL और local PGlite के लिए एक बार define किया गया।"
   }
   entities={[
     {
@@ -202,7 +201,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-`createGetDb` एक `getDb()` फ़ंक्शन लौटाता है जो पहली कॉल पर डेटाबेस कनेक्शन खोलता है और बाद की कॉल में वही टाइप किया गया Drizzle इंस्टेंस लौटाता है। यह रनटाइम पर `DATABASE_URL` पढ़ता है यह तय करने के लिए कि कौन सा बैकएंड और बोली उपयोग करनी है।
+`createGetDb` एक `getDb()` function लौटाता है जो पहली call पर PostgreSQL connection खोलता है और बाद की calls में वही typed Drizzle instance लौटाता है। यह `DATABASE_URL` पढ़कर hosted PostgreSQL या local PGlite से connect करता है।
 
 actions और routes में `getDb` को इस टेम्पलेट-स्थानीय पथ से इम्पोर्ट करें। सीधे `@agent-native/core` से इम्पोर्ट न करें। कोर निर्यात अनटाइप्ड है; स्थानीय निर्यात आपके स्कीमा प्रकार वहन करता है।
 
@@ -219,7 +218,7 @@ Local development में schema changes को `server/plugins/db.ts` के 
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      version: 3,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
@@ -239,8 +238,8 @@ Local development में schema changes को `server/plugins/db.ts` के 
     },
     {
       lines: "22-25",
-      label: "बोली गेटिंग (dialect gating)",
-      note: "प्रति बैकएंड अलग SQL चलाने के लिए बोली द्वारा कीड एक ऑब्जेक्ट पास करें। जिस बोली को परिवर्तन की आवश्यकता नहीं है, उस पर नो-ऑप के रूप में `SELECT 1` का उपयोग करें।",
+      label: "PostgreSQL SQL",
+      note: "Migrations सीधे PostgreSQL SQL का उपयोग करती हैं और version order में लागू होती हैं।",
     },
   ]}
 />
@@ -260,16 +259,13 @@ named migrations को version number से स्वतंत्र track क
 `pnpm db:generate` चलाएं। इससे `server/db/migrations/<id_name>.sql`
 बनता है और `runDrizzleMigrations` इन फ़ाइलों को Node.js और Node-आधारित serverless
 रनटाइम में साझा Agent-Native रनर में लोड करता है। प्रोडक्शन बदलावों की
-जिम्मेदारी release चरण की रहती है। डायलेक्ट-विशिष्ट SQL, D1 व्यवहार, backfill और
+जिम्मेदारी release चरण की रहती है। डायलेक्ट-विशिष्ट SQL, Postgres व्यवहार, backfill और
 स्थगित JavaScript चरणों के लिए `runMigrations()` का उपयोग जारी रखें।
 
-फ़ाइल-सिस्टम आधारित loader Cloudflare Workers/Pages या D1 सहित उन edge रनटाइम में
-उपलब्ध नहीं है जहाँ deployable फ़ाइल-सिस्टम नहीं होता। वहाँ worker bundle में
-embedded SQL entries के साथ `runMigrations()` का उपयोग करें। एक Drizzle output
-folder में dialect-specific metadata baseline एक ही होता है, इसलिए primary
-deployment dialect के लिए generate करें और उसी folder को SQLite और PostgreSQL के
-बीच न बदलें।
-
+Cloudflare Workers/Pages और बिना deployable filesystem वाले अन्य edge runtimes में
+filesystem loader उपलब्ध नहीं है। वहाँ worker bundle में embedded PostgreSQL SQL entries
+के साथ `runMigrations()` का उपयोग करें। Migrations को PostgreSQL के लिए generate करें और
+एक ही folder को local PGlite और hosted PostgreSQL के बीच switch न करें।
 <Callout tone="risk">
   उत्पादन डेटाबेस के विरुद्ध कभी भी `drizzle-kit push` न चलाएं। टेम्प्लेट स्कीमा
   केवल ऐप-विशिष्ट तालिकाओं को परिभाषित करते हैं; इनमें केंद्रीय फ्रेमवर्क
@@ -279,7 +275,7 @@ deployment dialect के लिए generate करें और उसी folde
   होगी।
 </Callout>
 
-प्रत्येक ऐप की जड़ में `drizzle.config.ts` स्थानीय विकास स्कीमा निरीक्षण के लिए drizzle-kit को कॉन्फ़िगर करता है। यदि एक migration folder कई backends के लिए है, तो primary deployment dialect स्पष्ट रूप से दें, जैसे `createDrizzleConfig({ dialect: "postgresql" })`:
+हर app की जड़ में `drizzle.config.ts` local development में PostgreSQL schema inspection के लिए drizzle-kit को configure करता है। PostgreSQL database को स्पष्ट रूप से configure करें, जैसे `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -356,13 +352,13 @@ const rows = await db
 
 पूरे मॉडल के लिए [Security — Data Scoping](/docs/security#data-scoping) और [Sharing](/docs/sharing#building) देखें।
 
-## SQL-समर्थित सिंक {#sync}
+## PostgreSQL-समर्थित सिंक {#sync}
 
 Agent-Native फ़ाइल सिस्टम वॉचर्स या स्टिकी इन-मेमोरी स्टेट पर निर्भर नहीं करता। जब कोई Action डेटाबेस में लिखती है, तो एक सिंक संस्करण बढ़ जाता है। क्लाइंट का `useDbSync()` हुक `/_agent-native/poll` को पोल करता है और जब उसे उच्चतर संस्करण दिखता है तो React Query कैश को अमान्य कर देता है।
 
 यह सर्वर रहित और मल्टी-इंस्टेंस डिप्लॉयमेंट में काम करता है क्योंकि डेटाबेस समन्वय बिंदु है। यदि आप actions के बाहर कस्टम म्यूटेशन लिखते हैं, तो फ्रेमवर्क हेल्पर्स का उपयोग करें या उपयुक्त सिंक इनवैलिडेशन उत्सर्जित करें ताकि खुले UI रिफ्रेश हो सकें।
 
-<Diagram id="doc-block-qhkdv8" title="SQL-समर्थित सिंक लूप" summary="कोई वॉचर नहीं, कोई स्टिकी स्टेट नहीं। एक लेखन SQL में एक संस्करण बढ़ाता है; हर क्लाइंट संस्करण को पोल करता है और फिर से फ़ेच करता है।">
+<Diagram id="doc-block-qhkdv8" title="PostgreSQL-समर्थित सिंक लूप" summary="कोई वॉचर नहीं, कोई स्टिकी स्टेट नहीं। एक लेखन PostgreSQL में एक संस्करण बढ़ाता है; हर क्लाइंट संस्करण को पोल करता है और फिर से फ़ेच करता है।">
 
 ```html
 <div class="diagram-db-sync">
@@ -373,7 +369,7 @@ Agent-Native फ़ाइल सिस्टम वॉचर्स या स्
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
-    <strong>SQL डेटाबेस</strong
+    <strong>PostgrePostgreSQL डेटाबेस</strong
     ><small class="diagram-muted">सिंक संस्करण बढ़ता है</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
@@ -420,12 +416,12 @@ Agent-Native फ़ाइल सिस्टम वॉचर्स या स्
 
 </Endpoint>
 
-## कच्चा SQL {#raw-sql}
+## कच्चा PostgreSQL {#raw-sql}
 
 उन्नत क्वेरीज़, स्वास्थ्य जांच, या एकमुश्त रखरखाव के लिए जिन्हें Drizzle क्वेरी बिल्डर व्यक्त नहीं कर सकता, `@agent-native/core/db` से `getDbExec` का उपयोग करें:
 
 ```ts
-import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 
 const { rows } = await getDbExec().execute({
   sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
@@ -433,14 +429,13 @@ const { rows } = await getDbExec().execute({
 });
 ```
 
-`getDbExec` Postgres के लिए `?` पैरामीटर को स्वतः `$1`, `$2`, आदि में बदल देता है। बोली पर शाखा (branch) लगाने के लिए `isPostgres()` का उपयोग करें, और वर्तमान बैकएंड के लिए सही पूर्णांक प्रकार लौटाने के लिए `intType()` का उपयोग करें। सामान्य पठन और लेखन के लिए Drizzle क्वेरी बिल्डर को प्राथमिकता दें। कच्चा SQL टाइप सुरक्षा को बायपास करता है और इसे बनाए रखना कठिन है।
+`getDbExec` Postgres के लिए `?` पैरामीटर को स्वतः `$1`, `$2`, आदि में बदल देता है। सामान्य पठन और लेखन के लिए Drizzle क्वेरी बिल्डर को प्राथमिकता दें। कच्चा SQL टाइप सुरक्षा को बायपास करता है और इसे बनाए रखना कठिन है।
 
 ## पर्यावरण चर {#environment-variables}
 
 | वेरिएबल               | उद्देश्य                                                                                                |
 | --------------------- | ------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | स्थायी SQL कनेक्शन स्ट्रिंग (अनसेट = स्थानीय SQLite; `pglite:./data/pglite` = स्थानीय Postgres ऑप्ट-इन) |
-| `DATABASE_AUTH_TOKEN` | उन प्रदाताओं के लिए Auth टोकन जिन्हें एक अलग टोकन की आवश्यकता होती है, जैसे Turso/libSQL                |
+| `DATABASE_URL`        | स्थायी PostgreSQL कनेक्शन स्ट्रिंग (अनसेट = स्थानीय PGlite; `pglite:./data/pglite` = स्थानीय Postgres ऑप्ट-इन) |
 
 ## आगे क्या है {#whats-next}
 

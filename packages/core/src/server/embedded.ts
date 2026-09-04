@@ -72,8 +72,6 @@ export interface AgentNativeEmbeddedPluginOptions {
    * framework-owned tables in the host product database.
    */
   databaseUrl?: string;
-  /** Auth token for remote libsql/Turso databases. */
-  databaseAuthToken?: string;
   /** Optional app name for per-app DATABASE_URL resolution and cookie scoping. */
   appName?: string;
   /**
@@ -145,7 +143,7 @@ export function normalizeAgentNativeEmbeddedSession(
 export function configureAgentNativeEmbeddedEnvironment(
   options: Pick<
     AgentNativeEmbeddedPluginOptions,
-    "appName" | "databaseAuthToken" | "databaseUrl"
+    "appName" | "databaseUrl"
   >,
 ): void {
   if (options.appName) {
@@ -153,9 +151,6 @@ export function configureAgentNativeEmbeddedEnvironment(
   }
   if (options.databaseUrl) {
     process.env.DATABASE_URL = options.databaseUrl; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
-  }
-  if (options.databaseAuthToken) {
-    process.env.DATABASE_AUTH_TOKEN = options.databaseAuthToken; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
   }
 }
 

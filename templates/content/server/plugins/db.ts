@@ -62,8 +62,8 @@ export const runContentMigrations = runMigrations(
       source_path TEXT,
       source_root_path TEXT,
       source_updated_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -83,8 +83,8 @@ export const runContentMigrations = runMigrations(
       warnings_json TEXT,
       has_conflict INTEGER NOT NULL DEFAULT 0,
       sync_comments INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -95,7 +95,7 @@ export const runContentMigrations = runMigrations(
       document_id TEXT NOT NULL,
       title TEXT NOT NULL,
       content TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -112,8 +112,8 @@ export const runContentMigrations = runMigrations(
       author_name TEXT,
       resolved INTEGER NOT NULL DEFAULT 0,
       notion_comment_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // v5-v8: add owner_email to tables that may have been created before the
@@ -174,7 +174,7 @@ export const runContentMigrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -202,8 +202,8 @@ export const runContentMigrations = runMigrations(
       visibility TEXT NOT NULL DEFAULT 'always_show',
       options_json TEXT NOT NULL DEFAULT '{}',
       position INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -214,8 +214,8 @@ export const runContentMigrations = runMigrations(
       document_id TEXT NOT NULL,
       property_id TEXT NOT NULL,
       value_json TEXT NOT NULL DEFAULT 'null',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -237,8 +237,8 @@ export const runContentMigrations = runMigrations(
       owner_block_id TEXT,
       title TEXT NOT NULL DEFAULT 'Untitled database',
       view_config_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -250,8 +250,8 @@ export const runContentMigrations = runMigrations(
       database_id TEXT NOT NULL,
       document_id TEXT NOT NULL,
       position INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -268,7 +268,7 @@ export const runContentMigrations = runMigrations(
     // org and orders by position/updated_at, walks the tree via parent_id, and
     // resolves per-principal grants from document_shares — none of which had any
     // index. Plain CREATE INDEX IF NOT EXISTS so the same DDL applies on both
-    // SQLite/libsql and Postgres (no DESC, partial, or PG-only syntax).
+    // Postgres and PGlite (no DESC, partial, or PG-only syntax).
     {
       version: 27,
       sql: `CREATE INDEX IF NOT EXISTS documents_owner_org_updated_idx ON documents (owner_email, org_id, updated_at);
@@ -331,8 +331,8 @@ export const runContentMigrations = runMigrations(
       last_refreshed_at TEXT,
       last_source_updated_at TEXT,
       last_error TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -352,8 +352,8 @@ export const runContentMigrations = runMigrations(
       provenance TEXT NOT NULL DEFAULT 'local',
       freshness TEXT NOT NULL DEFAULT 'unknown',
       last_synced_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -373,8 +373,8 @@ export const runContentMigrations = runMigrations(
       freshness TEXT NOT NULL DEFAULT 'unknown',
       last_synced_at TEXT,
       last_source_updated_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -393,8 +393,8 @@ export const runContentMigrations = runMigrations(
       summary TEXT NOT NULL,
       field_changes_json TEXT NOT NULL DEFAULT '[]',
       body_change_json TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -421,7 +421,7 @@ export const runContentMigrations = runMigrations(
       state_from TEXT NOT NULL,
       state_to TEXT NOT NULL,
       note TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -438,8 +438,8 @@ export const runContentMigrations = runMigrations(
       summary TEXT NOT NULL,
       payload_json TEXT NOT NULL DEFAULT '{}',
       last_error TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -475,8 +475,8 @@ export const runContentMigrations = runMigrations(
       document_id TEXT NOT NULL,
       property_id TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -505,7 +505,7 @@ export const runContentMigrations = runMigrations(
     // definition are intentionally left unseeded — the startup repair seeds them
     // exactly once via the authenticated path. The correlated subquery picks the
     // primary definition by its options JSON marker (`"primary":true`); the
-    // simple `%...%` LIKE is portable across SQLite and Postgres.
+    // simple `%...%` LIKE works in Postgres and PGlite.
     {
       version: 52,
       sql: `UPDATE content_databases
@@ -555,8 +555,8 @@ export const runContentMigrations = runMigrations(
       path TEXT NOT NULL,
       content TEXT NOT NULL,
       content_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -587,8 +587,8 @@ export const runContentMigrations = runMigrations(
       attempts INTEGER NOT NULL DEFAULT 0,
       last_attempted_at TEXT,
       last_error TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -948,8 +948,8 @@ export const runContentMigrations = runMigrations(
         post_digest TEXT NOT NULL,
         rollback_json TEXT NOT NULL DEFAULT '{}',
         result_json TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
       );
       CREATE UNIQUE INDEX IF NOT EXISTS content_database_migration_receipts_database_key_unique
         ON content_database_migration_receipts (database_id, idempotency_key);
@@ -999,8 +999,8 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_blocks_parent_idx
         ON document_blocks (parent_id)`,
     },
-    // The portable schema maps integer({ mode: "boolean" }) to BOOLEAN on
-    // Postgres, while the raw INTEGER migration above is adapted to BIGINT.
+    // The schema helper maps integer({ mode: "boolean" }) to BOOLEAN on
+    // Postgres, while the legacy INTEGER migration above is stored as BIGINT.
     // Convert the stored column before Drizzle sends boolean values.
     {
       version: 83,
@@ -1031,8 +1031,8 @@ export const runContentMigrations = runMigrations(
         pre_row_revision TEXT,
         post_row_revision TEXT NOT NULL,
         result_json TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
       );
       CREATE UNIQUE INDEX IF NOT EXISTS content_database_row_mutation_receipts_database_key_unique
         ON content_database_row_mutation_receipts (database_id, idempotency_key);
@@ -1074,7 +1074,7 @@ export const runContentMigrations = runMigrations(
         ranges_json TEXT NOT NULL DEFAULT '[]',
         actor_json TEXT NOT NULL DEFAULT '{}',
         result_json TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
       );
       CREATE UNIQUE INDEX IF NOT EXISTS document_edit_receipts_document_scope_key_unique
         ON document_edit_receipts (document_id, caller_scope, idempotency_key);

@@ -1,4 +1,4 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -192,7 +192,6 @@ function ruleIdFor(
 export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const db = getDbExec();
       const tableSql = `CREATE TABLE IF NOT EXISTS usage_alert_rules (
         id TEXT PRIMARY KEY,
         scope TEXT NOT NULL,
@@ -226,7 +225,7 @@ export async function ensureTables(): Promise<void> {
           sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_alert_events_rule_window ON usage_alert_events(rule_id, window_start)",
         },
       ];
-      if (isPostgres()) {
+      {
         await ensureTableExists("usage_alert_rules", tableSql);
         await ensureTableExists("usage_alert_events", eventsSql);
         await ensureColumnExists(
@@ -242,22 +241,6 @@ export async function ensureTables(): Promise<void> {
         for (const index of indexes) {
           await ensureIndexExists(index.name, index.sql);
         }
-      } else {
-        await db.execute(tableSql);
-        await db.execute(eventsSql);
-        const eventColumns = await db.execute(
-          "PRAGMA table_info(usage_alert_events)",
-        );
-        const hasNotificationId = eventColumns.rows.some(
-          (row) =>
-            String((row as Record<string, unknown>).name) === "notification_id",
-        );
-        if (!hasNotificationId) {
-          await db.execute(
-            "ALTER TABLE usage_alert_events ADD COLUMN notification_id TEXT",
-          );
-        }
-        for (const index of indexes) await db.execute(index.sql);
       }
     })().catch((error) => {
       initPromise = undefined;

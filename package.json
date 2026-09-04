@@ -172,7 +172,6 @@
   "devDependencies": {
     "@changesets/cli": "2.31.0",
     "@cloudflare/vite-plugin": "^1.31.0",
-    "@libsql/linux-x64-gnu": "^0.5.29",
     "@playwright/test": "catalog:",
     "concurrently": "^9.1.0",
     "oxfmt": "0.56.0",

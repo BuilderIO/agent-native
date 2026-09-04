@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
-import { getDbExec, isPostgres } from "../../db/client.js";
+import { getDbExec } from "../../db/client.js";
 import { createGetDb } from "../../db/create-get-db.js";
 import {
   getRequestUserEmail,
@@ -14,12 +14,10 @@ import { extensions, extensionShares } from "../schema.js";
 import {
   extensionSlots,
   extensionSlotInstalls,
-  EXTENSION_SLOTS_CREATE_SQL,
   EXTENSION_SLOTS_CREATE_SQL_PG,
   EXTENSION_SLOTS_BY_SLOT_INDEX_SQL,
   EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL,
   EXTENSION_SLOTS_UNIQUE_INDEX_SQL,
-  EXTENSION_SLOT_INSTALLS_CREATE_SQL,
   EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG,
   EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL,
   EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL,
@@ -38,17 +36,14 @@ export async function ensureSlotTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      const pg = isPostgres();
       await client.execute(
-        pg ? EXTENSION_SLOTS_CREATE_SQL_PG : EXTENSION_SLOTS_CREATE_SQL,
+        EXTENSION_SLOTS_CREATE_SQL_PG,
       );
       await client.execute(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
       await client.execute(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
       await client.execute(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
       await client.execute(
-        pg
-          ? EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG
-          : EXTENSION_SLOT_INSTALLS_CREATE_SQL,
+        EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG,
       );
       await client.execute(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
       await client.execute(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
@@ -230,7 +225,14 @@ export async function listExtensionsForSlot(slotId: string): Promise<
         inArray(extensionSlots.extensionId, ids),
       ),
     );
-  const byId = new Map(accessible.map((t: any) => [t.id, t]));
+  const byId = new Map(
+    (accessible as Array<{
+      id: string;
+      name: string;
+      description: string;
+      icon: string | null;
+    }>).map((t) => [t.id, t]),
+  );
   const sqlRows = (declarations as ExtensionSlotRow[]).map((d) => {
     const t = byId.get(d.extensionId)!;
     return {
@@ -408,7 +410,15 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
         isNull(extensions.archivedAt),
       ),
     );
-  const byId = new Map(accessible.map((t: any) => [t.id, t]));
+  const byId = new Map(
+    (accessible as Array<{
+      id: string;
+      name: string;
+      description: string;
+      icon: string | null;
+      updatedAt: string;
+    }>).map((t) => [t.id, t]),
+  );
 
   const sqlInstalls = (installs as ExtensionSlotInstallRow[])
     .filter((i) => byId.has(i.extensionId))

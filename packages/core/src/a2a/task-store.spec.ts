@@ -126,8 +126,13 @@ const mockDb = createMockDb();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  intType: () => "BIGINT",
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 function makeMessage(text: string, role: "user" | "agent" = "user"): Message {

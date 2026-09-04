@@ -1,9 +1,4 @@
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureTableExists,
@@ -51,7 +46,6 @@ const TERMINAL_STATUSES = new Set<RemoteCommandStatus>(["completed", "failed"]);
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createSql = `CREATE TABLE IF NOT EXISTS integration_remote_commands (
   id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,
@@ -80,7 +74,7 @@ export async function ensureTable(): Promise<void> {
   updated_at ${intType()} NOT NULL
 )`;
 
-      if (isPostgres()) {
+      {
         // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("integration_remote_commands", createSql);
         await ensureComputerCommandColumns();
@@ -96,20 +90,6 @@ export async function ensureTable(): Promise<void> {
         return;
       }
 
-      // SQLite: keep existing behavior
-      await retryOnDdlRace(() => client.execute(createSql));
-      await ensureComputerCommandColumns();
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_commands_device_status_next ON integration_remote_commands(device_id, status, next_check_at)`,
-        ),
-      );
-      await ensureComputerCommandIndexes();
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_commands_owner ON integration_remote_commands(owner_email, org_id)`,
-        ),
-      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -160,16 +140,8 @@ async function ensureComputerCommandColumns(): Promise<void> {
     ["lease_expires_at", intType()],
   ];
   for (const [name, definition] of columns) {
-    const sql = `ALTER TABLE integration_remote_commands ADD COLUMN${isPostgres() ? " IF NOT EXISTS" : ""} ${name} ${definition}`;
-    if (isPostgres()) {
-      await ensureColumnExists("integration_remote_commands", name, sql);
-      continue;
-    }
-    try {
-      await retryOnDdlRace(() => getDbExec().execute(sql));
-    } catch (error) {
-      if (!isDuplicateColumnError(error)) throw error;
-    }
+    const sql = `ALTER TABLE integration_remote_commands ADD COLUMN${" IF NOT EXISTS"} ${name} ${definition}`;
+    await ensureColumnExists("integration_remote_commands", name, sql);
   }
 }
 
@@ -185,8 +157,7 @@ async function ensureComputerCommandIndexes(): Promise<void> {
     ],
   ] as const;
   for (const [name, sql] of indexes) {
-    if (isPostgres()) await ensureIndexExists(name, sql);
-    else await retryOnDdlRace(() => getDbExec().execute(sql));
+    await ensureIndexExists(name, sql);
   }
 }
 
@@ -434,26 +405,14 @@ export async function claimNextRemoteCommand(
   if (!id) return null;
 
   const result = await client.execute({
-    sql: isPostgres()
-      ? `UPDATE integration_remote_commands
+    sql: `UPDATE integration_remote_commands
           SET status = ?, attempts = attempts + 1, claimed_at = ?, updated_at = ?
           WHERE id = ? AND device_id = ? AND status = 'pending'
-          RETURNING *`
-      : `UPDATE integration_remote_commands
-          SET status = ?, attempts = attempts + 1, claimed_at = ?, updated_at = ?
-          WHERE id = ? AND device_id = ? AND status = 'pending'`,
+          RETURNING *`,
     args: ["claimed", now, now, id, deviceId],
   });
-  if (isPostgres()) {
-    const row = result.rows?.[0];
-    return row ? rowToCommand(row as Record<string, unknown>) : null;
-  }
-  const affected = result.rowsAffected ?? (result as any).rowCount;
-  if (affected === 0) return null;
-
-  const command = await getRemoteCommand(id);
-  if (!command || command.status !== "claimed") return null;
-  return command;
+  const row = result.rows?.[0];
+  return row ? rowToCommand(row as Record<string, unknown>) : null;
 }
 
 export async function claimNextComputerCommand(input: {
@@ -534,18 +493,12 @@ export async function claimNextComputerCommand(input: {
   }
 
   const result = await client.execute({
-    sql: isPostgres()
-      ? `UPDATE integration_remote_commands
+    sql: `UPDATE integration_remote_commands
           SET status = 'claimed', attempts = attempts + 1, claimed_at = ?, updated_at = ?
           WHERE id = ? AND device_id = ? AND owner_email = ?
             AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
             AND status = 'pending' AND lease_expires_at > ?
-          RETURNING *`
-      : `UPDATE integration_remote_commands
-          SET status = 'claimed', attempts = attempts + 1, claimed_at = ?, updated_at = ?
-          WHERE id = ? AND device_id = ? AND owner_email = ?
-            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-            AND status = 'pending' AND lease_expires_at > ?`,
+          RETURNING *`,
     args: [
       now,
       now,
@@ -557,7 +510,7 @@ export async function claimNextComputerCommand(input: {
       now,
     ],
   });
-  if (isPostgres()) {
+  {
     const row = result.rows?.[0];
     return row ? rowToCommand(row as Record<string, unknown>) : null;
   }
@@ -712,19 +665,6 @@ function affectedRows(result: {
   );
 }
 
-function isDuplicateColumnError(error: unknown): boolean {
-  const codeValue = (error as { code?: unknown })?.code;
-  const code = typeof codeValue === "string" ? codeValue : "";
-  const message = String((error as { message?: unknown })?.message ?? error)
-    .toLowerCase()
-    .trim();
-  return (
-    code === "42701" ||
-    message.includes("duplicate column") ||
-    message.includes("already exists")
-  );
-}
-
 function isUniqueConstraintError(error: unknown): boolean {
   const codeValue = (error as { code?: unknown })?.code;
   const code = typeof codeValue === "string" ? codeValue : "";
@@ -733,7 +673,6 @@ function isUniqueConstraintError(error: unknown): boolean {
     .trim();
   return (
     code === "23505" ||
-    code === "2067" ||
     message.includes("unique constraint") ||
     message.includes("duplicate key")
   );

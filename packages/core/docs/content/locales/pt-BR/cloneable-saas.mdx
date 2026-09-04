@@ -160,7 +160,7 @@ Cada app de exemplo inclui:
 
 - **Um agente funcional** — conectado ao aplicativo, capaz de realizar actions em seus dados e ciente do que você está vendo. Veja [Messaging the agent](/docs/messaging).
 - **Auth** — login, sessões, organizações e isolamento multilocatário.
-- **Um banco de dados** — esquema, consultas e migrações, prontos para uso. Traga seu próprio banco de dados SQL (Postgres, SQLite, Turso, D1); o framework se adapta.
+- **Um banco de dados** — esquema, consultas e migrações prontos para uso. Use PGlite local durante o desenvolvimento e PostgreSQL hospedado nos ambientes implantados.
 - **Uma UI em tempo real** — a tela permanece sincronizada com o agente. Por exemplo, redigir um e-mail no chat atualiza a caixa de entrada imediatamente.
 - **Pronto para implantação** — implante em Netlify, Vercel, Cloudflare, AWS ou qualquer host que execute Node.
 - **Ganchos de branding** — altere o nome, as cores, o logotipo e a cópia.
@@ -306,6 +306,6 @@ A CLI pergunta primeiro **Como você quer começar?** Escolha **Chat** para um w
 
 Preencha `.env` (`ANTHROPIC_API_KEY` e `DATABASE_URL`), depois execute `pnpm install` e `pnpm dev`. Não há login para implementar nem rotas de espaço reservado.
 
-Destinos de implantação: qualquer host compatível com Nitro (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) e qualquer banco de dados SQL compatível com Drizzle (SQLite, Postgres, Turso, D1, Supabase, Neon). Para espaços de trabalho, `npx @agent-native/core@latest deploy` cria todos os aplicativos de uma vez e os envia para uma única origem. Consulte [Deployment](/docs/deployment).
+Destinos de implantação: qualquer host compatível com Nitro e um banco de dados PostgreSQL hospedado. Para espaços de trabalho, `npx @agent-native/core@latest deploy` cria todos os aplicativos de uma vez e os entrega atrás de uma única origem. Consulte [Deployment](/docs/deployment).
 
 Para criar e publicar seu próprio modelo de app, consulte [Creating Templates](/docs/creating-templates).

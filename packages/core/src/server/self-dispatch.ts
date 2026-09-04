@@ -1,5 +1,4 @@
 import { getAppConfig } from "../app-config/index.js";
-import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
 import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
@@ -77,7 +76,7 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
     getAppConfig().app.url;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
-  if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
+  if (process.env.NODE_ENV === "production") {
     throw new Error(
       "Self-dispatch requires DEPLOY_PRIME_URL, DEPLOY_URL, URL, APP_URL, or " +
         "BETTER_AUTH_URL in " +
@@ -146,10 +145,7 @@ async function dispatchResponseError(
  * may take minutes); it is only raced against a short settle timer so the
  * request reliably leaves a serverless box before it freezes.
  *
- * When `A2A_SECRET` is unset in local SQLite development, the request is sent
- * unsigned — the processor accepts unsigned dispatches in dev and relies on
- * the SQL atomic claim for double-processing protection. Shared and production
- * dispatches fail before sending an unauthenticated request.
+ * Dispatches require an HMAC signature before sending an unauthenticated request.
  */
 /**
  * For host-root dispatch targets (`/.netlify/functions/*`), strip the configured
@@ -190,21 +186,10 @@ export async function fireInternalDispatch(
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    // Only local SQLite development has the loopback/unsigned exception. A
-    // shared database or production deployment must never turn a signing
-    // failure into an unauthenticated processor request.
-    if (
-      process.env.NODE_ENV !== "production" &&
-      isLocalDatabase() &&
-      /A2A_SECRET/i.test(detail)
-    ) {
-      // The processor applies the matching trusted-local policy.
-    } else {
-      throw new Error(
-        `[self-dispatch] Cannot sign processor handoff for ${options.taskId}: ${detail}`,
-        { cause: err },
-      );
-    }
+    throw new Error(
+      `[self-dispatch] Cannot sign processor handoff for ${options.taskId}: ${detail}`,
+      { cause: err },
+    );
   }
 
   const awaitResponse = options.awaitResponse === true;

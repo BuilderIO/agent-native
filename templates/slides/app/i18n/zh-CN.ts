@@ -83,10 +83,8 @@ const messages = {
     cloudConnectedReloading: "接続しました。再読み込み中...",
     cloudConnectionFailed: "接続に失敗しました",
     cloudTestConnect: "テストして接続",
-    cloudSqliteEdge: "エッジのSQLite",
     cloudServerlessPostgres: "サーバーレスPostgres",
     cloudOpenSourceFirebaseAlternative: "Firebaseのオープンソース代替",
-    cloudCloudflareSqliteEdge: "CloudflareエッジのSQLite",
     designSlidePreview: "スライドプレビュー",
     designSlideTitle: "スライドタイトル",
     designSupportingText:

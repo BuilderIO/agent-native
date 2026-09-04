@@ -1,4 +1,4 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
 let initPromise: Promise<void> | undefined;
@@ -16,10 +16,8 @@ export async function ensureApprovalTable(): Promise<void> {
           consumed_at ${intType()}
         )
       `;
-      if (isPostgres()) {
+      {
         await ensureTableExists("mcp_action_approvals", createSql);
-      } else {
-        await getDbExec().execute(createSql);
       }
     })().catch((error) => {
       initPromise = undefined;

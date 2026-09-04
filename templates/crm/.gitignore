@@ -13,9 +13,7 @@ build
 .env
 .env.*
 !.env.example
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/pglite/
 data/uploads/
 
 .DS_Store

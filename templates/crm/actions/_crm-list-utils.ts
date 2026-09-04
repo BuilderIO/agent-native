@@ -882,8 +882,8 @@ export function buildEntryFilter(
         `Filter "contains" on "${filter.attribute}" expects a string.`,
       );
     }
-    // `lower(...)` on both sides: SQLite LIKE folds ASCII case, Postgres LIKE
-    // does not, and a filter that silently differs by dialect is a bug.
+    // `lower(...)` on both sides makes contains matching case-insensitive in
+    // PostgreSQL.
     // A structured value is matched on its quoted JSON token so `won` cannot
     // match `unwon` inside a multi-value array.
     const needle =
@@ -917,8 +917,8 @@ export function buildEntryFilter(
 
 /**
  * ORDER BY terms for one sort key. The leading `(col is null)` term places
- * empty values last in both dialects — SQLite sorts NULLs first and Postgres
- * sorts them last, and pagination over a page boundary must not depend on that.
+ * empty values last in PostgreSQL, where pagination over a page boundary must
+ * not depend on the default NULL ordering.
  */
 export function buildEntryOrder(
   resolver: CrmEntryFieldResolver,

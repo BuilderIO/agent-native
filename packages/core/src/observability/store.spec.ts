@@ -29,9 +29,14 @@ const mockDb = createCapturingDb();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  intType: () => "BIGINT",
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Pull the store after the mock is wired so it picks up the capturing db.
@@ -203,7 +208,7 @@ describe("observability store: per-user isolation", () => {
       expect(call!.args).toContain("alice");
     });
 
-    it("upsertTraceSummary persists user_id (covers SQLite REPLACE branch)", async () => {
+    it("upsertTraceSummary persists user_id", async () => {
       await upsertTraceSummary({
         runId: "r1",
         threadId: "t1",

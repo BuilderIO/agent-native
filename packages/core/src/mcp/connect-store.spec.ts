@@ -33,6 +33,7 @@ interface DeviceRow {
 let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
+const executeDdlMock = vi.hoisted(() => vi.fn());
 
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   const sql = (typeof input === "string" ? input : input.sql).trim();
@@ -219,9 +220,16 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
   isConnectionError: () => false,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  intType: () => "BIGINT",
 }));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: (_table: string, _column: string, sql: string) =>
+    executeDdlMock(sql),
+  ensureTableExists: (_table: string, sql: string) => executeDdlMock(sql),
+}));
+
+executeDdlMock.mockImplementation((sql: string) => exec(sql));
 
 const store = await import("./connect-store.js");
 

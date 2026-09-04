@@ -3442,7 +3442,7 @@ function SettingsPanelContent({
                 trackingFlow="database"
               />
               <ManualSetupCard
-                hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
+                hint="Set DATABASE_URL in your .env to connect hosted Postgres, or use local PGlite with pglite:./data/pglite."
                 docsUrl={docsUrl("database", {
                   campaign: "onboarding",
                   content: "database_settings",

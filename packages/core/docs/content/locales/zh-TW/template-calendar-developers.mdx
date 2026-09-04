@@ -467,7 +467,7 @@ ZOOM_CLIENT_SECRET=your-client-secret
 
 - `templates/calendar/actions/`，新增一個包含 `defineAction` 的檔案，即可向代理和前端同時公開新功能。
 - `templates/calendar/app/routes/`，也就是上面列出的 UI。
-- `templates/calendar/server/db/schema.ts`，使用 Drizzle 新增欄位或資料表。請保持程式碼與方言無關，讓範本能在 SQLite、Postgres、Turso、D1 和 Neon 上執行。
+- `templates/calendar/server/db/schema.ts`：使用 Drizzle 新增欄位或資料表。請保持程式碼與 PostgreSQL 相容，讓範本能在 PGlite 和 Postgres 上執行。
 - `templates/calendar/server/lib/`，提供者整合：`google-calendar.ts`、`zoom.ts`、`people-search.ts`、`ical-fetcher.ts`、`find-time.ts`、`provider-api.ts`。
 - `templates/calendar/AGENTS.md`，代理指令。當您教代理新的功能或慣例時，請更新這個檔案。
 - `templates/calendar/.agents/skills/`，代理遵循的詳細模式。相關 skills：`event-management`、`availability-booking`、`real-time-sync`、`storing-data`、`delegate-to-agent`、`frontend-design`。

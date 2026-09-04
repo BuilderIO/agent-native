@@ -23,7 +23,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-settings-admin-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-settings-admin-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -62,7 +62,7 @@ function draft(patch: Partial<AttributeDraft>): AttributeDraft {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../../../../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -125,9 +125,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("attribute create / edit / archive round trip", () => {

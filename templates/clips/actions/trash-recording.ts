@@ -54,9 +54,8 @@ export default defineAction({
           : eq(schema.recordings.id, args.id),
       );
 
-    // Re-select to report whether the trash actually applied — portable
-    // across Postgres/SQLite without relying on driver-specific affected-row
-    // counts.
+    // Re-select to report the resulting row state instead of relying on
+    // mutation metadata.
     const [after] = await db
       .select({
         status: schema.recordings.status,

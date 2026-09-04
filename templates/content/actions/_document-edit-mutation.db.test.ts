@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `document-edit-mutation-${process.pid}-${Date.now()}.sqlite`,
+  `document-edit-mutation-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "document-editor@example.com";
 const DOCUMENT_ID = "document-edit-contract";
@@ -18,7 +18,7 @@ let mutateDocumentBody: typeof import("./_document-edit-mutation.js").mutateDocu
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   ({ getDb, schema } = await import("../server/db/index.js"));
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
@@ -41,9 +41,7 @@ beforeEach(async () => {
 });
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 const ctx = { caller: "mcp" as const, userEmail: OWNER };
@@ -169,13 +167,22 @@ describe("revisioned document edit mutation", () => {
 
   it("does not overwrite a content-only legacy write racing after the base read", async () => {
     const { getDbExec } = await import("@agent-native/core/db");
-    await getDbExec().execute(`CREATE TRIGGER document_edit_legacy_race
-      AFTER INSERT ON document_versions
+    await getDbExec().execute(`
+      CREATE FUNCTION document_edit_legacy_race_fn() RETURNS trigger
+      LANGUAGE plpgsql AS $legacy$
       BEGIN
         UPDATE documents
         SET content = 'legacy writer won'
         WHERE id = '${DOCUMENT_ID}';
-      END`);
+        RETURN NEW;
+      END;
+      $legacy$
+    `);
+    await getDbExec().execute(`
+      CREATE TRIGGER document_edit_legacy_race
+      AFTER INSERT ON document_versions
+      FOR EACH ROW EXECUTE FUNCTION document_edit_legacy_race_fn()
+    `);
     try {
       await expect(
         mutateDocumentBody({
@@ -193,7 +200,10 @@ describe("revisioned document edit mutation", () => {
         0,
       );
     } finally {
-      await getDbExec().execute("DROP TRIGGER document_edit_legacy_race");
+      await getDbExec().execute(
+        `DROP TRIGGER document_edit_legacy_race ON document_versions`,
+      );
+      await getDbExec().execute(`DROP FUNCTION document_edit_legacy_race_fn()`);
     }
   });
 

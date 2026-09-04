@@ -71,7 +71,11 @@ vi.mock("../db/client.js", () => ({
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   }),
-  isPostgres: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("collab storage optimistic saves", () => {
