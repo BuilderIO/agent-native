@@ -34,9 +34,11 @@ describe("stripDiagnosticSnippets", () => {
   });
 
   it("removes multiple fenced blocks non-greedily and leaves surrounding text untouched", () => {
-    const text = `keep1 ${wrapDiagnosticSnippet("a")} keep2 ${wrapDiagnosticSnippet("b\nc")} keep3`;
+    // The wrapper always leaves the close marker on its own line; a marker
+    // followed by more text on the same line is echoed content, not a fence.
+    const text = `keep1\n${wrapDiagnosticSnippet("a")}\nkeep2\n${wrapDiagnosticSnippet("b\nc")}\nkeep3`;
 
-    expect(stripDiagnosticSnippets(text)).toBe("keep1  keep2  keep3");
+    expect(stripDiagnosticSnippets(text)).toBe("keep1\n\nkeep2\n\nkeep3");
   });
 
   it("removes everything from an unmatched open marker through the end of the text", () => {
@@ -51,7 +53,7 @@ describe("stripDiagnosticSnippets", () => {
     );
     const text = `edit failed\n${wrapped}\nDo not retry the same arguments.`;
     expect(stripDiagnosticSnippets(text)).toBe(
-      "edit failed\nDo not retry the same arguments.",
+      "edit failed\n\nDo not retry the same arguments.",
     );
   });
 
