@@ -637,6 +637,59 @@ describe("Desktop identity activation", () => {
     }
   });
 
+  it("does not time out deferred inactive tabs", async () => {
+    vi.useFakeTimers();
+    try {
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: { identity: {} },
+      });
+      root = createRoot(container);
+
+      const app: AppDefinition = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig: AppConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod",
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: false,
+            theme: "dark",
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const webview = container.querySelector("webview");
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+        await Promise.resolve();
+      });
+
+      expect(webview?.getAttribute("src")).toBe("about:blank");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reconciles a completed sign-in when the status event was missed", async () => {
     const getStatus = vi
       .fn()

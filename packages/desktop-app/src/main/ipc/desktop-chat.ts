@@ -59,6 +59,7 @@ const RESTRICTED_RESPONSE_HEADERS = new Set([
 ]);
 const RELAY_FAILURE_MESSAGE =
   "Desktop app chat relay failed. Update or restart the desktop app, then try again.";
+const DESKTOP_APP_MCP_AUTH_TIMEOUT_MS = 10_000;
 
 interface RelayState {
   port: number;
@@ -565,6 +566,7 @@ export async function getDesktopAppMcpAuthorization(
     },
     body: JSON.stringify({ label: "Desktop terminal", ttlDays: 1 }),
     redirect: "manual",
+    signal: AbortSignal.timeout(DESKTOP_APP_MCP_AUTH_TIMEOUT_MS),
   });
   const text = (await response.text()).trim();
   let payload: unknown = null;

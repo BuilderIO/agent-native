@@ -1186,6 +1186,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       if (
         app.placeholder ||
+        !isActive ||
         !deferDesktopWebviewLoad ||
         desktopIdentityStatus === "sign-in-required" ||
         desktopIdentityStatus === "signing-in"
@@ -1203,6 +1204,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app.placeholder,
       deferDesktopWebviewLoad,
       desktopIdentityStatus,
+      isActive,
       updateDesktopIdentitySessionReady,
     ]);
 
