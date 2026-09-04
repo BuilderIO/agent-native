@@ -1139,6 +1139,7 @@ async function waitForChatPage(
       await page.waitForLoadState("load", { timeout: 60_000 });
       discardSettledNavigationAborts(httpErrors);
       await waitForStableChatSurface(page);
+      await waitForComposerControls(page);
       return;
     } catch (err) {
       lastError = err;
@@ -1268,6 +1269,23 @@ async function waitForStableChatSurface(
   throw new Error(
     `Chat surface did not remain stable within ${timeoutMs}ms (${lastState}).`,
   );
+}
+
+async function waitForComposerControls(page: Page): Promise<void> {
+  const timeout = isCi ? 120_000 : 30_000;
+  for (const slot of [
+    "editor-input",
+    "toolbar",
+    "plus-button",
+    "model-button",
+    "mode-button",
+    "voice-button",
+    "send-button",
+  ]) {
+    await page
+      .locator(`[data-agent-composer-slot="${slot}"]`)
+      .waitFor({ state: "visible", timeout });
+  }
 }
 
 async function waitForAuthenticatedShell(
@@ -2061,19 +2079,7 @@ async function assertAgentKitChatAcceptance(
     "suggestions must not render before the agent publishes them",
   );
 
-  for (const slot of [
-    "editor-input",
-    "toolbar",
-    "plus-button",
-    "model-button",
-    "mode-button",
-    "voice-button",
-    "send-button",
-  ]) {
-    await page
-      .locator(`[data-agent-composer-slot="${slot}"]`)
-      .waitFor({ state: "visible" });
-  }
+  await waitForComposerControls(page);
 
   const { chatBox, composerBox } = await waitForChatLayoutBoxes(page);
   assert.ok(
