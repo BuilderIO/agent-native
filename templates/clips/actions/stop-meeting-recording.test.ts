@@ -236,6 +236,6 @@ describe("stop-meeting-recording endReason", () => {
     expect(meetingUpdate.actualEnd).toMatchObject({ kind: "sql" });
     expect(JSON.stringify(meetingUpdate.actualEnd)).toContain("coalesce(");
     expect(meetingUpdate.endReason).toMatchObject({ kind: "sql" });
-    expect(JSON.stringify(meetingUpdate.endReason)).toContain("coalesce(");
+    expect(JSON.stringify(meetingUpdate.endReason)).toContain("is null then");
   });
 });

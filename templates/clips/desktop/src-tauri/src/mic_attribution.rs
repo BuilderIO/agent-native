@@ -170,7 +170,8 @@ fn kill_child(slot: &Arc<Mutex<Option<Child>>>) {
 
 /// Best-effort seed from recent log history so a watcher started mid-call
 /// doesn't have to wait for the next attribution change to learn who has the
-/// mic. Leaves `mic_bundle_ids` at `None` (unknown) on any failure — the live
+/// mic. Twenty minutes covers a recording started well into a call; older
+/// than that, the CoreAudio source carries the session until the next change. Leaves `mic_bundle_ids` at `None` (unknown) on any failure — the live
 /// stream reader is the source of truth and will populate it regardless.
 #[cfg(target_os = "macos")]
 fn seed_from_log_show(state: &Arc<Mutex<AttributionState>>) {
@@ -178,7 +179,7 @@ fn seed_from_log_show(state: &Arc<Mutex<AttributionState>>) {
         .args([
             "show",
             "--last",
-            "3m",
+            "20m",
             "--style",
             "ndjson",
             "--predicate",
@@ -269,7 +270,9 @@ fn spawn_stream_reader(
         }
 
         // stdout closed: either `stop()` killed the child, or `log stream`
-        // itself exited. Both mean this reading is no longer current.
+        // itself exited. Both mean this reading is no longer current; reap
+        // the child now so an unexpected exit does not linger as a zombie.
+        kill_child(&child_slot);
         mark_unavailable(&state, "log stream process exited");
     });
 }

@@ -21,6 +21,12 @@ pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
 }
 
 pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
+    // Readings arrive lowercased (CoreAudio and Control Center both do that
+    // here) while configured ids keep their canonical case ("com.google.Chrome"),
+    // so compare case-insensitively at this one boundary.
+    let bundle_id = bundle_id.to_lowercase();
+    let candidate = candidate.to_lowercase();
+    let (bundle_id, candidate) = (bundle_id.as_str(), candidate.as_str());
     if bundle_id == candidate {
         return true;
     }
@@ -184,6 +190,8 @@ mod tests {
         assert!(bundle_id_matches("us.zoom.xos.helper.audio", "us.zoom.xos"));
         assert!(bundle_id_matches("us.zoom.xos", "us.zoom.xos"));
         assert!(bundle_id_matches("com.google.chrome", "com.google.chrome"));
+        assert!(bundle_id_matches("com.google.chrome", "com.google.Chrome"));
+        assert!(bundle_id_matches("us.zoom.cpthost", "us.zoom.XOS"));
         assert!(!bundle_id_matches(
             "com.google.chrome.helper.renderer",
             "com.google.chrome"

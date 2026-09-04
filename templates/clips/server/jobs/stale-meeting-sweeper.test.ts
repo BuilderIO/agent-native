@@ -163,7 +163,11 @@ describe("stale-meeting-sweeper", () => {
     });
     expect(state.updateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ transcriptStatus: "ready" }),
+        expect.objectContaining({
+          transcriptStatus: expect.objectContaining({
+            values: expect.arrayContaining(["ready"]),
+          }),
+        }),
         expect.objectContaining({ status: "ready" }),
       ]),
     );
@@ -179,7 +183,11 @@ describe("stale-meeting-sweeper", () => {
     expect(finalizeRun).not.toHaveBeenCalled();
     expect(state.updateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ transcriptStatus: "failed" }),
+        expect.objectContaining({
+          transcriptStatus: expect.objectContaining({
+            values: expect.arrayContaining(["failed"]),
+          }),
+        }),
       ]),
     );
   });
@@ -273,7 +281,7 @@ describe("stale-meeting-sweeper", () => {
     const closing = state.updateSets.find((set) => "endReason" in set) as
       | { endReason: { sql: string; values: unknown[] } }
       | undefined;
-    expect(closing?.endReason.sql).toContain("coalesce(");
+    expect(closing?.endReason.sql).toContain("is null then");
     expect(closing?.endReason.values).toContain(
       "sweeper:no-transcript-activity",
     );
