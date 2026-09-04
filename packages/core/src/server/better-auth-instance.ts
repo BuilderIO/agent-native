@@ -33,7 +33,7 @@ import {
 
 import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
-import { closePgliteClients, getDbExec } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   getRuntimeDatabaseUrl,
   getPgliteClient,
@@ -1484,7 +1484,6 @@ export async function resetBetterAuth(): Promise<void> {
   // Auth — ending it here would take the framework's and every store's database
   // access down with it. `closeDbExec()` owns that.
   _neonAuthPool = undefined;
-  await closePgliteClients();
 }
 
 // A `closeDbExec()` releases the pool this instance's adapter is bound to, so

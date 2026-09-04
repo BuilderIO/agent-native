@@ -1,5 +1,4 @@
 import {
-  closePgliteClient,
   getPgliteClient,
   isPgliteUrl,
   toPostgresParams,
@@ -48,13 +47,7 @@ export async function createPostgresScriptClient(
 ): Promise<PostgresScriptClient> {
   if (isPgliteUrl(url)) {
     const client = await getPgliteClient(url);
-    const scriptClient = pgliteClient(client);
-    return {
-      ...scriptClient,
-      async end() {
-        await closePgliteClient(url);
-      },
-    };
+    return pgliteClient(client);
   }
 
   if (!/^postgres(?:ql)?:\/\//i.test(url)) {

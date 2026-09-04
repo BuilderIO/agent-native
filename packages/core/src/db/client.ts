@@ -335,21 +335,6 @@ export async function closePgliteClients(): Promise<void> {
   }
 }
 
-export async function closePgliteClient(url: string): Promise<void> {
-  const dataDir = pgliteRuntimeDataDir(pgliteDataDirFromUrl(url));
-  const ready = _pgliteClients.get(dataDir);
-  _pgliteClients.delete(dataDir);
-  if (!ready) return;
-
-  const result = await Promise.resolve(ready).then(
-    (client) => ({ status: "fulfilled" as const, client }),
-    () => ({ status: "rejected" as const }),
-  );
-  if (result.status === "fulfilled") {
-    await result.client.close().catch(() => {});
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Safe JSON column parsing
 // ---------------------------------------------------------------------------
@@ -1461,9 +1446,6 @@ async function createDbExecInternal(
             execute: (sql) => executePglite(tx, sql),
           }),
         );
-      },
-      async close() {
-        await closePgliteClient(url);
       },
     };
   }
