@@ -325,6 +325,17 @@ async function readFixtureState(seed: Awaited<ReturnType<typeof fixture>>) {
   };
 }
 
+function withoutDocumentBodyRevisions<T extends { documents: any[] }>(
+  state: T,
+) {
+  return {
+    ...state,
+    documents: state.documents.map(
+      ({ bodyRevision: _bodyRevision, ...document }) => document,
+    ),
+  };
+}
+
 /**
  * Terminal replays must be observationally inert. Keep timestamps and the
  * receipt here: stripping them would hide a lock or receipt rewrite.
@@ -1088,7 +1099,15 @@ describe("migrate-content-database-rows", () => {
       state: "rolled_back",
       postDigest: applied.preDigest,
     });
-    expect(await readFixtureState(rollbackSeed)).toEqual(beforeRollback);
+    const afterRollback = await readFixtureState(rollbackSeed);
+    expect(
+      afterRollback.documents.map(({ bodyRevision }) => bodyRevision),
+    ).toEqual(
+      beforeRollback.documents.map(({ bodyRevision }) => bodyRevision + 2),
+    );
+    expect(withoutDocumentBodyRevisions(afterRollback)).toEqual(
+      withoutDocumentBodyRevisions(beforeRollback),
+    );
     const rollbackStateBeforeReplay =
       await readDurableMigrationState(rollbackSeed);
     const rollbackReplay: any = await runWithRequestContext(
@@ -1106,7 +1125,7 @@ describe("migrate-content-database-rows", () => {
       replayed: true,
       postDigest: applied.preDigest,
     });
-    expect(await readFixtureState(rollbackSeed)).toEqual(beforeRollback);
+    expect(await readFixtureState(rollbackSeed)).toEqual(afterRollback);
     expect(await readDurableMigrationState(rollbackSeed)).toEqual(
       rollbackStateBeforeReplay,
     );
@@ -1120,7 +1139,7 @@ describe("migrate-content-database-rows", () => {
         }),
       ),
     ).rejects.toThrow("drifted");
-    expect(await readFixtureState(rollbackSeed)).toEqual(beforeRollback);
+    expect(await readFixtureState(rollbackSeed)).toEqual(afterRollback);
     expect(
       await db
         .select()

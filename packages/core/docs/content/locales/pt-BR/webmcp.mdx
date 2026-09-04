@@ -17,6 +17,8 @@ registram ferramentas de ações de backend. Páginas públicas e sem sessão n�
 
 O núcleo do Agent-Native inicializa `@mcp-b/webmcp-polyfill` quando o navegador não oferece uma superfície WebMCP nativa utilizável. O polyfill é local à página e não cria uma conexão MCP de rede.
 
+Páginas autenticadas também expõem `window.__agentNativeWebMcp` para agentes do navegador, com `ready()`, `tools()`, `describe()`, `call()` e `result(id)`. `call()` cuida do contrato de entrada do host ativo, dos descritores atualizados, das novas tentativas e das chamadas que ultrapassam a duração de um avaliador curto; veja o guia em inglês para mais detalhes.
+
 ## Descoberta HTTP e fallback com fetch
 
 Para agentes que não executam um navegador, o Agent-Native também publica um

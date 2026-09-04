@@ -4,6 +4,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   BLOCKS_FIELD_OPERATION_CAPABILITIES,
@@ -504,7 +505,11 @@ async function writeMarkdown(
   if (loaded.storageTarget === "document_body") {
     const updated = await db
       .update(schema.documents)
-      .set({ content: markdown, updatedAt: now })
+      .set({
+        content: markdown,
+        bodyRevision: bodyRevisionForContent(markdown),
+        updatedAt: now,
+      })
       .where(
         and(
           eq(schema.documents.id, target.rowDocumentId),

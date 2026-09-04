@@ -125,13 +125,24 @@ export function ExcalidrawSlide({
  */
 export function ExcalidrawThumbnail({ data }: { data: string }) {
   const [svg, setSvg] = useState<string>("");
+  const [renderState, setRenderState] = useState<"pending" | "ready" | "error">(
+    "pending",
+  );
 
   useEffect(() => {
+    let cancelled = false;
+    setSvg("");
+    setRenderState("pending");
     const parsed = parseExcalidrawData(data);
-    if (!parsed?.elements?.length) return;
+    if (!parsed?.elements?.length) {
+      setRenderState("error");
+      return () => {
+        cancelled = true;
+      };
+    }
 
-    void import("@excalidraw/excalidraw").then(async (mod) => {
-      try {
+    void import("@excalidraw/excalidraw")
+      .then(async (mod) => {
         const svgEl = await mod.exportToSvg({
           elements: parsed.elements,
           appState: {
@@ -150,17 +161,29 @@ export function ExcalidrawThumbnail({ data }: { data: string }) {
         const sanitized = DOMPurify.sanitize(svgEl.outerHTML, {
           USE_PROFILES: { svg: true, svgFilters: true },
         });
+        if (cancelled) return;
         setSvg(sanitized);
-      } catch {
-        // silently fail for thumbnails
-      }
-    });
+        setRenderState("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setRenderState("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [data]);
 
-  if (!svg) return null;
+  if (renderState === "pending") {
+    return <div data-excalidraw-renderer="pending" />;
+  }
+  if (renderState === "error") {
+    return <div data-excalidraw-renderer="error" aria-hidden="true" />;
+  }
 
   return (
     <div
+      data-excalidraw-renderer="ready"
       className="w-full h-full flex items-center justify-center [&_svg]:max-w-full [&_svg]:max-h-full"
       dangerouslySetInnerHTML={{ __html: svg }}
     />

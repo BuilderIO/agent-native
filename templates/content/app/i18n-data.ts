@@ -3210,6 +3210,7 @@ const enUS = {
     copyUnsavedText: "Copy my unsaved text",
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",
+    keepLocalDraft: "Keep my version",
     collabConnectingReadOnly:
       "Connecting live editor. Showing a read-only snapshot.",
     liveDocumentSaveBeforeSyncFailed:
@@ -3571,6 +3572,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "复制我未保存的文本",
       unsavedTextCopied: "已复制未保存的文本",
       useDiskVersion: "使用磁盘版本",
+      keepLocalDraft: "保留我的版本",
       documentTitle: "文档标题",
       localFileSavedHistoryNotUpdated: "本地文件已保存，但历史记录未更新",
       title: "标题",
@@ -3806,6 +3808,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "Copiar mi texto sin guardar",
       unsavedTextCopied: "Texto sin guardar copiado",
       useDiskVersion: "Usar la versión del disco",
+      keepLocalDraft: "Conservar mi versión",
       documentTitle: "Título del documento",
       localFileSavedHistoryNotUpdated:
         "El archivo local se guardó, pero el historial no se actualizó",
@@ -4018,6 +4021,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "Copier mon texte non enregistré",
       unsavedTextCopied: "Texte non enregistré copié",
       useDiskVersion: "Utiliser la version du disque",
+      keepLocalDraft: "Conserver ma version",
       toolbar: { undo: "Annuler", redo: "Rétablir" },
     },
     sidebar: {
@@ -4062,6 +4066,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "Meinen ungespeicherten Text kopieren",
       unsavedTextCopied: "Ungespeicherter Text kopiert",
       useDiskVersion: "Version vom Datenträger verwenden",
+      keepLocalDraft: "Meine Version behalten",
       toolbar: { undo: "Rückgängig", redo: "Wiederholen" },
     },
     sidebar: {
@@ -4105,6 +4110,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "未保存のテキストをコピー",
       unsavedTextCopied: "未保存のテキストをコピーしました",
       useDiskVersion: "ディスク上の版を使用",
+      keepLocalDraft: "自分のバージョンを保持",
       toolbar: { undo: "元に戻す", redo: "やり直す" },
     },
     sidebar: {
@@ -4146,6 +4152,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "저장하지 않은 텍스트 복사",
       unsavedTextCopied: "저장하지 않은 텍스트를 복사했습니다",
       useDiskVersion: "디스크 버전 사용",
+      keepLocalDraft: "내 버전 유지",
       toolbar: { undo: "실행 취소", redo: "다시 실행" },
     },
     sidebar: {
@@ -4186,6 +4193,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "Copiar meu texto não salvo",
       unsavedTextCopied: "Texto não salvo copiado",
       useDiskVersion: "Usar versão do disco",
+      keepLocalDraft: "Manter minha versão",
       toolbar: { undo: "Desfazer", redo: "Refazer" },
     },
     sidebar: {
@@ -4228,6 +4236,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "मेरा सहेजा नहीं गया टेक्स्ट कॉपी करें",
       unsavedTextCopied: "सहेजा नहीं गया टेक्स्ट कॉपी किया गया",
       useDiskVersion: "डिस्क वाला संस्करण उपयोग करें",
+      keepLocalDraft: "मेरा संस्करण रखें",
       toolbar: { undo: "पूर्ववत करें", redo: "फिर से करें" },
     },
     sidebar: {
@@ -4268,6 +4277,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       copyUnsavedText: "نسخ النص غير المحفوظ",
       unsavedTextCopied: "تم نسخ النص غير المحفوظ",
       useDiskVersion: "استخدام نسخة القرص",
+      keepLocalDraft: "الاحتفاظ بنسختي",
       toolbar: { undo: "تراجع", redo: "إعادة" },
     },
     sidebar: {

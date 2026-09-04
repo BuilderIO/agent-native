@@ -60,6 +60,13 @@ describe("SlideEditor render-phase safety", () => {
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
   });
 
+  it("cancels stale draft capture before a slide switch can read the new DOM", () => {
+    expect(source).toContain("const currentSlideIdRef = useRef(slide.id);");
+    expect(source).toContain("currentSlideIdRef.current = slide.id;");
+    expect(source).toContain("currentSlideIdRef.current !== slideId");
+    expect(source).toContain("session?.slideId !== slideId");
+  });
+
   it("selects persisted text boxes on plain click while keeping double-click editing", () => {
     const clickStart = source.indexOf("const handleSlideClick");
     const clickEnd = source.indexOf("const handleSlideDoubleClick", clickStart);

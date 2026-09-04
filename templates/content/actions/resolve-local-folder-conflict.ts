@@ -7,6 +7,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 
@@ -344,6 +345,7 @@ export default defineAction({
           .update(schema.documents)
           .set({
             content: sourceContent!,
+            bodyRevision: bodyRevisionForContent(sourceContent!),
             ...(Object.prototype.hasOwnProperty.call(metadata, "title")
               ? { title: metadata.title ?? "" }
               : {}),

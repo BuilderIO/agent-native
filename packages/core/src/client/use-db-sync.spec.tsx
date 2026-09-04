@@ -52,9 +52,10 @@ function SyncProbe({
   onEvent,
 }: {
   queryClient: QueryClientProbe;
-  actionInvalidatePredicate?: (query: {
-    queryKey: readonly unknown[];
-  }) => boolean;
+  actionInvalidatePredicate?: (
+    query: { queryKey: readonly unknown[] },
+    events: readonly { source?: string; key?: string }[],
+  ) => boolean;
   suppressActionInvalidationFor?: string[];
   onEvent?: (data: any) => void;
 }) {
@@ -239,12 +240,21 @@ describe("useDbSync", () => {
 
   it("can scope the broad action invalidate away from expensive query keys", async () => {
     const queryClient = new QueryClientProbe();
+    const observedEvents: Array<readonly { source?: string; key?: string }[]> =
+      [];
     const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
             version: 1,
-            events: [{ version: 1, source: "action", type: "change" }],
+            events: [
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "update-document",
+              },
+            ],
           }),
         ),
     );
@@ -260,9 +270,10 @@ describe("useDbSync", () => {
       root.render(
         <SyncProbe
           queryClient={queryClient}
-          actionInvalidatePredicate={(query) =>
-            query.queryKey[0] !== "sql-chart"
-          }
+          actionInvalidatePredicate={(query, events) => {
+            observedEvents.push(events);
+            return query.queryKey[0] !== "sql-chart";
+          }}
         />,
       );
       await Promise.resolve();
@@ -280,6 +291,12 @@ describe("useDbSync", () => {
     expect(broadCall?.predicate?.(queryClient.queries[1])).toBe(true);
     expect(queryClient.calls).toEqual([broadCall]);
     expect(queryClient.refetchOptions).toEqual([{ cancelRefetch: false }]);
+    expect(observedEvents[0]).toEqual([
+      expect.objectContaining({
+        source: "action",
+        key: "update-document",
+      }),
+    ]);
   });
 
   it("can suppress action-query invalidation for high-volume background actions", async () => {
@@ -953,6 +970,126 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    visibilitySpy.mockRestore();
+  });
+
+  it("coalesces a refresh-data dispatched mid-poll into exactly one follow-up poll", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let resolveFirst!: (value: Response) => void;
+    const fetchMock = vi.fn(() => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Promise<Response>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RefreshProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        interval: 50_000,
+        pauseWhenHidden: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const pollCallCount = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    await act(async () => {
+      root.render(<RefreshProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    // Fired while the first poll's fetch is still unresolved.
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      resolveFirst(new Response(JSON.stringify({ version: 1, events: [] })));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(2);
+  });
+
+  it("still issues a forced poll from refresh-data while the document is hidden", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let visibilityState: DocumentVisibilityState = "visible";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibilityState);
+
+    function HiddenRefreshProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        interval: 50_000,
+        pauseWhenHidden: true,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const pollCallCount = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    await act(async () => {
+      root.render(<HiddenRefreshProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    act(() => {
+      visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(2);
+
     visibilitySpy.mockRestore();
   });
 

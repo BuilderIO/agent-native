@@ -31,6 +31,7 @@ import {
 import { useT } from "../i18n.js";
 import {
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
@@ -636,16 +637,6 @@ export function LegacyIntegrationsPanel() {
   );
 }
 
-function compareMcpUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
-}
-
 function startMcpOAuthReconnect(server: McpServer): void {
   const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const params = new URLSearchParams({
@@ -796,10 +787,8 @@ export function McpIntegrationsSection({
     ...(serversQuery.data?.user ?? []),
     ...(serversQuery.data?.org ?? []),
   ];
-  const connectedUrls = new Set(
-    servers
-      .filter((server) => server.status.state === "connected")
-      .map((server) => compareMcpUrl(server.url)),
+  const connectedServers = servers.filter(
+    (server) => server.status.state === "connected",
   );
   const hasOrg = Boolean(serversQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
@@ -1031,8 +1020,8 @@ export function McpIntegrationsSection({
           </div>
           <IntegrationGrid
             items={filteredCatalog.map((integration) => {
-              const connected = connectedUrls.has(
-                compareMcpUrl(integration.url),
+              const connected = connectedServers.some((server) =>
+                isMcpIntegrationUrl(integration, server.url),
               );
               return {
                 id: integration.id,

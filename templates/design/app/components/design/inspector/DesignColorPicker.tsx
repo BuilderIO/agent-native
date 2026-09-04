@@ -565,7 +565,12 @@ export function DesignColorPicker({
   className,
 }: DesignColorPickerProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
-  const color = parseCssColorExtended(value) ?? FALLBACK_COLOR;
+  // Memoized because it is a memo/effect dependency below: an object rebuilt
+  // every render churns those dependencies and re-mints gradient stop ids.
+  const color = useMemo(
+    () => parseCssColorExtended(value) ?? FALLBACK_COLOR,
+    [value],
+  );
   const hsv = rgbaToHsv(color);
 
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
@@ -721,16 +726,6 @@ export function DesignColorPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedImageFill?.url, parsedImageFill?.fit]);
 
-  // Ensure a selected stop id exists whenever a gradient is active.
-  useEffect(() => {
-    if (!activeGradient) return;
-    const ids = activeGradient.stops.map((s) => s.id);
-    if (!ids.includes(selectedStopId)) {
-      setSelectedStopId(activeGradient.stops[0]?.id ?? "");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeGradient?.stops.map((s) => s.id).join(",")]);
-
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
   // Tracks the last CSS value handed to onChange/onPaintValueChange, so a
@@ -816,9 +811,12 @@ export function DesignColorPicker({
     emitPaintValue(gradientToCss(next));
   };
 
+  // Derived, never written back: `defaultGradient` mints fresh random stop ids,
+  // so an effect that repaired this id would set state on every render forever.
   const selectedStop =
     activeGradient?.stops.find((s) => s.id === selectedStopId) ??
     activeGradient?.stops[0];
+  const effectiveSelectedStopId = selectedStop?.id ?? "";
 
   // The 2D field edits the selected gradient stop's color when in gradient mode.
   const fieldColor: RgbaColor = activeGradient
@@ -848,7 +846,7 @@ export function DesignColorPicker({
     const parsed = parseCssColorExtended(selectedStopColor);
     if (parsed) setHexDraft(toDisplayHex(parsed));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStopColor, selectedStopId]);
+  }, [selectedStopColor, effectiveSelectedStopId]);
 
   const emitStopColor = (nextColor: RgbaColor) => {
     if (!activeGradient || !selectedStop) return;
@@ -1404,7 +1402,7 @@ export function DesignColorPicker({
                   <div>
                     <GradientEditor
                       value={activeGradient}
-                      selectedStopId={selectedStopId}
+                      selectedStopId={effectiveSelectedStopId}
                       disabled={disabled}
                       onSelectStop={setSelectedStopId}
                       onChange={emitGradient}

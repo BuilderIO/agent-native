@@ -731,6 +731,15 @@ interface VisualEditorProps {
    * lagging poll — only newer content is reconciled into the live editor.
    */
   contentUpdatedAt?: string | null;
+  /** Opaque body revision used for base-aware external-edit reconciliation. */
+  contentRevision?: string | null;
+  onBaseAwareReconcile?: (result: {
+    status: "merged" | "conflict" | "failed";
+    content: string;
+    serverContent: string;
+    baseRevision: string;
+    serverRevision: string;
+  }) => void;
   onChange: (markdown: string) => void;
   onSaveContent?: (markdown: string) => boolean | Promise<boolean>;
   /** Yjs document for collaborative editing. */
@@ -2075,6 +2084,8 @@ export function VisualEditor({
   documentId,
   content,
   contentUpdatedAt,
+  contentRevision,
+  onBaseAwareReconcile,
   onChange,
   onSaveContent,
   ydoc,
@@ -2632,6 +2643,8 @@ export function VisualEditor({
     awareness: localAwareness,
     value: content,
     contentUpdatedAt,
+    contentRevision,
+    onBaseAwareReconcile,
     editable,
     isEditorFocused: isVisualEditorFocused,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),

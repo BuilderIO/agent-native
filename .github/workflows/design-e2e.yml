@@ -1,9 +1,10 @@
 name: Design E2E (browser)
 
 # Post-merge only: a red canvas suite must not block an unrelated merge, and
-# this does not gate the beta deploy. Sharded because the suite is workers:1.
-# Already-broken tests carry test.fail() in the spec, so a red run here means
-# something that was passing broke.
+# this does not gate the beta deploy. Sharded because the suite is workers:1,
+# and shard granularity is per FILE, so a single fat spec sets the floor.
+# Known-broken tests carry test.fixme() with the symptom, so a red run here
+# means something that was passing broke.
 
 on:
   push:
@@ -25,13 +26,13 @@ permissions:
 
 jobs:
   e2e:
-    name: Shard ${{ matrix.shard }}/6
+    name: Shard ${{ matrix.shard }}/12
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -75,7 +76,7 @@ jobs:
         working-directory: templates/design
         run: |
           mkdir -p .react-router/types
-          pnpm exec playwright test --shard=${{ matrix.shard }}/6
+          pnpm exec playwright test --shard=${{ matrix.shard }}/12
 
       - name: Upload report on failure
         if: ${{ failure() }}

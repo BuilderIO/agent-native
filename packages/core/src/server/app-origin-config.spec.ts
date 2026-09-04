@@ -119,6 +119,16 @@ describe("app origin client config", () => {
     expect(script).toContain('"appUrl":"https://app.example.com"');
   });
 
+  it("HTML-escapes the public config payload", () => {
+    process.env.APP_URL = "https://app.example.com/?value=</script>&next=>";
+
+    const script = getAppOriginClientConfigScript();
+
+    expect(script).toContain("\\u003c/script\\u003e");
+    expect(script).toContain("\\u0026next=\\u003e");
+    expect(script.match(/<\/script>/g)).toEqual(["</script>"]);
+  });
+
   it("omits absent fields instead of emitting undefined", () => {
     process.env.APP_URL = "https://app.example.com";
     const config = resolvePublicAppOriginConfig();

@@ -1,9 +1,9 @@
 import { isBoardFile } from "@shared/board-file";
+import { isClosedPathData } from "@shared/pen-path";
 
 import {
   canvasPrimitiveVisual,
-  DEFAULT_LINE_STROKE,
-  DEFAULT_LINE_STROKE_WIDTH_PX,
+  canvasVectorPaint,
 } from "@/components/design/canvas-primitive-style";
 import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/types";
 
@@ -353,25 +353,15 @@ export function appendCanvasPrimitiveToHtml(
             })
             .join(" "),
       );
-      // P11: a CLOSED pen path (serializePenPath always ends a closed path's
-      // "d" string with a trailing "Z" — see shared/pen-path.ts) is a real
-      // fillable shape, not just a stroked line — Figma/Illustrator give a
-      // closed pen path a default fill. An open path (no trailing Z, or the
-      // points-based line/arrow fallback) keeps fill:none since there's no
-      // enclosed region to fill. The inspector's existing style-edit path
-      // can still override this fill like any other element style.
-      const isClosedPenPath = Boolean(
-        explicitPathData && /Z\s*$/i.test(explicitPathData.trim()),
-      );
-      path.setAttribute(
-        "fill",
-        isClosedPenPath ? (primitive.fill ?? "#D9D9D9") : "none",
-      );
-      path.setAttribute("stroke", primitive.stroke ?? DEFAULT_LINE_STROKE);
-      path.setAttribute(
-        "stroke-width",
-        String(primitive.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX),
-      );
+      const paint = canvasVectorPaint({
+        closed: isClosedPathData(explicitPathData),
+        fill: primitive.fill,
+        stroke: primitive.stroke,
+        strokeWidth: primitive.strokeWidth,
+      });
+      path.setAttribute("fill", paint.fill);
+      path.setAttribute("stroke", paint.stroke);
+      path.setAttribute("stroke-width", String(paint.strokeWidth));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
       if (primitive.kind === "arrow") {
@@ -392,7 +382,7 @@ export function appendCanvasPrimitiveToHtml(
         marker.setAttribute("orient", "auto");
         marker.setAttribute("markerUnits", "strokeWidth");
         arrowHead.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-        arrowHead.setAttribute("fill", primitive.stroke ?? DEFAULT_LINE_STROKE);
+        arrowHead.setAttribute("fill", paint.stroke);
         marker.appendChild(arrowHead);
         defs.appendChild(marker);
         svg.appendChild(defs);
@@ -446,9 +436,15 @@ export function appendCanvasPrimitiveToHtml(
         "points",
         polygonPointsForHtmlShape(primitive.kind, width, height),
       );
-      polygon.setAttribute("fill", primitive.fill ?? "rgba(37, 99, 235, 0.16)");
-      polygon.setAttribute("stroke", primitive.stroke ?? "none");
-      polygon.setAttribute("stroke-width", String(primitive.strokeWidth ?? 0));
+      const polygonPaint = canvasVectorPaint({
+        closed: true,
+        fill: primitive.fill,
+        stroke: primitive.stroke,
+        strokeWidth: primitive.strokeWidth,
+      });
+      polygon.setAttribute("fill", polygonPaint.fill);
+      polygon.setAttribute("stroke", polygonPaint.stroke);
+      polygon.setAttribute("stroke-width", String(polygonPaint.strokeWidth));
       polygon.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);

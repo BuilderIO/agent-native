@@ -2085,6 +2085,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function getElementInfo(el: Element): unknown {
     var cs = window.getComputedStyle(el);
+    var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var rect = el.getBoundingClientRect();
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
@@ -2255,6 +2256,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         outlineStyle: cs.outlineStyle,
         outlineColor: cs.outlineColor,
         outlineOffset: cs.outlineOffset,
+        // Read off the shape child for a drawn vector (vectorPaintTarget):
+        // the `<svg>` wrapper itself is never painted.
+        fill: paintCs.fill,
+        fillOpacity: paintCs.fillOpacity,
+        stroke: paintCs.stroke,
+        strokeWidth: paintCs.strokeWidth,
+        strokeOpacity: paintCs.strokeOpacity,
         // Text glyph outline (Figma-parity text "Stroke") — CSS has no
         // unprefixed alias, so this is read via the vendor-prefixed
         // longhands directly. See applyStyleEdit/normalizeStyleProperty in
@@ -2295,9 +2303,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ? rectInfoForElement(el.parentElement)
         : undefined,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
+      textContentTruncated: el.textContent
+        ? el.textContent.length > 200
+        : undefined,
       htmlContent:
         el.innerHTML && el.innerHTML !== el.textContent
           ? el.innerHTML.slice(0, 4000)
+          : undefined,
+      htmlContentTruncated:
+        el.innerHTML && el.innerHTML !== el.textContent
+          ? el.innerHTML.length > 4000
           : undefined,
       childElementCount: el.children ? el.children.length : 0,
       isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
@@ -2349,6 +2364,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: rect.height,
       },
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
+      textContentTruncated: el.textContent
+        ? el.textContent.length > 200
+        : undefined,
       childElementCount: el.children ? el.children.length : 0,
       isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
       isGridContainer: cs.display === "grid" || cs.display === "inline-grid",
@@ -8275,6 +8293,58 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return prop.replace(/([A-Z])/g, "-$1").toLowerCase();
   }
 
+  /**
+   * A drawn vector primitive's `<svg>` carries the geometry and its shape
+   * child carries the paint, so fill/stroke aimed at the wrapper tints the
+   * bounding box instead. Mirrored by `vectorPaintChild` in code-layer.ts.
+   */
+  function vectorPaintTarget(el: Element | null): Element | null {
+    if (!el || el.tagName.toLowerCase() !== "svg") return null;
+    var kind = el.getAttribute("data-an-primitive") || "";
+    if (
+      kind !== "path" &&
+      kind !== "line" &&
+      kind !== "arrow" &&
+      kind !== "polygon" &&
+      kind !== "star"
+    ) {
+      return null;
+    }
+    // Direct children only: an arrow's marker <path> sits inside <defs>
+    // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
+    // this in step with code-layer's childIndexes walk.
+    return el.querySelector(
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
+    );
+  }
+
+  function isVectorPaintProperty(cssProperty: string): boolean {
+    return (
+      cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0
+    );
+  }
+
+  /**
+   * Box paint on a vector wrapper paints its bounding rectangle, and the
+   * inspector no longer edits these for a vector — left behind it is
+   * unreachable. Mirrors `clearVectorWrapperPaint` in code-layer.ts.
+   */
+  function clearVectorWrapperPaint(el: Element): void {
+    var style = (el as HTMLElement).style;
+    var properties = [
+      "background",
+      "background-color",
+      "background-image",
+      "border",
+      "border-width",
+      "border-style",
+      "border-color",
+    ];
+    for (var i = 0; i < properties.length; i += 1) {
+      style.removeProperty(properties[i]!);
+    }
+  }
+
   function applyInlineStyleProperty(
     el: HTMLElement | null,
     property: unknown,
@@ -8283,7 +8353,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !property) return false;
     var cssProperty = normalizeCssPropertyName(property);
     if (!cssProperty) return false;
-    el.style.setProperty(cssProperty, String(value));
+    var target: Element = el;
+    if (isVectorPaintProperty(cssProperty)) {
+      var shape = vectorPaintTarget(el);
+      if (shape) {
+        target = shape;
+        clearVectorWrapperPaint(el);
+      }
+    }
+    (target as HTMLElement).style.setProperty(cssProperty, String(value));
     return true;
   }
 
@@ -9404,10 +9482,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // A target whose resolved container is body is the freeform screen/root,
-    // not an auto-layout list. Reparent inside body and preserve the release
-    // point with absolute positioning instead of inserting before/after a
-    // top-level frame as another flow child.
+    // Body has no node-id, so persist cannot resolve `html > body` as an
+    // inside-anchor. After the current parent lands the same freeform root
+    // sibling and gives persist a real node-id.
     if (
       currentParent !== document.body &&
       (container === document.body ||
@@ -9415,8 +9492,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         target?.anchor === document.body)
     ) {
       return {
-        anchor: document.body,
-        placement: "inside",
+        anchor: currentParent,
+        placement: "after",
         axis: "y",
         dropMode: "absolute-container",
       };
@@ -9539,7 +9616,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var hit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
     if (!hit || hit === document.documentElement || hit === document.body) {
-      return null;
+      return unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
     var cursor = hit;
     while (cursor && cursor !== document.body) {
@@ -9701,7 +9778,103 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       cursor = parent;
     }
-    return null;
+    return unnestAbsoluteToScreenRoot(el, clientX, clientY);
+  }
+
+  // After-the-parent (not inside body): body often has no node-id, so persist
+  // cannot resolve it and the style-only write leaves the child clipped.
+  function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
+    var parent = el && el.parentElement;
+    if (
+      !parent ||
+      parent === document.body ||
+      parent === document.documentElement
+    ) {
+      return null;
+    }
+    var parentRect = parent.getBoundingClientRect();
+    if (
+      clientX >= parentRect.left &&
+      clientX <= parentRect.right &&
+      clientY >= parentRect.top &&
+      clientY <= parentRect.bottom
+    ) {
+      return null;
+    }
+    return {
+      anchor: parent,
+      placement: "after",
+      axis: "y",
+      dropMode: "absolute-container",
+    };
+  }
+
+  function clipsOverflow(value: string) {
+    return (
+      value === "hidden" ||
+      value === "clip" ||
+      value === "auto" ||
+      value === "scroll"
+    );
+  }
+
+  function liftOverflowOnAncestors(els: Element[]) {
+    var captured: {
+      el: HTMLElement;
+      overflow: string;
+      overflowX: string;
+      overflowY: string;
+    }[] = [];
+    var seen: HTMLElement[] = [];
+    els.forEach(function (el) {
+      var cursor = el.parentElement;
+      while (
+        cursor &&
+        cursor !== document.body &&
+        cursor !== document.documentElement
+      ) {
+        var htmlEl = cursor as HTMLElement;
+        if (seen.indexOf(htmlEl) === -1) {
+          var cs = window.getComputedStyle(htmlEl);
+          // `auto` and `scroll` clip absolutely-positioned descendants to the
+          // padding box exactly as `hidden` does, so a child dragged out of a
+          // scrollable frame vanishes unless they are lifted too.
+          if (
+            clipsOverflow(cs.overflow) ||
+            clipsOverflow(cs.overflowX) ||
+            clipsOverflow(cs.overflowY)
+          ) {
+            captured.push({
+              el: htmlEl,
+              overflow: htmlEl.style.overflow,
+              overflowX: htmlEl.style.overflowX,
+              overflowY: htmlEl.style.overflowY,
+            });
+            htmlEl.style.overflow = "visible";
+            htmlEl.style.overflowX = "visible";
+            htmlEl.style.overflowY = "visible";
+          }
+          seen.push(htmlEl);
+        }
+        cursor = cursor.parentElement;
+      }
+    });
+    return captured;
+  }
+
+  function restoreOverflowOnAncestors(
+    captured: {
+      el: HTMLElement;
+      overflow: string;
+      overflowX: string;
+      overflowY: string;
+    }[],
+  ) {
+    captured.forEach(function (entry) {
+      entry.el.style.overflow = entry.overflow;
+      entry.el.style.overflowX = entry.overflowX;
+      entry.el.style.overflowY = entry.overflowY;
+    });
   }
 
   function showInsertionGuideFor(target) {
@@ -9906,7 +10079,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // apply the parent-origin delta twice.
     if (target.absoluteCoordinatesPrepared) return;
     var container = dropContainerForTarget(target);
-    if (!container || container === document.body || container === el) return;
+    if (!container || container === el) return;
     if (el.contains && el.contains(container)) return;
     var htmlEl = el as HTMLElement;
     var cs = window.getComputedStyle(htmlEl);
@@ -9921,16 +10094,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var boardOffsetY = designCanvasBoardSurface
       ? designCanvasContentOffsetY
       : 0;
-    var newOriginX =
-      containerRect.left -
-      boardOffsetX +
-      readPx(containerCS.borderLeftWidth) -
-      container.scrollLeft;
-    var newOriginY =
-      containerRect.top -
-      boardOffsetY +
-      readPx(containerCS.borderTopWidth) -
-      container.scrollTop;
+    // Body's children carry the board translate; subtracting it from body's
+    // origin double-counts and parks an un-nested child one chunk off-world.
+    var bodyIsContainingBlock =
+      container !== document.body ||
+      containerCS.position !== "static" ||
+      containerCS.transform !== "none" ||
+      (containerCS.getPropertyValue("translate") || "none") !== "none";
+    var newOriginBoardOffsetX = container === document.body ? 0 : boardOffsetX;
+    var newOriginBoardOffsetY = container === document.body ? 0 : boardOffsetY;
+    var newOriginX = bodyIsContainingBlock
+      ? containerRect.left -
+        newOriginBoardOffsetX +
+        readPx(containerCS.borderLeftWidth) -
+        container.scrollLeft
+      : -(window.scrollX || 0);
+    var newOriginY = bodyIsContainingBlock
+      ? containerRect.top -
+        newOriginBoardOffsetY +
+        readPx(containerCS.borderTopWidth) -
+        container.scrollTop
+      : -(window.scrollY || 0);
     // Current containing block origin: the member's offsetParent when it is
     // a real containing block, else the initial containing block (client
     // 0,0 minus page scroll). offsetParent falls back to <body> even when
@@ -12108,6 +12292,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       snapshot.originTop = readPx(m.style.top || mcs.top);
       return snapshot;
     });
+    var liftedClippingAncestors = liftOverflowOnAncestors(groupEls);
     var gestureState =
       memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
 
@@ -12396,6 +12581,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);
       clearActiveDragCancel(cancelMoveDrag);
+      restoreOverflowOnAncestors(liftedClippingAncestors);
       // Drop any rAF-scheduled "move" tick so it can never fire and post
       // after this gesture's "end"/"cancel" phase has already gone out.
       crossScreenDragMoveScheduled = false;
