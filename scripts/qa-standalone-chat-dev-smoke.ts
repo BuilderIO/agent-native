@@ -1687,29 +1687,17 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
   };
 }
 
-async function fillAndSubmitComposer(page: Page, text: string): Promise<void> {
+async function fillAndSubmitComposer(
+  page: Page,
+  text: string,
+  options: { expectUserMessage?: boolean } = {},
+): Promise<void> {
   await waitForStableChatSurface(page);
+  const editor = page.locator('[data-agent-composer-slot="editor-input"]');
   await retryAfterNavigation("prepare composer", async () => {
-    await page.evaluate((value) => {
-      const node = document.querySelector<HTMLElement>(
-        '[data-agent-composer-slot="editor-input"]',
-      );
-      if (!node?.isConnected) {
-        throw new Error("Chat composer is not mounted");
-      }
-      node.focus();
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      range.collapse(false);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      if (!document.execCommand("insertText", false, value)) {
-        throw new Error("Could not insert text into the Chat composer");
-      }
-    }, text);
+    await editor.fill(text);
+    await editor.press("Enter");
   });
-  await page.keyboard.press("Enter");
   await retryAfterNavigation("confirm composer submission", () =>
     page.waitForFunction(() => {
       const editor = document.querySelector(
@@ -1718,6 +1706,13 @@ async function fillAndSubmitComposer(page: Page, text: string): Promise<void> {
       return (editor?.textContent ?? "").trim() === "";
     }),
   );
+  if (options.expectUserMessage !== false) {
+    await page
+      .locator('.agentkit-message[data-role="user"]')
+      .filter({ hasText: text })
+      .first()
+      .waitFor({ state: "visible" });
+  }
 }
 
 async function assertComposerFocused(page: Page): Promise<void> {
@@ -2269,7 +2264,9 @@ async function assertAgentKitChatAcceptance(
   await assertViewportContract(page, "narrow dark approval", { dark: true });
   await assertComposerFocused(page);
 
-  await fillAndSubmitComposer(page, queuedPrompt);
+  await fillAndSubmitComposer(page, queuedPrompt, {
+    expectUserMessage: false,
+  });
   const queue = page.getByRole("region", { name: "Queued messages" });
   await queue.waitFor({ state: "visible" });
   await queue.getByText(queuedPrompt, { exact: true }).waitFor({
@@ -2311,7 +2308,9 @@ async function assertAgentKitChatAcceptance(
   await page
     .getByText("This partial response must not survive retry", { exact: false })
     .waitFor({ state: "visible" });
-  await fillAndSubmitComposer(page, rejectedSteerPrompt);
+  await fillAndSubmitComposer(page, rejectedSteerPrompt, {
+    expectUserMessage: false,
+  });
   await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
     state: "visible",
   });
