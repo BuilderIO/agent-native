@@ -533,6 +533,7 @@ function emailQueryOptions(view: string, search?: string, label?: string) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
     staleTime: search ? 30_000 : 60_000,
+    retry: false,
   };
 }
 
@@ -577,7 +578,6 @@ export function useEmails(
       return base;
     },
     refetchOnWindowFocus: false,
-    retry: false,
     enabled: options?.enabled ?? true,
   });
 
