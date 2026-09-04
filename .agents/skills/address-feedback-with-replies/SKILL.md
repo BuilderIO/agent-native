@@ -55,7 +55,7 @@ enters the reply ledger. The reaction is not a reply or completion marker.
 Before finishing, re-read each claimed item and verify the invoking identity
 posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
 recorded **Open - no reply** or **Abandoned - no answer in 4 days** with a
-concrete reason and the `👀` removed for any terminal no-reply disposition. An
+concrete reason and the `👀` removed for any terminal disposition. An
 expired question leaves the ledger with its `👀` removed and no reply owed.
 **Clarification needed** may retain the eye only while the targeted question is
 pending. **In progress** requires
@@ -138,6 +138,11 @@ nothing: releasing the eye is the handoff, and a reply saying another owner
 should act adds no value. Ask for reporter input only when a specific missing
 detail, such as a browser-console screenshot, would let you reproduce and fix
 the issue.
+
+Remove the eye for every terminal disposition, including **Fixed**, **Shipped**,
+**Open - no reply**, **Resolved elsewhere**, **Skipped**, and **Abandoned - no
+answer in 4 days**. Only active **In progress** work or a pending
+**Clarification needed** question may retain it.
 
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.

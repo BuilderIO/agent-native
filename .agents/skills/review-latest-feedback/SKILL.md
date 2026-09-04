@@ -42,6 +42,11 @@ act. Ask for reporter input only when a specific missing detail, such as a
 browser-console screenshot, would let you reproduce and fix the issue. Keep the
 eye while that clarification is pending.
 
+Remove the eye for every terminal disposition, including **Fixed**, **Shipped**,
+**Open - no reply**, **Resolved elsewhere**, **Skipped**, and **Abandoned - no
+answer in 4 days**. Only active **In progress** work or a pending
+**Clarification needed** question may retain it.
+
 Enumerate with `slack_read_channel` from newest backwards, following its
 `next_cursor` until you reach a parent already carrying your `👀` or one older
 than 5 days — that is the window. Record its oldest timestamp as the recap's
@@ -169,7 +174,9 @@ are not pending questions. Treat **Open - no reply** as terminal only after the
 `👀` has been removed and no outstanding clarification remains; it never
 replaces an unanswered clarification question that is still inside its
 four-day window. If an older **Open - no reply** row still has the eye, remove
-the reaction before treating it as terminal.
+the reaction before treating it as terminal. The same eye-release rule applies
+to **Fixed**, **Shipped**, **Resolved elsewhere**, **Skipped**, and
+**Abandoned - no answer in 4 days**.
 
 Only an unanswered **Clarification needed** thread enters the age branches
 below — never one whose latest reply is **Fixed**, **Shipped**, or **In
