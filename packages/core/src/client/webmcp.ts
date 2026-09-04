@@ -214,6 +214,9 @@ function publishRegistrationStatus(
     if (!statuses?.size) {
       registrationStatuses.delete(host);
       delete host[WEBMCP_STATUS_KEY];
+      // The helper's client captured this page's model context; the next
+      // registration installs a fresh one instead of reviving this one.
+      delete host[WEBMCP_HELPER_KEY];
       settleReadyWaiters(host, {
         state: "failed",
         registered: 0,
@@ -786,10 +789,17 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     listingGeneration += 1;
   };
   if (cacheable) client.onToolChange?.(invalidateListing);
+  const pageOrigin =
+    getDocument(targetDocument)?.defaultView?.location?.origin ??
+    (typeof location === "undefined" ? undefined : location.origin);
   async function list(origin?: string): Promise<AgentNativeWebMcpTool[]> {
-    // Discovery defaults to the page's own origin; an explicit origin needs
-    // its own allow-listed listing, which is never cached.
-    if (origin) return client.listTools({ fromOrigins: [origin] });
+    // Discovery defaults to the page's own origin; a different origin needs
+    // its own allow-listed listing, which is never cached. The page's own
+    // origin stays on the normal listing because the polyfill rejects any
+    // fromOrigins value, its own included.
+    if (origin && origin !== pageOrigin) {
+      return client.listTools({ fromOrigins: [origin] });
+    }
     if (!cacheable) return client.listTools();
     if (listing) return listing;
     if (inflight) return inflight;
@@ -826,16 +836,21 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   }): Promise<AgentNativeWebMcpStatus> {
     const current = status();
     if (current && current.state !== "registering") return current;
-    if (!host) {
-      return current ?? { state: "failed", registered: 0, total: 0 };
-    }
+    const none: AgentNativeWebMcpStatus = {
+      state: "failed",
+      registered: 0,
+      total: 0,
+      error: "No WebMCP registration is active on this page",
+    };
+    if (!host) return none;
     const settled = await settleWithin(
       waitForSettledStatus(host),
       readyOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS,
     );
-    return settled.settled
-      ? settled.value
-      : (status() ?? { state: "registering", registered: 0, total: 0 });
+    if (settled.settled) return settled.value;
+    // Past the bound with nothing published, no registration exists; report
+    // that rather than a registering state nobody is driving.
+    return status() ?? none;
   }
 
   async function run(
