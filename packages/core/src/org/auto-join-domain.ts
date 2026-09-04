@@ -78,7 +78,7 @@ export interface AutoJoinDomainOptions {
  * never overwrites an existing `active-org-id` setting.
  *
  * Safe to call when the org tables don't exist (some templates don't use
- * the org module): it swallows the "no such table" error and returns
+ * the org module): it swallows the missing-relation error and returns
  * empty. Never throws — the caller is a signup hook and we don't want to
  * block a user from creating their account because of an org-tier issue.
  */

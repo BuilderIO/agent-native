@@ -117,7 +117,7 @@ describe("resolveDevUserEmail", () => {
     vi.stubEnv("NODE_ENV", "development");
     const execute = vi
       .fn()
-      .mockRejectedValue(new Error("no such table: sessions"));
+      .mockRejectedValue(new Error('relation "sessions" does not exist'));
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => ({ execute }),
     }));

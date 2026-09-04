@@ -90,7 +90,7 @@ describe("autoJoinDomainMatchingOrgs", () => {
     // unreadable". Caching it would let one blip lock every account at that
     // domain out of its org for the whole TTL.
     mockExecute.mockRejectedValueOnce(
-      new Error("no such table: organizations"),
+      new Error('relation "organizations" does not exist'),
     );
     expect(await autoJoinDomainMatchingOrgs("a@flaky.dev")).toEqual({
       joined: [],
@@ -213,7 +213,7 @@ describe("autoJoinDomainMatchingOrgs", () => {
 
   it("swallows missing-table errors (template without org module)", async () => {
     mockExecute.mockRejectedValueOnce(
-      new Error("no such table: organizations"),
+      new Error('relation "organizations" does not exist'),
     );
     const out = await autoJoinDomainMatchingOrgs("a@builder.io");
     expect(out).toEqual({ joined: [], activeOrgId: null });

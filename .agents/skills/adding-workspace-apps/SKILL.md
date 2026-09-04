@@ -70,7 +70,7 @@ proxy, or re-export an action; the action endpoint already exists at
 `/_agent-native/actions/:name`. Action-backed UI is what makes agent-created or
 agent-edited records appear without a manual refresh.
 
-## Database Portability
+## PostgreSQL Database
 
 App database code targets local PGlite and hosted Postgres. Define schemas with
 `@agent-native/core/db/schema` helpers and write app reads/writes with Drizzle's

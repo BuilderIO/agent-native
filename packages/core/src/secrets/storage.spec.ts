@@ -99,9 +99,12 @@ describe("secrets storage bootstrap", () => {
     const execute = vi.fn(async (input: string | { sql: string }) => {
       const sql = typeof input === "string" ? input : input.sql;
       if (sql.trim().startsWith("SELECT") && execute.mock.calls.length === 1) {
-        throw Object.assign(new Error("no such table: app_secrets"), {
-          code: "DB_ERROR",
-        });
+        throw Object.assign(
+          new Error('relation "app_secrets" does not exist'),
+          {
+            code: "DB_ERROR",
+          },
+        );
       }
       return { rows: [] as unknown[] };
     });

@@ -420,11 +420,6 @@ export function isLocalDatabase(): boolean {
   return isPgliteUrl(getRuntimeDatabaseUrl("pglite:./data/pglite"));
 }
 
-/** Returns the Postgres integer type used for framework counters and ids. */
-export function intType(): string {
-  return "BIGINT";
-}
-
 // `widenIntColumnsToBigInt` lives in `./widen-columns.js` so stores can import
 // it without every `vi.mock("./client.js")` test having to stub the export.
 
@@ -1953,19 +1948,19 @@ async function initClient(): Promise<void> {
 /**
  * Point a missing-table failure at the cause instead of the symptom.
  *
- * The driver reports `no such table: x` / `relation "x" does not exist` from
- * whichever query happened to touch it first, so the stack lands in an action
- * and reads as a bug in that action. The actual cause is almost always that no
- * migration ever created the table — a template with no `server/plugins/db.ts`
- * creates none, and core's own tables self-heal, so app tables are the only
- * ones that fail this way. Appends rather than replaces: `isDuplicateColumnError`
- * and friends match substrings of the driver's original text.
+ * PostgreSQL reports `relation "x" does not exist` from whichever query
+ * happened to touch it first, so the stack lands in an action and reads as a
+ * bug in that action. The actual cause is almost always that no migration ever
+ * created the table — a template with no `server/plugins/db.ts` creates none,
+ * and core's own tables self-heal, so app tables are the only ones that fail
+ * this way. Appends rather than replaces: `isDuplicateColumnError` and friends
+ * match substrings of the driver's original text.
  */
 export function annotateMissingTable(err: unknown, sql: unknown): unknown {
   if (!(err instanceof Error)) return err;
-  const match =
-    /no such table:?\s*["'`]?([\w.]+)/i.exec(err.message) ??
-    /relation\s+["'`]?([\w.]+)["'`]?\s+does not exist/i.exec(err.message);
+  const match = /relation\s+["'`]?([\w.]+)["'`]?\s+does not exist/i.exec(
+    err.message,
+  );
   if (!match) return err;
   if (err.message.includes("server/plugins/db.ts")) return err;
   const statement =

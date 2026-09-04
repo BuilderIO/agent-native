@@ -22,7 +22,7 @@ export interface AcceptPendingResult {
  * rather than seeing a blank-slate app until they navigate to /team.
  *
  * Safe to call when the org tables don't exist (some templates don't use the
- * org module) — it swallows the "no such table" error and returns empty.
+ * org module) — it swallows the missing-relation error and returns empty.
  */
 export async function acceptPendingInvitationsForEmail(
   rawEmail: string,

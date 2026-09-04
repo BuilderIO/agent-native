@@ -24,7 +24,7 @@ function providerFromRow(row: Record<string, unknown>): RequiredAuthProvider {
 function isMissingOrgAuthPolicySchema(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
   if (candidate.code === "42P01" || candidate.code === "42703") return true;
-  return /no such table:\s*(organizations|org_members|org_invitations)|no such column:\s*required_auth_provider|relation ["']?(organizations|org_members|org_invitations)["']? does not exist|column ["']?required_auth_provider["']? does not exist/i.test(
+  return /relation ["']?(organizations|org_members|org_invitations)["']? does not exist|column ["']?required_auth_provider["']? does not exist/i.test(
     String(candidate.message ?? error),
   );
 }
@@ -124,7 +124,7 @@ export async function getAuthEmailForUserId(userId: string): Promise<string> {
 function isMissingLegacySessionTable(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
   if (candidate.code === "42P01") return true;
-  return /no such table:\s*sessions|relation ["']?sessions["']? does not exist/i.test(
+  return /relation ["']?sessions["']? does not exist/i.test(
     String(candidate.message ?? error),
   );
 }

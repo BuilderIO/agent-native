@@ -162,7 +162,6 @@ async function migrateMisnamedExtensionsTable(
   } catch (err: any) {
     const message = String(err?.message ?? err).toLowerCase();
     if (
-      message.includes("no such table: extensions") ||
       message.includes('relation "extensions" does not exist') ||
       message.includes("relation extensions does not exist")
     ) {

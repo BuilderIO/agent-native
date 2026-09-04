@@ -3225,7 +3225,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
   rather than "look at the terminal".
 
   Missing-table database errors now name the likely cause. The driver reports
-  `no such table: x` from whichever query touched it first, so the stack lands in
+  `relation "x" does not exist` from whichever query touched it first, so the stack lands in
   an action and reads as a bug there; the real cause is almost always that no
   migration created it, which is what a template with no `server/plugins/db.ts`
   does. The hint is appended to the driver's original message, so existing error

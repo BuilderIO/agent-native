@@ -555,7 +555,7 @@ describe("getOrgContext", () => {
         orgRole: "admin",
       });
       mockExecute.mockRejectedValueOnce(
-        new Error("no such table: org_members"),
+        new Error('relation "org_members" does not exist'),
       );
       const ctx = await getOrgContext(EVENT);
       expect(ctx).toEqual({
@@ -569,7 +569,7 @@ describe("getOrgContext", () => {
     it("returns a null-org context when there is no session orgId", async () => {
       mockGetSession.mockResolvedValue({ email: "a@b.com" });
       mockExecute.mockRejectedValueOnce(
-        new Error("no such table: org_members"),
+        new Error('relation "org_members" does not exist'),
       );
       const ctx = await getOrgContext(EVENT);
       expect(ctx).toEqual({
@@ -828,7 +828,7 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rows: [] }); // domain auto-join lookup
       mockExecute.mockResolvedValueOnce({ rows: [] }); // acquireClaim INSERT
       mockExecute.mockRejectedValueOnce(
-        new Error("no such table: org_invitations"),
+        new Error('relation "org_invitations" does not exist'),
       ); // hasPendingInvitation throws -> treated as "has invite"
       mockExecute.mockResolvedValueOnce({ rows: [] }); // releaseClaim DELETE
       const ctx = await getOrgContext(EVENT);
@@ -907,7 +907,9 @@ describe("resolveOrgIdForEmail", () => {
   });
 
   it("returns null on a DB error (missing tables) rather than throwing", async () => {
-    mockExecute.mockRejectedValueOnce(new Error("no such table: org_members"));
+    mockExecute.mockRejectedValueOnce(
+      new Error('relation "org_members" does not exist'),
+    );
     expect(await resolveOrgIdForEmail("a@b.com")).toBeNull();
   });
 
@@ -1099,7 +1101,7 @@ describe("createOrganization", () => {
     it("warns about the unreadable membership probe and still activates", async () => {
       queueSelect([], []);
       mockExecute.mockRejectedValueOnce(
-        new Error("no such table: org_members"),
+        new Error('relation "org_members" does not exist'),
       );
 
       const result = await createOrganization("Acme", "founder@acme.com");

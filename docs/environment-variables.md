@@ -113,14 +113,14 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `DEBUG`                                                                        | General debug logging switch used by local tooling and selected runtime paths.                                                                                              |
 | `COOKIE_DOMAIN` / `CORS_ALLOWED_ORIGINS`                                       | Optional cookie-domain and cross-origin request policy.                                                                                                                     |
 | `PING_MESSAGE`                                                                 | Minimal template smoke-test message used by example apps.                                                                                                                   |
-| `DATABASE_*`                                                                   | Database URL, auth-token, and provider-specific connection variants.                                                                                                        |
+| `DATABASE_*`                                                                   | PostgreSQL URL, auth token, and per-app connection settings.                                                                                                                |
 | `NODE_*`                                                                       | Node runtime and CLI options such as `NODE_ENV` and `NODE_OPTIONS`.                                                                                                         |
 | `APP_*`                                                                        | Server-side app identity and public-origin configuration.                                                                                                                   |
 | `A2A_*`                                                                        | A2A lifetime, auth, and processing controls.                                                                                                                                |
 | `URL` / `PATH` / `HOME` / `PWD` / `SHELL` / `COMSPEC` / `APPDATA` / `INIT_CWD` | Host-provided process and shell metadata used by local tooling.                                                                                                             |
 | `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                                          | Tool-specific configuration and package-manager home directories.                                                                                                           |
 
-Database-specific `<APP_NAME>_DATABASE_URL` and
+Per-app `<APP_NAME>_DATABASE_URL` and
 Workspace apps use their `<APP_NAME>_DATABASE_URL` override for database
 selection.
 

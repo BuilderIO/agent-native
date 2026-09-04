@@ -142,8 +142,6 @@ function isMissingResourceSchemaError(error: unknown): boolean {
       ? candidate.message.toLowerCase()
       : "";
   return (
-    message.includes("no such table: resources") ||
-    message.includes("no such column:") ||
     message.includes('relation "resources" does not exist') ||
     (message.includes("column") && message.includes("does not exist"))
   );

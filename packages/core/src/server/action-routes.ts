@@ -363,9 +363,8 @@ function normalizeOrgId(value: string | null | undefined): string | undefined {
 
 function isFirstBootMissingOrgTableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  return (
-    /no such table:?\s*["'`]?org_members["'`]?/i.test(error.message) ||
-    /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(error.message)
+  return /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(
+    error.message,
   );
 }
 

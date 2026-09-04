@@ -228,7 +228,7 @@ async function normalizeWorkspaceMcpConfig(
 
 function isMissingWorkspaceResourceTable(error: unknown): boolean {
   const message = String((error as { message?: unknown })?.message ?? error);
-  return /workspace_resources|workspace_resource_grants|no such table|does not exist/i.test(
+  return /workspace_resources|workspace_resource_grants|relation .* does not exist|undefined_table/i.test(
     message,
   );
 }

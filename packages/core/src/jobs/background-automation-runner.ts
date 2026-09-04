@@ -176,7 +176,6 @@ export async function validateAutomationRunIdentity(
     const authTablesAreUnconfigured =
       !orgId &&
       (message.includes("does not exist") ||
-        message.includes("no such table") ||
         message.includes("undefined table"));
     if (authTablesAreUnconfigured) return { ok: true };
     return {

@@ -1405,7 +1405,7 @@ describe("annotateMissingTable", () => {
   it("does not stack the hint when the same error passes through twice", async () => {
     const { annotateMissingTable } = await import("./client.js");
 
-    const err = new Error("no such table: forms");
+    const err = new Error('relation "forms" does not exist');
     const once = annotateMissingTable(err, "SELECT 1") as Error;
     const twice = annotateMissingTable(once, "SELECT 1") as Error;
     expect(twice.message.match(/server\/plugins\/db\.ts/g)).toHaveLength(1);

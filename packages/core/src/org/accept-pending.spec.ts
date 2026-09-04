@@ -89,7 +89,7 @@ describe("acceptPendingInvitationsForEmail", () => {
 
   it("swallows missing-table errors (template without org module)", async () => {
     mockExecute.mockRejectedValueOnce(
-      new Error("no such table: org_invitations"),
+      new Error('relation "org_invitations" does not exist'),
     );
     const out = await acceptPendingInvitationsForEmail("a@b.com");
     expect(out).toEqual({ accepted: [], activeOrgId: null });

@@ -346,8 +346,8 @@ function isMissingAppSecretsTableError(error: unknown): boolean {
   if (code === "42P01") return namesAppSecrets;
   return (
     namesAppSecrets &&
-    (message.includes("no such table") ||
-      (message.includes("relation") && message.includes("does not exist")))
+    message.includes("relation") &&
+    message.includes("does not exist")
   );
 }
 
