@@ -500,6 +500,74 @@ describe("sendEmail audit logging", () => {
     expect(payload.attachments[0].content).toBeUndefined();
   });
 
+  it("omits the HTML and text body from the logged request payload (Resend)", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ id: "email_123" }, { status: 200 })),
+    );
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Sign in to Agent-Native",
+      html: '<a href="https://app.example.com/verify?token=super-secret-one-time-token">Sign in</a>',
+      text: "https://app.example.com/verify?token=super-secret-one-time-token",
+      templateId: "core.magic-link",
+    });
+
+    const call: any = recordEmailSend.mock.calls[0]?.[0];
+    expect(call.requestPayload).not.toContain("super-secret-one-time-token");
+    const payload = JSON.parse(call.requestPayload);
+    expect(payload.html).toContain("omitted");
+    expect(payload.text).toContain("omitted");
+    expect(payload.to).toBe("reader@example.com");
+  });
+
+  it("omits the HTML and text body from the logged request payload (SendGrid)", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 202 })),
+    );
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Reset your password",
+      html: '<a href="https://app.example.com/reset?token=super-secret-reset-token">Reset</a>',
+      templateId: "core.reset-password",
+    });
+
+    const call: any = recordEmailSend.mock.calls[0]?.[0];
+    expect(call.requestPayload).not.toContain("super-secret-reset-token");
+    const payload = JSON.parse(call.requestPayload);
+    const values = payload.content.map((entry: any) => entry.value);
+    for (const value of values) {
+      expect(String(value)).toContain("omitted");
+    }
+  });
+
+  it("truncates an oversized logged response body", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    const hugeBody = "x".repeat(20000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(hugeBody, { status: 200 })),
+    );
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Dashboard report",
+      html: "<p>Report</p>",
+    });
+
+    const call: any = recordEmailSend.mock.calls[0]?.[0];
+    expect(call.responseBody.length).toBeLessThan(hugeBody.length);
+    expect(call.responseBody).toContain("truncated");
+  });
+
   it("records the raw response and error on a non-2xx provider response, and rethrows", async () => {
     vi.stubEnv("RESEND_API_KEY", "resend-example-key");
     vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");

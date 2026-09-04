@@ -21,11 +21,11 @@ export default defineAction({
       .describe("Substring match against the resolved sender address."),
     status: z.enum(["sent", "failed"]).optional(),
     provider: z.string().optional(),
-    sinceMs: z
+    sinceMs: z.coerce
       .number()
       .optional()
       .describe("Only sends at or after this Unix epoch (ms)."),
-    untilMs: z
+    untilMs: z.coerce
       .number()
       .optional()
       .describe("Only sends at or before this Unix epoch (ms)."),

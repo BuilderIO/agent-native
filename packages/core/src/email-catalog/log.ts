@@ -273,9 +273,13 @@ export async function listEmailLog(
   const offset = Math.max(0, Math.floor(options.offset ?? 0));
 
   const { rows } = await getDbExec().execute({
+    // `id DESC` breaks ties on `created_at` (millisecond resolution, so
+    // concurrent/bulk sends can share a timestamp) — without it, tied rows
+    // can sort differently across page requests and the Send log UI would
+    // skip or duplicate entries when paging.
     sql: `SELECT ${LOG_COLUMNS} FROM email_log
       WHERE ${where.join(" AND ")}
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC, id DESC
       LIMIT ? OFFSET ?`,
     args: [...args, limit, offset],
   });
