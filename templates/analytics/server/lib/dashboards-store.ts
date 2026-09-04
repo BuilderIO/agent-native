@@ -1339,6 +1339,7 @@ export async function loadDashboardCatalogDashboards(
       if (!config || typeof config !== "object" || Array.isArray(config)) {
         return [];
       }
+      if (row.kind === "sql") config = normalizeDashboardConfig(config);
       const certification = parseDashboardCertification(row.certification);
       const description =
         typeof row.description === "string"

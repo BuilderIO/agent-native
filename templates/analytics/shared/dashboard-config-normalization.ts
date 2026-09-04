@@ -35,6 +35,17 @@ export function normalizeDashboardConfig(
       panelChanged = true;
     }
 
+    if (
+      (nextPanel.chartType === "section" ||
+        nextConfig.chartType === "section") &&
+      typeof nextConfig.columns === "number" &&
+      Number.isFinite(nextConfig.columns)
+    ) {
+      nextPanel.columns = nextConfig.columns;
+      delete nextConfig.columns;
+      panelChanged = true;
+    }
+
     if (!panelChanged) return value;
     changed = true;
     if (Object.keys(nextConfig).length > 0) nextPanel.config = nextConfig;

@@ -61,6 +61,33 @@ describe("normalizeDashboardConfig", () => {
     ]);
   });
 
+  it("promotes numeric section columns without moving table columns", () => {
+    const normalized = normalizeDashboardConfig({
+      name: "Traffic",
+      panels: [
+        {
+          id: "section",
+          chartType: "section",
+          config: { columns: 3 },
+        },
+        {
+          id: "table",
+          chartType: "table",
+          config: { columns: [{ key: "path" }] },
+        },
+      ],
+    });
+
+    expect(normalized.panels).toEqual([
+      { id: "section", chartType: "section", columns: 3 },
+      {
+        id: "table",
+        chartType: "table",
+        config: { columns: [{ key: "path" }] },
+      },
+    ]);
+  });
+
   it("returns the original config when no panel fields are misplaced", () => {
     const config = {
       name: "Traffic",
