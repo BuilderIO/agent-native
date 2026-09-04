@@ -444,12 +444,146 @@ describe("calendar event listing", () => {
     );
   });
 
+  it("excludes CalendarList entries with none or unknown access roles", async () => {
+    calendarListCalendarsMock.mockResolvedValue({
+      items: [
+        { id: "none@example.com", accessRole: "none" },
+        { id: "unknown@example.com", accessRole: "mystery" },
+        { id: "reader@example.com", accessRole: "reader" },
+      ],
+    });
+
+    const { calendars } = await listGoogleCalendars("owner@example.com");
+
+    expect(calendars.map((calendar) => calendar.calendarId)).toEqual([
+      "reader@example.com",
+    ]);
+  });
+
+  it("deduplicates one calendar across account paths using strongest access", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "zulu@example.com",
+        tokens: {
+          access_token: "zulu-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "alpha@example.com",
+        tokens: {
+          access_token: "alpha-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarListCalendarsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "friends@example.com",
+            summary: "Friends",
+            accessRole: "writer",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "friends@example.com",
+            summary: "Friends",
+            accessRole: "reader",
+          },
+        ],
+      });
+
+    const { calendars } = await listGoogleCalendars("owner@example.com");
+
+    expect(calendars).toHaveLength(1);
+    expect(calendars[0]).toMatchObject({
+      accountEmail: "alpha@example.com",
+      calendarId: "friends@example.com",
+      accessRole: "writer",
+      sourcePaths: [
+        expect.objectContaining({
+          accountEmail: "alpha@example.com",
+          accessRole: "writer",
+        }),
+        expect.objectContaining({
+          accountEmail: "zulu@example.com",
+          accessRole: "reader",
+        }),
+      ],
+    });
+    expect(calendars[0]?.canonicalKey).toMatch(/^google-calendar-canonical:/);
+  });
+
+  it("keeps a canonical source event when its strongest account path fails", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "alpha@example.com",
+        tokens: {
+          access_token: "alpha-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "zulu@example.com",
+        tokens: {
+          access_token: "zulu-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarListCalendarsMock.mockResolvedValue({
+      items: [
+        {
+          id: "friends@example.com",
+          summary: "Friends",
+          accessRole: "reader",
+        },
+      ],
+    });
+    calendarListEventsMock
+      .mockRejectedValueOnce(new Error("provider unavailable"))
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "friends-event",
+            start: { dateTime: "2026-07-06T16:00:00Z" },
+            end: { dateTime: "2026-07-06T16:30:00Z" },
+          },
+        ],
+      });
+
+    const [{ sourceKey }] = (await listGoogleCalendars("owner@example.com"))
+      .calendars;
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+      { calendarSourceKeys: [sourceKey!] },
+    );
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      calendarSourceKey: sourceKey,
+      canonicalKey: expect.stringMatching(/^google-calendar-canonical:/),
+    });
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        error: expect.stringContaining("provider unavailable"),
+      }),
+    );
+  });
+
   it("validates selected sources and preserves their event provenance", async () => {
     calendarListCalendarsMock.mockResolvedValue({
       items: [
         {
           id: "team@example.com",
           summary: "Team",
+          backgroundColor: "#B07CC6",
           accessRole: "reader",
         },
       ],
@@ -484,6 +618,7 @@ describe("calendar event listing", () => {
       calendarSourceKey: sourceKey,
       calendarId: "team@example.com",
       calendarName: "Team",
+      calendarColor: "#B07CC6",
       calendarAccessRole: "reader",
       calendarReadOnly: true,
     });

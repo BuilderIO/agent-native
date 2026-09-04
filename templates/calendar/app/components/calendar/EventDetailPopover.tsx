@@ -1887,8 +1887,10 @@ export function EventDetailPopover({
                 />
               )}
 
-              {/* Time, date, timezone, and repeat stay editable in place. */}
-              <div className="flex items-start gap-2 rounded-md py-1.5">
+              <fieldset
+                disabled={isOverlay}
+                className="flex min-w-0 items-start gap-2 rounded-md py-1.5"
+              >
                 <IconClock className="mt-1 size-[18px] shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   {isWorkingLocation && (
@@ -2008,7 +2010,7 @@ export function EventDetailPopover({
                     </>
                   )}
                 </div>
-              </div>
+              </fieldset>
 
               {!event.allDay && !isOverlay && !isWorkingLocation && (
                 <div className="flex items-center gap-2 py-1">

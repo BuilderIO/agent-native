@@ -1,7 +1,5 @@
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import type { GoogleCalendarSource } from "@shared/api";
-import { SHARED_GOOGLE_CALENDARS } from "@shared/feature-flags";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -11,8 +9,7 @@ import {
 
 export function useGoogleCalendars() {
   const demo = isSharedCalendarDemo();
-  const flagEnabled = useFeatureFlag(SHARED_GOOGLE_CALENDARS.key);
-  const enabled = demo || flagEnabled;
+  const enabled = true;
   const live = useActionQuery<{
     calendars: GoogleCalendarSource[];
     errors: Array<{ email: string; error: string }>;
