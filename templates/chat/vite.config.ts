@@ -19,6 +19,9 @@ export default defineConfig({
     // Scan the shell and Chat route before accepting requests so a cold
     // standalone consumer does not leave the browser waiting on the full
     // composer/editor graph one module at a time.
+    // Every static client entry is listed below, so let the browser process
+    // those requests in parallel without a cold-start optimizer reload.
+    holdUntilCrawlEnd: false,
     entries: [
       "app/entry.client.tsx",
       "app/root.tsx",
