@@ -1,8 +1,8 @@
 pr=4387
 owner_thread=01a06e94-cbae-7c22-b068-32c9350bb4b3
 owner_host=local
-version=17
-renewed_at=1788563581
-expires_at=1788564481
+version=18
+renewed_at=1788563678
+expires_at=1788564578
 observed_legacy_heartbeat_version=absent
 legacy_retired=true
