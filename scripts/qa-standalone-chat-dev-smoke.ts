@@ -2569,6 +2569,7 @@ async function main(): Promise<void> {
   let cleanupError: unknown;
   const browserErrors: string[] = [];
   const httpErrors: string[] = [];
+  const browserDiagnostics: string[] = [];
   const network: BrowserNetworkState = {
     allowInitialHomeWarmupErrors: true,
     allowInitialEphemeralThread404: true,
@@ -2597,13 +2598,17 @@ async function main(): Promise<void> {
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) {
         network.navigationCancellationUntil = Date.now() + 2_000;
+        browserDiagnostics.push(`main-frame navigation: ${frame.url()}`);
       }
     });
 
     page.on("pageerror", (error) => browserErrors.push(error.message));
     page.on("console", (message) => {
-      if (message.type() !== "error") return;
       const text = message.text();
+      if (text.startsWith("[agent-native]")) {
+        browserDiagnostics.push(`${message.type()}: ${text}`);
+      }
+      if (message.type() !== "error") return;
       if (isBenignConsoleError(text)) {
         recordSuppressedNoise(text);
         return;
@@ -2703,13 +2708,17 @@ async function main(): Promise<void> {
       httpErrors.length > 0
         ? `\n\nBrowser HTTP errors:\n${httpErrors.join("\n")}`
         : "";
+    const diagnosticsBlock =
+      browserDiagnostics.length > 0
+        ? `\n\nBrowser lifecycle diagnostics:\n${browserDiagnostics.join("\n")}`
+        : "";
     const providerBlock = `\n\nLoopback provider state:\n${JSON.stringify(
       provider.state,
       null,
       2,
     )}`;
     primaryError = new Error(
-      `${message}${browserBlock}${httpBlock}${providerBlock}\n\nRecent dev logs:\n${logs}`,
+      `${message}${browserBlock}${httpBlock}${diagnosticsBlock}${providerBlock}\n\nRecent dev logs:\n${logs}`,
     );
   } finally {
     try {
