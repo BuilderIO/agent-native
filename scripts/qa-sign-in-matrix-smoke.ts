@@ -195,21 +195,35 @@ async function startApp(basePath: string): Promise<RunningApp> {
     logs.push(`\n[chat] exited code=${code} signal=${signal}\n`);
   });
 
-  await waitForReady(appUrl, logs);
-  // Prove the server answering is THIS deploy. A leftover process from the
-  // previous base path answers `ping` perfectly well, and every assertion
-  // below would then re-test the surface that already passed.
-  const doc = await (await fetch(`${appUrl}${SIGN_IN_ENTRY_PATH}`)).text();
-  const authData = doc.match(
-    /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
-  );
-  assert.ok(
-    authData &&
-      (JSON.parse(authData[1]!) as { appBasePath?: string }).appBasePath ===
-        basePath,
-    `the server on ${appUrl} is not serving base path ${JSON.stringify(basePath)}`,
-  );
-  return { origin, basePath, appUrl, child, logs, viteReload };
+  const running = { origin, basePath, appUrl, child, logs, viteReload };
+  try {
+    await waitForReady(appUrl, logs);
+    // Prove the server answering is THIS deploy. A leftover process from the
+    // previous base path answers `ping` perfectly well, and every assertion
+    // below would then re-test the surface that already passed.
+    const doc = await (await fetch(`${appUrl}${SIGN_IN_ENTRY_PATH}`)).text();
+    const authData = doc.match(
+      /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
+    );
+    assert.ok(
+      authData &&
+        (JSON.parse(authData[1]!) as { appBasePath?: string }).appBasePath ===
+          basePath,
+      `the server on ${appUrl} is not serving base path ${JSON.stringify(basePath)}`,
+    );
+    return running;
+  } catch (error) {
+    try {
+      await stopApp(running);
+    } catch (cleanupError) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n` +
+          `Failed to clean up the generated chat process: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 /** Wait until Vite's cold dependency optimization can no longer reload the page. */

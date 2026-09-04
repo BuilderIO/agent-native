@@ -264,7 +264,28 @@ function nitroVitePlugin(
 ) {
   installNitroFsWatchGuard();
   const plugins = require("nitro/vite").nitro(...args) as Plugin[];
-  return plugins.map(debounceNitroFullReloadHotUpdate);
+  return plugins
+    .map(debounceNitroFullReloadHotUpdate)
+    .map(skipViteChildCompiler);
+}
+
+function skipViteChildCompiler(plugin: Plugin): Plugin {
+  const originalApply = plugin.apply;
+  return {
+    ...plugin,
+    apply(config, configEnv) {
+      // React Router creates a config-file-free child compiler to inspect route
+      // exports. Nitro must only own the main server; a second environment
+      // would open the same PGlite directory and lose writes on close.
+      if ((config as UserConfig & { configFile?: false }).configFile === false)
+        return false;
+      if (!originalApply) return true;
+      if (typeof originalApply === "function") {
+        return originalApply(config, configEnv);
+      }
+      return originalApply === configEnv.command;
+    },
+  };
 }
 
 /**
@@ -3475,7 +3496,8 @@ function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
   return {
     ...pluginOrPreset,
-    apply: (_config: UserConfig, configEnv: ConfigEnv) =>
+    apply: (config: UserConfig, configEnv: ConfigEnv) =>
+      (config as UserConfig & { configFile?: false }).configFile !== false &&
       configEnv.command === "serve" &&
       !(configEnv.isPreview && process.env.IS_RR_BUILD_REQUEST === "yes"),
   };
