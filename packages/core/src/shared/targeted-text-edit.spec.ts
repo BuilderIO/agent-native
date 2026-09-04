@@ -213,4 +213,18 @@ describe("applyTargetedReplace", () => {
       });
     },
   );
+
+  it("lets occurrence win over all when both are given", () => {
+    const content = "<p>Same</p><p>Same</p><p>Same</p>";
+    const result = applyTargetedReplace(
+      content,
+      "<p>Same</p>",
+      "<p>Different</p>",
+      { occurrence: 2, all: true },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      content: "<p>Same</p><p>Different</p><p>Same</p>",
+    });
+  });
 });

@@ -4003,12 +4003,13 @@ const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   // errorCode: "permanent_precondition" })` renders here as `(errorCode:
   // permanent_precondition)`. Both echo the same literal value this module
   // assigns below, so matching it is recognizing this framework's own marker,
-  // not guessing at third-party error shapes.
+  // not guessing at third-party error shapes. Deliberately NOT matched: the
+  // "needs a setup step outside this turn" prose those same call sites always
+  // pair with this marker — a tool result that merely echoes or quotes that
+  // sentence (e.g. a closest-match candidate list built from other content)
+  // would otherwise be misread as this framework's own stop, and nothing is
+  // lost since every real emitter also sends the marker below.
   /\b"?(?:error)?code"?\s*:\s*"?permanent_precondition\b/i,
-  // The callee's own precondition sentence (see the message built in
-  // `finalizeToolErrorResult` below), verbatim, for the rare case the marker
-  // above was truncated or stripped before this result text was built.
-  /\bneeds a setup step outside this turn\b/i,
 ];
 
 const SOURCE_SWEEP_TOOL_NAME =

@@ -129,7 +129,10 @@ export function applyTargetedReplace(
   if (!result.ok) return result;
 
   const { matches } = result;
-  if (opts.all) {
+  // occurrence wins when both are given — matches the pre-helper contract
+  // (nthIndexOf/replaceNth ran before the `all` branch), so { occurrence: 2,
+  // all: true } replaces only the second match, not every match.
+  if (opts.occurrence === undefined && opts.all) {
     let next = content;
     for (const m of [...matches].reverse()) {
       next = next.slice(0, m.index) + replacement + next.slice(m.end);

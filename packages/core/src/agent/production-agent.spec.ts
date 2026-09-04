@@ -6308,6 +6308,13 @@ describe("runAgentLoop", () => {
       // Retention windows, fixed by narrowing the range and asking again.
       "Error running list-session-recordings: Data is only available from the last 90 days",
       "Error running gong-calls: transcripts are only available in the last 12 months",
+      // The precondition SENTENCE with no marker line: a closest-match tool
+      // echoing another candidate's content (an extension or slide whose own
+      // text happens to contain this exact sentence) must not be misread as
+      // this framework's own stop. Only the `code: permanent_precondition` /
+      // `errorCode: permanent_precondition` marker is diagnostic; every real
+      // emitter of the sentence also sends that marker.
+      'Error running find-closest-match: closest candidate: "...needs a setup step outside this turn before it can run..." (no code line, not this run\'s own stop)',
     ]) {
       expect(permanentPreconditionRemedy(recoverable)).toBeNull();
     }

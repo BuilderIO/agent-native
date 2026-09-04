@@ -258,4 +258,21 @@ describe("extension content patching", () => {
       );
     },
   );
+
+  it("lets occurrence win over all when both are given", async () => {
+    const content = "<p>Same</p><p>Same</p><p>Same</p>";
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "replace",
+          find: "<p>Same</p>",
+          replace: "<p>Different</p>",
+          occurrence: 2,
+          all: true,
+        },
+      ],
+    });
+
+    expect(result.content).toBe("<p>Same</p><p>Different</p><p>Same</p>");
+  });
 });
