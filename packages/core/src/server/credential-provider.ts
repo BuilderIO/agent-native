@@ -1169,8 +1169,9 @@ export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | 
         };
       }
     } catch {
-      // Custody exists but the grant is unusable (expired, missing scope, needs
-      // reconnect) -- fall through to the key lane below rather than throw.
+      // coercion-ok: custody exists but the grant is unusable (expired,
+      // missing scope, needs reconnect) -- fall through to the key lane
+      // below rather than throw.
     }
   }
   const creds = await resolveBuilderGatewayCredentialsDetailed();

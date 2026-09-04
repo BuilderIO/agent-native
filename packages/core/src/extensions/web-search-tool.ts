@@ -110,8 +110,8 @@ async function resolveBuilderSearchCredentials(
   try {
     return await opts.resolveBuilderCredentials();
   } catch {
-    // Builder credential lookup failures are non-fatal; BYOK backends or the
-    // setup hint below can still handle the tool call.
+    // coercion-ok: Builder credential lookup failures are non-fatal; BYOK
+    // backends or the setup hint below can still handle the tool call.
     return null;
   }
 }
