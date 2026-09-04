@@ -297,8 +297,7 @@ export async function listEmailLog(
       row.request_payload == null ? null : String(row.request_payload),
     responseStatus:
       row.response_status == null ? null : Number(row.response_status),
-    responseBody:
-      row.response_body == null ? null : String(row.response_body),
+    responseBody: row.response_body == null ? null : String(row.response_body),
     createdAt: Number(row.created_at),
   }));
 }
