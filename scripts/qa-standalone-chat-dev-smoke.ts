@@ -2498,6 +2498,23 @@ async function runBrowserSmoke(
     httpErrors,
   );
 
+  // The home route hands off through React Router. Once that handoff has been
+  // observed, reload the durable URL directly so acceptance starts from the
+  // same deep-link state users get when reopening a Chat thread.
+  log("warmup: reload the durable Chat deep link before interaction");
+  await gotoCommitted(
+    page,
+    new URL(durableThreadPath, baseUrl).toString(),
+    "domcontentloaded",
+  );
+  await waitForChatPage(
+    page,
+    running,
+    durableThreadPath,
+    browserErrors,
+    httpErrors,
+  );
+
   log("acceptance: real AgentKit loopback lifecycle");
   await assertAgentKitChatAcceptance(page, provider, network);
   log("acceptance pass: real AgentKit loopback lifecycle");
