@@ -1262,6 +1262,18 @@ export function DocumentSidebar({
     title: string;
   } | null>(null);
   const confirmedDeleteIdRef = useRef<string | null>(null);
+  const pendingOptimisticCreationIdsRef = useRef(new Set<string>());
+  const settleOptimisticListRefresh = useCallback(
+    (id: string) => {
+      pendingOptimisticCreationIdsRef.current.delete(id);
+      if (pendingOptimisticCreationIdsRef.current.size === 0) {
+        void queryClient.invalidateQueries({
+          queryKey: LIST_DOCUMENTS_QUERY_KEY,
+        });
+      }
+    },
+    [queryClient],
+  );
   const settingsActive = location.pathname.startsWith("/settings");
 
   const handleMouseDown = useCallback(
@@ -1391,6 +1403,7 @@ export function DocumentSidebar({
         LIST_DOCUMENTS_QUERY_KEY,
       );
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
+      pendingOptimisticCreationIdsRef.current.add(id);
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
@@ -1436,9 +1449,7 @@ export function DocumentSidebar({
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
         void queryClient.invalidateQueries(documentQueryFilter(nextId));
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        settleOptimisticListRefresh(id);
         if (rootFilesDatabaseId) {
           void queryClient.invalidateQueries({
             queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
@@ -1452,9 +1463,7 @@ export function DocumentSidebar({
           id,
           previousDocuments !== undefined,
         );
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        settleOptimisticListRefresh(id);
         queryClient.removeQueries(documentQueryFilter(id));
         if (rootFilesDatabaseId) {
           queryClient.setQueryData<ContentDatabaseResponse>(
@@ -1486,6 +1495,7 @@ export function DocumentSidebar({
       queryClient,
       revealParentForCreation,
       selectedSpace?.id,
+      settleOptimisticListRefresh,
       t,
     ],
   );
@@ -1516,6 +1526,7 @@ export function DocumentSidebar({
         LIST_DOCUMENTS_QUERY_KEY,
       );
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
+      pendingOptimisticCreationIdsRef.current.add(id);
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
@@ -1539,9 +1550,7 @@ export function DocumentSidebar({
           navigateToDocument(nextId);
         }
         void queryClient.invalidateQueries(documentQueryFilter(nextId));
-        void queryClient.invalidateQueries({
-          queryKey: LIST_DOCUMENTS_QUERY_KEY,
-        });
+        settleOptimisticListRefresh(id);
         settleParentExpansion(true);
       } catch (err) {
         settleParentExpansion(false);
@@ -1551,9 +1560,7 @@ export function DocumentSidebar({
           previousDocuments !== undefined,
         );
         queryClient.removeQueries(documentQueryFilter(id));
-        void queryClient.invalidateQueries({
-          queryKey: LIST_DOCUMENTS_QUERY_KEY,
-        });
+        settleOptimisticListRefresh(id);
         if (window.location.pathname === `/page/${id}`) {
           void navigate(previousPath, {
             replace: true,
@@ -1578,6 +1585,7 @@ export function DocumentSidebar({
       queryClient,
       revealParentForCreation,
       selectedSpace?.id,
+      settleOptimisticListRefresh,
       t,
     ],
   );

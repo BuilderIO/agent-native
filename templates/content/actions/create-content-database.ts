@@ -96,6 +96,9 @@ export async function createContentDatabaseCore(
   if (args.documentId && args.newDocumentId) {
     throw new Error("documentId and newDocumentId cannot both be provided");
   }
+  if (args.newDocumentId !== undefined && !args.newDocumentId.trim()) {
+    throw new Error("newDocumentId cannot be empty");
+  }
   const db = options.db ?? getDb();
   const resolvedSpaceId = await resolveContentDatabaseSpace(args, db);
   let databaseId: string | null = null;

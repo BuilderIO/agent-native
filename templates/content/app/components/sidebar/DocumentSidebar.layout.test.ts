@@ -198,6 +198,10 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "if (window.location.pathname === `/page/${id}`)",
     );
+    expect(sidebar).toContain(
+      "pendingOptimisticCreationIdsRef.current.add(id)",
+    );
+    expect(sidebar).toContain("settleOptimisticListRefresh(id)");
   });
 
   it("scopes sidebar creation to the selected Content space", () => {
