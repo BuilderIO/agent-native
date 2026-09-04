@@ -35,6 +35,10 @@ const createContentDatabaseSchema = z.object({
     .string()
     .optional()
     .describe("Existing document to convert into a database page"),
+  newDocumentId: z
+    .string()
+    .optional()
+    .describe("Caller-provided document ID for a new database page"),
   spaceId: z
     .string()
     .optional()
@@ -89,6 +93,12 @@ export async function createContentDatabaseCore(
   args: CreateDatabaseRequest,
   options: { db?: any } = {},
 ): Promise<ContentDatabaseResponse> {
+  if (args.documentId && args.newDocumentId) {
+    throw new Error("documentId and newDocumentId cannot both be provided");
+  }
+  if (args.newDocumentId !== undefined && !args.newDocumentId.trim()) {
+    throw new Error("newDocumentId cannot be empty");
+  }
   const db = options.db ?? getDb();
   const resolvedSpaceId = await resolveContentDatabaseSpace(args, db);
   let databaseId: string | null = null;
@@ -297,7 +307,7 @@ export async function createContentDatabaseRecord(
       visibility = orgId ? "org" : "private";
     }
 
-    documentId = nanoid();
+    documentId = args.newDocumentId ?? nanoid();
     // Snapshot as a const so the closure below keeps TypeScript's
     // non-undefined narrowing from the guard above (`let` bindings lose
     // narrowing across a closure boundary).
