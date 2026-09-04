@@ -13,7 +13,19 @@ export async function resolveDocumentAccess(id: string) {
     .where(eq(schema.documents.id, id))
     .limit(1);
   if (!reference?.spaceId) return null;
-  const spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
+  let spaceAccess;
+  try {
+    spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes("not found") ||
+        error.message.includes("Not authorized"))
+    ) {
+      return null;
+    }
+    throw error;
+  }
   return resolveAccess("document", id, {
     userEmail: spaceAccess.authority.userEmail,
     orgId: spaceAccess.authority.orgId ?? undefined,
