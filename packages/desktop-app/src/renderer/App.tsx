@@ -48,6 +48,7 @@ export default function App() {
   const [desktopIdentityStatus, setDesktopIdentityStatus] = useState<
     DesktopIdentityStatus | "checking"
   >(() => (window.electronAPI?.identity ? "checking" : "idle"));
+  const childIdentityFailureRef = useRef(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
   const [showAddApp, setShowAddApp] = useState(false);
@@ -152,6 +153,7 @@ export default function App() {
     let mounted = true;
     const handleStatusChange = (status: DesktopIdentityStatus) => {
       if (!mounted) return;
+      childIdentityFailureRef.current = false;
       setDesktopIdentityStatus(status);
       // App is the shell-level subscriber, so sign-out invalidates the
       // renderer cache even while every individual app webview is inactive.
@@ -494,7 +496,15 @@ export default function App() {
               onChatFirstAppSelectionChange={handleChatFirstAppSelectionChange}
               onDesktopIdentityStatusChange={(status) => {
                 if (status === "failed" || status === "sign-in-required") {
+                  childIdentityFailureRef.current = true;
                   setDesktopIdentityStatus(status);
+                } else if (
+                  status === "signed-in" &&
+                  childIdentityFailureRef.current
+                ) {
+                  childIdentityFailureRef.current = false;
+                  rememberDesktopIdentityStatus("signed-in");
+                  setDesktopIdentityStatus("signed-in");
                 }
               }}
             />

@@ -2783,7 +2783,9 @@ export default function CodeAgentsHub({
                         handleDesktopIdentityStatusChange(tab.id, status);
                         if (
                           isTabActive &&
-                          (status === "failed" || status === "sign-in-required")
+                          (status === "failed" ||
+                            status === "sign-in-required" ||
+                            status === "signed-in")
                         ) {
                           onDesktopIdentityStatusChange?.(status);
                         }
@@ -3132,7 +3134,11 @@ export default function CodeAgentsHub({
                 isActive={isActive}
                 showDesktopIdentityGate={false}
                 onDesktopIdentityStatusChange={(status) => {
-                  if (status === "failed" || status === "sign-in-required") {
+                  if (
+                    status === "failed" ||
+                    status === "sign-in-required" ||
+                    status === "signed-in"
+                  ) {
                     onDesktopIdentityStatusChange?.(status);
                   }
                 }}
