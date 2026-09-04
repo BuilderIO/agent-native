@@ -74,21 +74,22 @@ describe("page-chat handoff defaults", () => {
     expect(route).not.toContain("routeThreadId: threadId ?? null");
   });
 
-  it("mounts AgentKit Chat with a URL-backed thread at home", () => {
+  it("routes Chat home to AgentKit Chat with a URL-backed thread", () => {
     const route = readTemplateFile("chat", "app/routes/home.tsx");
     const chatSurface = readTemplateFile(
       "chat",
       "app/components/chat/ChatRouteContent.tsx",
     );
+    expect(route).toContain('markAgentChatHomeHandoff("chat")');
+    expect(route).toContain("getChatHomeThreadId");
+    expect(route).toContain("useNavigate");
     expect(route).toContain(
-      'import ChatRouteContent from "@/components/chat/ChatRouteContent"',
+      "navigate(`/chat/${encodeURIComponent(threadId)}`, { replace: true })",
     );
-    expect(route).toContain("initialThreadId={threadId}");
+    expect(route).toContain("return null;");
     expect(route).toContain("useState(");
-    expect(chatSurface).toContain('markAgentChatHomeHandoff("chat")');
-    expect(chatSurface).toContain(
-      "navigate(chatThreadPath(resolvedThreadId), { replace: true })",
-    );
+    expect(chatSurface).toContain("AgentKitRoot");
+    expect(chatSurface).toContain("AgentKitChat");
   });
 
   it("does not force Plan's page chat to start a fresh thread", () => {

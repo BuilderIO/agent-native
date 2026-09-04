@@ -70,16 +70,14 @@ const chatRailViolations = [
 ].filter((violation): violation is string => Boolean(violation));
 
 const chatRouteViolations = [
+  !chatHomeRoute.includes('markAgentChatHomeHandoff("chat")') ||
+  !chatHomeRoute.includes("getChatHomeThreadId") ||
+  !chatHomeRoute.includes("useNavigate") ||
   !chatHomeRoute.includes(
-    'import ChatRouteContent from "@/components/chat/ChatRouteContent"',
-  ) || !chatHomeRoute.includes("initialThreadId={threadId}")
-    ? "Chat /home must mount the shared Chat surface"
-    : null,
-  !chatSurface.includes('markAgentChatHomeHandoff("chat")') ||
-  !chatSurface.includes(
-    "navigate(chatThreadPath(resolvedThreadId), { replace: true })",
-  )
-    ? "Chat /home must promote its pending thread to a durable URL"
+    "navigate(`/chat/${encodeURIComponent(threadId)}`, { replace: true })",
+  ) ||
+  !chatHomeRoute.includes("return null;")
+    ? "Chat /home must route a pending thread to the shared durable Chat surface"
     : null,
   !(
     chatThreadRoute.includes(
@@ -87,9 +85,13 @@ const chatRouteViolations = [
     ) ||
     chatThreadRoute.includes('import("@/components/chat/ChatRouteContent")')
   ) ||
+  !chatThreadRoute.includes("useEffect") ||
   !chatRoot.includes("<AppProviders") ||
   !chatRoot.includes("isPublicPath={isMarketingPath}")
     ? "Chat /chat/:threadId must defer the interactive Chat surface until client hydration"
+    : null,
+  !chatSurface.includes("AgentKitRoot") || !chatSurface.includes("AgentKitChat")
+    ? "Chat /chat/:threadId must render the shared AgentKit Chat surface"
     : null,
 ].filter((violation): violation is string => Boolean(violation));
 
