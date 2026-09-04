@@ -1341,14 +1341,14 @@ export function createAgentChatPlugin(
             await import("../extensions/web-search-tool.js");
           const {
             getBuilderWebSearchBaseUrl,
-            resolveBuilderGatewayCredentials,
+            resolveBuilderGatewayAuth,
             resolveSecret,
           } = await import("./credential-provider.js");
           const { getBuilderGatewayRequestHeaders } =
             await import("../agent/engine/builder-gateway-headers.js");
           webSearchTool = createWebSearchToolEntry({
             resolveSecret,
-            resolveBuilderCredentials: resolveBuilderGatewayCredentials,
+            resolveBuilderCredentials: resolveBuilderGatewayAuth,
             getBuilderWebSearchBaseUrl,
             getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
           });

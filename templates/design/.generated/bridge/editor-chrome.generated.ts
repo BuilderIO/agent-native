@@ -1799,6 +1799,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function getElementInfo(el) {
       var cs = window.getComputedStyle(el);
+      var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
       var parentAutoLayout = autoLayoutParentInfo(el);
@@ -1940,6 +1941,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           outlineStyle: cs.outlineStyle,
           outlineColor: cs.outlineColor,
           outlineOffset: cs.outlineOffset,
+          // Read off the shape child for a drawn vector (vectorPaintTarget):
+          // the \`<svg>\` wrapper itself is never painted.
+          fill: paintCs.fill,
+          fillOpacity: paintCs.fillOpacity,
+          stroke: paintCs.stroke,
+          strokeWidth: paintCs.strokeWidth,
+          strokeOpacity: paintCs.strokeOpacity,
           // Text glyph outline (Figma-parity text "Stroke") — CSS has no
           // unprefixed alias, so this is read via the vendor-prefixed
           // longhands directly. See applyStyleEdit/normalizeStyleProperty in
@@ -5983,11 +5991,47 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (prop.indexOf("--") === 0) return prop;
       return prop.replace(/([A-Z])/g, "-$1").toLowerCase();
     }
+    function vectorPaintTarget(el) {
+      if (!el || el.tagName.toLowerCase() !== "svg") return null;
+      var kind = el.getAttribute("data-an-primitive") || "";
+      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star") {
+        return null;
+      }
+      return el.querySelector(
+        ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline"
+      );
+    }
+    function isVectorPaintProperty(cssProperty) {
+      return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0;
+    }
+    function clearVectorWrapperPaint(el) {
+      var style = el.style;
+      var properties = [
+        "background",
+        "background-color",
+        "background-image",
+        "border",
+        "border-width",
+        "border-style",
+        "border-color"
+      ];
+      for (var i = 0; i < properties.length; i += 1) {
+        style.removeProperty(properties[i]);
+      }
+    }
     function applyInlineStyleProperty(el, property, value) {
       if (!el || !property) return false;
       var cssProperty = normalizeCssPropertyName(property);
       if (!cssProperty) return false;
-      el.style.setProperty(cssProperty, String(value));
+      var target = el;
+      if (isVectorPaintProperty(cssProperty)) {
+        var shape = vectorPaintTarget(el);
+        if (shape) {
+          target = shape;
+          clearVectorWrapperPaint(el);
+        }
+      }
+      target.style.setProperty(cssProperty, String(value));
       return true;
     }
     function exactCoverSpanForRange(range) {
@@ -6674,8 +6718,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
         return {
-          anchor: document.body,
-          placement: "inside",
+          anchor: currentParent,
+          placement: "after",
           axis: "y",
           dropMode: "absolute-container"
         };
@@ -6729,7 +6773,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var hit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
       if (!hit || hit === document.documentElement || hit === document.body) {
-        return null;
+        return unnestAbsoluteToScreenRoot(el, clientX, clientY);
       }
       var cursor = hit;
       while (cursor && cursor !== document.body) {
@@ -6823,7 +6867,60 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         cursor = parent;
       }
-      return null;
+      return unnestAbsoluteToScreenRoot(el, clientX, clientY);
+    }
+    function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
+      var parent = el && el.parentElement;
+      if (!parent || parent === document.body || parent === document.documentElement) {
+        return null;
+      }
+      var parentRect = parent.getBoundingClientRect();
+      if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
+        return null;
+      }
+      return {
+        anchor: parent,
+        placement: "after",
+        axis: "y",
+        dropMode: "absolute-container"
+      };
+    }
+    function clipsOverflow(value) {
+      return value === "hidden" || value === "clip" || value === "auto" || value === "scroll";
+    }
+    function liftOverflowOnAncestors(els) {
+      var captured = [];
+      var seen = [];
+      els.forEach(function(el) {
+        var cursor = el.parentElement;
+        while (cursor && cursor !== document.body && cursor !== document.documentElement) {
+          var htmlEl = cursor;
+          if (seen.indexOf(htmlEl) === -1) {
+            var cs = window.getComputedStyle(htmlEl);
+            if (clipsOverflow(cs.overflow) || clipsOverflow(cs.overflowX) || clipsOverflow(cs.overflowY)) {
+              captured.push({
+                el: htmlEl,
+                overflow: htmlEl.style.overflow,
+                overflowX: htmlEl.style.overflowX,
+                overflowY: htmlEl.style.overflowY
+              });
+              htmlEl.style.overflow = "visible";
+              htmlEl.style.overflowX = "visible";
+              htmlEl.style.overflowY = "visible";
+            }
+            seen.push(htmlEl);
+          }
+          cursor = cursor.parentElement;
+        }
+      });
+      return captured;
+    }
+    function restoreOverflowOnAncestors(captured) {
+      captured.forEach(function(entry) {
+        entry.el.style.overflow = entry.overflow;
+        entry.el.style.overflowX = entry.overflowX;
+        entry.el.style.overflowY = entry.overflowY;
+      });
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {
@@ -6933,7 +7030,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !target || target.dropMode !== "absolute-container") return;
       if (target.absoluteCoordinatesPrepared) return;
       var container = dropContainerForTarget(target);
-      if (!container || container === document.body || container === el) return;
+      if (!container || container === el) return;
       if (el.contains && el.contains(container)) return;
       var htmlEl = el;
       var cs = window.getComputedStyle(htmlEl);
@@ -6942,8 +7039,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       var containerCS = window.getComputedStyle(container);
       var boardOffsetX = designCanvasBoardSurface ? designCanvasContentOffsetX : 0;
       var boardOffsetY = designCanvasBoardSurface ? designCanvasContentOffsetY : 0;
-      var newOriginX = containerRect.left - boardOffsetX + readPx(containerCS.borderLeftWidth) - container.scrollLeft;
-      var newOriginY = containerRect.top - boardOffsetY + readPx(containerCS.borderTopWidth) - container.scrollTop;
+      var bodyIsContainingBlock = container !== document.body || containerCS.position !== "static" || containerCS.transform !== "none" || (containerCS.getPropertyValue("translate") || "none") !== "none";
+      var newOriginBoardOffsetX = container === document.body ? 0 : boardOffsetX;
+      var newOriginBoardOffsetY = container === document.body ? 0 : boardOffsetY;
+      var newOriginX = bodyIsContainingBlock ? containerRect.left - newOriginBoardOffsetX + readPx(containerCS.borderLeftWidth) - container.scrollLeft : -(window.scrollX || 0);
+      var newOriginY = bodyIsContainingBlock ? containerRect.top - newOriginBoardOffsetY + readPx(containerCS.borderTopWidth) - container.scrollTop : -(window.scrollY || 0);
       var oldOriginX = -(window.scrollX || 0);
       var oldOriginY = -(window.scrollY || 0);
       var offsetParent = htmlEl.offsetParent;
@@ -8369,6 +8469,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         snapshot.originTop = readPx(m.style.top || mcs.top);
         return snapshot;
       });
+      var liftedClippingAncestors = liftOverflowOnAncestors(groupEls);
       var gestureState = memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
       var originLeft = gestureState.originLeft;
       var originTop = gestureState.originTop;
@@ -8558,6 +8659,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.removeEventListener(events.up, onUp, true);
         document.removeEventListener("keydown", onMoveKeyDown, true);
         clearActiveDragCancel(cancelMoveDrag);
+        restoreOverflowOnAncestors(liftedClippingAncestors);
         crossScreenDragMoveScheduled = false;
         crossScreenDragMovePendingEv = null;
       }

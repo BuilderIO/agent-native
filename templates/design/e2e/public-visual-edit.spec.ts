@@ -9,6 +9,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import {
   appPath,
   bridgeMessages,
@@ -20,9 +21,7 @@ import {
 const AUTH_STATE_PATH = process.env.E2E_AUTH_DIR
   ? path.join(path.resolve(process.env.E2E_AUTH_DIR), "state.json")
   : path.join(import.meta.dirname, ".auth", "state.json");
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${Number(process.env.E2E_PORT ?? 9333)}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SHORTCUT = process.platform === "darwin" ? "Meta+k" : "Control+k";
 
 let designId: string;
@@ -38,6 +37,15 @@ type SignedOutPage = PageRuntimeErrors & {
   close: () => Promise<void>;
   mutationRequests: string[];
 };
+
+/** The design's own screen. `designFrame`'s `.last()` resolves to the linked
+ *  screen this fixture mounts after it. */
+function ownScreenFrame(page: Page) {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .contentFrame();
+}
 
 test.describe.serial("public visual edit", () => {
   test.beforeAll(async ({ browser }) => {
@@ -100,7 +108,7 @@ test.describe.serial("public visual edit", () => {
     const signedOut = await openSignedOutPage(browser, `/design/${designId}`);
     try {
       await expect(
-        designFrame(signedOut.page).getByText("E2E Hero Heading"),
+        ownScreenFrame(signedOut.page).getByText("E2E Hero Heading"),
       ).toBeVisible();
       const publicIframe = signedOut.page
         .locator("iframe[data-design-preview-iframe]")
@@ -117,7 +125,7 @@ test.describe.serial("public visual edit", () => {
             (frame.__publicReadOnlyLoadCount ?? 0) + 1;
         });
       });
-      await designFrame(signedOut.page)
+      await ownScreenFrame(signedOut.page)
         .locator("body")
         .evaluate(() => {
           (window as any).__publicReadOnlyDocumentMarker =
@@ -144,7 +152,7 @@ test.describe.serial("public visual edit", () => {
                   rect.height > 0,
               };
             });
-            const documentMarker = await designFrame(signedOut.page)
+            const documentMarker = await ownScreenFrame(signedOut.page)
               .locator("body")
               .evaluate(
                 () => (window as any).__publicReadOnlyDocumentMarker ?? null,
@@ -159,22 +167,29 @@ test.describe.serial("public visual edit", () => {
             visible: true,
           });
       };
+      // Button asChild wraps an <a href>, so the CTA's role is link — the
+      // sibling /visual-edit test queries it the same way.
       await expect(
         signedOut.page
-          .getByRole("button")
-          .filter({ hasText: /sign up free to save/i })
+          .getByRole("link", { name: /sign up free to save/i })
           .first(),
       ).toBeVisible();
+      // A read-only visitor DOES get a Share control — it is a sign-in CTA
+      // rendered as `<Button asChild><a>`, so it carries role "link", not
+      // "button". Asserting no *button* named share passed for the wrong
+      // reason: it is vacuously true whether or not the control renders.
+      // `signed-out save and share buttons send visitors to the sign-in
+      // return URL` covers where that link goes.
       await expect(
-        signedOut.page.getByRole("button", { name: /^share$/i }).first(),
-      ).toBeVisible();
+        signedOut.page.getByRole("link", { name: /^share$/i }),
+      ).toHaveCount(1);
 
       signedOut.mutationRequests.length = 0;
       await installBridge(signedOut.page);
       await signedOut.page.evaluate(() => {
         (window as any).__bridge = [];
       });
-      const heading = designFrame(signedOut.page)
+      const heading = ownScreenFrame(signedOut.page)
         .getByText("E2E Hero Heading")
         .first();
       const headingBox = await heading.boundingBox();
@@ -197,7 +212,7 @@ test.describe.serial("public visual edit", () => {
         )
         .toBe(false);
       await expect(
-        designFrame(signedOut.page).getByText("E2E Hero Heading"),
+        ownScreenFrame(signedOut.page).getByText("E2E Hero Heading"),
       ).toBeVisible();
       await expectStablePublicPreview();
 
@@ -236,12 +251,14 @@ test.describe.serial("public visual edit", () => {
   test("signed-out save and share buttons send visitors to the sign-in return URL", async ({
     browser,
   }) => {
+    // Both signed-out CTAs are `<Button asChild><a href=...>`, so the element
+    // that carries the accessible name is an anchor with role "link".
     await expectReturnUrl(
       browser,
       `/design/${designId}`,
       (page) =>
         page
-          .getByRole("button")
+          .getByRole("link")
           .filter({ hasText: /sign up free to save/i })
           .first(),
       appReturnPath(`/design/${designId}?intent=save`),
@@ -250,7 +267,7 @@ test.describe.serial("public visual edit", () => {
     await expectReturnUrl(
       browser,
       `/design/${designId}`,
-      (page) => page.getByRole("button", { name: /^share$/i }).first(),
+      (page) => page.getByRole("link", { name: /^share$/i }).first(),
       appReturnPath(`/design/${designId}?intent=share`),
     );
   });

@@ -973,6 +973,126 @@ describe("useDbSync", () => {
     visibilitySpy.mockRestore();
   });
 
+  it("coalesces a refresh-data dispatched mid-poll into exactly one follow-up poll", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    let resolveFirst!: (value: Response) => void;
+    const fetchMock = vi.fn(() => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Promise<Response>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RefreshProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        interval: 50_000,
+        pauseWhenHidden: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const pollCallCount = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    await act(async () => {
+      root.render(<RefreshProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    // Fired while the first poll's fetch is still unresolved.
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      resolveFirst(new Response(JSON.stringify({ version: 1, events: [] })));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(2);
+  });
+
+  it("still issues a forced poll from refresh-data while the document is hidden", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let visibilityState: DocumentVisibilityState = "visible";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibilityState);
+
+    function HiddenRefreshProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        interval: 50_000,
+        pauseWhenHidden: true,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const pollCallCount = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    await act(async () => {
+      root.render(<HiddenRefreshProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    act(() => {
+      visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(2);
+
+    visibilitySpy.mockRestore();
+  });
+
   it("subscribeSyncEvents shares the transport and reports SSE state on join", async () => {
     const fetchMock = vi.fn(
       async () =>

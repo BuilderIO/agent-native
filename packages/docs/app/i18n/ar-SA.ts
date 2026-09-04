@@ -2090,8 +2090,6 @@ const arSA = {
     databaseProviders: "موفرو قواعد البيانات",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "التدويل",
     localFileMode: "Local File Mode",
