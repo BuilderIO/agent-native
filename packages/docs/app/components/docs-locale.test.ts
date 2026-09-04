@@ -106,9 +106,7 @@ describe("localizeDocsHref", () => {
   });
 
   it("preserves an explicit default-locale guide link", () => {
-    expect(localizeDocsHref("/docs/en-US/turso", "fr-FR")).toBe(
-      "/docs/turso/",
-    );
+    expect(localizeDocsHref("/docs/en-US/turso", "fr-FR")).toBe("/docs/turso/");
   });
 
   // A query would otherwise be read as part of the slug and end up inside the
