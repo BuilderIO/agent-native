@@ -12146,6 +12146,22 @@ function DesignEditor() {
     setMinimalRightSidebarOpen(false);
   }, []);
 
+  const handleToggleMinimalLeftSidebar = useCallback(() => {
+    if (uiHidden) {
+      setUiHidden(false);
+      return;
+    }
+    setMinimalLeftSidebarOpen((current) => !current);
+  }, [uiHidden]);
+
+  const handleToggleMinimalRightSidebar = useCallback(() => {
+    if (uiHidden) {
+      setUiHidden(false);
+      return;
+    }
+    setMinimalRightSidebarOpen((current) => !current);
+  }, [uiHidden]);
+
   const handleToggleUi = useCallback(() => {
     setUiHidden((current) => !current);
   }, []);
@@ -19106,6 +19122,75 @@ function DesignEditor() {
       </span>
     );
 
+  const minimalLeftSidebarToggle = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 rounded-md"
+          aria-expanded={minimalLeftSidebarOpen && !uiHidden}
+          aria-label={
+            minimalLeftSidebarOpen && !uiHidden
+              ? "Hide layers panel" /* i18n-ignore minimal UI chrome */
+              : "Show layers panel" /* i18n-ignore minimal UI chrome */
+          }
+          data-design-minimal-toggle="left"
+          onClick={handleToggleMinimalLeftSidebar}
+        >
+          {minimalLeftSidebarOpen && !uiHidden ? (
+            <IconChevronLeft className="size-4" />
+          ) : (
+            <IconChevronRight className="size-4" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {
+          minimalLeftSidebarOpen && !uiHidden
+            ? "Hide layers panel" /* i18n-ignore minimal UI chrome */
+            : "Show layers panel" /* i18n-ignore minimal UI chrome */
+        }
+      </TooltipContent>
+    </Tooltip>
+  );
+
+  const minimalRightSidebarToggle = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 rounded-md"
+          aria-expanded={minimalRightSidebarOpen && !uiHidden}
+          aria-label={
+            minimalRightSidebarOpen && !uiHidden
+              ? "Hide design panel" /* i18n-ignore minimal UI chrome */
+              : "Show design panel" /* i18n-ignore minimal UI chrome */
+          }
+          data-design-minimal-toggle="right"
+          disabled={initialGenerationChromeLimited}
+          onClick={handleToggleMinimalRightSidebar}
+        >
+          {minimalRightSidebarOpen && !uiHidden ? (
+            <IconChevronRight className="size-4" />
+          ) : (
+            <IconChevronLeft className="size-4" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {
+          minimalRightSidebarOpen && !uiHidden
+            ? "Hide design panel" /* i18n-ignore minimal UI chrome */
+            : "Show design panel" /* i18n-ignore minimal UI chrome */
+        }
+      </TooltipContent>
+    </Tooltip>
+  );
+
   // ── Zoom control, signed-out actions, node-rewrite control ─────────────────
   const renderZoomControl = (controlId: "toolbar" | "inspector") => (
     <DropdownMenu
@@ -19358,6 +19443,7 @@ function DesignEditor() {
         data-design-chrome-region="right-toolbar-actions"
         className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
       >
+        {minimalUi ? minimalRightSidebarToggle : null}
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <DesignCollaboratorsMenu
@@ -19825,6 +19911,7 @@ function DesignEditor() {
                   className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
                 >
                   {projectTitleControl}
+                  {minimalUi ? minimalLeftSidebarToggle : null}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel
@@ -21096,115 +21183,43 @@ function DesignEditor() {
             data-design-minimal-ui
             className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
           >
-            <div
-              data-design-minimal-bar="left"
-              className="pointer-events-auto absolute left-3 top-3 flex h-10 min-w-0 max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 shrink-0 rounded-md"
-                    aria-label={
-                      "Exit minimal UI" /* i18n-ignore minimal UI chrome */
-                    }
-                    onClick={handleToggleMinimalUi}
-                  >
-                    <AgentNativeMenuMark className="size-5 text-foreground dark:text-white" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {"Exit minimal UI" /* i18n-ignore minimal UI chrome */}
-                </TooltipContent>
-              </Tooltip>
-              <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 shrink-0 rounded-md"
-                    aria-expanded={minimalLeftSidebarOpen && !uiHidden}
-                    aria-label={
-                      minimalLeftSidebarOpen && !uiHidden
-                        ? "Hide layers panel" /* i18n-ignore minimal UI chrome */
-                        : "Show layers panel" /* i18n-ignore minimal UI chrome */
-                    }
-                    onClick={() => {
-                      if (uiHidden) {
-                        setUiHidden(false);
-                        return;
+            {!minimalLeftSidebarOpen || uiHidden ? (
+              <div
+                data-design-minimal-bar="left"
+                className="pointer-events-auto absolute left-3 top-3 flex h-10 min-w-0 max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 rounded-md"
+                      aria-label={
+                        "Exit minimal UI" /* i18n-ignore minimal UI chrome */
                       }
-                      setMinimalLeftSidebarOpen((current) => !current);
-                    }}
-                  >
-                    {minimalLeftSidebarOpen && !uiHidden ? (
-                      <IconChevronLeft className="size-4" />
-                    ) : (
-                      <IconChevronRight className="size-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {
-                    minimalLeftSidebarOpen && !uiHidden
-                      ? "Hide layers panel" /* i18n-ignore minimal UI chrome */
-                      : "Show layers panel" /* i18n-ignore minimal UI chrome */
-                  }
-                </TooltipContent>
-              </Tooltip>
-            </div>
+                      onClick={handleToggleMinimalUi}
+                    >
+                      <AgentNativeMenuMark className="size-5 text-foreground dark:text-white" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {"Exit minimal UI" /* i18n-ignore minimal UI chrome */}
+                  </TooltipContent>
+                </Tooltip>
+                <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
+                {minimalLeftSidebarToggle}
+              </div>
+            ) : null}
 
-            <div
-              data-design-minimal-bar="right"
-              className="pointer-events-auto absolute right-3 top-3 flex max-w-[calc(100%-1.5rem)] items-start overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
-            >
-              {!minimalRightSidebarOpen || uiHidden ? (
-                <div className="min-w-0 overflow-hidden">
-                  {rightSidebarActions}
-                </div>
-              ) : null}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="m-1 size-8 shrink-0 rounded-md"
-                    aria-expanded={minimalRightSidebarOpen && !uiHidden}
-                    aria-label={
-                      minimalRightSidebarOpen && !uiHidden
-                        ? "Hide design panel" /* i18n-ignore minimal UI chrome */
-                        : "Show design panel" /* i18n-ignore minimal UI chrome */
-                    }
-                    disabled={initialGenerationChromeLimited}
-                    onClick={() => {
-                      if (uiHidden) {
-                        setUiHidden(false);
-                        return;
-                      }
-                      setMinimalRightSidebarOpen((current) => !current);
-                    }}
-                  >
-                    {minimalRightSidebarOpen && !uiHidden ? (
-                      <IconChevronRight className="size-4" />
-                    ) : (
-                      <IconChevronLeft className="size-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {
-                    minimalRightSidebarOpen && !uiHidden
-                      ? "Hide design panel" /* i18n-ignore minimal UI chrome */
-                      : "Show design panel" /* i18n-ignore minimal UI chrome */
-                  }
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            {!minimalRightSidebarOpen || uiHidden ? (
+              <div
+                data-design-minimal-bar="right"
+                className="pointer-events-auto absolute right-3 top-3 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
+              >
+                {rightSidebarActions}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
