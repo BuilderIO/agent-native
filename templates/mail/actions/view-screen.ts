@@ -246,18 +246,19 @@ async function fetchEmailList(
         effectiveView === "all" && !effectiveSearch
           ? ""
           : gmailQuery || "in:inbox";
-      const listOptions = {
-        mode: "threads" as const,
-        // Metadata responses omit MIME parts. Saved-filter partitioning
-        // needs attachment filenames for has:attachment/filename queries.
-        threadFormat: needsSavedFilterParts ? "full" : "metadata",
-        threadCandidateLimit: effectiveSearch ? 500 : undefined,
-        threadRecentMessageCandidateLimit:
-          !effectiveSearch &&
-          (effectiveView === "inbox" || effectiveView === "unread")
-            ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
-            : undefined,
-      };
+      const listOptions: NonNullable<Parameters<typeof listGmailMessages>[4]> =
+        {
+          mode: "threads" as const,
+          // Metadata responses omit MIME parts. Saved-filter partitioning
+          // needs attachment filenames for has:attachment/filename queries.
+          threadFormat: needsSavedFilterParts ? "full" : "metadata",
+          threadCandidateLimit: effectiveSearch ? 500 : undefined,
+          threadRecentMessageCandidateLimit:
+            !effectiveSearch &&
+            (effectiveView === "inbox" || effectiveView === "unread")
+              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
+              : undefined,
+        };
       let pageTokens: Record<string, string> | undefined;
       let pageAccountEmails =
         selectedAccountEmails.length > 0 ? selectedAccountEmails : undefined;
