@@ -199,7 +199,8 @@ describe("create-crm-list", () => {
     const options = await getDb()
       .select()
       .from(schema.crmAttributeOptions)
-      .where(eq(schema.crmAttributeOptions.attributeId, list.stageAttributeId));
+      .where(eq(schema.crmAttributeOptions.attributeId, list.stageAttributeId))
+      .orderBy(asc(schema.crmAttributeOptions.position));
     expect(options.map((option: any) => option.value)).toEqual([
       "new",
       "in-progress",

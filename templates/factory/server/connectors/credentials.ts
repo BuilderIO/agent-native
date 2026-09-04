@@ -35,6 +35,68 @@ function isMissingTableError(err: unknown): boolean {
   return /relation .* does not exist/i.test(message);
 }
 
+function isExplicitLocalNodeEnv(): boolean {
+  return process.env.NODE_ENV === "development";
+}
+
+function isNetlifyCliLocalRuntime(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return true;
+  if (process.env.NETLIFY === "false") return true;
+  if (/^(1|true)$/i.test(process.env.NETLIFY_DEV ?? "")) return true;
+  return process.env.CONTEXT === "dev";
+}
+
+function isNetlifyHostedRuntime(): boolean {
+  if (isNetlifyCliLocalRuntime()) return false;
+  if (/^(1|true)$/i.test(process.env.NETLIFY ?? "")) return true;
+  // NETLIFY is a build-only variable. Deployed Functions document SITE_ID as
+  // the runtime host marker. `netlify dev` also injects SITE_ID, so the
+  // explicit CLI-local signal above keeps its development fallback available.
+  return Boolean(process.env.SITE_ID); // guard:allow-env-credential — Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+}
+
+function isHostedPlatformRuntime(): boolean {
+  return (
+    isNetlifyHostedRuntime() ||
+    /^(1|true)$/i.test(process.env.VERCEL ?? "") ||
+    /^(1|true)$/i.test(process.env.CF_PAGES ?? "") ||
+    Boolean(
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.AWS_EXECUTION_ENV ||
+      process.env.FUNCTIONS_WORKER_RUNTIME ||
+      process.env.K_SERVICE ||
+      process.env.RENDER ||
+      process.env.FLY_APP_NAME ||
+      process.env.RAILWAY_ENVIRONMENT_ID || // guard:allow-env-credential — Railway runtime host marker, not a user credential
+      process.env.RAILWAY_SERVICE_ID, // guard:allow-env-credential — Railway runtime host marker, not a user credential
+    )
+  );
+}
+
+function isHostedWorkspaceRuntime(): boolean {
+  return (
+    /^(1|true)$/i.test(process.env.AGENT_NATIVE_WORKSPACE ?? "") ||
+    /^(1|true)$/i.test(process.env.VITE_AGENT_NATIVE_WORKSPACE ?? "") ||
+    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(
+      process.env.FUSION_ENVIRONMENT ||
+      process.env.FUSION_ENV_ORIGIN ||
+      process.env.VITE_FUSION_ENV_ORIGIN,
+    )
+  );
+}
+
+function canUseLocalProviderEnvFallback(): boolean {
+  // Allow the fallback only for explicit local development. Hosted runtimes
+  // must resolve provider credentials through shared connections or the vault.
+  return (
+    isExplicitLocalNodeEnv() &&
+    !isHostedPlatformRuntime() &&
+    !isHostedWorkspaceRuntime()
+  );
+}
+
 export class VaultUnavailableError extends Error {
   cause: unknown;
 
@@ -133,8 +195,8 @@ export async function resolveConnectorSecret(
     if (legacySecret?.trim()) return legacySecret.trim();
   }
 
-  if (!VAULT_ONLY_KEYS.has(key)) {
-    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - generic deploy-level connector fallback
+  if (!VAULT_ONLY_KEYS.has(key) || canUseLocalProviderEnvFallback()) {
+    const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - explicit local development or generic deploy-level connector fallback
     if (environmentSecret) return environmentSecret;
   }
 

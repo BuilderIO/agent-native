@@ -26,10 +26,10 @@ const execute = vi.fn(async (input: { sql: string; args: unknown[] }) => {
   if (/FROM plan_guest_mints/i.test(sql) && /COUNT/i.test(sql)) {
     return { rows: [{ n: dbState.mintCount }] };
   }
-  if (/owner_email = \?/i.test(sql)) {
+  if (/owner_email = \$1/i.test(sql)) {
     return { rows: [{ n: dbState.ownedCount }] };
   }
-  if (/owner_email LIKE \?/i.test(sql)) {
+  if (/owner_email LIKE \$1/i.test(sql)) {
     return { rows: [{ n: dbState.globalCount }] };
   }
   // INSERT / DELETE / anything else.
@@ -183,7 +183,7 @@ describe("assertGuestCreateWithinLimits — global throttle backstop", () => {
     process.env.PLAN_GUEST_GLOBAL_CREATE_LIMIT = "1000";
     await assertGuestCreateWithinLimits(GUEST);
     const likeCall = dbState.calls.find((c) =>
-      /owner_email LIKE \?/i.test(c.sql),
+      /owner_email LIKE \$1/i.test(c.sql),
     );
     expect(likeCall?.args[0]).toBe("guest-%@agent-native.guest");
   });
