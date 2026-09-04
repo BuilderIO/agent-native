@@ -404,7 +404,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
     const [, setCanPlay] = useState(false);
-    const [isPlayPending, setIsPlayPending] = useState(false);
+    // Native autoplay has its own async play attempt; keep the loading overlay
+    // visible until media starts or a pause/error makes click-to-play available.
+    const [isPlayPending, setIsPlayPending] = useState(() => !!autoPlay);
     const [isBuffering, setIsBuffering] = useState(false);
     const [playError, setPlayError] = useState<string | null>(null);
     const clearPlayAttemptWatchdog = useCallback(() => {
@@ -1341,10 +1343,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       playAttemptPendingRef.current = false;
       clearPlayAttemptWatchdog();
       setCanPlay(false);
-      setIsPlayPending(false);
+      setIsPlayPending(!!autoPlay);
       setIsBuffering(false);
       setPlayError(null);
-    }, [activeVideoSourceIdentity, clearPlayAttemptWatchdog, recordingId]);
+    }, [
+      activeVideoSourceIdentity,
+      autoPlay,
+      clearPlayAttemptWatchdog,
+      recordingId,
+    ]);
 
     useEffect(() => {
       setThumbnailLoadFailed(false);
@@ -1656,7 +1663,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           : "ready"
         : null;
     const centerOverlayLabel =
-      isPlayPending && !hasPlaybackStarted
+      isPlayPending && !hasPlaybackStarted && !autoPlay
         ? "Starting playback"
         : isPlayPending || isBuffering
           ? "Buffering"

@@ -162,6 +162,41 @@ describe("VideoPlayer playback", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
   });
 
+  it("shows buffering while autoplay starts instead of a second play button", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/slack-clip.webm"
+            durationMs={10_000}
+            autoPlay
+            persistPlaybackPosition={false}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    expect(video.autoplay).toBe(true);
+    expect(container.textContent).toContain("Buffering");
+    expect(
+      container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+    ).toBeNull();
+
+    act(() => {
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(container.textContent).not.toContain("Buffering");
+    expect(
+      container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+    ).toBeNull();
+  });
+
   it("keeps the center play control actionable before media readiness events fire", () => {
     const video = getVideo();
     const centerPlay = container.querySelector<HTMLButtonElement>(
