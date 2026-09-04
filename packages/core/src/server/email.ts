@@ -439,13 +439,16 @@ async function deliverEmail(
       await res.text().catch(unreadableResponseBody),
     );
     if (!res.ok) {
-      throw new EmailProviderError(`Resend error ${res.status}: ${responseBody}`, {
-        provider,
-        from,
-        requestPayload,
-        responseStatus: res.status,
-        responseBody,
-      });
+      throw new EmailProviderError(
+        `Resend error ${res.status}: ${responseBody}`,
+        {
+          provider,
+          from,
+          requestPayload,
+          responseStatus: res.status,
+          responseBody,
+        },
+      );
     }
     return {
       provider,

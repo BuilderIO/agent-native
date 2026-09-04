@@ -11,12 +11,7 @@ import { callAppAction } from "../client/transactional-emails";
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import {
   Select,
@@ -298,9 +293,7 @@ export function SendLogSection({
                 <TableHead>
                   {t("dispatch.transactionalEmail.sendLogTemplate")}
                 </TableHead>
-                <TableHead>
-                  {t("dispatch.transactionalEmail.status")}
-                </TableHead>
+                <TableHead>{t("dispatch.transactionalEmail.status")}</TableHead>
                 <TableHead>
                   {t("dispatch.transactionalEmail.sendLogProvider")}
                 </TableHead>
@@ -340,7 +333,9 @@ export function SendLogSection({
               variant="outline"
               size="sm"
               disabled={offset === 0}
-              onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
+              onClick={() =>
+                setOffset((current) => Math.max(0, current - PAGE_SIZE))
+              }
             >
               {t("dispatch.transactionalEmail.sendLogPrevious")}
             </Button>
