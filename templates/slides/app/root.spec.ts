@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isDeckEditorPath, isShareableContentPath } from "./root";
+import {
+  isBareContentPath,
+  isDeckEditorPath,
+  isShareableContentPath,
+} from "./root";
 
 describe("isShareableContentPath", () => {
   it("keeps the deck editor shell outside first-run onboarding", () => {
@@ -10,6 +14,7 @@ describe("isShareableContentPath", () => {
 
   it("classifies the full-screen presentation route as shareable content", () => {
     expect(isShareableContentPath("/deck/abc123/present")).toBe(true);
+    expect(isBareContentPath("/deck/abc123/present/")).toBe(true);
     expect(isDeckEditorPath("/deck/abc123/present")).toBe(false);
     expect(isDeckEditorPath("/deck/abc123/present/")).toBe(false);
   });

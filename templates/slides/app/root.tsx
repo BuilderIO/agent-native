@@ -86,11 +86,15 @@ const BARE_PREFIXES = ["/share/", "/p/"];
  * gate below so anonymous recipients reach the sign-in form first.
  */
 export function isShareableContentPath(pathname: string): boolean {
+  return isBareContentPath(pathname) || pathname.startsWith("/deck/");
+}
+
+export function isBareContentPath(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, "");
   return (
     BARE_ROUTES.has(pathname) ||
     BARE_PREFIXES.some((p) => pathname.startsWith(p)) ||
-    pathname.startsWith("/deck/") ||
-    pathname.endsWith("/present")
+    normalizedPath.endsWith("/present")
   );
 }
 
@@ -254,10 +258,7 @@ function AppContent() {
     { id: "other", heading: t("editorToolbar.more") },
   ];
 
-  const isBare =
-    BARE_ROUTES.has(location.pathname) ||
-    BARE_PREFIXES.some((p) => location.pathname.startsWith(p)) ||
-    location.pathname.endsWith("/present");
+  const isBare = isBareContentPath(location.pathname);
 
   const content = isBare ? (
     <DeckProvider key={DECK_KEY}>
