@@ -10,6 +10,44 @@ import {
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 
 // Core plugins share one direct connection while boot-time DDL is running.
+type MigrationLockRegistry = Map<string, Promise<void>>;
+
+const migrationGlobal = globalThis as typeof globalThis & {
+  __agentNativePgliteMigrationLocks?: MigrationLockRegistry;
+};
+const pgliteMigrationLocks =
+  (migrationGlobal.__agentNativePgliteMigrationLocks ??= new Map<
+    string,
+    Promise<void>
+  >());
+
+// ponytail: one process-local lock; cross-process coordination belongs to the
+// hosted Postgres database, while PGlite storage is local to this process.
+async function withPgliteMigrationLock<T>(
+  url: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isPgliteUrl(url)) return run();
+
+  const previous = pgliteMigrationLocks.get(url) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  pgliteMigrationLocks.set(url, queued);
+
+  await previous;
+  try {
+    return await run();
+  } finally {
+    release();
+    if (pgliteMigrationLocks.get(url) === queued) {
+      pgliteMigrationLocks.delete(url);
+    }
+  }
+}
+
 let migrationExecPromise: Promise<DbExec> | null = null;
 let migrationExecRefCount = 0;
 
@@ -203,7 +241,7 @@ export function runMigrations(
   }
 
   const namedTable = `${table}_named`;
-  return async () => {
+  const migrate = async () => {
     if (
       options?.runInServerlessRequest !== true &&
       isServerlessRequestRuntime() &&
@@ -400,4 +438,7 @@ export function runMigrations(
       }
     }
   };
+  return async () =>
+    withPgliteMigrationLock(getMigrationDatabaseUrl(), migrate);
 }
+
