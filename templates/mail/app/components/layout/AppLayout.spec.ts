@@ -64,7 +64,22 @@ describe("AppLayout inbox rail count", () => {
       'import { usePerAppChatOpen } from "@agent-native/core/client/hooks";',
     );
     expect(source).toContain(
-      "(sidebarPinned ? sidebarCollapsed : perAppChatOpen)",
+      "(sidebarPinned\n      ? sidebarCollapsed\n      : perAppChatOpen && !sidebarExpandedWhileChatOpen)",
+    );
+  });
+
+  it("keeps the unpinned rail toggleable while per-app chat is open", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =",
+    );
+    expect(source).toContain("perAppChatOpen && !sidebarExpandedWhileChatOpen");
+    expect(source).toContain(
+      "sidebarPinned || (perAppChatOpen && showSidebar)",
+    );
+    expect(source).toContain(
+      "setSidebarExpandedWhileChatOpen((value) => !value)",
     );
   });
 

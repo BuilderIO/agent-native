@@ -20,7 +20,19 @@ describe("Calendar app navigation", () => {
       'import { usePerAppChatOpen } from "@agent-native/core/client/hooks";',
     );
     expect(source).toContain(
-      "collapsed={!isMobile && (sidebarCollapsed || perAppChatOpen)}",
+      "collapsed={\n                !isMobile &&\n                (sidebarCollapsed ||",
     );
+  });
+
+  it("keeps the native sidebar toggleable while per-app chat is open", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =",
+    );
+    expect(source).toContain(
+      "(perAppChatOpen && !sidebarExpandedWhileChatOpen)",
+    );
+    expect(source).toContain("setSidebarExpandedWhileChatOpen(!nextCollapsed)");
   });
 });

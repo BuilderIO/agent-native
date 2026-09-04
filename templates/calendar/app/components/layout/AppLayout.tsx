@@ -240,7 +240,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
+  const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =
+    useState(false);
   const perAppChatOpen = usePerAppChatOpen();
+  useEffect(() => {
+    if (!perAppChatOpen) setSidebarExpandedWhileChatOpen(false);
+  }, [perAppChatOpen]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
@@ -405,8 +410,21 @@ export function AppLayout({ children }: AppLayoutProps) {
             <Sidebar
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
-              collapsed={!isMobile && (sidebarCollapsed || perAppChatOpen)}
-              onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
+              collapsed={
+                !isMobile &&
+                (sidebarCollapsed ||
+                  (perAppChatOpen && !sidebarExpandedWhileChatOpen))
+              }
+              onCollapsedChange={
+                isMobile
+                  ? undefined
+                  : (nextCollapsed) => {
+                      setSidebarCollapsed(nextCollapsed);
+                      if (perAppChatOpen) {
+                        setSidebarExpandedWhileChatOpen(!nextCollapsed);
+                      }
+                    }
+              }
             />
             <AgentSidebar
               position="right"
