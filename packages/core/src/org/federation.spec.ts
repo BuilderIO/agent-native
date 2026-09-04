@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const isFeatureFlagEnabledMock = vi.hoisted(() => vi.fn());
+const evaluateFeatureFlagStrictMock = vi.hoisted(() => vi.fn());
 const executeMock = vi.hoisted(() => vi.fn());
 const createOrganizationMock = vi.hoisted(() => vi.fn());
 const setActiveOrgIdMock = vi.hoisted(() => vi.fn());
@@ -13,7 +13,7 @@ const getOriginMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../feature-flags/store.js", () => ({
-  isFeatureFlagEnabled: isFeatureFlagEnabledMock,
+  evaluateFeatureFlagStrict: evaluateFeatureFlagStrictMock,
 }));
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
@@ -58,7 +58,7 @@ const identity = {
 describe("cross-app organization federation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    isFeatureFlagEnabledMock.mockResolvedValue(true);
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
     canonicalA2AAudienceMock.mockReturnValue(
       "https://dispatch.agent-native.com",
     );
@@ -422,7 +422,9 @@ describe("cross-app organization federation", () => {
   });
 
   it("fails linked member mutations closed when the rollout store is unavailable", async () => {
-    isFeatureFlagEnabledMock.mockRejectedValue(new Error("flag store down"));
+    evaluateFeatureFlagStrictMock.mockRejectedValue(
+      new Error("flag store down"),
+    );
     executeMock.mockImplementation(async (input) => {
       const sql = (typeof input === "string" ? input : input.sql).trim();
       if (/FROM organizations/i.test(sql)) {

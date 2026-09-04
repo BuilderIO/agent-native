@@ -1,5 +1,5 @@
 import { getDbExec } from "../db/client.js";
-import { isFeatureFlagEnabled } from "../feature-flags/store.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { setActiveOrgId } from "./active-org.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
@@ -73,15 +73,23 @@ export async function acceptPendingInvitationsForEmail(
 
   const accepted: AcceptPendingResult["accepted"] = [];
   for (const inv of rows) {
-    if (
-      inv.federated &&
-      (await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
-        userEmail: email,
-        userKey: email,
-        orgId: inv.orgId,
-      }))
-    ) {
-      continue;
+    if (inv.federated) {
+      let federationEnabled = false;
+      try {
+        federationEnabled = await evaluateFeatureFlagStrict(
+          CROSS_APP_ORG_FEDERATION_FLAG.key,
+          {
+            userEmail: email,
+            userKey: email,
+            orgId: inv.orgId,
+          },
+        );
+      } catch {
+        // A linked org must not fall back to accepting a local invitation
+        // while rollout state is unreadable.
+        continue;
+      }
+      if (federationEnabled) continue;
     }
     const existing = await db.execute({
       sql: `SELECT federation_removal_pending_at FROM org_members

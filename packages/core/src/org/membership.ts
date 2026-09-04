@@ -1,4 +1,6 @@
 import { getDbExec } from "../db/client.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 
 /**
  * One resolver for "is this email in this org". Two private copies of this
@@ -17,5 +19,26 @@ export async function isOrgMember(
           LIMIT 1`,
     args: [orgId, normalized],
   });
-  return rows.length > 0;
+  if (rows.length === 0) return false;
+
+  // A linked org's local row is a cache of the authority roster. Keep the
+  // legacy local-only path unchanged while the federation rollout is off.
+  if (
+    !(await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
+      userEmail: normalized,
+      userKey: normalized,
+      orgId,
+    }))
+  ) {
+    return true;
+  }
+
+  const { validateFederatedOrganizationMembershipForCurrentRequest } =
+    await import("./federation.js");
+  const validation =
+    await validateFederatedOrganizationMembershipForCurrentRequest({
+      orgId,
+      email: normalized,
+    });
+  return validation.active;
 }

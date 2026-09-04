@@ -1,5 +1,5 @@
 import { getDbExec } from "../db/client.js";
-import { isFeatureFlagEnabled } from "../feature-flags/store.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 import { setActiveOrgId } from "./active-org.js";
@@ -146,18 +146,28 @@ export async function autoJoinDomainMatchingOrgs(
 
   const joined: AutoJoinDomainResult["joined"] = [];
   let federationSkipped = false;
+  let federationUnavailable = false;
   let localJoinAttempted = false;
   for (const m of matches) {
-    if (
-      m.federated &&
-      (await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
-        userEmail: email,
-        userKey: email,
-        orgId: m.orgId,
-      }))
-    ) {
-      federationSkipped = true;
-      continue;
+    if (m.federated) {
+      try {
+        if (
+          await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
+            userEmail: email,
+            userKey: email,
+            orgId: m.orgId,
+          })
+        ) {
+          federationSkipped = true;
+          continue;
+        }
+      } catch {
+        // A linked org must not fall back to a local join when rollout state
+        // is unreadable; retry the authority-gated path on the next request.
+        federationSkipped = true;
+        federationUnavailable = true;
+        continue;
+      }
     }
     localJoinAttempted = true;
     try {
@@ -174,7 +184,7 @@ export async function autoJoinDomainMatchingOrgs(
     }
   }
 
-  if (federationSkipped && !localJoinAttempted) {
+  if (federationSkipped && !localJoinAttempted && !federationUnavailable) {
     noDomainMatchCache.set(domain, true);
   }
 

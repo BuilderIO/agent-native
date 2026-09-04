@@ -16,6 +16,8 @@
 import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 
 import { isPostgres } from "../db/client.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { orgMembers } from "../org/schema.js";
 import {
   getRequestAuthCapability,
@@ -100,8 +102,8 @@ function emailColumnMatches(column: any, email: string): SQL {
  * statement of which orgs they belong to.
  *
  * Queries through the resource's own `reg.getDb()` — the same connection
- * every other lookup in this file uses — not the ambient `getDbExec()`,
- * since `org_members` lives in that same app database.
+ * every other lookup in this file uses — and revalidates linked memberships
+ * against the identity authority when federation is enabled.
  */
 async function isOrgMember(
   reg: ShareableResourceRegistration,
@@ -120,7 +122,24 @@ async function isOrgMember(
       ),
     )
     .limit(1);
-  return rows.length > 0;
+  if (rows.length === 0) return false;
+  if (
+    !(await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
+      userEmail: email,
+      userKey: email,
+      orgId: memberOrgId,
+    }))
+  ) {
+    return true;
+  }
+  const { validateFederatedOrganizationMembershipForCurrentRequest } =
+    await import("../org/federation.js");
+  const validation =
+    await validateFederatedOrganizationMembershipForCurrentRequest({
+      orgId: memberOrgId,
+      email,
+    });
+  return validation.active;
 }
 
 /**

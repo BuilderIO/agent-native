@@ -4,7 +4,7 @@ import type { H3Event } from "h3";
 
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
-import { isFeatureFlagEnabled } from "../feature-flags/store.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getOrigin } from "../server/google-oauth.js";
 import {
@@ -138,7 +138,7 @@ async function federationRolloutState(
   orgId: string | null | undefined,
 ): Promise<FederationRolloutState> {
   try {
-    return (await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
+    return (await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
       userEmail: email,
       userKey: email,
       ...(orgId ? { orgId } : {}),
