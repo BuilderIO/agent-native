@@ -79,14 +79,19 @@ const outcome = await an.call("update-slide", { id, title });
 
 `call()` picks the input contract the active host expects, always executes a
 descriptor from a fresh listing, and retries a stale-descriptor error
-automatically instead of surfacing it to the caller. A write that outlives the
-evaluator's own timeout returns `{ state: "pending", id }` right away; poll
-`an.result(id)` on a later evaluator call to pick up the outcome, and pass
-`waitMs: 0` on hosts whose evaluator times out in a few seconds, such as
-Codex's CDP `Runtime.evaluate`. `window.__agentNativeWebMcp` is `undefined`
-until an Agent-Native page starts registering WebMCP tools — the user may be
-signed out, the page still loading, or the deployed app older than this
-helper — so treat its absence as "not ready yet," not "unsupported."
+automatically instead of surfacing it to the caller. `window.__agentNativeWebMcp`
+is `undefined` until an Agent-Native page starts registering WebMCP tools — the
+user may be signed out, the page still loading, or the deployed app older than
+this helper — so treat its absence as "not ready yet," not "unsupported."
+
+<!-- i18n-copy-ignore: evaluator timing guidance for one host; localized summaries link to the English guide. -->
+
+A write that outlives `waitMs` returns `{ state: "pending", id }`; poll
+`an.result(id)` on a later evaluator call to pick up the outcome. On a host
+whose evaluator times out in a few seconds, such as Codex's CDP
+`Runtime.evaluate` at about 3 s, pass a `waitMs` just under that cap (2000) so
+reads and most writes still settle in one evaluation and only a slow write goes
+pending.
 
 The raw `document.modelContext` call remains available as a fallback when the
 helper is not present:

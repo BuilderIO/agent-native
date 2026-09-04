@@ -86,7 +86,7 @@ const fieldOpSchema = z.union([
 
 export default defineAction({
   description:
-    "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive.",
+    "Apply granular field operations (upsert/remove/reorder) to a form using a server-side read-modify-write merge. Concurrent edits to different fields both survive. Before adding or restyling a field, read the form with `get-form` and follow its theme and the other fields' label, required, and help-text conventions so the new field matches its siblings.",
   schema: z.object({
     id: z.string().describe("Form ID"),
     ops: z

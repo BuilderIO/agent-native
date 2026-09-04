@@ -3,6 +3,10 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import {
+  formatHtmlStyleSummary,
+  summarizeHtmlStyles,
+} from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -214,6 +218,25 @@ export default defineAction({
             `Slide ${i + 1}. id=${s.id}  internalIndex=${i}  layout=${s.layout ?? "-"}  "${contentPreview}"${marker}`,
           );
         }
+      }
+      // The slide being edited is one of many; without the deck's shared
+      // vocabulary an agent asked to restyle it invents a palette that only
+      // that slide uses. Summarize the siblings so the edit can match them.
+      const deckStyle = formatHtmlStyleSummary(
+        summarizeHtmlStyles(
+          slides
+            .map((s, i) => ({
+              label: `slide ${i + 1}`,
+              html: typeof s.content === "string" ? s.content : "",
+            }))
+            .filter((fragment) => fragment.html.length > 0),
+        ),
+        { noun: "slide" },
+      );
+      if (deckStyle.length > 0) {
+        lines.push(``);
+        lines.push(`### Deck style (shared across slides)`);
+        lines.push(...deckStyle);
       }
       if (currentSlide?.content) {
         lines.push(``);
