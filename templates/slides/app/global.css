@@ -329,7 +329,7 @@ button[title="Open agent sidebar"] {
   font-family: "Poppins", sans-serif;
 }
 
-/* Per-element inline text editing — highlight the text leaf that is
+/* Per-element inline text editing — highlight the text layer that is
    currently being edited so the user can see which block is active. */
 .slide-content [data-editing-block="true"] {
   outline: 2px solid #609ff8;
@@ -340,15 +340,12 @@ button[title="Open agent sidebar"] {
 .slide-content [data-editing-block="true"]:focus {
   outline: 2px solid #609ff8;
 }
-/* Subtle hover highlight on editable text leaves to hint clickability.
+/* Subtle hover highlight on editable text layers to hint clickability.
    Scoped to `[data-editable]` so read-only decks don't show an outline that
    makes text look editable when it isn't. */
-.slide-image-clickable[data-editable] .slide-content p:hover,
-.slide-image-clickable[data-editable] .slide-content h1:hover,
-.slide-image-clickable[data-editable] .slide-content h2:hover,
-.slide-image-clickable[data-editable] .slide-content h3:hover,
-.slide-image-clickable[data-editable] .slide-content h4:hover,
-.slide-image-clickable[data-editable] .slide-content span:hover {
+.slide-image-clickable[data-editable]
+  .slide-content
+  [data-slide-text-block="true"]:hover {
   outline: 1px dashed rgba(96, 159, 248, 0.4);
   outline-offset: 3px;
   border-radius: 2px;
@@ -1080,6 +1077,12 @@ button[title="Open agent sidebar"] {
   font-size: inherit;
   line-height: inherit;
   color: inherit;
+}
+
+.slide-content .fmd-slide .fmd-text-box ul,
+.slide-content .fmd-slide .fmd-text-box ol {
+  padding-left: 1.5em;
+  list-style-position: outside;
 }
 
 .slide-content .fmd-slide h1,

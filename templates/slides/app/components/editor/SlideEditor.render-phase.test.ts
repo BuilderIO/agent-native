@@ -60,6 +60,18 @@ describe("SlideEditor render-phase safety", () => {
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
   });
 
+  it("marks and strips only the outer rich-text layer", () => {
+    expect(source).toContain(
+      'element.setAttribute("data-slide-text-block", "true")',
+    );
+    expect(source).toContain(
+      'element.removeAttribute("data-slide-text-block")',
+    );
+    expect(source).toContain(
+      '.replace(/\\s*data-slide-text-block="[^"]*"/g, "")',
+    );
+  });
+
   it("cancels stale draft capture before a slide switch can read the new DOM", () => {
     expect(source).toContain("const currentSlideIdRef = useRef(slide.id);");
     expect(source).toContain("currentSlideIdRef.current = slide.id;");

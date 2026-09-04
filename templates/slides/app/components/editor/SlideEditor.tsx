@@ -318,10 +318,15 @@ function stampBuilderIds(container: HTMLElement) {
   const visit = (element: HTMLElement) => {
     if (!shouldStampBuilderId(element)) {
       element.removeAttribute("data-builder-id");
+      element.removeAttribute("data-slide-text-block");
       return;
     }
     ensureBuilderId(element);
-    if (isRichTextBlock(element)) return;
+    if (isRichTextBlock(element)) {
+      element.setAttribute("data-slide-text-block", "true");
+      return;
+    }
+    element.removeAttribute("data-slide-text-block");
     for (const child of Array.from(element.children)) {
       visit(child as HTMLElement);
     }
@@ -498,6 +503,7 @@ function stripBuilderIds(html: string): string {
       // bake the editing state into saved slide content.
       .replace(/\s*contenteditable="[^"]*"/gi, "")
       .replace(/\s*data-editing-block="[^"]*"/g, "")
+      .replace(/\s*data-slide-text-block="[^"]*"/g, "")
   );
 }
 
