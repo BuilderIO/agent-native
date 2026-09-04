@@ -121,6 +121,7 @@ export function allOtherDeclined(event: CalendarEvent): boolean {
 export function getEventAutoColor(event: CalendarEvent): string {
   // User/Google-set color takes priority
   if (event.color) return event.color;
+  if (event.calendarColor) return event.calendarColor;
 
   // Local events without a color use the theme primary
   if (event.source !== "google") return "hsl(var(--primary))";

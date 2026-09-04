@@ -583,6 +583,7 @@ describe("calendar event listing", () => {
         {
           id: "team@example.com",
           summary: "Team",
+          backgroundColor: "#B07CC6",
           accessRole: "reader",
         },
       ],
@@ -617,6 +618,7 @@ describe("calendar event listing", () => {
       calendarSourceKey: sourceKey,
       calendarId: "team@example.com",
       calendarName: "Team",
+      calendarColor: "#B07CC6",
       calendarAccessRole: "reader",
       calendarReadOnly: true,
     });

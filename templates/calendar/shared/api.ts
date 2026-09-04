@@ -25,6 +25,8 @@ export interface CalendarEvent {
   canonicalKey?: string;
   calendarId?: string;
   calendarName?: string;
+  /** Provider color inherited from the event's calendar. */
+  calendarColor?: string;
   calendarAccessRole?: GoogleCalendarSource["accessRole"];
   calendarPrimary?: boolean;
   calendarReadOnly?: boolean;

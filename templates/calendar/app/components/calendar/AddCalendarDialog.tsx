@@ -50,12 +50,14 @@ interface AddCalendarDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultTab?: "people" | "url" | "google";
+  visibleTabs?: Array<"people" | "url" | "google">;
 }
 
 export function AddCalendarDialog({
   open,
   onOpenChange,
   defaultTab = "people",
+  visibleTabs = ["people", "url", "google"],
 }: AddCalendarDialogProps) {
   const t = useT();
   const [activeTab, setActiveTab] = useState<"people" | "url" | "google">(
@@ -81,28 +83,42 @@ export function AddCalendarDialog({
           onValueChange={(v) => setActiveTab(v as "people" | "url" | "google")}
           className="mt-3"
         >
-          <TabsList className="mx-4 w-[calc(100%-2rem)]">
-            <TabsTrigger value="people" className="flex-1">
-              {t("eventForm.people")}
-            </TabsTrigger>
-            <TabsTrigger value="url" className="flex-1">
-              {t("eventForm.fromUrl")}
-            </TabsTrigger>
-            <TabsTrigger value="google" className="flex-1">
-              Google
-            </TabsTrigger>
-          </TabsList>
+          {visibleTabs.length > 1 && (
+            <TabsList className="mx-4 w-[calc(100%-2rem)]">
+              {visibleTabs.includes("people") && (
+                <TabsTrigger value="people" className="flex-1">
+                  {t("eventForm.people")}
+                </TabsTrigger>
+              )}
+              {visibleTabs.includes("url") && (
+                <TabsTrigger value="url" className="flex-1">
+                  {t("eventForm.fromUrl")}
+                </TabsTrigger>
+              )}
+              {visibleTabs.includes("google") && (
+                <TabsTrigger value="google" className="flex-1">
+                  Google
+                </TabsTrigger>
+              )}
+            </TabsList>
+          )}
 
-          <TabsContent value="people" className="mt-0">
-            <PeopleTab open={open} />
-          </TabsContent>
+          {visibleTabs.includes("people") && (
+            <TabsContent value="people" className="mt-0">
+              <PeopleTab open={open} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="url" className="mt-0 px-4 pb-4 pt-3">
-            <UrlTab onClose={() => onOpenChange(false)} />
-          </TabsContent>
-          <TabsContent value="google" className="mt-0 px-4 pb-4 pt-3">
-            <GoogleTab />
-          </TabsContent>
+          {visibleTabs.includes("url") && (
+            <TabsContent value="url" className="mt-0 px-4 pb-4 pt-3">
+              <UrlTab onClose={() => onOpenChange(false)} />
+            </TabsContent>
+          )}
+          {visibleTabs.includes("google") && (
+            <TabsContent value="google" className="mt-0 px-4 pb-4 pt-3">
+              <GoogleTab />
+            </TabsContent>
+          )}
         </Tabs>
       </DialogContent>
     </Dialog>

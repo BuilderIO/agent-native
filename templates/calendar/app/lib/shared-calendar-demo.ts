@@ -96,7 +96,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "alice@builder.io",
     calendarId: "alice@builder.io",
     calendarName: "Alice · Builder",
-    color: CALENDAR_COLORS[1],
+    calendarColor: CALENDAR_COLORS[1],
   }),
   demoEvent({
     id: "google-personal-dermatology",
@@ -106,7 +106,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     calendarName: "Alice Alexandra",
-    color: CALENDAR_COLORS[2],
+    calendarColor: CALENDAR_COLORS[2],
   }),
   demoEvent({
     id: "google-friends-cottage",
@@ -118,7 +118,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Friends",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: CALENDAR_COLORS[3],
+    calendarColor: CALENDAR_COLORS[3],
   }),
   demoEvent({
     id: "google-friends-birthday",
@@ -130,7 +130,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Friends",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: CALENDAR_COLORS[3],
+    calendarColor: CALENDAR_COLORS[3],
   }),
   demoEvent({
     id: "google-personal-dinner",
@@ -140,7 +140,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     calendarName: "Alice Alexandra",
-    color: CALENDAR_COLORS[2],
+    calendarColor: CALENDAR_COLORS[2],
   }),
   demoEvent({
     id: "google-tempo-studio",
@@ -152,7 +152,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Studio schedule",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: CALENDAR_COLORS[4],
+    calendarColor: CALENDAR_COLORS[4],
   }),
 ];
 
@@ -168,7 +168,7 @@ function demoEvent(
     | "calendarName"
     | "calendarAccessRole"
     | "calendarReadOnly"
-    | "color"
+    | "calendarColor"
   >,
 ): CalendarEvent {
   const source = SHARED_CALENDAR_DEMO_SOURCES.find(

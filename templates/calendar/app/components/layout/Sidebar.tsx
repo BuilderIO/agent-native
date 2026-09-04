@@ -422,15 +422,14 @@ function ColorPickerPopover({
 }
 
 function GoogleCalendarsSections({
-  accounts,
   onClose,
   section = "owned",
 }: {
-  accounts: Array<{ email: string }>;
   onClose: () => void;
   section?: "owned" | "other";
 }) {
   const t = useT();
+  const { setAddCalendarOpen, setAddCalendarDefaultTab } = useCalendarContext();
   const [showAllCalendars, setShowAllCalendars] = useState(false);
   const { data: calendars, enabled } = useGoogleCalendars();
   const {
@@ -451,8 +450,6 @@ function GoogleCalendarsSections({
   const otherCalendars = readableCalendars.filter(
     (calendar) => calendar.accessRole !== "owner",
   );
-  const showProvenance = accounts.length > 1;
-
   function renderCalendarRow(calendar: (typeof readableCalendars)[number]) {
     const preferenceKey = calendar.canonicalKey;
     const visible =
@@ -462,11 +459,6 @@ function GoogleCalendarsSections({
       googleCalendarColors[preferenceKey] ??
       calendar.color ??
       CALENDAR_COLORS[6];
-    const sourceAccounts = calendar.sourcePaths?.map(
-      (source) => source.accountEmail,
-    ) ?? [calendar.accountEmail];
-    const provenance = sourceAccounts.join(", ");
-
     return (
       <div
         key={preferenceKey}
@@ -526,57 +518,31 @@ function GoogleCalendarsSections({
             </div>
           </PopoverContent>
         </Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate",
-                visible ? "text-muted-foreground" : "text-muted-foreground/40",
-              )}
-            >
-              {calendar.name}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {calendar.name} · {provenance}
-          </TooltipContent>
-        </Tooltip>
-        {showProvenance && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-medium text-muted-foreground">
-                {sourceAccounts.length > 1
-                  ? sourceAccounts.length
-                  : provenance[0]?.toUpperCase()}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="right">{provenance}</TooltipContent>
-          </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() =>
-                updateGoogleCalendarVisibility(preferenceKey, !visible)
-              }
-              className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={
-                visible ? t("sidebar.hideCalendar") : t("sidebar.showCalendar")
-              }
-              aria-pressed={visible}
-            >
-              {visible ? (
-                <IconEye className="size-3" />
-              ) : (
-                <IconEyeOff className="size-3" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {visible ? t("sidebar.hideCalendar") : t("sidebar.showCalendar")}
-          </TooltipContent>
-        </Tooltip>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            visible ? "text-muted-foreground" : "text-muted-foreground/40",
+          )}
+        >
+          {calendar.name}
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            updateGoogleCalendarVisibility(preferenceKey, !visible)
+          }
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={
+            visible ? t("sidebar.hideCalendar") : t("sidebar.showCalendar")
+          }
+          aria-pressed={visible}
+        >
+          {visible ? (
+            <IconEye className="size-3" />
+          ) : (
+            <IconEyeOff className="size-3" />
+          )}
+        </button>
       </div>
     );
   }
@@ -591,6 +557,17 @@ function GoogleCalendarsSections({
             </span>
           </div>
           <div className="flex items-center">
+            <button
+              type="button"
+              aria-label={t("sidebar.addGoogleAccount")}
+              onClick={() => {
+                setAddCalendarDefaultTab("google");
+                setAddCalendarOpen(true);
+              }}
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            >
+              <IconPlus className="h-3.5 w-3.5" />
+            </button>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link
@@ -889,10 +866,7 @@ export function Sidebar({
 
               {isConnected &&
                 (googleStatus.data?.accounts?.length ?? 0) > 0 && (
-                  <GoogleCalendarsSections
-                    accounts={googleStatus.data!.accounts!}
-                    onClose={onClose}
-                  />
+                  <GoogleCalendarsSections onClose={onClose} />
                 )}
 
               {/* Other Calendars — people overlays + external ICS feeds combined */}
@@ -908,7 +882,10 @@ export function Sidebar({
                           <IconInfoCircle className="h-3 w-3" />
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent side="right">
+                      <TooltipContent
+                        side="right"
+                        className="pointer-events-none"
+                      >
                         <p>{t("sidebar.otherCalendarsDescription")}</p>
                       </TooltipContent>
                     </Tooltip>
@@ -928,7 +905,6 @@ export function Sidebar({
                 {isConnected &&
                   (googleStatus.data?.accounts?.length ?? 0) > 0 && (
                     <GoogleCalendarsSections
-                      accounts={googleStatus.data!.accounts!}
                       onClose={onClose}
                       section="other"
                     />
@@ -1026,34 +1002,24 @@ export function Sidebar({
                                 </Tooltip>
                               )}
                               <div className="flex items-center">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        toggleHiddenCalendar(
-                                          "people",
-                                          person.email,
-                                        )
-                                      }
-                                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                    >
-                                      {isHiddenCalendar(
-                                        "people",
-                                        person.email,
-                                      ) ? (
-                                        <IconEyeOff className="h-3 w-3" />
-                                      ) : (
-                                        <IconEye className="h-3 w-3" />
-                                      )}
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    {isHiddenCalendar("people", person.email)
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleHiddenCalendar("people", person.email)
+                                  }
+                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                  aria-label={
+                                    isHiddenCalendar("people", person.email)
                                       ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")}
-                                  </TooltipContent>
-                                </Tooltip>
+                                      : t("sidebar.hideCalendar")
+                                  }
+                                >
+                                  {isHiddenCalendar("people", person.email) ? (
+                                    <IconEyeOff className="h-3 w-3" />
+                                  ) : (
+                                    <IconEye className="h-3 w-3" />
+                                  )}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -1133,28 +1099,24 @@ export function Sidebar({
                                 {cal.name}
                               </span>
                               <div className="flex items-center">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        toggleHiddenCalendar("external", cal.id)
-                                      }
-                                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
-                                    >
-                                      {isHiddenCalendar("external", cal.id) ? (
-                                        <IconEyeOff className="h-3 w-3" />
-                                      ) : (
-                                        <IconEye className="h-3 w-3" />
-                                      )}
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right">
-                                    {isHiddenCalendar("external", cal.id)
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleHiddenCalendar("external", cal.id)
+                                  }
+                                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground group-hover:text-muted-foreground/80"
+                                  aria-label={
+                                    isHiddenCalendar("external", cal.id)
                                       ? t("sidebar.showCalendar")
-                                      : t("sidebar.hideCalendar")}
-                                  </TooltipContent>
-                                </Tooltip>
+                                      : t("sidebar.hideCalendar")
+                                  }
+                                >
+                                  {isHiddenCalendar("external", cal.id) ? (
+                                    <IconEyeOff className="h-3 w-3" />
+                                  ) : (
+                                    <IconEye className="h-3 w-3" />
+                                  )}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => removeExternal.mutate(cal.id)}

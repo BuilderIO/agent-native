@@ -388,6 +388,11 @@ export function AppLayout({ children }: AppLayoutProps) {
             open={addCalendarOpen}
             onOpenChange={setAddCalendarOpen}
             defaultTab={addCalendarDefaultTab}
+            visibleTabs={
+              addCalendarDefaultTab === "google"
+                ? ["google"]
+                : ["people", "url"]
+            }
           />
           <KeyboardShortcutsHelp
             open={shortcutsHelpOpen}
