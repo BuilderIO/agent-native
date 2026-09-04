@@ -1,70 +1,154 @@
-import {
-  CalloutBlock,
-  defineBlock,
-  type BlockReadProps,
-} from "@agent-native/core/blocks";
+import { defineBlock, type BlockReadProps } from "@agent-native/core/blocks";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { Link } from "react-router";
+import { IconExternalLink } from "@tabler/icons-react";
+import { Link, useLocation } from "react-router";
 
 import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
-import { sitePathForLocale } from "../docs-locale";
+import { sitePathForLocale, type DocsLocale } from "../docs-locale";
 import {
   gettingStartedPathsMdx,
   gettingStartedPathsSchema,
   type GettingStartedPathsData,
 } from "./getting-started-paths.config";
 
-function choosePath(option: "browse_apps" | "build_online") {
+export type GettingStartedTab = "local" | "cloud";
+
+export function gettingStartedTabFromSearch(search: string): GettingStartedTab {
+  return new URLSearchParams(search).get("tab") === "cloud" ? "cloud" : "local";
+}
+
+export function gettingStartedIntro(markdown: string): string {
+  const pathsIndex = markdown.indexOf("<GettingStartedPaths");
+  return (pathsIndex === -1 ? markdown : markdown.slice(0, pathsIndex)).trim();
+}
+
+function choosePath(option: "build_local" | "build_cloud") {
   trackEvent("choose get started path", {
     option,
     location: "getting_started",
   });
 }
 
-export function GettingStartedPathsBlock({
-  blockId,
-}: BlockReadProps<GettingStartedPathsData>) {
+function pathForTab(tab: GettingStartedTab, locale: DocsLocale) {
+  const docsPath = sitePathForLocale("/docs", locale);
+  return tab === "cloud" ? `${docsPath}?tab=cloud` : docsPath;
+}
+
+export function GettingStartedTabs({
+  activeTab,
+}: {
+  activeTab?: GettingStartedTab;
+}) {
   const t = useT();
   const { locale } = useLocale();
+  const location = useLocation();
+  const selectedTab = activeTab ?? gettingStartedTabFromSearch(location.search);
+  const tabs = [
+    {
+      id: "local" as const,
+      label: t("gettingStarted.tabs.local"),
+      description: t("gettingStarted.tabs.localDescription"),
+    },
+    {
+      id: "cloud" as const,
+      label: t("gettingStarted.tabs.cloud"),
+      description: t("gettingStarted.tabs.cloudDescription"),
+    },
+  ];
 
   return (
-    <CalloutBlock
-      blockId={blockId}
-      data={{ tone: "info", body: "Getting started paths" }}
-      ctx={{
-        renderMarkdown: () => (
-          <div className="docs-content">
-            <p>
-              {t("gettingStarted.guideNote.prompt")}{" "}
-              <strong>
-                <Link
-                  to={sitePathForLocale("/apps", locale)}
-                  onClick={() => choosePath("browse_apps")}
-                >
-                  {t("gettingStarted.guideNote.exploreApp")}
-                </Link>
-              </strong>{" "}
-              {t("gettingStarted.guideNote.between")}{" "}
+    <nav
+      className="getting-started-tabs"
+      aria-label={t("gettingStarted.tabs.label")}
+      role="tablist"
+    >
+      {tabs.map((tab) => {
+        const isActive = tab.id === selectedTab;
+        return (
+          <Link
+            key={tab.id}
+            to={pathForTab(tab.id, locale)}
+            role="tab"
+            aria-selected={isActive}
+            aria-current={isActive ? "page" : undefined}
+            className="getting-started-tab"
+            onClick={() =>
+              choosePath(tab.id === "cloud" ? "build_cloud" : "build_local")
+            }
+          >
+            <span className="getting-started-tab-label">{tab.label}</span>
+            <span className="getting-started-tab-description">
+              {tab.description}
+            </span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function GettingStartedCloudContent() {
+  const t = useT();
+  const steps = [
+    {
+      number: 1,
+      title: t("gettingStarted.cloud.stepOneTitle"),
+      body: t("gettingStarted.cloud.stepOneBody"),
+    },
+    {
+      number: 2,
+      title: t("gettingStarted.cloud.stepTwoTitle"),
+      body: t("gettingStarted.cloud.stepTwoBody"),
+    },
+    {
+      number: 3,
+      title: t("gettingStarted.cloud.stepThreeTitle"),
+      body: t("gettingStarted.cloud.stepThreeBody"),
+    },
+  ];
+
+  return (
+    <div className="docs-content getting-started-cloud">
+      <p className="getting-started-cloud-intro">
+        {t("gettingStarted.cloud.intro")}
+      </p>
+      <ol className="getting-started-cloud-steps">
+        {steps.map((step) => (
+          <li className="getting-started-cloud-step" key={step.number}>
+            <h2>
+              <span
+                className="getting-started-cloud-step-number"
+                aria-hidden="true"
+              >
+                {step.number}
+              </span>
+              {step.title}
+            </h2>
+            <p>{step.body}</p>
+            {step.number === 1 ? (
               <BuildOnlinePopover
                 location="getting_started"
-                onOpen={() => choosePath("build_online")}
+                onOpen={() => choosePath("build_cloud")}
                 trigger={
-                  <button
-                    type="button"
-                    className="inline cursor-pointer border-0 bg-transparent p-0 font-[inherit] font-semibold text-[var(--docs-accent)] hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--docs-accent)]"
-                  >
-                    {t("gettingStarted.guideNote.joinWaitlist")}
+                  <button type="button" className="getting-started-cloud-cta">
+                    <span>{t("gettingStarted.cloud.signUp")}</span>
+                    <IconExternalLink size={16} aria-hidden="true" />
                   </button>
                 }
-              />{" "}
-              {t("gettingStarted.guideNote.end")}
-            </p>
-          </div>
-        ),
-      }}
-    />
+              />
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
+}
+
+export function GettingStartedPathsBlock(
+  _props: BlockReadProps<GettingStartedPathsData>,
+) {
+  return <GettingStartedTabs />;
 }
 
 export const gettingStartedPathsBlock = defineBlock<GettingStartedPathsData>({

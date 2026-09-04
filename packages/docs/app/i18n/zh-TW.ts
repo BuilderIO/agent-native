@@ -516,12 +516,24 @@ const messages = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "不在本機建置？",
-      exploreApp: "先試用線上應用程式",
-      between: "或",
-      joinWaitlist: "加入候補名單",
-      end: "改為在瀏覽器中建置。",
+    tabs: {
+      label: "選擇建置方式",
+      local: "本機建置",
+      localDescription: "使用 CLI 在你的電腦上建置。",
+      cloud: "雲端建置",
+      cloudDescription: "使用 Builder.io 在瀏覽器中建置。",
+    },
+    cloud: {
+      intro:
+        "不需安裝任何東西，就能建置相同的應用程式。描述您想要的內容，代理會在 Builder 為您託管的工作區中撰寫並執行程式碼。",
+      stepOneTitle: "建立 Builder 帳號",
+      stepOneBody:
+        "使用 Builder 帳號在瀏覽器中建置。免費開始，不必自備 API 金鑰。",
+      signUp: "啟動 Builder",
+      stepTwoTitle: "描述您想要的內容",
+      stepTwoBody: "用自然語言描述您想建立的內容，Builder 會為您建立。",
+      stepThreeTitle: "部署",
+      stepThreeBody: "準備好後，在 Builder 中一鍵部署您的應用程式。",
     },
   },
   templatesPage: {

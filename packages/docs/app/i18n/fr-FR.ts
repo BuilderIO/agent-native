@@ -527,12 +527,26 @@ const frFR = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Vous ne développez pas en local ?",
-      exploreApp: "Explorez d’abord une application en ligne",
-      between: "ou",
-      joinWaitlist: "inscrivez-vous sur la liste d’attente",
-      end: "pour développer dans le navigateur.",
+    tabs: {
+      label: "Choisissez votre mode de création",
+      local: "Développer en local",
+      localDescription: "Utilisez la CLI pour développer sur votre machine.",
+      cloud: "Développer dans le cloud",
+      cloudDescription: "Développez dans le navigateur avec Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Développez les mêmes applications sans rien installer. Décrivez ce que vous voulez et l’agent écrit et exécute le code dans un espace de travail hébergé par Builder.",
+      stepOneTitle: "Créer un compte Builder",
+      stepOneBody:
+        "Utilisez votre compte Builder pour développer dans le navigateur. Commencez gratuitement, sans fournir de clés API.",
+      signUp: "Lancer Builder",
+      stepTwoTitle: "Décrire ce que vous voulez",
+      stepTwoBody:
+        "Décrivez en langage courant ce que vous voulez créer et Builder le fera pour vous.",
+      stepThreeTitle: "Déployer",
+      stepThreeBody:
+        "Quand vous êtes prêt, déployez votre application en un clic dans Builder.",
     },
   },
   templatesPage: {

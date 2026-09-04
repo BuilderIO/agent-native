@@ -802,6 +802,131 @@ hr {
   margin: 0;
 }
 
+/* Getting Started path switcher: links keep both variants shareable and make
+   the default local guide available before client hydration. */
+.getting-started-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 24px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  overflow: clip;
+}
+
+.getting-started-tab {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-secondary);
+  text-align: start;
+  transition:
+    background-color 150ms,
+    box-shadow 150ms,
+    color 150ms;
+}
+
+.getting-started-tab:hover {
+  background: color-mix(in srgb, var(--bg) 35%, transparent);
+}
+
+.getting-started-tab:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: 2px;
+}
+
+.getting-started-tab[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.getting-started-tab-label {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.getting-started-tab-description {
+  color: inherit;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.getting-started-cloud-intro {
+  margin-bottom: 24px !important;
+}
+
+.docs-content ol.getting-started-cloud-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.getting-started-cloud-step {
+  padding: 24px 0;
+  border-top: 1px solid var(--docs-border);
+}
+
+.docs-content .getting-started-cloud-step h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  font-size: 18px;
+}
+
+.getting-started-cloud-step-number {
+  color: var(--docs-accent);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.getting-started-cloud-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 9px 14px;
+  border: 1px solid var(--fg);
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: opacity 150ms;
+}
+
+.getting-started-cloud-cta:hover {
+  opacity: 0.82;
+}
+
+.getting-started-cloud-cta:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .getting-started-tabs {
+    flex-direction: column;
+  }
+
+  .getting-started-tab {
+    flex: none;
+  }
+}
+
 /* Comparison: side-by-side columns with labeled headers
    Usage in MDX: <Comparison> ### Before\n\nOld way ### After\n\nNew way </Comparison>
    or, for an explicit accent instead of the Before/After heuristic:

@@ -528,12 +528,26 @@ const deDE = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Sie möchten nicht lokal entwickeln?",
-      exploreApp: "Erkunden Sie zuerst eine Live-App",
-      between: "oder",
-      joinWaitlist: "tragen Sie sich in die Warteliste ein",
-      end: "um stattdessen im Browser zu entwickeln.",
+    tabs: {
+      label: "Wählen Sie, wie Sie entwickeln",
+      local: "Lokal entwickeln",
+      localDescription: "Mit der CLI auf Ihrem Computer entwickeln.",
+      cloud: "In der Cloud entwickeln",
+      cloudDescription: "Im Browser mit Builder.io entwickeln.",
+    },
+    cloud: {
+      intro:
+        "Entwickeln Sie dieselben Apps, ohne etwas zu installieren. Beschreiben Sie, was Sie möchten, und der Agent schreibt und führt den Code in einem von Builder gehosteten Workspace aus.",
+      stepOneTitle: "Ein Builder-Konto erstellen",
+      stepOneBody:
+        "Verwenden Sie Ihr Builder-Konto, um im Browser zu entwickeln. Kostenlos starten, ohne eigene API-Schlüssel.",
+      signUp: "Builder starten",
+      stepTwoTitle: "Beschreiben, was Sie möchten",
+      stepTwoBody:
+        "Beschreiben Sie in klarer Sprache, was Sie bauen möchten, und Builder erstellt es für Sie.",
+      stepThreeTitle: "Bereitstellen",
+      stepThreeBody:
+        "Wenn Sie bereit sind, stellen Sie Ihre App mit einem Klick in Builder bereit.",
     },
   },
   templatesPage: {

@@ -526,12 +526,26 @@ const koKR = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "로컬에서 빌드하지 않으시나요?",
-      exploreApp: "먼저 라이브 앱을 살펴보세요",
-      between: "또는",
-      joinWaitlist: "대기자 명단에 등록하고",
-      end: "브라우저에서 빌드하세요.",
+    tabs: {
+      label: "빌드 방식 선택",
+      local: "로컬에서 빌드",
+      localDescription: "CLI를 사용해 컴퓨터에서 빌드합니다.",
+      cloud: "클라우드에서 빌드",
+      cloudDescription: "Builder.io를 사용해 브라우저에서 빌드합니다.",
+    },
+    cloud: {
+      intro:
+        "아무것도 설치하지 않고 동일한 앱을 빌드할 수 있습니다. 원하는 것을 설명하면 Builder가 호스팅하는 워크스페이스에서 에이전트가 코드를 작성하고 실행합니다.",
+      stepOneTitle: "Builder 계정 만들기",
+      stepOneBody:
+        "Builder 계정으로 브라우저에서 빌드합니다. API 키를 직접 준비하지 않아도 무료로 시작할 수 있습니다.",
+      signUp: "Builder 실행",
+      stepTwoTitle: "원하는 것을 프롬프트하기",
+      stepTwoBody:
+        "만들고 싶은 것을 자연어로 설명하면 Builder가 대신 만들어 줍니다.",
+      stepThreeTitle: "배포",
+      stepThreeBody:
+        "준비가 되면 Builder에서 한 번의 클릭으로 앱을 배포하세요.",
     },
   },
   templatesPage: {

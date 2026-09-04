@@ -526,12 +526,26 @@ const jaJP = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ローカルで構築しない場合は、",
-      exploreApp: "まず公開中のアプリを試す",
-      between: "か",
-      joinWaitlist: "ウェイトリストに登録して",
-      end: "ブラウザで構築してください。",
+    tabs: {
+      label: "構築方法を選択",
+      local: "ローカルで構築",
+      localDescription: "CLIを使って自分のマシンで構築します。",
+      cloud: "クラウドで構築",
+      cloudDescription: "Builder.ioを使ってブラウザで構築します。",
+    },
+    cloud: {
+      intro:
+        "何もインストールせずに同じアプリを構築できます。作りたいものを説明すると、Builderがホストするワークスペースでエージェントがコードを書いて実行します。",
+      stepOneTitle: "Builderアカウントを作成",
+      stepOneBody:
+        "Builderアカウントを使ってブラウザで構築します。APIキーを用意せず、無料で始められます。",
+      signUp: "Builderを起動",
+      stepTwoTitle: "作りたいものをプロンプトする",
+      stepTwoBody:
+        "作りたいものを自然な言葉で説明すると、Builderが作成します。",
+      stepThreeTitle: "デプロイ",
+      stepThreeBody:
+        "準備ができたら、Builderでアプリをワンクリックでデプロイします。",
     },
   },
   templatesPage: {

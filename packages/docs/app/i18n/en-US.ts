@@ -526,12 +526,26 @@ const enUS = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Not building locally?",
-      exploreApp: "Explore a live app",
-      between: "first, or",
-      joinWaitlist: "join the waitlist",
-      end: "to build in the browser instead.",
+    tabs: {
+      label: "Choose how to build",
+      local: "Build locally",
+      localDescription: "Use the CLI to build on your machine.",
+      cloud: "Build in the cloud",
+      cloudDescription: "Build in the browser with Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Build the same apps without installing anything. You describe what you want; the agent writes and runs the code in a workspace Builder hosts for you.",
+      stepOneTitle: "Create a Builder account",
+      stepOneBody:
+        "Use your Builder account to build in the browser. Free to start, and no API keys to bring.",
+      signUp: "Launch Builder",
+      stepTwoTitle: "Prompt for what you want",
+      stepTwoBody:
+        "Describe what you want to build in plain language, and Builder will create it for you.",
+      stepThreeTitle: "Deploy",
+      stepThreeBody:
+        "When you're ready, deploy your app with one click in Builder.",
     },
   },
   templatesPage: {

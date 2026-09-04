@@ -527,12 +527,26 @@ const esES = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "¿No vas a crearla localmente?",
-      exploreApp: "Explora primero una aplicación en vivo",
-      between: "o",
-      joinWaitlist: "únete a la lista de espera",
-      end: "para crearla en el navegador.",
+    tabs: {
+      label: "Elige cómo crear",
+      local: "Crear localmente",
+      localDescription: "Usa la CLI para crear en tu equipo.",
+      cloud: "Crear en la nube",
+      cloudDescription: "Crea en el navegador con Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Crea las mismas aplicaciones sin instalar nada. Describe lo que quieres y el agente escribe y ejecuta el código en un espacio de trabajo alojado por Builder.",
+      stepOneTitle: "Crea una cuenta de Builder",
+      stepOneBody:
+        "Usa tu cuenta de Builder para crear en el navegador. Empieza gratis y sin aportar claves de API.",
+      signUp: "Abrir Builder",
+      stepTwoTitle: "Describe lo que quieres",
+      stepTwoBody:
+        "Describe en lenguaje sencillo lo que quieres crear y Builder lo hará por ti.",
+      stepThreeTitle: "Publica",
+      stepThreeBody:
+        "Cuando estés listo, publica tu aplicación con un clic en Builder.",
     },
   },
   templatesPage: {

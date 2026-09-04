@@ -518,12 +518,24 @@ const zhCN = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "不在本地构建？",
-      exploreApp: "先试用在线应用",
-      between: "或",
-      joinWaitlist: "加入候补名单",
-      end: "改为在浏览器中构建。",
+    tabs: {
+      label: "选择构建方式",
+      local: "本地构建",
+      localDescription: "使用 CLI 在你的计算机上构建。",
+      cloud: "云端构建",
+      cloudDescription: "使用 Builder.io 在浏览器中构建。",
+    },
+    cloud: {
+      intro:
+        "无需安装任何内容，即可构建相同的应用。描述你想要的内容，智能体会在 Builder 为你托管的工作区中编写并运行代码。",
+      stepOneTitle: "创建 Builder 账号",
+      stepOneBody:
+        "使用 Builder 账号在浏览器中构建。免费开始，无需自带 API 密钥。",
+      signUp: "启动 Builder",
+      stepTwoTitle: "描述你想要的内容",
+      stepTwoBody: "用自然语言描述你想构建的内容，Builder 会为你创建。",
+      stepThreeTitle: "部署",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
     },
   },
   templatesPage: {

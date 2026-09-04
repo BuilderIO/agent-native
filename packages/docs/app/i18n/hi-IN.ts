@@ -524,12 +524,25 @@ const hiIN = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "लोकल रूप से नहीं बना रहे हैं?",
-      exploreApp: "पहले एक live ऐप देखें",
-      between: "या",
-      joinWaitlist: "waitlist में शामिल हों",
-      end: "और इसके बजाय browser में बनाएं।",
+    tabs: {
+      label: "बनाने का तरीका चुनें",
+      local: "लोकल में बनाएं",
+      localDescription: "अपने कंप्यूटर पर बनाने के लिए CLI का उपयोग करें।",
+      cloud: "क्लाउड में बनाएं",
+      cloudDescription: "Builder.io के साथ ब्राउज़र में बनाएं।",
+    },
+    cloud: {
+      intro:
+        "कुछ भी इंस्टॉल किए बिना वही ऐप बनाएं। आप जो चाहते हैं उसका वर्णन करें; एजेंट Builder द्वारा होस्ट किए गए वर्कस्पेस में कोड लिखकर चलाता है।",
+      stepOneTitle: "Builder अकाउंट बनाएं",
+      stepOneBody:
+        "ब्राउज़र में बनाने के लिए अपने Builder खाते का उपयोग करें। बिना API keys लाए मुफ्त में शुरू करें।",
+      signUp: "Builder लॉन्च करें",
+      stepTwoTitle: "जो चाहिए उसका प्रॉम्प्ट दें",
+      stepTwoBody:
+        "आप जो बनाना चाहते हैं उसे साधारण भाषा में बताएं और Builder उसे आपके लिए बना देगा।",
+      stepThreeTitle: "डिप्लॉय करें",
+      stepThreeBody: "तैयार होने पर Builder में अपनी ऐप को एक क्लिक से डिप्लॉय करें।",
     },
   },
   templatesPage: {

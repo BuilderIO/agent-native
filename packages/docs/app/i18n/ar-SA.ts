@@ -524,12 +524,24 @@ const arSA = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ألا تريد البناء محليًا؟",
-      exploreApp: "استكشف تطبيقًا مباشرًا",
-      between: "أولًا، أو",
-      joinWaitlist: "انضم إلى قائمة الانتظار",
-      end: "للبناء في المتصفح بدلًا من ذلك.",
+    tabs: {
+      label: "اختر طريقة البناء",
+      local: "البناء محليًا",
+      localDescription: "استخدم CLI للبناء على جهازك.",
+      cloud: "البناء في السحابة",
+      cloudDescription: "ابنِ في المتصفح باستخدام Builder.io.",
+    },
+    cloud: {
+      intro:
+        "ابنِ التطبيقات نفسها من دون تثبيت أي شيء. صِف ما تريده، وسيكتب الوكيل التعليمات البرمجية ويشغّلها في مساحة عمل يستضيفها Builder لك.",
+      stepOneTitle: "أنشئ حسابًا في Builder",
+      stepOneBody:
+        "استخدم حساب Builder الخاص بك للبناء في المتصفح. ابدأ مجانًا من دون إحضار مفاتيح API.",
+      signUp: "شغّل Builder",
+      stepTwoTitle: "اطلب ما تريده",
+      stepTwoBody: "صِف ما تريد بناءه بلغة واضحة، وسيُنشئه Builder لك.",
+      stepThreeTitle: "النشر",
+      stepThreeBody: "عندما تكون مستعدًا، انشر تطبيقك بنقرة واحدة في Builder.",
     },
   },
   templatesPage: {
