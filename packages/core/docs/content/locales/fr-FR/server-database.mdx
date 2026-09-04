@@ -3,8 +3,6 @@ title: "Base de données"
 description: "Connectez une base de données SQL portable à votre application native d'agent : assistants de schéma, migrations, et options de base de données hébergée."
 ---
 
-<!-- i18n-docs-ignore -->
-
 # Base de données
 
 Toute application native d'agent stocke son état en SQL. L'UI et l'agent lisent et écrivent tous deux dans les mêmes tables via les mêmes actions, en utilisant le même client [Drizzle ORM](https://orm.drizzle.team). La synchronisation en direct utilise SSE avec le polling en secours, de sorte que les changements apparaissent dans l'autre surface sans actualisation manuelle.
@@ -93,13 +91,13 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Amazon RDS for PostgreSQL
+# Amazon RDS pour PostgreSQL
 DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
 
-# Cloud SQL for PostgreSQL
+# Cloud SQL pour PostgreSQL
 DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
 
-# Azure Database for PostgreSQL
+# Azure Database pour PostgreSQL
 DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
 
 # Postgres simple

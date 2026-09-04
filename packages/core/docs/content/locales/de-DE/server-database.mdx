@@ -3,8 +3,6 @@ title: "Datenbank"
 description: "Verbinden Sie eine portable SQL-Datenbank mit Ihrer agentennativen App: Schema-Helfer, Migrationen und die gehosteten Datenbankoptionen."
 ---
 
-<!-- i18n-docs-ignore -->
-
 # Datenbank
 
 Jede agentennative App speichert ihren Zustand in SQL. UI und Agent lesen und schreiben dieselben Tabellen über dieselben Actions, mit demselben [Drizzle ORM](https://orm.drizzle.team)-Client. Die Live-Synchronisierung verwendet SSE mit Polling als Fallback, sodass Änderungen ohne manuelles Neuladen in der anderen Oberfläche erscheinen.
@@ -93,13 +91,13 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Amazon RDS for PostgreSQL
+# Amazon RDS für PostgreSQL
 DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
 
-# Cloud SQL for PostgreSQL
+# Cloud SQL für PostgreSQL
 DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
 
-# Azure Database for PostgreSQL
+# Azure Database für PostgreSQL
 DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
 
 # Einfaches Postgres

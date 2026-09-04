@@ -26,7 +26,7 @@ Exécutez plusieurs applications sous une même origine avec une session partag�
 
 ## Avant le déploiement : choisissez une base persistante {#persistent-database}
 
-Chaque application déployée a besoin d'une base PostgreSQL persistante. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production. Parmi les fournisseurs PostgreSQL courants figurent Neon, Supabase, Railway, Render, Amazon RDS for PostgreSQL, Cloud SQL for PostgreSQL et Azure Database for PostgreSQL.
+Pour les déploiements de production hébergés, cette page recommande PostgreSQL. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production. Parmi les fournisseurs PostgreSQL courants figurent Neon, Supabase, Railway, Render, Amazon RDS for PostgreSQL, Cloud SQL for PostgreSQL et Azure Database for PostgreSQL. Les autres bases SQL restent prises en charge ; consultez le [guide des bases de données](/docs/server-database) pour les détails de configuration.
 
 Une application autonome a besoin d'un `BETTER_AUTH_SECRET` stable. Un workspace avec des requêtes signées entre applications a besoin de `A2A_SECRET`.
 

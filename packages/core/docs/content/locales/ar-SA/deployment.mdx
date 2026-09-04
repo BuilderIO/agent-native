@@ -26,7 +26,7 @@ description: "انشر تطبيق Agent-Native أو مساحة عمل على م�
 
 ## قبل النشر: اختر قاعدة بيانات دائمة {#persistent-database}
 
-كل تطبيق منشور يحتاج إلى قاعدة بيانات PostgreSQL دائمة. اضبط `DATABASE_URL` في بيئة النشر قبل أول نشر إنتاجي. تشمل موفّرات PostgreSQL الشائعة Neon وSupabase وRailway وRender وAmazon RDS for PostgreSQL وCloud SQL for PostgreSQL وAzure Database for PostgreSQL.
+لعمليات النشر الإنتاجية المستضافة، توصي هذه الصفحة باستخدام PostgreSQL. اضبط `DATABASE_URL` في بيئة النشر قبل أول نشر إنتاجي. تشمل موفّرات PostgreSQL الشائعة Neon وSupabase وRailway وRender وAmazon RDS for PostgreSQL وCloud SQL for PostgreSQL وAzure Database for PostgreSQL. تظل قواعد SQL الأخرى مدعومة؛ راجع [دليل قاعدة البيانات](/docs/server-database) لتفاصيل الإعداد.
 
 تحتاج التطبيقات المستقلة إلى `BETTER_AUTH_SECRET` ثابت. تحتاج مساحات العمل التي تستخدم الطلبات الموقعة بين التطبيقات إلى `A2A_SECRET`.
 

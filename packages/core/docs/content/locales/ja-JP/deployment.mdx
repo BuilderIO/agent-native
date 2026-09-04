@@ -26,7 +26,7 @@ Agent-Native アプリは Nitro で動作します。デプロイするものに
 
 ## デプロイ前に: 永続データベースを選択 {#persistent-database}
 
-デプロイするすべてのアプリには永続 PostgreSQL データベースが必要です。最初の本番デプロイ前に、デプロイ環境へ `DATABASE_URL` を設定してください。一般的な PostgreSQL プロバイダーには Neon、Supabase、Railway、Render、Amazon RDS for PostgreSQL、Cloud SQL for PostgreSQL、Azure Database for PostgreSQL があります。
+ホスト型の本番デプロイでは、このページでは PostgreSQL を推奨します。最初の本番デプロイ前に、デプロイ環境へ `DATABASE_URL` を設定してください。一般的な PostgreSQL プロバイダーには Neon、Supabase、Railway、Render、Amazon RDS for PostgreSQL、Cloud SQL for PostgreSQL、Azure Database for PostgreSQL があります。その他の SQL バックエンドも引き続きサポートされます。設定の詳細は[データベースガイド](/docs/server-database)を参照してください。
 
 スタンドアロンアプリには安定した `BETTER_AUTH_SECRET` が必要です。署名付きのアプリ間リクエストを使うワークスペースには `A2A_SECRET` が必要です。
 

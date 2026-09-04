@@ -26,7 +26,7 @@ Ejecuta varias aplicaciones bajo un mismo origen con inicio de sesión compartid
 
 ## Antes de implementar: elige una base de datos persistente {#persistent-database}
 
-Cada aplicación implementada necesita una base de datos PostgreSQL persistente. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción. Entre los proveedores de PostgreSQL más habituales se incluyen Neon, Supabase, Railway, Render, Amazon RDS for PostgreSQL, Cloud SQL for PostgreSQL y Azure Database for PostgreSQL.
+Para las implementaciones de producción alojadas, esta página recomienda PostgreSQL. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción. Entre los proveedores de PostgreSQL más habituales se incluyen Neon, Supabase, Railway, Render, Amazon RDS for PostgreSQL, Cloud SQL for PostgreSQL y Azure Database for PostgreSQL. Las demás bases de datos SQL siguen siendo compatibles; consulta la [guía de bases de datos](/docs/server-database) para ver los detalles de configuración.
 
 Las aplicaciones independientes necesitan un `BETTER_AUTH_SECRET` estable. Los espacios de trabajo con solicitudes firmadas entre aplicaciones necesitan `A2A_SECRET`.
 

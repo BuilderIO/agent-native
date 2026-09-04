@@ -26,7 +26,7 @@ Execute vários apps em uma origem com login compartilhado.
 
 ## Antes do deploy: escolha um banco persistente {#persistent-database}
 
-Todo app publicado precisa de um banco PostgreSQL persistente. Defina `DATABASE_URL` no ambiente de deploy antes do primeiro deploy de produção. Os provedores PostgreSQL comuns incluem Neon, Supabase, Railway, Render, Amazon RDS for PostgreSQL, Cloud SQL for PostgreSQL e Azure Database for PostgreSQL.
+Para implantações de produção hospedadas, esta página recomenda PostgreSQL. Defina `DATABASE_URL` no ambiente de deploy antes do primeiro deploy de produção. Os provedores PostgreSQL comuns incluem Neon, Supabase, Railway, Render, Amazon RDS for PostgreSQL, Cloud SQL for PostgreSQL e Azure Database for PostgreSQL. Outros backends SQL continuam compatíveis; consulte o [guia de banco de dados](/docs/server-database) para obter os detalhes de configuração.
 
 Apps independentes precisam de um `BETTER_AUTH_SECRET` estável. Workspaces com requisições assinadas entre apps precisam de `A2A_SECRET`.
 

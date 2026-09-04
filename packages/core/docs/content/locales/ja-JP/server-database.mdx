@@ -3,8 +3,6 @@ title: "データベース"
 description: "ポータブルな SQL データベースをエージェント ネイティブ アプリに接続する: スキーマ ヘルパー、マイグレーション、ホスト型データベースの選択肢。"
 ---
 
-<!-- i18n-docs-ignore -->
-
 # データベース
 
 すべてのエージェント ネイティブ アプリは、その状態を SQL に保存します。UI とエージェントはどちらも、同じ [Drizzle ORM](https://orm.drizzle.team) クライアントを使って、同じ actions を通じて同じテーブルを読み書きします。ライブ同期は SSE とポーリングのフォールバックを使うため、手動で更新しなくても変更がもう一方の画面に表示されます。
@@ -93,13 +91,13 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase の Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Amazon RDS for PostgreSQL
+# PostgreSQL 用 Amazon RDS
 DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
 
-# Cloud SQL for PostgreSQL
+# PostgreSQL 用 Cloud SQL
 DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
 
-# Azure Database for PostgreSQL
+# PostgreSQL 用 Azure Database
 DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
 
 # 通常の Postgres

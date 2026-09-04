@@ -3,8 +3,6 @@ title: "데이터베이스"
 description: "이식 가능한 SQL 데이터베이스를 에이전트 기반 앱에 연결하세요: 스키마 도우미, 마이그레이션, 호스팅형 데이터베이스 옵션."
 ---
 
-<!-- i18n-docs-ignore -->
-
 # 데이터베이스
 
 모든 에이전트 기반 앱은 상태를 SQL에 저장합니다. UI와 에이전트는 동일한 [Drizzle ORM](https://orm.drizzle.team) 클라이언트를 사용해 동일한 액션을 통해 동일한 테이블을 읽고 씁니다. 실시간 동기화는 SSE를 사용하고 폴링을 fallback으로 사용하므로, 수동으로 새로 고치지 않아도 변경 사항이 다른 화면에 표시됩니다.
@@ -93,13 +91,13 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
-# Amazon RDS for PostgreSQL
+# PostgreSQL용 Amazon RDS
 DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
 
-# Cloud SQL for PostgreSQL
+# PostgreSQL용 Cloud SQL
 DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
 
-# Azure Database for PostgreSQL
+# PostgreSQL용 Azure Database
 DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
 
 # 일반 Postgres
