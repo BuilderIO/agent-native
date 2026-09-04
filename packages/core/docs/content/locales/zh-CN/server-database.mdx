@@ -3,6 +3,8 @@ title: "数据库"
 description: "为你的代理本机应用连接一个便携式 SQL 数据库：schema 助手、迁移，以及托管数据库选项。"
 ---
 
+<!-- i18n-docs-ignore -->
+
 # 数据库
 
 每个代理本机应用都把状态存储在 SQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。实时同步使用 SSE，并以轮询作为后备，因此无需手动刷新，变化就会显示在另一端。

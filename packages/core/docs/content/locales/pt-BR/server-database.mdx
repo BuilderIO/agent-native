@@ -3,6 +3,8 @@ title: "Banco de dados"
 description: "Conecte um banco de dados SQL portátil ao seu aplicativo nativo do agente: auxiliares de esquema, migrações e as opções de banco de dados hospedado."
 ---
 
+<!-- i18n-docs-ignore -->
+
 # Banco de dados
 
 Todo aplicativo nativo do agente armazena seu estado em SQL. A UI e o agente leem e gravam as mesmas tabelas por meio das mesmas actions, usando o mesmo cliente [Drizzle ORM](https://orm.drizzle.team). A sincronização ao vivo usa SSE com polling como fallback, então as mudanças aparecem na outra superfície sem atualização manual.

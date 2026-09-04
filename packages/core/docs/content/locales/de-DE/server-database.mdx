@@ -3,6 +3,8 @@ title: "Datenbank"
 description: "Verbinden Sie eine portable SQL-Datenbank mit Ihrer agentennativen App: Schema-Helfer, Migrationen und die gehosteten Datenbankoptionen."
 ---
 
+<!-- i18n-docs-ignore -->
+
 # Datenbank
 
 Jede agentennative App speichert ihren Zustand in SQL. UI und Agent lesen und schreiben dieselben Tabellen über dieselben Actions, mit demselben [Drizzle ORM](https://orm.drizzle.team)-Client. Die Live-Synchronisierung verwendet SSE mit Polling als Fallback, sodass Änderungen ohne manuelles Neuladen in der anderen Oberfläche erscheinen.

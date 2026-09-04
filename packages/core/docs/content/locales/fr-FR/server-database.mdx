@@ -3,6 +3,8 @@ title: "Base de données"
 description: "Connectez une base de données SQL portable à votre application native d'agent : assistants de schéma, migrations, et options de base de données hébergée."
 ---
 
+<!-- i18n-docs-ignore -->
+
 # Base de données
 
 Toute application native d'agent stocke son état en SQL. L'UI et l'agent lisent et écrivent tous deux dans les mêmes tables via les mêmes actions, en utilisant le même client [Drizzle ORM](https://orm.drizzle.team). La synchronisation en direct utilise SSE avec le polling en secours, de sorte que les changements apparaissent dans l'autre surface sans actualisation manuelle.
