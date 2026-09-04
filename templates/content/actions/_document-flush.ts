@@ -201,9 +201,13 @@ export async function flushOpenDocumentEditorToSql(args: {
             requestSource: "agent",
           });
         }
-      } catch {
-        // Cleanup is best effort; a later request times out rather than
-        // deleting a mailbox value it does not own.
+      } catch (error) {
+        console.warn("Failed to clean up a document flush mailbox value", {
+          error,
+          flushKey,
+          requestId,
+          sessionEmail: session,
+        });
       }
     }),
   );

@@ -13,13 +13,9 @@ export async function resolveDocumentAccess(id: string) {
     .where(eq(schema.documents.id, id))
     .limit(1);
   if (!reference?.spaceId) return null;
-  try {
-    const spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
-    return resolveAccess("document", id, {
-      userEmail: spaceAccess.authority.userEmail,
-      orgId: spaceAccess.authority.orgId ?? undefined,
-    });
-  } catch {
-    return null;
-  }
+  const spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
+  return resolveAccess("document", id, {
+    userEmail: spaceAccess.authority.userEmail,
+    orgId: spaceAccess.authority.orgId ?? undefined,
+  });
 }
