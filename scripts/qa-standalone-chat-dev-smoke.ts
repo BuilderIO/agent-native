@@ -1631,6 +1631,48 @@ async function setDarkMode(page: Page, enabled: boolean): Promise<void> {
   );
 }
 
+type LayoutBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+async function waitForChatLayoutBoxes(
+  chat: ReturnType<Page["locator"]>,
+  composer: ReturnType<Page["locator"]>,
+): Promise<{ chatBox: LayoutBox; composerBox: LayoutBox }> {
+  const deadline = Date.now() + (isCi ? 120_000 : 30_000);
+  let lastBoxes: string = "chat=null composer=null";
+
+  while (Date.now() < deadline) {
+    try {
+      const [chatBox, composerBox] = await Promise.all([
+        chat.boundingBox(),
+        composer.boundingBox(),
+      ]);
+      lastBoxes = `chat=${JSON.stringify(chatBox)} composer=${JSON.stringify(composerBox)}`;
+      if (
+        chatBox &&
+        composerBox &&
+        chatBox.width > 0 &&
+        chatBox.height > 0 &&
+        composerBox.width > 0 &&
+        composerBox.height > 0
+      ) {
+        return { chatBox, composerBox };
+      }
+    } catch (err) {
+      if (!isNavigationContextError(err)) throw err;
+    }
+    await sleep(500);
+  }
+
+  throw new Error(
+    `Chat layout did not settle within ${isCi ? 120_000 : 30_000}ms (${lastBoxes}).`,
+  );
+}
+
 async function assertViewportContract(
   page: Page,
   label: string,
@@ -1825,9 +1867,7 @@ async function assertAgentKitChatAcceptance(
       .waitFor({ state: "visible" });
   }
 
-  const chatBox = await chat.boundingBox();
-  const composerBox = await composer.boundingBox();
-  assert.ok(chatBox && composerBox, "chat and composer require layout boxes");
+  const { chatBox, composerBox } = await waitForChatLayoutBoxes(chat, composer);
   assert.ok(
     composerBox.width >= 480,
     `new-chat composer must retain its full layout (${composerBox.width}px)`,
@@ -1837,7 +1877,9 @@ async function assertAgentKitChatAcceptance(
       composerBox.x + composerBox.width < chatBox.x + chatBox.width,
     "new-chat composer must remain centered inside the chat canvas",
   );
-  await setDarkMode(page, false);
+  await retryAfterNavigation("set initial light theme", () =>
+    setDarkMode(page, false),
+  );
   await assertViewportContract(page, "desktop light empty chat", {
     dark: false,
   });
