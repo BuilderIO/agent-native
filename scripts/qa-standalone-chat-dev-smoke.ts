@@ -2079,8 +2079,14 @@ async function assertAgentKitChatAcceptance(
     dark: false,
   });
 
+  const previousThreadPath = new URL(page.url()).pathname;
   await fillAndSubmitComposer(page, helloPrompt);
-  await page.waitForURL(/\/chat\/chat-/);
+  await page.waitForURL(
+    (url) =>
+      durableChatPathPattern.test(url.pathname) &&
+      url.pathname !== previousThreadPath,
+    { timeout: 60_000 },
+  );
   const threadUrl = page.url();
   const threadPath = new URL(threadUrl).pathname;
   await waitForLoopbackState(
