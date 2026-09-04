@@ -67,11 +67,16 @@ function fakeDb(options: {
         },
       }),
     }),
-    insert: () => ({
-      values: async (value: Record<string, unknown>) => {
-        inserted.push(value);
-      },
-    }),
+    insert: () => {
+      const query: any = {
+        values: (value: Record<string, unknown>) => {
+          inserted.push(value);
+          return query;
+        },
+        onConflictDoNothing: async () => undefined,
+      };
+      return query;
+    },
     select: () => ({
       from: () => ({
         where: () => queryResult(transactionSelections.shift() ?? []),

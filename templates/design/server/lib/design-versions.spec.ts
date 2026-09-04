@@ -93,15 +93,31 @@ vi.mock("../db/index.js", () => {
       from: (table: unknown) => ({
         where: () =>
           queryResult(
-            table === schema.designVersions ? captureMocks.revisions : [],
+            table === schema.designVersions
+              ? captureMocks.revisions.slice(-1)
+              : [],
           ),
       }),
     }),
-    insert: (table: unknown) => ({
-      values: async (value: Record<string, unknown>) => {
-        if (table === schema.designVersions) captureMocks.revisions.push(value);
-      },
-    }),
+    insert: (table: unknown) => {
+      const query: any = {
+        values: (value: Record<string, unknown>) => {
+          query.value = value;
+          return query;
+        },
+        onConflictDoNothing: async () => {
+          if (
+            table === schema.designVersions &&
+            !captureMocks.revisions.some(
+              (revision) => revision.id === query.value.id,
+            )
+          ) {
+            captureMocks.revisions.push(query.value);
+          }
+        },
+      };
+      return query;
+    },
   };
   return { getDb: () => db, schema };
 });
@@ -126,6 +142,20 @@ beforeEach(() => {
   captureMocks.nanoid.mockImplementation(
     () => `design-version-${captureMocks.revisions.length + 1}`,
   );
+  captureMocks.liveSnapshot = {
+    files: [
+      {
+        id: "file-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<main>Hello</main>",
+        source: "stored",
+      },
+    ],
+    tweaks: [],
+    appliedTweaks: {},
+    resolvedCssVars: {},
+  };
 });
 
 describe("parseDesignVersionSnapshot", () => {
@@ -138,6 +168,9 @@ describe("parseDesignVersionSnapshot", () => {
         designDescription: null,
         projectType: "prototype",
         designSystemId: "system-1",
+        tweaks: [{ id: "color", cssVar: "--color" }],
+        appliedTweaks: { color: "blue" },
+        resolvedCssVars: { "--color": "blue" },
         files: [
           {
             id: "file-1",
@@ -156,6 +189,9 @@ describe("parseDesignVersionSnapshot", () => {
       designId: "design-1",
       designTitle: "Landing page",
       designSystemId: "system-1",
+      tweaks: [{ id: "color", cssVar: "--color" }],
+      appliedTweaks: { color: "blue" },
+      resolvedCssVars: { "--color": "blue" },
       chatContext: { threadId: "thread-1", turnId: "turn-1" },
     });
     expect(snapshot.files).toEqual([
@@ -253,6 +289,24 @@ describe("createDesignVersionSnapshot", () => {
           content: "<main>Changed</main>",
         },
       ],
+    };
+    const changed = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    expect(changed.id).not.toBe(first.id);
+    expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("records a tweak-only edit as a new checkpoint", async () => {
+    const first = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      appliedTweaks: { density: "compact" },
+      resolvedCssVars: { "--density": "compact" },
     };
     const changed = await createDesignVersionSnapshot("design-1", {
       label: "Chat autosave",

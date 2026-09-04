@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -46,6 +48,9 @@ export interface ParsedDesignVersionSnapshot {
   designDescription?: string | null;
   projectType?: string;
   designSystemId?: string | null;
+  tweaks?: unknown;
+  appliedTweaks?: unknown;
+  resolvedCssVars?: unknown;
   capturedAt?: string;
   chatContext?: DesignVersionChatContext;
 }
@@ -74,13 +79,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function stableStringify(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new Error("Design history contains an unserializable value.");
+    }
+    return serialized;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
+    .join(",")}}`;
+}
+
 function parseDesignData(designId: string, value: unknown): string {
   if (typeof value !== "string") {
     throw new Error(`Design "${designId}" has invalid data JSON.`);
   }
   try {
     const parsed: unknown = JSON.parse(value);
-    if (isRecord(parsed)) return value;
+    if (isRecord(parsed)) return stableStringify(parsed);
   } catch {
     throw new Error(`Design "${designId}" has invalid data JSON.`);
   }
@@ -223,6 +247,11 @@ export function parseDesignVersionSnapshot(
     }
     parsed.designSystemId = value.designSystemId;
   }
+  if (value.tweaks !== undefined) parsed.tweaks = value.tweaks;
+  if (value.appliedTweaks !== undefined)
+    parsed.appliedTweaks = value.appliedTweaks;
+  if (value.resolvedCssVars !== undefined)
+    parsed.resolvedCssVars = value.resolvedCssVars;
   if (typeof value.capturedAt === "string")
     parsed.capturedAt = value.capturedAt;
   parsed.chatContext = parseChatContext(value.chatContext);
@@ -471,7 +500,19 @@ async function captureDesignVersion(
       content,
     }),
   );
-  const [latest] = await getDb()
+  const currentState = {
+    designData,
+    designTitle,
+    designDescription,
+    projectType,
+    designSystemId,
+    files: currentFiles,
+    tweaks: liveSnapshot.tweaks,
+    appliedTweaks: liveSnapshot.appliedTweaks,
+    resolvedCssVars: liveSnapshot.resolvedCssVars,
+  };
+  const db = getDb();
+  const [latest] = await db
     .select({
       id: schema.designVersions.id,
       snapshot: schema.designVersions.snapshot,
@@ -480,7 +521,10 @@ async function captureDesignVersion(
     })
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
-    .orderBy(desc(schema.designVersions.createdAt))
+    .orderBy(
+      desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
+    )
     .limit(1);
   if (latest) {
     try {
@@ -488,14 +532,18 @@ async function captureDesignVersion(
         latest.snapshot,
         designId,
       );
-      if (
-        previous.designData === designData &&
-        previous.designTitle === designTitle &&
-        previous.designDescription === designDescription &&
-        previous.projectType === projectType &&
-        previous.designSystemId === designSystemId &&
-        JSON.stringify(previous.files) === JSON.stringify(currentFiles)
-      ) {
+      const previousState = {
+        designData: previous.designData,
+        designTitle: previous.designTitle,
+        designDescription: previous.designDescription,
+        projectType: previous.projectType,
+        designSystemId: previous.designSystemId,
+        files: previous.files,
+        tweaks: previous.tweaks,
+        appliedTweaks: previous.appliedTweaks,
+        resolvedCssVars: previous.resolvedCssVars,
+      };
+      if (stableStringify(previousState) === stableStringify(currentState)) {
         return {
           id: latest.id,
           createdAt: latest.createdAt ?? createdAt,
@@ -507,7 +555,15 @@ async function captureDesignVersion(
       // An unreadable checkpoint cannot establish equality; preserve autosave.
     }
   }
-  const id = nanoid();
+  const id = `design-version-${createHash("sha256")
+    .update(
+      stableStringify({
+        designId,
+        previousVersionId: latest?.id ?? "initial",
+        state: currentState,
+      }),
+    )
+    .digest("hex")}`;
   const snapshot = JSON.stringify({
     schemaVersion: 1,
     snapshotKind: "design-history",
@@ -555,7 +611,7 @@ async function captureDesignVersion(
     });
   }
 
-  await getDb()
+  await db
     .insert(schema.designVersions)
     .values({
       id,
@@ -567,8 +623,25 @@ async function captureDesignVersion(
         : null,
       fileCount: liveSnapshot.files.length,
       createdAt,
-    });
-  return { id, createdAt, label: options.label };
+    })
+    .onConflictDoNothing();
+  const [stored] = await db
+    .select({
+      id: schema.designVersions.id,
+      createdAt: schema.designVersions.createdAt,
+      label: schema.designVersions.label,
+    })
+    .from(schema.designVersions)
+    .where(eq(schema.designVersions.id, id))
+    .limit(1);
+  if (!stored) {
+    throw new Error(`Design version "${id}" was not persisted.`);
+  }
+  return {
+    id: stored.id,
+    createdAt: stored.createdAt ?? createdAt,
+    label: stored.label ?? options.label,
+  };
 }
 
 export async function withDesignVersionLock<T>(
@@ -624,7 +697,10 @@ export async function snapshotDesignBeforeAgentEdit(
       })
       .from(schema.designVersions)
       .where(eq(schema.designVersions.designId, designId))
-      .orderBy(desc(schema.designVersions.createdAt))
+      .orderBy(
+        desc(schema.designVersions.createdAt),
+        desc(schema.designVersions.id),
+      )
       .limit(CHAT_VERSION_LOOKBACK);
 
     let existing: { id: string; createdAt: string; label: string } | undefined;
@@ -683,7 +759,10 @@ export async function listDesignVersions(
     })
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
-    .orderBy(desc(schema.designVersions.createdAt))
+    .orderBy(
+      desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
+    )
     .limit(limit);
 
   const regular: DesignVersionListEntry[] = [];
