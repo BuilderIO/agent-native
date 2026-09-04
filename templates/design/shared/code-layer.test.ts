@@ -2721,6 +2721,16 @@ describe("design node classification", () => {
     expect(dot?.[1]?.type).toBe("shape");
   });
 
+  it("treats a wide rounded-full box as a pill, not an ellipse", () => {
+    const shapes = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-20 h-6 rounded-full bg-slate-200"></div><div class="size-3 rounded-full bg-red-500"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(shapes?.[0]?.type).toBe("shape");
+    expect(shapes?.[1]?.type).toBe("ellipse");
+  });
+
   it("does not treat a colour utility as a component marker", () => {
     const card = typeOf(
       `<section><div class="p-6 rounded-lg border bg-card"><p>Body</p></div></section>`,

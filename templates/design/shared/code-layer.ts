@@ -1189,7 +1189,39 @@ interface NodeVisualFacts {
   painted: boolean;
   padded: boolean;
   sized: boolean;
-  pill: boolean;
+  circular: boolean;
+}
+
+function classDimension(
+  classes: readonly string[],
+  axis: "w" | "h",
+): string | null {
+  for (const token of classes) {
+    const bare = bareClassToken(token);
+    if (bare.startsWith(`${axis}-`)) return bare.slice(axis.length + 1);
+  }
+  return null;
+}
+
+/**
+ * `rounded-full` alone does not mean a circle — on a wide box it is a pill,
+ * which is a rounded rectangle. Equal extents are what separate the two.
+ */
+function isSquare(
+  classes: readonly string[],
+  style: Record<string, string | undefined>,
+): boolean {
+  if (
+    classes.some((token) => {
+      const bare = bareClassToken(token);
+      return bare.startsWith("size-") || bare === "aspect-square";
+    })
+  ) {
+    return true;
+  }
+  const width = classDimension(classes, "w") ?? style["width"]?.trim();
+  const height = classDimension(classes, "h") ?? style["height"]?.trim();
+  return Boolean(width && height && width === height);
 }
 
 function classPaints(token: string): boolean {
@@ -1273,11 +1305,16 @@ function visualFactsOf(
     styleValueIsPresent(style["width"], emptyLength) ||
     styleValueIsPresent(style["height"], emptyLength);
 
-  const pill =
+  const roundedFull =
     classes.some((token) => bareClassToken(token) === "rounded-full") ||
     /^(50%|9999px|9999rem)$/.test((style["border-radius"] ?? "").trim());
 
-  return { painted, padded, sized, pill };
+  return {
+    painted,
+    padded,
+    sized,
+    circular: roundedFull && isSquare(classes, style),
+  };
 }
 
 /**
@@ -2383,7 +2420,8 @@ function treeTypeForNode(
     if (node.textSnippet) {
       return facts.painted || facts.padded ? "frame" : "text";
     }
-    if (facts.painted && facts.sized) return facts.pill ? "ellipse" : "shape";
+    if (facts.painted && facts.sized)
+      return facts.circular ? "ellipse" : "shape";
     return "element";
   }
 
