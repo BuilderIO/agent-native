@@ -201,10 +201,13 @@ function hasSuccessfulDashboardSave(
     "update-dashboard",
     "mutate-dashboard",
     "compose-dashboard",
-    // An extension edit is the whole job when the dashboard panel IS the
-    // extension. Leaving it out meant a turn that saved exactly what the user
-    // asked for still had to prove itself with a data query.
+    // An extension edit or creation is the whole job when the dashboard
+    // panel IS the extension. Leaving either out meant a turn that saved
+    // exactly what the user asked for still had to prove itself with a data
+    // query — and a fresh create-extension turn fell into the template-clone
+    // retry, whose fallback is a dead end.
     "update-extension",
+    "create-extension",
   ]);
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;
@@ -426,7 +429,7 @@ function exhaustedDraftPrefixFor({
     nextOptions.push(`connect the missing source: ${setupMarkdown}`);
   }
   return (
-    "Unverified — no live data query ran for this answer." +
+    "Unverified — no live data query ran for this answer, so every figure and trend below is unconfirmed." +
     connectedSentence +
     ` Next options: ${nextOptions.join(", ")}.`
   );

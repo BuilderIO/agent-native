@@ -332,7 +332,7 @@ const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 // whatever dates or metric words it also carries ("review the signup
 // changelog from last week").
 const EXPLICIT_CODE_REVIEW_REQUEST =
-  /\b(?:review|check|inspect|read|look at|go over)\s+(?:this|the|my|that|our|these)\s+(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
+  /\b(?:review|check|inspect|read|look at|go over)\s+(?:(?:this|the|my|that|our|these)\s+)?(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
 // A bare mention of a PR, diff, commit, or reviewer feedback makes the
 // message about a change rather than live data — unless it also asks for a
 // result ("how many signups came from each PR?"), which is a data question
@@ -341,7 +341,7 @@ const EXPLICIT_CODE_REVIEW_REQUEST =
 const CODE_REVIEW_MENTION =
   /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\b(?:code review|diffs?|commits?|changelogs?|release notes)\b|\breviewers?\s+(?:said|says|say|asked|noted|flagged|comments?|feedback)\b/;
 const METRIC_RESULT_INTENT =
-  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
+  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
 
 const ARTIFACT_DATA_INTENT =
   /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
@@ -439,7 +439,7 @@ const NON_ARTIFACT_GAP =
 // Anchored to a result term earlier in the same clause so an edit summary
 // such as "improved the dashboard layout" does not read as a claim.
 const METRIC_VERDICT_PHRASES =
-  "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|rose|risen|rising|fell|fallen|falling|climbed|jumped|soared|sank|shrank|shrunk|went (?:up|down)|(?:is|are|was|were) (?:up|down)|ticked (?:up|down)|(?:up|down)\\s+\\d|trending|growing|increasing|decreasing|declining|flattened|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
+  "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish|excellent|great|good|bad|poor|healthy|unhealthy|solid|successful|disappointing|impressive|terrible|robust|encouraging|concerning|low|high|best|worst)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|rose|risen|rising|fell|fallen|falling|climbed|jumped|soared|sank|shrank|shrunk|went (?:up|down)|(?:is|are|was|were) (?:up|down)|ticked (?:up|down)|(?:up|down)\\s+\\d|trending|growing|increasing|decreasing|declining|flattened|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
 const QUALITATIVE_METRIC_VERDICT = new RegExp(
   `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}\\b${METRIC_VERDICT_PHRASES}\\b`,
   "i",

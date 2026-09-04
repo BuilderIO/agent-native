@@ -1213,6 +1213,25 @@ describe("realDataFinalGuard", () => {
     expect(exhaustedDraftPrefix).not.toContain("connect the missing source");
   });
 
+  it("does not send a completed create-extension turn into the template-clone retry", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Create an extension showing weekly signups by plan.",
+        draftText:
+          "Done — I created the extension and embedded it as a panel on the Growth dashboard.",
+        toolResults: [
+          {
+            name: "create-extension",
+            isError: false,
+            content: '{"id":"ext-weekly-signups"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("does not discard a completed extension-update summary as an ungrounded analytics answer", () => {
     const result = realDataFinalGuard(
       guardContext({

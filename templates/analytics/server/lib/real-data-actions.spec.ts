@@ -335,6 +335,14 @@ describe("analytics data request classification", () => {
         "Which pull request had the most conversion?",
       ),
     ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest("Did the latest PR increase signups?"),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What impact did this pull request have on revenue?",
+      ),
+    ).toBe(true);
   });
 
   it("keeps an explicit code-review request out of the guard even when it carries a date", () => {
@@ -347,6 +355,9 @@ describe("analytics data request classification", () => {
       looksLikeAnalyticsDataRequest(
         "Check the PR diff for the sessions migration from last month.",
       ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest("Review signup PR from last week."),
     ).toBe(false);
   });
 });
@@ -368,6 +379,16 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     );
     expect(draftClaimsAnalyticsMetrics("Revenue is down.")).toBe(true);
     expect(draftClaimsAnalyticsMetrics("Signups up 12% this week.")).toBe(true);
+  });
+
+  it("treats ordinary evaluative adjectives about a metric as a claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics("Signup conversion was excellent last week."),
+    ).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Retention looks healthy.")).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("The signups dashboard looks solid now."),
+    ).toBe(false);
   });
 
   it("does not treat a chart position edit as an up/down trend claim", () => {
