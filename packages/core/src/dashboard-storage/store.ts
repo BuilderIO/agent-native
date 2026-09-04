@@ -301,7 +301,7 @@ export function createDashboardStorage<
       .select({ id: dashboardRevisions.id })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, dashboardId))
-      .orderBy(desc(dashboardRevisions.createdAt));
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id));
     const staleIds = rows
       .slice(maxRevisions)
       .map((row: { id: string }) => row.id);
@@ -330,7 +330,7 @@ export function createDashboardStorage<
       })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, dashboard.id))
-      .orderBy(desc(dashboardRevisions.createdAt))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
       .limit(1);
     if (
       latest?.kind === dashboard.kind &&
@@ -446,7 +446,7 @@ export function createDashboardStorage<
       .select()
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, id))
-      .orderBy(desc(dashboardRevisions.createdAt))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
       .limit(maxRevisions);
     return rows.map(revisionFromRow);
   }
@@ -468,7 +468,7 @@ export function createDashboardStorage<
       })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, id))
-      .orderBy(desc(dashboardRevisions.createdAt))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
       .limit(maxRevisions);
     return rows.map(revisionMetadataFromRow);
   }

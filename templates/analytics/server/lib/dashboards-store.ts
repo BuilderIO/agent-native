@@ -1508,7 +1508,10 @@ async function pruneDashboardRevisions(
     .select({ id: schema.dashboardRevisions.id })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(desc(schema.dashboardRevisions.createdAt));
+    .orderBy(
+      desc(schema.dashboardRevisions.createdAt),
+      desc(schema.dashboardRevisions.id),
+    );
   const stale = rows.slice(DASHBOARD_REVISION_LIMIT);
   for (const row of stale) {
     await db
@@ -1534,7 +1537,10 @@ async function snapshotDashboardRevision(
     })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboard.id))
-    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .orderBy(
+      desc(schema.dashboardRevisions.createdAt),
+      desc(schema.dashboardRevisions.id),
+    )
     .limit(1);
   if (
     latest?.kind === dashboard.kind &&
@@ -1906,7 +1912,10 @@ export async function listDashboardRevisions(
     .select()
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .orderBy(
+      desc(schema.dashboardRevisions.createdAt),
+      desc(schema.dashboardRevisions.id),
+    )
     .limit(DASHBOARD_REVISION_LIMIT);
   return rows.map(rowToDashboardRevision);
 }
@@ -1934,7 +1943,10 @@ export async function listDashboardRevisionMetadata(
     })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .orderBy(
+      desc(schema.dashboardRevisions.createdAt),
+      desc(schema.dashboardRevisions.id),
+    )
     .limit(DASHBOARD_REVISION_LIMIT);
   return rows.map(rowToDashboardRevisionMetadata);
 }
@@ -2558,7 +2570,10 @@ async function pruneAnalysisRevisions(
     .select({ id: schema.analysisRevisions.id })
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(desc(schema.analysisRevisions.createdAt));
+    .orderBy(
+      desc(schema.analysisRevisions.createdAt),
+      desc(schema.analysisRevisions.id),
+    );
   const stale = rows.slice(ANALYSIS_REVISION_LIMIT);
   for (const row of stale) {
     await db
@@ -2591,7 +2606,10 @@ async function snapshotAnalysisRevision(
     })
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysis.id))
-    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .orderBy(
+      desc(schema.analysisRevisions.createdAt),
+      desc(schema.analysisRevisions.id),
+    )
     .limit(1);
   if (
     latest?.name === analysis.name &&
@@ -2913,7 +2931,10 @@ export async function listAnalysisRevisions(
     .select()
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .orderBy(
+      desc(schema.analysisRevisions.createdAt),
+      desc(schema.analysisRevisions.id),
+    )
     .limit(ANALYSIS_REVISION_LIMIT);
   return rows.map(rowToAnalysisRevision);
 }
@@ -2941,7 +2962,10 @@ export async function listAnalysisRevisionMetadata(
     })
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .orderBy(
+      desc(schema.analysisRevisions.createdAt),
+      desc(schema.analysisRevisions.id),
+    )
     .limit(ANALYSIS_REVISION_LIMIT);
   return rows.map(rowToAnalysisRevisionMetadata);
 }

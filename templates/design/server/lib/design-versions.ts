@@ -530,6 +530,7 @@ async function captureDesignVersion(
     .orderBy(
       asc(isNull(schema.designVersions.createdAt)),
       desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
     )
     .limit(1);
   const createdAt = nextRevisionTimestamp(latest?.createdAt);
@@ -707,6 +708,7 @@ export async function snapshotDesignBeforeAgentEdit(
       .orderBy(
         asc(isNull(schema.designVersions.createdAt)),
         desc(schema.designVersions.createdAt),
+        desc(schema.designVersions.id),
       )
       .limit(CHAT_VERSION_LOOKBACK);
 
@@ -769,6 +771,7 @@ export async function listDesignVersions(
     .orderBy(
       asc(isNull(schema.designVersions.createdAt)),
       desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
     )
     .limit(limit);
 
