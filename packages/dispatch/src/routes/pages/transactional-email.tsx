@@ -34,6 +34,7 @@ import {
   type ProviderMetricsResult,
 } from "../../components/transactional-email-metrics";
 import { EmailPreviewPane } from "../../components/transactional-email-preview";
+import { SendLogSection } from "../../components/transactional-email-send-log";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { Button } from "../../components/ui/button";
 import {
@@ -511,6 +512,22 @@ export default function TransactionalEmailRoute() {
             <IconMail className="mx-auto mb-2 size-5" />
             {t("dispatch.transactionalEmail.noApps")}
           </div>
+        ) : null}
+
+        {apps.length > 0 ? (
+          <Collapsible defaultOpen className="rounded-2xl bg-card">
+            <CollapsibleTrigger className="group flex w-full cursor-pointer items-center justify-between gap-3 p-5 text-left hover:bg-muted/20">
+              <span className="flex items-center gap-2">
+                <IconChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+                <span className="text-sm font-medium text-foreground">
+                  {t("dispatch.transactionalEmail.sendLogTitle")}
+                </span>
+              </span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="border-t px-5 pb-5 pt-4">
+              <SendLogSection apps={apps} />
+            </CollapsibleContent>
+          </Collapsible>
         ) : null}
 
         <AppEmailCard
