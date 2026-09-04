@@ -492,6 +492,11 @@ export default function App() {
                 void handleAppRemoval(app.id);
               }}
               onChatFirstAppSelectionChange={handleChatFirstAppSelectionChange}
+              onDesktopIdentityStatusChange={(status) => {
+                if (status === "failed" || status === "sign-in-required") {
+                  setDesktopIdentityStatus(status);
+                }
+              }}
             />
           </div>
         </div>

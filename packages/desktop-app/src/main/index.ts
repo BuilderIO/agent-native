@@ -694,6 +694,28 @@ function getCookieNameForApp(id: string | null | undefined): string {
   return slug ? `an_session_${slug}` : "an_session";
 }
 
+function resolveAlternateCookieNameMap(
+  primaryCookieName: string,
+  alternateOrigin: string,
+): Record<string, string> {
+  if (primaryCookieName === "an_session") return {};
+  if (new URL(alternateOrigin).hostname.split(".")[0] !== "beta") {
+    return {};
+  }
+
+  const appSlug = primaryCookieName.replace(/^an_session_/, "");
+  const alternateCookieName = getCookieNameForApp(`beta-${appSlug}`);
+  const primaryBetterAuthPrefix = `an_${appSlug}`;
+  const alternateBetterAuthPrefix = `an_beta_${appSlug}`;
+  return {
+    [primaryCookieName]: alternateCookieName,
+    [`${primaryBetterAuthPrefix}.session_token`]: `${alternateBetterAuthPrefix}.session_token`,
+    [`__Secure-${primaryBetterAuthPrefix}.session_token`]: `__Secure-${alternateBetterAuthPrefix}.session_token`,
+    [`${primaryBetterAuthPrefix}.session_data`]: `${alternateBetterAuthPrefix}.session_data`,
+    [`__Secure-${primaryBetterAuthPrefix}.session_data`]: `__Secure-${alternateBetterAuthPrefix}.session_data`,
+  };
+}
+
 function desktopTemplateGatewayOverridesDevUrls(): boolean {
   const value =
     process.env["AGENT_NATIVE_USE_TEMPLATE_GATEWAY"] ||
@@ -909,15 +931,26 @@ function resolveDesktopIdentityApp(
     ...(workspaceSso ? ["an_session_workspace", "an_embed_session"] : []),
     ...betterAuthCookieNames,
   ];
+  const alternateOrigins = resolveEnvironmentLaneOrigins(origin);
+  const alternateCookieNameMap = Object.fromEntries(
+    alternateOrigins.map((alternateOrigin) => [
+      alternateOrigin,
+      resolveAlternateCookieNameMap(primaryCookieName, alternateOrigin),
+    ]),
+  );
   return {
     id: appId,
     origin,
-    alternateOrigins: resolveEnvironmentLaneOrigins(origin),
+    alternateOrigins,
+    alternateCookieNameMap,
     session: session.fromPartition(`persist:app-${appId}`),
     cookieNames,
     cookieNamesToClear: [
       ...new Set([
         ...cookieNames,
+        ...Object.values(alternateCookieNameMap).flatMap((mapping) =>
+          Object.values(mapping),
+        ),
         "an.session_token",
         "__Secure-an.session_token",
         "an.session_data",

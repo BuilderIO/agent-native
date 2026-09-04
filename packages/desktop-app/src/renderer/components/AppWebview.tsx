@@ -359,8 +359,9 @@ export function shouldDeferDesktopAppWebviewLoad(input: {
   return (
     input.eligible &&
     input.enabled !== false &&
-    input.status !== "failed" &&
-    (!input.sessionReady || input.status !== "signed-in")
+    (input.status === "failed"
+      ? !input.sessionReady
+      : !input.sessionReady || input.status !== "signed-in")
   );
 }
 
@@ -1141,8 +1142,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             (reuseRememberedSession ? "signed-in" : await identity.getStatus());
           await applyStatus(status, request, reuseRememberedSession);
         } catch {
-          // An older or unavailable preload must fail closed to the legacy
-          // app-owned login surface rather than strand the WebView behind SSO.
+          // Keep an eligible app behind the Electron-owned gate when the
+          // identity preload cannot complete. Never fall back to app login.
           if (active && request === statusRequest) {
             if (preserveLoadedSession) {
               setDesktopIdentityEnabled(true);
@@ -1161,9 +1162,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               await applyStatus("signed-in", request, true);
               return;
             }
-            setDesktopIdentityEnabled(false);
-            setDesktopIdentityStatus("idle");
-            updateDesktopIdentitySessionReady(true);
+            setDesktopIdentityEnabled(true);
+            setDesktopIdentityStatus("failed");
+            updateDesktopIdentitySessionReady(false);
           }
         }
       };

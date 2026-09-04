@@ -83,16 +83,16 @@ export default function DesktopIdentityGate({
   const emailRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (status === "sign-in-required") {
+    if (status === "sign-in-required" || status === "failed") {
       emailRef.current?.focus();
     }
-    if (status === "signed-in" || status === "idle" || status === "failed") {
+    if (status === "signed-in" || status === "idle") {
       setMagicLinkSentEmail(null);
       setSubmitting(false);
     }
   }, [status]);
 
-  if (status === "idle" || status === "signed-in" || status === "failed") {
+  if (status === "idle" || status === "signed-in") {
     return null;
   }
 

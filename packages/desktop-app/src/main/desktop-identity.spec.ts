@@ -1761,6 +1761,11 @@ describe("DesktopIdentityBroker", () => {
     const authority = authorityFixture();
     const mail = appFixture();
     mail.alternateOrigins = ["https://beta.mail.agent-native.com"];
+    mail.alternateCookieNameMap = {
+      "https://beta.mail.agent-native.com": {
+        an_session_mail: "an_session_beta_mail",
+      },
+    };
     const identityCookies = cookieStore();
     const authorityCookies = cookieStore();
     const mailCookies = cookieStore();
@@ -1907,7 +1912,7 @@ describe("DesktopIdentityBroker", () => {
     expect(mailCookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://beta.mail.agent-native.com",
-        name: "an_session_mail",
+        name: "an_session_beta_mail",
         value: "mail-session",
       }),
     );

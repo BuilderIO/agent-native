@@ -187,6 +187,7 @@ export interface DesktopIdentityApp {
   id: string;
   origin: string;
   alternateOrigins?: string[];
+  alternateCookieNameMap?: Record<string, Record<string, string>>;
   session: Session;
   cookieNames: string[];
   cookieNamesToClear: string[];
@@ -2949,11 +2950,18 @@ export class DesktopIdentityBroker {
     );
     const origins = [app.origin, ...(app.alternateOrigins ?? [])];
     await Promise.all(
-      origins.flatMap((origin) =>
-        app.cookieNamesToClear.map((cookieName) =>
+      origins.flatMap((origin) => {
+        const alternateNames = Object.values(
+          app.alternateCookieNameMap?.[origin] ?? {},
+        );
+        const cookieNames = new Set([
+          ...app.cookieNamesToClear,
+          ...alternateNames,
+        ]);
+        return [...cookieNames].map((cookieName) =>
           app.session.cookies.remove(origin, cookieName),
-        ),
-      ),
+        );
+      }),
     );
   }
 
@@ -2988,13 +2996,19 @@ export class DesktopIdentityBroker {
 
     try {
       for (const alternateOrigin of alternateOrigins) {
-        for (const cookieName of app.cookieNamesToClear) {
+        const alternateCookieNameMap =
+          app.alternateCookieNameMap?.[alternateOrigin] ?? {};
+        const cookieNamesToClear = new Set([
+          ...app.cookieNamesToClear,
+          ...Object.values(alternateCookieNameMap),
+        ]);
+        for (const cookieName of cookieNamesToClear) {
           await app.session.cookies.remove(alternateOrigin, cookieName);
         }
         for (const cookie of sourceCookies) {
           await app.session.cookies.set({
             url: alternateOrigin,
-            name: cookie.name,
+            name: alternateCookieNameMap[cookie.name] ?? cookie.name,
             value: cookie.value,
             path: cookie.path || "/",
             httpOnly: cookie.httpOnly,
