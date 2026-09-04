@@ -214,6 +214,14 @@ function publishRegistrationStatus(
     if (!statuses?.size) {
       registrationStatuses.delete(host);
       delete host[WEBMCP_STATUS_KEY];
+      // A helper this registration installed captured the page's model
+      // context; the next registration installs a fresh one instead of
+      // reviving it. A helper an app installed itself is left alone.
+      const helper = host[WEBMCP_HELPER_KEY];
+      if (isRecord(helper) && registrationOwnedHelpers.has(helper)) {
+        helperDisposers.get(helper)?.();
+        delete host[WEBMCP_HELPER_KEY];
+      }
       settleReadyWaiters(host, {
         state: "failed",
         registered: 0,
@@ -596,6 +604,10 @@ export function createAgentNativeWebMcpClient(
 
 /** Where {@link installAgentNativeWebMcpPageHelper} publishes the page helper. */
 const WEBMCP_HELPER_KEY = "__agentNativeWebMcp";
+/** Helpers a registration installed, so teardown only removes its own. */
+const registrationOwnedHelpers = new WeakSet<object>();
+/** Unsubscribes the helper's toolchange listener when it is torn down. */
+const helperDisposers = new WeakMap<object, () => void>();
 const HELPER_MAX_ATTEMPTS = 10;
 const HELPER_MAX_OUTCOMES = 200;
 const HELPER_DEFAULT_WAIT_MS = 20_000;
@@ -785,11 +797,20 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     inflight = undefined;
     listingGeneration += 1;
   };
-  if (cacheable) client.onToolChange?.(invalidateListing);
+  const unsubscribe = cacheable
+    ? client.onToolChange?.(invalidateListing)
+    : undefined;
+  const pageOrigin =
+    getDocument(targetDocument)?.defaultView?.location?.origin ??
+    (typeof location === "undefined" ? undefined : location.origin);
   async function list(origin?: string): Promise<AgentNativeWebMcpTool[]> {
-    // Discovery defaults to the page's own origin; an explicit origin needs
-    // its own allow-listed listing, which is never cached.
-    if (origin) return client.listTools({ fromOrigins: [origin] });
+    // Discovery defaults to the page's own origin; a different origin needs
+    // its own allow-listed listing, which is never cached. The page's own
+    // origin stays on the normal listing because the polyfill rejects any
+    // fromOrigins value, its own included.
+    if (origin && origin !== pageOrigin) {
+      return client.listTools({ fromOrigins: [origin] });
+    }
     if (!cacheable) return client.listTools();
     if (listing) return listing;
     if (inflight) return inflight;
@@ -826,16 +847,21 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   }): Promise<AgentNativeWebMcpStatus> {
     const current = status();
     if (current && current.state !== "registering") return current;
-    if (!host) {
-      return current ?? { state: "failed", registered: 0, total: 0 };
-    }
+    const none: AgentNativeWebMcpStatus = {
+      state: "failed",
+      registered: 0,
+      total: 0,
+      error: "No WebMCP registration is active on this page",
+    };
+    if (!host) return none;
     const settled = await settleWithin(
       waitForSettledStatus(host),
       readyOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS,
     );
-    return settled.settled
-      ? settled.value
-      : (status() ?? { state: "registering", registered: 0, total: 0 });
+    if (settled.settled) return settled.value;
+    // Past the bound with nothing published, no registration exists; report
+    // that rather than a registering state nobody is driving.
+    return status() ?? none;
   }
 
   async function run(
@@ -998,6 +1024,7 @@ export function createAgentNativeWebMcpPageHelper(options?: {
       return outcomes.get(id) ?? { id, state: "unknown" };
     },
   };
+  if (unsubscribe) helperDisposers.set(helper, unsubscribe);
   return helper;
 }
 
@@ -1005,14 +1032,24 @@ export function createAgentNativeWebMcpPageHelper(options?: {
 export function installAgentNativeWebMcpPageHelper(options?: {
   document?: Document;
 }): AgentNativeWebMcpPageHelper | undefined {
-  const host = statusHost(options?.document);
+  return installPageHelper(options?.document, false);
+}
+
+function installPageHelper(
+  targetDocument: Document | undefined,
+  ownedByRegistration: boolean,
+): AgentNativeWebMcpPageHelper | undefined {
+  const host = statusHost(targetDocument);
   if (!host) return undefined;
   const existing = host[WEBMCP_HELPER_KEY];
   if (isRecord(existing) && typeof existing.call === "function") {
     return existing as unknown as AgentNativeWebMcpPageHelper;
   }
-  const helper = createAgentNativeWebMcpPageHelper(options);
+  const helper = createAgentNativeWebMcpPageHelper(
+    targetDocument ? { document: targetDocument } : undefined,
+  );
   host[WEBMCP_HELPER_KEY] = helper;
+  if (ownedByRegistration) registrationOwnedHelpers.add(helper);
   return helper;
 }
 
@@ -1316,9 +1353,7 @@ export function createAgentNativeWebMcpRegistration(
         options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
       );
       total = actions.length;
-      installAgentNativeWebMcpPageHelper(
-        options.document ? { document: options.document } : undefined,
-      );
+      installPageHelper(options.document, true);
       publishRegistrationStatus(options.document, registrationId, {
         state: "registering",
         registered: 0,
