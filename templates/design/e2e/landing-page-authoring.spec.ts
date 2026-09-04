@@ -607,7 +607,7 @@ test("4:39 — aligning a multi-selection moves every selected layer", async ({
     page.locator('[role="treeitem"][aria-selected="true"]'),
   ).toHaveCount(2);
 
-  await page.locator('button[aria-label="Start"]').first().click();
+  await page.locator('button[aria-label="Align top"]').first().click();
   await page.waitForTimeout(2500);
 
   const styles = primitiveStyles(await indexHtml(page, designId), "rectangle");
