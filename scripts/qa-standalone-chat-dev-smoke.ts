@@ -1776,8 +1776,10 @@ async function waitForChatText(
   let currentUrl = "";
   try {
     currentUrl = page.url();
-  } catch {
-    // Preserve the assertion error when the page closed during cleanup.
+  } catch (error) {
+    if (!isNavigationContextError(error)) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
   }
   throw new Error(
     `Chat text ${JSON.stringify(expected)} did not render within ${timeoutMs}ms` +
