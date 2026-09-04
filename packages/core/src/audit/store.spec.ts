@@ -13,7 +13,7 @@ const rawClient = {
     }
     const stmt = sqlite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
+    if (stmt.reader) {
       return { rows: stmt.all(...args), rowsAffected: 0 };
     }
     const info = stmt.run(...args);
@@ -205,6 +205,102 @@ describe("audit store filters + ordering", () => {
       { limit: 2 },
     );
     expect(limited).toHaveLength(2);
+  });
+
+  it("uses append order for exact tied-timestamp pages", async () => {
+    const createdAt = 700;
+    await insertAuditEvent(makeEvent({ id: "z-first", createdAt }));
+    await insertAuditEvent(makeEvent({ id: "m-second", createdAt }));
+    await insertAuditEvent(makeEvent({ id: "a-third", createdAt }));
+
+    const firstPage = await queryAuditEvents(
+      { userEmail: "alice@x.com" },
+      { limit: 2 },
+    );
+    const secondPage = await queryAuditEvents(
+      { userEmail: "alice@x.com" },
+      { limit: 2, offset: 2 },
+    );
+
+    expect(firstPage.map((row) => row.id)).toEqual(["a-third", "m-second"]);
+    expect(secondPage.map((row) => row.id)).toEqual(["z-first"]);
+    expect([...firstPage, ...secondPage].map((row) => row.id)).toEqual([
+      "a-third",
+      "m-second",
+      "z-first",
+    ]);
+    expect(
+      new Set([...firstPage, ...secondPage].map((row) => row.id)).size,
+    ).toBe(3);
+  });
+
+  it("initializes append order for a legacy SQLite table", async () => {
+    sqlite.close();
+    sqlite = new Database(":memory:");
+    sqlite.exec(`
+      CREATE TABLE agent_audit_log (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        caller TEXT NOT NULL,
+        actor_kind TEXT NOT NULL,
+        actor_email TEXT,
+        org_id TEXT,
+        thread_id TEXT,
+        turn_id TEXT,
+        target_type TEXT,
+        target_id TEXT,
+        status TEXT NOT NULL DEFAULT 'success',
+        summary TEXT,
+        input TEXT,
+        error_code TEXT,
+        owner_email TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      );
+      INSERT INTO agent_audit_log
+        (id, created_at, action, caller, actor_kind, owner_email, visibility)
+      VALUES
+        ('legacy-z', 700, 'legacy', 'tool', 'agent', 'alice@x.com', 'private'),
+        ('legacy-m', 700, 'legacy', 'tool', 'agent', 'alice@x.com', 'private'),
+        ('legacy-a', 700, 'legacy', 'tool', 'agent', 'alice@x.com', 'private');
+    `);
+    __resetAuditInitForTests();
+
+    await ensureAuditTables();
+    const migrated = sqlite
+      .prepare(
+        "SELECT id, append_order FROM agent_audit_log ORDER BY append_order",
+      )
+      .all() as Array<{ id: string; append_order: number }>;
+    expect(migrated).toEqual([
+      { id: "legacy-z", append_order: 1 },
+      { id: "legacy-m", append_order: 2 },
+      { id: "legacy-a", append_order: 3 },
+    ]);
+
+    await insertAuditEvent(
+      makeEvent({ id: "a-after-upgrade", createdAt: 700 }),
+    );
+    const rows = await queryAuditEvents({ userEmail: "alice@x.com" });
+    expect(rows.map((row) => row.id)).toEqual([
+      "a-after-upgrade",
+      "legacy-a",
+      "legacy-m",
+      "legacy-z",
+    ]);
+    const nullOrDuplicate = sqlite
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                COUNT(append_order) AS non_null,
+                COUNT(DISTINCT append_order) AS unique_count
+           FROM agent_audit_log`,
+      )
+      .get() as { total: number; non_null: number; unique_count: number };
+    expect(nullOrDuplicate).toEqual({
+      total: 4,
+      non_null: 4,
+      unique_count: 4,
+    });
   });
 
   it("filters by sinceMs", async () => {
