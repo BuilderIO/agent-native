@@ -204,6 +204,32 @@ describe("view-screen Mail preview", () => {
     });
   });
 
+  it("limits label-map reads to the active account selection", async () => {
+    const otherAccount = "other@example.com";
+    mocks.readAppState.mockResolvedValue({
+      view: "inbox",
+      label: "important",
+      activeAccounts: [OWNER.toUpperCase()],
+    });
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [],
+      pinnedLabels: ["important"],
+    });
+    mocks.getClients.mockResolvedValue([
+      { email: OWNER, accessToken: "owner-token", refreshToken: "" },
+      { email: otherAccount, accessToken: "other-token", refreshToken: "" },
+    ]);
+    mocks.listGmailMessages.mockResolvedValue({
+      messages: [email("message")],
+      errors: [],
+    });
+
+    await action.run({});
+
+    expect(mocks.fetchGmailLabelMap).toHaveBeenCalledOnce();
+    expect(mocks.fetchGmailLabelMap).toHaveBeenCalledWith("owner-token");
+  });
+
   it("returns sanitized context for unexpected preview failures", async () => {
     mocks.readSettings.mockRejectedValue(
       new Error("Bearer secret-token request failed"),

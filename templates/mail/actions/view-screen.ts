@@ -216,8 +216,14 @@ async function fetchEmailList(
       const labelMap = new Map<string, string>();
       const failedAccounts = new Set<string>();
       if (needsLabelMap) {
+        const labelMapClients =
+          selectedAccountEmails.length > 0
+            ? clients.filter(({ email }) =>
+                selectedAccountSet.has(email.toLowerCase()),
+              )
+            : clients;
         await Promise.all(
-          clients.map(async ({ email, accessToken }) => {
+          labelMapClients.map(async ({ email, accessToken }) => {
             try {
               const map = await fetchGmailLabelMap(accessToken);
               for (const [id, name] of map) labelMap.set(id, name);
@@ -241,9 +247,7 @@ async function fetchEmailList(
         mode: "threads" as const,
         // Metadata responses omit MIME parts. Saved-filter partitioning
         // needs attachment filenames for has:attachment/filename queries.
-        threadFormat: needsSavedFilterParts
-          ? ("full" as const)
-          : ("metadata" as const),
+        threadFormat: needsSavedFilterParts ? "full" : "metadata",
         threadCandidateLimit: effectiveSearch ? 500 : undefined,
         threadRecentMessageCandidateLimit:
           !effectiveSearch &&
