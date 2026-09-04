@@ -867,6 +867,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (tabsLoading) return;
     const targets = new Map<string, MailPrefetchTarget>();
     for (const tab of visibleTabs) {
+      if (tab.isActive) continue;
       const target = getTabPrefetchTarget(tab, savedFilters);
       if (!target) continue;
       targets.set(JSON.stringify(target), target);
