@@ -48,12 +48,12 @@ describe("GettingStartedPathsBlock", () => {
 
     expect(
       screen
-        .getByRole("tab", { name: /Build locally/ })
-        .getAttribute("aria-selected"),
-    ).toBe("true");
+        .getByRole("link", { name: /Build locally/ })
+        .getAttribute("aria-current"),
+    ).toBe("page");
     expect(
       screen
-        .getByRole("tab", { name: /Build in the cloud/ })
+        .getByRole("link", { name: /Build in the cloud/ })
         .getAttribute("href"),
     ).toBe("/docs/?tab=cloud");
   });

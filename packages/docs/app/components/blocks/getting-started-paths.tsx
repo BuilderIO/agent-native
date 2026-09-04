@@ -60,7 +60,6 @@ export function GettingStartedTabs({
     <nav
       className="getting-started-tabs"
       aria-label={t("gettingStarted.tabs.label")}
-      role="tablist"
     >
       {tabs.map((tab) => {
         const isActive = tab.id === selectedTab;
@@ -68,8 +67,6 @@ export function GettingStartedTabs({
           <Link
             key={tab.id}
             to={pathForTab(tab.id, locale)}
-            role="tab"
-            aria-selected={isActive}
             aria-current={isActive ? "page" : undefined}
             className="getting-started-tab"
             onClick={() =>
