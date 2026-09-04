@@ -2085,6 +2085,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function getElementInfo(el: Element): unknown {
     var cs = window.getComputedStyle(el);
+    var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var rect = el.getBoundingClientRect();
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
@@ -2255,6 +2256,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         outlineStyle: cs.outlineStyle,
         outlineColor: cs.outlineColor,
         outlineOffset: cs.outlineOffset,
+        // Read off the shape child for a drawn vector (vectorPaintTarget):
+        // the `<svg>` wrapper itself is never painted.
+        fill: paintCs.fill,
+        fillOpacity: paintCs.fillOpacity,
+        stroke: paintCs.stroke,
+        strokeWidth: paintCs.strokeWidth,
+        strokeOpacity: paintCs.strokeOpacity,
         // Text glyph outline (Figma-parity text "Stroke") — CSS has no
         // unprefixed alias, so this is read via the vendor-prefixed
         // longhands directly. See applyStyleEdit/normalizeStyleProperty in
@@ -8285,6 +8293,58 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return prop.replace(/([A-Z])/g, "-$1").toLowerCase();
   }
 
+  /**
+   * A drawn vector primitive's `<svg>` carries the geometry and its shape
+   * child carries the paint, so fill/stroke aimed at the wrapper tints the
+   * bounding box instead. Mirrored by `vectorPaintChild` in code-layer.ts.
+   */
+  function vectorPaintTarget(el: Element | null): Element | null {
+    if (!el || el.tagName.toLowerCase() !== "svg") return null;
+    var kind = el.getAttribute("data-an-primitive") || "";
+    if (
+      kind !== "path" &&
+      kind !== "line" &&
+      kind !== "arrow" &&
+      kind !== "polygon" &&
+      kind !== "star"
+    ) {
+      return null;
+    }
+    // Direct children only: an arrow's marker <path> sits inside <defs>
+    // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
+    // this in step with code-layer's childIndexes walk.
+    return el.querySelector(
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
+    );
+  }
+
+  function isVectorPaintProperty(cssProperty: string): boolean {
+    return (
+      cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0
+    );
+  }
+
+  /**
+   * Box paint on a vector wrapper paints its bounding rectangle, and the
+   * inspector no longer edits these for a vector — left behind it is
+   * unreachable. Mirrors `clearVectorWrapperPaint` in code-layer.ts.
+   */
+  function clearVectorWrapperPaint(el: Element): void {
+    var style = (el as HTMLElement).style;
+    var properties = [
+      "background",
+      "background-color",
+      "background-image",
+      "border",
+      "border-width",
+      "border-style",
+      "border-color",
+    ];
+    for (var i = 0; i < properties.length; i += 1) {
+      style.removeProperty(properties[i]!);
+    }
+  }
+
   function applyInlineStyleProperty(
     el: HTMLElement | null,
     property: unknown,
@@ -8293,7 +8353,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !property) return false;
     var cssProperty = normalizeCssPropertyName(property);
     if (!cssProperty) return false;
-    el.style.setProperty(cssProperty, String(value));
+    var target: Element = el;
+    if (isVectorPaintProperty(cssProperty)) {
+      var shape = vectorPaintTarget(el);
+      if (shape) {
+        target = shape;
+        clearVectorWrapperPaint(el);
+      }
+    }
+    (target as HTMLElement).style.setProperty(cssProperty, String(value));
     return true;
   }
 
