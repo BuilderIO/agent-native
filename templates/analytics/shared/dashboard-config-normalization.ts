@@ -15,9 +15,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Repairs the legacy shape where panel fields were accidentally saved inside
  * `panel.config`. Renderer options such as `config.columns` stay nested.
  */
-export function normalizeDashboardConfig(
-  config: Record<string, unknown>,
-): Record<string, unknown> {
+export function normalizeDashboardConfig<T>(config: T): T {
+  if (!isRecord(config)) return config;
   if (!Array.isArray(config.panels)) return config;
 
   let changed = false;
@@ -53,5 +52,5 @@ export function normalizeDashboardConfig(
     return nextPanel;
   });
 
-  return changed ? { ...config, panels } : config;
+  return (changed ? { ...config, panels } : config) as T;
 }

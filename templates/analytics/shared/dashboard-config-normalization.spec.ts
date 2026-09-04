@@ -96,4 +96,9 @@ describe("normalizeDashboardConfig", () => {
 
     expect(normalizeDashboardConfig(config)).toBe(config);
   });
+
+  it("leaves non-object configs untouched", () => {
+    expect(normalizeDashboardConfig(null)).toBeNull();
+    expect(normalizeDashboardConfig("not-an-object")).toBe("not-an-object");
+  });
 });
