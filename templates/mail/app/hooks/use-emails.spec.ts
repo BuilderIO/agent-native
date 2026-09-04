@@ -116,6 +116,12 @@ describe("useEmails query warming", () => {
 
     expect(source).toContain("function emailQueryOptions(");
     expect(source).toContain("queryClient.prefetchInfiniteQuery");
+    expect(source).toContain(
+      "AbortSignal.any([signal, AbortSignal.timeout(prefetchTimeoutMs)])",
+    );
+    expect(source).toContain(
+      "emailQueryOptions(view, search, label, EMAIL_PREFETCH_TIMEOUT_MS)",
+    );
     expect(source).toContain("...emailQueryOptions(view, search, label)");
   });
 });

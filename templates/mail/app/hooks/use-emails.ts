@@ -33,6 +33,7 @@ import {
 import { bodyToHtml } from "@/lib/utils";
 
 const EMAIL_PAGE_SIZE = 25;
+const EMAIL_PREFETCH_TIMEOUT_MS = 15_000;
 
 function isAuthFailure(error: unknown): boolean {
   return (
@@ -505,7 +506,12 @@ interface EmailsPage {
   totalEstimate?: number;
 }
 
-function emailQueryOptions(view: string, search?: string, label?: string) {
+function emailQueryOptions(
+  view: string,
+  search?: string,
+  label?: string,
+  prefetchTimeoutMs?: number,
+) {
   return {
     queryKey: ["emails", view, search, label] as const,
     queryFn: ({
@@ -528,7 +534,12 @@ function emailQueryOptions(view: string, search?: string, label?: string) {
       if (forceRefreshAt) {
         params.set("forceRefresh", String(forceRefreshAt));
       }
-      return apiFetch<EmailsPage>(`/api/emails?${params}`, { signal });
+      const requestSignal = prefetchTimeoutMs
+        ? AbortSignal.any([signal, AbortSignal.timeout(prefetchTimeoutMs)])
+        : signal;
+      return apiFetch<EmailsPage>(`/api/emails?${params}`, {
+        signal: requestSignal,
+      });
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
@@ -544,7 +555,7 @@ export function prefetchEmails(
   label?: string,
 ) {
   return queryClient.prefetchInfiniteQuery(
-    emailQueryOptions(view, search, label),
+    emailQueryOptions(view, search, label, EMAIL_PREFETCH_TIMEOUT_MS),
   );
 }
 
