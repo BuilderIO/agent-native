@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const readAppStateMock = vi.hoisted(() => vi.fn());
+const readAppStateForCurrentTabMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const listFactoryDefinitionsMock = vi.hoisted(() => vi.fn());
@@ -14,7 +14,7 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: readAppStateMock,
+  readAppStateForCurrentTab: readAppStateForCurrentTabMock,
 }));
 
 vi.mock("@agent-native/dispatch/actions", () => ({
@@ -57,7 +57,7 @@ describe("view-screen", () => {
   });
 
   it("returns the factory list when no factory is open", async () => {
-    readAppStateMock.mockResolvedValue({
+    readAppStateForCurrentTabMock.mockResolvedValue({
       view: "factory",
       path: "/factory",
     });
@@ -80,7 +80,7 @@ describe("view-screen", () => {
   });
 
   it("returns inbox preview on the default factory tab", async () => {
-    readAppStateMock.mockResolvedValue({
+    readAppStateForCurrentTabMock.mockResolvedValue({
       view: "factory",
       factoryId: "company-demo",
     });
@@ -108,7 +108,7 @@ describe("view-screen", () => {
   });
 
   it("returns map selection only on the Map tab", async () => {
-    readAppStateMock.mockResolvedValue({
+    readAppStateForCurrentTabMock.mockResolvedValue({
       view: "factory",
       factoryId: "company-demo",
       factoryTab: "map",
@@ -142,7 +142,7 @@ describe("view-screen", () => {
   });
 
   it("returns the job list on the Automations tab", async () => {
-    readAppStateMock.mockResolvedValue({
+    readAppStateForCurrentTabMock.mockResolvedValue({
       view: "factory",
       factoryId: "company-demo",
       factoryTab: "automations",

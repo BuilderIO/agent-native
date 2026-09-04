@@ -8,7 +8,7 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { readAppState } from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 
@@ -42,7 +42,7 @@ export default defineAction({
   http: false,
   readOnly: true,
   run: async (_, context) => {
-    const navigation = await readAppState("navigation");
+    const navigation = await readAppStateForCurrentTab("navigation");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;

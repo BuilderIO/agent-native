@@ -115,19 +115,24 @@ export default defineAction({
           "Factory not found. Use create-factory to create a named Factory, then save the map.",
         );
       }
-      if ((existing?.graphVersion ?? 0) !== expectedGraphVersion) {
+      const fallback = defaultFactoryDefinition();
+      // Virtual default is advertised as graphVersion 1 before the first row.
+      // Other missing IDs stay 0 so a stale create cannot slip through as v1.
+      const currentVersion =
+        existing?.graphVersion ??
+        (factoryId === DEFAULT_FACTORY_ID ? fallback.graphVersion : 0);
+      if (currentVersion !== expectedGraphVersion) {
         throw new Error(
           "Factory changed while saving. Refresh the Factory and try again.",
         );
       }
-      const fallback = defaultFactoryDefinition();
       const nextName =
         source === "ai" ? (existing?.name ?? fallback.name) : name;
       const nextDescription =
         source === "ai"
           ? (existing?.description ?? fallback.description)
           : description;
-      const nextVersion = (existing?.graphVersion ?? 0) + 1;
+      const nextVersion = currentVersion + 1;
       const normalizedGraph = normalizeFactoryGraph({
         ...graph,
         version: nextVersion,
