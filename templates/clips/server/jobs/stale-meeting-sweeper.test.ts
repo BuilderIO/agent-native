@@ -216,7 +216,11 @@ describe("stale-meeting-sweeper", () => {
 
     expect(state.updateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ actualEnd: isoMinutesAgo(6) }),
+        expect.objectContaining({
+          actualEnd: expect.objectContaining({
+            values: expect.arrayContaining([isoMinutesAgo(6)]),
+          }),
+        }),
       ]),
     );
   });
@@ -288,7 +292,11 @@ describe("stale-meeting-sweeper", () => {
 
     expect(state.updateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ actualEnd: isoMinutesAgo(1) }),
+        expect.objectContaining({
+          actualEnd: expect.objectContaining({
+            values: expect.arrayContaining([isoMinutesAgo(1)]),
+          }),
+        }),
       ]),
     );
   });

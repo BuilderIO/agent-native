@@ -201,7 +201,8 @@ describe("stop-meeting-recording endReason", () => {
 
     const meetingUpdate = (db.update as ReturnType<typeof vi.fn>).mock
       .results[0].value.set.mock.calls[0][0];
-    expect(meetingUpdate.endReason).toBe("manual");
+    expect(meetingUpdate.endReason).toMatchObject({ kind: "sql" });
+    expect(JSON.stringify(meetingUpdate.endReason)).toContain("manual");
   });
 
   it("leaves endReason untouched when no reason is given", async () => {
@@ -231,7 +232,10 @@ describe("stop-meeting-recording endReason", () => {
 
     const meetingUpdate = (db.update as ReturnType<typeof vi.fn>).mock
       .results[0].value.set.mock.calls[0][0];
-    expect(meetingUpdate.actualEnd).toBe("2026-01-01T00:00:00.000Z");
-    expect(meetingUpdate).not.toHaveProperty("endReason");
+    // Both are coalesced in SQL: the existing values win, no read-then-write.
+    expect(meetingUpdate.actualEnd).toMatchObject({ kind: "sql" });
+    expect(JSON.stringify(meetingUpdate.actualEnd)).toContain("coalesce(");
+    expect(meetingUpdate.endReason).toMatchObject({ kind: "sql" });
+    expect(JSON.stringify(meetingUpdate.endReason)).toContain("coalesce(");
   });
 });

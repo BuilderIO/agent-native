@@ -395,6 +395,9 @@ struct CallEndTracker {
 /// least one source must positively report `Some(false)` to count as
 /// released — two `None`s (unknown) hold the tracker's current state rather
 /// than starting or resetting the timer, since neither says a call ended.
+/// Confirmation also needs a positive release reading on the confirming tick:
+/// a timer left running while both sources went unknown must not stop a
+/// recording on evidence nobody can see any more.
 fn call_end_step(
     tracker: &mut CallEndTracker,
     coreaudio: Option<bool>,
@@ -412,10 +415,11 @@ fn call_end_step(
         tracker.released_since.get_or_insert(now);
     }
 
-    tracker
-        .released_since
-        .map(|since| now.duration_since(since) >= release_confirm)
-        .unwrap_or(false)
+    released
+        && tracker
+            .released_since
+            .map(|since| now.duration_since(since) >= release_confirm)
+            .unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]
@@ -622,6 +626,39 @@ mod tests {
             Some(false),
             None,
             t0 + Duration::from_secs(25),
+            confirm
+        ));
+    }
+
+    #[test]
+    fn call_end_step_unknowns_after_a_release_hold_the_timer_but_never_confirm() {
+        let mut tracker = CallEndTracker::default();
+        let t0 = Instant::now();
+        let confirm = Duration::from_secs(15);
+
+        assert!(!call_end_step(&mut tracker, Some(true), None, t0, confirm));
+        assert!(!call_end_step(
+            &mut tracker,
+            Some(false),
+            None,
+            t0 + Duration::from_secs(2),
+            confirm
+        ));
+        // Both sources go dark past the window: the timer survives, but a
+        // stop needs someone to actually say "released" again.
+        assert!(!call_end_step(
+            &mut tracker,
+            None,
+            None,
+            t0 + Duration::from_secs(25),
+            confirm
+        ));
+        assert!(tracker.released_since.is_some());
+        assert!(call_end_step(
+            &mut tracker,
+            None,
+            Some(false),
+            t0 + Duration::from_secs(27),
             confirm
         ));
     }

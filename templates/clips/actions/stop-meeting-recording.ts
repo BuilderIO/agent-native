@@ -12,7 +12,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import shareResource from "@agent-native/core/sharing/actions/share-resource";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -117,18 +117,20 @@ export default defineAction({
       hasTranscript = Boolean(transcript?.fullText?.trim());
     }
 
-    // actualEnd is a first-write-wins field (a second stop is a no-op on it),
-    // so endReason only stamps alongside the write that actually sets it —
-    // a later call with a reason must not overwrite the original cause.
-    const isFirstStop = !meeting.actualEnd;
-
+    // actualEnd and endReason are first-writer-wins, enforced in SQL so two
+    // concurrent stops (desktop detector and a manual click, say) cannot race
+    // the read above and overwrite the original end time or cause.
     await db
       .update(schema.meetings)
       .set({
-        actualEnd: meeting.actualEnd ?? nowIso,
+        actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${nowIso})`,
         updatedAt: nowIso,
         transcriptStatus: hasTranscript ? "ready" : "failed",
-        ...(isFirstStop && args.reason ? { endReason: args.reason } : {}),
+        ...(args.reason
+          ? {
+              endReason: sql`coalesce(${schema.meetings.endReason}, ${args.reason})`,
+            }
+          : {}),
       })
       .where(eq(schema.meetings.id, args.meetingId));
 

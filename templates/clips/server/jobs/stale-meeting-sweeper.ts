@@ -133,11 +133,12 @@ export async function closeOutStaleMeeting(args: {
   await db
     .update(schema.meetings)
     .set({
-      actualEnd: args.endedAtIso ?? nowIso,
+      // First writer wins, in SQL: a stop that lands between the candidate
+      // query and this update (desktop detector, manual click, delete-meeting
+      // reusing this helper) keeps its end time and cause.
+      actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${args.endedAtIso ?? nowIso})`,
       updatedAt: nowIso,
       transcriptStatus: hasTranscript ? "ready" : "failed",
-      // First writer wins: a second closer (delete-meeting reuses this
-      // helper) must not overwrite the recorded cause.
       ...(args.endReason
         ? {
             endReason: sql`coalesce(${schema.meetings.endReason}, ${args.endReason})`,
