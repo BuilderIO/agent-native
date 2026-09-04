@@ -1727,61 +1727,52 @@ async function waitForChatText(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError = "";
-  let recoveredDurableRoute = false;
+  let durableRouteRecoveryAttempts = 0;
   while (Date.now() < deadline) {
+    let rendered = false;
     try {
-      if (
-        await page.evaluate(
-          (value) => document.body?.innerText.includes(value) ?? false,
-          expected,
-        )
-      ) {
-        return;
-      }
+      rendered = await page.evaluate(
+        (value) => document.body?.innerText.includes(value) ?? false,
+        expected,
+      );
     } catch (err) {
       if (!isNavigationContextError(err)) throw err;
       lastError = err instanceof Error ? err.message : String(err);
+    }
+    if (rendered) return;
 
-      // A Vite reload or the Chat home handoff can destroy the current
-      // execution context after the provider has already completed a stream.
-      // Re-establish the durable surface before polling again so a transient
-      // document transition cannot turn a rendered response into a false
-      // timeout.
-      const recoveryTimeoutMs = Math.min(
-        5_000,
-        Math.max(1_000, deadline - Date.now()),
-      );
+    // A Vite reload or the Chat home handoff can destroy the current execution
+    // context after the provider has already completed a stream. A blank
+    // durable document is the same recoverable state even when the read itself
+    // does not throw a navigation error.
+    if (
+      options.recoverDurableRoute &&
+      durableRouteRecoveryAttempts < 3
+    ) {
       try {
-        await waitForStableChatSurface(page, recoveryTimeoutMs);
+        const surface = await readChatSurfaceState(page);
+        if (
+          durableChatPathPattern.test(surface.pathname) &&
+          !surface.chatRendered
+        ) {
+          const currentUrl = page.url();
+          durableRouteRecoveryAttempts += 1;
+          log(
+            `recovering blank durable Chat route (attempt ${durableRouteRecoveryAttempts}/3) before waiting for ${JSON.stringify(expected)}`,
+          );
+          await gotoCommitted(page, currentUrl, "domcontentloaded");
+          await waitForStableChatSurface(
+            page,
+            Math.min(10_000, Math.max(1_000, deadline - Date.now())),
+          );
+          continue;
+        }
       } catch (recoveryError) {
         if (!isNavigationContextError(recoveryError)) {
           lastError =
             recoveryError instanceof Error
               ? recoveryError.message
               : String(recoveryError);
-        }
-
-        if (options.recoverDurableRoute && !recoveredDurableRoute) {
-          let currentUrl = "";
-          try {
-            currentUrl = page.url();
-            if (durableChatPathPattern.test(new URL(currentUrl).pathname)) {
-              recoveredDurableRoute = true;
-              log(
-                `recovering blank durable Chat route before waiting for ${JSON.stringify(expected)}`,
-              );
-              await gotoCommitted(page, currentUrl, "domcontentloaded");
-              await waitForStableChatSurface(page);
-              continue;
-            }
-          } catch (reloadError) {
-            if (!isNavigationContextError(reloadError)) {
-              lastError =
-                reloadError instanceof Error
-                  ? reloadError.message
-                  : String(reloadError);
-            }
-          }
         }
       }
     }
