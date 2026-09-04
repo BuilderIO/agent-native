@@ -2565,6 +2565,7 @@ async function main(): Promise<void> {
     throw error;
   }
   let browser: Browser | null = null;
+  let page: Page | null = null;
   let primaryError: Error | null = null;
   let cleanupError: unknown;
   const browserErrors: string[] = [];
@@ -2593,7 +2594,7 @@ async function main(): Promise<void> {
       viewport: { width: 1280, height: 900 },
       permissions: ["microphone"],
     });
-    const page = await context.newPage();
+    page = await context.newPage();
     await page.addInitScript(() => {
       const target = window as Window & {
         __agentNativeSmokeHistory?: string[];
@@ -2727,14 +2728,16 @@ async function main(): Promise<void> {
       browserDiagnostics.length > 0
         ? `\n\nBrowser lifecycle diagnostics:\n${browserDiagnostics.join("\n")}`
         : "";
-    const historyDiagnostics = await page
-      ?.evaluate(() => {
-        const target = window as Window & {
-          __agentNativeSmokeHistory?: string[];
-        };
-        return target.__agentNativeSmokeHistory ?? [];
-      })
-      .catch(() => [] as string[]);
+    const historyDiagnostics = page
+      ? await page
+          .evaluate(() => {
+            const target = window as Window & {
+              __agentNativeSmokeHistory?: string[];
+            };
+            return target.__agentNativeSmokeHistory ?? [];
+          })
+          .catch(() => [] as string[])
+      : [];
     const historyBlock =
       historyDiagnostics.length > 0
         ? `\n\nBrowser history mutations:\n${historyDiagnostics.join("\n")}`
