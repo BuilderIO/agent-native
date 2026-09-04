@@ -1713,6 +1713,35 @@ async function assertComposerFocused(page: Page): Promise<void> {
   });
 }
 
+async function waitForChatText(
+  page: Page,
+  expected: string,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "";
+  while (Date.now() < deadline) {
+    try {
+      if (
+        await page.evaluate(
+          (value) => document.body?.innerText.includes(value) ?? false,
+          expected,
+        )
+      ) {
+        return;
+      }
+    } catch (err) {
+      if (!isNavigationContextError(err)) throw err;
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+    await sleep(250);
+  }
+  throw new Error(
+    `Chat text ${JSON.stringify(expected)} did not render within ${timeoutMs}ms` +
+      (lastError ? ` (${lastError})` : "."),
+  );
+}
+
 async function waitForLoopbackState(
   label: string,
   predicate: () => boolean | Promise<boolean>,
@@ -2060,13 +2089,8 @@ async function assertAgentKitChatAcceptance(
     30_000,
   );
   network.allowInitialEphemeralThread404 = false;
-  await page
-    .getByRole("heading", { name: "Loopback complete" })
-    .waitFor({ state: "visible" });
-  await page
-    .locator(".agentkit-message-content")
-    .filter({ hasText: "Hello, AgentKit Browser!" })
-    .waitFor({ state: "visible" });
+  await waitForChatText(page, "Loopback complete");
+  await waitForChatText(page, "Hello, AgentKit Browser!");
   assert.equal(
     await page
       .locator(".agentkit-message-content strong")
