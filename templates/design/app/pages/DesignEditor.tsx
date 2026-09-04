@@ -11471,6 +11471,8 @@ function DesignEditor() {
   // attribute is an `an-…` hash, so a DOM query by node id never matches.
   const liveElementForNode = useCallback(
     (node: CodeLayerNode): HTMLElement | null => {
+      // alignAvailability measures during render, and this route is SSR'd.
+      if (typeof document === "undefined") return null;
       const iframe = document.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
       );
@@ -11487,8 +11489,10 @@ function DesignEditor() {
       for (const selector of selectors) {
         if (!selector) continue;
         try {
-          const found = doc.querySelector<HTMLElement>(selector);
-          if (found) return found;
+          // Only a selector that resolves to exactly one element identifies
+          // this node; a repeated class or tag would measure its first twin.
+          const found = doc.querySelectorAll<HTMLElement>(selector);
+          if (found.length === 1) return found[0]!;
         } catch {
           // coercion-ok: a projection selector may not be valid CSS
         }
@@ -11498,41 +11502,45 @@ function DesignEditor() {
     [],
   );
 
+  // Layout geometry only: offsetLeft and clientWidth ignore CSS transforms and
+  // sit in the containing block's padding box, the space a `left`/`top` commit
+  // resolves in. getBoundingClientRect folds transform, scale, and border in.
   const liveBoxesForNode = useCallback(
     (
       node: CodeLayerNode,
     ): {
-      self: { x: number; y: number; width: number; height: number };
+      self: { x: number; y: number; width: number; height: number } | null;
       parent: { width: number; height: number } | null;
     } | null => {
       const el = liveElementForNode(node);
       if (!el) return null;
-      const elRect = el.getBoundingClientRect();
-      // The immediate parent, not offsetParent: offsetParent skips
-      // non-positioned ancestors and would disagree with the parent-relative
-      // authored-style convention a left/top commit is read back through.
       const parent = el.parentElement;
-      const parentRect = parent?.getBoundingClientRect();
-      // `left`/`top` resolve against the containing block's PADDING box, and
-      // client*/offset* are layout values no author transform scales —
-      // getBoundingClientRect alone folds border and scale into the bounds.
-      const scale =
-        parentRect && parent?.offsetWidth
-          ? parentRect.width / parent.offsetWidth
-          : 1;
-      const unscale = (value: number) => (scale > 0 ? value / scale : value);
+      const offsetParent = el.offsetParent;
+      const size = { width: el.offsetWidth, height: el.offsetHeight };
+      // Parent-relative offset, or null when no layout parent chain gives one
+      // (display:none and position:fixed both report a null offsetParent).
+      const self =
+        offsetParent && parent
+          ? offsetParent === parent
+            ? { x: el.offsetLeft, y: el.offsetTop, ...size }
+            : parent.offsetParent === offsetParent
+              ? {
+                  x: el.offsetLeft - parent.offsetLeft - parent.clientLeft,
+                  y: el.offsetTop - parent.offsetTop - parent.clientTop,
+                  ...size,
+                }
+              : null
+          : null;
       return {
-        self: {
-          x:
-            unscale(elRect.x - (parentRect?.x ?? 0)) -
-            (parent?.clientLeft ?? 0),
-          y:
-            unscale(elRect.y - (parentRect?.y ?? 0)) - (parent?.clientTop ?? 0),
-          width: unscale(elRect.width),
-          height: unscale(elRect.height),
-        },
+        self,
+        // Bounds only when the DOM parent IS the containing block: otherwise
+        // the commit resolves `left`/`top` against a further ancestor than
+        // the box we aligned to, landing the node somewhere else entirely.
         parent:
-          parent && parent.clientWidth > 0 && parent.clientHeight > 0
+          parent &&
+          offsetParent === parent &&
+          parent.clientWidth > 0 &&
+          parent.clientHeight > 0
             ? { width: parent.clientWidth, height: parent.clientHeight }
             : null,
       };
@@ -11545,13 +11553,13 @@ function DesignEditor() {
     [liveBoxesForNode],
   );
 
-  // Align bounds for a single selection. The live parent leads: a parent sized
-  // by class, percentage, or flex has no authored px box, and authored
-  // `width:100%` parses to a 100px bounds that lands every edge wrong.
+  // A rendered node's live verdict is final, refusal included: the authored
+  // box cannot tell whether the parent is the containing block, so it is only
+  // a fallback for a node with no live element at all.
   const measureAlignParentBox = useCallback(
     (node: CodeLayerNode, parentNode: CodeLayerNode) => {
-      const live = liveBoxesForNode(node)?.parent;
-      if (live) return live;
+      const boxes = liveBoxesForNode(node);
+      if (boxes) return boxes.parent;
       const width = authoredPxLength(parentNode.style.width);
       const height = authoredPxLength(parentNode.style.height);
       if (width === null || height === null) return null;

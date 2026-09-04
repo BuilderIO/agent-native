@@ -21,20 +21,23 @@ import {
 } from "./design-editor/layout-operations";
 
 describe("authoredPxLength", () => {
-  it("reads px and unitless lengths", () => {
+  it("reads px lengths, and unitless zero", () => {
     expect(authoredPxLength("800px")).toBe(800);
     expect(authoredPxLength(" 12.5px ")).toBe(12.5);
-    expect(authoredPxLength("0")).toBe(0);
     expect(authoredPxLength("-4px")).toBe(-4);
+    expect(authoredPxLength("0")).toBe(0);
+    expect(authoredPxLength("0.0")).toBe(0);
   });
 
-  it("rejects every non-px length instead of parsing its number", () => {
+  it("rejects non-px and nonzero unitless lengths the browser would drop", () => {
     for (const value of [
       "100%",
       "50vw",
       "4rem",
       "auto",
       "calc(100% - 10px)",
+      "120",
+      "-4",
       "",
       undefined,
     ]) {

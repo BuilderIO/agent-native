@@ -57,12 +57,12 @@ const ALIGN_LABELS = [
 
 async function postAction(
   request: APIRequestContext,
+  baseURL: string,
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
   const response = await request.post(
-    `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
+    `${baseURL.replace(/\/$/, "")}/_agent-native/actions/${name}`,
     { data: input },
   );
   if (!response.ok()) {
@@ -90,6 +90,12 @@ async function leaveResponsivePreview(page: Page) {
     await exitPreview.click();
     await expect(exitPreview).toBeHidden();
   }
+}
+
+/** `project.use.baseURL` from playwright.config — never a hardcoded port. */
+function requireBaseURL(baseURL: string | undefined): string {
+  if (!baseURL) throw new Error("playwright baseURL is not configured");
+  return baseURL;
 }
 
 function alignButton(page: Page, label: string) {
@@ -142,18 +148,22 @@ async function expectOffset(
     .toEqual(expected);
 }
 
-async function seedDesign(request: APIRequestContext) {
-  const created = await postAction(request, "create-design", {
+async function seedDesign(
+  request: APIRequestContext,
+  baseURL: string,
+  html: string = ALIGN_HTML,
+) {
+  const created = await postAction(request, baseURL, "create-design", {
     title: `Alignment ${Date.now()}`,
     projectType: "prototype",
   });
   const designId: string | undefined =
     created?.id ?? created?.data?.id ?? created?.design?.id;
   if (!designId) throw new Error("create-design returned no id");
-  await postAction(request, "create-file", {
+  await postAction(request, baseURL, "create-file", {
     designId,
     filename: "index.html",
-    content: ALIGN_HTML,
+    content: html,
     fileType: "html",
   });
   return designId;
@@ -162,8 +172,9 @@ async function seedDesign(request: APIRequestContext) {
 test("each alignment button moves the object to the edge it names", async ({
   page,
   request,
+  baseURL,
 }) => {
-  const designId = await seedDesign(request);
+  const designId = await seedDesign(request, requireBaseURL(baseURL));
   await openEditPanel(page, designId);
   await selectLayer(page, "Chip");
   await expectOffset(page, "Chip", { left: 300, top: 250 });
@@ -190,8 +201,9 @@ test("each alignment button moves the object to the edge it names", async ({
 test("aligning one axis leaves a percentage offset on the other axis put", async ({
   page,
   request,
+  baseURL,
 }) => {
-  const designId = await seedDesign(request);
+  const designId = await seedDesign(request, requireBaseURL(baseURL));
   await openEditPanel(page, designId);
   await selectLayer(page, "Percent");
   const half = BOUNDS_WIDTH / 2;
@@ -204,10 +216,124 @@ test("aligning one axis leaves a percentage offset on the other axis put", async
 test("a lone top-level frame has nothing to align against", async ({
   page,
   request,
+  baseURL,
 }) => {
-  const designId = await seedDesign(request);
+  const designId = await seedDesign(request, requireBaseURL(baseURL));
   await openEditPanel(page, designId);
   await selectLayer(page, "Canvas");
+
+  for (const label of ALIGN_LABELS) {
+    await expect(alignButton(page, label)).toBeDisabled();
+  }
+});
+
+/** offset* are layout values, so a transform on the parent or the node itself
+ *  must not reach the committed `left`/`top`. */
+const TRANSFORM_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Transform fixture</title></head>
+  <body style="margin:0;font-family:Arial,sans-serif">
+    <div
+      data-agent-native-node-id="scaler"
+      data-agent-native-layer-name="Scaler"
+      style="width:800px;height:600px"
+    >
+      <div
+        data-agent-native-node-id="scaled"
+        data-agent-native-layer-name="Scaled"
+        style="position:relative;box-sizing:border-box;width:100%;height:100%;transform:scale(2,0.5);transform-origin:top left;background:#eeeeee"
+      >
+        <div
+          data-agent-native-node-id="inner"
+          data-agent-native-layer-name="Inner"
+          style="position:absolute;left:100px;top:100px;width:120px;height:60px;background:#fca5a5"
+        >Inner</div>
+        <div
+          data-agent-native-node-id="shifted"
+          data-agent-native-layer-name="Shifted"
+          style="position:absolute;left:100px;top:300px;width:120px;height:60px;transform:translateX(20px);background:#93c5fd"
+        >Shifted</div>
+      </div>
+    </div>
+    <div
+      data-agent-native-node-id="static-parent"
+      data-agent-native-layer-name="StaticParent"
+      style="width:400px;height:300px;background:#dddddd"
+    >
+      <div
+        data-agent-native-node-id="flow-child"
+        data-agent-native-layer-name="Flow"
+        style="width:100px;height:50px;background:#bbf7d0"
+      >Flow</div>
+    </div>
+  </body>
+</html>`;
+
+/** The persisted `left`/`top`, which a transform must never be folded into. */
+async function authoredOffset(page: Page, layerName: string) {
+  return designFrame(page)
+    .locator(`[data-agent-native-layer-name="${layerName}"]`)
+    .evaluate((element) => ({
+      left: (element as HTMLElement).style.left,
+      top: (element as HTMLElement).style.top,
+    }));
+}
+
+test("a scaled parent does not scale the offsets that get committed", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(
+    request,
+    requireBaseURL(baseURL),
+    TRANSFORM_HTML,
+  );
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Inner");
+
+  await alignButton(page, "Align right").click();
+  await expect
+    .poll(() => authoredOffset(page, "Inner"), { timeout: 10_000 })
+    .toEqual({ left: "680px", top: "100px" });
+
+  await alignButton(page, "Align bottom").click();
+  await expect
+    .poll(() => authoredOffset(page, "Inner"), { timeout: 10_000 })
+    .toEqual({ left: "680px", top: "540px" });
+});
+
+test("a transformed node aligns by its layout box, not its painted box", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(
+    request,
+    requireBaseURL(baseURL),
+    TRANSFORM_HTML,
+  );
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Shifted");
+
+  await alignButton(page, "Align right").click();
+  await expect
+    .poll(() => authoredOffset(page, "Shifted"), { timeout: 10_000 })
+    .toEqual({ left: "680px", top: "300px" });
+});
+
+test("a static parent is not the containing block, so alignment refuses", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(
+    request,
+    requireBaseURL(baseURL),
+    TRANSFORM_HTML,
+  );
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Flow");
 
   for (const label of ALIGN_LABELS) {
     await expect(alignButton(page, label)).toBeDisabled();
