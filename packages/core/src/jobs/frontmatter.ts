@@ -174,7 +174,10 @@ const DELEGATED_POLICY_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const EXECUTION_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const REMOTE_ID_RE = /^[a-z0-9][a-z0-9@+._:/-]{0,511}$/i;
 const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
-const EXTRA_FRONTMATTER_LINES = Symbol("extraFrontmatterLines");
+// Enumerable so `{ ...meta }` keeps application-owned YAML. A Symbol is
+// dropped by object spread, which is how Factory extras vanished on run
+// completion.
+const EXTRA_FRONTMATTER_LINES = "_extraFrontmatterLines";
 const KNOWN_FRONTMATTER_FIELDS = new Set([
   "schedule",
   "enabled",
@@ -449,6 +452,7 @@ export function parseJobResource(content: string): ParsedJobResource {
       continue;
     }
     const key = line.slice(0, colonIdx).trim();
+    if (key === EXTRA_FRONTMATTER_LINES) continue;
     if (!KNOWN_FRONTMATTER_FIELDS.has(key)) {
       extraLines.push(line);
       continue;

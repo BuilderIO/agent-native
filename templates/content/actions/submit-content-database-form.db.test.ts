@@ -258,6 +258,70 @@ describe("submit-content-database-form", () => {
     expect(notes.content).toBe("Route through the web design queue.");
   });
 
+  it("starts the canonical range at zero when legacy rows have negative positions", async () => {
+    const seeded = await seedFormDatabase();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const legacyRows = [
+      { suffix: "near", position: -11 },
+      { suffix: "far", position: -111 },
+    ];
+    await db.insert(schema.documents).values(
+      legacyRows.map(({ suffix, position }) => ({
+        id: `${seeded.databaseId}-legacy-document-${suffix}`,
+        spaceId,
+        ownerEmail: OWNER,
+        parentId: seeded.databaseDocumentId,
+        title: `Legacy ${suffix}`,
+        content: "",
+        position,
+        visibility: "org" as const,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseItems).values(
+      legacyRows.map(({ suffix, position }) => ({
+        id: `${seeded.databaseId}-legacy-item-${suffix}`,
+        ownerEmail: OWNER,
+        databaseId: seeded.databaseId,
+        documentId: `${seeded.databaseId}-legacy-document-${suffix}`,
+        position,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "First canonical form row",
+        propertyValues: {
+          Description: "Preserve legacy rows while appending canonically.",
+          Priority: "P1 — High",
+        },
+      }),
+    );
+    const [document] = await db
+      .select({ position: schema.documents.position })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId));
+    const [item] = await db
+      .select({ position: schema.contentDatabaseItems.position })
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, seeded.databaseId),
+          eq(schema.contentDatabaseItems.documentId, result.createdDocumentId),
+        ),
+      );
+
+    expect(result.verified).toBe(true);
+    expect(document?.position).toBe(0);
+    expect(item?.position).toBe(0);
+  });
+
   it("rejects missing required questions without creating a partial row", async () => {
     const seeded = await seedFormDatabase();
     const db = getDb();

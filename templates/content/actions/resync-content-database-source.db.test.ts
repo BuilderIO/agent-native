@@ -1904,6 +1904,94 @@ it("resync re-links only the source's own rows, never another collection's (self
   ]);
 });
 
+it("rejects an overflowing multi-row import before writing any partial rows", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_import_position_boundary";
+  const databaseDocId = "doc_db_import_position_boundary";
+  const existingDocumentId = "doc_import_position_boundary_existing";
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      title: "Import position boundary",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: existingDocumentId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Existing boundary row",
+      position: 2_147_483_646,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Import position boundary",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: "item_import_position_boundary_existing",
+    ownerEmail: OWNER,
+    databaseId,
+    documentId: existingDocumentId,
+    position: 2_147_483_646,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const read = await (
+    await import("./_builder-cms-read-client.js")
+  ).readBuilderCmsContentEntries({ model: "collection-duplicates" });
+  const entries = read.state === "live" ? read.entries : [];
+
+  await expect(
+    importBuilderEntries({
+      database,
+      sourceId: "src-position-boundary",
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+    }),
+  ).rejects.toThrow("Database position is outside the supported range.");
+
+  const documents = await db
+    .select({ id: schema.documents.id, position: schema.documents.position })
+    .from(schema.documents)
+    .where(eq(schema.documents.parentId, databaseDocId));
+  const items = await db
+    .select({
+      id: schema.contentDatabaseItems.id,
+      position: schema.contentDatabaseItems.position,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  expect(documents).toEqual([
+    { id: existingDocumentId, position: 2_147_483_646 },
+  ]);
+  expect(items).toEqual([
+    {
+      id: "item_import_position_boundary_existing",
+      position: 2_147_483_646,
+    },
+  ]);
+});
+
 it("records freshly imported Builder row identities even when title and URL keys collide", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];

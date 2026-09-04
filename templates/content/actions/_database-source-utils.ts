@@ -99,8 +99,10 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
 import {
+  createAppendPositionAllocator,
   databaseItemsPositionScope,
   documentsPositionScope,
+  nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
@@ -6668,7 +6670,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
         databaseItemsPositionScope(args.database.id),
         async () => {
           const [maxDocPos] = await db
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
             .from(schema.documents)
             .where(
               and(
@@ -6677,14 +6679,18 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               ),
             );
           const [maxItemPos] = await db
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
             .from(schema.contentDatabaseItems)
             .where(
               eq(schema.contentDatabaseItems.databaseId, args.database.id),
             );
 
-          let nextDocPosition = (maxDocPos?.max ?? -1) + 1;
-          let nextItemPosition = (maxItemPos?.max ?? -1) + 1;
+          const allocateDocumentPosition = createAppendPositionAllocator(
+            maxDocPos?.max,
+          );
+          const allocateItemPosition = createAppendPositionAllocator(
+            maxItemPos?.max,
+          );
           const documentRows: (typeof schema.documents.$inferInsert)[] = [];
           const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] =
             [];
@@ -6722,7 +6728,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               continue;
             }
 
-            const documentPosition = nextDocPosition++;
+            const documentPosition = allocateDocumentPosition();
             const documentRow = {
               id: documentId,
               spaceId: databaseSpaceId,
@@ -6739,7 +6745,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               createdAt: args.now,
               updatedAt: args.now,
             };
-            const itemPosition = nextItemPosition++;
+            const itemPosition = allocateItemPosition();
             documentRows.push(documentRow);
             itemRows.push({
               id: itemId,
@@ -8021,7 +8027,7 @@ export async function ensureDatabaseSourceProperty(args: {
       propertyDefinitionsPositionScope(args.database.id),
       async () => {
         const [maxPos] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documentPropertyDefinitions)
           .where(
             eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
@@ -8035,7 +8041,7 @@ export async function ensureDatabaseSourceProperty(args: {
           type: "select",
           visibility: "always_show",
           optionsJson,
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           createdAt: args.now,
           updatedAt: args.now,
         });

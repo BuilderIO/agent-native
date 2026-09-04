@@ -127,16 +127,9 @@ export default function DesktopTerminalTabs({
   const [terminalForeground, setTerminalForeground] = useState(
     readSidebarForeground,
   );
-  const [sessionApp, setSessionApp] = useState(() =>
-    active ? activeApp : undefined,
-  );
   const selectedAgent =
     DESKTOP_TERMINAL_AGENT_OPTIONS.find((option) => option.id === agent) ??
     DESKTOP_TERMINAL_AGENT_OPTIONS[0];
-
-  useEffect(() => {
-    if (active) setSessionApp(activeApp);
-  }, [active, activeApp?.id, activeApp?.path, activeApp?.view]);
 
   useEffect(() => {
     const syncBackground = () =>
@@ -155,11 +148,17 @@ export default function DesktopTerminalTabs({
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    const context: DesktopTerminalContext | null = sessionApp
+    if (!active) {
+      return () => {
+        cancelled = true;
+        controller.abort();
+      };
+    }
+    const context: DesktopTerminalContext | null = activeApp
       ? {
-          appId: sessionApp.id,
-          ...(sessionApp.path ? { path: sessionApp.path } : {}),
-          ...(sessionApp.view ? { view: sessionApp.view } : {}),
+          appId: activeApp.id,
+          ...(activeApp.path ? { path: activeApp.path } : {}),
+          ...(activeApp.view ? { view: activeApp.view } : {}),
         }
       : null;
     const getTerminalInfoUrl = window.electronAPI?.desktopChat
@@ -223,7 +222,7 @@ export default function DesktopTerminalTabs({
       cancelled = true;
       controller.abort();
     };
-  }, [sessionApp?.id, sessionApp?.path, sessionApp?.view]);
+  }, [active, activeApp?.id, activeApp?.path, activeApp?.view]);
 
   const workbenchStyle = {
     "--desktop-terminal-background": terminalBackground,

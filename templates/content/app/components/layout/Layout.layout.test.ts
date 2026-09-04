@@ -12,9 +12,22 @@ describe("app layout", () => {
   it("exposes the sidebar width to editor content for responsive surfaces", () => {
     const source = readLayoutSource();
 
-    expect(source).toContain("const contentSidebarWidth = isMobile");
+    expect(source).toContain("const contentSidebarWidth = isCompactLayout");
     expect(source).toContain('"--content-sidebar-width"');
     expect(source).toContain("sidebarCollapsed");
+  });
+
+  it("uses overlay navigation through compact widths and settles it on route commit", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain(
+      'export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)"',
+    );
+    expect(source).toContain("const isCompactLayout = useIsCompactLayout()");
+    expect(source).toContain("{isCompactLayout ? (");
+    expect(source).toContain("}, [location.key])");
+    expect(source).toContain('className="w-[85vw] max-w-80 p-0"');
+    expect(source).not.toContain("md:hidden");
   });
 
   it("persists the desktop sidebar collapse preference through the shared app shell", () => {

@@ -174,6 +174,17 @@ export default function DesktopTerminalSurface({
                   type="button"
                   aria-label={`Close ${tab.label}`}
                   className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 28,
+                    paddingRight: 6,
+                    borderRadius: "0 6px 6px 0",
+                    background:
+                      "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                  }}
                   onClick={(event) => {
                     event.stopPropagation();
                     closeTab(tab.id);
