@@ -73,10 +73,15 @@ export function useBuilderStatus({
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const lastGoodStatusRef = useRef<BuilderStatus | null>(null);
+  const requestGenerationRef = useRef(0);
 
   const fetchStatus = useCallback(async () => {
     if (!enabled) return;
+    const requestGeneration = ++requestGenerationRef.current;
+    const isCurrentRequest = () =>
+      requestGeneration === requestGenerationRef.current;
     const keepLastGoodStatus = (message: string) => {
+      if (!isCurrentRequest()) return;
       const lastGoodStatus = lastGoodStatusRef.current;
       setStatus(lastGoodStatus);
       setStale(!!lastGoodStatus);
@@ -92,6 +97,7 @@ export function useBuilderStatus({
         return;
       }
       const nextStatus = (await res.json()) as BuilderStatus;
+      if (!isCurrentRequest()) return;
       lastGoodStatusRef.current = nextStatus;
       setStatus(nextStatus);
       setStale(false);
@@ -103,12 +109,13 @@ export function useBuilderStatus({
           : "Builder status unavailable";
       keepLastGoodStatus(message);
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
   }, [enabled]);
 
   useEffect(() => {
     if (!enabled) {
+      requestGenerationRef.current += 1;
       setStatus(null);
       setLoading(false);
       setError(null);
@@ -131,6 +138,7 @@ export function useBuilderStatus({
     // dispatch this event so dependent cards refresh without a full reload.
     window.addEventListener("agent-engine:configured-changed", fetchStatus);
     return () => {
+      requestGenerationRef.current += 1;
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener(
