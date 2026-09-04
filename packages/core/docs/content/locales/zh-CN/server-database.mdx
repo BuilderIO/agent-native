@@ -89,11 +89,17 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
+# 适用于 PostgreSQL 的 Amazon RDS
+DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
+
+# 适用于 PostgreSQL 的 Cloud SQL
+DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
+
+# 适用于 PostgreSQL 的 Azure Database
+DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
+
 # 普通 Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
-
-# Turso（libSQL）。还需要设置 DATABASE_AUTH_TOKEN。
-DATABASE_URL=libsql://my-db-org.turso.io
 ```
 
 框架会根据 URL 前缀自动检测方言，并相应地配置 Drizzle。
@@ -428,7 +434,6 @@ const { rows } = await getDbExec().execute({
 | 变量                  | 用途                                                                                          |
 | --------------------- | --------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | 持久化的 SQL 连接字符串（未设置 = 本地 SQLite；`pglite:./data/pglite` = 可选的本地 Postgres） |
-| `DATABASE_AUTH_TOKEN` | 供需要单独令牌的提供商使用的身份验证令牌，例如 Turso/libSQL                                   |
 
 ## 下一步 {#whats-next}
 

@@ -91,11 +91,17 @@ DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/my
 # Supabase の Postgres
 DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
 
+# PostgreSQL 用 Amazon RDS
+DATABASE_URL=postgres://user:pass@your-rds-endpoint.region.rds.amazonaws.com:5432/mydb?sslmode=require
+
+# PostgreSQL 用 Cloud SQL
+DATABASE_URL=postgres://user:pass@your-cloud-sql-host:5432/mydb?sslmode=require
+
+# PostgreSQL 用 Azure Database
+DATABASE_URL=postgres://user:pass@your-server.postgres.database.azure.com:5432/mydb?sslmode=require
+
 # 通常の Postgres
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb
-
-# Turso (libSQL)。DATABASE_AUTH_TOKEN も必要です。
-DATABASE_URL=libsql://my-db-org.turso.io
 ```
 
 フレームワークは URL のプレフィックスから方言を自動検出し、それに応じて Drizzle を構成します。
@@ -439,7 +445,6 @@ const { rows } = await getDbExec().execute({
 | 変数                  | 目的                                                                                                        |
 | --------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | 永続的な SQL 接続文字列 (未設定 = ローカル SQLite。`pglite:./data/pglite` = ローカル Postgres のオプトイン) |
-| `DATABASE_AUTH_TOKEN` | Turso/libSQL など、別のトークンを必要とするプロバイダー用の認証トークン                                     |
 
 ## 次は何ですか {#whats-next}
 

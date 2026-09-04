@@ -2091,8 +2091,6 @@ const hiIN = {
     databaseProviders: "डेटाबेस प्रदाता",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "अंतरराष्ट्रीयकरण",
     localFileMode: "Local File Mode",

@@ -2117,8 +2117,6 @@ const esES = {
     databaseProviders: "Proveedores de bases de datos",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "Internacionalización",
     localFileMode: "Modo de archivos locales",
