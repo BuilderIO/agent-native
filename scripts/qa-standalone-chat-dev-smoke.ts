@@ -1591,7 +1591,7 @@ async function fillAndSubmitComposer(page: Page, text: string): Promise<void> {
       }
     }, text);
   });
-  await editor.press("Enter");
+  await page.keyboard.press("Enter");
   await retryAfterNavigation("confirm composer submission", () =>
     page.waitForFunction(() => {
       const editor = document.querySelector(
