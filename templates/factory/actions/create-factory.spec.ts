@@ -10,9 +10,14 @@ const getDbMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const resolveUniqueFactoryIdMock = vi.hoisted(() => vi.fn());
+const writeAppStateForCurrentTabMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppStateForCurrentTab: writeAppStateForCurrentTabMock,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -86,5 +91,31 @@ describe("create-factory", () => {
     });
     expect(insertedDefinitions).toHaveLength(1);
     expect(insertedVersions).toHaveLength(1);
+    expect(writeAppStateForCurrentTabMock).not.toHaveBeenCalled();
+  });
+
+  it("opens Inbox when the agent creates a factory", async () => {
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<void>) => {
+        const tx = {
+          insert: vi.fn(() => ({
+            values: vi.fn(async () => undefined),
+          })),
+        };
+        await callback(tx);
+      }),
+    });
+
+    const { default: action } = await import("./create-factory.js");
+    await action.run(
+      { name: "Support triage" },
+      { userEmail: "owner@example.com", caller: "tool" },
+    );
+
+    expect(writeAppStateForCurrentTabMock).toHaveBeenCalledWith("navigate", {
+      view: "factory",
+      path: "/factory?factoryId=support-triage",
+      _writeId: expect.any(String),
+    });
   });
 });
