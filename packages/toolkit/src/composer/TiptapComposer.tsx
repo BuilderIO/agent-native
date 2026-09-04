@@ -1157,16 +1157,16 @@ export function shouldShowOnlyConnectPath(
  * When nothing is routable yet, the model hook resolves `selectedModel` to
  * `""` rather than pre-selecting something unusable — that reflects "nothing
  * chosen," not "nothing to show." The picker itself still has a job to do in
- * that state (its connect-provider CTAs), so gate on there being engines to
- * list and a way to change the selection, not on a model already being set.
+ * that state (its connect-provider CTAs). During the initial discovery window
+ * the list is empty too, but the button still needs to exist so the picker can
+ * reveal its loading or setup state instead of making the composer look
+ * incomplete.
  */
 export function shouldRenderModelSelector(
   availableModels: ReadonlyArray<unknown> | undefined,
   onModelChange: unknown,
 ): boolean {
-  return Boolean(
-    availableModels && availableModels.length > 0 && onModelChange,
-  );
+  return Boolean(availableModels && onModelChange);
 }
 
 function friendlyModelName(model: string, t?: ComposerTranslate): string {
