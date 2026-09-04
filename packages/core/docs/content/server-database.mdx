@@ -125,24 +125,24 @@ export const tasks = pgTable("tasks", {
   priority: integer("priority").notNull().default(0),
   done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
 });
 ```
 
-| Export    | Purpose                                      |
-| --------- | -------------------------------------------- |
-| `pgTable` | Define a PostgreSQL table                   |
-| `text`    | Text column, supports `{ enum: [...] }`      |
-| `integer` | Integer column                               |
-| `boolean` | Boolean column                               |
-| `sql`     | SQL expression such as `now()`              |
+| Export    | Purpose                                 |
+| --------- | --------------------------------------- |
+| `pgTable` | Define a PostgreSQL table               |
+| `text`    | Text column, supports `{ enum: [...] }` |
+| `integer` | Integer column                          |
+| `boolean` | Boolean column                          |
+| `sql`     | SQL expression such as `now()`          |
 
 <DataModel
   id="doc-block-3hbven"
   title="The tasks table"
-  summary={
-    "Defined once with Drizzle's PostgreSQL schema."
-  }
+  summary={"Defined once with Drizzle's PostgreSQL schema."}
   entities={[
     {
       id: "tasks",

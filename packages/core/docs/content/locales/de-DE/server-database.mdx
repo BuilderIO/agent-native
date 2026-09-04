@@ -125,18 +125,20 @@ export const tasks = pgTable("tasks", {
   priority: integer("priority").notNull().default(0),
   done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
 });
 ```
 
-| Helfer    | Zweck                                                                                 |
-| --------- | ------------------------------------------------------------------------------------- |
-| `pgTable` | Definiert eine Tabelle mit PostgreSQL-Helfern                                         |
-| `text`    | Textspalte, unterstützt `{ enum: [...] }`                                             |
-| `integer` | Integer-Spalte                                                                           |
-| `boolean` | Boolean-Spalte                                                                           |
-| `doublePrecision` | Gleitkommaspalte mit doppelter Genauigkeit                                      |
-| `sql` | SQL-Ausdruck wie `now()`                                                                 |
+| Helfer            | Zweck                                         |
+| ----------------- | --------------------------------------------- |
+| `pgTable`         | Definiert eine Tabelle mit PostgreSQL-Helfern |
+| `text`            | Textspalte, unterstützt `{ enum: [...] }`     |
+| `integer`         | Integer-Spalte                                |
+| `boolean`         | Boolean-Spalte                                |
+| `doublePrecision` | Gleitkommaspalte mit doppelter Genauigkeit    |
+| `sql`             | SQL-Ausdruck wie `now()`                      |
 
 <DataModel
   id="doc-block-3hbven"

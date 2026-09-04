@@ -125,18 +125,20 @@ export const tasks = pgTable("tasks", {
   priority: integer("priority").notNull().default(0),
   done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
 });
 ```
 
-| المساعد   | الغرض                                                                    |
-| --------- | ------------------------------------------------------------------------ |
-| `pgTable` | تحديد جدول؛ يستخدم مساعد PostgreSQL                                      |
-| `text`    | عمود نصي، يدعم `{ enum: [...] }`                                         |
-| `integer` | عمود صحيح                                                              |
-| `boolean` | عمود منطقي                                                             |
-| `doublePrecision` | عمود عائم مزدوج الدقة                                               |
-| `sql` | تعبير SQL مثل `now()`                                                    |
+| المساعد           | الغرض                               |
+| ----------------- | ----------------------------------- |
+| `pgTable`         | تحديد جدول؛ يستخدم مساعد PostgreSQL |
+| `text`            | عمود نصي، يدعم `{ enum: [...] }`    |
+| `integer`         | عمود صحيح                           |
+| `boolean`         | عمود منطقي                          |
+| `doublePrecision` | عمود عائم مزدوج الدقة               |
+| `sql`             | تعبير SQL مثل `now()`               |
 
 <DataModel
   id="doc-block-3hbven"

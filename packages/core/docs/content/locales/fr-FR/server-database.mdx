@@ -125,18 +125,20 @@ export const tasks = pgTable("tasks", {
   priority: integer("priority").notNull().default(0),
   done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
 });
 ```
 
-| Aide      | Objectif                                                                           |
-| --------- | ---------------------------------------------------------------------------------- |
-| `pgTable` | Définit une table PostgreSQL                                                       |
-| `text`    | Colonne de texte, prend en charge `{ enum: [...] }`                                |
-| `integer` | Colonne entière                                                                    |
-| `boolean` | Colonne booléenne                                                                  |
-| `doublePrecision` | Colonne flottante en double précision                                      |
-| `sql` | Expression SQL telle que `now()`                                                   |
+| Aide              | Objectif                                            |
+| ----------------- | --------------------------------------------------- |
+| `pgTable`         | Définit une table PostgreSQL                        |
+| `text`            | Colonne de texte, prend en charge `{ enum: [...] }` |
+| `integer`         | Colonne entière                                     |
+| `boolean`         | Colonne booléenne                                   |
+| `doublePrecision` | Colonne flottante en double précision               |
+| `sql`             | Expression SQL telle que `now()`                    |
 
 <DataModel
   id="doc-block-3hbven"

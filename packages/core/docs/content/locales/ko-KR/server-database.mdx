@@ -125,18 +125,20 @@ export const tasks = pgTable("tasks", {
   priority: integer("priority").notNull().default(0),
   done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
 });
 ```
 
-| 도우미    | 목적                                                                                |
-| --------- | ----------------------------------------------------------------------------------- |
-| `pgTable` | PostgreSQL 테이블을 정의합니다                                        |
-| `text`    | 텍스트 열, `{ enum: [...] }` 지원                                                   |
-| `integer` | 정수 열                                                            |
-| `boolean` | 불리언 열                                                          |
-| `doublePrecision` | 배정밀도 부동소수점 열                                      |
-| `sql` | `now()`와 같은 SQL 표현식                                             |
+| 도우미            | 목적                              |
+| ----------------- | --------------------------------- |
+| `pgTable`         | PostgreSQL 테이블을 정의합니다    |
+| `text`            | 텍스트 열, `{ enum: [...] }` 지원 |
+| `integer`         | 정수 열                           |
+| `boolean`         | 불리언 열                         |
+| `doublePrecision` | 배정밀도 부동소수점 열            |
+| `sql`             | `now()`와 같은 SQL 표현식         |
 
 <DataModel
   id="doc-block-3hbven"

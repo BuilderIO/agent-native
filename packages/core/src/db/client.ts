@@ -435,6 +435,11 @@ export function isLocalDatabase(): boolean {
   return isPgliteUrl(getRuntimeDatabaseUrl("pglite:./data/pglite"));
 }
 
+/** Returns the Postgres integer type used for framework counters and ids. */
+export function intType(): string {
+  return "BIGINT";
+}
+
 // `widenIntColumnsToBigInt` lives in `./widen-columns.js` so stores can import
 // it without every `vi.mock("./client.js")` test having to stub the export.
 

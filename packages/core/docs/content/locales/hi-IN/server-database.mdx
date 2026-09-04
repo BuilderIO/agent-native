@@ -125,18 +125,20 @@ export const tasks = pgTable("tasks", {
   priority: integer("priority").notNull().default(0),
   done: boolean("done").notNull().default(false),
   ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
 });
 ```
 
-| हेल्पर    | उद्देश्य                                                                    |
-| --------- | --------------------------------------------------------------------------- |
-| `pgTable` | एक PostgreSQL तालिका परिभाषित करता है                                  |
-| `text`    | टेक्स्ट कॉलम, `{ enum: [...] }` का समर्थन करता है                           |
-| `integer` | पूर्णांक कॉलम                                                        |
-| `boolean` | बूलियन कॉलम                                                          |
-| `doublePrecision` | डबल-प्रिसीजन फ्लोट कॉलम                                      |
-| `sql` | `now()` जैसे SQL एक्सप्रेशन                                             |
+| हेल्पर            | उद्देश्य                                          |
+| ----------------- | ------------------------------------------------- |
+| `pgTable`         | एक PostgreSQL तालिका परिभाषित करता है             |
+| `text`            | टेक्स्ट कॉलम, `{ enum: [...] }` का समर्थन करता है |
+| `integer`         | पूर्णांक कॉलम                                     |
+| `boolean`         | बूलियन कॉलम                                       |
+| `doublePrecision` | डबल-प्रिसीजन फ्लोट कॉलम                           |
+| `sql`             | `now()` जैसे SQL एक्सप्रेशन                       |
 
 <DataModel
   id="doc-block-3hbven"

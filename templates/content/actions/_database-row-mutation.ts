@@ -1260,6 +1260,7 @@ export async function createDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
       const lockedReplay = await replayReceipt(
         locked,
@@ -1339,6 +1340,7 @@ export async function updateDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
       const lockedReplay = await replayReceipt(
         locked,
@@ -1488,6 +1490,7 @@ export async function upsertDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
       const lockedReplay = await replayReceipt(
         locked,
