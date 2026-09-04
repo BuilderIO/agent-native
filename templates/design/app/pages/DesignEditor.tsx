@@ -19126,6 +19126,7 @@ function DesignEditor() {
               ? "Exit minimal UI" /* i18n-ignore minimal UI chrome */
               : "Minimize UI" /* i18n-ignore minimal UI chrome */
           }
+          aria-pressed={minimalUi}
           data-design-minimal-toggle="ui"
           onClick={handleToggleMinimalUi}
         >
