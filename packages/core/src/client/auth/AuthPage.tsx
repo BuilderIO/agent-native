@@ -839,6 +839,10 @@ export function AuthPage(props: AuthPageProps) {
       setView("magicLink");
       return;
     }
+    if (params.get("c")) {
+      setView("login");
+      return;
+    }
     const storedTab = readStorage(TAB_STORAGE_KEY);
     if (storedTab === "login" || storedTab === "signup") setView(storedTab);
   }, [authMode, googleOnly, readPendingSignupEmail, setNotice, t]);
