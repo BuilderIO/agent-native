@@ -8,6 +8,7 @@ const mockFetch = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  getMcpOAuthBearerSession: vi.fn().mockResolvedValue(null),
   runWithRequestContext: async (_ctx: unknown, fn: () => unknown) => fn(),
   readBody: vi.fn(async () => ({ deckId: "deck-1" })),
   streamFile: vi.fn(),

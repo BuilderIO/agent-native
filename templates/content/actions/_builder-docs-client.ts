@@ -8,6 +8,7 @@ import { ROLE_RANK, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   builderSourceKindForModel,
@@ -706,6 +707,7 @@ export async function pullBuilderDocIntoContent(args: {
           spaceId: existing.spaceId ?? targetSpaceId,
           title: bundle.mdx.title,
           content: bundle.mdx.body,
+          bodyRevision: bodyRevisionForContent(bundle.mdx.body),
           updatedAt: now,
           ...sourceFields,
         })
@@ -847,6 +849,7 @@ async function refreshBuilderDocumentAfterPush(args: {
     .set({
       title: bundle.mdx.title,
       content: bundle.mdx.body,
+      bodyRevision: bodyRevisionForContent(bundle.mdx.body),
       updatedAt: now,
       ...builderDocumentSourceFields(bundle, now),
     })

@@ -160,6 +160,24 @@ describe("Slides share migrations", () => {
       { name: "deck_shares_resource_user_principal_uidx" },
     ]);
 
+    const { rows: versionColumns } = await exec.execute(
+      "PRAGMA table_info(deck_versions)",
+    );
+    expect(versionColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "change_group" }),
+      ]),
+    );
+    const { rows: versionIndexes } = await exec.execute(
+      `SELECT name
+       FROM sqlite_master
+       WHERE type = 'index'
+         AND name = 'deck_versions_deck_owner_change_group_uidx'`,
+    );
+    expect(versionIndexes).toEqual([
+      { name: "deck_versions_deck_owner_change_group_uidx" },
+    ]);
+
     await expect(
       exec.execute({
         sql: `INSERT INTO deck_shares

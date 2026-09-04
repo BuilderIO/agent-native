@@ -485,11 +485,20 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
-    computedStyles: Object.fromEntries(
-      Object.entries(node.style).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
+    // The inspector reads camelCase keys, so a hyphenated source declaration
+    // (stroke-width, border-color) is invisible without the alias pass that
+    // `refreshedComputedStyles` already applies on the sibling path.
+    computedStyles: cssStyleAliases(
+      Object.fromEntries(
+        Object.entries(node.style).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
       ),
     ),
+    // Dropping this made every projection-backed selection (URL-restored,
+    // layers panel, post-draw overview) fall back to tag heuristics, so a
+    // drawn vector was styled as a plain box.
+    primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
     childElementCount: node.children.length,

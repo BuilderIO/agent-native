@@ -8,6 +8,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import type { ContentDatabaseSourceTruthPolicy } from "../shared/api.js";
 import {
   isBuilderMdxSourcePath,
@@ -632,6 +633,7 @@ export default defineAction({
                   ? {
                       title: plan.file.title,
                       content: plan.file.content,
+                      bodyRevision: bodyRevisionForContent(plan.file.content),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,

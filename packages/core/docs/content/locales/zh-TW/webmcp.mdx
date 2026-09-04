@@ -15,6 +15,8 @@ WebMCP 指南](/docs/webmcp)。
 
 當瀏覽器沒有可用的原生 WebMCP 表面時，Agent-Native 核心會初始化 `@mcp-b/webmcp-polyfill`。它只作用於目前頁面，不會建立網路 MCP 連線。
 
+已驗證頁面也會為瀏覽器代理提供 `window.__agentNativeWebMcp`，包含 `ready()`、`tools()`、`describe()`、`call()` 和 `result(id)`。`call()` 會處理目前主機的輸入合約、即時工具描述元、重試，以及執行時間超過短評估器的呼叫；詳情請參閱英文指南。
+
 ## HTTP 探索與 fetch 備援
 
 對於不執行瀏覽器的代理，Agent-Native 也會在 `GET /.well-known/mcp.json`

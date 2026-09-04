@@ -133,9 +133,9 @@ env override:
 
 `VITEST_CONCURRENCY` takes a percentage (`25%`) or a worker count (`2`). The
 base config every vitest config merges in ships from
-`@agent-native/core/vitest-config`; templates and examples import it by package
-name, and `packages/*` go through the `vitest.shared.ts` re-export at the repo
-root so they need no dependency on core. A package that needs a different value
+`@agent-native/core/vitest-config`; templates import it by package name, and
+`packages/*` go through the `vitest.shared.ts` re-export at the repo root so
+they need no dependency on core. A package that needs a different value
 sets `test.maxWorkers` in its own config; that wins the merge.
 
 Template configs must import the package path, never the root re-export.

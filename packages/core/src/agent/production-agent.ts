@@ -69,6 +69,7 @@ import {
 } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
+import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForRequest,
@@ -3916,10 +3917,18 @@ async function waitForInterruptedToolLedgerEntry(opts: {
  * across-arguments breaker at item six. A guard message that varies its own
  * running tally is fixed where that message is written, not by blinding every
  * breaker to numbers.
+ *
+ * A `<<<diagnostic-snippet…>>>end-diagnostic-snippet` fence (edit-tool
+ * candidate/ambiguous-match text quoted from the user's own content, see
+ * `diagnostic-snippet.ts`) is the same problem in a different shape: two
+ * attempts that fail for the identical reason can quote different candidate
+ * text, so it has to come out before either breaker key is built, or a
+ * varying snippet defeats the counter exactly like a varying argument echo
+ * would.
  */
-function normalizeToolErrorForBreaker(error: string): string {
+export function normalizeToolErrorForBreaker(error: string): string {
   return (
-    error
+    stripDiagnosticSnippets(error)
       // The argument echo, up to the next sentence boundary.
       .replace(
         /Received:\s*[\s\S]*?\.\s(?=Expected:|The tool was not executed)/g,
@@ -3959,9 +3968,23 @@ function rateLimitRecoveryHint(message: string): string {
  * which is worse than one more retry.
  */
 export function permanentPreconditionRemedy(message: string): string | null {
-  const trimmed = message.replace(/\s+/g, " ").trim();
+  // Strip fenced diagnostic snippets FIRST, before either pass: candidate or
+  // ambiguous-match text an edit tool quotes back from the user's own content
+  // (see `diagnostic-snippet.ts`) can coincidentally contain any of these
+  // phrases — or, once multi-line, push a later quoted line to column 0 — and
+  // must never be read as this framework's own signal.
+  const unfenced = stripDiagnosticSnippets(message);
+  const trimmed = unfenced.replace(/\s+/g, " ").trim();
   for (const pattern of PERMANENT_PRECONDITION_PATTERNS) {
     if (pattern.test(trimmed)) return trimmed;
+  }
+  // Line-anchored markers, tested against the unfenced but otherwise RAW
+  // message: `trimmed` has already collapsed every newline (and the
+  // indentation that disqualifies an echoed candidate line) into a single
+  // space, which would let an indented line match a `^…$` anchor meant for
+  // column 0.
+  for (const pattern of PERMANENT_PRECONDITION_LINE_PATTERNS) {
+    if (pattern.test(unfenced)) return trimmed;
   }
   return null;
 }
@@ -3997,6 +4020,24 @@ const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   // narrowing the range, so it stopped turns that were one argument away from
   // succeeding. The count-based breaker still ends a genuine runtime gate
   // after six.
+];
+
+/**
+ * Framing-anchored variants of the marker above: matched against the framework's
+ * exact layout, not the words anywhere in the text.
+ *
+ * `formatA2ATerminalError` (agent-chat/action-filters-a2a.ts) writes a nested
+ * A2A/ask_app delegation's own `errorCode` as its OWN line, always starting at
+ * column 0. `fail(message, { errorCode: "permanent_precondition" })` renders
+ * as `(errorCode: permanent_precondition)` appended to a line this module
+ * builds, which likewise starts at column 0. An echoed diagnostic or
+ * candidate line — a closest-match list from an edit tool, e.g. "  line 12:
+ * code: permanent_precondition" — is always indented, so anchoring the line
+ * start to column 0 excludes it without excluding the framework's own text.
+ */
+const PERMANENT_PRECONDITION_LINE_PATTERNS: readonly RegExp[] = [
+  /^code:\s*permanent_precondition\s*$/m,
+  /^(?!\s)[^\n]*\(errorCode:\s*permanent_precondition\)\s*$/m,
 ];
 
 const SOURCE_SWEEP_TOOL_NAME =

@@ -77,6 +77,22 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it("rejects external full-body writes outside the revisioned edit protocol", async () => {
+    const documentId = await createDocument({ content: "original" });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          { id: documentId, content: "blind external rewrite" },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+    });
+    expect((await documentRow(documentId)).content).toBe("original");
+  });
+
   it("uses a canonical Files database rename as the workspace name", async () => {
     const { provisionContentSpaces, systemIdsForContentSpace } =
       await import("./_content-spaces.js");

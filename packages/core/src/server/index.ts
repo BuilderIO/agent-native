@@ -73,6 +73,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  getMcpOAuthBearerSession,
   COOKIE_NAME,
   addSession,
   removeSession,
@@ -576,8 +577,10 @@ export {
   // identity — image and video generation, realtime transcription. Falls
   // through to the identity credential first, so a consumer moves lane by
   // swapping the resolver and changing nothing else.
-  resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveBuilderGatewayAuth,
+  // Deprecated: kept only for external callers built against the old export.
+  resolveBuilderGatewayCredentials,
   resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,

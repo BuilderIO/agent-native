@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Edit with AI now opens a focused editing prompt for selected elements in multi-screen view and reliably returns generated options without misclassifying an active request as superseded.
 - A greeting or question as the first message in a new design no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
 
 ## 2026-09-01

@@ -224,7 +224,7 @@ function registerClipsEmailDefinitions(): void {
       "Someone comments or replies on a Clip. Subject and copy differ slightly for a reply; both send under this id.",
     recipientLabel: "Owner, mentioned members, and thread authors",
     recipient:
-      "The recording owner, mentioned organization members, plus every prior author in the thread when the comment is a reply. The list is re-checked against the recording's live ACL and filtered by each user's `emailNotifications` preference; the comment's own author never receives it.",
+      "The recording owner, mentioned organization members, plus every prior author in the thread when the comment is a reply. The list is re-checked against the recording's live ACL and filtered by each user's Clips email notification preferences; the comment's own author never receives it.",
     senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
@@ -247,7 +247,7 @@ function registerClipsEmailDefinitions(): void {
     trigger: "A viewer reacts with an emoji on a Clip.",
     recipientLabel: "Clip owner",
     recipient:
-      "The recording owner plus any extra recipients the caller passes, re-checked against the recording's live ACL and filtered by each user's `emailNotifications` preference. The reacting viewer never receives it.",
+      "The recording owner plus any extra recipients the caller passes, re-checked against the recording's live ACL and filtered by each user's Clips email notification preferences. The reacting viewer never receives it.",
     senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>

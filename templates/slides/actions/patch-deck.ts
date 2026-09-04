@@ -29,7 +29,9 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
+  deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
 import {
   assertSourceSlidePreserved,
@@ -782,6 +784,7 @@ export default defineAction({
       ),
   }),
   agentInputSchema: AgentPatchDeckInputSchema,
+  http: { method: "POST" },
   run: async (
     {
       deckId,
@@ -966,9 +969,6 @@ export default defineAction({
         requireElementPaths: isAgentCaller,
       });
 
-      const now = nextDeckRevision(row.updatedAt);
-      deck.updatedAt = now;
-
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
         resolveDeckColumnUpdates(
           { title: row.title, designSystemId: row.designSystemId },
@@ -1101,6 +1101,31 @@ export default defineAction({
         }
       }
 
+      const meaningfulChange =
+        deckVersionContentSignature(row.data) !==
+          deckVersionContentSignature(deck) ||
+        row.title !== sqlTitle ||
+        row.designSystemId !== sqlDesignSystemId ||
+        generationRecord !== undefined;
+      if (!meaningfulChange) {
+        if (isAgentCaller) {
+          throw new Error(
+            "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
+          );
+        }
+        return {
+          ok: true,
+          deckId,
+          updatedAt: row.updatedAt,
+          applied: false,
+          updatedSlideIds: [],
+          deletedSlideIds: [],
+        };
+      }
+
+      const now = nextDeckRevision(row.updatedAt);
+      deck.updatedAt = now;
+
       await db.transaction(async (tx: any) => {
         if (isAgentCaller && row.ownerEmail) {
           await createDeckVersionSnapshot(
@@ -1156,11 +1181,15 @@ export default defineAction({
           operation.op === "reorder-slides" ||
           operation.op === "patch-deck-fields",
       );
+      const agentChangeId = deckVersionChangeGroupFromAction(ctx);
       if (updatedSlideIds.length === 1 && !hasMixedStructuralOperation) {
         notifyClients(deckId, {
           slideId: updatedSlideIds[0],
           actor: isAgentCaller ? "agent" : "human",
+          ...(agentChangeId ? { agentChangeId } : {}),
         });
+      } else if (agentChangeId) {
+        notifyClients(deckId, { agentChangeId });
       } else {
         notifyClients(deckId);
       }

@@ -17,6 +17,10 @@ import {
   isSoftDeletedDatabaseDocument,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getDatabaseById,
@@ -175,6 +179,10 @@ export default defineAction({
         databaseMembership && !propertyDatabaseAccess ? null : doc.parentId,
       title: doc.title,
       content: doc.content,
+      revision: documentRevisionToken(doc.bodyRevision, doc.content ?? ""),
+      baseRevision: documentRevisionToken(doc.bodyRevision, doc.content ?? ""),
+      bodyRevision: doc.bodyRevision,
+      contentHash: documentContentHash(doc.content ?? ""),
       description: doc.description,
       icon: doc.icon,
       position: doc.position,

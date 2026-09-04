@@ -178,7 +178,7 @@ export function boardObjectEntryToHtmlFragment(
       ? ` viewBox="${x} ${y} ${width} ${height}"`
       : "";
 
-    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="none" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
+    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="${escapeAttr(fill ?? "none")}" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
   }
 
   // Ellipse kind uses a <div> with border-radius.
