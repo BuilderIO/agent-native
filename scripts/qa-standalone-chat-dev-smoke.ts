@@ -2594,6 +2594,21 @@ async function main(): Promise<void> {
       permissions: ["microphone"],
     });
     const page = await context.newPage();
+    await page.addInitScript(() => {
+      const target = window as Window & {
+        __agentNativeSmokeHistory?: string[];
+      };
+      const entries = (target.__agentNativeSmokeHistory ??= []);
+      for (const method of ["pushState", "replaceState"] as const) {
+        const original = window.history[method];
+        window.history[method] = function (...args) {
+          if (entries.length < 120) {
+            entries.push(`${method} ${String(args[2] ?? "")}`);
+          }
+          return original.apply(this, args);
+        };
+      }
+    });
 
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) {
@@ -2712,13 +2727,25 @@ async function main(): Promise<void> {
       browserDiagnostics.length > 0
         ? `\n\nBrowser lifecycle diagnostics:\n${browserDiagnostics.join("\n")}`
         : "";
+    const historyDiagnostics = await page
+      ?.evaluate(() => {
+        const target = window as Window & {
+          __agentNativeSmokeHistory?: string[];
+        };
+        return target.__agentNativeSmokeHistory ?? [];
+      })
+      .catch(() => [] as string[]);
+    const historyBlock =
+      historyDiagnostics.length > 0
+        ? `\n\nBrowser history mutations:\n${historyDiagnostics.join("\n")}`
+        : "";
     const providerBlock = `\n\nLoopback provider state:\n${JSON.stringify(
       provider.state,
       null,
       2,
     )}`;
     primaryError = new Error(
-      `${message}${browserBlock}${httpBlock}${diagnosticsBlock}${providerBlock}\n\nRecent dev logs:\n${logs}`,
+      `${message}${browserBlock}${httpBlock}${diagnosticsBlock}${historyBlock}${providerBlock}\n\nRecent dev logs:\n${logs}`,
     );
   } finally {
     try {
