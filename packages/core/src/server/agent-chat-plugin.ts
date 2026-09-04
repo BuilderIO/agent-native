@@ -1024,6 +1024,7 @@ export function createAgentChatPlugin(
             "_utils",
             "db-connect",
             "db-status",
+            "migrate-production",
           ]);
 
           for (const dir of ["actions", "scripts"]) {
