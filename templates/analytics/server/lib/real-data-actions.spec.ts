@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   draftClaimsAnalyticsMetrics,
-  draftFiguresAppearIn,
+  draftRestatesPriorEvidence,
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
   hasCatalogSearchAttempt,
@@ -355,46 +355,69 @@ describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
     ).toBe(false);
     expect(
       draftClaimsAnalyticsMetrics(
+        "The signup dashboard was improved and saved.",
+      ),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics("Set the sessions panel at 3 columns."),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
         "Confirmed — this is the agreed instrumentation specification, not a live analytics result.",
       ),
     ).toBe(false);
   });
 });
 
-describe("draftFiguresAppearIn", () => {
-  const priorResults = [
-    {
-      name: "bigquery",
-      content: '{"rows":[{"signups":1234,"week":"2026-08-24"}]}',
-    },
-  ];
+describe("draftRestatesPriorEvidence", () => {
+  const prior = {
+    toolResults: [
+      {
+        name: "bigquery",
+        content: '{"rows":[{"signups":1234,"week":"2026-08-24"}]}',
+      },
+    ],
+    text: 'SELECT COUNT(*) AS signups FROM events WHERE week = "2026-08-24"\n{"rows":[{"signups":1234,"week":"2026-08-24"}]}\nSignups for the week of 2026-08-24 were 1,234.',
+  };
 
-  it("accepts a draft whose figures all come from the results, across comma formatting", () => {
+  it("accepts a draft whose figures and metrics all come from the prior turn, across comma formatting", () => {
     expect(
-      draftFiguresAppearIn(
+      draftRestatesPriorEvidence(
         "So 1,234 signups in the week of 2026-08-24.",
-        priorResults,
+        prior,
       ),
     ).toBe(true);
   });
 
   it("rejects a draft that states a figure the results never produced", () => {
     expect(
-      draftFiguresAppearIn("The week before was 980 signups.", priorResults),
+      draftRestatesPriorEvidence("The week before was 980 signups.", prior),
+    ).toBe(false);
+  });
+
+  it("rejects a prior figure re-attributed to a metric that turn never named", () => {
+    expect(
+      draftRestatesPriorEvidence(
+        "Paying customers were 1,234 this month.",
+        prior,
+      ),
     ).toBe(false);
   });
 
   it("rejects a draft with no figures rather than passing it vacuously", () => {
-    expect(draftFiguresAppearIn("Signups were higher.", priorResults)).toBe(
+    expect(draftRestatesPriorEvidence("Signups were higher.", prior)).toBe(
       false,
     );
   });
 
   it("ignores figures that only appear in failed results", () => {
     expect(
-      draftFiguresAppearIn("Signups were 980.", [
-        { name: "bigquery", isError: true, content: '{"error":"980 rows"}' },
-      ]),
+      draftRestatesPriorEvidence("Signups were 980.", {
+        toolResults: [
+          { name: "bigquery", isError: true, content: '{"error":"980 rows"}' },
+        ],
+        text: "signups 980",
+      }),
     ).toBe(false);
   });
 });

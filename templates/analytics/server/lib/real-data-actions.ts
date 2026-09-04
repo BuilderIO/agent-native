@@ -427,6 +427,11 @@ const UNSUPPORTED_RESULT_CLAIM =
 // isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
 // bypass the no-query fallback just by avoiding the narrower set of units a
 // dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
+// Up to 40 characters of the same clause that never name an artifact: "the
+// signup dashboard was improved" is an edit summary, not a signup result.
+const NON_ARTIFACT_GAP =
+  "(?:(?!\\b(?:dashboards?|panels?|charts?|extensions?|widgets?|layouts?|queries|query|tables?|views?|pages?|reports?|columns?|fields?|sql)\\b)[^.\\n]){0,40}?";
+
 // A qualitative verdict about a metric ("signup conversion was strong last
 // week", "signups performed poorly") is a result claim with no number in it.
 // Anchored to a result term earlier in the same clause so an edit summary
@@ -434,14 +439,14 @@ const UNSUPPORTED_RESULT_CLAIM =
 const METRIC_VERDICT_PHRASES =
   "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
 const QUALITATIVE_METRIC_VERDICT = new RegExp(
-  `${ANALYTICS_RESULT_TERMS.source}[^.\\n]{0,40}?\\b${METRIC_VERDICT_PHRASES}\\b`,
+  `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}\\b${METRIC_VERDICT_PHRASES}\\b`,
   "i",
 );
 
 // "signups were 480" / "conversion: 4.2" put the metric before the figure,
 // which the unit-after-number shapes above never see.
 const METRIC_THEN_FIGURE = new RegExp(
-  `${ANALYTICS_RESULT_TERMS.source}[^.\\n]{0,40}?(?:\\b(?:was|were|is|are|of|at|hit|reached|totaled|came (?:in at|to))\\b|[:=])\\s*(?:~|about|around|roughly|approximately)?\\s*\\$?\\d`,
+  `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}(?:\\b(?:was|were|is|are|of|at|hit|reached|totaled|came (?:in at|to))\\b|[:=])\\s*(?:~|about|around|roughly|approximately)?\\s*\\$?\\d`,
   "i",
 );
 
@@ -457,37 +462,54 @@ export function draftClaimsAnalyticsMetrics(text: string): boolean {
   return hasUnsupportedResultClaim(String(text ?? "").trim());
 }
 
-// Whether every figure the draft states also appears in the given tool
-// results. A follow-up that restates or reasons over an earlier grounded
-// result reuses those figures; a new figure with no query behind it is a new
-// claim no matter what the previous turn ran. A draft with no figures at all
-// returns false rather than vacuously true, so a qualitative-only draft still
-// has to earn grounding this turn.
-// ponytail: numeric-value match after comma stripping — a rounded or derived
-// figure ("~1.2k", a percentage computed from two counts) reads as ungrounded
-// and is retried; add unit-aware or tolerance matching if that retries too
-// often.
-export function draftFiguresAppearIn(
-  text: string,
-  toolResults:
-    | Array<{ name?: string; isError?: boolean; content?: string }>
-    | undefined,
+// Whether a draft only restates an earlier turn's grounded result. Every
+// figure it states must appear in those tool results, and every metric it
+// names must be named somewhere in that turn's evidence (query input, result
+// payload, or the answer given from it), so a figure cannot be re-attributed
+// to a different metric ("paying customers were 532" over a signups result).
+// A draft with no figures at all returns false rather than vacuously true, so
+// a qualitative-only draft still has to earn grounding this turn.
+// ponytail: numeric-value match after comma stripping plus term-stem presence
+// — a rounded or derived figure ("~1.2k", a percentage computed from two
+// counts) reads as ungrounded and is retried; add unit-aware or tolerance
+// matching if that retries too often.
+export function draftRestatesPriorEvidence(
+  draft: string,
+  prior: {
+    toolResults:
+      | Array<{ name?: string; isError?: boolean; content?: string }>
+      | undefined;
+    text: string;
+  },
 ): boolean {
-  const figureTokens = (text ?? "").match(NUMERIC_TOKEN) ?? [];
+  const draftText = draft ?? "";
+  const figureTokens = draftText.match(NUMERIC_TOKEN) ?? [];
   if (!figureTokens.length) return false;
   const known = new Set<number>();
-  for (const result of toolResults ?? []) {
+  for (const result of prior.toolResults ?? []) {
     if (result.isError) continue;
     for (const token of String(result.content ?? "").match(NUMERIC_TOKEN) ??
       []) {
       known.add(Number(token.replace(/,/g, "")));
     }
   }
-  return figureTokens.every((token) =>
-    known.has(Number(token.replace(/,/g, ""))),
+  if (
+    !figureTokens.every((token) => known.has(Number(token.replace(/,/g, ""))))
+  ) {
+    return false;
+  }
+  const priorText = prior.text.toLowerCase();
+  const namedMetrics =
+    draftText.toLowerCase().match(ANALYTICS_RESULT_TERMS_GLOBAL) ?? [];
+  return namedMetrics.every((term) =>
+    priorText.includes(term.replace(/(?:ies|es|s)$/, "")),
   );
 }
 
+const ANALYTICS_RESULT_TERMS_GLOBAL = new RegExp(
+  ANALYTICS_RESULT_TERMS.source,
+  "g",
+);
 const NUMERIC_TOKEN = /\d[\d,]*(?:\.\d+)?/g;
 
 export const GENERIC_NO_DATA_FALLBACK_MESSAGE =

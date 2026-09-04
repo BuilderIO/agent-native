@@ -18,7 +18,7 @@ import { isProductionServerlessRuntime } from "../lib/production-serverless-runt
 import {
   deriveGroundingActionNames,
   draftClaimsAnalyticsMetrics,
-  draftFiguresAppearIn,
+  draftRestatesPriorEvidence,
   failedDataQueryAttemptMessage,
   hasCatalogSearchAttempt,
   hasDashboardConstructionAttempt,
@@ -70,35 +70,6 @@ const ANALYSIS_EDIT_TOOLS = new Set([
   "restore-analysis-revision",
   "save-analysis",
 ]);
-
-// Every action that persists a dashboard, analysis, extension, or Data
-// Program edit. A successful call to any of these this turn is real,
-// completed work — the real-data guard's catch-all must not discard a "done,
-// I updated X" summary just because the turn also reads as an analytics-
-// result question. Reuses the sets already tracked for autosave above plus
-// the extension/Data Program actions they don't cover.
-const WORKSPACE_MUTATION_ACTIONS = new Set([
-  ...DASHBOARD_EDIT_TOOLS,
-  ...ANALYSIS_EDIT_TOOLS,
-  "create-extension",
-  "update-extension",
-  "delete-extension",
-  "save-data-program",
-  "delete-data-program",
-]);
-
-function hasWorkspaceMutationAttempt(
-  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
-): boolean {
-  return (toolResults ?? []).some((result) => {
-    if (result.isError) return false;
-    const name = String(result.name ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_]+/g, "-");
-    return WORKSPACE_MUTATION_ACTIONS.has(name);
-  });
-}
 
 function eventRecord(entry: unknown): Record<string, unknown> | undefined {
   if (!entry || typeof entry !== "object") return undefined;
@@ -476,24 +447,30 @@ function isRealUserTextMessage(message: {
 }
 
 // `context.toolResults` only carries this turn's tool calls, so a follow-up
-// question that reasons over an earlier turn's grounded result ("what about
-// last week?", "and by region?") looks exactly like an ungrounded turn to the
-// catch-all below. `context.messages` carries the full structured thread —
+// question that reasons over an earlier turn's grounded result ("which of
+// those was highest?") looks exactly like an ungrounded turn to the catch-all
+// below. `context.messages` carries the full structured thread —
 // tool-call/tool-result content parts from earlier turns included — so pull
 // grounding evidence from the two assistant turns immediately before this
-// one. A real user text message (not a synthetic tool-result carrier) marks
-// a turn boundary; this is a heuristic over message shape, not a stored turn
-// id, because the guard context does not expose one. Deliberately scoped to
-// the catch-all only: the connect-source branches must still judge this
-// turn's own evidence, not history.
-function priorTurnToolResults(
+// one: the tool results themselves, plus the text of the tool inputs and the
+// answers given from them, which is where the metric being queried is named.
+// A real user text message (not a synthetic tool-result carrier) marks a turn
+// boundary; this is a heuristic over message shape, not a stored turn id,
+// because the guard context does not expose one. Deliberately scoped to the
+// catch-all only: the connect-source branches must still judge this turn's
+// own evidence, not history.
+function priorTurnEvidence(
   messages: AgentLoopFinalResponseGuardContext["messages"],
-): Array<{ name?: string; isError?: boolean; content?: string }> {
+): {
+  toolResults: Array<{ name?: string; isError?: boolean; content?: string }>;
+  text: string;
+} {
   const collected: Array<{
     name?: string;
     isError?: boolean;
     content?: string;
   }> = [];
+  const textParts: string[] = [];
   let turnBoundariesCrossed = 0;
   // Skip the last entry: it is always this turn's fresh user request.
   for (let i = messages.length - 2; i >= 0; i--) {
@@ -506,19 +483,31 @@ function priorTurnToolResults(
     if (!Array.isArray(message?.content)) continue;
     for (const part of message.content as Array<{
       type?: string;
+      text?: string;
+      input?: unknown;
       toolName?: string;
       isError?: boolean;
       content?: string;
     }>) {
-      if (part?.type !== "tool-result") continue;
-      collected.push({
-        name: part.toolName,
-        isError: part.isError,
-        content: part.content,
-      });
+      if (part?.type === "text" && typeof part.text === "string") {
+        textParts.push(part.text);
+      } else if (part?.type === "tool-call") {
+        textParts.push(
+          typeof part.input === "string"
+            ? part.input
+            : JSON.stringify(part.input ?? ""),
+        );
+      } else if (part?.type === "tool-result") {
+        collected.push({
+          name: part.toolName,
+          isError: part.isError,
+          content: part.content,
+        });
+        textParts.push(String(part.content ?? ""));
+      }
     }
   }
-  return collected;
+  return { toolResults: collected, text: textParts.join("\n") };
 }
 
 interface DataSourceStatusSummary {
@@ -1162,21 +1151,6 @@ export function realDataFinalGuard(
     };
   }
 
-  // A successful dashboard/extension/Data-Program construction or mutation
-  // action this turn is real, completed work, even when the request also
-  // reads as an analytics-result question. Forcing a data query here, or
-  // discarding the draft, throws away a finished "I updated X" summary that
-  // never needed grounding in the first place. Still gated on
-  // draftClaimsAnalyticsMetrics, same as the narrower dashboard-save check
-  // above: a mutation is not a license to also assert an invented number
-  // (e.g. a fabricated win-rate) that the mutation itself did not compute.
-  if (
-    !draftClaimsAnalyticsMetrics(context.text) &&
-    (hasDashboardConstructionAttempt(context.toolResults) ||
-      hasWorkspaceMutationAttempt(context.toolResults))
-  ) {
-    return null;
-  }
   // A follow-up question reasoning over a PRIOR turn's grounded result ("which
   // of those was highest?", "so roughly a third?") has no tool calls of its
   // own this turn — check the last two turns of thread history before
@@ -1184,10 +1158,10 @@ export function realDataFinalGuard(
   // only covers a draft whose figures all come from those earlier results: a
   // new number for a new question ("and churn?") is a new claim, and the
   // previous turn's query says nothing about it.
-  const priorResults = priorTurnToolResults(context.messages ?? []);
+  const prior = priorTurnEvidence(context.messages ?? []);
   if (
-    hasDataQueryAttempt(priorResults) &&
-    draftFiguresAppearIn(context.text, priorResults)
+    hasDataQueryAttempt(prior.toolResults) &&
+    draftRestatesPriorEvidence(context.text, prior)
   ) {
     return null;
   }

@@ -1235,8 +1235,8 @@ describe("realDataFinalGuard", () => {
   it("still retries a mutation-turn draft that also states an invented metric", () => {
     // A completed mutation is not a license to also assert a number the
     // mutation itself did not compute — see agent-chat.dashboard-edit.spec.ts
-    // for the original coverage of this rule against the narrower dashboard
-    // save actions; this exercises the broader WORKSPACE_MUTATION_ACTIONS set.
+    // A completed mutation is real work, and a claim-free summary of it is
+    // not asserting anything the guard has to ground.
     const result = realDataFinalGuard(
       guardContext({
         userText: "How many signups did we get this week?",
@@ -1329,6 +1329,22 @@ describe("realDataFinalGuard", () => {
 
     expect(result?.retryMessage).toMatch(/no real source query ran/);
     expect(result?.exhaustedDraftPrefix).toMatch(/^Unverified/);
+  });
+
+  it("does not let an earlier turn's figure be re-attributed to a metric that turn never queried", () => {
+    const followUp = "And how many paying customers this month?";
+    const result = realDataFinalGuard({
+      messages: groundedPriorTurnMessages(followUp),
+      requestText: followUp,
+      assistantContent: [],
+      text: "Paying customers were 532 this month.",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    });
+
+    expect(result?.retryMessage).toMatch(/no real source query ran/);
   });
 
   it("does not let the guard's own non-analytics retry turn re-trigger the analytics retry path", () => {
