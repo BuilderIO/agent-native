@@ -4267,13 +4267,13 @@ function createAgentNativeConfig(
         },
     optimizeDeps: {
       ...userOptimizeDeps,
-      // AgentKit's CommonJS compatibility seams and standalone framework
-      // entrypoints are enumerated below. Keep discovery off once that floor
-      // is installed: on a clean hosted runner a transitive entry scan can keep
-      // Vite's optimizer busy after the server starts accepting requests,
-      // leaving the browser on the loading shell.
+      // AgentKit's CommonJS compatibility seams are enumerated below. Keep
+      // discovery off for source checkouts so HMR does not scan every route;
+      // standalone consumers use their explicit app entries (or HTML entry)
+      // to prebundle the framework graph before the first browser navigation.
       noDiscovery: usesAgentKit
-        ? (userConfig.optimizeDeps?.noDiscovery ?? true)
+        ? (userConfig.optimizeDeps?.noDiscovery ??
+          (findCoreSrcDir(cwd) === null ? false : true))
         : userConfig.optimizeDeps?.noDiscovery,
       include: [
         ...(usesAgentKit
