@@ -1255,67 +1255,80 @@ describe("realDataFinalGuard", () => {
     expect(result).not.toBeNull();
   });
 
-  it("treats a follow-up question over an earlier turn's grounded result as evidence, not a new ungrounded claim", () => {
-    const context: AgentLoopFinalResponseGuardContext = {
-      messages: [
+  const groundedPriorTurnMessages = (
+    followUp: string,
+  ): AgentLoopFinalResponseGuardContext["messages"] => [
+    {
+      role: "user",
+      content: [
         {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "What was our signup count last week from BigQuery?",
-            },
-          ],
-        },
-        {
-          role: "assistant",
-          content: [
-            { type: "tool-call", id: "tc1", name: "bigquery", input: {} },
-          ],
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "tool-result",
-              toolCallId: "tc1",
-              toolName: "bigquery",
-              toolInput: "{}",
-              content: '{"rows":[{"count":532}]}',
-            },
-          ],
-        },
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "text",
-              text: "Signup count last week was 532, from BigQuery.",
-            },
-          ],
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "How many signups was that the week before?",
-            },
-          ],
+          type: "text",
+          text: "What was our signup count last week from BigQuery?",
         },
       ],
-      requestText: "How many signups was that the week before?",
+    },
+    {
+      role: "assistant",
+      content: [{ type: "tool-call", id: "tc1", name: "bigquery", input: {} }],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "tc1",
+          toolName: "bigquery",
+          toolInput: "{}",
+          content: '{"rows":[{"count":532}]}',
+        },
+      ],
+    },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Signup count last week was 532, from BigQuery.",
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [{ type: "text", text: followUp }],
+    },
+  ];
+
+  it("treats a follow-up that restates an earlier turn's grounded figures as evidence, not a new ungrounded claim", () => {
+    const followUp = "Was that 532 for the full week?";
+    const result = realDataFinalGuard({
+      messages: groundedPriorTurnMessages(followUp),
+      requestText: followUp,
+      assistantContent: [],
+      text: "Yes — the 532 signups cover the full week, from BigQuery.",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("does not let an earlier turn's query ground a new figure the draft invents this turn", () => {
+    const followUp = "How many signups was that the week before?";
+    const result = realDataFinalGuard({
+      messages: groundedPriorTurnMessages(followUp),
+      requestText: followUp,
       assistantContent: [],
       text: "The week before that, signups were 480.",
       toolCalls: [],
       toolResults: [],
       retryCount: 0,
       executionMode: "act",
-    };
+    });
 
-    const result = realDataFinalGuard(context);
-
-    expect(result).toBeNull();
+    expect(result?.retryMessage).toMatch(/no real source query ran/);
+    expect(result?.exhaustedDraftPrefix).toMatch(/^Unverified/);
   });
 
   it("does not let the guard's own non-analytics retry turn re-trigger the analytics retry path", () => {

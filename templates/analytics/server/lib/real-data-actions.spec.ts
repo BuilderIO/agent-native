@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   draftClaimsAnalyticsMetrics,
+  draftFiguresAppearIn,
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
   hasCatalogSearchAttempt,
@@ -309,6 +310,91 @@ describe("analytics data request classification", () => {
       looksLikeAnalyticsDataRequest(
         "What did the reviewer say about the release notes for this PR?",
       ),
+    ).toBe(false);
+  });
+
+  it("keeps analytics questions that merely mention review or pull-request words inside the guard", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Review this dashboard and tell me the highest conversion step.",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What was the signup conversion rate for the pull request landing page last week?",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
+  it("treats a qualitative verdict about a metric as a claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics("Signup conversion was strong last week."),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("Signups performed poorly this week."),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("Revenue spiked after the launch."),
+    ).toBe(true);
+  });
+
+  it("treats a metric stated before its figure as a claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics("The week before that, signups were 480."),
+    ).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Conversion: 4.2")).toBe(true);
+  });
+
+  it("does not treat an edit summary with the same verbs as a claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "I improved the dashboard layout and saved it.",
+      ),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "Confirmed — this is the agreed instrumentation specification, not a live analytics result.",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("draftFiguresAppearIn", () => {
+  const priorResults = [
+    {
+      name: "bigquery",
+      content: '{"rows":[{"signups":1234,"week":"2026-08-24"}]}',
+    },
+  ];
+
+  it("accepts a draft whose figures all come from the results, across comma formatting", () => {
+    expect(
+      draftFiguresAppearIn(
+        "So 1,234 signups in the week of 2026-08-24.",
+        priorResults,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a draft that states a figure the results never produced", () => {
+    expect(
+      draftFiguresAppearIn("The week before was 980 signups.", priorResults),
+    ).toBe(false);
+  });
+
+  it("rejects a draft with no figures rather than passing it vacuously", () => {
+    expect(draftFiguresAppearIn("Signups were higher.", priorResults)).toBe(
+      false,
+    );
+  });
+
+  it("ignores figures that only appear in failed results", () => {
+    expect(
+      draftFiguresAppearIn("Signups were 980.", [
+        { name: "bigquery", isError: true, content: '{"error":"980 rows"}' },
+      ]),
     ).toBe(false);
   });
 });

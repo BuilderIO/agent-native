@@ -18,6 +18,7 @@ import { isProductionServerlessRuntime } from "../lib/production-serverless-runt
 import {
   deriveGroundingActionNames,
   draftClaimsAnalyticsMetrics,
+  draftFiguresAppearIn,
   failedDataQueryAttemptMessage,
   hasCatalogSearchAttempt,
   hasDashboardConstructionAttempt,
@@ -1176,11 +1177,18 @@ export function realDataFinalGuard(
   ) {
     return null;
   }
-  // A follow-up question reasoning over a PRIOR turn's grounded result ("what
-  // about last week?", "and by region?") has no tool calls of its own this
-  // turn — check the last two turns of thread history before treating that
-  // the same as a turn that never queried anything.
-  if (hasDataQueryAttempt(priorTurnToolResults(context.messages ?? []))) {
+  // A follow-up question reasoning over a PRIOR turn's grounded result ("which
+  // of those was highest?", "so roughly a third?") has no tool calls of its
+  // own this turn — check the last two turns of thread history before
+  // treating that the same as a turn that never queried anything. The credit
+  // only covers a draft whose figures all come from those earlier results: a
+  // new number for a new question ("and churn?") is a new claim, and the
+  // previous turn's query says nothing about it.
+  const priorResults = priorTurnToolResults(context.messages ?? []);
+  if (
+    hasDataQueryAttempt(priorResults) &&
+    draftFiguresAppearIn(context.text, priorResults)
+  ) {
     return null;
   }
   if (!draftMakesAnalyticsClaim) return null;

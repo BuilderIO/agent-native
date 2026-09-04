@@ -328,6 +328,17 @@ const SETUP_REQUEST_FRAMING =
 
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
+// Code/PR-review framing means the user is asking about a change, not about
+// live data — unless the same message also frames a time window or rate,
+// which is what an analytics question that happens to mention pull requests
+// looks like ("signup conversion for the pull request landing page last
+// week"). Kept separate from the bare code terms above so "review this
+// dashboard" is not swallowed by "review this".
+const CODE_REVIEW_FRAMING =
+  /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\breview (?:this|the|my|that) (?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?)\b|\b(?:code review|diffs?|commits?|reviewers?|changelogs?|release notes)\b/;
+const TIME_WINDOW_OR_RATE_FRAMING =
+  /\b(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?)\b|\b(?:per|by)\s+(?:hour|day|week|month|quarter|year)\b|\b(?:over time|trend|rate|percent(?:age)?|daily|weekly|monthly|quarterly|yoy|mom|wow)\b/;
+
 const ARTIFACT_DATA_INTENT =
   /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
 
@@ -359,9 +370,13 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     return false;
   }
   if (
-    /\b(fix|bug|layout|style|component|route|code|source code|pr|pull request|diff|commit|reviewer|review this|changelog|release notes)\b/.test(
-      lower,
-    )
+    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
+  ) {
+    return false;
+  }
+  if (
+    CODE_REVIEW_FRAMING.test(lower) &&
+    !TIME_WINDOW_OR_RATE_FRAMING.test(lower)
   ) {
     return false;
   }
@@ -412,9 +427,68 @@ const UNSUPPORTED_RESULT_CLAIM =
 // isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
 // bypass the no-query fallback just by avoiding the narrower set of units a
 // dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
-export function draftClaimsAnalyticsMetrics(text: string): boolean {
-  return UNSUPPORTED_RESULT_CLAIM.test(String(text ?? "").trim());
+// A qualitative verdict about a metric ("signup conversion was strong last
+// week", "signups performed poorly") is a result claim with no number in it.
+// Anchored to a result term earlier in the same clause so an edit summary
+// such as "improved the dashboard layout" does not read as a claim.
+const METRIC_VERDICT_PHRASES =
+  "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
+const QUALITATIVE_METRIC_VERDICT = new RegExp(
+  `${ANALYTICS_RESULT_TERMS.source}[^.\\n]{0,40}?\\b${METRIC_VERDICT_PHRASES}\\b`,
+  "i",
+);
+
+// "signups were 480" / "conversion: 4.2" put the metric before the figure,
+// which the unit-after-number shapes above never see.
+const METRIC_THEN_FIGURE = new RegExp(
+  `${ANALYTICS_RESULT_TERMS.source}[^.\\n]{0,40}?(?:\\b(?:was|were|is|are|of|at|hit|reached|totaled|came (?:in at|to))\\b|[:=])\\s*(?:~|about|around|roughly|approximately)?\\s*\\$?\\d`,
+  "i",
+);
+
+function hasUnsupportedResultClaim(text: string): boolean {
+  return (
+    UNSUPPORTED_RESULT_CLAIM.test(text) ||
+    QUALITATIVE_METRIC_VERDICT.test(text) ||
+    METRIC_THEN_FIGURE.test(text)
+  );
 }
+
+export function draftClaimsAnalyticsMetrics(text: string): boolean {
+  return hasUnsupportedResultClaim(String(text ?? "").trim());
+}
+
+// Whether every figure the draft states also appears in the given tool
+// results. A follow-up that restates or reasons over an earlier grounded
+// result reuses those figures; a new figure with no query behind it is a new
+// claim no matter what the previous turn ran. A draft with no figures at all
+// returns false rather than vacuously true, so a qualitative-only draft still
+// has to earn grounding this turn.
+// ponytail: numeric-value match after comma stripping — a rounded or derived
+// figure ("~1.2k", a percentage computed from two counts) reads as ungrounded
+// and is retried; add unit-aware or tolerance matching if that retries too
+// often.
+export function draftFiguresAppearIn(
+  text: string,
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const figureTokens = (text ?? "").match(NUMERIC_TOKEN) ?? [];
+  if (!figureTokens.length) return false;
+  const known = new Set<number>();
+  for (const result of toolResults ?? []) {
+    if (result.isError) continue;
+    for (const token of String(result.content ?? "").match(NUMERIC_TOKEN) ??
+      []) {
+      known.add(Number(token.replace(/,/g, "")));
+    }
+  }
+  return figureTokens.every((token) =>
+    known.has(Number(token.replace(/,/g, ""))),
+  );
+}
+
+const NUMERIC_TOKEN = /\d[\d,]*(?:\.\d+)?/g;
 
 export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
   "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
@@ -445,9 +519,9 @@ export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   // attempting a query, it must go through the retry path instead of being
   // accepted as an explicit unavailable-source or clarification response.
   if (isGenericNoDataFallback(trimmed)) return false;
-  if (UNSUPPORTED_RESULT_CLAIM.test(trimmed)) return false;
+  if (hasUnsupportedResultClaim(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
-  return /\?\s*$/.test(trimmed) && !UNSUPPORTED_RESULT_CLAIM.test(trimmed);
+  return /\?\s*$/.test(trimmed);
 }
 
 function tryParseJsonContent(content: string): unknown {
