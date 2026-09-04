@@ -15705,7 +15705,7 @@ function DesignEditor() {
       })),
     [firstRunTemplatesQuery.data?.templates],
   );
-  const firstRunDesignSystems = useMemo(
+  const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
   );
@@ -15717,6 +15717,10 @@ function DesignEditor() {
   // first screen row exists.
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
+  // The picked system is stored on the design and read by every later
+  // generation, so it outlives the starting-point row a template retires.
+  const showComposerDesignSystem =
+    designSystemsLoading || designSystemOptions.length > 0;
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -15747,7 +15751,7 @@ function DesignEditor() {
       selectedPromptDesignSystemId,
     ],
   );
-  const handleFirstRunDesignSystem = useCallback(
+  const handleComposerDesignSystem = useCallback(
     (designSystemId: string | null) => {
       setPromptDesignSystemId(designSystemId ?? undefined);
       persistPromptDesignSystem(designSystemId);
@@ -19866,13 +19870,13 @@ function DesignEditor() {
                     }
                     composerSlot={
                       <>
-                        {showFirstRunStart ? (
+                        {showComposerDesignSystem ? (
                           <div data-design-system-picker className="px-3 pb-2">
                             <DesignSystemPickerControl
-                              designSystems={firstRunDesignSystems}
+                              designSystems={designSystemOptions}
                               loading={designSystemsLoading}
                               selectedId={selectedPromptDesignSystemId ?? null}
-                              onChange={handleFirstRunDesignSystem}
+                              onChange={handleComposerDesignSystem}
                             />
                           </div>
                         ) : null}

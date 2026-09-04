@@ -331,6 +331,14 @@ test("New Design starts an empty design and fills it from a template in the rail
         { timeout: 30_000 },
       )
       .toContain("social-square.html");
+
+    // Filling the design retires the starting-point row, not the design system
+    // every later generation still reads.
+    await expect(page.locator("[data-design-first-run]")).toBeHidden({
+      timeout: 30_000,
+    });
+    await expect(designSystemPicker).toBeVisible();
+    await expect(designSystemPicker).toContainText(selectedSystemTitle);
   } finally {
     if (createdDesignId) {
       await postAction(request, "delete-design", { id: createdDesignId }).catch(
