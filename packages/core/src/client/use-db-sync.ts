@@ -1110,11 +1110,11 @@ class SyncTransport {
     }
   }
 
-  private async poll(): Promise<void> {
+  private async poll(force = false): Promise<void> {
     if (this.stopped || this.inFlight) return;
     // Re-checked here, not only at the schedule sites: whatever path
     // reached poll(), a host-hidden surface must not issue a request.
-    if (this.shouldStayIdle()) return;
+    if (!force && this.shouldStayIdle()) return;
     this.inFlight = true;
     try {
       if (this.mode === "hosted" && this.gateway && !this.token) {
@@ -1205,6 +1205,14 @@ class SyncTransport {
     this.pollNow();
   };
 
+  private handleRefreshData = (): void => {
+    // A write announced through refresh-data (a WebMCP call from a host
+    // evaluator, a host bridge command) proves someone is driving this page
+    // even when the document reports hidden, so this one poll skips the idle
+    // gate; schedulePoll still honors it, so nothing keeps polling after.
+    void this.poll(true);
+  };
+
   private handleChatRunning = (event: Event): void => {
     const detail = (
       event as CustomEvent<{
@@ -1261,6 +1269,7 @@ class SyncTransport {
       void this.poll();
     }
     window.addEventListener("focus", this.handleFocus);
+    window.addEventListener("agentNative:refresh-data", this.handleRefreshData);
     window.addEventListener("agentNative.chatRunning", this.handleChatRunning);
     this.removeVisibilityListener = addSurfaceVisibilityListener(
       this.handleVisibilityChange,
@@ -1288,6 +1297,10 @@ class SyncTransport {
       this.localReconnectTimer = null;
     }
     window.removeEventListener("focus", this.handleFocus);
+    window.removeEventListener(
+      "agentNative:refresh-data",
+      this.handleRefreshData,
+    );
     window.removeEventListener(
       "agentNative.chatRunning",
       this.handleChatRunning,

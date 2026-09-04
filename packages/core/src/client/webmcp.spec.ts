@@ -15,10 +15,12 @@ import {
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
   createAgentNativeServerActionWebMcpRegistration,
+  createAgentNativeWebMcpPageHelper,
+  getAgentNativeWebMcpPageHelper,
   getAgentNativeWebMcpStatus,
   initializeAgentNativeWebMcp,
+  installAgentNativeWebMcpPageHelper,
 } from "./webmcp.js";
-import type { AgentNativeWebMcpStatus } from "./webmcp.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -421,13 +423,17 @@ describe("WebMCP registration readiness", () => {
   }
 
   it("reports a partial tool list as still registering, not as complete", async () => {
-    // A caller that reads getTools() mid-flight sees a truncated list which is
-    // otherwise indistinguishable from the finished one.
-    const midFlight: Array<AgentNativeWebMcpStatus | undefined> = [];
+    // Registration is concurrent: every registerTool call starts before any of
+    // them resolves, so gate each one manually and release them one at a time
+    // to see `registered` rise without ever reporting a partial list as ready.
+    const gates = new Map<string, () => void>();
     const modelContext = {
-      registerTool: vi.fn(async () => {
-        midFlight.push(getAgentNativeWebMcpStatus());
-      }),
+      registerTool: vi.fn(
+        (tool: { name: string }) =>
+          new Promise<void>((resolve) => {
+            gates.set(tool.name, resolve);
+          }),
+      ),
       getTools: vi.fn(async () => []),
       executeTool: vi.fn(async () => ""),
     };
@@ -438,13 +444,35 @@ describe("WebMCP registration readiness", () => {
     });
 
     expect(getAgentNativeWebMcpStatus()).toBeUndefined();
-    await registration.start();
+    const startPromise = registration.start();
+    await vi.waitFor(() => expect(gates.size).toBe(3));
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "registering",
+      registered: 0,
+      total: 3,
+    });
 
-    expect(midFlight.map((status) => status?.registered)).toEqual([0, 1, 2]);
-    expect(midFlight.every((status) => status?.state === "registering")).toBe(
-      true,
+    gates.get("one")?.();
+    await vi.waitFor(() =>
+      expect(getAgentNativeWebMcpStatus()).toEqual({
+        state: "registering",
+        registered: 1,
+        total: 3,
+      }),
     );
-    expect(midFlight.every((status) => status?.total === 3)).toBe(true);
+
+    gates.get("two")?.();
+    await vi.waitFor(() =>
+      expect(getAgentNativeWebMcpStatus()).toEqual({
+        state: "registering",
+        registered: 2,
+        total: 3,
+      }),
+    );
+
+    gates.get("three")?.();
+    await startPromise;
+
     expect(getAgentNativeWebMcpStatus()).toEqual({
       state: "ready",
       registered: 3,
@@ -667,5 +695,425 @@ describe("WebMCP registration", () => {
 
     await expect(startPromise).resolves.toBeUndefined();
     expect(modelContext.registerTool).not.toHaveBeenCalled();
+  });
+});
+
+describe("WebMCP page helper", () => {
+  // The helper publishes onto the page's window, so clear both keys between
+  // tests the way the readiness describe block above does for status alone.
+  beforeEach(() => {
+    delete (window as unknown as Record<string, unknown>)
+      .__agentNativeWebMcpStatus;
+    delete (window as unknown as Record<string, unknown>).__agentNativeWebMcp;
+  });
+
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>)
+      .__agentNativeWebMcpStatus;
+    delete (window as unknown as Record<string, unknown>).__agentNativeWebMcp;
+    vi.useRealTimers();
+  });
+
+  function readyStatus(registered: number, total = registered) {
+    (window as unknown as Record<string, unknown>).__agentNativeWebMcpStatus = {
+      state: "ready",
+      registered,
+      total,
+    };
+  }
+
+  it("executes a live tool on a native context and parses a JSON-string result", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(async () => '{"status":"shipped"}');
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+      }),
+    });
+
+    const outcome = await helper.call("get-order", { id: "order-1" });
+    expect(outcome).toEqual({
+      id: "webmcp-call-1",
+      state: "done",
+      ok: true,
+      tool: "get-order",
+      attempts: 1,
+      result: { status: "shipped" },
+    });
+    expect(executeTool).toHaveBeenCalledWith(
+      registeredTool,
+      '{"id":"order-1"}',
+      {},
+    );
+  });
+
+  it("passes args directly on a Codex page adapter and exposes a JSON-string input schema as an object", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "get-order",
+      description: "Read an order",
+      inputSchema: JSON.stringify({
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      }),
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(async () => ({ status: "shipped" }));
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+        codexExecuteTool: vi.fn(),
+      }),
+    });
+
+    const outcome = await helper.call("get-order", { id: "order-1" });
+    expect(outcome).toMatchObject({
+      state: "done",
+      ok: true,
+      attempts: 1,
+      result: { status: "shipped" },
+    });
+    expect(executeTool).toHaveBeenCalledWith(
+      registeredTool,
+      { id: "order-1" },
+      {},
+    );
+
+    const [summary] = await helper.tools();
+    expect(summary.required).toEqual(["id"]);
+    const described = await helper.describe("get-order");
+    expect(described?.inputSchema).toEqual({
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    });
+  });
+
+  it("returns compact tool summaries and filters by string or RegExp", async () => {
+    readyStatus(2);
+    const longDescription = "x".repeat(250);
+    const tools = [
+      {
+        name: "get-order",
+        title: "Get Order",
+        description: longDescription,
+        inputSchema: { type: "object", properties: {}, required: ["id"] },
+        window,
+        origin: "https://shop.example",
+        annotations: { readOnlyHint: true },
+      },
+      {
+        name: "delete-order",
+        description: "Remove an order forever",
+        window,
+        origin: "https://shop.example",
+      },
+    ];
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => tools),
+        executeTool: vi.fn(async () => ""),
+      }),
+    });
+
+    const all = await helper.tools();
+    expect(all[0]).toEqual({
+      name: "get-order",
+      title: "Get Order",
+      description: `${"x".repeat(239)}…`,
+      required: ["id"],
+      readOnly: true,
+    });
+    expect(all[1]).toEqual({
+      name: "delete-order",
+      description: "Remove an order forever",
+      required: [],
+      readOnly: false,
+    });
+
+    await expect(helper.tools("GET ORDER")).resolves.toEqual([
+      expect.objectContaining({ name: "get-order" }),
+    ]);
+    await expect(helper.tools(/forever/)).resolves.toEqual([
+      expect.objectContaining({ name: "delete-order" }),
+    ]);
+  });
+
+  it("retries only on a stale descriptor and stops on other errors", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const getTools = vi.fn(async () => [registeredTool]);
+    const executeTool = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("RegisteredTool must be an object"))
+      .mockRejectedValueOnce(new Error("RegisteredTool must be an object"))
+      .mockResolvedValueOnce("shipped");
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool,
+      }),
+    });
+
+    const outcome = await helper.call("get-order");
+    expect(outcome).toMatchObject({
+      ok: true,
+      attempts: 3,
+      result: "shipped",
+    });
+    expect(getTools).toHaveBeenCalledTimes(3);
+
+    executeTool.mockRejectedValueOnce(new Error("boom"));
+    const failure = await helper.call("get-order");
+    expect(failure).toMatchObject({
+      ok: false,
+      code: "execution-failed",
+      error: "boom",
+      attempts: 1,
+    });
+  });
+
+  it("reports not-registered when a tool is missing after registration settles", async () => {
+    readyStatus(1);
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [
+          {
+            name: "get-order",
+            description: "Read an order",
+            window,
+            origin: "https://shop.example",
+          },
+        ]),
+        executeTool: vi.fn(async () => ""),
+      }),
+    });
+
+    const outcome = await helper.call("nope");
+    expect(outcome).toMatchObject({
+      state: "done",
+      ok: false,
+      code: "not-registered",
+      attempts: 1,
+    });
+    expect((outcome as { error?: string }).error).toMatch(/1 listed/);
+  });
+
+  it("reports registering when the ready() bound elapses mid-registration", async () => {
+    vi.useFakeTimers();
+    (window as unknown as Record<string, unknown>).__agentNativeWebMcpStatus = {
+      state: "registering",
+      registered: 0,
+      total: 1,
+    };
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => []),
+        executeTool: vi.fn(async () => ""),
+      }),
+    });
+
+    const outcomePromise = helper.call("nope", {}, { waitMs: 5_000 });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const outcome = await outcomePromise;
+
+    expect(outcome).toMatchObject({ ok: false, code: "registering" });
+  });
+
+  it("returns a pending outcome for waitMs: 0 and resolves later via result()", async () => {
+    readyStatus(1);
+    let resolveExecute!: (value: string) => void;
+    const registeredTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveExecute = resolve;
+        }),
+    );
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+      }),
+    });
+
+    const outcome = await helper.call("get-order", {}, { waitMs: 0 });
+    expect(outcome).toMatchObject({ state: "pending", tool: "get-order" });
+    const id = (outcome as { id: string }).id;
+
+    expect(helper.result(id)).toMatchObject({ state: "pending" });
+    expect(helper.result("unknown-id")).toEqual({
+      id: "unknown-id",
+      state: "unknown",
+    });
+
+    // call() only bounds the outer wait; run() keeps executing in the
+    // background and reaches executeTool() a few microtask ticks later.
+    await vi.waitFor(() => expect(executeTool).toHaveBeenCalled());
+    resolveExecute('{"status":"shipped"}');
+    await vi.waitFor(() => {
+      expect(helper.result(id).state).toBe("done");
+    });
+    expect(helper.result(id)).toMatchObject({
+      ok: true,
+      result: { status: "shipped" },
+    });
+  });
+
+  it("resolves ready() as soon as a real registration settles", async () => {
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const modelContext = {
+      registerTool: vi.fn(async () => {
+        await gate;
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const doc = documentWithModelContext(modelContext);
+    const registration = createAgentNativeWebMcpRegistration({
+      document: doc,
+      actions: [
+        {
+          name: "one",
+          description: "Do one",
+          parameters: { type: "object", properties: {} },
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        } as unknown as AgentNativeClientAction,
+      ],
+    });
+
+    const startPromise = registration.start();
+    const helper = createAgentNativeWebMcpPageHelper({ document: doc });
+    const readyPromise = helper.ready();
+
+    releaseGate();
+    await startPromise;
+
+    await expect(readyPromise).resolves.toEqual({
+      state: "ready",
+      registered: 1,
+      total: 1,
+    });
+
+    registration.stop();
+  });
+
+  it("installs the page helper once and reads it back via getAgentNativeWebMcpPageHelper", () => {
+    const first = installAgentNativeWebMcpPageHelper();
+    const second = installAgentNativeWebMcpPageHelper();
+
+    expect(second).toBe(first);
+    expect(getAgentNativeWebMcpPageHelper()).toBe(first);
+  });
+
+  it("installs the page helper before a registration publishes its first status", async () => {
+    expect(getAgentNativeWebMcpPageHelper()).toBeUndefined();
+    const modelContext = {
+      registerTool: vi.fn(async () => {
+        expect(getAgentNativeWebMcpPageHelper()).toBeDefined();
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [
+        {
+          name: "one",
+          description: "Do one",
+          parameters: { type: "object", properties: {} },
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        } as unknown as AgentNativeClientAction,
+      ],
+    });
+
+    await registration.start();
+    expect(getAgentNativeWebMcpPageHelper()).toBeDefined();
+    registration.stop();
+  });
+
+  it("dispatches agentNative:refresh-data after a non-readOnly action but not a readOnly one", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              name: "update-order",
+              description: "Update an order",
+              inputSchema: { type: "object" },
+            },
+            {
+              name: "get-order",
+              description: "Read an order",
+              inputSchema: { type: "object" },
+              readOnly: true,
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ ok: true })),
+      );
+
+    const registration = createAgentNativeServerActionWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      fetch: fetchMock,
+    });
+    await registration.start();
+
+    const events: Event[] = [];
+    const onRefresh = (event: Event) => events.push(event);
+    window.addEventListener("agentNative:refresh-data", onRefresh);
+    try {
+      const [writeTool, readTool] = modelContext.registerTool.mock.calls.map(
+        (call) => call[0],
+      );
+      await writeTool.execute({});
+      expect(events).toHaveLength(1);
+
+      await readTool.execute({});
+      expect(events).toHaveLength(1);
+    } finally {
+      window.removeEventListener("agentNative:refresh-data", onRefresh);
+    }
   });
 });

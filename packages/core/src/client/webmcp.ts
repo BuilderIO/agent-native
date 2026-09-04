@@ -227,12 +227,41 @@ function publishRegistrationStatus(
   const records = [...statuses.values()];
   const failed = records.find((record) => record.state === "failed");
   const registering = records.some((record) => record.state === "registering");
-  host[WEBMCP_STATUS_KEY] = {
+  const next = {
     state: failed ? "failed" : registering ? "registering" : "ready",
     registered: records.reduce((sum, record) => sum + record.registered, 0),
     total: records.reduce((sum, record) => sum + record.total, 0),
     ...(failed?.error ? { error: failed.error } : {}),
   } satisfies AgentNativeWebMcpStatus;
+  host[WEBMCP_STATUS_KEY] = next;
+  if (next.state !== "registering") settleReadyWaiters(host, next);
+}
+
+const readyWaiters = new WeakMap<
+  object,
+  Set<(status: AgentNativeWebMcpStatus) => void>
+>();
+
+function settleReadyWaiters(
+  host: object,
+  status: AgentNativeWebMcpStatus,
+): void {
+  const waiters = readyWaiters.get(host);
+  if (!waiters) return;
+  readyWaiters.delete(host);
+  waiters.forEach((resolve) => resolve(status));
+}
+
+/** Resolves on the next settled status publish for this page. */
+function waitForSettledStatus(host: object): Promise<AgentNativeWebMcpStatus> {
+  return new Promise((resolve) => {
+    let waiters = readyWaiters.get(host);
+    if (!waiters) {
+      waiters = new Set();
+      readyWaiters.set(host, waiters);
+    }
+    waiters.add(resolve);
+  });
 }
 
 /** Read WebMCP registration progress for the current page. */
@@ -308,12 +337,21 @@ function normalizeTool(
   ) {
     throw new Error(`WebMCP tool "${tool.name}" has an invalid title`);
   }
-  if (tool.inputSchema !== undefined) {
-    if (!isRecord(tool.inputSchema)) {
+  // The Codex page adapter lists inputSchema as a JSON string, not an object.
+  let inputSchema = tool.inputSchema as unknown;
+  if (typeof inputSchema === "string") {
+    try {
+      inputSchema = JSON.parse(inputSchema);
+    } catch {
+      throw new Error(`WebMCP tool "${tool.name}" has an invalid input schema`);
+    }
+  }
+  if (inputSchema !== undefined) {
+    if (!isRecord(inputSchema)) {
       throw new Error(`WebMCP tool "${tool.name}" has an invalid input schema`);
     }
     jsonLength(
-      tool.inputSchema,
+      inputSchema,
       `WebMCP tool "${tool.name}" input schema`,
       options.maxSchemaChars,
     );
@@ -326,7 +364,7 @@ function normalizeTool(
     name: tool.name,
     ...(tool.title ? { title: tool.title } : {}),
     description: tool.description,
-    ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
+    ...(isRecord(inputSchema) ? { inputSchema } : {}),
     ...(tool.origin ? { origin: tool.origin } : {}),
     ...(annotations ? { annotations } : {}),
   };
@@ -550,6 +588,332 @@ export function createAgentNativeWebMcpClient(
   return client;
 }
 
+/** Where {@link installAgentNativeWebMcpPageHelper} publishes the page helper. */
+const WEBMCP_HELPER_KEY = "__agentNativeWebMcp";
+const HELPER_MAX_ATTEMPTS = 10;
+const HELPER_DEFAULT_WAIT_MS = 20_000;
+const HELPER_SUMMARY_DESCRIPTION_CHARS = 240;
+const STALE_DESCRIPTOR_RE =
+  /RegisteredTool must be an object|not found in registry|no longer available|not returned by a live listing/i;
+
+export interface AgentNativeWebMcpToolSummary {
+  name: string;
+  title?: string;
+  /** Truncated; call `describe(name)` for the full description and schema. */
+  description: string;
+  required: string[];
+  readOnly: boolean;
+}
+
+export type AgentNativeWebMcpCallFailureCode =
+  | "unsupported"
+  | "registering"
+  | "not-registered"
+  | "execution-failed";
+
+export type AgentNativeWebMcpCallOutcome =
+  | {
+      id: string;
+      state: "done";
+      ok: true;
+      tool: string;
+      attempts: number;
+      result: unknown;
+    }
+  | {
+      id: string;
+      state: "done";
+      ok: false;
+      tool: string;
+      attempts: number;
+      code: AgentNativeWebMcpCallFailureCode;
+      error: string;
+      status?: AgentNativeWebMcpStatus;
+    }
+  | {
+      id: string;
+      state: "pending";
+      tool: string;
+      status?: AgentNativeWebMcpStatus;
+    }
+  | { id: string; state: "unknown" };
+
+/**
+ * The page-world entry point a browser agent's JavaScript evaluator calls.
+ * It hides everything an evaluator otherwise has to get right per call: which
+ * input contract the active host uses, that a descriptor must come from a
+ * live listing, that a partial registry is not a complete one, and that a
+ * write may outlive a host evaluator's timeout.
+ */
+export interface AgentNativeWebMcpPageHelper {
+  status(): AgentNativeWebMcpStatus | undefined;
+  /** Waits until registration settles, bounded by `waitMs`. */
+  ready(options?: { waitMs?: number }): Promise<AgentNativeWebMcpStatus>;
+  /** Compact listing; `filter` matches name, title, or description. */
+  tools(filter?: string | RegExp): Promise<AgentNativeWebMcpToolSummary[]>;
+  describe(name: string): Promise<AgentNativeWebMcpTool | undefined>;
+  /**
+   * Executes a tool by name. Returns `pending` with an id when the call has
+   * not settled within `waitMs`; the call keeps running in the page and
+   * `result(id)` reports it. Pass `waitMs: 0` on hosts whose evaluator times
+   * out in a few seconds.
+   */
+  call(
+    name: string,
+    args?: Record<string, unknown>,
+    options?: { waitMs?: number },
+  ): Promise<AgentNativeWebMcpCallOutcome>;
+  result(id: string): AgentNativeWebMcpCallOutcome;
+}
+
+function parseToolResult(value: AgentNativeWebMcpToolResult): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!/^[[{]/.test(trimmed)) return value;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function toolMatches(
+  tool: AgentNativeWebMcpTool,
+  filter: string | RegExp | undefined,
+): boolean {
+  if (filter === undefined) return true;
+  const haystack = `${tool.name} ${tool.title ?? ""} ${tool.description}`;
+  // Test the bare name first so anchored patterns like /^get-deck$/ match.
+  if (filter instanceof RegExp) {
+    return filter.test(tool.name) || filter.test(haystack);
+  }
+  return haystack.toLowerCase().includes(filter.toLowerCase());
+}
+
+function summarizeTool(
+  tool: AgentNativeWebMcpTool,
+): AgentNativeWebMcpToolSummary {
+  const required = tool.inputSchema?.required;
+  return {
+    name: tool.name,
+    ...(tool.title ? { title: tool.title } : {}),
+    description:
+      tool.description.length > HELPER_SUMMARY_DESCRIPTION_CHARS
+        ? `${tool.description.slice(0, HELPER_SUMMARY_DESCRIPTION_CHARS - 1)}…`
+        : tool.description,
+    required: Array.isArray(required)
+      ? required.filter((key): key is string => typeof key === "string")
+      : [],
+    readOnly: tool.annotations?.readOnlyHint === true,
+  };
+}
+
+/**
+ * Race a promise against a wall-clock bound. Timers are the only part of this
+ * file that a hidden browser pane can throttle, and they sit only on the
+ * pending path: a settled call wins the race without one.
+ */
+function settleWithin<T>(
+  promise: Promise<T>,
+  waitMs: number,
+): Promise<{ settled: true; value: T } | { settled: false }> {
+  if (waitMs <= 0) return Promise.resolve({ settled: false });
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ settled: false }), waitMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve({ settled: true, value });
+      },
+      () => {
+        clearTimeout(timer);
+        resolve({ settled: false });
+      },
+    );
+  });
+}
+
+export function createAgentNativeWebMcpPageHelper(options?: {
+  document?: Document;
+}): AgentNativeWebMcpPageHelper {
+  const targetDocument = options?.document;
+  const host = statusHost(targetDocument);
+  const client = createAgentNativeWebMcpClient({
+    ...(targetDocument ? { document: targetDocument } : {}),
+    maxToolCount: 1_000,
+    maxDescriptionChars: 10_000,
+  });
+  const outcomes = new Map<string, AgentNativeWebMcpCallOutcome>();
+  let sequence = 0;
+  // The polyfill's getTools() awaits a timer, so a hidden pane pays a throttled
+  // wake-up per listing. Reuse the last listing until the registry says it
+  // changed; hosts without toolchange events always list fresh.
+  let listing: AgentNativeWebMcpTool[] | undefined;
+  const cacheable = typeof client.onToolChange === "function";
+  if (cacheable) client.onToolChange?.(() => (listing = undefined));
+  async function list(): Promise<AgentNativeWebMcpTool[]> {
+    if (!cacheable) return client.listTools();
+    listing ??= await client.listTools();
+    return listing;
+  }
+
+  const status = () => getAgentNativeWebMcpStatus(targetDocument);
+
+  async function ready(readyOptions?: {
+    waitMs?: number;
+  }): Promise<AgentNativeWebMcpStatus> {
+    const current = status();
+    if (current && current.state !== "registering") return current;
+    if (!host) {
+      return current ?? { state: "failed", registered: 0, total: 0 };
+    }
+    const settled = await settleWithin(
+      waitForSettledStatus(host),
+      readyOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS,
+    );
+    return settled.settled
+      ? settled.value
+      : (status() ?? { state: "registering", registered: 0, total: 0 });
+  }
+
+  async function run(
+    id: string,
+    name: string,
+    args: Record<string, unknown>,
+    waitMs: number,
+  ): Promise<AgentNativeWebMcpCallOutcome> {
+    if (!client.supported) {
+      return {
+        id,
+        state: "done",
+        ok: false,
+        tool: name,
+        attempts: 0,
+        code: "unsupported",
+        error: "document.modelContext is not available on this page",
+      };
+    }
+    const settledStatus = await ready({ waitMs });
+    let attempts = 0;
+    let lastError = "";
+    for (; attempts < HELPER_MAX_ATTEMPTS; attempts += 1) {
+      const tools = await list();
+      const tool = tools.find((candidate) => candidate.name === name);
+      if (!tool) {
+        const current = status() ?? settledStatus;
+        const registering = current.state === "registering";
+        listing = undefined;
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: registering ? "registering" : "not-registered",
+          error: registering
+            ? `"${name}" is not registered yet (${current.registered}/${current.total}); call again`
+            : `"${name}" is not a tool on this page (${tools.length} listed)`,
+          status: current,
+        };
+      }
+      try {
+        const result = await client.executeListedTool(tool, args);
+        return {
+          id,
+          state: "done",
+          ok: true,
+          tool: name,
+          attempts: attempts + 1,
+          result: parseToolResult(result),
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        // A descriptor from an earlier listing dies when the registry
+        // restarts under it; the next listing is live again, so retry now.
+        if (STALE_DESCRIPTOR_RE.test(lastError)) {
+          listing = undefined;
+          continue;
+        }
+        attempts += 1;
+        break;
+      }
+    }
+    return {
+      id,
+      state: "done",
+      ok: false,
+      tool: name,
+      attempts,
+      code: "execution-failed",
+      error: lastError,
+      ...(status() ? { status: status() } : {}),
+    };
+  }
+
+  const helper: AgentNativeWebMcpPageHelper = {
+    status,
+    ready,
+    async tools(filter) {
+      if (!client.supported) return [];
+      const listed = await list();
+      return listed
+        .filter((tool) => toolMatches(tool, filter))
+        .map(summarizeTool);
+    },
+    async describe(name) {
+      if (!client.supported) return undefined;
+      const listed = await list();
+      return listed.find((tool) => tool.name === name);
+    },
+    async call(name, args = {}, callOptions) {
+      const id = `webmcp-call-${++sequence}`;
+      const waitMs = callOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS;
+      outcomes.set(id, { id, state: "pending", tool: name });
+      const promise = run(id, name, args, waitMs).then((outcome) => {
+        outcomes.set(id, outcome);
+        return outcome;
+      });
+      const settled = await settleWithin(promise, waitMs);
+      if (settled.settled) return settled.value;
+      const current = status();
+      return {
+        id,
+        state: "pending",
+        tool: name,
+        ...(current ? { status: current } : {}),
+      };
+    },
+    result(id) {
+      return outcomes.get(id) ?? { id, state: "unknown" };
+    },
+  };
+  return helper;
+}
+
+/** Publish the page helper as `window.__agentNativeWebMcp` once per page. */
+export function installAgentNativeWebMcpPageHelper(options?: {
+  document?: Document;
+}): AgentNativeWebMcpPageHelper | undefined {
+  const host = statusHost(options?.document);
+  if (!host) return undefined;
+  const existing = host[WEBMCP_HELPER_KEY];
+  if (isRecord(existing) && typeof existing.call === "function") {
+    return existing as unknown as AgentNativeWebMcpPageHelper;
+  }
+  const helper = createAgentNativeWebMcpPageHelper(options);
+  host[WEBMCP_HELPER_KEY] = helper;
+  return helper;
+}
+
+export function getAgentNativeWebMcpPageHelper(
+  targetDocument?: Document,
+): AgentNativeWebMcpPageHelper | undefined {
+  const value = statusHost(targetDocument)?.[WEBMCP_HELPER_KEY];
+  return isRecord(value) && typeof value.call === "function"
+    ? (value as unknown as AgentNativeWebMcpPageHelper)
+    : undefined;
+}
+
 export interface AgentNativeWebMcpApprovalRequest {
   action: AgentNativeClientAction;
   args: unknown;
@@ -604,6 +968,18 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
     document: options?.document,
     maxToolCount: 1_000,
     maxDescriptionChars: 10_000,
+    commands: {
+      // The same event the host bridge's refreshData command raises, so a
+      // WebMCP write repaints through the sync transport instead of waiting
+      // for the next idle poll or a reload.
+      refreshData: ({ payload }) => {
+        const view = options?.document?.defaultView ?? window;
+        view.dispatchEvent(
+          new CustomEvent("agentNative:refresh-data", { detail: payload }),
+        );
+        return { dispatched: true };
+      },
+    },
     actions: async () => {
       const response = await fetchImpl(
         agentNativePath("/_agent-native/webmcp/manifest"),
@@ -650,6 +1026,7 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
                 : `WebMCP action failed (${result.status})`,
             );
           }
+          if (!action.readOnly) await runtime.refresh();
           return body;
         },
       }));
@@ -828,13 +1205,21 @@ export function createAgentNativeWebMcpRegistration(
         options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
       );
       total = actions.length;
+      installAgentNativeWebMcpPageHelper(
+        options.document ? { document: options.document } : undefined,
+      );
       publishRegistrationStatus(options.document, registrationId, {
         state: "registering",
         registered: 0,
         total,
       });
       const session = createSession(options.session);
-      for (const action of actions) {
+      // Concurrent on purpose: the polyfill awaits a setTimeout(0) inside
+      // every registerTool, and a hidden browser pane throttles timers to one
+      // wake-up per second or worse. Sequential awaits cost one wake-up per
+      // tool (a 141-tool page took minutes to become ready); concurrent ones
+      // share a single wake-up.
+      const registerAction = async (action: AgentNativeClientAction) => {
         if (!isActive()) return;
         if (!action?.name || !action.description) {
           throw new Error("WebMCP actions require a name and description");
@@ -963,7 +1348,9 @@ export function createAgentNativeWebMcpRegistration(
           registered,
           total,
         });
-      }
+      };
+      await Promise.all(actions.map(registerAction));
+      if (!isActive()) return;
       publishRegistrationStatus(options.document, registrationId, {
         state: "ready",
         registered,
