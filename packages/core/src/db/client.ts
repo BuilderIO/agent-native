@@ -313,7 +313,15 @@ export async function loadPgliteDrizzle(): Promise<{
   };
 }
 
-const _pgliteClients = new Map<string, Promise<any>>();
+type PgliteClientRegistry = Map<string, Promise<any>>;
+
+const pgliteGlobal = globalThis as typeof globalThis & {
+  __agentNativePgliteClients?: PgliteClientRegistry;
+};
+const _pgliteClients = (pgliteGlobal.__agentNativePgliteClients ??= new Map<
+  string,
+  Promise<any>
+>());
 
 export async function getPgliteClient(url: string): Promise<any> {
   const dataDir = await preparePgliteDataDir(pgliteDataDirFromUrl(url));
