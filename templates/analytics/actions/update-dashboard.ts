@@ -18,6 +18,7 @@ import {
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
+import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import {
   applyPanelOrder,
@@ -286,6 +287,8 @@ export function validateDashboardConfig(
   if (!config || typeof config !== "object") {
     return "config must be an object";
   }
+  const normalized = normalizeDashboardConfig(config);
+  if (normalized !== config) config.panels = normalized.panels;
   if (typeof config.name !== "string" || config.name.trim().length === 0) {
     return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
   }
