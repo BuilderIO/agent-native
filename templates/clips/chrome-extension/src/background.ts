@@ -1,6 +1,6 @@
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
-import { cdpTimeSinceEpochMs } from "./cdp-time";
+import { cdpTimestampMs, cdpWallTimeMs } from "./cdp-time";
 import {
   MediaPermissionRequiredError,
   mediaPermissionErrorFromResponse,
@@ -1554,6 +1554,10 @@ async function markRecordingStarted() {
   overlayPhase = "recording";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
+  const session = activeNativeRecording
+    ? sessions.get(activeNativeRecording.sessionId)
+    : null;
+  if (session) beginSessionCapture(session, overlayBaseEpochMs);
   if (activeNativeRecording) {
     activeNativeRecording.startedAtMs = overlayBaseEpochMs;
     activeNativeRecording.startedAt = new Date(
@@ -1864,10 +1868,11 @@ async function saveNativeDiagnostics(
 async function stopNativeDiagnostics(
   recording: NativeRecording,
 ): Promise<BrowserDiagnosticsData | null> {
-  if (!recording.includeDeveloperLogs) return null;
   const session = sessions.get(recording.sessionId);
   if (!session) return null;
-  const diagnostics = snapshotSession(session);
+  const diagnostics = recording.includeDeveloperLogs
+    ? snapshotSession(session)
+    : null;
   await deleteSession(recording.sessionId).catch((err) => {
     console.warn("[clips-extension] diagnostics detach failed:", err);
   });
@@ -2016,6 +2021,17 @@ function snapshotSession(session: CaptureSession): BrowserDiagnosticsData {
   };
 }
 
+function beginSessionCapture(
+  session: CaptureSession,
+  startedAtMs = nowMs(),
+): void {
+  session.startedAtMs = startedAtMs;
+  session.startedAt = new Date(startedAtMs).toISOString();
+  session.consoleLogs = [];
+  session.networkRequests = [];
+  session.pendingNetworkRequests.clear();
+}
+
 async function attachSession(session: CaptureSession): Promise<void> {
   if (!session.includeDeveloperLogs || session.attached) return;
   try {
@@ -2068,6 +2084,7 @@ function pushConsole(
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
+  if (timestampMs < session.startedAtMs) return;
   const message = truncate(
     redactString(entry.message, { redactQueryValues: true }),
     MAX_MESSAGE_LENGTH,
@@ -2179,7 +2196,7 @@ function handleConsoleEvent(session: CaptureSession, params: unknown): void {
     level: consoleLevel(event.type),
     message,
     stack: stackTraceText(event.stackTrace),
-    timestampMs: cdpTimeSinceEpochMs(event.timestamp),
+    timestampMs: cdpTimestampMs(event.timestamp),
   });
 }
 
@@ -2212,7 +2229,7 @@ function handleLogEntryEvent(session: CaptureSession, params: unknown): void {
   pushConsole(session, {
     level: consoleLevel(item.level),
     message: `${source}${text}`,
-    timestampMs: cdpTimeSinceEpochMs(item.timestamp),
+    timestampMs: cdpTimestampMs(item.timestamp),
   });
 }
 
@@ -2223,7 +2240,7 @@ function trackedNetworkType(value: unknown): NetworkType | null {
 }
 
 function requestTimestampMs(params: Record<string, unknown>): number {
-  return cdpTimeSinceEpochMs(params.wallTime) ?? nowMs();
+  return cdpWallTimeMs(params.wallTime) ?? nowMs();
 }
 
 function handleRequestWillBeSent(
@@ -2241,6 +2258,7 @@ function handleRequestWillBeSent(
       : null;
   if (!type || !requestId || !request) return;
   const timestampMs = requestTimestampMs(event);
+  if (timestampMs < session.startedAtMs) return;
   const url = sanitizeUrl(typeof request.url === "string" ? request.url : "");
   if (!url) return;
   session.pendingNetworkRequests.set(requestId, {
@@ -2375,11 +2393,7 @@ async function handleExternalMessage(
     const session = sessions.get(message.sessionId);
     if (!session) return { ok: false, error: "Capture session not found." };
     session.recordingId = message.recordingId ?? null;
-    session.startedAtMs = nowMs();
-    session.startedAt = new Date(session.startedAtMs).toISOString();
-    session.consoleLogs = [];
-    session.networkRequests = [];
-    session.pendingNetworkRequests.clear();
+    beginSessionCapture(session);
     await attachSession(session);
     return {
       ok: true,
