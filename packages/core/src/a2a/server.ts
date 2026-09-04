@@ -168,6 +168,8 @@ export async function verifyA2AToken(
     routePrefix?: string;
     allowBaseAudience?: boolean;
     includeClaims?: boolean;
+    /** Only use the deployment-wide secret, never an org-domain secret. */
+    globalSecretOnly?: boolean;
   },
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
@@ -189,7 +191,7 @@ export async function verifyA2AToken(
   // an org-level secret. Try both without logging or reflecting secret details.
   const candidateSecrets: string[] = [];
   addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
-  if (orgDomainHint) {
+  if (orgDomainHint && !audienceOptions?.globalSecretOnly) {
     try {
       const { getA2ASecretByDomain } = await import("../org/context.js");
       const orgSecret = await getA2ASecretByDomain(orgDomainHint);

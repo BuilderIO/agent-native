@@ -32,6 +32,8 @@ interface CodeRow {
   consumed_at: number | null;
 }
 const codeRows: CodeRow[] = [];
+let organizationRow: Record<string, unknown> | null = null;
+let centralMemberRole: string | null = null;
 
 vi.mock("@agent-native/core/feature-flags", async () => {
   const actual = await vi.importActual<
@@ -78,7 +80,10 @@ vi.mock("@agent-native/core/db", () => ({
           sql,
         )
       ) {
-        return { rows: [], rowsAffected: 0 };
+        return {
+          rows: organizationRow ? [organizationRow] : [],
+          rowsAffected: 0,
+        };
       }
       if (/^INSERT INTO organizations/i.test(sql)) {
         return { rows: [], rowsAffected: 1 };
@@ -87,6 +92,16 @@ vi.mock("@agent-native/core/db", () => ({
         return { rows: [], rowsAffected: 1 };
       }
       if (/^INSERT INTO org_members/i.test(sql)) {
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/^SELECT role FROM org_members/i.test(sql)) {
+        return {
+          rows: centralMemberRole ? [{ role: centralMemberRole }] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/^DELETE FROM org_members/i.test(sql)) {
+        centralMemberRole = null;
         return { rows: [], rowsAffected: 1 };
       }
       if (/^UPDATE org_members/i.test(sql)) {
@@ -184,6 +199,8 @@ function event(path: string, extra: Record<string, unknown> = {}): any {
 beforeEach(() => {
   vi.clearAllMocks();
   codeRows.length = 0;
+  organizationRow = null;
+  centralMemberRole = null;
   process.env.APP_URL = AUTHORITY;
   process.env.A2A_SECRET = "test-a2a-secret";
   featureFlagMocks.hasActiveRollout.mockResolvedValue(false);
@@ -622,7 +639,58 @@ describe("organization federation endpoint", () => {
     expect(verifyA2ATokenMock).toHaveBeenCalledWith(
       "signed-org-assertion",
       expect.anything(),
-      expect.objectContaining({ includeClaims: true }),
+      expect.objectContaining({
+        globalSecretOnly: true,
+        includeClaims: true,
+      }),
+    );
+  });
+
+  it("revokes a copied member using only the global federation secret", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+    };
+    centralMemberRole = "member";
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://slides.agent-native.com",
+        app_id: "slides",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        federation_operation: "remove-member",
+        federation_member_email: "removed@example.test",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer signed-revocation-assertion",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      orgId: "dispatch-org-1",
+      removedMember: "removed@example.test",
+    });
+    expect(centralMemberRole).toBeNull();
+    expect(verifyA2ATokenMock).toHaveBeenCalledWith(
+      "signed-revocation-assertion",
+      expect.anything(),
+      expect.objectContaining({ globalSecretOnly: true }),
     );
   });
 });

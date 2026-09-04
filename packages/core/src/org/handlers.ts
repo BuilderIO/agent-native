@@ -52,7 +52,10 @@ import { setActiveOrgId } from "./active-org.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
-import { syncOrganizationToIdentityHub } from "./federation.js";
+import {
+  revokeFederatedOrganizationMember,
+  syncOrganizationToIdentityHub,
+} from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type {
@@ -63,6 +66,7 @@ import type {
 import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
+const pendingFederatedOrgSyncs = new Map<string, Promise<void>>();
 
 async function syncFederatedOrgBestEffort(
   event: H3Event,
@@ -90,6 +94,25 @@ async function syncFederatedOrgBestEffort(
         "Cross-app organization sync did not complete; local organization access remains unchanged.",
     });
   });
+}
+
+function scheduleFederatedOrgSync(
+  event: H3Event,
+  input: {
+    email: string;
+    orgId: string | null;
+    orgName: string | null;
+    role: OrgRole | null;
+  },
+): void {
+  if (!input.orgId || !input.orgName || !input.role) return;
+  const key = `${input.orgId}:${input.email.toLowerCase()}`;
+  if (pendingFederatedOrgSyncs.has(key)) return;
+  const sync = syncFederatedOrgBestEffort(event, input).finally(() => {
+    pendingFederatedOrgSyncs.delete(key);
+  });
+  pendingFederatedOrgSyncs.set(key, sync);
+  void sync;
 }
 
 function normalizeWorkspaceAppDefaultVisibility(
@@ -121,7 +144,7 @@ function requireAuthEmail(session: { email?: string } | null): string {
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
 export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
-  await syncFederatedOrgBestEffort(event, ctx);
+  scheduleFederatedOrgSync(event, ctx);
 
   const e = await exec();
   const allOrgsRes = await e.execute({
@@ -710,6 +733,25 @@ export const removeMemberHandler = defineEventHandler(
       throw createError({
         statusCode: 403,
         message: "Cannot remove the organization owner",
+      });
+    }
+
+    try {
+      await revokeFederatedOrganizationMember(event, {
+        orgId: ctx.orgId,
+        actorEmail: ctx.email,
+        actorRole: ctx.role,
+        memberEmail,
+      });
+    } catch (error) {
+      // Keep the local and identity-authority rosters aligned. If the
+      // authority cannot revoke the copied membership, leave the local row
+      // intact so the removal can be retried safely.
+      void error;
+      throw createError({
+        statusCode: 503,
+        message:
+          "Could not synchronize this member removal with the identity authority.",
       });
     }
 

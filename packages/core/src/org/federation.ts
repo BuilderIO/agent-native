@@ -100,10 +100,11 @@ async function federationEnabled(
   });
 }
 
-async function registerWithIdentityHub(
+async function sendFederationAssertion(
   event: H3Event,
   input: FederatedOrganizationIdentity,
-): Promise<string | null> {
+  extraClaims: Record<string, unknown> = {},
+): Promise<{ hub: string; response: Response } | null> {
   const hub = resolveIdentityHubUrl(event);
   if (!hub) return null;
 
@@ -117,18 +118,31 @@ async function registerWithIdentityHub(
       org_id: input.id,
       org_name: input.name.trim(),
       org_role: input.role,
+      ...extraClaims,
     },
   });
 
-  const response = await fetch(`${hub}${FEDERATION_PATH}`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      accept: "application/json",
-    },
-    redirect: "error",
-    signal: AbortSignal.timeout(5_000),
-  });
+  return {
+    hub,
+    response: await fetch(`${hub}${FEDERATION_PATH}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/json",
+      },
+      redirect: "error",
+      signal: AbortSignal.timeout(5_000),
+    }),
+  };
+}
+
+async function registerWithIdentityHub(
+  event: H3Event,
+  input: FederatedOrganizationIdentity,
+): Promise<string | null> {
+  const sent = await sendFederationAssertion(event, input);
+  if (!sent) return null;
+  const { hub, response } = sent;
   if (!response.ok) {
     throw new Error(
       `Identity hub organization federation failed (${response.status}).`,
@@ -146,6 +160,75 @@ async function registerWithIdentityHub(
     throw new Error("Identity hub returned an invalid federated organization.");
   }
   return hub;
+}
+
+/** Remove a member from the identity authority before removing its local row. */
+export async function revokeFederatedOrganizationMember(
+  event: H3Event,
+  input: {
+    orgId: string;
+    actorEmail: string;
+    actorRole: OrgRole;
+    memberEmail: string;
+  },
+): Promise<boolean> {
+  if (!(await federationEnabled(input.actorEmail, input.orgId))) return false;
+  if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+    throw new Error("Only organization owners and admins can revoke members.");
+  }
+  const memberEmail = input.memberEmail.trim().toLowerCase();
+  if (!memberEmail.includes("@")) {
+    throw new Error("Invalid federated member email.");
+  }
+
+  const exec = getDbExec();
+  const local = await exec.execute({
+    sql: `SELECT id, name, identity_authority, identity_id
+          FROM organizations WHERE id = ? LIMIT 1`,
+    args: [input.orgId],
+  });
+  const row = local.rows[0] as any;
+  if (!row) return false;
+
+  const existingAuthority = String(row.identity_authority ?? "").trim();
+  const existingId = String(row.identity_id ?? "").trim();
+  if (!existingAuthority && !existingId) return false;
+
+  const hub = resolveIdentityHubUrl(event);
+  const authority = normalizeAuthority(hub ?? "");
+  if (
+    !authority ||
+    existingAuthority !== authority ||
+    existingId !== input.orgId
+  ) {
+    throw new Error(
+      "Organization is linked to an unavailable identity authority.",
+    );
+  }
+
+  const sent = await sendFederationAssertion(
+    event,
+    {
+      authority,
+      id: input.orgId,
+      name: String(row.name ?? ""),
+      role: input.actorRole,
+      email: input.actorEmail,
+    },
+    {
+      federation_operation: "remove-member",
+      federation_member_email: memberEmail,
+    },
+  );
+  if (!sent) {
+    throw new Error("Identity authority is not configured.");
+  }
+  if (!sent.response.ok) {
+    throw new Error(
+      `Identity authority member revocation failed (${sent.response.status}).`,
+    );
+  }
+  return true;
 }
 
 /** Register the local org and its current member with the Dispatch authority. */

@@ -828,6 +828,21 @@ describe("verifyA2AToken (exported)", () => {
     });
   });
 
+  it("can restrict verification to the deployment-wide secret", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    getA2ASecretByDomainMock.mockResolvedValue("org-only-secret");
+    const { verifyA2AToken } = await import("./server.js");
+    const orgToken = await signToken("org-only-secret", {
+      sub: "alice@builder.io",
+      org_domain: "example.com",
+    });
+
+    await expect(
+      verifyA2AToken(orgToken, undefined, { globalSecretOnly: true }),
+    ).resolves.toEqual({ email: null, orgDomain: null });
+    expect(getA2ASecretByDomainMock).not.toHaveBeenCalled();
+  });
+
   it("binds a path-mounted receiver to its app base path", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.APP_URL = "https://workspace.example/dispatch";

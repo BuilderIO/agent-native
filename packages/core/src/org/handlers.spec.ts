@@ -6,6 +6,7 @@ const mockTransaction = vi.fn(
     fn({ execute: mockExecute }),
 );
 const mockGetOrgContext = vi.fn();
+const mockRevokeFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -23,6 +24,12 @@ vi.mock("../db/client.js", () => ({
 vi.mock("./context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
   createOrganization: vi.fn(),
+}));
+
+vi.mock("./federation.js", () => ({
+  revokeFederatedOrganizationMember: (...args: any[]) =>
+    mockRevokeFederatedOrganizationMember(...args),
+  syncOrganizationToIdentityHub: vi.fn(async () => false),
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -59,6 +66,7 @@ import {
   listMembersHandler,
   deleteOrgHandler,
   changeMemberRoleHandler,
+  removeMemberHandler,
   updateOrgHandler,
   setDomainHandler,
   setWorkspaceAppDefaultVisibilityHandler,
@@ -82,6 +90,46 @@ describe("org handlers", () => {
       role: "owner",
     });
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    mockRevokeFederatedOrganizationMember.mockResolvedValue(false);
+  });
+
+  it("keeps a federated removal atomic across the local and identity rosters", async () => {
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+    mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/member@example.test"),
+      ),
+    ).resolves.toEqual({ success: true });
+
+    expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        orgId: "org-1",
+        actorEmail: "owner@example.test",
+        actorRole: "owner",
+        memberEmail: "member@example.test",
+      },
+    );
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(mockExecute.mock.calls[1][0].sql).toContain(
+      "DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?",
+    );
+  });
+
+  it("does not remove a local member when federated revocation fails", async () => {
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+    mockRevokeFederatedOrganizationMember.mockRejectedValue(
+      new Error("identity authority unavailable"),
+    );
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/member@example.test"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
   it("uses a non-backslash LIKE escape for paginated member search", async () => {

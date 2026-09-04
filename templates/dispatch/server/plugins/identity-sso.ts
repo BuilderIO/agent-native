@@ -185,6 +185,7 @@ export const organizationFederationHandler = defineEventHandler(
     const verified = await verifyA2AToken(token, event, {
       routePrefix: "_agent-native",
       includeClaims: true,
+      globalSecretOnly: true,
     });
     const claims = verified.claims;
     const issuer =
@@ -212,6 +213,31 @@ export const organizationFederationHandler = defineEventHandler(
     const orgName =
       typeof claims.org_name === "string" ? claims.org_name.trim() : "";
     const orgRole = claims.org_role;
+    const federationOperation = claims.federation_operation;
+    if (
+      federationOperation !== undefined &&
+      federationOperation !== "remove-member"
+    ) {
+      return jsonResponse({ error: "Invalid federation operation" }, 400);
+    }
+    const federationMemberEmail =
+      typeof claims.federation_member_email === "string"
+        ? claims.federation_member_email.trim().toLowerCase()
+        : "";
+    if (federationOperation === "remove-member") {
+      if (orgRole !== "owner" && orgRole !== "admin") {
+        return jsonResponse({ error: "Unauthorized" }, 403);
+      }
+      if (!federationMemberEmail.includes("@")) {
+        return jsonResponse({ error: "Invalid federated member email" }, 400);
+      }
+      if (federationMemberEmail === verified.email.trim().toLowerCase()) {
+        return jsonResponse(
+          { error: "Organization owner cannot remove themselves" },
+          403,
+        );
+      }
+    }
     if (
       !/^[A-Za-z0-9_-]{1,128}$/.test(orgId) ||
       !orgName ||
@@ -254,6 +280,17 @@ export const organizationFederationHandler = defineEventHandler(
       return jsonResponse({ error: "Organization identity conflict" }, 409);
     }
     if (!existingOrg) {
+      if (federationOperation === "remove-member") {
+        return jsonResponse(
+          {
+            orgId,
+            name: orgName,
+            role: orgRole,
+            removedMember: federationMemberEmail,
+          },
+          200,
+        );
+      }
       if (orgRole !== "owner") {
         return jsonResponse(
           {
@@ -285,6 +322,34 @@ export const organizationFederationHandler = defineEventHandler(
               WHERE id = ? AND identity_authority IS NULL AND identity_id IS NULL`,
         args: [authority, orgId, orgId],
       });
+    }
+
+    if (federationOperation === "remove-member") {
+      const member = await exec.execute({
+        sql: `SELECT role FROM org_members
+              WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+        args: [orgId, federationMemberEmail],
+      });
+      if (String((member.rows[0] as any)?.role ?? "") === "owner") {
+        return jsonResponse(
+          { error: "Cannot remove the organization owner" },
+          403,
+        );
+      }
+      await exec.execute({
+        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+        args: [orgId, federationMemberEmail],
+      });
+      invalidateMemberOrgCaches();
+      return jsonResponse(
+        {
+          orgId,
+          name: String(existingOrg?.name ?? orgName),
+          role: orgRole,
+          removedMember: federationMemberEmail,
+        },
+        200,
+      );
     }
 
     await exec.execute({
