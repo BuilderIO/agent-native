@@ -38,6 +38,7 @@ import {
   IconPin,
   IconPencil,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -997,16 +998,25 @@ export function DocumentToolbar({
           )}
 
           {suggesting ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => onSuggestingChange?.(false)}
-            >
-              <IconPencil className="size-4" />
-              {t("editor.toolbar.suggesting")}
-            </Button>
+            <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
+              <IconPencil aria-hidden="true" className="size-3.5" />
+              <span>{t("editor.toolbar.suggesting")}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="ms-0.5 flex size-7 items-center justify-center rounded-sm text-primary/70 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("editor.toolbar.stopSuggesting")}
+                    onClick={() => onSuggestingChange?.(false)}
+                  >
+                    <IconX aria-hidden="true" className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("editor.toolbar.stopSuggesting")}
+                </TooltipContent>
+              </Tooltip>
+            </div>
           ) : null}
 
           {showCommentsControl ? (
@@ -1056,7 +1066,16 @@ export function DocumentToolbar({
               {canSuggest ? (
                 <>
                   <DropdownMenuItem
-                    onSelect={() => onSuggestingChange?.(!suggesting)}
+                    onSelect={() => {
+                      onSuggestingChange?.(!suggesting);
+                      window.setTimeout(() => {
+                        document
+                          .querySelector<HTMLElement>(
+                            ".notion-editor[contenteditable='true'], .notion-editor [contenteditable='true']",
+                          )
+                          ?.focus({ preventScroll: true });
+                      }, 50);
+                    }}
                   >
                     <IconPencil className="me-2 h-4 w-4" />
                     {t(

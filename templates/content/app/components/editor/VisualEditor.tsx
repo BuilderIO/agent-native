@@ -61,8 +61,8 @@ import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
 import {
-  buildDocText,
   resolveAnchor,
+  resolveAnchorPoint,
   type CommentTextAnchor,
 } from "./comment-anchors";
 import { AudioNode } from "./extensions/AudioNode";
@@ -763,26 +763,12 @@ function suggestionAnchorRange(
     });
   }
 
-  const docText = buildDocText(doc);
-  const prefix = suggestion.anchor.prefix;
-  const suffix = suggestion.anchor.suffix;
-  const prefixIndex = prefix ? docText.text.lastIndexOf(prefix) : -1;
-  const suffixIndex = suffix ? docText.text.indexOf(suffix) : -1;
-  const offset =
-    prefixIndex >= 0
-      ? prefixIndex + prefix.length
-      : suffixIndex >= 0
-        ? suffixIndex
-        : 0;
-  const marker =
-    offset < docText.text.length
-      ? docText.text.slice(offset, offset + 1)
-      : docText.text.slice(-1);
-  const resolved = marker
-    ? resolveAnchor(doc, { quotedText: marker, startOffset: offset })
-    : null;
-  if (!resolved) return { from: 1, to: 1 };
-  const position = offset < docText.text.length ? resolved.from : resolved.to;
+  const position = resolveAnchorPoint(doc, {
+    prefix: suggestion.anchor.prefix,
+    suffix: suggestion.anchor.suffix,
+    startOffset: suggestion.anchor.from,
+  });
+  if (position == null) return null;
   return { from: position, to: position };
 }
 
@@ -880,6 +866,7 @@ interface VisualEditorProps {
   suggestions?: VisualEditorSuggestion[];
   activeSuggestionId?: string | null;
   onActivateSuggestion?: (suggestionId: string) => void;
+  onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
@@ -2213,6 +2200,7 @@ export function VisualEditor({
   suggestions = [],
   activeSuggestionId,
   onActivateSuggestion,
+  onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
   notionPageLinks = [],
@@ -3045,11 +3033,20 @@ export function VisualEditor({
         suggestionHighlightSpec(editor.state.doc, suggestion),
       )
       .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
+    onSuggestionAnchorsChange?.(
+      Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+    );
     setSuggestionHighlights(editor.view, {
       specs,
       activeId: activeSuggestionId ?? null,
     });
-  }, [activeSuggestionId, editor, suggestions, suggestionsSignature]);
+  }, [
+    activeSuggestionId,
+    editor,
+    onSuggestionAnchorsChange,
+    suggestions,
+    suggestionsSignature,
+  ]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -3073,11 +3070,11 @@ export function VisualEditor({
       event.preventDefault();
       onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
     };
-    editor.view.dom.addEventListener("click", handleClick);
-    editor.view.dom.addEventListener("keydown", handleKeyDown);
+    editor.view.dom.addEventListener("click", handleClick, true);
+    editor.view.dom.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      editor.view.dom.removeEventListener("click", handleClick);
-      editor.view.dom.removeEventListener("keydown", handleKeyDown);
+      editor.view.dom.removeEventListener("click", handleClick, true);
+      editor.view.dom.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [editor]);
 

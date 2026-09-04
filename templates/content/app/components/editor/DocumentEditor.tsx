@@ -767,7 +767,11 @@ function DocumentEditorBody({
     { enabled: suggestedEditsEnabled && !isLocalFileDocument },
   );
   const [isSuggesting, setIsSuggesting] = useState(false);
+  const [isSubmittingSuggestions, setIsSubmittingSuggestions] = useState(false);
   const [suggestionDraft, setSuggestionDraft] = useState(document.content);
+  const [anchoredSuggestionIds, setAnchoredSuggestionIds] = useState<
+    string[] | null
+  >(null);
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<
     string | null
   >(null);
@@ -2075,6 +2079,7 @@ function DocumentEditorBody({
         return;
       }
       if (!isSuggesting) return;
+      if (isSubmittingSuggestions) return;
       const base = suggestionBaseRef.current;
       if (!base) return;
       if (suggestionDraft === base.content) {
@@ -2083,6 +2088,7 @@ function DocumentEditorBody({
         createdSuggestionOperationsRef.current.clear();
         return;
       }
+      setIsSubmittingSuggestions(true);
       try {
         const operations = markdownSuggestionOperations(
           base.content,
@@ -2093,13 +2099,11 @@ function DocumentEditorBody({
           suggestionBaseRef.current = null;
           return;
         }
-        const createdIds: string[] = [];
         for (const operation of operations) {
           const operationKey = JSON.stringify(operation);
           const existing =
             createdSuggestionOperationsRef.current.get(operationKey);
           if (existing?.suggestionId) {
-            createdIds.push(existing.suggestionId);
             continue;
           }
           const idempotencyKey =
@@ -2120,19 +2124,17 @@ function DocumentEditorBody({
             idempotencyKey,
             suggestionId: created.id,
           });
-          createdIds.push(created.id);
         }
         setIsSuggesting(false);
         suggestionBaseRef.current = null;
         createdSuggestionOperationsRef.current.clear();
-        setSelectedSuggestionId(createdIds[0] ?? null);
-        setUtilityPanel("comments");
-        setCommentsBrowseOpen(true);
       } catch (error) {
         toast.error(t("editor.suggestionCreateFailed"), {
           description:
             error instanceof Error ? error.message : t("empty.genericError"),
         });
+      } finally {
+        setIsSubmittingSuggestions(false);
       }
     },
     [
@@ -2141,6 +2143,7 @@ function DocumentEditorBody({
       document.content,
       documentId,
       isSuggesting,
+      isSubmittingSuggestions,
       suggestionDraft,
       t,
     ],
@@ -2288,18 +2291,22 @@ function DocumentEditorBody({
     showCommentsHistoryDrawer && hasUtilityRailSpace;
   const hasOpenCommentThreads =
     threads?.some((thread) => !thread.resolved) ?? false;
+  const hasOpenSuggestions =
+    suggestionsQuery.data?.suggestions.some(
+      (suggestion) => suggestion.status === "pending",
+    ) ?? false;
   const showInlineComments =
     showCommentIndicators &&
     hasUtilityRailSpace &&
     !showCommentsHistoryDrawer &&
     utilityPanel !== "info" &&
-    (hasOpenCommentThreads || !!pendingComment);
+    (hasOpenCommentThreads || hasOpenSuggestions || !!pendingComment);
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
     utilityPanel === "comments" &&
     !hasUtilityRailSpace &&
-    (!!pendingComment || !!selectedThreadId);
+    (!!pendingComment || !!selectedThreadId || !!selectedSuggestionId);
   const showUtilityPanelSheet =
     (showCommentsHistoryDrawer && !showDesktopCommentsHistory) ||
     (utilityPanel === "info" && !showDesktopInfoPanel);
@@ -2357,6 +2364,7 @@ function DocumentEditorBody({
   const clearCommentFocus = useCallback(() => {
     setSelectedThreadId(null);
     setHoveredThreadId(null);
+    setSelectedSuggestionId(null);
   }, []);
 
   const dismissCommentFocus = useCallback(() => {
@@ -2449,10 +2457,17 @@ function DocumentEditorBody({
             ? globalThis.CSS.escape(selectedThreadId)
             : selectedThreadId.replace(/["\\]/g, "\\$&")
           : null;
+        const escapedSuggestionId = selectedSuggestionId
+          ? globalThis.CSS?.escape
+            ? globalThis.CSS.escape(selectedSuggestionId)
+            : selectedSuggestionId.replace(/["\\]/g, "\\$&")
+          : null;
         const marked = scrollContainer.querySelector(
           escapedThreadId
             ? `[data-comment-thread="${escapedThreadId}"]`
-            : ".comment-highlight--pending",
+            : escapedSuggestionId
+              ? `[data-suggestion-id="${escapedSuggestionId}"]`
+              : ".comment-highlight--pending",
         ) as HTMLElement | null;
         if (!marked) {
           setAnchoredCommentPosition(null);
@@ -2484,7 +2499,7 @@ function DocumentEditorBody({
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["data-comment-thread", "class"],
+      attributeFilter: ["data-comment-thread", "data-suggestion-id", "class"],
     });
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
@@ -2499,7 +2514,12 @@ function DocumentEditorBody({
       window.removeEventListener("resize", update);
       scrollContainer.removeEventListener("scroll", update);
     };
-  }, [selectedThreadId, showAnchoredCommentPopover, scrollContainerRef]);
+  }, [
+    selectedSuggestionId,
+    selectedThreadId,
+    showAnchoredCommentPopover,
+    scrollContainerRef,
+  ]);
 
   const focusTitleEnd = useCallback(() => {
     const textarea = titleInputRef.current;
@@ -2640,6 +2660,7 @@ function DocumentEditorBody({
       selectedThreadId={selectedThreadId}
       onActivateThread={activateCommentThread}
       activeSuggestionId={selectedSuggestionId}
+      anchoredSuggestionIds={isSuggesting ? null : anchoredSuggestionIds}
       onActivateSuggestion={activateSuggestion}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
@@ -2794,7 +2815,11 @@ function DocumentEditorBody({
             activateCommentThread(threadId);
             return;
           }
-          if (target?.closest("[data-comments-sidebar]")) {
+          if (
+            target?.closest(
+              "[data-comments-sidebar], [data-comments-history], [data-document-utility-panel]",
+            )
+          ) {
             return;
           }
           dismissCommentFocus();
@@ -3247,7 +3272,10 @@ function DocumentEditorBody({
                             }
                             awareness={collabEditorEnabled ? awareness : null}
                             user={currentUser}
-                            editable={suggestionEditorIsolation.editable}
+                            editable={
+                              suggestionEditorIsolation.editable &&
+                              !isSubmittingSuggestions
+                            }
                             localFileMode={isLocalFileDocument}
                             localFilePath={
                               isLocalFileDocument ? document.source?.path : null
@@ -3264,6 +3292,7 @@ function DocumentEditorBody({
                             suggestions={visualSuggestions}
                             activeSuggestionId={selectedSuggestionId}
                             onActivateSuggestion={activateSuggestion}
+                            onSuggestionAnchorsChange={setAnchoredSuggestionIds}
                             showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
                             notionPageLinks={notionPageLinks}

@@ -3,8 +3,8 @@ title: "Content Suggested Edits parity shape"
 date: 2026-09-02
 status: shape-complete
 authoritySchemaVersion: 3
-ledgerRevision: content-suggested-edits-shape-r3
-governingArtifactRevision: content-suggested-edits-shape-r3
+ledgerRevision: content-suggested-edits-shape-r4
+governingArtifactRevision: content-suggested-edits-shape-r4
 ---
 
 # Content Suggested Edits parity
@@ -20,6 +20,171 @@ The implementation should extend Core's existing review domain with executable s
 Human QA of PR #4274 at `c820218ee5e811c0328d68e16085a0b1bcce2fc1` proved that the staged interface does not satisfy this artifact's already-frozen parity contract. While Suggesting is active, edits render as ordinary canonical-looking content and the Comments rail reports no proposal. Stopping Suggesting replaces the draft with canonical content, then creates one detached whole-session markdown diff. Pending changes have no marker in the Page after submission or reload, raw markdown leaks into the review card, and the tablet/mobile review modal obscures the Page. Accept, reject, and persistence work, but only after the reviewer discovers and reconstructs the detached proposal.
 
 The firsthand Notion reference keeps every pending change visibly anchored in the ordinary document. Insertions, replacements, formatting, and new blocks have inline treatment and per-location counts; activating an anchor opens the exact suggestion thread with author, time, discussion, and Accept/Reject beside the affected material. The repair therefore restores the existing contract rather than adding optional polish.
+
+## 2026-09-04 return-to-shape: calm Notion-parity interaction repair
+
+Human QA of PR #4274 after the r3 repair, recorded at
+`https://clips.agent-native.com/r/HQTpXgtD7rxX`, proves that the implementation
+still fails the parity contract. The author can now see some provisional edits,
+but deletions can jump to the start of the Page, the page-actions trigger keeps a
+stuck focus treatment, ending Suggesting opens Comments, and activating an inline
+change does not reliably expose a usable discussion and decision surface. The
+rail renders suggestions as a separate custom card family and offers no way to
+hide them when the user wants ordinary comments only.
+
+The desired interaction is the observed Notion behavior: Suggesting is a quiet,
+explicit toolbar mode with an adjacent close action; additions are blue;
+deletions recede in gray with strikethrough until hover; exiting the mode does not
+move the viewport or open a panel; and each selected suggestion behaves like a
+normal anchored comment thread with replies and Accept/Reject. The Comments view
+can include suggestions, exclude them, or show them alone without introducing a
+second discussion system.
+
+### Root causes in the current implementation
+
+- `suggestionAnchorRange` reconstructs empty-range deletion positions from
+  independently searched prefix/suffix strings and falls back to ProseMirror
+  position `1`. That fallback converts an unresolved location into a plausible
+  top-of-document location.
+- Draft operations are recomputed from whole-document Markdown after every
+  change. The derived deletion has no stable ProseMirror bookmark, so the
+  renderer tries to rediscover a position after the deleted text is already gone.
+- `handleSuggestionModeChange(false)` persists the session and then explicitly
+  selects the first suggestion and opens Comments. Mode exit and review
+  navigation are incorrectly coupled.
+- Suggestion activation updates selection and scroll state, but the desktop
+  suggestion cards are not integrated into the existing anchored comment layout.
+  A click can therefore select an ID without presenting the expected adjacent
+  thread.
+- `CommentsSidebar` duplicates suggestion-card markup in inline and history
+  modes and nests a headerless `ReviewThreadPanel` inside it. That parallel
+  presentation bypasses the established comment card hierarchy, replies, and
+  filtering vocabulary.
+- The active style uses an outline and destructive red treatment. That conflicts
+  with the requested calm gray-deletion/blue-addition visual language and makes
+  transient selection look like a persistent focus defect.
+
+### Implementation plan
+
+#### 1. Make suggestion locations structural and fail closed
+
+- Replace the UI's Markdown diff loop with a ProseMirror suggestion-capture
+  plugin backed by the existing `suggestions/model.ts` and `controller.ts`.
+  Capture insert, delete, replace, supported mark, and supported text-block
+  operations from transactions before the document loses the original range.
+- Give every local operation a stable local ID and mapped ProseMirror bookmark.
+  Coalesce only adjacent keystrokes of the same operation kind; never merge
+  unrelated ranges merely because they happened in one Suggesting session.
+- Persist the operation's typed before/after material and contextual anchor at
+  the edit boundary. Swap the local ID for the returned durable suggestion ID
+  without replacing the decoration or losing focus.
+- For reloaded suggestions, resolve exact text plus bounded prefix and suffix as
+  one ordered context match. Zero or multiple matches produce an explicit
+  orphaned/stale presentation in the rail; delete the `{ from: 1, to: 1 }`
+  fallback. An unresolved proposal must never appear at a believable wrong
+  location.
+- Keep `contentRevision` and `onBaseAwareReconcile` from current `main` active on
+  the canonical editor. Suggesting remains isolated from canonical autosave and
+  Yjs, while external canonical movement invalidates or explicitly rebases local
+  operations instead of silently shifting them.
+
+#### 2. Make Suggesting a calm editor mode
+
+- Replace the single secondary button with the compact observed control: pencil
+  icon plus **Suggesting**, followed by a separately focusable X with tooltip and
+  accessible name. The X changes authoring mode only.
+- Entering from the page-actions menu must close the menu and return focus to the
+  editor. Remove persistent trigger highlighting that represents neither an open
+  menu nor keyboard focus; retain standards-compliant `focus-visible` treatment.
+- Exiting Suggesting must not open Comments, select the first proposal, scroll,
+  or alter the current utility panel. Pending and failed writes remain visible in
+  place; failures expose retry without pretending the proposal exists durably.
+- Render additions with the existing blue semantic accent. Render deletions as
+  muted gray strikethrough at rest, removing the strike and increasing contrast
+  on hover/focus so the text can be read. Use shape/line treatment in addition to
+  color and remove the persistent black/blue outline from active suggestions.
+
+#### 3. Use one anchored thread presentation for comments and suggestions
+
+- Extract the existing comment card's header, body, reply sequence, composer,
+  reactions, overflow menu, focus behavior, and anchored layout into a shared
+  thread shell. Ordinary comments keep their current behavior and identity.
+- Add a suggestion-thread content adapter to that shell. It supplies typed
+  before/after material and pending Accept/Reject actions, then uses the same
+  chronological replies, mentions, reactions, unread/mute/deep-link controls,
+  spacing, and focus semantics as a normal comment.
+- Remove both duplicated custom suggestion-card render loops and the nested
+  headerless `ReviewThreadPanel`. A selected inline suggestion should open or
+  focus its exact adjacent thread; selecting the thread should focus and center
+  the exact inline anchor. Orphaned suggestions remain reviewable in a clearly
+  labeled unanchored section without fabricating a document location.
+- Keep decisions operation-specific and idempotent. During a pending decision,
+  disable only that suggestion's controls. On success, update the canonical
+  editor and thread status optimistically, reconcile from the action result, and
+  restore focus to the affected material. On stale/conflict failure, preserve
+  the thread and show the typed failure.
+
+#### 4. Add a real Comments content filter
+
+- Add a compact content-type filter with **All**, **Comments**, and
+  **Suggestions** to the existing Comments filter menu. Compose it with the
+  existing status and author filters rather than creating a second sidebar mode.
+- Apply the filter consistently to anchored desktop cards, narrow sequential
+  cards, empty states, and All discussions history. Filtering suggestions out
+  must not remove their editor decorations or mutate their state.
+- Persist the filter only if the ordinary Comments surface already persists
+  comparable view preferences; otherwise keep it local to avoid creating a new
+  settings contract for this repair.
+
+#### 5. Lock the behavior with focused proof
+
+- Unit-test transaction capture, keystroke coalescing, stable ID handoff,
+  deletion bookmarks, ordered-context reload resolution, and explicit
+  unresolved/ambiguous outcomes. Add a regression proving no path returns
+  position `1` after failed resolution.
+- Component-test menu focus restoration, independent X behavior, mode exit with
+  every utility-panel state, visual class/state contracts, inline-to-thread and
+  thread-to-inline focus, per-thread pending decisions, and content-type filters.
+- Preserve and extend action/database tests for permissions, canonical
+  isolation, idempotent decisions, stale bases, SQL/Yjs fencing, history, and
+  cross-client convergence.
+- Run formatter, Content/Core focused suites, typecheck, i18n guards, repository
+  guards, and `pnpm test:content-product-impact`.
+- Human-QA the exact head in the real Content editor at desktop and narrow
+  widths, using a fresh uniquely marked disposable Page. Compare against the
+  referenced Notion interactions for enter/edit/hover/exit/review/filter flows.
+  A second authenticated client verifies that pending edits do not change
+  canonical content and that accepted edits converge without reload. Record
+  visible latency in coarse honest bands and clean the fixture with independent
+  absence proof.
+
+### Sequencing and ownership
+
+1. **Editor semantics:** transaction capture, structural anchors, persistence
+   handoff, and canonical/base-aware isolation.
+2. **Interaction shell:** toolbar mode, exit behavior, focus restoration, and
+   calm addition/deletion styling.
+3. **Unified discussion:** shared thread shell, bidirectional anchoring,
+   operation-scoped decisions, and orphan/stale fallback.
+4. **Filtering and accessibility:** content-type filter, narrow layout,
+   keyboard, screen-reader, and focus-return behavior.
+5. **Proof and PR reconciliation:** automated suites, exact-head human QA,
+   cleanup, product-impact declaration, and PR description/evidence refresh.
+
+The first four steps are one coherent repair: shipping only the anchor fix would
+leave the unusable parallel review model intact, while shipping only the thread
+restyle would preserve data that can point at the wrong text.
+
+### Explicit exclusions retained
+
+- No title, Property, database, media, embed, local-file, or provider-owned
+  suggestions.
+- No Accept all/Reject all, dependency-aware bulk review, AI summary, or general
+  typed-change graph.
+- No new discussion store, REST route, permanent review dashboard, or canonical
+  mutation path.
+- No claim that all of Content Feature 7 is available. This remains the
+  supported Page-body slice.
 
 ### Bound repair
 
@@ -243,7 +408,7 @@ Automated coverage is required for model/store/action/permission/idempotency/sta
 
 ```yaml
 stage: shape
-authority-source: "User invoked $shape on 2026-09-03 to shape the fixes after exact-head human QA of PR #4274."
+authority-source: "User invoked $shape on 2026-09-04 after the second human QA pass of PR #4274 and requested an implementation plan against latest main."
 authorized-scope:
   repositories:
     - /Users/alicemoore/.codex/worktrees/5438/agent-native
@@ -258,7 +423,7 @@ write-targets:
     - templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md
 governing-artifact:
   path: templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md
-  revision: content-suggested-edits-shape-r3
+  revision: content-suggested-edits-shape-r4
 architecture-fingerprint:
   outcome: Commenters, editors, and agents can propose supported page-body edits without changing canonical Content until an authorized reviewer accepts them.
   shipping-surfaces:
@@ -280,9 +445,15 @@ architecture-fingerprint:
     summary: A commenter or agent proposes supported edits in the ordinary Content editor; an authorized editor discusses and decides each proposal; only accepted material reaches canonical Content and every state remains attributable and recoverable.
     required-assertions:
       - proposal creation preserves canonical content
+      - Suggesting uses a compact labeled mode control with an independent accessible exit action
+      - entering from page actions restores focus without leaving the trigger visually stuck
       - each supported semantic edit is visibly distinguished and independently anchored while authoring and after persistence or reload
-      - exiting Suggesting changes authoring mode without removing pending material from the Page
+      - unresolved or ambiguous anchors are explicit and never rendered at a plausible fallback location
+      - additions use blue provisional treatment and deletions use readable gray strikethrough that clarifies on hover and focus
+      - exiting Suggesting changes authoring mode without removing pending material, opening Comments, scrolling, or changing the utility panel
       - typed review renders exact before and after material without exposing serialized markdown syntax
+      - suggestions use the ordinary anchored comment-thread interaction with chronological replies and per-thread decisions
+      - Comments can show all discussion, ordinary comments only, or suggestions only without mutating editor state
       - selective accept/reject applies exactly the decided operation
       - discussion and resolved history persist with deep links
       - UI, agent, and action permission parity fails closed
@@ -328,7 +499,7 @@ architecture-grounding:
     - accepted
     - rejected
     - stale
-  smallest-compatible-delta: Preserve the existing Core executable-suggestion lifecycle and canonical mutation coordinator; replace the UI's whole-session markdown diff with typed semantic operation capture, durable pending-operation hydration, in-place editor overlays and anchors, and typed rail rendering for the Content page-body slice.
+  smallest-compatible-delta: Preserve the existing Core executable-suggestion lifecycle, canonical mutation coordinator, and main's base-aware editor reconciliation; replace whole-session Markdown rediscovery and parallel suggestion cards with typed transaction capture, structural/fail-closed anchors, calm Notion-like mode and decorations, one ordinary anchored thread shell, and composable discussion filtering for the Content page-body slice.
   deferred-capabilities:
     - generic typed Property/Database/media proposals
     - filtered bulk review
@@ -337,6 +508,8 @@ architecture-grounding:
   reversibility: A default-off app-owned feature flag keeps dormant code inactive; suggestion tables are additive; pending proposals never alter canonical content.
   direct-evidence:
     - verified Notion Suggested Edits interaction memo dated 2026-09-01
+    - human QA recording HQTpXgtD7rxX dated 2026-09-04
+    - origin/main e4364cd716 integrated locally at merge commit 713e8a7c29
     - packages/core/src/review and packages/core/src/history
     - templates/content editor, actions, schema, comments, collaboration plugin
     - Content feature 7 and diff/history/access capability records
@@ -349,45 +522,47 @@ architecture-grounding:
 delegation-ceiling: []
 acceptance-state:
   status: blocked
-  summary: PR #4274 preserves canonical isolation and can accept, reject, and reload proposals, but exact-head human QA fails the frozen in-place authoring and review story because pending changes are detached from the Page and collapsed into one markdown diff.
+  summary: WORK PAUSED — RETURNING TO SHAPE. PR #4274 remains acceptance-blocked: the second human QA pass shows wrong-location deletions, stuck menu focus, coupled mode-exit navigation, unusable inline activation, a parallel suggestion-card UI, and no comments-only filter.
   evidence:
     - templates/content/docs/solutions/evidence/suggested-edits-accept-reject.png
     - focused Core and Content automated suites
   remaining:
-    - typed semantic operation capture in the real editor
-    - immediate and durable in-place decorations, markers, and bidirectional thread anchors
-    - typed before/after rail rendering without raw markdown leakage
+    - typed ProseMirror operation capture with stable structural/fail-closed anchors
+    - calm Suggesting control, focus restoration, independent exit, and Notion-like addition/deletion presentation
+    - one ordinary anchored thread shell for comments and suggestions with reliable bidirectional focus
+    - All, Comments, and Suggestions content filtering across desktop, narrow, and history views
     - commenter/editor role-separated acceptance
     - accountable agent proposal acceptance
     - two-client sync and narrow-width accessibility acceptance
     - independent technical review closure
   blockers:
-    - exact-head real-interface H1-H10 failed the in-place comparison and discoverability assertions
+    - exact-head real-interface QA in HQTpXgtD7rxX failed the anchoring, mode-control, visual treatment, thread interaction, and filtering assertions
   last-land-packet: null
 change-record:
-  from-revision: content-suggested-edits-shape-r2
-  to-revision: content-suggested-edits-shape-r3
-  trigger: Exact-head human QA proved that the staged plain-markdown draft and detached review card violate the already-frozen in-place parity contract.
+  from-revision: content-suggested-edits-shape-r3
+  to-revision: content-suggested-edits-shape-r4
+  trigger: The second human QA recording proved that r3's partial overlay repair still violates the Notion-parity interaction contract and that latest main adds reconciliation/comment seams the repair must preserve.
   preserved:
-    - outcome and exact Notion-parity product boundary
+    - outcome, shipping surfaces, and supported Page-body parity boundary
     - shipping surfaces and ownership split between Core and Content
     - default-off feature-flag risk strategy
     - prepare/commit/publish canonical mutation coordination
   changed:
-    - whole-session markdown diff is explicitly rejected as the editor capture boundary
-    - typed semantic operations must remain independently anchored and reviewable
-    - pending suggestions must render in place while authoring and after persistence or reload
-    - the rail must render typed material and maintain bidirectional focus with Page anchors
-    - narrow-width review must preserve affected-content context and return focus
-ledger-revision: content-suggested-edits-shape-r3
+    - structural and fail-closed anchor behavior is now explicit, including prohibition of top-of-document fallback
+    - mode exit is separated from persistence selection, scrolling, and Comments navigation
+    - the visual contract freezes blue additions, gray struck deletions, hover/focus legibility, and no persistent active outline
+    - suggestions must use the ordinary anchored comment-thread shell rather than custom nested review cards
+    - Comments gains a composable All, Comments, and Suggestions content filter
+    - current main's base-aware reconciliation is a preserved implementation seam
+ledger-revision: content-suggested-edits-shape-r4
 status: shape-complete
 ```
 
-## Active Work envelope
+## Superseded Work envelope
 
 ```yaml
-stage: work
-authority-source: "User invoked $work on 2026-09-03 against content-suggested-edits-shape-r3."
+stage: shape
+authority-source: "The 2026-09-04 QA evidence materially changed the acceptance story and invalidated the prior r3 Work envelope."
 ledger-revision: content-suggested-edits-work-r3-1
 governing-artifact:
   path: templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md
@@ -429,9 +604,10 @@ test-resources:
     phase: work
 acceptance-reconciliation: consistent — schema-v3 real-interface, preferred independence, same-context-allowed custody
 task-attention: autonomous
-status: implementation
+status: return-to-shape
+invalidation-banner: WORK PAUSED — RETURNING TO SHAPE
 ```
 
 ## Next step
 
-Invoke `/work templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md` to revise PR #4274 against r3. Work begins with the editor capture/rendering boundary: preserve the accepted Core lifecycle and canonical mutation coordinator, replace the whole-session markdown diff with typed semantic operations, and prove that proposed material stays visibly anchored before and after persistence. The PR remains acceptance-blocked until the complete H1-H10 story passes on the exact head; accept/reject persistence alone is not sufficient.
+Invoke `/work templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md` to revise PR #4274 against r4. Work begins with typed ProseMirror capture and structural anchor resolution, then replaces the parallel suggestion cards with the ordinary anchored thread shell before visual polish or filtering. The PR remains acceptance-blocked until the complete exact-head real-interface story passes; a correct persistence action is insufficient when the edit appears in the wrong place or the discussion cannot be operated naturally.

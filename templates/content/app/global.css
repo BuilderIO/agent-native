@@ -38,6 +38,7 @@
   --border: 0 0% 90%;
   --input: 0 0% 90%;
   --ring: 0 0% 15%;
+  --suggestion: 207 39% 46%;
 
   --radius: 0.375rem;
 
@@ -82,6 +83,7 @@
 
   --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 100%;
+  --suggestion: 207 55% 68%;
 
   --border: 0 0% 24%;
   --input: 0 0% 24%;
@@ -2419,26 +2421,36 @@ audio.media-block__content {
 
 /* Pending suggested edits are presentation-only decorations over canonical text. */
 .notion-editor .suggestion-delete {
-  background: hsl(var(--destructive) / 0.12);
+  background: hsl(var(--muted) / 0.7);
+  color: hsl(var(--muted-foreground));
   text-decoration: line-through;
-  text-decoration-color: hsl(var(--destructive));
+  text-decoration-color: hsl(var(--muted-foreground) / 0.8);
 }
 
 .notion-editor .suggestion-delete-widget {
   display: inline;
   border: 0;
   border-radius: 0.2em;
-  background: hsl(var(--destructive) / 0.12);
-  color: inherit;
+  background: hsl(var(--muted) / 0.7);
+  color: hsl(var(--muted-foreground));
   font: inherit;
   padding: 0 0.1em;
   text-decoration: line-through;
-  text-decoration-color: hsl(var(--destructive));
+  text-decoration-color: hsl(var(--muted-foreground) / 0.8);
+}
+.notion-editor .suggestion-delete:hover,
+.notion-editor .suggestion-delete:focus-visible,
+.notion-editor .suggestion-delete-widget:hover,
+.notion-editor .suggestion-delete-widget:focus-visible {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  text-decoration: none;
 }
 
 .notion-editor .suggestion-change {
-  background: hsl(var(--primary) / 0.12);
-  box-shadow: inset 0 -2px hsl(var(--primary) / 0.55);
+  background: hsl(var(--suggestion) / 0.12);
+  box-shadow: inset 0 -2px hsl(var(--suggestion) / 0.55);
+  color: hsl(var(--suggestion));
 }
 
 .notion-editor .suggestion-insert,
@@ -2446,17 +2458,20 @@ audio.media-block__content {
   display: inline;
   border: 0;
   border-radius: 0.2em;
-  background: hsl(var(--primary) / 0.12);
-  box-shadow: inset 0 -2px hsl(var(--primary) / 0.55);
-  color: inherit;
+  background: hsl(var(--suggestion) / 0.12);
+  box-shadow: inset 0 -2px hsl(var(--suggestion) / 0.55);
+  color: hsl(var(--suggestion));
   font: inherit;
   padding: 0 0.1em;
   white-space: pre-wrap;
 }
 
 .notion-editor .suggestion-highlight--active {
-  outline: 2px solid hsl(var(--primary));
-  outline-offset: 2px;
+  background: hsl(var(--suggestion) / 0.16);
+  box-shadow: inset 0 -2px hsl(var(--suggestion));
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
 }
 
 /* @mention tokens inside comment bodies */

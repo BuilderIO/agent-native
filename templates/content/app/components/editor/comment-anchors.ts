@@ -74,6 +74,47 @@ function offsetToPos(docText: DocText, offset: number): number | null {
   return last.pmFrom + last.length;
 }
 
+/** Resolve one ordered zero-width context boundary without inventing a fallback. */
+export function resolveAnchorPoint(
+  doc: ProseMirrorNode,
+  anchor: {
+    prefix?: string;
+    suffix?: string;
+    startOffset?: number;
+  },
+): number | null {
+  const docText = buildDocText(doc);
+  const prefix = anchor.prefix ?? "";
+  const suffix = anchor.suffix ?? "";
+  if (!prefix && !suffix) return null;
+
+  const candidates: number[] = [];
+  for (let offset = 0; offset <= docText.text.length; offset += 1) {
+    const beforeMatches =
+      !prefix ||
+      docText.text.slice(Math.max(0, offset - prefix.length), offset) ===
+        prefix;
+    const afterMatches =
+      !suffix || docText.text.slice(offset, offset + suffix.length) === suffix;
+    if (beforeMatches && afterMatches) candidates.push(offset);
+  }
+  if (candidates.length === 0) return null;
+
+  let chosen = candidates[0]!;
+  if (candidates.length > 1) {
+    if (typeof anchor.startOffset !== "number") return null;
+    const ranked = candidates
+      .map((offset) => ({
+        offset,
+        distance: Math.abs(offset - anchor.startOffset!),
+      }))
+      .sort((left, right) => left.distance - right.distance);
+    if (ranked[0]!.distance === ranked[1]!.distance) return null;
+    chosen = ranked[0]!.offset;
+  }
+  return offsetToPos(docText, chosen);
+}
+
 /** Map a ProseMirror position to a text-space offset (best-effort). */
 function posToOffset(docText: DocText, pos: number): number {
   let best = 0;

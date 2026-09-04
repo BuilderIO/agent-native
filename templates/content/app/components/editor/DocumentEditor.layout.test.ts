@@ -782,7 +782,32 @@ describe("document editor layout", () => {
     expect(source).not.toContain("baseRevision: document.updatedAt");
   });
 
-  it("opens the comments surface for suggestion deep links and new proposals", () => {
+  it("freezes the suggestion editor while mode exit persists proposals", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("if (isSubmittingSuggestions) return");
+    expect(source).toContain("setIsSubmittingSuggestions(true)");
+    expect(source).toContain(
+      "suggestionEditorIsolation.editable &&\n                              !isSubmittingSuggestions",
+    );
+    expect(source).toContain("setIsSubmittingSuggestions(false)");
+  });
+
+  it("does not classify canonical suggestion anchors from a draft-only editor", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "anchoredSuggestionIds={isSuggesting ? null : anchoredSuggestionIds}",
+    );
+  });
+
+  it("opens comments for deep links without coupling mode exit to navigation", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
@@ -792,7 +817,10 @@ describe("document editor layout", () => {
       source.match(
         /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(source).not.toMatch(
+      /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
+    );
   });
 
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {
