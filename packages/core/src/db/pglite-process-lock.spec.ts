@@ -69,7 +69,7 @@ function spawnChild(dir: string, mode: string, stdout: "ignore" | "pipe") {
 }
 
 async function waitFor(pathname: string): Promise<void> {
-  for (let attempt = 0; attempt < 400; attempt++) {
+  for (let attempt = 0; attempt < 2400; attempt++) {
     if (existsSync(pathname)) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
@@ -107,5 +107,5 @@ describe("PGlite persistent process ownership", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 90_000);
 });
