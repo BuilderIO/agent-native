@@ -600,8 +600,10 @@ const HELPER_MAX_ATTEMPTS = 10;
 const HELPER_MAX_OUTCOMES = 200;
 const HELPER_DEFAULT_WAIT_MS = 20_000;
 const HELPER_SUMMARY_DESCRIPTION_CHARS = 240;
+// Native Chrome, the Codex page adapter, and @mcp-b/webmcp-polyfill each word
+// a dead descriptor differently ("Tool not found: <name>" is the polyfill's).
 const STALE_DESCRIPTOR_RE =
-  /RegisteredTool must be an object|not found in registry|no longer available|not returned by a live listing/i;
+  /RegisteredTool must be an object|not found in registry|Tool not found|Tool unregistered|no longer available|not returned by a live listing/i;
 
 export interface AgentNativeWebMcpToolSummary {
   name: string;
@@ -668,7 +670,7 @@ export interface AgentNativeWebMcpPageHelper {
   call(
     name: string,
     args?: Record<string, unknown>,
-    options?: { waitMs?: number },
+    options?: { waitMs?: number; origin?: string },
   ): Promise<AgentNativeWebMcpCallOutcome>;
   result(id: string): AgentNativeWebMcpCallOutcome;
 }
@@ -811,6 +813,7 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     name: string,
     args: Record<string, unknown>,
     waitMs: number,
+    origin: string | undefined,
   ): Promise<AgentNativeWebMcpCallOutcome> {
     if (!client.supported) {
       return {
@@ -842,7 +845,27 @@ export function createAgentNativeWebMcpPageHelper(options?: {
           ...(status() ? { status: status() } : {}),
         };
       }
-      const tool = tools.find((candidate) => candidate.name === name);
+      const matches = tools.filter(
+        (candidate) =>
+          candidate.name === name && (!origin || candidate.origin === origin),
+      );
+      // Same guard as the client's executeTool: two origins exposing one
+      // name must not resolve to whichever was listed first.
+      if (matches.length > 1) {
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: "execution-failed",
+          error: `"${name}" is exposed by multiple origins (${matches
+            .map((candidate) => candidate.origin ?? "")
+            .join(", ")}); pass { origin }`,
+          ...(status() ? { status: status() } : {}),
+        };
+      }
+      const tool = matches[0];
       if (!tool) {
         const current = status() ?? settledStatus;
         const registering = current.state === "registering";
@@ -913,7 +936,7 @@ export function createAgentNativeWebMcpPageHelper(options?: {
       const id = `webmcp-call-${++sequence}`;
       const waitMs = callOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS;
       remember(id, { id, state: "pending", tool: name });
-      const promise = run(id, name, args, waitMs)
+      const promise = run(id, name, args, waitMs, callOptions?.origin)
         .catch(
           (error): AgentNativeWebMcpCallOutcome => ({
             id,

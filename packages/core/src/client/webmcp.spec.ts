@@ -1268,4 +1268,66 @@ describe("WebMCP page helper", () => {
       "delete-deck",
     ]);
   });
+  it("retries a polyfill-worded stale descriptor the same as native/Codex wording", async () => {
+    readyStatus(1);
+    const registeredTool = {
+      name: "get-order",
+      description: "Read an order",
+      window,
+      origin: "https://shop.example",
+    };
+    const getTools = vi.fn(async () => [registeredTool]);
+    const executeTool = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Tool not found: get-order"))
+      .mockResolvedValueOnce("shipped");
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools,
+        executeTool,
+      }),
+    });
+
+    const outcome = await helper.call("get-order");
+    expect(outcome).toMatchObject({ ok: true, attempts: 2, result: "shipped" });
+    expect(getTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires an origin when the same name is exposed by multiple origins", async () => {
+    readyStatus(2);
+    const toolA = {
+      name: "get-order",
+      description: "Read an order (a)",
+      window,
+      origin: "https://a.example",
+    };
+    const toolB = {
+      name: "get-order",
+      description: "Read an order (b)",
+      window,
+      origin: "https://b.example",
+    };
+    const executeTool = vi.fn(async () => "shipped");
+    const helper = createAgentNativeWebMcpPageHelper({
+      document: documentWithModelContext({
+        registerTool: vi.fn(async () => {}),
+        getTools: vi.fn(async () => [toolA, toolB]),
+        executeTool,
+      }),
+    });
+
+    const ambiguous = await helper.call("get-order");
+    expect(ambiguous).toMatchObject({ ok: false, code: "execution-failed" });
+    expect((ambiguous as { error?: string }).error).toMatch(/multiple origins/);
+    expect(executeTool).not.toHaveBeenCalled();
+
+    const scoped = await helper.call(
+      "get-order",
+      {},
+      { origin: "https://b.example" },
+    );
+    expect(scoped).toMatchObject({ ok: true, result: "shipped" });
+    expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+  });
 });
