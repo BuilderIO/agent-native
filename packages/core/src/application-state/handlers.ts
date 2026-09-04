@@ -14,6 +14,7 @@ import {
   appStateGet,
   appStateGetManyEntries,
   appStatePut,
+  appStateCompareAndSet,
   appStateDelete,
   appStateList,
   appStateDeleteByPrefix,
@@ -97,6 +98,31 @@ export const putState = defineEventHandler(async (event: H3Event) => {
   const requestSource = getHeader(event, "x-request-source") || undefined;
   await appStatePut(sessionId, key, body, { requestSource });
   return body;
+});
+
+export const compareAndSetState = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
+  const key = safeKey(String(getRouterParam(event, "key")));
+  const body = (await readBody(event)) as {
+    expected?: Record<string, unknown> | null;
+    next?: Record<string, unknown> | null;
+  };
+  if (!("expected" in body) || !("next" in body)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: "expected and next are required",
+    });
+  }
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  return {
+    changed: await appStateCompareAndSet(
+      sessionId,
+      key,
+      body.expected ?? null,
+      body.next ?? null,
+      { requestSource },
+    ),
+  };
 });
 
 export const deleteState = defineEventHandler(async (event: H3Event) => {

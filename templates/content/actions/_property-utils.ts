@@ -528,6 +528,7 @@ export async function listPropertiesForDocument(
 
 export async function listPropertiesForAllDocumentDatabases(
   document: DocumentRow,
+  options: { requireDatabaseAccess?: boolean } = {},
 ) {
   const db = getDb();
   const memberships = await db
@@ -556,9 +557,16 @@ export async function listPropertiesForAllDocumentDatabases(
 
   const properties = [];
   for (const database of databases) {
-    if (!(await resolveAccess("document", database.documentId))) continue;
+    if (
+      options.requireDatabaseAccess !== false &&
+      !(await resolveAccess("document", database.documentId))
+    ) {
+      continue;
+    }
     properties.push(
-      ...(await listPropertiesForDatabase(database.id, document)),
+      ...(await listPropertiesForDatabase(database.id, document, {
+        includeContainerDerivedValues: options.requireDatabaseAccess !== false,
+      })),
     );
   }
   return properties;

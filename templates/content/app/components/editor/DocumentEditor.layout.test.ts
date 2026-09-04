@@ -15,6 +15,7 @@ import {
   refreshUnchangedContentSaveWatermark,
   shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
+  updateAdditionalBlockContents,
   visualEditorInstanceKey,
 } from "./DocumentEditor";
 import {
@@ -23,6 +24,19 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("ignores delayed additional-field cleanup from the previous document", () => {
+    const current = { sharedProperty: "document B live value" };
+    expect(
+      updateAdditionalBlockContents({
+        current,
+        activeDocumentId: "document-b",
+        sourceDocumentId: "document-a",
+        propertyId: "sharedProperty",
+        content: null,
+      }),
+    ).toBe(current);
+  });
+
   it("centers a compact comment card below its paragraph when space permits", () => {
     expect(
       positionAnchoredCommentCard({
