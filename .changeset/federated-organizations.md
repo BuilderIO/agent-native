@@ -1,5 +1,6 @@
 ---
 "@agent-native/core": patch
+"@agent-native/creative-context": patch
 "@agent-native/dispatch": patch
 ---
 
