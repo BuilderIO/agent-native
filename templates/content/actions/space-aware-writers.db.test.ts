@@ -101,6 +101,14 @@ async function filesMemberships(documentId: string) {
 }
 
 describe("space-aware document writers", () => {
+  it("rejects an empty caller-provided database document ID", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createContentDatabase.run({ newDocumentId: "" }),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("defaults root pages to personal Files and keeps nested pages in the parent space", async () => {
     const parent = await runWithRequestContext({ userEmail: OWNER }, () =>
       createDocument.run({ title: "Parent" }),
@@ -156,9 +164,13 @@ describe("space-aware document writers", () => {
       { userEmail: MEMBER, orgId },
       () =>
         createContentDatabase.run({
+          newDocumentId: "member-database-document",
           title: "Member database",
           spaceId,
         }),
+    );
+    expect(createdDatabase.database.documentId).toBe(
+      "member-database-document",
     );
     const [database] = await getDb()
       .select()
