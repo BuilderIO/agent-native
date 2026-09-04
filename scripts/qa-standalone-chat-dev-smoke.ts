@@ -1126,6 +1126,7 @@ async function waitForChatPage(
       await modelButton.waitFor({ state: "visible", timeout: 8_000 });
       await page.waitForLoadState("load", { timeout: 60_000 });
       discardSettledNavigationAborts(httpErrors);
+      await waitForStableChatSurface(page);
       return;
     } catch (err) {
       lastError = err;
@@ -1156,6 +1157,68 @@ async function waitForChatPage(
       `Last URL: ${lastUrl}\n` +
       `Body preview: ${lastBody.slice(0, 400)}` +
       suppressedNoiseBlock(),
+  );
+}
+
+type ChatSurfaceState = {
+  pathname: string;
+  readyState: DocumentReadyState;
+  chatRendered: boolean;
+  chatEmpty: string | null;
+  composerRendered: boolean;
+};
+
+async function readChatSurfaceState(page: Page): Promise<ChatSurfaceState> {
+  return page.evaluate(() => {
+    const chat = document.querySelector<HTMLElement>("section.agentkit-chat");
+    const composer = document.querySelector<HTMLElement>(
+      '.agentkit-composer[data-agent-composer-slot="root"]',
+    );
+    return {
+      pathname: window.location.pathname,
+      readyState: document.readyState,
+      chatRendered: Boolean(chat?.isConnected),
+      chatEmpty: chat?.dataset.empty ?? null,
+      composerRendered: Boolean(composer?.isConnected),
+    };
+  });
+}
+
+async function waitForStableChatSurface(page: Page): Promise<void> {
+  const timeoutMs = isCi ? 120_000 : 30_000;
+  const deadline = Date.now() + timeoutMs;
+  let lastState = "unreadable";
+
+  while (Date.now() < deadline) {
+    try {
+      const candidate = await readChatSurfaceState(page);
+      lastState = JSON.stringify(candidate);
+      if (
+        durableChatPathPattern.test(candidate.pathname) &&
+        candidate.readyState === "complete" &&
+        candidate.chatRendered &&
+        candidate.composerRendered
+      ) {
+        await sleep(500);
+        const settled = await readChatSurfaceState(page);
+        if (
+          settled.pathname === candidate.pathname &&
+          settled.readyState === candidate.readyState &&
+          settled.chatRendered &&
+          settled.composerRendered
+        ) {
+          return;
+        }
+        lastState = JSON.stringify(settled);
+      }
+    } catch (err) {
+      if (!isNavigationContextError(err)) throw err;
+    }
+    await sleep(250);
+  }
+
+  throw new Error(
+    `Chat surface did not remain stable within ${timeoutMs}ms (${lastState}).`,
   );
 }
 
@@ -1576,6 +1639,7 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
 
 async function fillAndSubmitComposer(page: Page, text: string): Promise<void> {
   const editor = page.locator('[data-agent-composer-slot="editor-input"]');
+  await waitForStableChatSurface(page);
   await retryAfterNavigation("prepare composer", async () => {
     await editor.waitFor({ state: "visible" });
     await editor.evaluate((node, value) => {
@@ -1951,9 +2015,14 @@ async function assertAgentKitChatAcceptance(
 
   await fillAndSubmitComposer(page, helloPrompt);
   await page.waitForURL(/\/chat\/chat-/);
-  network.allowInitialEphemeralThread404 = false;
   const threadUrl = page.url();
   const threadPath = new URL(threadUrl).pathname;
+  await waitForLoopbackState(
+    "the initial provider request",
+    () => provider.requests.length >= 1,
+    30_000,
+  );
+  network.allowInitialEphemeralThread404 = false;
   await page
     .getByRole("heading", { name: "Loopback complete" })
     .waitFor({ state: "visible" });
