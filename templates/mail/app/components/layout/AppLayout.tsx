@@ -1193,6 +1193,28 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setDropIndicator(null);
   }, []);
 
+  // Global keyboard shortcuts
+  const cycleTab = useCallback(
+    (reverse?: boolean) => {
+      if (topBarTabs.length < 2) return;
+      const activeIdx = topBarTabs.findIndex((tab) => tab.isActive);
+      const delta = reverse ? -1 : 1;
+      const nextIdx =
+        (activeIdx === -1 ? 0 : activeIdx + delta + topBarTabs.length) %
+        topBarTabs.length;
+      void navigate(topBarTabs[nextIdx].href);
+    },
+    [topBarTabs, navigate],
+  );
+
+  const canCycleTab = useCallback(
+    (event: KeyboardEvent) =>
+      topBarTabs.length >= 2 &&
+      event.target instanceof Element &&
+      event.target.closest("[data-mail-tab-list]") !== null,
+    [topBarTabs.length],
+  );
+
   const handleSnooze = useCallback(() => {
     const listSnoozeEvent = new CustomEvent("email:shortcut-snooze", {
       cancelable: true,
@@ -1252,6 +1274,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { key: "h", handler: handleSnooze },
     { key: "!", shift: true, handler: handleSpam },
     { key: "z", handler: runUndo },
+    {
+      key: "Tab",
+      shouldHandle: canCycleTab,
+      handler: () => cycleTab(false),
+    },
+    {
+      key: "Tab",
+      shift: true,
+      shouldHandle: canCycleTab,
+      handler: () => cycleTab(true),
+    },
     {
       key: "Escape",
       handler: () => {
@@ -1460,7 +1493,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 ))}
               </nav>
             ) : (
-              <nav className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
+              <nav
+                className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar"
+                data-mail-tab-list
+              >
                 {topBarTabs.map((tab, idx) => {
                   const visibleIndex = visibleTabs.findIndex(
                     (item) => item.id === tab.id,
