@@ -7,7 +7,11 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
-import { ConnectionsSettingsContent } from "./SettingsPanel.js";
+import { WORKSPACE_SETTINGS_SECTIONS } from "./agent-settings-search.js";
+import {
+  AgentSettingsContent,
+  ConnectionsSettingsContent,
+} from "./SettingsPanel.js";
 
 describe("ConnectionsSettingsContent", () => {
   afterEach(() => {
@@ -215,6 +219,82 @@ describe("ConnectionsSettingsContent", () => {
     );
     expect(container.textContent).toContain("Ready to connect");
     expect(connectButton?.disabled).toBe(false);
+
+    act(() => root.unmount());
+  });
+
+  it("does not flash workspace Builder actions while status loads", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    let releaseStatus!: () => void;
+    const statusReady = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    const builderStatus = {
+      configured: false,
+      builderEnabled: true,
+      envManaged: false,
+      orgName: null,
+      connectUrl: "/_agent-native/builder/connect?_an_connect=test",
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/_agent-native/connection-status/builder")) {
+          await statusReady;
+          return new Response(JSON.stringify(builderStatus), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.includes("/_agent-native/agent-chat/mode")) {
+          return new Response(
+            JSON.stringify({ devMode: false, canToggle: false }),
+            {
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        return new Response(JSON.stringify([]), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AgentSettingsContent sections={WORKSPACE_SETTINGS_SECTIONS} />
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).filter((button) =>
+        button.textContent?.includes("Connect Builder"),
+      ),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      releaseStatus();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).filter((button) =>
+        button.textContent?.includes("Connect Builder"),
+      ),
+    ).toHaveLength(4);
 
     act(() => root.unmount());
   });

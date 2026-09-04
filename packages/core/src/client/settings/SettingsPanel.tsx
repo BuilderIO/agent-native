@@ -2903,6 +2903,7 @@ function SettingsPanelContent({
   const envManaged = !!builder?.envManaged;
   const credentialSource = builder?.credentialSource;
   const builderBranchesAvailable = !!builder?.builderEnabled;
+  const showWorkspaceBuilderConnect = builderStatusAvailable && !connected;
   const builderFlow = useBuilderConnectFlow({
     enabled: !builderConnectionOwnedExternally,
     popupUrl: connectUrl,
@@ -3097,7 +3098,7 @@ function SettingsPanelContent({
                 description="Deploy the app to the cloud."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3147,7 +3148,7 @@ function SettingsPanelContent({
                 description="Connect persistent app storage."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3197,7 +3198,7 @@ function SettingsPanelContent({
                 description="Store avatars and chat attachments."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3249,7 +3250,7 @@ function SettingsPanelContent({
                 description="Set up sign-in and access control."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
