@@ -27,7 +27,11 @@ import {
   provisionContentSpaces,
 } from "./_content-spaces.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 import { nanoid, seedDefaultBlocksField } from "./_property-utils.js";
 
 const createContentDatabaseSchema = z.object({
@@ -316,7 +320,7 @@ export async function createContentDatabaseRecord(
       documentsPositionScope(resolvedOwnerEmail, parentId),
       async () => {
         const [maxPos] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             parentId
@@ -340,7 +344,7 @@ export async function createContentDatabaseRecord(
           content: "",
           description: args.description?.trim() ?? "",
           icon: null,
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           isFavorite: 0,
           hideFromSearch,
           visibility,
