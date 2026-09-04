@@ -40,9 +40,7 @@ interface SendLogEntry {
   status: string;
   error: string | null;
   provider: string;
-  requestPayload: string | null;
   responseStatus: number | null;
-  responseBody: string | null;
   createdAt: number;
 }
 
@@ -69,14 +67,6 @@ function SendLogDetailDialog({
 }) {
   const t = useT();
   if (!entry) return null;
-  let prettyRequest = entry.requestPayload ?? "";
-  try {
-    prettyRequest = entry.requestPayload
-      ? JSON.stringify(JSON.parse(entry.requestPayload), null, 2)
-      : "";
-  } catch {
-    // coercion-ok: not JSON, keep the raw text already assigned above.
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -113,24 +103,6 @@ function SendLogDetailDialog({
               <div className="text-destructive">{entry.error}</div>
             </>
           ) : null}
-        </div>
-        <div className="grid gap-3">
-          <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">
-              {t("dispatch.transactionalEmail.sendLogRawRequest")}
-            </div>
-            <pre className="max-h-48 overflow-auto rounded-md bg-muted p-3 text-xs">
-              {prettyRequest || "—"}
-            </pre>
-          </div>
-          <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">
-              {t("dispatch.transactionalEmail.sendLogRawResponse")}
-            </div>
-            <pre className="max-h-48 overflow-auto rounded-md bg-muted p-3 text-xs">
-              {entry.responseBody || "—"}
-            </pre>
-          </div>
         </div>
       </DialogContent>
     </Dialog>

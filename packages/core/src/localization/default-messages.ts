@@ -332,8 +332,6 @@ const messages = {
       sendLogProvider: "Provider",
       sendLogResponseStatus: "Response status",
       sendLogError: "Error",
-      sendLogRawRequest: "Raw request",
-      sendLogRawResponse: "Raw response",
       sendLogToFilter: "To contains…",
       sendLogFromFilter: "From contains…",
       sendLogAllStatuses: "All statuses",
