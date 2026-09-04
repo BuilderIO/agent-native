@@ -1707,11 +1707,7 @@ async function fillAndSubmitComposer(
     }),
   );
   if (options.expectUserMessage !== false) {
-    await page
-      .locator('.agentkit-message[data-role="user"]')
-      .filter({ hasText: text })
-      .first()
-      .waitFor({ state: "visible" });
+    await waitForChatText(page, text);
   }
 }
 
