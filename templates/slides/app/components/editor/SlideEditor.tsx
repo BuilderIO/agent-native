@@ -1484,6 +1484,10 @@ export default function SlideEditor({
     guides: SlideAlignmentGuide[];
     viewport: AlignmentGuideViewport;
   } | null>(null);
+  const activeAlignmentGuidesRef = useRef<{
+    guides: SlideAlignmentGuide[];
+    viewport: AlignmentGuideViewport;
+  } | null>(null);
   /** Content overflow for the current slide (both axes 0 = fits). Reported by the
    *  renderer so we can prompt the agent to rewrite the slide HTML instead of
    *  silently scaling it down (which created unbalanced right/bottom margins
@@ -1813,6 +1817,9 @@ export default function SlideEditor({
   const richTextEditorSessionRef = useRef<RichTextEditorSession | null>(null);
   const activeRichTextHtmlRef = useRef<string | null>(null);
   const activeRichTextPathRef = useRef<number[] | null>(null);
+  const inlineEditDraftCaptureTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [richTextEditorRevision, setRichTextEditorRevision] = useState(0);
 
   const serializeSlideContentHtml = useCallback(
@@ -1896,6 +1903,10 @@ export default function SlideEditor({
 
   const captureInlineEditDraft = useCallback(
     (slideId = slide.id) => {
+      if (inlineEditDraftCaptureTimerRef.current !== null) {
+        clearTimeout(inlineEditDraftCaptureTimerRef.current);
+        inlineEditDraftCaptureTimerRef.current = null;
+      }
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
         const next = { slideId, content: html };
@@ -1918,8 +1929,25 @@ export default function SlideEditor({
     [readCurrentSlideContentHtml, slide.id],
   );
 
+  const scheduleInlineEditDraftCapture = useCallback(
+    (slideId: string) => {
+      if (inlineEditDraftCaptureTimerRef.current !== null) {
+        clearTimeout(inlineEditDraftCaptureTimerRef.current);
+      }
+      inlineEditDraftCaptureTimerRef.current = setTimeout(() => {
+        inlineEditDraftCaptureTimerRef.current = null;
+        captureInlineEditDraft(slideId);
+      }, 250);
+    },
+    [captureInlineEditDraft],
+  );
+
   const disposeRichTextEditor = useCallback(
     (restoreLiveDom = true) => {
+      if (inlineEditDraftCaptureTimerRef.current !== null) {
+        clearTimeout(inlineEditDraftCaptureTimerRef.current);
+        inlineEditDraftCaptureTimerRef.current = null;
+      }
       const session = richTextEditorSessionRef.current;
       if (!session) return null;
 
@@ -2453,7 +2481,7 @@ export default function SlideEditor({
             if (richTextEditorSessionRef.current !== session) return;
             session.latestHtml = html;
             activeRichTextHtmlRef.current = html;
-            captureInlineEditDraft(slide.id);
+            scheduleInlineEditDraftCapture(slide.id);
           }}
           onEditorReady={handleRichTextEditorReady}
         />,
@@ -2479,6 +2507,7 @@ export default function SlideEditor({
       getSlideContent,
       handleRichTextEditorReady,
       onInlineEditStart,
+      scheduleInlineEditDraftCapture,
       slide.content,
       slide.id,
     ],
@@ -3282,6 +3311,32 @@ export default function SlideEditor({
       setChipAnchorRect(canvas?.getBoundingClientRect() || null);
     },
     [getSlideContent],
+  );
+  const multiSelectionRefreshFrameRef = useRef<number | null>(null);
+  const scheduledMultiSelectionIdsRef = useRef<Set<string> | null>(null);
+  const scheduleMultiSelectionRects = useCallback(
+    (ids: Set<string>) => {
+      scheduledMultiSelectionIdsRef.current = ids;
+      if (multiSelectionRefreshFrameRef.current !== null) return;
+      multiSelectionRefreshFrameRef.current = requestAnimationFrame(() => {
+        multiSelectionRefreshFrameRef.current = null;
+        const scheduledIds = scheduledMultiSelectionIdsRef.current;
+        scheduledMultiSelectionIdsRef.current = null;
+        if (scheduledIds) refreshMultiSelectionRects(scheduledIds);
+      });
+    },
+    [refreshMultiSelectionRects],
+  );
+
+  useEffect(
+    () => () => {
+      if (multiSelectionRefreshFrameRef.current !== null) {
+        cancelAnimationFrame(multiSelectionRefreshFrameRef.current);
+        multiSelectionRefreshFrameRef.current = null;
+      }
+      scheduledMultiSelectionIdsRef.current = null;
+    },
+    [],
   );
 
   // Portal selection chrome uses viewport coordinates, so a flex layout change
@@ -4676,22 +4731,49 @@ export default function SlideEditor({
       canvas: { width: number; height: number },
     ) => {
       if (guides.length === 0) {
-        setActiveAlignmentGuides(null);
+        if (activeAlignmentGuidesRef.current !== null) {
+          activeAlignmentGuidesRef.current = null;
+          setActiveAlignmentGuides(null);
+        }
         return;
       }
-      setActiveAlignmentGuides({
+      const viewport = {
+        rect: positioningLayer.getBoundingClientRect(),
+        canvas,
+      };
+      const previous = activeAlignmentGuidesRef.current;
+      const guidesUnchanged =
+        previous?.guides.length === guides.length &&
+        previous.guides.every(
+          (guide, index) =>
+            guide.orientation === guides[index]?.orientation &&
+            guide.position === guides[index]?.position &&
+            guide.start === guides[index]?.start &&
+            guide.end === guides[index]?.end,
+        );
+      const viewportUnchanged =
+        previous?.viewport.rect.left === viewport.rect.left &&
+        previous.viewport.rect.top === viewport.rect.top &&
+        previous.viewport.rect.width === viewport.rect.width &&
+        previous.viewport.rect.height === viewport.rect.height &&
+        previous.viewport.canvas.width === viewport.canvas.width &&
+        previous.viewport.canvas.height === viewport.canvas.height;
+      if (guidesUnchanged && viewportUnchanged) return;
+      const next = {
         guides: [...guides],
-        viewport: {
-          rect: positioningLayer.getBoundingClientRect(),
-          canvas,
-        },
-      });
+        viewport,
+      };
+      activeAlignmentGuidesRef.current = next;
+      setActiveAlignmentGuides(next);
     },
     [],
   );
 
   const clearAlignmentGuides = useCallback(() => {
-    setActiveAlignmentGuides(null);
+    if (activeAlignmentGuidesRef.current !== null) {
+      activeAlignmentGuidesRef.current = null;
+      setActiveAlignmentGuides(null);
+    }
   }, []);
 
   const getSnapPeerGeometries = useCallback(
@@ -4779,6 +4861,11 @@ export default function SlideEditor({
       let clone: HTMLElement | null = null;
       let restoreMarkdownTree: (() => void) | undefined;
       let promotedToFreeform = false;
+
+      const initialSelector = getBuilderSelector(element);
+      if (initialSelector) {
+        selectElementForStyling(element, initialSelector);
+      }
 
       const promoteForDrag = () => {
         if (origin) return true;
@@ -4896,6 +4983,8 @@ export default function SlideEditor({
             ensureBuilderId(clone);
             stampBuilderIds(clone);
             activeElement = clone;
+            const selector = getBuilderSelector(activeElement);
+            if (selector) selectElementForStyling(activeElement, selector);
           }
           const snap = snapSlideObjectMove({
             moving: dragOrigin,
@@ -4911,8 +5000,6 @@ export default function SlideEditor({
             y: dragOrigin.y + snap.deltaY,
           });
           updateAlignmentGuides(snap.guides, positioningLayer, snapCanvas);
-          const selector = getBuilderSelector(activeElement);
-          if (selector) selectElementForStyling(activeElement, selector);
           return { handled: true };
         },
         commit: (gesture) => {
@@ -5346,7 +5433,7 @@ export default function SlideEditor({
               preserveAspectRatio: gesture.pointer.shiftKey,
             }),
           );
-          refreshMultiSelectionRects(selectedIds);
+          scheduleMultiSelectionRects(selectedIds);
           return { handled: true };
         },
         commit: () => {
@@ -5438,6 +5525,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       refreshMultiSelectionRects,
+      scheduleMultiSelectionRects,
     ],
   );
 
@@ -5684,7 +5772,7 @@ export default function SlideEditor({
             applyObjectGeometry,
           );
           updateAlignmentGuides(snap.guides, positioningLayer, snapCanvas);
-          refreshMultiSelectionRects(ids);
+          scheduleMultiSelectionRects(ids);
           return { handled: true };
         },
         commit: () => {
@@ -5801,6 +5889,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       refreshMultiSelectionRects,
+      scheduleMultiSelectionRects,
       updateAlignmentGuides,
     ],
   );
