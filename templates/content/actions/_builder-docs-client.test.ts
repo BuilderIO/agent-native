@@ -32,6 +32,7 @@ const collabStateMock = vi.hoisted(() => ({
 }));
 
 const appStateMock = vi.hoisted(() => ({
+  appStateCompareAndSet: vi.fn(async () => true),
   appStateDelete: vi.fn(async () => {}),
   appStateGet: vi.fn(async () => null as unknown),
   appStatePut: vi.fn(async () => {}),
@@ -133,6 +134,7 @@ vi.mock("@agent-native/core/collab", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  appStateCompareAndSet: appStateMock.appStateCompareAndSet,
   appStateDelete: appStateMock.appStateDelete,
   appStateGet: appStateMock.appStateGet,
   appStatePut: appStateMock.appStatePut,
@@ -417,6 +419,7 @@ describe("Builder docs DB-backed source", () => {
       {
         clientId: 123,
         state: JSON.stringify({
+          canFlushDocument: true,
           visible: true,
           user: { email: "owner@example.com" },
         }),
@@ -425,15 +428,17 @@ describe("Builder docs DB-backed source", () => {
     ]);
     appStateMock.appStateGet.mockImplementation(async () => ({
       id: bundle.mdx.documentId,
-      requestId: appStateMock.appStatePut.mock.calls[0]?.[2]?.requestId,
+      requestId:
+        appStateMock.appStateCompareAndSet.mock.calls[0]?.[3]?.requestId,
       status: "success",
     }));
 
     await resolveBuilderDocsSource({ documentId: bundle.mdx.documentId });
 
-    expect(appStateMock.appStatePut).toHaveBeenCalledWith(
+    expect(appStateMock.appStateCompareAndSet).toHaveBeenCalledWith(
       "owner@example.com",
       `flush-request-${bundle.mdx.documentId}`,
+      null,
       expect.objectContaining({ id: bundle.mdx.documentId }),
       { requestSource: "agent" },
     );
