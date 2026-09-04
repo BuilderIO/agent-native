@@ -100,17 +100,17 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
 const { BACKGROUND_RUN_HARD_TIMEOUT_MS, runBackgroundAutomation } =
   await import("./background-automation-runner.js");
 
-function abortReasonOf(runId: string): string | null {
-  const row = pglite
+async function abortReasonOf(runId: string): Promise<string | null> {
+  const row = (await pglite
     .prepare(`SELECT abort_reason FROM agent_runs WHERE id = ?`)
-    .get(runId) as { abort_reason: string | null } | undefined;
+    .get(runId)) as { abort_reason: string | null } | undefined;
   return row?.abort_reason ?? null;
 }
 
-function dispatchModeOf(runId: string): string | null {
-  const row = pglite
+async function dispatchModeOf(runId: string): Promise<string | null> {
+  const row = (await pglite
     .prepare(`SELECT dispatch_mode FROM agent_runs WHERE id = ?`)
-    .get(runId) as { dispatch_mode: string | null } | undefined;
+    .get(runId)) as { dispatch_mode: string | null } | undefined;
   return row?.dispatch_mode ?? null;
 }
 
@@ -152,7 +152,7 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       },
     );
 
-    expect(dispatchModeOf(runId)).toBe("background-processing");
+    await expect(dispatchModeOf(runId)).resolves.toBe("background-processing");
   });
 
   // Without `backgroundFunction`, scheduled work inherits the interactive
@@ -602,13 +602,13 @@ describe("runBackgroundAutomation — thread transcript", () => {
       // see, so finalization fell through to `aborted:user` and a hard timeout
       // was filed as a person pressing Stop — in the analytics that exist to
       // tell the two apart.
-      const hardTimedOutRunId = pglite
+      const hardTimedOutRunId = (await pglite
         .prepare(
           `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
         )
-        .get() as { id: string } | undefined;
+        .get()) as { id: string } | undefined;
       expect(hardTimedOutRunId?.id).toBeTruthy();
-      expect(abortReasonOf(hardTimedOutRunId!.id)).toBe(
+      await expect(abortReasonOf(hardTimedOutRunId!.id)).resolves.toBe(
         "background_automation_hard_timeout",
       );
       expect(updateThreadDataMock).toHaveBeenCalled();

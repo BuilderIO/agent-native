@@ -8,6 +8,7 @@ const listOAuthAccountsByOwner = vi.fn();
 const saveOAuthTokens = vi.fn();
 const deleteOAuthTokens = vi.fn();
 const resolveWorkspaceConnectionForApp = vi.fn();
+const resolveWorkspaceConnectionCredentialForApp = vi.fn();
 const resolveSecret = vi.fn();
 const writeWorkspaceFile = vi.fn();
 
@@ -32,6 +33,13 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
     typeof import("../workspace-connections/store.js")
   >()),
   resolveWorkspaceConnectionForApp,
+}));
+
+vi.mock("../workspace-connections/credentials.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../workspace-connections/credentials.js")
+  >()),
+  resolveWorkspaceConnectionCredentialForApp,
 }));
 
 vi.mock("../server/credential-provider.js", () => ({ resolveSecret }));
@@ -84,6 +92,12 @@ describe("provider API runtime", () => {
     saveOAuthTokens.mockReset();
     deleteOAuthTokens.mockReset();
     resolveWorkspaceConnectionForApp.mockReset();
+    resolveWorkspaceConnectionCredentialForApp.mockReset();
+    resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
+      available: false,
+      value: undefined,
+      provenance: null,
+    });
     resolveSecret.mockReset();
     resolveSecret.mockResolvedValue(null);
     writeWorkspaceFile.mockReset();
