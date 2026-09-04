@@ -527,16 +527,21 @@ export function appendCanvasPrimitiveToHtml(
         element.style.alignItems = "flex-start";
       }
       // "currentColor" inherits the unstyled document's black body text, so
-      // it is invisible on any dark surface. Measure the frame the text lands
-      // in; the board's own document is transparent, so its colour arrives
-      // from the host instead of a measurement.
-      const surfaceIsLight =
-        destinationBackgroundLightness(hostOrBody) ??
-        (options?.isBoardTarget
+      // it is invisible on any dark surface. The board renderer forces its own
+      // document transparent, so a colour on that body is never painted and
+      // measuring it would judge a surface nobody sees — a frame inside the
+      // board still can be. The canvas behind it arrives from the host.
+      const boardSurfaceIsLight =
+        options?.isBoardTarget === true
           ? resolveDestinationBackgroundLightnessOrNull([
               { color: options.boardBackground ?? null },
             ])
-          : null);
+          : null;
+      const measuredIsLight =
+        options?.isBoardTarget === true && hostOrBody === doc.body
+          ? null
+          : destinationBackgroundLightness(hostOrBody);
+      const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
       const autoTextNeedsLightFill =
         surfaceIsLight === null
           ? options?.isBoardTarget === true

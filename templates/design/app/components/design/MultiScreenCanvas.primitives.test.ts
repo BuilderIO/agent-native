@@ -2030,6 +2030,27 @@ describe("getOutsideFrameDraftFallback", () => {
   });
 });
 
+describe("board render style tracks the editor scheme", () => {
+  const boardHtml =
+    '<!doctype html><html><head></head><body><div data-agent-native-node-id="a"></div></body></html>';
+
+  it("replaces a stale scheme instead of trusting the marker", () => {
+    const dark = getBoardSurfaceRenderContent(boardHtml, true);
+    expect(dark).toContain("color-scheme:dark");
+
+    const relit = getBoardSurfaceRenderContent(dark, false);
+    expect(relit).not.toContain("color-scheme:dark");
+    expect(
+      (relit.match(/data-agent-native-board-surface-render/g) ?? []).length,
+    ).toBe(1);
+  });
+
+  it("leaves a document already rendered for this scheme alone", () => {
+    const dark = getBoardSurfaceRenderContent(boardHtml, true);
+    expect(getBoardSurfaceRenderContent(dark, true)).toBe(dark);
+  });
+});
+
 describe("board surface preview paints no colour of its own", () => {
   const preview = () =>
     getBoardSurfaceStaticPreviewContent({

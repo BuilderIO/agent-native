@@ -265,11 +265,17 @@ function getCurrentLayerParentNodeId(
 
 export function getBoardSurfaceRenderContent(html: string, darkScheme = false) {
   if (!html) return html;
-  const renderHtml = markAccidentalBoardBackdropCandidates(html);
-  if (renderHtml.includes("data-agent-native-board-surface-render")) {
-    return renderHtml;
-  }
+  const markedHtml = markAccidentalBoardBackdropCandidates(html);
   const BOARD_SURFACE_RENDER_STYLE = boardSurfaceRenderStyle(darkScheme);
+  if (markedHtml.includes(BOARD_SURFACE_RENDER_STYLE)) {
+    return markedHtml;
+  }
+  // A block from the other scheme is stale, not already-rendered: leaving it
+  // would pin the frame to the theme it was first rendered under.
+  const renderHtml = markedHtml.replace(
+    /<style data-agent-native-board-surface-render>[\s\S]*?<\/style>/i, // i18n-ignore render-style matcher, not visible UI copy
+    "",
+  );
   if (/<\/head>/i.test(html)) {
     return renderHtml.replace(
       /<\/head>/i,
