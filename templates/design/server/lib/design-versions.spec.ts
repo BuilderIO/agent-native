@@ -137,6 +137,7 @@ import {
   createDesignVersionSnapshot,
   parseDesignVersionSnapshot,
   readDesignVersionSnapshot,
+  snapshotDesignBeforeAgentEdit,
 } from "./design-versions.js";
 
 beforeEach(() => {
@@ -328,6 +329,28 @@ describe("createDesignVersionSnapshot", () => {
 
     expect(changed.id).not.toBe(first.id);
     expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("keeps a new chat turn's pre-edit checkpoint when state is unchanged", async () => {
+    await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+    const context = {
+      caller: "tool" as const,
+      threadId: "thread-1",
+      turnId: "turn-1",
+      actionName: "edit-design",
+    };
+
+    const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", context);
+    const retry = await snapshotDesignBeforeAgentEdit("design-1", context);
+
+    expect(checkpoint?.id).not.toBe(captureMocks.revisions[0]?.id);
+    expect(retry).toEqual(checkpoint);
+    expect(captureMocks.revisions).toHaveLength(2);
+    expect(captureMocks.revisions[1]?.chatContext).toContain(
+      '"turnId":"turn-1"',
+    );
   });
 
   it("cleans up a large blob when a duplicate insert loses the race", async () => {

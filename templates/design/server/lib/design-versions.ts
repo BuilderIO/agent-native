@@ -525,6 +525,7 @@ async function captureDesignVersion(
       snapshot: schema.designVersions.snapshot,
       createdAt: schema.designVersions.createdAt,
       label: schema.designVersions.label,
+      chatContext: schema.designVersions.chatContext,
     })
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
@@ -536,6 +537,17 @@ async function captureDesignVersion(
     .limit(1);
   const createdAt = nextRevisionTimestamp(latest?.createdAt);
   if (latest) {
+    const currentChatContextKey = chatContextKey(options.chatContext);
+    let chatContextCompatible = !currentChatContextKey;
+    if (currentChatContextKey) {
+      try {
+        chatContextCompatible =
+          chatContextKey(parseStoredChatContext(latest.chatContext)) ===
+          currentChatContextKey;
+      } catch {
+        chatContextCompatible = false;
+      }
+    }
     try {
       const previous = await readDesignVersionSnapshot(
         latest.snapshot,
@@ -552,7 +564,10 @@ async function captureDesignVersion(
         appliedTweaks: previous.appliedTweaks,
         resolvedCssVars: previous.resolvedCssVars,
       };
-      if (stableStringify(previousState) === stableStringify(currentState)) {
+      if (
+        chatContextCompatible &&
+        stableStringify(previousState) === stableStringify(currentState)
+      ) {
         return {
           id: latest.id,
           createdAt: latest.createdAt ?? createdAt,
@@ -569,6 +584,7 @@ async function captureDesignVersion(
       stableStringify({
         designId,
         previousVersionId: latest?.id ?? "initial",
+        chatContextKey: chatContextKey(options.chatContext),
         state: currentState,
       }),
     )
