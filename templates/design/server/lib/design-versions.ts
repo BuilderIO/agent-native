@@ -16,7 +16,7 @@ import {
 } from "@agent-native/core/private-blob";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
@@ -96,6 +96,13 @@ function stableStringify(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
     .join(",")}}`;
+}
+
+function nextRevisionTimestamp(previous: string | null | undefined): string {
+  const previousMs = previous ? Date.parse(previous) : Number.NaN;
+  return new Date(
+    Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0),
+  ).toISOString();
 }
 
 function parseDesignData(designId: string, value: unknown): string {
@@ -480,7 +487,6 @@ async function captureDesignVersion(
   };
   const designData = parseDesignData(designId, design.data);
   const liveSnapshot = await buildDesignSnapshot(designId, designData);
-  const createdAt = new Date().toISOString();
   const designTitle = typeof design.title === "string" ? design.title : "";
   const designDescription =
     typeof design.description === "string" || design.description === null
@@ -522,10 +528,11 @@ async function captureDesignVersion(
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
     .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
       desc(schema.designVersions.createdAt),
-      desc(schema.designVersions.id),
     )
     .limit(1);
+  const createdAt = nextRevisionTimestamp(latest?.createdAt);
   if (latest) {
     try {
       const previous = await readDesignVersionSnapshot(
@@ -698,8 +705,8 @@ export async function snapshotDesignBeforeAgentEdit(
       .from(schema.designVersions)
       .where(eq(schema.designVersions.designId, designId))
       .orderBy(
+        asc(isNull(schema.designVersions.createdAt)),
         desc(schema.designVersions.createdAt),
-        desc(schema.designVersions.id),
       )
       .limit(CHAT_VERSION_LOOKBACK);
 
@@ -760,8 +767,8 @@ export async function listDesignVersions(
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
     .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
       desc(schema.designVersions.createdAt),
-      desc(schema.designVersions.id),
     )
     .limit(limit);
 

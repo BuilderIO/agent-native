@@ -331,8 +331,15 @@ vi.mock("../db/index.js", () => {
       },
     }),
     update: (table: unknown) => ({
-      set: (values: Partial<DashboardRow>) => ({
+      set: (values: Record<string, unknown>) => ({
         where: async (predicate: unknown) => {
+          if (table === schema.analyses) {
+            if (!matchesRow(predicate, state.analysis)) {
+              return { rowsAffected: 0 };
+            }
+            state.analysis = { ...state.analysis, ...values };
+            return { rowsAffected: 1 };
+          }
           if (table !== schema.dashboards) return { rowsAffected: 0 };
           state.updateAttempts += 1;
           if (state.alwaysLoseCas) {
@@ -463,6 +470,21 @@ describe("dashboards-store concurrency", () => {
 
     expect(saved.updatedAt).toBe("2026-07-09T00:00:00.000Z");
     expect(state.analysisRevisions).toEqual([]);
+  });
+
+  it("repairs malformed analysis JSON instead of trusting normalized fallbacks", async () => {
+    state.analysis.dataSources = "{malformed";
+    state.analysis.resultData = "{malformed";
+
+    await upsertAnalysis(
+      "analysis-1",
+      { dataSources: [], resultData: null },
+      ctx,
+      state.analysis.updatedAt,
+    );
+
+    expect(state.analysis.dataSources).toBe("[]");
+    expect(state.analysis.resultData).toBeNull();
   });
 
   it("coalesces an unchanged analysis autosave with the latest revision", async () => {

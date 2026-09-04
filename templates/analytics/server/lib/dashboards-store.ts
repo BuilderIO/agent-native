@@ -309,6 +309,13 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function nextRevisionTimestamp(previous: string | null | undefined): string {
+  const previousMs = previous ? Date.parse(previous) : Number.NaN;
+  return new Date(
+    Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0),
+  ).toISOString();
+}
+
 function revisionChatContextFromFields(value: {
   threadId?: unknown;
   runId?: unknown;
@@ -1501,10 +1508,7 @@ async function pruneDashboardRevisions(
     .select({ id: schema.dashboardRevisions.id })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(
-      desc(schema.dashboardRevisions.createdAt),
-      desc(schema.dashboardRevisions.id),
-    );
+    .orderBy(desc(schema.dashboardRevisions.createdAt));
   const stale = rows.slice(DASHBOARD_REVISION_LIMIT);
   for (const row of stale) {
     await db
@@ -1526,13 +1530,11 @@ async function snapshotDashboardRevision(
       title: schema.dashboardRevisions.title,
       config: schema.dashboardRevisions.config,
       id: schema.dashboardRevisions.id,
+      createdAt: schema.dashboardRevisions.createdAt,
     })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboard.id))
-    .orderBy(
-      desc(schema.dashboardRevisions.createdAt),
-      desc(schema.dashboardRevisions.id),
-    )
+    .orderBy(desc(schema.dashboardRevisions.createdAt))
     .limit(1);
   if (
     latest?.kind === dashboard.kind &&
@@ -1554,7 +1556,7 @@ async function snapshotDashboardRevision(
       kind: dashboard.kind,
       title: dashboard.title,
       config,
-      createdAt: nowIso(),
+      createdAt: nextRevisionTimestamp(latest?.createdAt),
       createdBy: ctx.email,
       ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
       ownerEmail: dashboard.ownerEmail,
@@ -1904,10 +1906,7 @@ export async function listDashboardRevisions(
     .select()
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(
-      desc(schema.dashboardRevisions.createdAt),
-      desc(schema.dashboardRevisions.id),
-    )
+    .orderBy(desc(schema.dashboardRevisions.createdAt))
     .limit(DASHBOARD_REVISION_LIMIT);
   return rows.map(rowToDashboardRevision);
 }
@@ -1935,10 +1934,7 @@ export async function listDashboardRevisionMetadata(
     })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
-    .orderBy(
-      desc(schema.dashboardRevisions.createdAt),
-      desc(schema.dashboardRevisions.id),
-    )
+    .orderBy(desc(schema.dashboardRevisions.createdAt))
     .limit(DASHBOARD_REVISION_LIMIT);
   return rows.map(rowToDashboardRevisionMetadata);
 }
@@ -2562,10 +2558,7 @@ async function pruneAnalysisRevisions(
     .select({ id: schema.analysisRevisions.id })
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(
-      desc(schema.analysisRevisions.createdAt),
-      desc(schema.analysisRevisions.id),
-    );
+    .orderBy(desc(schema.analysisRevisions.createdAt));
   const stale = rows.slice(ANALYSIS_REVISION_LIMIT);
   for (const row of stale) {
     await db
@@ -2594,13 +2587,11 @@ async function snapshotAnalysisRevision(
       dataSources: schema.analysisRevisions.dataSources,
       resultMarkdown: schema.analysisRevisions.resultMarkdown,
       resultData: schema.analysisRevisions.resultData,
+      createdAt: schema.analysisRevisions.createdAt,
     })
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysis.id))
-    .orderBy(
-      desc(schema.analysisRevisions.createdAt),
-      desc(schema.analysisRevisions.id),
-    )
+    .orderBy(desc(schema.analysisRevisions.createdAt))
     .limit(1);
   if (
     latest?.name === analysis.name &&
@@ -2634,7 +2625,7 @@ async function snapshotAnalysisRevision(
       dataSources,
       resultMarkdown: analysis.resultMarkdown,
       resultData,
-      createdAt: nowIso(),
+      createdAt: nextRevisionTimestamp(latest?.createdAt),
       createdBy: ctx.email,
       ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
       ownerEmail: analysis.ownerEmail,
@@ -2708,6 +2699,19 @@ export async function upsertAnalysis(
       userEmail: ctx.email,
       orgId: ctx.orgId ?? undefined,
     });
+    let storedJson:
+      | { dataSources: string; resultData: string | null }
+      | undefined;
+    if (body.dataSources !== undefined || body.resultData !== undefined) {
+      [storedJson] = await db
+        .select({
+          dataSources: schema.analyses.dataSources,
+          resultData: schema.analyses.resultData,
+        })
+        .from(schema.analyses)
+        .where(eq(schema.analyses.id, id))
+        .limit(1);
+    }
     const patch: Record<string, unknown> = { updatedAt: nowIso() };
     if (body.name !== undefined) patch.name = body.name;
     if (body.description !== undefined) patch.description = body.description;
@@ -2742,10 +2746,17 @@ export async function upsertAnalysis(
       next.description !== existing.description ||
       next.question !== existing.question ||
       next.instructions !== existing.instructions ||
-      stableStringify(next.dataSources) !==
-        stableStringify(existing.dataSources) ||
+      (body.dataSources !== undefined &&
+        (!storedJson ||
+          comparableJson(storedJson.dataSources) !==
+            stableStringify(body.dataSources))) ||
       next.resultMarkdown !== existing.resultMarkdown ||
-      stableStringify(next.resultData) !== stableStringify(existing.resultData);
+      (body.resultData !== undefined &&
+        (!storedJson ||
+          comparableJson(storedJson.resultData) !==
+            (body.resultData === null
+              ? null
+              : stableStringify(body.resultData))));
     if (!changed) return existing;
     if (expectedUpdatedAt !== undefined) {
       // Fenced write. Snapshot the revision only after we know this exact
@@ -2902,10 +2913,7 @@ export async function listAnalysisRevisions(
     .select()
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(
-      desc(schema.analysisRevisions.createdAt),
-      desc(schema.analysisRevisions.id),
-    )
+    .orderBy(desc(schema.analysisRevisions.createdAt))
     .limit(ANALYSIS_REVISION_LIMIT);
   return rows.map(rowToAnalysisRevision);
 }
@@ -2933,10 +2941,7 @@ export async function listAnalysisRevisionMetadata(
     })
     .from(schema.analysisRevisions)
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
-    .orderBy(
-      desc(schema.analysisRevisions.createdAt),
-      desc(schema.analysisRevisions.id),
-    )
+    .orderBy(desc(schema.analysisRevisions.createdAt))
     .limit(ANALYSIS_REVISION_LIMIT);
   return rows.map(rowToAnalysisRevisionMetadata);
 }

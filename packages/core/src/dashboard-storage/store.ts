@@ -122,6 +122,13 @@ function comparableJson(raw: string): string {
   }
 }
 
+function nextRevisionTimestamp(previous: string | null | undefined): string {
+  const previousMs = previous ? Date.parse(previous) : Number.NaN;
+  return new Date(
+    Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0),
+  ).toISOString();
+}
+
 function revisionId(
   dashboardId: string,
   previousRevisionId: string | undefined,
@@ -294,7 +301,7 @@ export function createDashboardStorage<
       .select({ id: dashboardRevisions.id })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, dashboardId))
-      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id));
+      .orderBy(desc(dashboardRevisions.createdAt));
     const staleIds = rows
       .slice(maxRevisions)
       .map((row: { id: string }) => row.id);
@@ -319,10 +326,11 @@ export function createDashboardStorage<
         kind: dashboardRevisions.kind,
         title: dashboardRevisions.title,
         config: dashboardRevisions.config,
+        createdAt: dashboardRevisions.createdAt,
       })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, dashboard.id))
-      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
+      .orderBy(desc(dashboardRevisions.createdAt))
       .limit(1);
     if (
       latest?.kind === dashboard.kind &&
@@ -346,7 +354,7 @@ export function createDashboardStorage<
         kind: dashboard.kind,
         title: dashboard.title,
         config,
-        createdAt: new Date().toISOString(),
+        createdAt: nextRevisionTimestamp(latest?.createdAt),
         createdBy: writer,
         ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
         ownerEmail: dashboard.ownerEmail,
@@ -438,7 +446,7 @@ export function createDashboardStorage<
       .select()
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, id))
-      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
+      .orderBy(desc(dashboardRevisions.createdAt))
       .limit(maxRevisions);
     return rows.map(revisionFromRow);
   }
@@ -460,7 +468,7 @@ export function createDashboardStorage<
       })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, id))
-      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
+      .orderBy(desc(dashboardRevisions.createdAt))
       .limit(maxRevisions);
     return rows.map(revisionMetadataFromRow);
   }
