@@ -464,6 +464,108 @@ describe("code-layer projection", () => {
   });
 });
 
+describe("code layer projection of a drawn vector", () => {
+  const html =
+    `<body><svg data-agent-native-node-id="pen-1" data-an-primitive="path" ` +
+    `style="position:absolute;left:10px;top:10px;background-color:#782323;border-width:1px">` +
+    `<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none" stroke-width="2"/></svg></body>`;
+
+  function vectorNode() {
+    const projection = buildCodeLayerProjection(html);
+    const node = projection.nodes.find(
+      (candidate) => candidate.dataAttributes["data-an-primitive"] === "path",
+    );
+    if (!node) throw new Error("vector node missing from projection");
+    return node;
+  }
+
+  it("carries the shape child's paint on the addressable wrapper node", () => {
+    // The child is skipped by hasSvgAncestor and has no node id, so a reader
+    // that only sees the wrapper would report a shape with no fill at all.
+    expect(vectorNode().style).toMatchObject({
+      fill: "rgb(218 218 218)",
+      stroke: "none",
+      "stroke-width": "2",
+    });
+  });
+
+  it("keeps data-an-primitive so a projection-only selection stays a vector", () => {
+    expect(vectorNode().dataAttributes["data-an-primitive"]).toBe("path");
+  });
+});
+
+describe("applyVisualEdit vector paint", () => {
+  const html =
+    `<body><svg data-agent-native-node-id="pen-1" data-an-primitive="path" ` +
+    `style="position:absolute;left:10px;top:10px;width:80px;height:60px">` +
+    `<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none"/></svg></body>`;
+
+  it("paints the shape child, not the svg bounding box", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#ff0000",
+    });
+
+    const path = patch.content.slice(patch.content.indexOf("<path"));
+
+    expect(patch.result.status).toBe("applied");
+    expect(path).toContain(`style="fill: #ff0000"`);
+    expect(
+      patch.content.slice(0, patch.content.indexOf("<path")),
+    ).not.toContain("fill");
+  });
+
+  it("wins over the child's own fill presentation attribute", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#0000ff",
+    });
+    const path = patch.content.slice(patch.content.indexOf("<path"));
+
+    // A presentation attribute loses to any CSS declaration on the same
+    // element, so the stale `stroke="none"` alongside it is inert.
+    expect(path).toContain(`style="stroke: #0000ff"`);
+    expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
+  });
+
+  it("clears box paint the wrapper should never have carried", () => {
+    const corrupted = html.replace(
+      'style="position:absolute',
+      'style="background-color:#782323;border-width:1px;position:absolute',
+    );
+    const patch = applyVisualEdit(corrupted, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#ff0000",
+    });
+    const wrapper = patch.content.slice(0, patch.content.indexOf("<path"));
+
+    expect(wrapper).not.toContain("background-color");
+    expect(wrapper).not.toContain("border-width");
+    expect(wrapper).toMatch(/position:\s*absolute/);
+  });
+
+  it("leaves geometry edits on the svg wrapper", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "left",
+      value: "40px",
+    });
+
+    expect(patch.content).toContain("left: 40px");
+    expect(patch.content).toContain(`<path d="M 0 0 L 80 60 Z"`);
+    expect(patch.content.slice(patch.content.indexOf("<path"))).not.toContain(
+      "left: 40px",
+    );
+  });
+});
+
 describe("applyVisualEdit", () => {
   it("applies safe inline style edits to a targeted node", () => {
     const html = `<div><button data-testid="cta" style="color: red">Buy</button></div>`;

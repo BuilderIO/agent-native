@@ -24,7 +24,7 @@ const STAMPED_BODY_HTML = `<!DOCTYPE html>
 const sectionTitle = (name: string) =>
   `h3.design-sidebar-section-title:text-is("${name}")`;
 
-test("a screen and its document are one object", async ({ page }) => {
+test("a screen and its document are one object", async ({ page }, testInfo) => {
   const designId = await readSeedDesignId();
   const design = await (
     await page.request.get(
@@ -45,7 +45,7 @@ test("a screen and its document are one object", async ({ page }) => {
 
   const rows = page.locator('[role="treeitem"] [data-layer-row-button]');
   await expect(rows.first()).toBeVisible();
-  await cdpScreenshot(page, "../../.tmp/merged-tree.png");
+  await cdpScreenshot(page, testInfo.outputPath("merged-tree.png"));
   const names = await rows.allInnerTexts();
   const context = `layer rows were: ${JSON.stringify(names)}`;
   expect(
@@ -64,5 +64,5 @@ test("a screen and its document are one object", async ({ page }) => {
   await expect(page.locator(sectionTitle("Stroke"))).toBeVisible();
   await expect(page.locator(sectionTitle("Effects"))).toBeVisible();
   await expect(page.getByText("0F1115").first()).toBeVisible();
-  await cdpScreenshot(page, "../../.tmp/merged-inspector.png");
+  await cdpScreenshot(page, testInfo.outputPath("merged-inspector.png"));
 });
