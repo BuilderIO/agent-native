@@ -10,6 +10,7 @@ import { recordChange } from "@agent-native/core/server";
 import { listOrgSettings } from "@agent-native/core/settings";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
+import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 
 const migrationExtensions = table("tools", {
@@ -281,19 +282,22 @@ async function readMigrationState(
     analysisRows.map((row: { id: string }) => row.id),
   );
 
-  const dashboards: DashboardSource[] = dashboardRows.map((row: any) => ({
-    id: row.id,
-    kind: row.kind,
-    title: row.title,
-    config: parseJson(row.config),
-    ownerEmail: row.ownerEmail,
-    orgId: row.orgId,
-    visibility: row.visibility,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    archivedAt: row.archivedAt ?? null,
-    hiddenAt: row.hiddenAt ?? null,
-  }));
+  const dashboards: DashboardSource[] = dashboardRows.map((row: any) => {
+    const config = parseJson(row.config);
+    return {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      config: row.kind === "sql" ? normalizeDashboardConfig(config) : config,
+      ownerEmail: row.ownerEmail,
+      orgId: row.orgId,
+      visibility: row.visibility,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      archivedAt: row.archivedAt ?? null,
+      hiddenAt: row.hiddenAt ?? null,
+    };
+  });
 
   for (const row of legacyDashboards.rows) {
     if (materializedDashboardIds.has(row.id)) continue;
@@ -301,7 +305,8 @@ async function readMigrationState(
       id: row.id,
       kind: row.kind,
       title: dashboardTitle(row.data),
-      config: row.data,
+      config:
+        row.kind === "sql" ? normalizeDashboardConfig(row.data) : row.data,
       ownerEmail: ctx.userEmail,
       orgId: ctx.orgId,
       visibility: "org",

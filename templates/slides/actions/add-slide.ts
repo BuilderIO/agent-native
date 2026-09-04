@@ -22,6 +22,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
@@ -30,6 +31,7 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { getDeckUrl } from "./_app-url.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -188,7 +190,7 @@ export default defineAction({
       height: 680,
     }),
   },
-  http: false,
+  http: { method: "POST" },
   run: async (
     {
       deckId,
@@ -478,7 +480,12 @@ export default defineAction({
 
       // Broadcast to any open editors so the new slide appears immediately.
       // Include the new slideId + agent actor (backwards-compatible payload).
-      notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
+      const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+      notifyClients(deckId, {
+        slideId: newSlideId,
+        actor: "agent",
+        ...(agentChangeId ? { agentChangeId } : {}),
+      });
 
       const base = {
         deckId,
@@ -486,6 +493,7 @@ export default defineAction({
         slideNumber: insertIndex + 1,
         position: insertIndex,
         slideCount: slides.length,
+        appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
         contextMode,
         contextPackId: recordedPackId,

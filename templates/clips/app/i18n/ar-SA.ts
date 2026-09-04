@@ -722,6 +722,7 @@ const messages = {
     transcriptCleanupDescription:
       "اعرض النص الأصلي فورًا، ثم نظفه في الخلفية عند توفره.",
     notifications: "الإشعارات",
+    monthlyRecap: "الملخص الشهري",
     sharing: "المشاركة",
     defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
     defaultVisibilityDescription:
@@ -731,7 +732,7 @@ const messages = {
     visibilityPublic: "عام - أي شخص لديه الرابط",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
-      "احصل على بريد إلكتروني عندما يعلّق شخص على تسجيلك أو يتفاعل معه.",
+      "اختر إشعارات البريد الإلكتروني الاختيارية من Clips التي تريد تلقيها.",
     saved: "تم حفظ الإعدادات",
     saveFailed: "فشل الحفظ",
     builderConnectedToast: "تم اتصال Builder.io",

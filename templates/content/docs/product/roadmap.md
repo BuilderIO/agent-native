@@ -798,7 +798,7 @@ Export the complete authorized vault into open, understandable formats and a los
 
 **Required capability records:** [Portable vault export](capabilities/content.portability.vault-export.md), [Faithful round-tripping](capabilities/content.portability.roundtrip.md), [Durable Content jobs](capabilities/content.job.durable.md)
 
-**Enhancing capability records:** [PDF export](capabilities/content.portability.pdf-export.md), [Local Source bridge](capabilities/content.source.local-bridge.md)
+**Enhancing capability records:** [Bounded collection export](capabilities/content.portability.collection-export.md), [PDF export](capabilities/content.portability.pdf-export.md), [Local Source bridge](capabilities/content.source.local-bridge.md)
 
 ### Feature 30: Move without starting over
 

@@ -945,6 +945,25 @@ const jaJP = {
       s060: "キャプチャする内容を選択して、Clips で録画を開始します。",
       s061: "その他のアプリを見る",
       s062: "すべてのテンプレートを表示",
+      faq: {
+        question1: "Clips は無料ですか？",
+        answer1: "はい。Clips は無料のオープンソースです。",
+        question2: "AI は画面録画を読み取れますか？",
+        answer2:
+          "はい。すべてのクリップにはトランスクリプト、要約、タイムスタンプ付きフレームが含まれており、エージェントが直接読み取れます。",
+        question3: "Clips は Loom とどう違いますか？",
+        answer3:
+          "Clips はオープンソースで、データはあなたが所有します。共有リンクは人だけでなく AI エージェントも読み取れます。",
+        question4: "画面録画でコンソールエラーを取得できますか？",
+        answer4:
+          "はい。Clips は録画と一緒にブラウザーのコンソールエラーと失敗したネットワークリクエストを取得します。トランスクリプトやフレームと同じ共有リンクに添付されるため、エージェントはクリップを視聴するだけでなく、そこからデバッグできます。",
+        question5: "Clips は Claude、ChatGPT、Cursor で使えますか？",
+        answer5:
+          "はい。プラグインも API キーも必要ありません。Clips の共有リンクを任意のエージェントに貼り付けるだけで、トランスクリプト、要約、フレームを直接読み取れます。",
+        question6: "録画データはどこに保存されますか？",
+        answer6:
+          "デプロイ先に保存されます。セルフホストの Clips なら、動画、トランスクリプト、分析データを自分のインフラストラクチャで管理できます。",
+      },
       quickStart: {
         recordingMode: "録画モード",
         modeScreenCamera: "画面 + カメラ",
@@ -2090,15 +2109,13 @@ const jaJP = {
     databaseProviders: "データベースプロバイダー",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "国際化",
     localFileMode: "ローカルファイルモード",
     fileUploads: "ファイルアップロード",
     deployment: "デプロイ",
     deploymentOverview: "概要",
-    deploymentProviders: "プロバイダー",
+    deploymentProviders: "ホスティングプロバイダー",
     deploymentProduction: "本番環境と高度な設定",
     deployAnApp: "アプリをデプロイ",
     workspaceDeployment: "ワークスペースのデプロイ",

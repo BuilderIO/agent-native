@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Slide } from "@/context/DeckContext";
 
 const sortableKeyDown = vi.hoisted(() => vi.fn());
+const scrollIntoView = vi.fn();
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -65,14 +66,56 @@ vi.stubGlobal(
   vi.fn(() => Promise.resolve({})),
 );
 
+Element.prototype.scrollIntoView = scrollIntoView;
+
 import EditorSidebar, { getSlideSelection } from "./EditorSidebar";
 
 afterEach(() => {
   cleanup();
   sortableKeyDown.mockClear();
+  scrollIntoView.mockClear();
 });
 
 describe("EditorSidebar thumbnail scroll cue", () => {
+  it("scrolls an opened slide thumbnail into view", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+    ];
+    const { container, rerender } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    scrollIntoView.mockClear();
+    rerender(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-3"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(
+      container.querySelector('[data-slide-thumbnail-id="slide-3"]'),
+    );
+  });
+
   it("only marks the thumbnail pane as scrolled after it leaves the top", () => {
     const slide: Slide = {
       id: "slide-1",

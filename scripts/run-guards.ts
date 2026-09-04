@@ -7,6 +7,7 @@ const guards = [
   "guard:hooks-registered",
   "guard:agent-native-brand",
   "guard:no-drizzle-push",
+  "guard:mcp-registry",
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",

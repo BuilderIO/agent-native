@@ -964,6 +964,26 @@ const frFR = {
       s060: "Choisissez ce que vous souhaitez capturer, puis commencez à enregistrer dans Clips.",
       s061: "Voir plus d’applications",
       s062: "Afficher tous les modèles",
+      faq: {
+        question1: "Clips est-il gratuit ?",
+        answer1: "Oui. Clips est gratuit et open source.",
+        question2: "L’IA peut-elle lire un enregistrement d’écran ?",
+        answer2:
+          "Oui. Chaque clip contient une transcription, un résumé et des images horodatées qu’un agent peut lire directement.",
+        question3: "En quoi Clips est-il différent de Loom ?",
+        answer3:
+          "Clips est open source, vous possédez vos données et chaque lien partagé peut être lu par des agents IA, pas seulement par des personnes.",
+        question4:
+          "Un enregistrement d’écran peut-il capturer les erreurs de la console ?",
+        answer4:
+          "Oui. Clips capture les erreurs de la console du navigateur et les requêtes réseau échouées avec l’enregistrement. Elles sont jointes au même lien partagé que la transcription et les images. Un agent peut déboguer à partir d’un clip, pas seulement le regarder.",
+        question5: "Clips fonctionne-t-il avec Claude, ChatGPT ou Cursor ?",
+        answer5:
+          "Oui ! Aucun plugin ni clé API n’est nécessaire. Collez un lien Clips partagé dans n’importe quel agent pour qu’il lise directement la transcription, le résumé et les images.",
+        question6: "Où sont stockés mes enregistrements ?",
+        answer6:
+          "Là où vous les déployez. Clips auto-hébergé conserve vos vidéos, transcriptions et analyses dans votre propre infrastructure.",
+      },
       quickStart: {
         recordingMode: "Mode d’enregistrement",
         modeScreenCamera: "Écran + caméra",
@@ -2099,15 +2119,13 @@ const frFR = {
     databaseProviders: "Fournisseurs de bases de données",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
-    databaseTurso: "libSQL / Turso",
-    databaseD1: "Cloudflare D1",
     databasePostgres: "Plain Postgres",
     internationalization: "Internationalisation",
     localFileMode: "Mode fichiers locaux",
     fileUploads: "Téléversements",
     deployment: "Déploiement",
     deploymentOverview: "Vue d’ensemble",
-    deploymentProviders: "Fournisseurs",
+    deploymentProviders: "Fournisseurs d’hébergement",
     deploymentProduction: "Production et avancé",
     deployAnApp: "Déployer une application",
     workspaceDeployment: "Déploiement du Workspace",

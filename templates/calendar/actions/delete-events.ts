@@ -18,6 +18,7 @@ import {
   isBookedOnAccount,
   mapWithConcurrency,
   normalizeGoogleEventId,
+  rawCliBoolean,
   requireActionUserEmail,
   requireExplicitBound,
   resolveOwnedAccountEmail,
@@ -134,6 +135,11 @@ export default defineAction({
       .describe("Return the matched events without deleting anything"),
   }),
   toolCallable: false,
+  // A dry run only reports, so it stays unblocked and remains the cheap way for
+  // the agent to show its match set. Committing the delete is the one calendar
+  // write no preview can undo, so a human approves the exact call. Absent
+  // dryRun means a real delete, which is why the predicate fails closed.
+  needsApproval: ({ dryRun }) => !rawCliBoolean(dryRun),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {

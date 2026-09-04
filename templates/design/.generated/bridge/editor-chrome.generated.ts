@@ -1972,7 +1972,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         },
         parentBoundingRect: el.parentElement ? rectInfoForElement(el.parentElement) : void 0,
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
+        textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
         htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4e3) : void 0,
+        htmlContentTruncated: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.length > 4e3 : void 0,
         childElementCount: el.children ? el.children.length : 0,
         isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
         isGridContainer: cs.display === "grid" || cs.display === "inline-grid",
@@ -2010,6 +2012,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           height: rect.height
         },
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
+        textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
         childElementCount: el.children ? el.children.length : 0,
         isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
         isGridContainer: cs.display === "grid" || cs.display === "inline-grid",

@@ -28,7 +28,6 @@ export interface AuthMarketingProps {
   screenshotWidth?: number;
   screenshotHeight?: number;
   learnMoreUrl?: string;
-  learnMorePlacement?: "top-right" | "bottom-right";
 }
 
 export interface AuthLocaleOption {
@@ -838,6 +837,10 @@ export function AuthPage(props: AuthPageProps) {
     }
     if (authMode === "magic-link") {
       setView("magicLink");
+      return;
+    }
+    if (params.get("c")) {
+      setView("login");
       return;
     }
     const storedTab = readStorage(TAB_STORAGE_KEY);
@@ -2662,9 +2665,6 @@ export function AuthPage(props: AuthPageProps) {
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
-        marketingCopy.learnMorePlacement === "bottom-right"
-          ? "has-bottom-right-learn-more"
-          : "",
       ]
         .filter(Boolean)
         .join(" ")}

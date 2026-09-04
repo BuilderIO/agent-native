@@ -712,6 +712,7 @@ const messages = {
     transcriptCleanupDescription:
       "नेटिव ट्रांसक्रिप्ट तुरंत दिखाएँ, फिर उपलब्ध होने पर बैकग्राउंड में साफ़ करें।",
     notifications: "सूचनाएँ",
+    monthlyRecap: "मासिक सारांश",
     sharing: "साझा करना",
     defaultVisibility: "नई रिकॉर्डिंग की डिफ़ॉल्ट दृश्यता",
     defaultVisibilityDescription:
@@ -721,7 +722,7 @@ const messages = {
     visibilityPublic: "सार्वजनिक - लिंक वाला कोई भी",
     emailNotifications: "ईमेल सूचनाएँ",
     emailNotificationsDescription:
-      "जब कोई आपकी रिकॉर्डिंग पर टिप्पणी करे या प्रतिक्रिया दे तो ईमेल पाएँ।",
+      "चुनें कि आप Clips की कौन-सी वैकल्पिक ईमेल सूचनाएं पाना चाहते हैं।",
     saved: "सेटिंग्स सहेजी गईं",
     saveFailed: "सहेजने में विफल",
     builderConnectedToast: "Builder.io कनेक्टेड",

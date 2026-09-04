@@ -5,6 +5,7 @@ import {
   assignCreatedByIfMissing,
   builderSlackUserIdSchema,
   factoryAutomationJobPrefix,
+  factoryAutomationJobPrefixes,
   factoryAutomationLeafName,
   factoryAutomationRunHistoryKey,
   factoryConfigRowId,
@@ -86,6 +87,16 @@ describe("readAutomationFactoryId", () => {
     ).toBe("enzo-test-factory-3");
   });
 
+  it("uses the nested folder for a custom-named job", () => {
+    expect(
+      readAutomationFactoryId(
+        {},
+        "---\nenabled: true\n---\n",
+        "jobs/factories/demo-factory/my-slack-watch.md",
+      ),
+    ).toBe("demo-factory");
+  });
+
   it("keeps frontmatter fallback for legacy flat paths", () => {
     expect(
       readAutomationFactoryId(
@@ -102,6 +113,16 @@ describe("factoryAutomationJobPrefix", () => {
     expect(factoryAutomationJobPrefix("enzo-test-factory-3")).toBe(
       "jobs/factories/enzo-test-factory-3/",
     );
+  });
+
+  it("lists nested factories by folder and default jobs by factory- prefix", () => {
+    expect(factoryAutomationJobPrefixes("demo-factory")).toEqual([
+      "jobs/factories/demo-factory/",
+    ]);
+    expect(factoryAutomationJobPrefixes("product-feedback")).toEqual([
+      "jobs/factory-",
+      "jobs/factories/product-feedback/",
+    ]);
   });
 });
 

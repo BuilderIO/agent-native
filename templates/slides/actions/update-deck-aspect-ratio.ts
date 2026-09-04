@@ -8,6 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
@@ -16,6 +17,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { isAgentPatchCaller } from "./patch-deck.js";
 
 export default defineAction({
   description:
@@ -35,6 +37,14 @@ export default defineAction({
       .limit(1);
     if (!rows.length) throw new Error(`Deck not found: ${deckId}`);
     const data = JSON.parse(rows[0].data);
+    if (data.aspectRatio === aspectRatio) {
+      if (isAgentPatchCaller(ctx?.caller)) {
+        throw new Error(
+          "Nothing was written: the requested aspect ratio is already set. Re-read with get-deck before retrying.",
+        );
+      }
+      return { id: deckId, aspectRatio, applied: false };
+    }
     data.aspectRatio = aspectRatio;
     const now = nextDeckRevision(rows[0].updatedAt);
     data.updatedAt = now;
@@ -58,7 +68,12 @@ export default defineAction({
         .where(deckRevisionWhere(schema.decks, deckId, rows[0].updatedAt));
       assertDeckWriteApplied(updateResult, deckId, "aspect ratio change");
     });
-    notifyClients(deckId);
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    if (agentChangeId) {
+      notifyClients(deckId, { agentChangeId });
+    } else {
+      notifyClients(deckId);
+    }
     await writeAppState("refresh-signal", {
       ts: now,
       source: "update-deck-aspect-ratio",

@@ -11,6 +11,7 @@ import {
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
   metadataUpdatesWithPendingTitle,
+  positionAnchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
   shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
@@ -22,6 +23,54 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("centers a compact comment card below its paragraph when space permits", () => {
+    expect(
+      positionAnchoredCommentCard({
+        anchorRect: { top: 100, bottom: 160, left: 100, right: 500 },
+        containerRect: {
+          top: 0,
+          bottom: 800,
+          left: 0,
+          right: 700,
+          width: 700,
+        },
+        cardHeight: 180,
+      }),
+    ).toEqual({ left: 140, top: 164, width: 320, placement: "below" });
+  });
+
+  it("flips a compact comment card above and clamps it within the viewport", () => {
+    expect(
+      positionAnchoredCommentCard({
+        anchorRect: { top: 620, bottom: 700, left: -50, right: 150 },
+        containerRect: {
+          top: 0,
+          bottom: 720,
+          left: 0,
+          right: 360,
+          width: 360,
+        },
+        cardHeight: 220,
+      }),
+    ).toEqual({ left: 16, top: 396, width: 320, placement: "above" });
+  });
+
+  it("uses the visible scroller as the compact card boundary", () => {
+    expect(
+      positionAnchoredCommentCard({
+        anchorRect: { top: 620, bottom: 700, left: 100, right: 500 },
+        containerRect: {
+          top: -300,
+          bottom: 1500,
+          left: 0,
+          right: 700,
+          width: 700,
+        },
+        boundaryRect: { top: 0, bottom: 720 },
+        cardHeight: 220,
+      }),
+    ).toEqual({ left: 140, top: 696, width: 320, placement: "above" });
+  });
   it("keeps a local-file editor mounted when its saved timestamp advances", () => {
     const key = (documentUpdatedAt: string) =>
       visualEditorInstanceKey({
@@ -96,6 +145,36 @@ describe("document editor layout", () => {
     expect(
       handler.indexOf("localContentRef.current = newContent"),
     ).toBeLessThan(handler.indexOf("debouncedSave("));
+  });
+
+  it("freezes body autosave until an overlapping reconcile conflict is explicitly resolved", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handler = source.slice(
+      source.indexOf("const handleContentChange"),
+      source.indexOf("const handleContentSaveNow"),
+    );
+    expect(handler).toContain("if (documentReconcileConflict)");
+    expect(handler).toContain(
+      "setDocumentReconcileConflict({ localDraft: newContent });",
+    );
+    expect(handler.indexOf("return;")).toBeLessThan(
+      handler.indexOf("debouncedSave("),
+    );
+    expect(source).toContain('{t("editor.keepLocalDraft")}');
+    expect(source).toContain(
+      "void handleContentSaveNow(localDraft, true).then(",
+    );
+    expect(source).toContain("handleContentSaveNow(result.content, true)");
+    expect(source).toContain("if (options.adoptCurrentServerBase)");
+    expect(source).toContain(
+      "if (persisted) setDocumentReconcileConflict(null)",
+    );
+    expect(source).toContain(
+      "else setDocumentReconcileConflict({ localDraft })",
+    );
   });
 
   it("waits for the first authoritative document fetch, then stays mounted", () => {
@@ -338,7 +417,7 @@ describe("document editor layout", () => {
     expect(source).toContain("return <DocumentEditorSkeleton />");
   });
 
-  it("keeps one selected utility rail inside the document scroll surface", () => {
+  it("keeps the contextual right rail inside the document scroll surface", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       {
@@ -347,8 +426,8 @@ describe("document editor layout", () => {
     );
 
     const scrollIndex = source.indexOf("data-document-print-scroll");
-    const contentIndex = source.indexOf("data-document-scroll-content");
-    const desktopPanelIndex = source.indexOf("{showDesktopUtilityPanel ? (");
+    const contentIndex = source.lastIndexOf("data-document-scroll-content");
+    const desktopPanelIndex = source.indexOf("{showDesktopRightRail ? (");
     const mobileSheetIndex = source.indexOf("<Sheet");
 
     expect(scrollIndex).toBeGreaterThan(-1);
@@ -360,7 +439,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain('utilityPanel === "info"');
     expect(source).toContain('setUtilityPanel("comments")');
-    expect(source).not.toContain("showDesktopComments");
+    expect(source).toContain("showInlineComments");
   });
 
   it("moves page metadata to Info and omits the body below full-page databases", () => {
@@ -400,6 +479,10 @@ describe("document editor layout", () => {
         encoding: "utf8",
       },
     );
+    const editorSource = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
 
     expect(source).toContain(
       "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
@@ -410,11 +493,27 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
+    expect(source).toContain("showCommentsControl ?");
+    expect(editorSource).toContain(
+      "commentsHistoryOpen={showCommentsHistoryDrawer}",
+    );
     expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
-    expect(source).toContain('utilityPanel === "comments" ? null : "comments"');
+    expect(source).toContain('commentsHistoryOpen ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).not.toContain('aria-pressed={utilityPanel === "comments"}');
+    expect(source).toContain("aria-pressed={commentsHistoryOpen}");
+    expect(source).toContain(
+      'utilityPanel === "info" && "bg-accent text-foreground"',
+    );
+    expect(editorSource).toContain("setShowCommentIndicators");
+    expect(editorSource).toContain(
+      "showCommentIndicators={showCommentIndicators}",
+    );
+    expect(editorSource).toContain('"comments.hideIndicators"');
+    expect(editorSource).toContain('"comments.showIndicators"');
+    expect(editorSource).not.toContain(
+      "absolute end-2 top-2 z-20 flex items-center",
+    );
     expect(source).toContain("setDeleteDialogOpen(true)");
     expect(source).toContain("text-destructive focus:text-destructive");
     expect(source).toContain("<IconTrash");
@@ -562,17 +661,34 @@ describe("document editor layout", () => {
     expect(source).toContain("onClickCapture={(event) => {");
   });
 
-  it("keeps the narrow utility sheet width-safe and vertically reachable", () => {
+  it("keeps the comments history drawer width-safe and vertically reachable", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     );
 
     expect(source).toContain(
-      'className="flex min-h-0 w-[85vw] max-w-sm flex-col overflow-hidden p-0"',
+      'className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
     );
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
+    );
+    expect(source).toContain("data-[state=closed]:duration-[260ms]");
+    expect(source).toContain("data-[state=open]:ease-[var(--ease-drawer)]");
+    expect(source).not.toContain("{showUtilityPanelSheet ? (");
+    expect(source).toContain(
+      "renderUtilityPanelContent(lastUtilityPanel, true)",
+    );
+    expect(source).toContain("showDesktopCommentsHistory");
+    expect(source).toContain("data-comments-history-rail");
+    expect(source).toContain("commentsHistoryRailMounted");
+    expect(source).toContain('event.propertyName === "width"');
+    expect(source).toContain(
+      '"min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]"',
+    );
+    expect(source).toContain('renderUtilityPanelContent("comments")');
+    expect(source).toContain(
+      "showCommentsHistoryDrawer && !showDesktopCommentsHistory",
     );
   });
 
