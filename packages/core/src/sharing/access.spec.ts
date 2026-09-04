@@ -116,7 +116,8 @@ beforeEach(() => {
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL
+      joined_at INTEGER NOT NULL,
+      federation_removal_pending_at INTEGER
     );
     CREATE TABLE workspace_user_groups (
       id TEXT PRIMARY KEY,

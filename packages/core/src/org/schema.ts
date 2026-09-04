@@ -26,6 +26,8 @@ export const orgMembers = table("org_members", {
   email: text("email").notNull(),
   role: text("role").notNull(),
   joinedAt: integer("joined_at").notNull(),
+  /** Restrictive marker retained if authority revocation beats local deletion. */
+  federationRemovalPendingAt: integer("federation_removal_pending_at"),
 });
 
 /**

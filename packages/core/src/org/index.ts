@@ -67,8 +67,11 @@ export {
 } from "./feature-flags.js";
 
 export {
+  addFederatedOrganizationMember,
   provisionFederatedOrganization,
+  revokeFederatedOrganizationMember,
   syncOrganizationToIdentityHub,
+  updateFederatedOrganizationMemberRole,
 } from "./federation.js";
 export type {
   FederatedOrganizationIdentity,

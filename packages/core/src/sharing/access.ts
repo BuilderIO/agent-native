@@ -13,7 +13,7 @@
  * callers who lack the required role.
  */
 
-import { and, eq, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 
 import { isPostgres } from "../db/client.js";
 import { orgMembers } from "../org/schema.js";
@@ -116,6 +116,7 @@ async function isOrgMember(
       and(
         eq(orgMembers.orgId, memberOrgId),
         emailColumnMatches(orgMembers.email, email),
+        isNull(orgMembers.federationRemovalPendingAt),
       ),
     )
     .limit(1);
@@ -232,6 +233,7 @@ export function accessFilter(
                           select 1 from ${orgMembers} as workspace_member
                           where workspace_member.org_id = workspace_group.org_id
                             and lower(workspace_member.email) = ${normalizedUserEmail}
+                            and workspace_member.federation_removal_pending_at is null
                         )
                         and ${groupMemberPredicate}
                     ))`,

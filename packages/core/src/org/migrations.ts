@@ -191,4 +191,10 @@ export const ORG_MIGRATIONS = [
         ON organizations (identity_authority, identity_id);
     `,
   },
+  {
+    version: 1020,
+    name: "organization-federation-removal-pending",
+    sql: `ALTER TABLE org_members
+          ADD COLUMN IF NOT EXISTS federation_removal_pending_at INTEGER`,
+  },
 ];

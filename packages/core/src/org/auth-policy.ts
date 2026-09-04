@@ -78,6 +78,7 @@ export async function getRequiredAuthProviderForEmail(
                   FROM org_members m
                   WHERE m.org_id = o.id
                     AND LOWER(m.email) = ?
+                    AND m.federation_removal_pending_at IS NULL
                 )
                 OR EXISTS (
                   SELECT 1
@@ -165,6 +166,7 @@ export async function setRequiredAuthProvider(
             FROM "user" u
             INNER JOIN org_members m ON LOWER(m.email) = LOWER(u.email)
             WHERE m.org_id = ?
+              AND m.federation_removal_pending_at IS NULL
           )`,
     args: [orgId],
   });
@@ -174,7 +176,8 @@ export async function setRequiredAuthProvider(
     legacyResult = await db.execute({
       sql: `DELETE FROM sessions
             WHERE LOWER(email) IN (
-              SELECT LOWER(email) FROM org_members WHERE org_id = ?
+              SELECT LOWER(email) FROM org_members
+              WHERE org_id = ? AND federation_removal_pending_at IS NULL
             )`,
       args: [orgId],
     });

@@ -437,7 +437,10 @@ async function getViewerOrgRole(
 ): Promise<string | null> {
   if (!orgId) return null;
   const rows = await queryRows<{ role?: string }>(
-    `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    `SELECT role FROM org_members
+     WHERE org_id = ? AND LOWER(email) = ?
+       AND federation_removal_pending_at IS NULL
+     LIMIT 1`,
     [orgId, email.toLowerCase()],
   );
   const role = rows[0]?.role;
@@ -447,7 +450,9 @@ async function getViewerOrgRole(
 async function listOrgMembers(orgId: string | null): Promise<MemberRecord[]> {
   if (!orgId) return [];
   const result = await getDbExec().execute({
-    sql: `SELECT email, role, joined_at AS joined_at FROM org_members WHERE org_id = ? ORDER BY joined_at ASC`,
+    sql: `SELECT email, role, joined_at AS joined_at FROM org_members
+          WHERE org_id = ? AND federation_removal_pending_at IS NULL
+          ORDER BY joined_at ASC`,
     args: [orgId],
   });
   const rows = result.rows as Record<string, unknown>[];

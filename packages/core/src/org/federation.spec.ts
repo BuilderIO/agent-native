@@ -32,8 +32,13 @@ vi.mock("./request-org-cache.js", () => ({
   invalidateMemberOrgCaches: invalidateMemberOrgCachesMock,
 }));
 
-const { provisionFederatedOrganization, revokeFederatedOrganizationMember } =
-  await import("./federation.js");
+const {
+  addFederatedOrganizationMember,
+  provisionFederatedOrganization,
+  revokeFederatedOrganizationMember,
+  syncOrganizationToIdentityHub,
+  updateFederatedOrganizationMemberRole,
+} = await import("./federation.js");
 
 const identity = {
   authority: "https://dispatch.agent-native.com",
@@ -84,6 +89,62 @@ describe("cross-app organization federation", () => {
     expect(setActiveOrgIdMock).not.toHaveBeenCalled();
   });
 
+  it("activates the mapped organization even when another membership exists", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/WHERE identity_authority = \?/i.test(sql)) {
+        return { rows: [{ id: "local-org" }] };
+      }
+      if (/SELECT org_id FROM org_members/i.test(sql)) {
+        return { rows: [{ org_id: "unrelated-local-org" }] };
+      }
+      if (/INSERT INTO org_members|UPDATE org_members/i.test(sql)) {
+        return { rows: [] };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(provisionFederatedOrganization(identity)).resolves.toBe(
+      "linked",
+    );
+    expect(setActiveOrgIdMock).toHaveBeenCalledWith(
+      identity.email,
+      "local-org",
+      "signed cross-app organization context",
+    );
+  });
+
+  it("does not create a target organization from a first non-owner assertion", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT org_id FROM org_members/i.test(sql)) return { rows: [] };
+      if (/FROM organizations/i.test(sql)) return { rows: [] };
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(
+      provisionFederatedOrganization({ ...identity, role: "member" }),
+    ).resolves.toBe("unlinked");
+    expect(createOrganizationMock).not.toHaveBeenCalled();
+  });
+
+  it("does not persist a mapping when the identity authority is unavailable", async () => {
+    resolveIdentityHubUrlMock.mockReturnValue(undefined);
+    executeMock.mockResolvedValueOnce({
+      rows: [{ identity_authority: null, identity_id: null }],
+    });
+
+    await expect(
+      syncOrganizationToIdentityHub({} as any, {
+        id: identity.id,
+        name: identity.name,
+        role: identity.role,
+        email: identity.email,
+      }),
+    ).resolves.toBe(false);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
   it("sends a signed revocation before a local member is removed", async () => {
     executeMock.mockImplementation(async (input) => {
       const sql = (typeof input === "string" ? input : input.sql).trim();
@@ -122,5 +183,68 @@ describe("cross-app organization federation", () => {
         }),
       }),
     );
+  });
+
+  it("sends explicit add and role operations with the actor assertion", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/FROM organizations/i.test(sql)) {
+        return {
+          rows: [
+            {
+              id: "dispatch-org-1",
+              name: "Example Org",
+              identity_authority: "https://dispatch.agent-native.com",
+              identity_id: "dispatch-org-1",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(
+      addFederatedOrganizationMember({} as any, {
+        orgId: "dispatch-org-1",
+        actorEmail: "owner@example.test",
+        actorRole: "owner",
+        memberEmail: "member@example.test",
+        memberRole: "member",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      updateFederatedOrganizationMemberRole({} as any, {
+        orgId: "dispatch-org-1",
+        actorEmail: "owner@example.test",
+        actorRole: "owner",
+        memberEmail: "member@example.test",
+        memberRole: "admin",
+      }),
+    ).resolves.toBe(true);
+    expect(signA2ATokenMock).toHaveBeenLastCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        extraClaims: expect.objectContaining({
+          federation_operation: "update-member-role",
+          federation_member_email: "member@example.test",
+          federation_member_role: "admin",
+        }),
+      }),
+    );
+  });
+
+  it("rejects invalid actor identity before sending a member operation", async () => {
+    await expect(
+      addFederatedOrganizationMember({} as any, {
+        orgId: "dispatch-org-1",
+        actorEmail: "not-an-email",
+        actorRole: "owner",
+        memberEmail: "member@example.test",
+        memberRole: "member",
+      }),
+    ).rejects.toThrow("Invalid federated member email");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

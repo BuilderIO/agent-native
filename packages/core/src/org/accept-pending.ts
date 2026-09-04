@@ -1,5 +1,7 @@
 import { getDbExec } from "../db/client.js";
+import { isFeatureFlagEnabled } from "../feature-flags/store.js";
 import { setActiveOrgId } from "./active-org.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 const nanoid = (): string =>
@@ -58,10 +60,21 @@ export async function acceptPendingInvitationsForEmail(
 
   const accepted: AcceptPendingResult["accepted"] = [];
   for (const inv of rows) {
+    if (
+      await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
+        userEmail: email,
+        userKey: email,
+        orgId: inv.orgId,
+      })
+    ) {
+      continue;
+    }
     const existing = await db.execute({
-      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
       args: [inv.orgId, email],
     });
+    if ((existing.rows[0] as any)?.federation_removal_pending_at) continue;
     if (existing.rows.length === 0) {
       const role = inv.role === "admin" ? "admin" : "member";
       // The SELECT above is a cheap pre-check, not a correctness guard —

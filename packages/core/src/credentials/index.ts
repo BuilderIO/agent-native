@@ -239,6 +239,7 @@ async function hasForeignPersonalCredentialInOrg(
     const { rows } = await getDbExec().execute({
       sql: `SELECT 1 FROM app_secrets s
               JOIN org_members m ON LOWER(m.email) = LOWER(s.scope_id)
+                                AND m.federation_removal_pending_at IS NULL
              WHERE s.key = ? AND s.scope = 'user'
                AND m.org_id = ? AND LOWER(s.scope_id) <> ?
              LIMIT 1`,
@@ -268,6 +269,7 @@ async function findMemberOrgHoldingCredential(
               FROM app_secrets s
               JOIN org_members m ON m.org_id = s.scope_id
                                 AND LOWER(m.email) = ?
+                                AND m.federation_removal_pending_at IS NULL
               LEFT JOIN organizations o ON o.id = s.scope_id
              WHERE s.key = ?
                AND s.scope IN ('org', 'workspace')

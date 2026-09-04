@@ -76,7 +76,8 @@ async function isSoloOwnedWorkspace(
   if (!membership || membership.role !== "owner") return false;
   try {
     const { rows } = await exec.execute({
-      sql: `SELECT COUNT(*) AS "memberCount" FROM org_members WHERE org_id = ?`,
+      sql: `SELECT COUNT(*) AS "memberCount" FROM org_members
+            WHERE org_id = ? AND federation_removal_pending_at IS NULL`,
       args: [orgId],
     });
     const row = rows[0] as any;
@@ -360,6 +361,16 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
         role: active.role,
       };
     }
+    const pending = await exec.execute({
+      sql: `SELECT 1 FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NOT NULL
+            LIMIT 1`,
+      args: [sessionOrgId, email.toLowerCase()],
+    });
+    if (pending.rows.length > 0) {
+      return { email, orgId: null, orgName: null, role: null };
+    }
     return {
       email,
       orgId: sessionOrgId,
@@ -410,6 +421,7 @@ async function loadMembershipsUncached(
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
           WHERE LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL
           ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
     args: [email.toLowerCase()],
   });
@@ -438,7 +450,9 @@ export async function resolveOrgIdForEmail(
 ): Promise<string | null> {
   const idsPromise = requestMemberOrgIds(email, async () => {
     const rows = await queryOrgMembers({
-      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?
+      sql: `SELECT org_id FROM org_members
+            WHERE LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
             ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
       args: [email.toLowerCase()],
     });
@@ -567,7 +581,10 @@ async function warnOnAdditionalOrganization(
 ): Promise<void> {
   try {
     const { rows } = await exec.execute({
-      sql: `SELECT 1 FROM org_members WHERE LOWER(email) = ? AND org_id <> ? LIMIT 1`,
+      sql: `SELECT 1 FROM org_members
+            WHERE LOWER(email) = ? AND org_id <> ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [email.toLowerCase(), newOrgId],
     });
     if (rows.length === 0) return;

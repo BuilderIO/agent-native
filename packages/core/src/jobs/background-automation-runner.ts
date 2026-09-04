@@ -189,7 +189,10 @@ export async function validateAutomationRunIdentity(
 
   try {
     const memberRows = await queryOrgMembers({
-      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = LOWER(?) LIMIT 1`,
+      sql: `SELECT 1 FROM org_members
+            WHERE org_id = ? AND LOWER(email) = LOWER(?)
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, ownerEmail],
     });
     if (memberRows === null) {

@@ -170,7 +170,9 @@ export async function isWorkspaceAppAccessAllowed(
 
     const memberResult = await db.execute({
       sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, email],
     });
     if (memberResult.rows.length === 0) return false;

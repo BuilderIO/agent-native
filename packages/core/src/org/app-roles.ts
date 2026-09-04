@@ -257,6 +257,7 @@ export async function resolveAppRole<R extends string>(
            AND r.app_id = ?
            AND LOWER(r.email) = LOWER(m.email)
           WHERE m.org_id = ? AND LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL
           LIMIT 1`,
     args: [descriptor.appId, orgId, normalizeEmail(email)],
   });
@@ -293,6 +294,7 @@ export async function listAppMemberRoles(
           INNER JOIN org_members m
             ON m.org_id = r.org_id
            AND LOWER(m.email) = LOWER(r.email)
+           AND m.federation_removal_pending_at IS NULL
           WHERE r.org_id = ? AND r.app_id = ?`,
     args: [orgId, appId],
   });

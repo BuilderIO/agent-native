@@ -40,8 +40,18 @@ export type FederatedOrganizationProvisionResult =
   | "linked"
   | "unlinked";
 
+type FederatedMemberRole = Exclude<OrgRole, "owner">;
+type FederatedMemberOperation =
+  | "add-member"
+  | "update-member-role"
+  | "remove-member";
+
 function isOrgRole(value: unknown): value is OrgRole {
   return value === "owner" || value === "admin" || value === "member";
+}
+
+function isFederatedMemberRole(value: unknown): value is FederatedMemberRole {
+  return value === "admin" || value === "member";
 }
 
 function normalizeAuthority(raw: string): string | null {
@@ -136,49 +146,31 @@ async function sendFederationAssertion(
   };
 }
 
-async function registerWithIdentityHub(
-  event: H3Event,
-  input: FederatedOrganizationIdentity,
-): Promise<string | null> {
-  const sent = await sendFederationAssertion(event, input);
-  if (!sent) return null;
-  const { hub, response } = sent;
-  if (!response.ok) {
-    throw new Error(
-      `Identity hub organization federation failed (${response.status}).`,
-    );
-  }
-  const body = (await response.json().catch((error) => {
-    void error;
-    return null;
-  })) as Record<string, unknown> | null;
-  if (
-    body?.orgId !== input.id ||
-    typeof body.name !== "string" ||
-    !body.name.trim()
-  ) {
-    throw new Error("Identity hub returned an invalid federated organization.");
-  }
-  return hub;
-}
-
-/** Remove a member from the identity authority before removing its local row. */
-export async function revokeFederatedOrganizationMember(
+async function sendFederatedMemberOperation(
   event: H3Event,
   input: {
     orgId: string;
     actorEmail: string;
     actorRole: OrgRole;
     memberEmail: string;
+    memberRole?: FederatedMemberRole;
   },
+  operation: FederatedMemberOperation,
 ): Promise<boolean> {
   if (!(await federationEnabled(input.actorEmail, input.orgId))) return false;
   if (input.actorRole !== "owner" && input.actorRole !== "admin") {
-    throw new Error("Only organization owners and admins can revoke members.");
+    throw new Error("Only organization owners and admins can change members.");
   }
   const memberEmail = input.memberEmail.trim().toLowerCase();
-  if (!memberEmail.includes("@")) {
+  const actorEmail = input.actorEmail.trim().toLowerCase();
+  if (!actorEmail.includes("@") || !memberEmail.includes("@")) {
     throw new Error("Invalid federated member email.");
+  }
+  if (
+    operation !== "remove-member" &&
+    !isFederatedMemberRole(input.memberRole)
+  ) {
+    throw new Error("A federated member role is required.");
   }
 
   const exec = getDbExec();
@@ -213,22 +205,88 @@ export async function revokeFederatedOrganizationMember(
       id: input.orgId,
       name: String(row.name ?? ""),
       role: input.actorRole,
-      email: input.actorEmail,
+      email: actorEmail,
     },
     {
-      federation_operation: "remove-member",
+      federation_operation: operation,
       federation_member_email: memberEmail,
+      ...(input.memberRole ? { federation_member_role: input.memberRole } : {}),
     },
   );
-  if (!sent) {
-    throw new Error("Identity authority is not configured.");
-  }
+  if (!sent) throw new Error("Identity authority is not configured.");
   if (!sent.response.ok) {
     throw new Error(
-      `Identity authority member revocation failed (${sent.response.status}).`,
+      `Identity authority member operation failed (${sent.response.status}).`,
     );
   }
   return true;
+}
+
+async function registerWithIdentityHub(
+  event: H3Event,
+  input: FederatedOrganizationIdentity,
+): Promise<string | null> {
+  const sent = await sendFederationAssertion(event, input);
+  if (!sent) return null;
+  const { hub, response } = sent;
+  if (!response.ok) {
+    throw new Error(
+      `Identity hub organization federation failed (${response.status}).`,
+    );
+  }
+  const body = (await response.json().catch((error) => {
+    void error;
+    return null;
+  })) as Record<string, unknown> | null;
+  if (
+    body?.orgId !== input.id ||
+    typeof body.name !== "string" ||
+    !body.name.trim()
+  ) {
+    throw new Error("Identity hub returned an invalid federated organization.");
+  }
+  return hub;
+}
+
+/** Add an explicitly invited member to the identity authority roster. */
+export async function addFederatedOrganizationMember(
+  event: H3Event,
+  input: {
+    orgId: string;
+    actorEmail: string;
+    actorRole: OrgRole;
+    memberEmail: string;
+    memberRole: FederatedMemberRole;
+  },
+): Promise<boolean> {
+  return sendFederatedMemberOperation(event, input, "add-member");
+}
+
+/** Propagate an owner/admin role change to the identity authority roster. */
+export async function updateFederatedOrganizationMemberRole(
+  event: H3Event,
+  input: {
+    orgId: string;
+    actorEmail: string;
+    actorRole: OrgRole;
+    memberEmail: string;
+    memberRole: FederatedMemberRole;
+  },
+): Promise<boolean> {
+  return sendFederatedMemberOperation(event, input, "update-member-role");
+}
+
+/** Remove a member from the identity authority before removing its local row. */
+export async function revokeFederatedOrganizationMember(
+  event: H3Event,
+  input: {
+    orgId: string;
+    actorEmail: string;
+    actorRole: OrgRole;
+    memberEmail: string;
+  },
+): Promise<boolean> {
+  return sendFederatedMemberOperation(event, input, "remove-member");
 }
 
 /** Register the local org and its current member with the Dispatch authority. */
@@ -261,7 +319,11 @@ export async function syncOrganizationToIdentityHub(
     );
   }
 
-  await registerWithIdentityHub(event, { ...input, authority });
+  const registeredHub = await registerWithIdentityHub(event, {
+    ...input,
+    authority,
+  });
+  if (!registeredHub) return false;
 
   if (!existingAuthority && !existingId) {
     await exec.execute({
@@ -293,7 +355,9 @@ async function ensureLocalMembership(
     ],
   });
   await exec.execute({
-    sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
+    sql: `UPDATE org_members
+          SET role = ?, federation_removal_pending_at = NULL
+          WHERE org_id = ? AND LOWER(email) = ?`,
     args: [identity.role, orgId, identity.email.toLowerCase()],
   });
   invalidateMemberOrgCaches();
@@ -318,20 +382,20 @@ export async function provisionFederatedOrganization(
     args: [identity.authority, identity.id],
   });
   const memberships = await exec.execute({
-    sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?`,
+    sql: `SELECT org_id FROM org_members
+          WHERE LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL`,
     args: [normalizedEmail],
   });
 
   if (mapped.rows[0]) {
     const localOrgId = String((mapped.rows[0] as any).id);
     await ensureLocalMembership(localOrgId, identity);
-    if (memberships.rows.length === 0) {
-      await setActiveOrgId(
-        identity.email,
-        localOrgId,
-        "signed cross-app organization context",
-      );
-    }
+    await setActiveOrgId(
+      identity.email,
+      localOrgId,
+      "signed cross-app organization context",
+    );
     return "linked";
   }
 
@@ -355,12 +419,19 @@ export async function provisionFederatedOrganization(
         args: [identity.authority, identity.id, identity.id],
       });
       await ensureLocalMembership(identity.id, identity);
+      await setActiveOrgId(
+        identity.email,
+        identity.id,
+        "signed cross-app organization context",
+      );
       return "linked";
     }
     return "unlinked";
   }
 
   if (memberships.rows.length > 0) return "unlinked";
+
+  if (identity.role !== "owner") return "unlinked";
 
   await createOrganization(identity.name, identity.email, identity.role, {
     id: identity.id,

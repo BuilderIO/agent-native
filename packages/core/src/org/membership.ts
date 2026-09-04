@@ -11,7 +11,10 @@ export async function isOrgMember(
   const normalized = email.trim().toLowerCase();
   if (!orgId || !normalized) return false;
   const { rows } = await getDbExec().execute({
-    sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT 1 FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, normalized],
   });
   return rows.length > 0;

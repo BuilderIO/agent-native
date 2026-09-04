@@ -128,4 +128,11 @@ describe("ORG_MIGRATIONS", () => {
       /CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx/i,
     );
   });
+
+  it("adds a restrictive pending-removal marker to memberships", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1020);
+    expect(migration?.sql).toMatch(
+      /ALTER TABLE org_members[\s\S]*federation_removal_pending_at/i,
+    );
+  });
 });

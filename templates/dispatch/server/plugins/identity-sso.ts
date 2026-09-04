@@ -135,6 +135,25 @@ function validOrganizationRole(
   return value === "owner" || value === "admin" || value === "member";
 }
 
+type FederationOperation =
+  | "add-member"
+  | "update-member-role"
+  | "remove-member";
+
+function validFederationOperation(
+  value: unknown,
+): value is FederationOperation {
+  return (
+    value === "add-member" ||
+    value === "update-member-role" ||
+    value === "remove-member"
+  );
+}
+
+function validFederatedMemberRole(value: unknown): value is "admin" | "member" {
+  return value === "admin" || value === "member";
+}
+
 export async function canAttemptWorkspaceSso(): Promise<boolean> {
   return hasActiveFeatureFlagRollout(DESKTOP_WORKSPACE_SSO_FLAG.key).catch(
     () => false,
@@ -213,30 +232,46 @@ export const organizationFederationHandler = defineEventHandler(
     const orgName =
       typeof claims.org_name === "string" ? claims.org_name.trim() : "";
     const orgRole = claims.org_role;
-    const federationOperation = claims.federation_operation;
+    const rawFederationOperation = claims.federation_operation;
     if (
-      federationOperation !== undefined &&
-      federationOperation !== "remove-member"
+      rawFederationOperation !== undefined &&
+      !validFederationOperation(rawFederationOperation)
     ) {
       return jsonResponse({ error: "Invalid federation operation" }, 400);
     }
+    const federationOperation = rawFederationOperation as
+      | FederationOperation
+      | undefined;
     const federationMemberEmail =
       typeof claims.federation_member_email === "string"
         ? claims.federation_member_email.trim().toLowerCase()
         : "";
-    if (federationOperation === "remove-member") {
-      if (orgRole !== "owner" && orgRole !== "admin") {
-        return jsonResponse({ error: "Unauthorized" }, 403);
-      }
-      if (!federationMemberEmail.includes("@")) {
-        return jsonResponse({ error: "Invalid federated member email" }, 400);
-      }
-      if (federationMemberEmail === verified.email.trim().toLowerCase()) {
-        return jsonResponse(
-          { error: "Organization owner cannot remove themselves" },
-          403,
-        );
-      }
+    const federationMemberRole = claims.federation_member_role;
+    if (
+      federationOperation === undefined &&
+      (claims.federation_member_email !== undefined ||
+        federationMemberRole !== undefined)
+    ) {
+      return jsonResponse({ error: "Invalid federation operation" }, 400);
+    }
+    if (
+      federationOperation !== undefined &&
+      !federationMemberEmail.includes("@")
+    ) {
+      return jsonResponse({ error: "Invalid federated member email" }, 400);
+    }
+    if (
+      federationOperation !== "remove-member" &&
+      federationOperation !== undefined &&
+      !validFederatedMemberRole(federationMemberRole)
+    ) {
+      return jsonResponse({ error: "Invalid federated member role" }, 400);
+    }
+    if (
+      federationOperation === "remove-member" &&
+      federationMemberRole !== undefined
+    ) {
+      return jsonResponse({ error: "Invalid federated member role" }, 400);
     }
     if (
       !/^[A-Za-z0-9_-]{1,128}$/.test(orgId) ||
@@ -279,6 +314,17 @@ export const organizationFederationHandler = defineEventHandler(
     ) {
       return jsonResponse({ error: "Organization identity conflict" }, 409);
     }
+    if (
+      existingOrg &&
+      federationOperation !== undefined &&
+      !existingAuthority &&
+      !existingId
+    ) {
+      return jsonResponse(
+        { error: "Organization identity is not linked" },
+        409,
+      );
+    }
     if (!existingOrg) {
       if (federationOperation === "remove-member") {
         return jsonResponse(
@@ -290,6 +336,9 @@ export const organizationFederationHandler = defineEventHandler(
           },
           200,
         );
+      }
+      if (federationOperation !== undefined) {
+        return jsonResponse({ error: "Organization not found" }, 404);
       }
       if (orgRole !== "owner") {
         return jsonResponse(
@@ -324,18 +373,176 @@ export const organizationFederationHandler = defineEventHandler(
       });
     }
 
-    if (federationOperation === "remove-member") {
-      const member = await exec.execute({
+    const organizationName = String(existingOrg?.name ?? orgName);
+    if (federationOperation !== undefined) {
+      if (!existingOrg) {
+        return jsonResponse({ error: "Organization not found" }, 404);
+      }
+      if (!existingAuthority && !existingId) {
+        return jsonResponse(
+          { error: "Organization identity is not linked" },
+          409,
+        );
+      }
+
+      const actor = await exec.execute({
         sql: `SELECT role FROM org_members
+              WHERE org_id = ? AND LOWER(email) = ?
+                AND federation_removal_pending_at IS NULL
+              LIMIT 1`,
+        args: [orgId, email],
+      });
+      const actorRole = String((actor.rows[0] as any)?.role ?? "");
+      if (
+        (actorRole !== "owner" && actorRole !== "admin") ||
+        actorRole !== orgRole
+      ) {
+        return jsonResponse({ error: "Unauthorized" }, 403);
+      }
+
+      const member = await exec.execute({
+        sql: `SELECT role, federation_removal_pending_at FROM org_members
               WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
         args: [orgId, federationMemberEmail],
       });
-      if (String((member.rows[0] as any)?.role ?? "") === "owner") {
+      const currentMemberRole = String((member.rows[0] as any)?.role ?? "");
+      const memberRemovalPending = Boolean(
+        (member.rows[0] as any)?.federation_removal_pending_at,
+      );
+
+      if (federationOperation === "add-member") {
+        const memberRole = federationMemberRole as "admin" | "member";
+        if (currentMemberRole === "owner") {
+          return jsonResponse(
+            { error: "Cannot add or change the organization owner" },
+            403,
+          );
+        }
+        if (actorRole === "admin" && memberRole === "admin") {
+          return jsonResponse(
+            { error: "Only the organization owner can manage admins" },
+            403,
+          );
+        }
+        if (memberRemovalPending) {
+          await exec.execute({
+            sql: `UPDATE org_members
+                  SET role = ?, federation_removal_pending_at = NULL
+                  WHERE org_id = ? AND LOWER(email) = ?`,
+            args: [memberRole, orgId, federationMemberEmail],
+          });
+          invalidateMemberOrgCaches();
+          return jsonResponse(
+            {
+              orgId,
+              name: organizationName,
+              role: memberRole,
+              memberEmail: federationMemberEmail,
+            },
+            200,
+          );
+        }
+        if (!member.rows[0]) {
+          await exec.execute({
+            sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+                  VALUES (?, ?, ?, ?, ?)`,
+            args: [
+              randomBytes(16).toString("base64url"),
+              orgId,
+              federationMemberEmail,
+              memberRole,
+              Date.now(),
+            ],
+          });
+          invalidateMemberOrgCaches();
+          return jsonResponse(
+            {
+              orgId,
+              name: organizationName,
+              role: memberRole,
+              memberEmail: federationMemberEmail,
+            },
+            200,
+          );
+        }
+        if (!validOrganizationRole(currentMemberRole)) {
+          return jsonResponse(
+            { error: "Invalid organization membership" },
+            409,
+          );
+        }
+        if (currentMemberRole !== memberRole) {
+          return jsonResponse(
+            { error: "Organization membership role conflict" },
+            409,
+          );
+        }
+        return jsonResponse(
+          {
+            orgId,
+            name: organizationName,
+            role: currentMemberRole,
+            memberEmail: federationMemberEmail,
+          },
+          200,
+        );
+      }
+
+      if (federationOperation === "update-member-role") {
+        const memberRole = federationMemberRole as "admin" | "member";
+        if (!member.rows[0] || memberRemovalPending) {
+          return jsonResponse({ error: "Member not found" }, 404);
+        }
+        if (currentMemberRole === "owner") {
+          return jsonResponse(
+            { error: "Cannot change the organization owner's role" },
+            403,
+          );
+        }
+        if (
+          actorRole === "admin" &&
+          (currentMemberRole === "admin" || memberRole === "admin")
+        ) {
+          return jsonResponse(
+            { error: "Only the organization owner can manage admins" },
+            403,
+          );
+        }
+        await exec.execute({
+          sql: `UPDATE org_members SET role = ?
+                WHERE org_id = ? AND LOWER(email) = ?`,
+          args: [memberRole, orgId, federationMemberEmail],
+        });
+        invalidateMemberOrgCaches();
+        return jsonResponse(
+          {
+            orgId,
+            name: organizationName,
+            role: memberRole,
+            memberEmail: federationMemberEmail,
+          },
+          200,
+        );
+      }
+
+      if (currentMemberRole === "owner") {
         return jsonResponse(
           { error: "Cannot remove the organization owner" },
           403,
         );
       }
+      if (actorRole === "owner" && federationMemberEmail === email) {
+        return jsonResponse(
+          { error: "Organization owner cannot remove themselves" },
+          403,
+        );
+      }
+      await exec.execute({
+        sql: `UPDATE org_members SET federation_removal_pending_at = ?
+              WHERE org_id = ? AND LOWER(email) = ?
+                AND federation_removal_pending_at IS NULL`,
+        args: [Date.now(), orgId, federationMemberEmail],
+      });
       await exec.execute({
         sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
         args: [orgId, federationMemberEmail],
@@ -344,7 +551,7 @@ export const organizationFederationHandler = defineEventHandler(
       return jsonResponse(
         {
           orgId,
-          name: String(existingOrg?.name ?? orgName),
+          name: organizationName,
           role: orgRole,
           removedMember: federationMemberEmail,
         },
@@ -352,29 +559,48 @@ export const organizationFederationHandler = defineEventHandler(
       );
     }
 
-    await exec.execute({
-      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
-      args: [
-        randomBytes(16).toString("base64url"),
-        orgId,
-        email,
-        orgRole,
-        Date.now(),
-      ],
+    const member = await exec.execute({
+      sql: `SELECT role, federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [orgId, email],
     });
-    await exec.execute({
-      sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [orgRole, orgId, email],
-    });
-    invalidateMemberOrgCaches();
+    if ((member.rows[0] as any)?.federation_removal_pending_at) {
+      return jsonResponse(
+        {
+          error: "Membership is pending removal by the identity authority",
+        },
+        403,
+      );
+    }
+    if (!member.rows[0]) {
+      if (orgRole !== "owner") {
+        return jsonResponse(
+          {
+            error: "Membership must be added by an organization owner or admin",
+          },
+          403,
+        );
+      }
+      await exec.execute({
+        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
+        args: [
+          randomBytes(16).toString("base64url"),
+          orgId,
+          email,
+          orgRole,
+          Date.now(),
+        ],
+      });
+      invalidateMemberOrgCaches();
+    }
 
     return jsonResponse(
       {
         orgId,
-        name: String(existingOrg?.name ?? orgName),
-        role: orgRole,
+        name: organizationName,
+        role: String((member.rows[0] as any)?.role ?? orgRole),
       },
       200,
     );

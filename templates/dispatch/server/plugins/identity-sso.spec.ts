@@ -33,6 +33,7 @@ interface CodeRow {
 }
 const codeRows: CodeRow[] = [];
 let organizationRow: Record<string, unknown> | null = null;
+let centralActorRole: string | null = null;
 let centralMemberRole: string | null = null;
 
 vi.mock("@agent-native/core/feature-flags", async () => {
@@ -94,9 +95,27 @@ vi.mock("@agent-native/core/db", () => ({
       if (/^INSERT INTO org_members/i.test(sql)) {
         return { rows: [], rowsAffected: 1 };
       }
-      if (/^SELECT role FROM org_members/i.test(sql)) {
+      if (
+        /^SELECT role(?:, federation_removal_pending_at)? FROM org_members/i.test(
+          sql,
+        )
+      ) {
+        const email = String(args[1] ?? "");
         return {
-          rows: centralMemberRole ? [{ role: centralMemberRole }] : [],
+          rows: (
+            email === "owner@example.test"
+              ? centralActorRole
+              : centralMemberRole
+          )
+            ? [
+                {
+                  role:
+                    email === "owner@example.test"
+                      ? centralActorRole
+                      : centralMemberRole,
+                },
+              ]
+            : [],
           rowsAffected: 0,
         };
       }
@@ -200,6 +219,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   codeRows.length = 0;
   organizationRow = null;
+  centralActorRole = null;
   centralMemberRole = null;
   process.env.APP_URL = AUTHORITY;
   process.env.A2A_SECRET = "test-a2a-secret";
@@ -656,6 +676,7 @@ describe("organization federation endpoint", () => {
       identity_authority: AUTHORITY,
       identity_id: "dispatch-org-1",
     };
+    centralActorRole = "owner";
     centralMemberRole = "member";
     verifyA2ATokenMock.mockResolvedValue({
       email: "owner@example.test",
@@ -692,5 +713,161 @@ describe("organization federation endpoint", () => {
       expect.anything(),
       expect.objectContaining({ globalSecretOnly: true }),
     );
+  });
+
+  it("authorizes revocation from the central roster, not the asserted role", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+    };
+    centralActorRole = "member";
+    centralMemberRole = "member";
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://slides.agent-native.com",
+        app_id: "slides",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        federation_operation: "remove-member",
+        federation_member_email: "removed@example.test",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer forged-role-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(centralMemberRole).toBe("member");
+  });
+
+  it("does not recreate a centrally revoked member from an ordinary stale sync", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+    };
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "removed@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://clips.agent-native.com",
+        app_id: "clips",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "member",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer stale-member-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(centralMemberRole).toBeNull();
+  });
+
+  it("requires a central owner or admin for explicit membership additions", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+    };
+    centralActorRole = "owner";
+    centralMemberRole = null;
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://slides.agent-native.com",
+        app_id: "slides",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        federation_operation: "add-member",
+        federation_member_email: "new@example.test",
+        federation_member_role: "member",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer add-member-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      orgId: "dispatch-org-1",
+      memberEmail: "new@example.test",
+      role: "member",
+    });
+  });
+
+  it("rejects an explicit add that conflicts with the central role", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+      return flag.key === "organization.cross-app-federation";
+    });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+    };
+    centralActorRole = "owner";
+    centralMemberRole = "admin";
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://slides.agent-native.com",
+        app_id: "slides",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        federation_operation: "add-member",
+        federation_member_email: "member@example.test",
+        federation_member_role: "member",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer conflicting-add-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Organization membership role conflict",
+    });
   });
 });

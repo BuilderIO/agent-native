@@ -53,6 +53,8 @@ import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import {
+  addFederatedOrganizationMember,
+  updateFederatedOrganizationMemberRole,
   revokeFederatedOrganizationMember,
   syncOrganizationToIdentityHub,
 } from "./federation.js";
@@ -151,7 +153,8 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
-          WHERE LOWER(m.email) = ?`,
+          WHERE LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL`,
     args: [ctx.email.toLowerCase()],
   });
   const orgs = allOrgsRes.rows.map((r: any) => ({
@@ -173,6 +176,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
                   FROM org_members m
                   WHERE m.org_id = o.id
                     AND LOWER(m.email) = ?
+                    AND m.federation_removal_pending_at IS NULL
                 )`,
         args: [domain, ctx.email.toLowerCase()],
       });
@@ -345,8 +349,10 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const e = await exec();
   const args: unknown[] = [ctx.orgId];
   const countArgs: unknown[] = [ctx.orgId];
-  let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`;
-  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members WHERE org_id = ?`;
+  let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members
+             WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
+  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members
+                 WHERE org_id = ? AND federation_removal_pending_at IS NULL`;
   if (search) {
     sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
     args.push(`%${escapeLike(search)}%`);
@@ -628,7 +634,7 @@ export const acceptInvitationHandler = defineEventHandler(
     const invRes = await e.execute({
       // Case-insensitive on email — see comment on the analogous
       // pending-invitations query in getMyOrgHandler.
-      sql: `SELECT id, org_id AS "orgId", role FROM org_invitations
+      sql: `SELECT id, org_id AS "orgId", role, invited_by AS "invitedBy" FROM org_invitations
             WHERE id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
       args: [invitationId, email.toLowerCase()],
     });
@@ -643,9 +649,17 @@ export const acceptInvitationHandler = defineEventHandler(
     const inviteRole: OrgRole = inv.role === "admin" ? "admin" : "member";
 
     const existingMembership = await e.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role, federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
       args: [invOrgId, email.toLowerCase()],
     });
+
+    if ((existingMembership.rows[0] as any)?.federation_removal_pending_at) {
+      throw createError({
+        statusCode: 503,
+        message: "This membership is pending identity-authority cleanup.",
+      });
+    }
 
     const orgRes = await e.execute({
       sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
@@ -666,11 +680,65 @@ export const acceptInvitationHandler = defineEventHandler(
       };
     }
 
+    const inviterEmail = String(inv.invitedBy ?? inv.invited_by ?? "");
+    const inviterRes = await e.execute({
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
+      args: [invOrgId, inviterEmail.toLowerCase()],
+    });
+    const inviterRole = String((inviterRes.rows[0] as any)?.role ?? "");
+
     await e.execute({
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
     invalidateMemberOrgCaches();
+
+    try {
+      await addFederatedOrganizationMember(event, {
+        orgId: invOrgId,
+        actorEmail: inviterEmail,
+        actorRole:
+          inviterRole === "owner" || inviterRole === "admin"
+            ? inviterRole
+            : "member",
+        memberEmail: email,
+        memberRole: inviteRole,
+      });
+    } catch (error) {
+      // Do not leave a local membership that the identity authority rejected.
+      // The invitation remains pending so the authorized inviter can repair or
+      // retry the federation path without granting cross-app access locally.
+      void error;
+      try {
+        await e.execute({
+          sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+          args: [invOrgId, email.toLowerCase()],
+        });
+        invalidateMemberOrgCaches();
+      } catch (rollbackError) {
+        // A restrictive pending marker keeps a failed rollback from granting
+        // local access if the database is partially unavailable.
+        void rollbackError;
+        try {
+          await e.execute({
+            sql: `UPDATE org_members
+                  SET federation_removal_pending_at = ?
+                  WHERE org_id = ? AND LOWER(email) = ?`,
+            args: [Date.now(), invOrgId, email.toLowerCase()],
+          });
+        } catch (markerError) {
+          void markerError;
+        }
+      }
+      throw createError({
+        statusCode: 503,
+        message:
+          "Could not synchronize this invitation with the identity authority.",
+      });
+    }
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
@@ -736,6 +804,13 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
 
+    await e.execute({
+      sql: `UPDATE org_members SET federation_removal_pending_at = ?
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL`,
+      args: [Date.now(), ctx.orgId, memberEmailLower],
+    });
+
     try {
       await revokeFederatedOrganizationMember(event, {
         orgId: ctx.orgId,
@@ -745,8 +820,9 @@ export const removeMemberHandler = defineEventHandler(
       });
     } catch (error) {
       // Keep the local and identity-authority rosters aligned. If the
-      // authority cannot revoke the copied membership, leave the local row
-      // intact so the removal can be retried safely.
+      // authority cannot revoke the copied membership, keep the restrictive
+      // marker so the member remains unauthorized until a later removal retry
+      // can finish the cleanup.
       void error;
       throw createError({
         statusCode: 503,
@@ -755,10 +831,21 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
 
-    await e.execute({
-      sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [ctx.orgId, memberEmailLower],
-    });
+    try {
+      await e.execute({
+        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+        args: [ctx.orgId, memberEmailLower],
+      });
+    } catch (error) {
+      // The durable pending marker keeps this member out of auth lookups until
+      // the idempotent authority revocation and local delete are retried.
+      void error;
+      throw createError({
+        statusCode: 503,
+        message:
+          "The member was revoked from the identity authority but local cleanup is pending.",
+      });
+    }
     invalidateMemberOrgCaches();
 
     return { success: true };
@@ -800,7 +887,10 @@ export const changeMemberRoleHandler = defineEventHandler(
     // Look up the target member's current role to enforce sensible rules
     // about what changes are allowed.
     const current = await e.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [ctx.orgId, memberEmailLower],
     });
     if (current.rows.length === 0) {
@@ -832,6 +922,23 @@ export const changeMemberRoleHandler = defineEventHandler(
       throw createError({
         statusCode: 400,
         message: "Use the owner account to change your own admin role",
+      });
+    }
+
+    try {
+      await updateFederatedOrganizationMemberRole(event, {
+        orgId: ctx.orgId,
+        actorEmail: ctx.email,
+        actorRole: ctx.role,
+        memberEmail,
+        memberRole: role,
+      });
+    } catch (error) {
+      void error;
+      throw createError({
+        statusCode: 503,
+        message:
+          "Could not synchronize this member role with the identity authority.",
       });
     }
 
@@ -965,7 +1072,10 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
   invalidateMemberOrgCaches();
 
   const nextRes = await e.execute({
-    sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT org_id AS "orgId" FROM org_members
+          WHERE LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [ctx.email.toLowerCase()],
   });
   const nextOrgId =
@@ -998,7 +1108,9 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `SELECT m.role AS role, o.name AS "orgName"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
-          WHERE m.org_id = ? AND LOWER(m.email) = ? LIMIT 1`,
+          WHERE m.org_id = ? AND LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, email.toLowerCase()],
   });
 

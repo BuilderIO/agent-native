@@ -96,6 +96,7 @@ async function alertOwner(): Promise<AlertRecipient | null> {
   const { rows } = await getDbExec().execute({
     sql: `SELECT org_id, email, role FROM org_members
           WHERE role IN ('owner', 'admin')
+            AND federation_removal_pending_at IS NULL
           ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, email`,
     args: [],
   });

@@ -1,7 +1,9 @@
 import { getDbExec } from "../db/client.js";
+import { isFeatureFlagEnabled } from "../feature-flags/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 import { setActiveOrgId } from "./active-org.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
@@ -114,6 +116,7 @@ export async function autoJoinDomainMatchingOrgs(
                 FROM org_members m
                 WHERE m.org_id = o.id
                   AND LOWER(m.email) = ?
+                  AND m.federation_removal_pending_at IS NULL
               )
             ORDER BY o.created_at ASC`,
       args: [domain, email],
@@ -135,7 +138,20 @@ export async function autoJoinDomainMatchingOrgs(
   }
 
   const joined: AutoJoinDomainResult["joined"] = [];
+  let federationSkipped = false;
+  let localJoinAttempted = false;
   for (const m of matches) {
+    if (
+      await isFeatureFlagEnabled(CROSS_APP_ORG_FEDERATION_FLAG, {
+        userEmail: email,
+        userKey: email,
+        orgId: m.orgId,
+      })
+    ) {
+      federationSkipped = true;
+      continue;
+    }
+    localJoinAttempted = true;
     try {
       await db.execute({
         sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
@@ -148,6 +164,10 @@ export async function autoJoinDomainMatchingOrgs(
       // same org milliseconds earlier). The unique constraint keeps the
       // existing membership intact; just skip this org.
     }
+  }
+
+  if (federationSkipped && !localJoinAttempted) {
+    noDomainMatchCache.set(domain, true);
   }
 
   // Set active-org-id to the first match only if the user doesn't already have
