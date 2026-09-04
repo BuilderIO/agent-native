@@ -3,7 +3,20 @@ import { describe, expect, it } from "vitest";
 import {
   buildDispatchNavigationState,
   dispatchApplicationStatePath,
+  dispatchNavigationQueryKey,
 } from "./use-navigation-state.js";
+
+describe("dispatchNavigationQueryKey", () => {
+  it("keeps command cache entries isolated by browser tab", () => {
+    expect(dispatchNavigationQueryKey("tab-a")).toEqual([
+      "navigate-command",
+      "tab-a",
+    ]);
+    expect(dispatchNavigationQueryKey("tab-b")).not.toEqual(
+      dispatchNavigationQueryKey("tab-a"),
+    );
+  });
+});
 
 describe("dispatchApplicationStatePath", () => {
   it("uses the same tab-scoped key for navigation reads and commands", () => {

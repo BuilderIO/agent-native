@@ -75,7 +75,7 @@ export function useNavigationState(
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command", browserTabId],
+    queryKey: dispatchNavigationQueryKey(browserTabId),
     queryFn: async () => {
       const res = await fetch(
         dispatchApplicationStatePath("navigate", browserTabId),
@@ -120,8 +120,14 @@ export function useNavigationState(
       }
     }
     void navigate(nextPath);
-    qc.setQueryData(["navigate-command"], null);
+    qc.setQueryData(dispatchNavigationQueryKey(browserTabId), null);
   }, [browserTabId, extensions, location.pathname, navCommand, navigate, qc]);
+}
+
+export function dispatchNavigationQueryKey(
+  browserTabId: string,
+): readonly [string, string] {
+  return ["navigate-command", browserTabId];
 }
 
 export function dispatchApplicationStatePath(
