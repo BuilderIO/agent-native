@@ -954,6 +954,8 @@ function isBenignConsoleError(text: string): boolean {
 }
 
 interface BrowserNetworkState {
+  /** Allow only the initial /home warmup response to fail while Vite starts. */
+  allowInitialHomeWarmupErrors: boolean;
   allowInitialEphemeralThread404: boolean;
   allowExpectedIncompleteStreamFailure: boolean;
   navigationCancellationUntil: number;
@@ -964,6 +966,16 @@ function isBenignHttpError(
   url: string,
   state: BrowserNetworkState,
 ): boolean {
+  // The first auto-login navigation can hit the server before Nitro/Vite has
+  // finished booting. Once the client reaches its durable Chat route, a home
+  // error is no longer startup noise and must fail the smoke.
+  if (
+    state.allowInitialHomeWarmupErrors &&
+    (status === 503 || status === 504) &&
+    new URL(url).pathname === "/home"
+  ) {
+    return true;
+  }
   if (
     state.allowExpectedIncompleteStreamFailure &&
     status >= 500 &&
@@ -1259,6 +1271,7 @@ async function waitForAuthenticatedShell(
   page: Page,
   baseUrl: string,
   running: RunningDev,
+  network: BrowserNetworkState,
 ): Promise<string> {
   const serverLogs = running.logs;
 
@@ -1272,6 +1285,7 @@ async function waitForAuthenticatedShell(
     durableChatPathPattern,
     "authenticated Chat home should hand off to a durable Chat thread",
   );
+  network.allowInitialHomeWarmupErrors = false;
 
   const sessionEmail = await readAuthenticatedSessionEmail(page, baseUrl);
   log(`authenticated session: ${sessionEmail}`);
@@ -2418,6 +2432,7 @@ async function runBrowserSmoke(
     page,
     baseUrl,
     running,
+    network,
   );
   assert.match(
     durableThreadPath,
@@ -2529,6 +2544,7 @@ async function main(): Promise<void> {
   const browserErrors: string[] = [];
   const httpErrors: string[] = [];
   const network: BrowserNetworkState = {
+    allowInitialHomeWarmupErrors: true,
     allowInitialEphemeralThread404: true,
     allowExpectedIncompleteStreamFailure: false,
     navigationCancellationUntil: 0,
