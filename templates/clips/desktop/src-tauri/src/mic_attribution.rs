@@ -33,6 +33,12 @@ const ATTRIBUTION_PREFIX: &str = "Active activity attributions changed to ";
 #[cfg(target_os = "macos")]
 static ACTIVE_CHILD: Mutex<Option<Arc<Mutex<Option<Child>>>>> = Mutex::new(None);
 
+/// Set by `shutdown`; a watcher whose child registers after this point kills
+/// it itself, so an exit that races a fresh start cannot orphan a
+/// `log stream` process.
+#[cfg(target_os = "macos")]
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
 /// Parses one line of `log stream`/`log show --style ndjson` output (or
 /// `log show`'s default compact text format) and returns the lowercased
 /// `mic:` bundle ids from an attribution-changed event.
@@ -150,6 +156,7 @@ impl Drop for MicAttributionWatcher {
 /// bypasses `Drop`.
 #[cfg(target_os = "macos")]
 pub(crate) fn shutdown() {
+    SHUTTING_DOWN.store(true, Ordering::SeqCst);
     let slot = ACTIVE_CHILD
         .lock()
         .ok()
@@ -253,7 +260,7 @@ fn spawn_stream_reader(
         };
         *slot = Some(child);
         drop(slot);
-        if stopped.load(Ordering::SeqCst) {
+        if stopped.load(Ordering::SeqCst) || SHUTTING_DOWN.load(Ordering::SeqCst) {
             kill_child(&child_slot);
             return;
         }

@@ -120,15 +120,16 @@ export default defineAction({
     // actualEnd and endReason are first-writer-wins, enforced in SQL so two
     // concurrent stops (desktop detector and a manual click, say) cannot race
     // the read above. The reason rides the same actual_end transition, so a
-    // retry can never attach a cause to an end it did not perform, and a
-    // finalizer's in-flight "pending" claim is never reset.
-    const transcriptStatus = hasTranscript ? "ready" : "failed";
+    // retry can never attach a cause to an end it did not perform.
+    // transcriptStatus stays a plain write: live rows start as "pending", so
+    // "pending" cannot be read as a finalizer claim here; finalize-meeting's
+    // own compare-and-swap guards its claim.
     await db
       .update(schema.meetings)
       .set({
         actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${nowIso})`,
         updatedAt: nowIso,
-        transcriptStatus: sql`case when ${schema.meetings.transcriptStatus} = 'pending' then ${schema.meetings.transcriptStatus} else ${transcriptStatus} end`,
+        transcriptStatus: hasTranscript ? "ready" : "failed",
         ...(args.reason
           ? {
               endReason: sql`case when ${schema.meetings.actualEnd} is null then ${args.reason} else ${schema.meetings.endReason} end`,

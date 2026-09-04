@@ -133,15 +133,15 @@ export async function closeOutStaleMeeting(args: {
   // First writer wins, in SQL: a stop that lands between the candidate query
   // and this update (desktop detector, manual click, delete-meeting reusing
   // this helper) keeps its end time, and the cause rides that same actual_end
-  // transition so this closer cannot claim an end it did not perform. A
-  // finalizer's in-flight "pending" claim is never reset.
-  const transcriptStatus = hasTranscript ? "ready" : "failed";
+  // transition so this closer cannot claim an end it did not perform.
+  // transcriptStatus stays a plain write: live rows start as "pending", so it
+  // cannot double as a finalizer claim here.
   await db
     .update(schema.meetings)
     .set({
       actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${args.endedAtIso ?? nowIso})`,
       updatedAt: nowIso,
-      transcriptStatus: sql`case when ${schema.meetings.transcriptStatus} = 'pending' then ${schema.meetings.transcriptStatus} else ${transcriptStatus} end`,
+      transcriptStatus: hasTranscript ? "ready" : "failed",
       ...(args.endReason
         ? {
             endReason: sql`case when ${schema.meetings.actualEnd} is null then ${args.endReason} else ${schema.meetings.endReason} end`,

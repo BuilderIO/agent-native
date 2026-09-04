@@ -163,11 +163,7 @@ describe("stale-meeting-sweeper", () => {
     });
     expect(state.updateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          transcriptStatus: expect.objectContaining({
-            values: expect.arrayContaining(["ready"]),
-          }),
-        }),
+        expect.objectContaining({ transcriptStatus: "ready" }),
         expect.objectContaining({ status: "ready" }),
       ]),
     );
@@ -183,11 +179,7 @@ describe("stale-meeting-sweeper", () => {
     expect(finalizeRun).not.toHaveBeenCalled();
     expect(state.updateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          transcriptStatus: expect.objectContaining({
-            values: expect.arrayContaining(["failed"]),
-          }),
-        }),
+        expect.objectContaining({ transcriptStatus: "failed" }),
       ]),
     );
   });
