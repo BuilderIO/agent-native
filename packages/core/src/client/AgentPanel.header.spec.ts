@@ -547,6 +547,19 @@ describe("AgentPanel header overflow actions", () => {
       ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}",
     );
   });
+
+  it("supports a persistent two-state sidebar toggle", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("if (open && !showWhenOpen) return null");
+    expect(source).toContain("aria-pressed={open}");
+    expect(source).toContain('data-state={open ? "open" : "closed"}');
+    expect(source).toContain("{icon ?? <IconMessageDots");
+    expect(source).toContain("{onCollapse && showCollapseButton && (");
+    expect(source).toContain("showCollapseButton={showCollapseButton}");
+  });
 });
 
 describe("AgentSidebar wide drawer layout", () => {

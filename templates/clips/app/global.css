@@ -44,9 +44,9 @@
 }
 
 .dark {
-  --background: 0 0% 13%;
+  --background: 0 0% 10%;
   --foreground: 0 0% 90%;
-  --card: 0 0% 15%;
+  --card: 0 0% 14%;
   --card-foreground: 0 0% 90%;
   --popover: 0 0% 15%;
   --popover-foreground: 0 0% 90%;
@@ -65,13 +65,13 @@
   --input: 0 0% 24%;
   --ring: 0 0% 60%;
   --radius: 0.5rem;
-  --sidebar-background: 0 0% 10%;
+  --sidebar-background: 0 0% 14%;
   --sidebar-foreground: 0 0% 60%;
   --sidebar-primary: 0 0% 75%;
   --sidebar-primary-foreground: 0 0% 10%;
-  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent: 0 0% 18%;
   --sidebar-accent-foreground: 0 0% 90%;
-  --sidebar-border: 0 0% 20%;
+  --sidebar-border: 0 0% 24%;
   --sidebar-ring: 0 0% 60%;
   --highlight: 197 100% 50%;
   --highlight-foreground: 0 0% 10%;
@@ -95,11 +95,6 @@
     font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
-}
-
-/* The shared development badge otherwise obscures the app-owned sidebar footer. */
-body:has(> .agent-layout-shell) > [aria-label="Local development environment"] {
-  display: none;
 }
 
 @keyframes clips-import-progress {

@@ -21,12 +21,12 @@ import {
   type FormEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { toast } from "sonner";
 
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import {
   VIDEO_STORAGE_STATUS_KEY,
   useVideoStorageStatus,
@@ -82,6 +82,12 @@ export default function ImportRoute() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const storageQuery = useVideoStorageStatus();
+  const {
+    error: failImportToast,
+    info: infoImportToast,
+    start: startImportToast,
+    success: completeImportToast,
+  } = useSonnerLifecycleToast();
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
     : !!storageQuery.data?.configured;
@@ -156,6 +162,11 @@ export default function ImportRoute() {
     };
   }, [clearTimers]);
 
+  useEffect(() => {
+    if (phase !== "importing") return;
+    startImportToast(importStages[stageIndex] ?? importStages[0]);
+  }, [importStages, phase, stageIndex, startImportToast]);
+
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -201,7 +212,7 @@ export default function ImportRoute() {
           result?.storageSetupRequired ||
           result?.status === "waiting_storage"
         ) {
-          toast.info(t("recordRoute.storageNeededToFinishLoomImport"), {
+          infoImportToast(t("recordRoute.storageNeededToFinishLoomImport"), {
             description: t("recordRoute.connectStorageToRetryLoom"),
             duration: 12_000,
           });
@@ -214,6 +225,7 @@ export default function ImportRoute() {
         await writeNavigateAppState(recordingId);
 
         // Linger on the "done" reveal, then fade out into the clip.
+        completeImportToast(t("recordRoute.loomImported"));
         setPhase("done");
         timeoutsRef.current.push(
           setTimeout(() => setPhase("leaving"), 1900),
@@ -223,17 +235,24 @@ export default function ImportRoute() {
         clearTimers();
         setProgress(0);
         setPhase("form");
-        setLoomError(
+        const message =
           err instanceof Error
             ? userFacingActionErrorMessage(err.message)
-            : t("recordRoute.couldNotImportLoom"),
-        );
+            : t("recordRoute.couldNotImportLoom");
+        setLoomError(message);
+        failImportToast(t("recordRoute.couldNotImportLoom"), {
+          description: message,
+          duration: 12_000,
+        });
       }
     },
     [
       busy,
       clearTimers,
+      completeImportToast,
+      failImportToast,
       folderIdFromUrl,
+      infoImportToast,
       importStages.length,
       loomUrl,
       navigate,

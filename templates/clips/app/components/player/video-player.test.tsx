@@ -527,6 +527,32 @@ describe("VideoPlayer playback", () => {
     expect(handleRef.current?.getCurrentOriginalMs()).toBe(6_000);
   });
 
+  it("reports imperative native seeks to the parent playback clock", () => {
+    const onTimeUpdate = vi.fn();
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            onTimeUpdate={onTimeUpdate}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(4_000);
+    });
+
+    expect(onTimeUpdate).toHaveBeenCalledWith(4_000, 10_000);
+  });
+
   it("reads the latest Loom position from the imperative handle", () => {
     act(() => {
       root.render(

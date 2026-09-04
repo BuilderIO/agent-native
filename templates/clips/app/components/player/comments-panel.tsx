@@ -2,7 +2,7 @@ import {
   useActionMutation,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
   type InlineMarkdownProtectedSpan,
@@ -25,6 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Kbd } from "@/components/ui/kbd";
 import {
   Popover,
   PopoverContent,
@@ -92,6 +93,13 @@ export interface CommentsPanelProps {
   recordingId: string;
   comments: Comment[];
   currentMs: number;
+  /**
+   * Reads the player's live original-timeline position when a new root
+   * comment is submitted. Native media can be seeked while paused without
+   * emitting a parent `onTimeUpdate`, so the render-time value is not always
+   * current.
+   */
+  getCurrentMs?: () => number;
   currentUserEmail?: string;
   currentUserName?: string;
   enableComments: boolean;
@@ -118,9 +126,9 @@ export interface CommentsPanelProps {
    */
   onUnauthenticated?: (intent: "comment" | "react") => void;
   /**
-   * The public share page uses a quieter Loom-style activity panel. The
-   * authenticated viewer's inline presentation keeps the conversation in the
-   * primary reading flow beneath the player.
+   * Inline presentation keeps the conversation in the primary reading flow
+   * beneath the player for both signed-in and public viewers. The share
+   * presentation remains available for a quieter, contained activity panel.
    */
   presentation?: "default" | "share" | "inline";
 }
@@ -130,6 +138,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     recordingId,
     comments,
     currentMs,
+    getCurrentMs,
     currentUserEmail,
     currentUserName,
     enableComments,
@@ -146,6 +155,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const isInlinePresentation = presentation === "inline";
   const isConversationPresentation =
     isSharePresentation || isInlinePresentation;
+  const formatters = useFormatters();
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
@@ -401,7 +411,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       : {
           recordingId,
           content: text,
-          videoTimestampMs: currentMs,
+          videoTimestampMs: getCurrentMs?.() ?? currentMs,
           ...mentionArgs(value, draftMentions),
           ...(currentUserName ? { authorName: currentUserName } : {}),
         };
@@ -419,7 +429,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
   }
 
   function openReply(root: Comment) {
-    if (!canComment) return;
+    if (!canComment) {
+      if (!isSignedIn && onUnauthenticated) {
+        onUnauthenticated("comment");
+      }
+      return;
+    }
     if (!isSignedIn && onUnauthenticated) {
       onUnauthenticated("comment");
       return;
@@ -503,7 +518,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
         {sortedThreads.length === 0 ? (
           <EmptyCommentsState
             enableComments={enableComments}
-            canComment={canComment}
             isSharePresentation={isSharePresentation}
             isInlinePresentation={isInlinePresentation}
           />
@@ -519,6 +533,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                 >
                   <CommentCard
                     comment={root}
+                    formatRelativeTime={formatters.formatRelativeTime}
                     currentUserEmail={currentUserEmail}
                     canComment={canComment}
                     onSeek={onSeek}
@@ -551,6 +566,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                         <li key={r.id}>
                           <CommentCard
                             comment={r}
+                            formatRelativeTime={formatters.formatRelativeTime}
                             currentUserEmail={currentUserEmail}
                             canComment={canComment}
                             onSeek={onSeek}
@@ -621,12 +637,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
 function EmptyCommentsState({
   enableComments,
-  canComment,
   isSharePresentation,
   isInlinePresentation,
 }: {
   enableComments: boolean;
-  canComment: boolean;
   isSharePresentation: boolean;
   isInlinePresentation: boolean;
 }) {
@@ -646,22 +660,10 @@ function EmptyCommentsState({
     );
   }
 
-  if (isInlinePresentation && canComment) return null;
-
-  if (!canComment) {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center px-8 py-10 text-center",
-          isSharePresentation ? "flex-1" : "min-h-full",
-        )}
-      >
-        <p className="text-sm font-medium text-muted-foreground">
-          {t("commentsPanel.beFirst")}
-        </p>
-      </div>
-    );
-  }
+  // Inline comments keep the composer in the reading flow for every viewer;
+  // the signed-out composer is the empty-state affordance, so a second
+  // centered prompt would make the public and signed-in layouts diverge.
+  if (isInlinePresentation) return null;
 
   return (
     <div
@@ -721,13 +723,15 @@ function CommentComposer({
   if (!canComment && isSignedIn) return null;
 
   if (!isSignedIn && onUnauthenticated) {
+    const inlineAnonymousComposer = isInlinePresentation;
     return (
       <button
         type="button"
         onClick={() => onUnauthenticated("comment")}
         className={cn(
-          "flex w-full items-center gap-3 rounded-md border border-input bg-background px-3 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          isConversationPresentation ? "min-h-11 py-2" : "min-h-10 py-2",
+          inlineAnonymousComposer
+            ? "flex w-full items-center gap-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring"
+            : "flex w-full items-center gap-3 rounded-md border border-input bg-background px-3 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         )}
       >
         <Avatar className="size-7 shrink-0">
@@ -735,10 +739,20 @@ function CommentComposer({
             A
           </AvatarFallback>
         </Avatar>
-        <span className="min-w-0 flex-1 truncate">
-          {t("commentsPanel.leaveComment")}
-        </span>
-        <IconMoodSmile className="size-4 shrink-0" />
+        {inlineAnonymousComposer ? (
+          <span className="flex min-w-0 flex-1 items-center border-b border-border py-1">
+            <span className="min-w-0 flex-1 truncate">
+              {t("commentsPanel.leaveComment")}
+            </span>
+          </span>
+        ) : (
+          <>
+            <span className="min-w-0 flex-1 truncate">
+              {t("commentsPanel.leaveComment")}
+            </span>
+            <IconMoodSmile className="size-4 shrink-0" />
+          </>
+        )}
       </button>
     );
   }
@@ -797,7 +811,7 @@ function CommentComposer({
                   ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   : "min-h-[60px]",
             )}
-            submitOnEnter={false}
+            submitOnEnter
           />
           {!isInlinePresentation || draft.trim() ? (
             <Button
@@ -811,7 +825,12 @@ function CommentComposer({
               )}
             >
               {isInlinePresentation ? (
-                t("commentsPanel.commentButton")
+                <>
+                  {t("commentsPanel.commentButton")}
+                  <Kbd className="h-5 min-w-0 bg-primary-foreground/15 px-1.5 text-[10px] text-primary-foreground">
+                    Enter
+                  </Kbd>
+                </>
               ) : (
                 <IconSend className="size-4" />
               )}
@@ -855,7 +874,7 @@ function InlineReplyComposer({
         placeholder={t("commentsPanel.writeReply")}
         className="min-h-16 resize-none border-0 bg-background text-sm"
         onEscape={onCancel}
-        submitOnEnter={false}
+        submitOnEnter
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>
@@ -909,7 +928,7 @@ function InlineEditComposer({
         aria-label={t("commentsPanel.editComment")}
         className="min-h-16 resize-none border-0 bg-background text-sm"
         onEscape={onCancel}
-        submitOnEnter={false}
+        submitOnEnter
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>
@@ -932,6 +951,7 @@ function InlineEditComposer({
 
 function CommentCard({
   comment,
+  formatRelativeTime,
   currentUserEmail,
   canComment,
   editDraft,
@@ -952,6 +972,7 @@ function CommentCard({
   isReply,
 }: {
   comment: Comment;
+  formatRelativeTime: ReturnType<typeof useFormatters>["formatRelativeTime"];
   currentUserEmail?: string;
   canComment: boolean;
   editDraft: string;
@@ -985,6 +1006,8 @@ function CommentCard({
     !!currentUserEmail &&
     comment.authorEmail.trim().toLowerCase() ===
       currentUserEmail.trim().toLowerCase();
+  const canParticipate =
+    canComment || (!currentUserEmail && Boolean(onUnauthenticated));
 
   function toggleEmoji(emoji: string) {
     if (!currentUserEmail) return reactions;
@@ -1033,7 +1056,7 @@ function CommentCard({
             </button>
           ) : null}
           <span className="text-muted-foreground text-[11px]">
-            {relativeTime(comment.createdAt)}
+            {relativeTime(comment.createdAt, formatRelativeTime)}
           </span>
           {comment.resolved ? (
             <span className="ml-auto text-[10px] text-green-700 bg-green-100 rounded px-1.5 py-0.5 flex items-center gap-1">
@@ -1061,7 +1084,7 @@ function CommentCard({
             />
 
             <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
-              {canComment ? (
+              {canParticipate ? (
                 <button
                   onClick={onReply}
                   className="hover:text-foreground flex items-center gap-1"
@@ -1071,7 +1094,7 @@ function CommentCard({
                 </button>
               ) : null}
 
-              {canComment ? (
+              {canParticipate ? (
                 <Popover>
                   <PopoverTrigger asChild>
                     <button className="hover:text-foreground flex items-center gap-1">
@@ -1143,7 +1166,7 @@ function CommentCard({
             {Object.entries(reactions).map(([emoji, users]) => {
               const mine =
                 !!currentUserEmail && users.includes(currentUserEmail);
-              return canComment ? (
+              return canParticipate ? (
                 <button
                   key={emoji}
                   type="button"
@@ -1238,18 +1261,32 @@ function initials(name: string): string {
     .join("");
 }
 
-function relativeTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!isFinite(t)) return "";
-  const diff = Date.now() - t;
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d`;
-  const w = Math.floor(d / 7);
-  return `${w}w`;
+export function relativeTime(
+  iso: string,
+  formatRelativeTime: ReturnType<typeof useFormatters>["formatRelativeTime"],
+  now = Date.now(),
+): string {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+
+  // RelativeTimeFormat expects negative values for past dates. Keep the
+  // thresholds in one place so comment rows consistently use full unit names.
+  const deltaSeconds = (timestamp - now) / 1000;
+  const absoluteSeconds = Math.abs(deltaSeconds);
+  if (absoluteSeconds < 60) {
+    return formatRelativeTime(0, "second", { numeric: "auto" });
+  }
+  if (absoluteSeconds < 3600) {
+    return formatRelativeTime(Math.round(deltaSeconds / 60), "minute");
+  }
+  if (absoluteSeconds < 86400) {
+    return formatRelativeTime(Math.round(deltaSeconds / 3600), "hour");
+  }
+  if (absoluteSeconds < 30 * 86400) {
+    return formatRelativeTime(Math.round(deltaSeconds / 86400), "day");
+  }
+  if (absoluteSeconds < 365 * 86400) {
+    return formatRelativeTime(Math.round(deltaSeconds / (30 * 86400)), "month");
+  }
+  return formatRelativeTime(Math.round(deltaSeconds / (365 * 86400)), "year");
 }

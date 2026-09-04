@@ -4,8 +4,10 @@ import { NavLink } from "react-router";
 
 import { ImportMenu } from "@/components/import-menu";
 import { LibraryGrid } from "@/components/library/library-grid";
-import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
+import {
+  PageHeaderActionGroup,
+  PageHeaderPrimaryAction,
+} from "@/components/library/page-header";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
@@ -25,21 +27,22 @@ export function meta() {
 
 export default function LibraryIndexRoute() {
   const t = useT();
+
   return (
     <LibraryGrid
       view="library"
       folderId={null}
       title={t("navigation.library")}
       extraActions={
-        <ButtonGroup>
-          <Button size="sm" asChild>
+        <PageHeaderActionGroup>
+          <PageHeaderPrimaryAction asChild>
             <NavLink to="/record" aria-label={t("navigation.newRecording")}>
               <IconVideoPlus />
               <span className="hidden sm:inline">
                 {t("navigation.newRecording")}
               </span>
             </NavLink>
-          </Button>
+          </PageHeaderPrimaryAction>
           <ImportMenu
             uploadHref="/record?autoUpload=1"
             importLoomHref="/import"
@@ -51,7 +54,7 @@ export default function LibraryIndexRoute() {
             menuSide="bottom"
             menuAlign="end"
           />
-        </ButtonGroup>
+        </PageHeaderActionGroup>
       }
     />
   );

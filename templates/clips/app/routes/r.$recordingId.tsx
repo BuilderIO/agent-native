@@ -1,4 +1,3 @@
-import { AgentPanel } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
@@ -46,8 +45,6 @@ import {
   IconCheck,
   IconEdit,
   IconHelpCircle,
-  IconClipboardCopy,
-  IconFileText,
   IconBolt,
   IconMessage,
   IconExternalLink,
@@ -82,6 +79,7 @@ import {
   REACTION_EMOJIS,
   REACTION_NAMES,
 } from "@/components/player/reaction-emojis";
+import { RecordingSidePanel } from "@/components/player/recording-side-panel";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
@@ -98,7 +96,6 @@ import {
   ViewerTabsTrigger,
 } from "@/components/player/viewer-controls";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
-import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -128,9 +125,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
+import {
+  isDefaultTitle,
+  notifyAiRequestQueued,
+  useAutoTitleBridge,
+} from "@/hooks/use-auto-title";
 import { useFolders, useSpaces } from "@/hooks/use-library";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
+import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
@@ -419,7 +421,7 @@ export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
 
-type SidePanel = "transcript" | "comments" | "agent" | "settings";
+type SidePanel = "transcript" | "comments" | "settings";
 type ToolbarPanel = Exclude<SidePanel, "comments">;
 
 const WORKFLOW_MENU_ITEMS: Array<{
@@ -572,6 +574,12 @@ export default function RecordingPage() {
       });
     });
   }, [searchParams, setSearchParams]);
+  const openGlobalAgentPanel = useCallback(() => {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", { detail: { mode: "chat" } }),
+    );
+    window.dispatchEvent(new Event("agent-panel:open"));
+  }, []);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -580,11 +588,6 @@ export default function RecordingPage() {
   const [retryingFinalize, setRetryingFinalize] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const browserTabId = useMemo(() => getBrowserTabId(), []);
-  const recordingScope = useMemo(
-    () =>
-      recordingId ? { type: "recording" as const, id: recordingId } : null,
-    [recordingId],
-  );
   const queryClient = useQueryClient();
   const lastPlayerStateWriteRef = useRef(0);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
@@ -683,6 +686,51 @@ export default function RecordingPage() {
   }, [recordingId, playerDataForbidden, navigate]);
 
   const recording = playerDataQ.data?.recording;
+  const {
+    error: failProcessingToast,
+    start: startProcessingToast,
+    success: completeProcessingToast,
+  } = useSonnerLifecycleToast();
+  const lifecyclePhaseRef = useRef<
+    "failed" | "processing" | "ready" | "uploading" | null
+  >(null);
+
+  useEffect(() => {
+    if (!recording) return;
+    const phase =
+      recording.status === "ready"
+        ? recording.videoUrl
+          ? "ready"
+          : "processing"
+        : recording.status;
+    const previousPhase = lifecyclePhaseRef.current;
+    if (phase === "uploading") {
+      startProcessingToast(t("recordingPage.uploadingAssembling"));
+    } else if (phase === "processing") {
+      startProcessingToast(t("recordingPage.finishingClip"));
+    } else if (
+      phase === "ready" &&
+      previousPhase &&
+      previousPhase !== "ready"
+    ) {
+      completeProcessingToast(t("recordRoute.recordingSaved"));
+    } else if (
+      phase === "failed" &&
+      previousPhase &&
+      previousPhase !== "failed"
+    ) {
+      failProcessingToast(t("recordingPage.savingWentWrong"));
+    }
+    lifecyclePhaseRef.current = phase;
+  }, [
+    completeProcessingToast,
+    failProcessingToast,
+    recording?.id,
+    recording?.status,
+    recording?.videoUrl,
+    startProcessingToast,
+    t,
+  ]);
   const hierarchyEnabled = Boolean(session && recording?.organizationId);
   const { data: hierarchyFolders } = useFolders(
     { organizationId: recording?.organizationId },
@@ -778,8 +826,7 @@ export default function RecordingPage() {
       return;
     }
     if (
-      (panelParam === "agent" ||
-        panelParam === "transcript" ||
+      (panelParam === "transcript" ||
         panelParam === "insights" ||
         panelParam === "settings") &&
       (panelParam !== "settings" || canEdit)
@@ -787,6 +834,13 @@ export default function RecordingPage() {
       setPanel(panelParam === "insights" ? "transcript" : panelParam);
     }
   }, [canEdit, panelParam]);
+
+  useEffect(() => {
+    if (panelParam !== "agent" || !session || !recording?.id) return;
+    setPanel("transcript");
+    const timeout = window.setTimeout(openGlobalAgentPanel, 0);
+    return () => window.clearTimeout(timeout);
+  }, [openGlobalAgentPanel, panelParam, recording?.id, session]);
 
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
@@ -804,6 +858,56 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const recordingBreadcrumb = (
+    <Breadcrumb aria-label={t("navigation.library")} className="min-w-0">
+      <BreadcrumbList className="flex-nowrap overflow-hidden">
+        <BreadcrumbItem className="shrink-0">
+          <BreadcrumbLink asChild>
+            <NavLink to="/library">{t("navigation.library")}</NavLink>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        {recordingSpace ? (
+          <>
+            <BreadcrumbSeparator className="shrink-0" />
+            <BreadcrumbItem className="min-w-0">
+              <BreadcrumbLink asChild>
+                <NavLink
+                  to={`/spaces/${recordingSpace.id}`}
+                  className="truncate"
+                >
+                  {recordingSpace.name}
+                </NavLink>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+          </>
+        ) : null}
+        {recordingFolder ? (
+          <>
+            <BreadcrumbSeparator className="shrink-0" />
+            <BreadcrumbItem className="min-w-0">
+              <BreadcrumbLink asChild>
+                <NavLink
+                  to={
+                    recordingFolder.spaceId
+                      ? `/spaces/${recordingFolder.spaceId}/folder/${recordingFolder.id}`
+                      : `/library/folder/${recordingFolder.id}`
+                  }
+                  className="flex min-w-0 items-center gap-1.5"
+                >
+                  <IconFolder className="size-4 shrink-0" />
+                  <span className="truncate">{recordingFolder.name}</span>
+                </NavLink>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+          </>
+        ) : null}
+        <BreadcrumbSeparator className="shrink-0" />
+        <BreadcrumbItem className="min-w-0">
+          <BreadcrumbPage className="truncate">{visibleTitle}</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
   // Attribution `via` must never point at someone who isn't the owner, so it
   // is only tagged when the viewer is the owner (same rule as the share dialog).
   const shareViaId =
@@ -903,6 +1007,23 @@ export default function RecordingPage() {
     canDownloadRecording || isLoomEmbedBacked
       ? (recording?.videoUrl ?? null)
       : null;
+  const renderShareControl = () => (
+    <ShareRecordingPopover
+      recordingId={recording.id}
+      recordingTitle={recording.title}
+      initialVisibility={recording.visibility}
+      initialRole={role}
+      videoUrl={shareVideoUrl}
+      thumbnailUrl={recording.thumbnailUrl}
+      animatedThumbnailUrl={recording.animatedThumbnailUrl}
+      isLoomRecording={isLoomEmbedBacked}
+      hasPassword={Boolean(recording.hasPassword)}
+      expiresAt={recording.expiresAt}
+      viewerReshareOnly={viewerReshareOnly}
+    >
+      <ClipsShareTrigger label={t("recordingPage.share")} />
+    </ShareRecordingPopover>
+  );
   const downloadRecording = useCallback(async () => {
     if (!recording?.videoUrl) return;
     setDownloading(true);
@@ -1025,6 +1146,9 @@ export default function RecordingPage() {
   });
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) => {
+      if (result?.queued === true && recording?.id) {
+        notifyAiRequestQueued(recording.id);
+      }
       setMetadataRefreshUntil(Date.now() + 60_000);
       void playerDataQ.refetch();
       if (result?.updated) {
@@ -1044,7 +1168,10 @@ export default function RecordingPage() {
     onError: handleAiError,
   });
   const regenerateSummary = useActionMutation("regenerate-summary" as any, {
-    onSuccess: () => {
+    onSuccess: (result: any) => {
+      if (result?.queued === true && recording?.id) {
+        notifyAiRequestQueued(recording.id);
+      }
       setMetadataRefreshUntil(Date.now() + 60_000);
       void playerDataQ.refetch();
       toast.success(t("recordingPage.descriptionQueued"));
@@ -1052,15 +1179,28 @@ export default function RecordingPage() {
     onError: handleAiError,
   });
   const regenerateChapters = useActionMutation("regenerate-chapters" as any, {
-    onSuccess: () => toast.success(t("recordingPage.chapterQueued")),
+    onSuccess: (result: any) => {
+      if (result?.queued === true && recording?.id) {
+        notifyAiRequestQueued(recording.id);
+      }
+      toast.success(t("recordingPage.chapterQueued"));
+    },
     onError: handleAiError,
   });
   const removeFillerWords = useActionMutation("remove-filler-words" as any, {
-    onSuccess: () => toast.success(t("recordingPage.fillerQueued")),
+    onSuccess: (result: any) => {
+      if (result?.queued === true && recording?.id) {
+        notifyAiRequestQueued(recording.id);
+      }
+      toast.success(t("recordingPage.fillerQueued"));
+    },
     onError: handleAiError,
   });
   const removeSilences = useActionMutation("remove-silences" as any, {
-    onSuccess: () => {
+    onSuccess: (result: any) => {
+      if (result?.queued === true && recording?.id) {
+        notifyAiRequestQueued(recording.id);
+      }
       toast.success(t("recordingPage.silenceQueued"));
       void silenceRemovalStatusQ.refetch();
     },
@@ -1071,7 +1211,10 @@ export default function RecordingPage() {
     silenceRemovalStatus?.status === "queued" ||
     silenceRemovalStatus?.status === "working";
   const generateWorkflow = useActionMutation("generate-workflow" as any, {
-    onSuccess: () => {
+    onSuccess: (result: any) => {
+      if (result?.queued === true && recording?.id) {
+        notifyAiRequestQueued(recording.id);
+      }
       toast.success(t("recordingPage.workflowQueued"));
       void generatedWorkflowQ.refetch();
     },
@@ -1112,14 +1255,11 @@ export default function RecordingPage() {
     if (!recording) return;
     if (generatedWorkflow?.status === "generating") return;
     setEditing(false);
-    setPanel("agent");
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:set-mode", { detail: { mode: "chat" } }),
-    );
-    window.dispatchEvent(new Event("agent-panel:open"));
+    openGlobalAgentPanel();
     generateWorkflow.mutate({
       recordingId: recording.id,
       kind,
+      openInChat: true,
     } as any);
   }
 
@@ -1127,7 +1267,7 @@ export default function RecordingPage() {
     generateWorkflow.isPending || generatedWorkflow?.status === "generating";
 
   useEffect(() => {
-    if (recording && panel === "settings" && !canEdit) setPanel("agent");
+    if (recording && panel === "settings" && !canEdit) setPanel("transcript");
   }, [canEdit, panel, recording]);
 
   useEffect(() => {
@@ -1325,43 +1465,58 @@ export default function RecordingPage() {
       : displayReason;
     const detail = failureDetail(rawFailureReason);
     if (!showRecoveryState) {
-      return (
-        <div className="flex min-h-screen w-full flex-col bg-background">
-          <header className="flex min-w-0 shrink-0 items-center gap-2 px-3 py-2 sm:px-4 sm:py-3">
-            <BackButton
-              onBack={() => navigate("/library", { replace: true })}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{visibleTitle}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {recording.ownerEmail}
-                {recording.visibility !== "private" ? (
-                  <> · {capitalize(recording.visibility)}</>
-                ) : null}
-              </p>
-            </div>
-            {isPrivateRecipient ? (
-              <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
-                {t("recordingPage.sharedWithYou")}
-              </span>
-            ) : (
-              <ShareRecordingPopover
-                recordingId={recording.id}
-                recordingTitle={recording.title}
-                initialVisibility={recording.visibility}
-                initialRole={role}
-                hasPassword={Boolean(recording.hasPassword)}
-                expiresAt={recording.expiresAt}
-                viewerReshareOnly={viewerReshareOnly}
-              >
-                <ClipsShareTrigger label={t("recordingPage.share")} />
-              </ShareRecordingPopover>
-            )}
-          </header>
+      const processingView = (
+        <div
+          className={cn(
+            "flex w-full flex-col bg-background",
+            session ? "h-full min-h-0" : "min-h-screen",
+          )}
+        >
+          {session ? (
+            <PageHeader>
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="min-w-0 flex-1">{recordingBreadcrumb}</div>
+                {isPrivateRecipient ? (
+                  <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
+                    {t("recordingPage.sharedWithYou")}
+                  </span>
+                ) : (
+                  renderShareControl()
+                )}
+              </div>
+            </PageHeader>
+          ) : (
+            <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+              <BackButton
+                onBack={() => navigate("/library", { replace: true })}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{visibleTitle}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {recording.ownerEmail}
+                  {recording.visibility !== "private" ? (
+                    <> · {capitalize(recording.visibility)}</>
+                  ) : null}
+                </p>
+              </div>
+              {isPrivateRecipient ? (
+                <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
+                  {t("recordingPage.sharedWithYou")}
+                </span>
+              ) : (
+                renderShareControl()
+              )}
+            </header>
+          )}
 
-          <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 p-4 sm:p-6">
-            <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl bg-black">
-              <div className="flex flex-col items-center gap-3 text-center text-white">
+          <main
+            className={cn(
+              "mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 p-4 sm:p-6",
+              session && "min-h-0 overflow-y-auto",
+            )}
+          >
+            <div className="relative flex aspect-video w-full shrink-0 items-center justify-center overflow-hidden rounded-xl bg-foreground">
+              <div className="flex flex-col items-center gap-3 text-center text-background">
                 <Spinner className="size-8" />
                 <p className="text-sm font-medium">
                   {t("recordingPage.finishingClip")}
@@ -1394,6 +1549,12 @@ export default function RecordingPage() {
             </div>
           </main>
         </div>
+      );
+
+      return session ? (
+        <LibraryLayout>{processingView}</LibraryLayout>
+      ) : (
+        processingView
       );
     }
     return (
@@ -1496,7 +1657,7 @@ export default function RecordingPage() {
   }
 
   const renderPanelTabs = () => (
-    <ViewerTabsList className="min-w-0 shrink-0">
+    <ViewerTabsList className="min-w-0 shrink-0 bg-sidebar">
       {isCompactLayout ? (
         <ViewerTabsTrigger value="comments">
           {t("playerSettings.comments")}
@@ -1504,9 +1665,6 @@ export default function RecordingPage() {
       ) : null}
       <ViewerTabsTrigger value="transcript">
         {t("recordingPage.transcript")}
-      </ViewerTabsTrigger>
-      <ViewerTabsTrigger value="agent">
-        {t("recordingPage.agent")}
       </ViewerTabsTrigger>
       {canEdit ? (
         <ViewerTabsTrigger value="settings">
@@ -1535,6 +1693,7 @@ export default function RecordingPage() {
         recordingId={recording.id}
         comments={comments}
         currentMs={playbackMs}
+        getCurrentMs={resolvePlaybackMs}
         currentUserEmail={session?.email}
         currentUserName={session?.name}
         enableComments={recording.enableComments}
@@ -1553,54 +1712,6 @@ export default function RecordingPage() {
   const renderSidePanel = () => {
     return (
       <>
-        <TabsContent
-          value="agent"
-          className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
-        >
-          {generatedWorkflow ? (
-            <GeneratedWorkflowNotice workflow={generatedWorkflow} />
-          ) : null}
-          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-xs text-muted-foreground">
-            <IconMessage className="size-3.5" aria-hidden="true" />
-            <span className="font-medium text-foreground">
-              {t("recordingPage.agent")}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono tabular-nums">
-              {formatPlayerTime(playbackMs)}
-            </span>
-            {transcriptStatus === "ready" ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{t("recordingPage.transcript")}</span>
-              </>
-            ) : null}
-          </div>
-          <AgentPanel
-            browserTabId={browserTabId}
-            scope={recordingScope}
-            showHeader={false}
-            showTabBar={false}
-            missingApiKeySetupLayout="sidebar"
-            emptyStateText={t("recordingPage.askAboutClip")}
-            dynamicSuggestions={false}
-            suggestions={
-              canEdit
-                ? [
-                    t("recordingPage.summarizeClip"),
-                    t("recordingPage.generateChapters"),
-                    t("recordingPage.findActionItems"),
-                    t("recordingPage.draftRecap"),
-                  ]
-                : [
-                    t("recordingPage.summarizeClip"),
-                    t("recordingPage.findKeyMoments"),
-                    t("recordingPage.listFollowUpActions"),
-                    t("recordingPage.draftQuestions"),
-                  ]
-            }
-          />
-        </TabsContent>
         <TabsContent
           value="transcript"
           className="mt-0 flex-1 min-h-0 data-[state=inactive]:hidden"
@@ -1648,7 +1759,7 @@ export default function RecordingPage() {
             <SettingsPanel
               recording={recording}
               ctas={ctas}
-              onClose={() => setPanel("agent")}
+              onClose={() => setPanel("transcript")}
               onRefetch={() => playerDataQ.refetch()}
               showHeader={false}
             />
@@ -1663,6 +1774,7 @@ export default function RecordingPage() {
       {!editing ? (
         <RecordingViewsBadge
           recordingId={recording.id}
+          recordingTitle={recording.title}
           viewCount={playerDataQ.data?.viewCount ?? 0}
           reactionCount={reactions.length}
           durationMs={recording.durationMs}
@@ -1672,7 +1784,7 @@ export default function RecordingPage() {
         />
       ) : null}
 
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-2">
         {canUseNativeEditor && editing ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1793,7 +1905,7 @@ export default function RecordingPage() {
                 {t("recordingPage.edit")}
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem onSelect={() => openSidePanel("agent")}>
+            <DropdownMenuItem onSelect={openGlobalAgentPanel}>
               <IconMessage className="h-4 w-4" />
               {t("recordingPage.askAboutClip")}
             </DropdownMenuItem>
@@ -1940,33 +2052,6 @@ export default function RecordingPage() {
           </RecordingOptionsMenu>
         ) : null}
 
-        {!editing ? (
-          isPrivateRecipient ? (
-            <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
-              {t("recordingPage.sharedWithYou")}
-            </span>
-          ) : (
-            <ShareRecordingPopover
-              recordingId={recording.id}
-              recordingTitle={recording.title}
-              initialVisibility={recording.visibility}
-              initialRole={role}
-              videoUrl={shareVideoUrl}
-              thumbnailUrl={recording.thumbnailUrl}
-              animatedThumbnailUrl={recording.animatedThumbnailUrl}
-              isLoomRecording={isLoomEmbedBacked}
-              hasPassword={Boolean(recording.hasPassword)}
-              expiresAt={recording.expiresAt}
-              viewerReshareOnly={viewerReshareOnly}
-            >
-              <ClipsShareTrigger
-                label={t("recordingPage.share")}
-                className="h-8 px-3 text-xs shadow-none"
-              />
-            </ShareRecordingPopover>
-          )
-        ) : null}
-
         {!editing && !canEdit && (canDelete || canDownloadRecording) ? (
           <RecordingOptionsMenu
             recordingId={recording.id}
@@ -1990,56 +2075,18 @@ export default function RecordingPage() {
     <>
       {session ? (
         <PageHeader>
-          <Breadcrumb aria-label={t("navigation.library")} className="min-w-0">
-            <BreadcrumbList className="flex-nowrap overflow-hidden">
-              <BreadcrumbItem className="shrink-0">
-                <BreadcrumbLink asChild>
-                  <NavLink to="/library">{t("navigation.library")}</NavLink>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              {recordingSpace ? (
-                <>
-                  <BreadcrumbSeparator className="shrink-0" />
-                  <BreadcrumbItem className="min-w-0">
-                    <BreadcrumbLink asChild>
-                      <NavLink
-                        to={`/spaces/${recordingSpace.id}`}
-                        className="truncate"
-                      >
-                        {recordingSpace.name}
-                      </NavLink>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                </>
-              ) : null}
-              {recordingFolder ? (
-                <>
-                  <BreadcrumbSeparator className="shrink-0" />
-                  <BreadcrumbItem className="min-w-0">
-                    <BreadcrumbLink asChild>
-                      <NavLink
-                        to={
-                          recordingFolder.spaceId
-                            ? `/spaces/${recordingFolder.spaceId}/folder/${recordingFolder.id}`
-                            : `/library/folder/${recordingFolder.id}`
-                        }
-                        className="flex min-w-0 items-center gap-1.5"
-                      >
-                        <IconFolder className="size-4 shrink-0" />
-                        <span className="truncate">{recordingFolder.name}</span>
-                      </NavLink>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                </>
-              ) : null}
-              <BreadcrumbSeparator className="shrink-0" />
-              <BreadcrumbItem className="min-w-0">
-                <BreadcrumbPage className="truncate">
-                  {visibleTitle}
-                </BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+          {recordingBreadcrumb}
+          {!editing ? (
+            isPrivateRecipient ? (
+              <span className="ms-auto shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
+                {t("recordingPage.sharedWithYou")}
+              </span>
+            ) : (
+              <div className="ms-auto flex shrink-0 items-center">
+                {renderShareControl()}
+              </div>
+            )
+          ) : null}
         </PageHeader>
       ) : null}
       <Tabs
@@ -2052,7 +2099,7 @@ export default function RecordingPage() {
           openSidePanel(value as ToolbarPanel);
         }}
         className={cn(
-          "clips-recording-view grid w-full max-w-full grid-cols-1 overflow-x-hidden bg-muted/30 xl:grid-cols-[minmax(0,1fr)_auto] xl:overflow-hidden [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background",
+          "clips-recording-view grid w-full max-w-full grid-cols-1 overflow-x-hidden bg-background xl:grid-cols-[minmax(0,1fr)_auto] xl:overflow-hidden [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background",
           session
             ? "h-full min-h-0 xl:grid-rows-[minmax(0,1fr)]"
             : "min-h-screen xl:h-screen xl:grid-rows-[2.5rem_minmax(0,1fr)]",
@@ -2133,7 +2180,7 @@ export default function RecordingPage() {
               session ? "xl:row-start-1" : "xl:row-start-2",
               editing && canUseNativeEditor
                 ? "min-h-0 flex-1 overflow-hidden"
-                : "gap-0 sm:gap-4 sm:p-5 xl:min-h-0 xl:flex-1 xl:overflow-hidden",
+                : "gap-0 sm:gap-4 sm:px-5 sm:pb-5 sm:pt-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden",
             )}
           >
             {editing && canUseNativeEditor ? (
@@ -2182,11 +2229,13 @@ export default function RecordingPage() {
                         // The inline conversation is outside the element the
                         // Fullscreen API paints, so keep the portal composer for
                         // fullscreen and move to the thread everywhere else.
+                        const liveMs = resolvePlaybackMs();
+                        setCurrentMs(liveMs);
                         if (!isPlayerFullscreen) {
                           openCommentsPanel();
                           return;
                         }
-                        setCommentAtMs(resolvePlaybackMs());
+                        setCommentAtMs(liveMs);
                         setCommentOpen(true);
                       }}
                       enableReactions={recording.enableReactions}
@@ -2276,13 +2325,17 @@ export default function RecordingPage() {
                             className="size-7 shrink-0"
                             fallbackClassName="bg-muted text-[10px] font-semibold text-muted-foreground"
                           />
-                          <p className="min-w-0 truncate text-sm text-muted-foreground">
-                            <span className="font-medium text-foreground">
+                          <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+                            <bdi className="min-w-0 max-w-full truncate font-medium text-foreground">
                               {recording.ownerEmail}
-                            </span>
-                            <span> · {recordedOn}</span>
+                            </bdi>
+                            <span aria-hidden="true">·</span>
+                            <span>{recordedOn}</span>
                             {recording.visibility !== "private" ? (
-                              <span> · {capitalize(recording.visibility)}</span>
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span>{capitalize(recording.visibility)}</span>
+                              </>
                             ) : null}
                           </p>
                         </div>
@@ -2368,16 +2421,15 @@ export default function RecordingPage() {
                 </div>
 
                 {isCompactLayout ? (
-                  <aside
+                  <RecordingSidePanel
                     id="clip-activity-panel"
-                    data-recording-side-panel
-                    className="mt-2 flex min-h-[420px] w-full min-w-0 flex-col overflow-hidden border-y border-border bg-background xl:hidden"
+                    className="mt-2 xl:hidden"
+                    tabs={renderPanelTabs()}
                   >
-                    {renderPanelTabs()}
                     {panel === "comments"
                       ? renderCommentsSection(true)
                       : renderSidePanel()}
-                  </aside>
+                  </RecordingSidePanel>
                 ) : (
                   renderCommentsSection()
                 )}
@@ -2388,156 +2440,25 @@ export default function RecordingPage() {
 
         {/* Side panel */}
         {!editing && !isCompactLayout && panel && panel !== "comments" ? (
-          <aside
-            data-recording-side-panel
+          <RecordingSidePanel
             className={cn(
-              "mb-4 mr-4 mt-4 hidden min-h-0 w-[420px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sm xl:col-start-2 xl:flex 2xl:w-[440px]",
+              "hidden xl:col-start-2 xl:flex xl:w-[420px] 2xl:w-[440px]",
               session ? "xl:row-start-1" : "xl:row-start-2",
             )}
+            tabs={renderPanelTabs()}
           >
-            {renderPanelTabs()}
             {renderSidePanel()}
-          </aside>
+          </RecordingSidePanel>
         ) : null}
       </Tabs>
     </>
   );
 
-  return session ? (
-    <LibraryLayout showAgentToggle={false}>{viewer}</LibraryLayout>
-  ) : (
-    viewer
-  );
-}
-
-function GeneratedWorkflowNotice({
-  workflow,
-}: {
-  workflow: GeneratedWorkflowState;
-}) {
-  const [copied, setCopied] = useState(false);
-  const status = workflow.status ?? (workflow.content ? "ready" : "generating");
-  const content =
-    typeof workflow.content === "string" ? workflow.content.trim() : "";
-  const isReady = status !== "failed" && content.length > 0;
-  const isFailed = status === "failed";
-  const title = workflowTitle(workflow.kind);
-
-  async function handleCopy() {
-    if (!content) return;
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      toast.success(`${title} copied`);
-      setTimeout(() => setCopied(false), 1400);
-    } catch {
-      toast.error("Couldn't copy generated output");
-    }
-  }
-
-  return (
-    <div className="bg-background px-3 py-2.5">
-      <div className="overflow-hidden rounded-md bg-muted/20 shadow-sm">
-        <div className="flex items-center justify-between gap-2 px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-              {isReady ? (
-                <IconFileText className="h-3.5 w-3.5" />
-              ) : (
-                <IconMessage className="h-3.5 w-3.5" />
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-xs font-medium text-foreground">
-                {title}
-              </p>
-              <p className="truncate text-[11px] text-muted-foreground">
-                {isReady
-                  ? "Generated from this clip"
-                  : isFailed
-                    ? workflow.error ||
-                      "The agent could not finish this output."
-                    : "The agent is writing this output now."}
-              </p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Badge
-              variant={
-                isFailed ? "destructive" : isReady ? "secondary" : "outline"
-              }
-              className="px-1.5 py-0 text-[10px] font-medium"
-            >
-              {workflowStatusLabel(status, isReady)}
-            </Badge>
-            {content ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 px-2 text-[11px]"
-                onClick={handleCopy}
-              >
-                <IconClipboardCopy className="h-3.5 w-3.5" />
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            ) : null}
-          </div>
-        </div>
-        {content ? (
-          <div className="max-h-48 overflow-auto px-3 py-2">
-            <div className="whitespace-pre-wrap break-words text-xs leading-5 text-foreground">
-              {content}
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
-            {isFailed ? null : <Spinner className="h-3.5 w-3.5" />}
-            <span>
-              {isFailed
-                ? workflow.error || "No generated output was saved."
-                : "Generated output will appear here when it is ready."}
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function workflowTitle(kind: GeneratedWorkflowState["kind"]) {
-  switch (kind) {
-    case "pr":
-      return "Generated PR Summary";
-    case "sop":
-      return "Generated SOP";
-    case "ticket":
-      return "Generated Ticket";
-    case "email":
-      return "Generated Email";
-    default:
-      return "Generated Output";
-  }
-}
-
-function workflowStatusLabel(status: string, isReady: boolean) {
-  if (isReady) return "Ready";
-  if (status === "failed") return "Failed";
-  return "Generating";
+  return session ? <LibraryLayout>{viewer}</LibraryLayout> : viewer;
 }
 
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function formatPlayerTime(ms: number) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-    : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function displayRecordingTitle(title: string | null | undefined): string {

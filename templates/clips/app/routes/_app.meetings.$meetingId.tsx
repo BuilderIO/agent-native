@@ -5,7 +5,6 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   IconArrowLeft,
   IconCheck,
@@ -43,6 +42,7 @@ import {
   TranscriptBubbles,
   type TranscriptSegment,
 } from "@/components/meetings/transcript-bubbles";
+import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1163,7 +1163,7 @@ export default function MeetingDetailRoute() {
                 Boolean(data?.transcript?.fullText?.trim()))
             }
           >
-            <ShareTrigger
+            <ClipsShareTrigger
               label={t("meetingDetail.share")}
               className="shrink-0"
             />

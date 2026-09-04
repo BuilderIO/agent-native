@@ -13,12 +13,18 @@ describe("selected library actions layout", () => {
     const libraryRouteSource = readSource(
       "../../routes/_app.library._index.tsx",
     );
+    const spacesRouteSource = readSource("../../routes/_app.spaces._index.tsx");
 
     expect(gridSource).toContain("<PageBreadcrumb");
     expect(gridSource).not.toContain('<h1 className="text-base');
     expect(layoutSource).not.toContain("navigation.newRecording");
+    expect(layoutSource).not.toContain("navigation.newFolder");
+    expect(layoutSource).not.toContain("createSpaceDialog.newSpace");
     expect(layoutSource).not.toContain("<ImportMenu");
-    expect(libraryRouteSource).toContain("<ButtonGroup>");
+    expect(libraryRouteSource).toContain("<PageHeaderActionGroup>");
+    expect(libraryRouteSource).toContain("<PageHeaderPrimaryAction asChild>");
+    expect(libraryRouteSource).not.toContain("<CreateFolderDialog");
+    expect(libraryRouteSource).not.toContain('t("navigation.newFolder")');
     expect(libraryRouteSource).toContain("<IconVideoPlus />");
     expect(libraryRouteSource).toContain('triggerIcon="chevron"');
     expect(layoutSource).toContain(
@@ -35,7 +41,9 @@ describe("selected library actions layout", () => {
     expect(layoutSource).not.toContain('t("folderTree.noFolders")');
     expect(layoutSource).not.toContain("pageHasHeaderSearch");
     expect(layoutSource).not.toContain("data-sidebar-brand-toggle");
-    expect(layoutSource).toContain("navigate(SEARCH_FOCUS_PATH)");
+    expect(layoutSource).not.toContain("navigate(SEARCH_FOCUS_PATH)");
+    expect(layoutSource).not.toContain("searchButton");
+    expect(layoutSource).not.toContain("IconSearch");
     expect(layoutSource).toContain('currentAppId="clips"');
     expect(layoutSource).toContain("utilityLinks={workspaceUtilityLinks}");
     expect(layoutSource).toContain('id: "chrome-extension"');
@@ -46,6 +54,37 @@ describe("selected library actions layout", () => {
     expect(layoutSource).toContain("IconLayoutSidebarLeftExpand");
     expect(layoutSource).not.toContain("SidebarFooterActions");
     expect(layoutSource).not.toContain("DevDatabaseLink");
+    expect(
+      spacesRouteSource.match(/t\("createSpaceDialog\.newSpace"\)/g),
+    ).toHaveLength(1);
+    expect(spacesRouteSource).toContain('t("createSpaceDialog.description")');
+    expect(spacesRouteSource).not.toContain(
+      '<Button size="sm" onClick={() => setCreateOpen(true)}>',
+    );
+    expect(spacesRouteSource).toContain("<PageHeaderPrimaryAction");
+  });
+
+  it("keeps Meetings, Dictate, and Trash on the shared app-shell header", () => {
+    const meetingsSource = readSource("../../routes/_app.meetings._index.tsx");
+    const dictateSource = readSource("../../routes/_app.dictate.tsx");
+    const trashSource = readSource("../../routes/_app.trash.tsx");
+
+    expect(meetingsSource).toContain("<PageBreadcrumb");
+    expect(dictateSource).toContain("<PageBreadcrumb");
+    expect(trashSource).toContain("<PageBreadcrumb");
+    expect(trashSource).not.toContain('<h1 className="text-base font-semibold');
+    expect(dictateSource).not.toContain(
+      't("dictateRoute.voiceToTextDescription")',
+    );
+  });
+
+  it("keeps library search before the primary recording action", () => {
+    const gridSource = readSource("./library-grid.tsx");
+    const searchIndex = gridSource.indexOf("<SearchBar");
+    const actionIndex = gridSource.indexOf("{extraActions}");
+
+    expect(searchIndex).toBeGreaterThan(-1);
+    expect(actionIndex).toBeGreaterThan(searchIndex);
   });
 
   it("anchors the action bar to the list viewport instead of the list end", () => {

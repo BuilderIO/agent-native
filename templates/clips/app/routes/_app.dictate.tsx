@@ -14,7 +14,6 @@ import {
   IconKeyboard,
   IconLoader2,
   IconMicrophone2,
-  IconPlayerPlay,
   IconPlayerStop,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,6 +31,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -203,14 +203,6 @@ async function copyToClipboard(text: string, label: string): Promise<void> {
   }
 }
 
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="inline-flex items-center justify-center rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
-      {children}
-    </kbd>
-  );
-}
-
 function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(defaultOpen);
@@ -218,11 +210,11 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
     <Collapsible
       open={open}
       onOpenChange={setOpen}
-      className="rounded-lg border border-border bg-accent/20 mb-6"
+      className="mb-4 rounded-lg border border-border bg-accent/20"
     >
-      <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 cursor-pointer">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <IconMicrophone2 className="h-4 w-4 text-foreground" />
+          <IconKeyboard className="h-4 w-4 text-foreground" />
           <span className="text-sm font-medium">
             {t("dictateRoute.howToUse")}
           </span>
@@ -234,31 +226,21 @@ function HowToCard({ defaultOpen = true }: { defaultOpen?: boolean }) {
         )}
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="rounded-md border border-border bg-background px-3 py-3">
-            <div className="flex items-center gap-2 mb-1.5">
-              <IconMicrophone2 className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium">
-                {t("dictateRoute.quickNoteTitle")}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {t("dictateRoute.browserDictationDescriptionDesktop")}
-            </p>
-          </div>
-          <div className="rounded-md border border-border bg-background px-3 py-3">
-            <div className="flex items-center gap-2 mb-1.5">
-              <IconDeviceDesktop className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium">
-                {t("dictateRoute.desktopShortcuts")}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Hold <Kbd>Fn</Kbd> anywhere on your Mac, or use{" "}
-              <Kbd>{shortcutModifierLabel()}</Kbd> <Kbd>⇧</Kbd> <Kbd>Space</Kbd>
-              {t("dictateRoute.desktopShortcutsDescriptionSuffix")}
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/70 px-4 pb-3 pt-3 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {t("dictateRoute.desktopShortcuts")}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Kbd>Fn</Kbd>
+            <span>{t("dictateRoute.holdToDictate")}</span>
+          </span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="inline-flex items-center gap-1.5">
+            <Kbd>{shortcutModifierLabel()}</Kbd>
+            <Kbd>⇧</Kbd>
+            <Kbd>Space</Kbd>
+            <span>{t("dictateRoute.toggle")}</span>
+          </span>
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -282,7 +264,7 @@ function FilterTabs({
     { id: "cmd-shift-space", label: shortcutLabel("cmd+shift+space") },
   ];
   return (
-    <div className="flex items-center gap-1 mb-3">
+    <div className="mb-3 flex flex-wrap items-center gap-1">
       {tabs.map((t) => {
         const active = value === t.id;
         return (
@@ -290,6 +272,7 @@ function FilterTabs({
             key={t.id}
             type="button"
             onClick={() => onChange(t.id)}
+            aria-pressed={active}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs cursor-pointer transition-colors",
               active
@@ -320,6 +303,7 @@ function WebDictationPanel({
   draftText,
   interimText,
   isDesktopApp,
+  isEmpty,
   onStart,
   onStop,
 }: {
@@ -329,36 +313,39 @@ function WebDictationPanel({
   draftText: string;
   interimText: string;
   isDesktopApp: boolean;
+  isEmpty: boolean;
   onStart: () => void;
   onStop: () => void;
 }) {
   const t = useT();
   const preview = [draftText, interimText].filter(Boolean).join(" ").trim();
   return (
-    <div className="mb-6 rounded-lg border border-border bg-background px-4 py-3">
+    <section className="mb-4 rounded-xl border border-border bg-background px-4 py-4 shadow-sm sm:px-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium">
             <IconMicrophone2 className="h-4 w-4 text-foreground" />
-            {isDesktopApp
-              ? t("dictateRoute.quickNoteTitle")
-              : t("dictateRoute.browserDictation")}
+            {isEmpty
+              ? t("dictateRoute.startFirst")
+              : isDesktopApp
+                ? t("dictateRoute.quickNoteTitle")
+                : t("dictateRoute.browserDictation")}
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             {isDesktopApp ? (
-              t("dictateRoute.quickNoteHint")
+              <>
+                <Kbd>Fn</Kbd>
+                <span>{t("dictateRoute.holdToDictate")}</span>
+              </>
             ) : (
               <>
-                Press{" "}
-                <span className="inline-flex items-center gap-1">
-                  <Kbd>{shortcutModifierLabel()}</Kbd>
-                  <Kbd>⇧</Kbd>
-                  <Kbd>Space</Kbd>
-                </span>{" "}
-                while this tab is focused to toggle.
+                <Kbd>{shortcutModifierLabel()}</Kbd>
+                <Kbd>⇧</Kbd>
+                <Kbd>Space</Kbd>
+                <span>{t("dictateRoute.toggle")}</span>
               </>
             )}
-          </p>
+          </div>
         </div>
         <Button
           type="button"
@@ -372,7 +359,7 @@ function WebDictationPanel({
           ) : listening ? (
             <IconPlayerStop className="h-3.5 w-3.5" />
           ) : (
-            <IconPlayerPlay className="h-3.5 w-3.5" />
+            <IconMicrophone2 className="h-3.5 w-3.5" />
           )}
           {saving ? "Saving" : listening ? "Stop" : "Start dictation"}
         </Button>
@@ -399,7 +386,7 @@ function WebDictationPanel({
           </p>
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -474,8 +461,8 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
       )}
       onClick={() => setExpanded((v) => !v)}
     >
-      <div className="grid grid-cols-12 items-center gap-3 px-4 py-2.5 text-sm">
-        <div className="col-span-2 flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2.5 text-sm md:grid-cols-12 md:gap-3 md:px-4">
+        <div className="col-span-1 flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums md:col-span-2">
           {expanded ? (
             <IconChevronDown className="h-3.5 w-3.5" />
           ) : (
@@ -483,20 +470,31 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
           )}
           {formatTime(dictation.createdAt)}
         </div>
-        <div className="col-span-2">
+        <div className="col-span-1 hidden md:col-span-2 md:block">
           <Badge variant="secondary" className="text-[10px] gap-1 font-normal">
             {icon}
             {label}
           </Badge>
         </div>
-        <div className="col-span-6 truncate text-foreground/90">
-          {preview || (
-            <span className="text-muted-foreground italic">
-              {t("dictateRoute.noText")}
-            </span>
-          )}
+        <div className="col-span-1 min-w-0 text-foreground/90 md:col-span-6">
+          <div className="truncate">
+            {preview || (
+              <span className="text-muted-foreground italic">
+                {t("dictateRoute.noText")}
+              </span>
+            )}
+          </div>
+          <div className="mt-1 md:hidden">
+            <Badge
+              variant="secondary"
+              className="text-[10px] gap-1 font-normal"
+            >
+              {icon}
+              {label}
+            </Badge>
+          </div>
         </div>
-        <div className="col-span-1 text-end text-xs text-muted-foreground tabular-nums">
+        <div className="col-span-1 hidden text-end text-xs text-muted-foreground tabular-nums md:block">
           {formatDuration(dictation.durationMs)}
         </div>
         <div className="col-span-1 flex justify-end">
@@ -625,79 +623,29 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
   );
 }
 
-function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
-  const t = useT();
-  return (
-    <div className="rounded-xl border border-dashed border-border bg-gradient-to-br from-accent/30 via-transparent to-transparent px-6 py-16 text-center">
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background">
-        <IconMicrophone2 className="h-6 w-6" />
-      </div>
-      <p className="mt-4 text-base font-medium text-foreground">
-        {t("dictateRoute.startFirst")}
-      </p>
-      {isDesktopApp ? (
-        <>
-          <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-            {t("dictateRoute.emptyDesktopDescription", {
-              fnKey: "Fn",
-              modifierKey: shortcutModifierLabel(),
-            })}
-          </p>
-        </>
-      ) : (
-        <>
-          <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-            {t("dictateRoute.emptyWebDescription")}
-          </p>
-          <div className="mt-5 flex items-center justify-center">
-            <CaptureInstallButton
-              size="sm"
-              className="gap-1.5"
-              downloadedChildren={
-                <>
-                  <IconDeviceDesktop className="h-3.5 w-3.5" />
-                  {t("captureInstall.openDesktopApp")}
-                </>
-              }
-            >
-              <IconDownload className="h-3.5 w-3.5" />
-              {t("dictateRoute.downloadDesktopApp")}
-            </CaptureInstallButton>
-          </div>
-          <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-            <Kbd>Fn</Kbd>
-            <span className="text-muted-foreground/60">
-              {t("dictateRoute.holdToDictate")}
-            </span>
-            <span className="text-muted-foreground/40">·</span>
-            <Kbd>{shortcutModifierLabel()}</Kbd>
-            <Kbd>⇧</Kbd>
-            <Kbd>Space</Kbd>
-            <span className="text-muted-foreground/60">
-              {t("dictateRoute.toggle")}
-            </span>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 function DownloadDesktopAppCard() {
   const t = useT();
   return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-accent/20 px-4 py-3">
-      <div className="min-w-0">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-accent/20 px-4 py-3">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-sm font-medium">
           <IconDeviceDesktop className="h-4 w-4 text-foreground" />
           {t("dictateRoute.desktopCtaTitle")}
         </div>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {t("dictateRoute.desktopCtaDescription", {
-            modifierKey: shortcutModifierLabel(),
-          })}
-        </p>
       </div>
+      <CaptureInstallButton
+        size="sm"
+        className="shrink-0 gap-1.5"
+        downloadedChildren={
+          <>
+            <IconDeviceDesktop className="h-3.5 w-3.5" />
+            {t("captureInstall.openDesktopApp")}
+          </>
+        }
+      >
+        <IconDownload className="h-3.5 w-3.5" />
+        {t("dictateRoute.downloadDesktopApp")}
+      </CaptureInstallButton>
     </div>
   );
 }
@@ -951,30 +899,23 @@ export default function DictateRoute() {
       <PageHeader>
         <PageBreadcrumb label={t("navigation.dictate")} />
       </PageHeader>
-      <div className="p-6 max-w-5xl mx-auto w-full">
-        <div className="mb-6">
-          <p className="text-sm text-muted-foreground">
-            {t("dictateRoute.voiceToTextDescription")}
-          </p>
-        </div>
-
+      <div className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-6">
         {isDesktopApp ? (
-          <>
-            <HowToCard defaultOpen={isEmpty} />
-            <WebDictationPanel
-              supported={speechSupported}
-              listening={listening}
-              saving={createDictation.isPending}
-              draftText={draftText}
-              interimText={interimText}
-              isDesktopApp={isDesktopApp}
-              onStart={() => startBrowserDictation("manual")}
-              onStop={stopBrowserDictation}
-            />
-          </>
+          <HowToCard defaultOpen={isEmpty} />
         ) : (
           <DownloadDesktopAppCard />
         )}
+        <WebDictationPanel
+          supported={speechSupported}
+          listening={listening}
+          saving={createDictation.isPending}
+          draftText={draftText}
+          interimText={interimText}
+          isDesktopApp={isDesktopApp}
+          isEmpty={isEmpty}
+          onStart={() => startBrowserDictation("manual")}
+          onStop={stopBrowserDictation}
+        />
 
         {isLoading ? (
           <div className="space-y-2">
@@ -986,9 +927,7 @@ export default function DictateRoute() {
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             {t("dictateRoute.loadFailed")}
           </div>
-        ) : isEmpty ? (
-          <EmptyState isDesktopApp={isDesktopApp} />
-        ) : (
+        ) : isEmpty ? null : (
           <>
             <FilterTabs value={filter} onChange={setFilter} counts={counts} />
 
@@ -1002,7 +941,7 @@ export default function DictateRoute() {
                   <div key={day} className="space-y-2">
                     <DayHeader label={day} />
                     <div className="rounded-lg border border-border bg-background overflow-hidden">
-                      <div className="grid grid-cols-12 items-center gap-3 px-4 py-2 border-b border-border bg-accent/20 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <div className="hidden grid-cols-12 items-center gap-3 border-b border-border bg-accent/20 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:grid">
                         <div className="col-span-2">When</div>
                         <div className="col-span-2">Source</div>
                         <div className="col-span-6">Text</div>

@@ -7,12 +7,26 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildAnalyticsHandoff } from "./connect-analytics-dialog";
 import { RecordingViewsBadge, ViewerAvatar } from "./recording-views-badge";
 
 const queryMocks = vi.hoisted(() => ({
   calls: [] as string[],
   avatarEmails: [] as Array<string | null | undefined>,
   avatarUrl: null as string | null,
+}));
+
+const handoffMocks = vi.hoisted(() => ({
+  sendToAgentChat: vi.fn(() => "analytics-tab"),
+  trackEvent: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChat: handoffMocks.sendToAgentChat,
+}));
+
+vi.mock("@agent-native/core/client/analytics", () => ({
+  trackEvent: handoffMocks.trackEvent,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -59,6 +73,8 @@ describe("RecordingViewsBadge", () => {
     queryMocks.calls = [];
     queryMocks.avatarEmails = [];
     queryMocks.avatarUrl = null;
+    handoffMocks.sendToAgentChat.mockClear();
+    handoffMocks.trackEvent.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -134,6 +150,10 @@ describe("RecordingViewsBadge", () => {
       resolve(process.cwd(), "app/components/player/recording-views-badge.tsx"),
       "utf8",
     );
+    const chartSource = readFileSync(
+      resolve(process.cwd(), "app/components/player/insights-chart.tsx"),
+      "utf8",
+    );
 
     expect(source).toContain("<Popover");
     expect(source).toContain("<Tabs");
@@ -143,10 +163,116 @@ describe("RecordingViewsBadge", () => {
     expect(source).not.toContain("<TabsTrigger");
     expect(source).toContain('value="views"');
     expect(source).toContain('value="insights"');
+    expect(source).toContain("<InsightsChart");
+    expect(chartSource).toContain("<ChartContainer");
+    expect(chartSource).toContain("<RadialBarChart");
+    expect(chartSource).toContain("<PolarAngleAxis");
+    expect(chartSource).toContain("<PolarRadiusAxis");
+    expect(chartSource).toContain("<RadialBar");
+    expect(chartSource).toContain("<ChartTooltipContent");
+    expect(chartSource).toContain('dataKey="value"');
+    expect(chartSource).toContain("domain={[0, 100]}");
+    expect(chartSource).toContain('indicatorClassName="bg-highlight"');
+    expect(chartSource).not.toContain("dropOff");
+    expect(source).not.toContain("<ResponsiveContainer");
     expect(source).not.toContain("onOpenInsights");
     expect(source).not.toContain('t("recordingInsights.humanViews")');
     expect(source).not.toContain("agentViewCount");
     expect(source).not.toContain('t("recordingInsights.agentViews")');
+  });
+
+  it("offers an Analytics handoff from the insights tab", () => {
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        recordingTitle="Launch walkthrough"
+        viewCount={12}
+        reactionCount={3}
+        defaultOpen
+        canViewDetails
+      />,
+    );
+
+    const connectButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("recordingInsights.connectAnalytics"),
+    );
+    expect(connectButton).not.toBeUndefined();
+
+    act(() => connectButton?.click());
+    const openButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("recordingInsights.startChatAction"),
+    );
+    expect(openButton).not.toBeUndefined();
+
+    act(() => openButton?.click());
+    expect(handoffMocks.sendToAgentChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("Launch walkthrough"),
+        newTab: true,
+        usageLabel: "clips:analytics-analysis",
+      }),
+    );
+  });
+
+  it("uses one-click Item actions for the Analytics destination", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "app/components/player/connect-analytics-dialog.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain("<ItemGroup");
+    expect(source).toContain("<ItemSeparator");
+    expect(source).toContain("<ItemActions");
+    expect(source).toContain('onClick={() => handoff("analysis")}');
+    expect(source).toContain('onClick={() => handoff("dashboard")}');
+    expect(source).not.toContain("<RadioGroup");
+    expect(source).not.toContain("<RadioGroupItem");
+    expect(source).not.toContain("<DialogFooter");
+    expect(source).not.toContain("<ItemDescription");
+    expect(source).not.toContain("sm:w-48");
+    expect(source).not.toContain("MetricPreview");
+    expect(source).not.toContain("analyticsIncludes");
+  });
+
+  it("keeps the Analytics handoff scoped to a recording snapshot", () => {
+    const handoff = buildAnalyticsHandoff({
+      destination: "dashboard",
+      recordingId: "recording-1",
+      recordingTitle: "Launch walkthrough",
+      views: 12,
+      uniqueViewers: 9,
+      completionRate: 75,
+      reactions: 3,
+      ctaConversionRate: 25,
+      hasDropOff: true,
+    });
+
+    expect(handoff.message).toContain("new or existing Agent-Native Analytics");
+    expect(handoff.message).toContain("dashboard");
+    expect(JSON.parse(handoff.context)).toMatchObject({
+      sourceApp: "clips",
+      sourceSurface: "recording_insights",
+      recordingId: "recording-1",
+      destination: "dashboard",
+      snapshot: {
+        views: 12,
+        uniqueViewers: 9,
+        completionRate: 75,
+        reactions: 3,
+        ctaConversionRate: 25,
+        hasDropOff: true,
+      },
+    });
+    expect(JSON.parse(handoff.context).instructions).toContain(
+      "choose an existing dashboard or create a new private dashboard",
+    );
   });
 
   it("resolves the stored profile image for an identified viewer", () => {

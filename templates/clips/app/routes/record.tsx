@@ -37,9 +37,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 
+import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { useRecordingLeaveGuard } from "@/hooks/use-recording-leave-guard";
+import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import {
   fetchVideoStorageStatus,
   useVideoStorageStatus,
@@ -778,6 +780,13 @@ export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const {
+    dismiss: dismissUploadToast,
+    error: failUploadToast,
+    info: infoUploadToast,
+    start: startUploadToast,
+    success: completeUploadToast,
+  } = useSonnerLifecycleToast();
   // A clipboard write can be refused (insecure origin, unfocused document, no
   // transient activation). Never let the success toast imply the link was
   // copied when it wasn't — offer a click instead, which restores the user
@@ -785,10 +794,12 @@ export default function RecordRoute() {
   const showSavedToast = useCallback(
     (message: string, copied: boolean, recordingId: string) => {
       if (copied) {
-        toast.success(message, { description: t("recordRoute.linkCopied") });
+        completeUploadToast(message, {
+          description: t("recordRoute.linkCopied"),
+        });
         return;
       }
-      toast.success(message, {
+      completeUploadToast(message, {
         action: {
           label: t("recordRoute.copyLinkAction"),
           onClick: () => {
@@ -797,7 +808,7 @@ export default function RecordRoute() {
         },
       });
     },
-    [t],
+    [completeUploadToast, t],
   );
   const [uiState, setUiState] = useState<UiState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -998,25 +1009,25 @@ export default function RecordRoute() {
         ? null
         : permissionSettingsUrl(message, pendingOpts?.mode);
       const friendlyMessage = friendlyRecordingErrorMessage(message);
-      toast.error(
-        uploadFailure
-          ? t("recordRoute.uploadFailed")
-          : t("recordRoute.couldNotStartRecording"),
-        {
-          description: guidance ?? friendlyMessage,
-          duration: guidance ? 20_000 : 10_000,
-          action: settingsUrl
-            ? {
-                label: t("recordRoute.openSettings"),
-                onClick: () => {
-                  openUrlFromUserGesture(settingsUrl);
-                },
-              }
-            : undefined,
-        },
-      );
+      const options = {
+        description: guidance ?? friendlyMessage,
+        duration: guidance ? 20_000 : 10_000,
+        action: settingsUrl
+          ? {
+              label: t("recordRoute.openSettings"),
+              onClick: () => {
+                openUrlFromUserGesture(settingsUrl);
+              },
+            }
+          : undefined,
+      };
+      if (uploadFailure) {
+        failUploadToast(t("recordRoute.uploadFailed"), options);
+      } else {
+        toast.error(t("recordRoute.couldNotStartRecording"), options);
+      }
     },
-    [t],
+    [failUploadToast, t],
   );
 
   // -------------------------------------------------------------------------
@@ -1397,6 +1408,7 @@ export default function RecordRoute() {
       setUiState("uploading");
       setCompressionProgress(null);
       setUploadProgress(null);
+      startUploadToast(t("recordRoute.savingRecording"));
 
       const acceptedMime = new Set([
         "video/mp4",
@@ -1421,7 +1433,7 @@ export default function RecordRoute() {
         }
         setError(message);
         setUiState("error");
-        toast.error(message);
+        failUploadToast(message);
         return;
       }
 
@@ -1437,7 +1449,7 @@ export default function RecordRoute() {
         }
         setError(message);
         setUiState("error");
-        toast.error(message);
+        failUploadToast(message);
         return;
       }
 
@@ -1466,6 +1478,7 @@ export default function RecordRoute() {
 
         if (COMPRESSION_ENABLED && file.size > COMPRESS_THRESHOLD_BYTES) {
           setUiState("compressing");
+          startUploadToast(t("recordRoute.largeClipsNeedReencode"));
           const compression = await compressBlobIfTooLarge(file, mimeType, {
             width: meta.width,
             height: meta.height,
@@ -1522,6 +1535,7 @@ export default function RecordRoute() {
           );
         }
         setUiState("uploading");
+        startUploadToast(t("recordRoute.savingRecording"));
         const reportContext = bugReportContextRef.current;
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
@@ -1774,7 +1788,7 @@ export default function RecordRoute() {
           finalChunk.result?.waitingForStorage === true ||
           finalChunk.result?.status === "waiting_storage";
         if (waitingForStorage) {
-          toast.info(t("recordRoute.videoReadyToUpload"), {
+          infoUploadToast(t("recordRoute.videoReadyToUpload"), {
             description: t("recordRoute.connectStorageToFinish"),
             duration: 12_000,
           });
@@ -1785,7 +1799,7 @@ export default function RecordRoute() {
             createdId,
           );
         } else {
-          toast.success(t("recordRoute.videoUploaded"));
+          completeUploadToast(t("recordRoute.videoUploaded"));
         }
         if (reportContext && createdId) {
           const path = bugReportDonePath(createdId, reportContext);
@@ -1829,7 +1843,7 @@ export default function RecordRoute() {
         setError(message);
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
-          toast.error(
+          failUploadToast(
             isUploadSizeError(message)
               ? t("recordRoute.videoTooLarge")
               : t("recordRoute.uploadFailed"),
@@ -1852,7 +1866,17 @@ export default function RecordRoute() {
         setUploadProgress(null);
       }
     },
-    [markStorageConfigured, navigate, probeVideoMetadata, showSavedToast],
+    [
+      completeUploadToast,
+      failUploadToast,
+      infoUploadToast,
+      markStorageConfigured,
+      navigate,
+      probeVideoMetadata,
+      showSavedToast,
+      startUploadToast,
+      t,
+    ],
   );
 
   const saveBrowserDiagnostics = useCallback(
@@ -1976,12 +2000,12 @@ export default function RecordRoute() {
       setUiState("complete");
       const reportContext = bugReportContextRef.current;
       if (result.waitingForStorage) {
-        toast.info(t("recordRoute.recordingReadyToUpload"), {
+        infoUploadToast(t("recordRoute.recordingReadyToUpload"), {
           description: t("recordRoute.connectStorageToFinish"),
           duration: 12_000,
         });
       } else if (reportContext) {
-        toast.success(t("recordRoute.recordingSaved"));
+        completeUploadToast(t("recordRoute.recordingSaved"));
       } else {
         showSavedToast(
           t("recordRoute.recordingSaved"),
@@ -2011,7 +2035,7 @@ export default function RecordRoute() {
         void navigate(`/r/${recordingId}`);
       }, 50);
     },
-    [navigate, showSavedToast],
+    [completeUploadToast, infoUploadToast, navigate, showSavedToast, t],
   );
 
   const doStop = useCallback(async () => {
@@ -2029,6 +2053,7 @@ export default function RecordRoute() {
       return;
     }
     setUiState("uploading");
+    startUploadToast(t("recordRoute.savingRecording"));
     try {
       // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
@@ -2131,12 +2156,19 @@ export default function RecordRoute() {
       }
       setError(message);
       setUiState("error");
-      toast.error(t("recordRoute.uploadFailed"), {
+      failUploadToast(t("recordRoute.uploadFailed"), {
         description: message,
         duration: 12_000,
       });
     }
-  }, [finishSavedRecording, liveTranscription, saveBrowserDiagnostics]);
+  }, [
+    failUploadToast,
+    finishSavedRecording,
+    liveTranscription,
+    saveBrowserDiagnostics,
+    startUploadToast,
+    t,
+  ]);
 
   // Keep the ref current so engine callbacks always invoke the latest doStop.
   doStopRef.current = doStop;
@@ -2150,6 +2182,7 @@ export default function RecordRoute() {
     setCompressionProgress(null);
     setUploadProgress(null);
     setUiState("uploading");
+    startUploadToast(t("recordRoute.savingRecording"));
     try {
       const retryResult = await engine.retryUpload();
       await finishSavedRecording(pending.id, retryResult);
@@ -2170,12 +2203,12 @@ export default function RecordRoute() {
       setUploadProgress(null);
       setError(message);
       setUiState("error");
-      toast.error(t("recordRoute.uploadFailed"), {
+      failUploadToast(t("recordRoute.uploadFailed"), {
         description: message,
         duration: 12_000,
       });
     }
-  }, [finishSavedRecording]);
+  }, [failUploadToast, finishSavedRecording, startUploadToast, t]);
 
   const downloadBufferedRecording = useCallback(() => {
     const download = engineRef.current?.getBufferedRecordingDownload();
@@ -2197,6 +2230,7 @@ export default function RecordRoute() {
 
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
+    dismissUploadToast();
     startSessionRef.current += 1;
     countdownAudioCueRef.current?.cleanup();
     countdownAudioCueRef.current = null;
@@ -2256,7 +2290,7 @@ export default function RecordRoute() {
     setIsPaused(false);
     setUiState("idle");
     setUploadProgress(null);
-  }, [extensionCapture, liveTranscription]);
+  }, [dismissUploadToast, extensionCapture, liveTranscription]);
 
   const playCountdownAudioCue = useCallback(() => {
     void countdownAudioCueRef.current?.play();
@@ -2755,7 +2789,11 @@ export default function RecordRoute() {
               {t("recordRoute.recordingScreen")}
             </div>
             <div className="text-[11px] text-white/50">
-              Press <kbd className="rounded bg-white/10 px-1.5 py-0.5">Esc</kbd>{" "}
+              Press{" "}
+              {/* guard:allow-raw-color - This keyboard hint sits on the intentionally dark recording overlay. */}
+              <Kbd className="h-auto min-w-0 rounded bg-white/10 px-1.5 py-0.5 text-white">
+                Esc
+              </Kbd>{" "}
               to stop
             </div>
           </div>

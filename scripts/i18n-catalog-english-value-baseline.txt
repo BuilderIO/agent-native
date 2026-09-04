@@ -230,9 +230,7 @@ templates/calendar/app/i18n/zh-CN|eventForm.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-TW|bookingLinks.googleMeet|Google Meet
 templates/calendar/app/i18n/zh-TW|eventForm.googleMeet|Google Meet
 templates/clips/app/i18n/ar-SA|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ar-SA|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/de-DE|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/de-DE|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/es-ES|captureInstall.chromeDescription|Best when you want redacted console and network diagnostics from the browser tab.
 templates/clips/app/i18n/es-ES|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
 templates/clips/app/i18n/es-ES|captureInstall.chromeTitle|Chrome extension
@@ -427,15 +425,10 @@ templates/clips/app/i18n/es-ES|recordRoute.videoReadyToUpload|Video is ready to 
 templates/clips/app/i18n/es-ES|recordRoute.videoTooLarge|Video is too large
 templates/clips/app/i18n/es-ES|recordRoute.videoUploaded|Video uploaded
 templates/clips/app/i18n/es-ES|recordRoute.whatToCheck|What to check
-templates/clips/app/i18n/es-ES|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/fr-FR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/fr-FR|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/hi-IN|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/hi-IN|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/ja-JP|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ja-JP|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/ko-KR|downloadRoute.clipsDesktop|Clips Desktop
-templates/clips/app/i18n/ko-KR|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/pt-BR|captureInstall.chromeDescription|Best when you want redacted console and network diagnostics from the browser tab.
 templates/clips/app/i18n/pt-BR|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
 templates/clips/app/i18n/pt-BR|captureInstall.chromeTitle|Chrome extension
@@ -630,9 +623,6 @@ templates/clips/app/i18n/pt-BR|recordRoute.videoReadyToUpload|Video is ready to 
 templates/clips/app/i18n/pt-BR|recordRoute.videoTooLarge|Video is too large
 templates/clips/app/i18n/pt-BR|recordRoute.videoUploaded|Video uploaded
 templates/clips/app/i18n/pt-BR|recordRoute.whatToCheck|What to check
-templates/clips/app/i18n/pt-BR|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/zh-CN|sharePage.agentNativeClips|Agent-Native Clips
-templates/clips/app/i18n/zh-TW|sharePage.agentNativeClips|Agent-Native Clips
 templates/design/app/i18n/ar-SA|designEditor.askAgent|Ask agent
 templates/design/app/i18n/ar-SA|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationChooseFig|Fill images from .fig

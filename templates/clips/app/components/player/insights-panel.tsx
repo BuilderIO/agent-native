@@ -1,21 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconEye,
-  IconUser,
-  IconPercentage,
-  IconTarget,
-} from "@tabler/icons-react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Tooltip as ReTooltip,
-  CartesianGrid,
-} from "recharts";
 
+import { InsightsChart } from "@/components/player/insights-chart";
 import {
   ViewerAvatar,
   viewerLabel,
@@ -29,8 +15,8 @@ export interface InsightsPanelProps {
 interface Insights {
   views: number;
   uniqueViewers: number;
+  reactions?: number;
   completionRate: number;
-  dropOff: { bucket: number; watching: number }[];
   ctaConversionRate: number;
   topViewers: {
     viewerEmail: string | null;
@@ -40,7 +26,7 @@ interface Insights {
   }[];
 }
 
-export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
+export function InsightsPanel({ recordingId }: InsightsPanelProps) {
   const t = useT();
   const q = useActionQuery<Insights>("get-recording-insights", { recordingId });
   const vq = useActionQuery<{ viewers: Insights["topViewers"] }>(
@@ -67,69 +53,14 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
   }
 
   return (
-    <div className="p-4 space-y-6">
-      <div className="grid grid-cols-2 gap-3">
-        <Stat
-          icon={<IconEye className="h-4 w-4" />}
-          label={t("recordingInsights.views")}
-          value={data.views}
-        />
-        <Stat
-          icon={<IconUser className="h-4 w-4" />}
-          label={t("recordingInsights.uniqueViewers")}
-          value={data.uniqueViewers}
-        />
-        <Stat
-          icon={<IconPercentage className="h-4 w-4" />}
-          label={t("recordingInsights.completion")}
-          value={`${Math.round(data.completionRate)}%`}
-        />
-        <Stat
-          icon={<IconTarget className="h-4 w-4" />}
-          label={t("recordingInsights.ctaConversion")}
-          value={`${Math.round(data.ctaConversionRate)}%`}
-        />
-      </div>
-
-      <div>
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          {t("recordingInsights.dropOff")}
-        </div>
-        <div className="h-40 rounded-lg border border-border bg-card p-3">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data.dropOff}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis
-                dataKey="bucket"
-                tickFormatter={(b) => {
-                  const pct = (b as number) / 100;
-                  const ms = pct * durationMs;
-                  return msCompact(ms);
-                }}
-                stroke="#6b7280"
-                fontSize={10}
-              />
-              <YAxis stroke="#6b7280" fontSize={10} />
-              <ReTooltip
-                formatter={(v) => [
-                  t("recordingInsights.viewersCount", { count: Number(v) }),
-                  t("recordingInsights.watching"),
-                ]}
-                labelFormatter={(b) =>
-                  msCompact(((b as number) / 100) * durationMs)
-                }
-              />
-              <Line
-                type="monotone"
-                dataKey="watching"
-                stroke="hsl(var(--primary))"
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+    <div className="grid gap-6 p-4">
+      <InsightsChart
+        views={data.views}
+        uniqueViewers={data.uniqueViewers}
+        reactions={data.reactions ?? 0}
+        completionRate={data.completionRate}
+        ctaConversionRate={data.ctaConversionRate}
+      />
 
       <div>
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
@@ -168,32 +99,4 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
       </div>
     </div>
   );
-}
-
-function Stat({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-        {icon}
-        {label}
-      </div>
-      <div className="text-2xl font-semibold mt-1 text-foreground tabular-nums">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function msCompact(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  return `${m}:${String(s % 60).padStart(2, "0")}`;
 }

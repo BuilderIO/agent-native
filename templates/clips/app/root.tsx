@@ -411,12 +411,26 @@ export default function Root() {
   const isMarketingHome = location.pathname === "/";
   const isPublicPath =
     isMarketingHome || isStandalonePublicPath(location.pathname);
+  const recordingViewerPath =
+    location.pathname === "/r" || location.pathname.startsWith("/r/");
+  const publicSharePath = location.pathname.startsWith("/share/");
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
-        toaster={<Toaster richColors position="bottom-left" />}
+        showEnvironmentBadge={
+          isPublicPath && !recordingViewerPath && !publicSharePath
+        }
+        toaster={
+          <Toaster
+            richColors
+            closeButton
+            position="top-center"
+            offset={{ top: 16 }}
+            mobileOffset={{ top: 12 }}
+          />
+        }
         i18n={{
           catalog: i18nCatalog,
           initialLocale: loaderData.locale,

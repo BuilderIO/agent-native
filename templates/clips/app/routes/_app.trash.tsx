@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/library/empty-state";
-import { PageHeader } from "@/components/library/page-header";
+import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { RecordingCard } from "@/components/library/recording-card";
 import { SortMenu, type SortKey } from "@/components/library/sort-menu";
 import {
@@ -190,10 +190,8 @@ export default function TrashRoute() {
   return (
     <div className="flex flex-1 flex-col min-h-0">
       <PageHeader>
-        <h1 className="text-base font-semibold text-foreground">
-          {t("trashRoute.title")}
-        </h1>
-        <div className="ml-auto flex items-center gap-2">
+        <PageBreadcrumb label={t("trashRoute.title")} />
+        <div className="ms-auto flex items-center gap-2">
           {selectedIds.length > 0 && (
             <>
               <span className="text-sm text-muted-foreground">

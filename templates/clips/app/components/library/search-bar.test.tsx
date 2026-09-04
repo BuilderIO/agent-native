@@ -35,7 +35,7 @@ vi.mock("@/components/ui/popover", () => {
   return {
     Popover: Passthrough,
     PopoverContent: Passthrough,
-    PopoverTrigger: Passthrough,
+    PopoverAnchor: Passthrough,
   };
 });
 
@@ -120,6 +120,14 @@ describe("SearchBar command-menu handoff", () => {
     act(() => root.render(<SearchBar />));
 
     expect(container.textContent).toContain("/");
+    const input = container.querySelector<HTMLInputElement>("input");
+    expect(input?.type).toBe("search");
+    expect(input?.getAttribute("aria-label")).toBe("searchBar.placeholder");
+    expect(input?.className).toContain("focus-visible:ring-inset");
+    expect(input?.className).toContain("focus-visible:ring-offset-0");
+    expect(input?.className).toContain("focus-visible:ring-ring/40");
+    expect(container.querySelector("kbd")?.dataset.slot).toBe("kbd");
+    expect(container.querySelector("kbd")?.textContent).toBe("/");
     expect(container.textContent).not.toContain("cmd+k");
   });
 

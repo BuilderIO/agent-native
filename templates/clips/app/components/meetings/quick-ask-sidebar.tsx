@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Kbd } from "@/components/ui/kbd";
 import {
   Sheet,
   SheetContent,
@@ -180,9 +181,9 @@ export function QuickAskSidebar({
             {t("quickAsk.title")}
           </SheetTitle>
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-muted/50 px-1 py-px font-mono">
+            <Kbd className="h-auto min-w-0 gap-0.5 rounded border border-border bg-muted/50 px-1 py-px font-mono">
               <IconCommand className="h-3 w-3" />J
-            </kbd>
+            </Kbd>
             <span>{t("quickAsk.toggleHint")}</span>
           </div>
         </SheetHeader>

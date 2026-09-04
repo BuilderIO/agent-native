@@ -56,8 +56,15 @@ vi.mock("../use-demo-mode-status.js", () => ({
 }));
 
 vi.mock("../i18n.js", () => ({
-  useT: () => (key: string) =>
-    key === "settings.profileMenuItem" ? "Profile" : key,
+  useT: () => (key: string, options?: { defaultValue?: string }) => {
+    const messages: Record<string, string> = {
+      "contextXray.provenance.tools": "Tools",
+      "settings.profileMenuItem": "Profile",
+      "settings.profileTitle": "Account",
+      "settings.workspaceTitle": "Workspace",
+    };
+    return messages[key] ?? options?.defaultValue ?? key;
+  },
 }));
 
 vi.mock("./workspace-app-links.js", async (importOriginal) => {
@@ -214,6 +221,60 @@ describe("OrgSwitcher", () => {
     expect(extensionLink?.getAttribute("target")).toBe("_blank");
     expect(extensionLink?.getAttribute("rel")).toBe("noopener noreferrer");
     expect(desktopLink?.getAttribute("href")).toBe("/download");
+  });
+
+  it("groups workspace menu actions by purpose", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+
+    render(
+      <OrgSwitcher
+        utilityLinks={[
+          {
+            id: "desktop-download",
+            label: "Desktop app",
+            href: "/download",
+          },
+        ]}
+      />,
+    );
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+
+    const sectionLabels = Array.from(document.body.querySelectorAll("div"))
+      .filter((element) => element.className.includes("uppercase"))
+      .map((element) => element.textContent?.trim())
+      .filter((label): label is string => Boolean(label));
+    expect(sectionLabels).toEqual([
+      "Organizations",
+      "Workspace",
+      "Account",
+      "Tools",
+    ]);
+
+    const menuButtons = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).map((button) => button.textContent?.trim() ?? "");
+    const actionOrder = [
+      "Invite member",
+      "Organization settings",
+      "Create organization",
+    ].map((label) => menuButtons.findIndex((text) => text.includes(label)));
+    expect(actionOrder[0]).toBeGreaterThanOrEqual(0);
+    expect(actionOrder[1]).toBeGreaterThan(actionOrder[0]);
+    expect(actionOrder[2]).toBeGreaterThan(actionOrder[1]);
   });
 
   it("makes demo mode visible and removes the redacted email from sign out", () => {

@@ -1,11 +1,15 @@
 import {
   generateTabId,
-  sendToAgentChat,
   sendToAgentChatAndConfirm,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import {
+  bumpChangeVersion,
+  callAction,
+  getChangeVersion,
+  useChangeVersions,
+} from "@agent-native/core/client/hooks";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
 
@@ -15,6 +19,19 @@ const DEFAULT_TITLE = "Untitled recording";
 const TWO_MINUTES_MS = 2 * 60 * 1000;
 export const WORKFLOW_ACTION_MAX_ATTEMPTS = 5;
 const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
+const AI_REQUEST_SOURCE_PREFIX = "app-state:clips-ai-request-";
+const AI_REQUEST_DELIVERY_TIMEOUT_MS = 10_000;
+
+/**
+ * Wake the bridge after a client-side action queues AI work. Standalone
+ * recording routes intentionally omit the app-wide DbSync mount, so they need
+ * to advance the exact source the bridge observes locally.
+ */
+export function notifyAiRequestQueued(recordingId: string): void {
+  if (!recordingId) return;
+  const source = `${AI_REQUEST_SOURCE_PREFIX}${recordingId}`;
+  bumpChangeVersion(source, Math.max(Date.now(), getChangeVersion(source) + 1));
+}
 
 /** True when `title` is blank or equal to the server-seeded default. */
 export function isDefaultTitle(title: string | null | undefined): boolean {
@@ -92,8 +109,8 @@ async function clearRequest(recordingId: string): Promise<void> {
 
 /**
  * Mount this once in the app shell. It watches the exact application-state
- * keys used for queued Clips AI work and fires `sendToAgentChat` for every
- * pending request queued by a clips action.
+ * keys used for queued Clips AI work and delivers every pending request to the
+ * agent chat queued by a Clips action.
  * Idempotent — a given (recordingId, kind, requestedAt) is only dispatched
  * once per tab session.
  */
@@ -249,7 +266,14 @@ export function useAutoTitleBridge(): void {
               });
               continue;
             }
-            dispatchAiRequest(rec, request);
+            const delivery = await dispatchAiRequest(rec, request);
+            if (!delivery.delivered) {
+              // Keep the request durable when the chat bridge is unavailable;
+              // the next retry can deliver it after the panel mounts.
+              dispatched.current.delete(dispatchKey);
+              fallbackTimer = setTimeout(() => void tick(), 1000);
+              continue;
+            }
             dispatched.current.add(dispatchKey);
             void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
@@ -454,10 +478,14 @@ function dispatchAiRequest(
   request: AiRequest,
   tabId?: string,
 ) {
-  return sendToAgentChat({
-    ...buildAiRequestChatOptions(rec, request),
-    ...(tabId ? { tabId } : {}),
-  });
+  return sendToAgentChatAndConfirm(
+    {
+      ...buildAiRequestChatOptions(rec, request),
+      chatTarget: "local",
+      ...(tabId ? { tabId } : {}),
+    },
+    { timeoutMs: AI_REQUEST_DELIVERY_TIMEOUT_MS },
+  );
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {

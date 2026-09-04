@@ -76,7 +76,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-transparent">
+    <div className="flex h-full min-h-0 flex-col bg-transparent">
       {showHeader ? (
         <div className="flex h-10 items-center justify-between border-b border-border/70 px-3">
           <h2 className="text-sm font-medium">{t("playerSettings.title")}</h2>
@@ -86,10 +86,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
         </div>
       ) : null}
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-3">
-        <Card className="border border-border/70 shadow-none">
-          <CardHeader className="p-3 pb-1.5">
-            <CardTitle className="text-sm font-medium leading-none">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        <Card className="border border-border/70 bg-card shadow-none">
+          <CardHeader className="space-y-0 p-3 pb-1.5">
+            <CardTitle className="text-sm leading-none">
               {t("playerSettings.viewerOptions")}
             </CardTitle>
           </CardHeader>
@@ -131,7 +131,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
               >
                 <ViewerSelectTrigger
                   id="recording-default-speed"
-                  className="h-7 w-16 px-2 text-xs"
+                  className="h-8 w-16 px-2 text-sm"
                 >
                   <SelectValue />
                 </ViewerSelectTrigger>
@@ -149,12 +149,13 @@ export function SettingsPanel(props: SettingsPanelProps) {
           </CardContent>
         </Card>
 
-        <Card className="border border-border/70 shadow-none">
-          <CardHeader className="flex-row items-center justify-between gap-3 p-3 pb-1.5">
-            <CardTitle className="text-sm font-medium leading-none">
+        <Card className="border border-border/70 bg-card shadow-none">
+          <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-3 pb-1.5">
+            <CardTitle className="text-sm leading-none">
               {t("playerSettings.callToAction")}
             </CardTitle>
             <ViewerButton
+              type="button"
               variant="ghost"
               onClick={() =>
                 createCta.mutate({
@@ -172,7 +173,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
           <CardContent className="px-3 pb-3 pt-0">
             {ctas.length === 0 ? (
-              <p className="py-1 text-xs text-muted-foreground">
+              <p className="py-1 text-xs leading-5 text-muted-foreground">
                 {t("playerSettings.noCtas")}
               </p>
             ) : (
@@ -276,7 +277,7 @@ function CtaEditor({
       }}
     >
       <AccordionTrigger className="py-2 text-left hover:no-underline">
-        <span className="flex min-w-0 flex-1 items-baseline gap-2 pr-3">
+        <span className="flex min-w-0 flex-1 items-baseline gap-2 pe-3">
           <span className="truncate text-sm font-medium">{cta.label}</span>
           <span className="shrink-0 text-xs font-normal text-muted-foreground">
             {cta.placement === "throughout"

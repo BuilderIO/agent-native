@@ -1,5 +1,6 @@
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { forwardRef } from "react";
 
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -21,13 +22,13 @@ const buttonGroupVariants = cva(
   },
 );
 
-function ButtonGroup({
-  className,
-  orientation,
-  ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>) {
+const ButtonGroup = forwardRef<
+  HTMLDivElement,
+  React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>
+>(function ButtonGroup({ className, orientation, ...props }, ref) {
   return (
     <div
+      ref={ref}
       role="group"
       data-slot="button-group"
       data-orientation={orientation}
@@ -35,7 +36,8 @@ function ButtonGroup({
       {...props}
     />
   );
-}
+});
+ButtonGroup.displayName = "ButtonGroup";
 
 function ButtonGroupText({
   className,

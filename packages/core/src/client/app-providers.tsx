@@ -149,6 +149,12 @@ export interface AppProvidersProps {
   /** Fallback used if route metadata leaves the browser title empty or structured. */
   documentTitleFallback?: string;
 
+  /**
+   * Render the shared environment badge from the provider shell. Set to false
+   * when the app shell renders the badge in its own brand slot.
+   */
+  showEnvironmentBadge?: boolean;
+
   children: React.ReactNode;
 }
 
@@ -281,6 +287,7 @@ function ProvidersInner({
   disableThemeTransitions = true,
   i18n,
   documentTitleFallback,
+  showEnvironmentBadge,
   showProductionEnvironmentBadge,
   children,
 }: {
@@ -292,6 +299,7 @@ function ProvidersInner({
   disableThemeTransitions?: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
+  showEnvironmentBadge: boolean;
   showProductionEnvironmentBadge: boolean;
   children: React.ReactNode;
 }) {
@@ -318,7 +326,9 @@ function ProvidersInner({
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
           <RoutedAppEnhancements />
-          <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          {showEnvironmentBadge ? (
+            <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          ) : null}
           {toaster}
         </TooltipProvider>
       </ThemeProvider>
@@ -338,6 +348,7 @@ export function AppProviders({
   disableThemeTransitions,
   i18n,
   documentTitleFallback,
+  showEnvironmentBadge = true,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? <DefaultSpinner />;
@@ -353,6 +364,7 @@ export function AppProviders({
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
+        showEnvironmentBadge={showEnvironmentBadge}
         showProductionEnvironmentBadge={false}
       >
         {children}
@@ -371,6 +383,7 @@ export function AppProviders({
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
+        showEnvironmentBadge={showEnvironmentBadge}
         showProductionEnvironmentBadge={!sessionBypass}
       >
         <RequireSession bypass={sessionBypass} fallback={fallback}>

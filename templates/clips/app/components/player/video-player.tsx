@@ -1130,6 +1130,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setCurrentMs(visibleMs);
         if (visibleMs > 0) setHasPlaybackStarted(true);
         onSeek?.(visibleMs);
+        onTimeUpdate?.(visibleMs, resolvedDurationMs);
       },
       [
         activeVideoSrc,

@@ -12,21 +12,19 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  AgentNativeIcon,
   buildSignInReturnHref,
   DefaultSpinner,
+  EnvironmentBadge,
 } from "@agent-native/core/client/ui";
-import { docsUrl } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconArrowLeft,
   IconDeviceDesktop,
   IconDownload,
-  IconDotsVertical,
-  IconFileText,
   IconLock,
   IconLogin2,
-  IconSparkles,
-  IconX,
+  IconMoodSmile,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { eq } from "drizzle-orm";
@@ -55,16 +53,24 @@ import {
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
+import {
+  AccountGateDialog,
+  type AccountGateIntent,
+} from "@/components/player/create-account-dialog";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
-import { ReactionsTray } from "@/components/player/reactions-tray";
+import {
+  REACTION_EMOJIS,
+  REACTION_NAMES,
+} from "@/components/player/reaction-emojis";
+import { RecordingSidePanel } from "@/components/player/recording-side-panel";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { RequestAccessDialog } from "@/components/player/request-access-dialog";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
-import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
 import { TimestampedCommentBar } from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
@@ -72,22 +78,28 @@ import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
+import {
+  ViewerTabsList,
+  ViewerTabsTrigger,
+} from "@/components/player/viewer-controls";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
+import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
+import { cn } from "@/lib/utils";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
@@ -123,6 +135,7 @@ type SharePageMetaRecording = {
   id: string;
   title: string;
   description: string;
+  ownerEmail: string;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   visibility: "private" | "org" | "public";
@@ -142,6 +155,10 @@ type SharePageLoaderData = {
 };
 
 type SharePanel = "transcript" | "agent";
+
+type PendingAccountAction =
+  | { intent: "comment"; atMs: number }
+  | { intent: "react"; emoji: string };
 
 function emptyLoaderData(
   url: URL,
@@ -268,6 +285,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     id: rec.id,
     title: rec.title,
     description: rec.description,
+    ownerEmail: rec.ownerEmail,
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
@@ -310,25 +328,10 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
 };
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
-const CLIPS_SOURCE_URL =
-  "https://github.com/BuilderIO/agent-native/tree/main/templates/clips";
-const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
-const CLIPS_AGENT_DOCS_URL = docsUrl("template-clips-sharing-and-teams");
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
-
-type ViewerPlatform = "mac" | "windows" | "linux";
-
-function detectViewerPlatform(): ViewerPlatform | null {
-  if (typeof navigator === "undefined") return null;
-  const ua = navigator.userAgent;
-  if (/Windows/i.test(ua)) return "windows";
-  if (/Mac/i.test(ua)) return "mac";
-  if (/Linux|X11/i.test(ua) && !/Android/i.test(ua)) return "linux";
-  return null;
-}
 
 function AgentDiscovery({
   recording,
@@ -485,18 +488,19 @@ export default function ShareRoute() {
       requesterEmail?: string;
     }
   >("request-recording-access");
-  const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
-    null,
-  );
+  const [accountGateIntent, setAccountGateIntent] =
+    useState<AccountGateIntent | null>(null);
+  const pendingAccountActionRef = useRef<PendingAccountAction | null>(null);
+  const resumedAccountActionRef = useRef<"comment" | "react" | null>(null);
+  const [refreshSessionAfterAuth, setRefreshSessionAfterAuth] = useState(false);
   const [processingTimeout, setProcessingTimeout] = useState(false);
-  const [panel, setPanel] = useState<SharePanel | null>(null);
+  // Keep the public viewer's rail in the same default state as the signed-in
+  // viewer. Its own tab strip is the only panel navigation; the page toolbar
+  // stays focused on recording actions.
+  const [panel, setPanel] = useState<SharePanel>("transcript");
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
-  const requireSignIn = useCallback(
-    (intent: "comment" | "react") => setSignInIntent(intent),
-    [],
-  );
   const [downloading, setDownloading] = useState(false);
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [accessRequestSent, setAccessRequestSent] = useState(false);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(
     null,
@@ -655,7 +659,77 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const {
+    error: failProcessingToast,
+    start: startProcessingToast,
+    success: completeProcessingToast,
+  } = useSonnerLifecycleToast();
+  const lifecyclePhaseRef = useRef<
+    "failed" | "processing" | "ready" | "uploading" | null
+  >(null);
+
+  useEffect(() => {
+    if (!recording) return;
+    const phase =
+      recording.status === "ready"
+        ? recording.videoUrl
+          ? "ready"
+          : "processing"
+        : recording.status;
+    const previousPhase = lifecyclePhaseRef.current;
+    if (phase === "uploading") {
+      startProcessingToast(t("sharePage.uploadingAssembling"));
+    } else if (phase === "processing") {
+      startProcessingToast(t("sharePage.finishingClip"));
+    } else if (
+      phase === "ready" &&
+      previousPhase &&
+      previousPhase !== "ready"
+    ) {
+      completeProcessingToast(t("recordRoute.videoUploaded"));
+    } else if (
+      phase === "failed" &&
+      previousPhase &&
+      previousPhase !== "failed"
+    ) {
+      failProcessingToast(t("sharePage.savingWentWrong"));
+    }
+    lifecyclePhaseRef.current = phase;
+  }, [
+    completeProcessingToast,
+    failProcessingToast,
+    recording?.id,
+    recording?.status,
+    recording?.videoUrl,
+    startProcessingToast,
+    t,
+  ]);
   const playbackMs = resolveStartMs(currentMs, recording?.durationMs);
+  const resolvePlaybackMs = useCallback(
+    () => playerRef.current?.getCurrentOriginalMs() ?? playbackMs,
+    [playbackMs],
+  );
+  const requireSignIn = useCallback(
+    (intent: "comment" | "react") => {
+      pendingAccountActionRef.current =
+        intent === "comment" ? { intent, atMs: resolvePlaybackMs() } : null;
+      setAccountGateIntent(intent);
+    },
+    [resolvePlaybackMs],
+  );
+  const openCreateAccount = useCallback((intent: AccountGateIntent) => {
+    pendingAccountActionRef.current = null;
+    setAccountGateIntent(intent);
+  }, []);
+
+  useEffect(() => {
+    if (!accountGateIntent) return;
+    trackEvent("share_account_gate_shown", {
+      surface: "public_share",
+      recording_id: recordingId,
+      intent: accountGateIntent,
+    });
+  }, [accountGateIntent, recordingId]);
   const verificationPending = recording?.verificationPending === true;
   const comments = dataQ.data?.data?.comments ?? [];
   const reactions = dataQ.data?.data?.reactions ?? [];
@@ -690,8 +764,8 @@ export default function ShareRoute() {
     viewerRole === "admin" ||
     viewerRole === "editor";
   // Any signed-in viewer with access to the recording may comment or react —
-  // an anonymous viewer sees the same controls but triggers the sign-in
-  // prompt instead (see `requireSignIn` below).
+  // anonymous viewers keep the same controls and enter the account funnel
+  // when they try to participate (see `requireSignIn` below).
   const viewerCanComment = Boolean(session) && viewerRole != null;
   const viewerCanUseFullscreenInteractions = !session || viewerCanComment;
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
@@ -714,6 +788,19 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : t("sharePage.untitledClip");
+  const ownerEmail =
+    (typeof recording?.ownerEmail === "string"
+      ? recording.ownerEmail.trim()
+      : "") ||
+    (typeof loaderData.recording?.ownerEmail === "string"
+      ? loaderData.recording.ownerEmail.trim()
+      : "") ||
+    "";
+  const ownerInitial = ownerEmail.charAt(0).toUpperCase() || "C";
+  const recordedOn = formatRecordedOn(recording?.createdAt);
+  const visibilityLabel = recording
+    ? t(`shareUi.visibility.${recording.visibility}.label`)
+    : "";
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const unlockedAgentContextUrl =
     typeof dataQ.data?.data?.agentContextUrl === "string"
@@ -814,6 +901,79 @@ export default function ShareRoute() {
     durationMs: recording?.durationMs ?? 0,
     trackOpenWithoutVideo: isLoomEmbedBacked,
   });
+
+  const reactToRecording = useCallback(
+    (emoji: string) => {
+      if (!session) {
+        pendingAccountActionRef.current = { intent: "react", emoji };
+        setAccountGateIntent("react");
+        return false;
+      }
+      if (!recording?.id) return false;
+
+      tracking.reportReaction(emoji);
+      const liveMs = resolvePlaybackMs();
+
+      return fetch(
+        agentNativePath("/_agent-native/actions/react-to-recording"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recordingId: recording.id,
+            emoji,
+            videoTimestampMs: liveMs,
+          }),
+        },
+      )
+        .then((res) => {
+          if (!res.ok) throw new Error(`react failed: ${res.status}`);
+          return dataQ.refetch();
+        })
+        .then(() => true)
+        .catch((err) => {
+          console.warn("[clips] react failed", err);
+          return false;
+        });
+    },
+    [dataQ, recording?.id, resolvePlaybackMs, session, tracking],
+  );
+
+  useEffect(() => {
+    if (
+      !refreshSessionAfterAuth ||
+      !session ||
+      sessionStatus !== "authenticated"
+    ) {
+      return;
+    }
+    setRefreshSessionAfterAuth(false);
+    const pending = pendingAccountActionRef.current;
+    pendingAccountActionRef.current = null;
+    if (!pending) return;
+    if (pending.intent === "comment") {
+      resumedAccountActionRef.current = "comment";
+      setCommentAtMs(pending.atMs);
+      setCommentOpen(true);
+      return;
+    }
+    resumedAccountActionRef.current = "react";
+    void Promise.resolve(reactToRecording(pending.emoji)).then((completed) => {
+      if (!completed || resumedAccountActionRef.current !== "react") return;
+      resumedAccountActionRef.current = null;
+      trackEvent("share_account_action_completed", {
+        surface: "public_share",
+        recording_id: recordingId,
+        intent: "react",
+      });
+    });
+  }, [
+    reactToRecording,
+    recordingId,
+    refreshSessionAfterAuth,
+    session,
+    sessionStatus,
+  ]);
 
   // If the backend returned 401 with passwordRequired, prompt.
   const needsPassword =
@@ -1173,157 +1333,73 @@ export default function ShareRoute() {
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
 
   return (
-    <div className="clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background xl:h-screen xl:flex-row [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background">
+    <div className="clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-y-auto bg-background xl:grid xl:h-screen xl:grid-cols-[minmax(0,1fr)_420px] xl:grid-rows-[auto_minmax(0,1fr)] xl:overflow-hidden [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background">
       {agentDiscovery}
-      <div className="flex min-h-0 w-full min-w-0 flex-col overflow-y-auto xl:flex-1 xl:overflow-y-hidden">
-        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 xl:flex-nowrap">
-          {session ? (
-            <Button
-              asChild
-              variant="ghost"
-              size="icon"
-              aria-label={t("sharePage.backToHome")}
-            >
-              <Link to="/">
-                <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
-              </Link>
-            </Button>
-          ) : null}
-          <div className="hidden min-w-0 flex-1 items-center gap-2 sm:flex">
-            {recording.visibility === "private" ? (
-              <span
-                className="inline-flex shrink-0 text-muted-foreground"
-                role="img"
-                title={t("sharePage.privateClip")}
-              >
-                <IconLock className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="sr-only">{t("sharePage.privateClip")}</span>
-              </span>
-            ) : null}
-            {showTitleSkeleton ? (
-              <Skeleton
-                aria-label={t("sharePage.generatingTitle")}
-                className="h-4 w-56 max-w-full flex-1"
-              />
-            ) : (
-              <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
-                {visibleTitle}
-              </h1>
-            )}
-          </div>
-
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
-            <RecordingViewsBadge
-              recordingId={recording.id}
-              viewCount={viewCount}
-              reactionCount={reactions.length}
-              durationMs={recording.durationMs}
-              canViewDetails={viewerCanEdit}
-              className="shrink-0 border-0 shadow-none"
+      <header className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 xl:flex-nowrap">
+        {session ? (
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            aria-label={t("sharePage.backToHome")}
+          >
+            <Link to={appPath("/")}>
+              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+            </Link>
+          </Button>
+        ) : null}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Link
+            to={appPath("/")}
+            aria-label={t("navigation.brand")}
+            className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <AgentNativeIcon
+              aria-hidden="true"
+              className="h-3.5 w-6 shrink-0 text-foreground"
             />
-            <Button
-              variant={panel === "transcript" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-8 gap-1.5 px-2.5 text-xs"
-              onClick={() =>
-                setPanel((current) =>
-                  current === "transcript" ? null : "transcript",
-                )
-              }
-            >
-              <IconFileText className="size-4" />
-              {t("sharePage.transcript")}
-            </Button>
-            {session ? (
-              <Button
-                variant={panel === "agent" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() =>
-                  setPanel((current) => (current === "agent" ? null : "agent"))
-                }
-              >
-                <IconSparkles className="size-4" />
-                {t("sharePage.agent")}
-              </Button>
-            ) : null}
-            {session ? null : (
-              <SignedOutShareActions
-                recordingId={recording.id}
-                startAt={startAt}
-                onCtaClick={fireShareCtaClick}
-              />
-            )}
-            {viewerCanEdit || canReshareLink ? (
-              <ShareRecordingPopover
-                recordingId={recording.id}
-                recordingTitle={recording.title}
-                initialVisibility={recording.visibility}
-                initialRole={viewerIsOwner ? "owner" : undefined}
-                videoUrl={shareVideoUrl}
-                thumbnailUrl={recording.thumbnailUrl}
-                animatedThumbnailUrl={recording.animatedThumbnailUrl}
-                isLoomRecording={isLoomEmbedBacked}
-                hasPassword={Boolean(recording.hasPassword)}
-                expiresAt={recording.expiresAt}
-                viewerReshareOnly={viewerReshareOnly}
-              >
-                <ClipsShareTrigger
-                  label={t("sharePage.share")}
-                  className="border-0 shadow-none"
-                />
-              </ShareRecordingPopover>
-            ) : null}
-            {!viewerCanEdit && canDownloadRecording ? (
-              <DropdownMenu
-                open={downloadMenuOpen}
-                onOpenChange={setDownloadMenuOpen}
-              >
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="-mx-1.5 h-auto w-auto shrink-0 px-0.5 py-1.5"
-                    aria-label={t("sharePage.clipOptions")}
-                  >
-                    <IconDotsVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      setDownloadMenuOpen(false);
-                      void downloadRecording();
-                    }}
-                    disabled={downloading}
-                  >
-                    <IconDownload className="h-4 w-4" />
-                    {downloading
-                      ? t("sharePage.downloading")
-                      : t("recordRoute.downloadRecording")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-            {viewerIsOwner ? (
-              <RecordingOptionsMenu
-                recordingId={recording.id}
-                canDelete
-                canDownload={canDownloadRecording}
-                downloadPending={downloading}
-                downloadLabel={t("recordRoute.downloadRecording")}
-                downloadingLabel={t("sharePage.downloading")}
-                onDownload={() => {
-                  void downloadRecording();
-                }}
-                onDeleted={() => navigate("/library", { replace: true })}
-              />
-            ) : null}
-          </div>
-        </header>
+            <span className="truncate text-sm font-semibold text-foreground">
+              {t("navigation.brand")}
+            </span>
+          </Link>
+          <EnvironmentBadge placement="inline" />
+        </div>
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 pb-10 sm:px-4">
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:gap-3">
+          {session ? null : (
+            <SignedOutShareActions
+              recordingId={recording.id}
+              startAt={startAt}
+              onCtaClick={fireShareCtaClick}
+              onSignup={() => openCreateAccount("continue")}
+            />
+          )}
+          {viewerCanEdit || canReshareLink ? (
+            <ShareRecordingPopover
+              recordingId={recording.id}
+              recordingTitle={recording.title}
+              initialVisibility={recording.visibility}
+              initialRole={viewerIsOwner ? "owner" : undefined}
+              videoUrl={shareVideoUrl}
+              thumbnailUrl={recording.thumbnailUrl}
+              animatedThumbnailUrl={recording.animatedThumbnailUrl}
+              isLoomRecording={isLoomEmbedBacked}
+              hasPassword={Boolean(recording.hasPassword)}
+              expiresAt={recording.expiresAt}
+              viewerReshareOnly={viewerReshareOnly}
+            >
+              <ClipsShareTrigger
+                label={t("sharePage.share")}
+                className="border-0 shadow-none"
+              />
+            </ShareRecordingPopover>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="flex w-full min-w-0 flex-none flex-col overflow-visible xl:col-start-1 xl:row-start-2 xl:min-h-0 xl:flex-1 xl:overflow-y-hidden">
+        <main className="overflow-visible xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+          <div className="mx-auto flex w-full flex-col gap-5 pb-10 sm:px-4 xl:pt-4">
             <div className="relative aspect-video w-full">
               <VideoPlayer
                 ref={playerRef}
@@ -1352,7 +1428,6 @@ export default function ShareRoute() {
                 onCommentClick={
                   viewerCanUseFullscreenInteractions
                     ? () => {
-                        setPanel(null);
                         requestAnimationFrame(() =>
                           commentsSectionRef.current?.scrollIntoView({
                             behavior: "smooth",
@@ -1373,17 +1448,7 @@ export default function ShareRoute() {
                           requireSignIn("comment");
                           return;
                         }
-                        const liveCt = isLoomEmbedBacked
-                          ? null
-                          : playerRef.current?.video?.currentTime;
-                        const liveMs =
-                          typeof liveCt === "number" &&
-                          Number.isFinite(liveCt) &&
-                          liveCt >= 0 &&
-                          liveCt < 1e7
-                            ? Math.floor(liveCt * 1000)
-                            : playbackMs;
-                        setCommentAtMs(liveMs);
+                        setCommentAtMs(resolvePlaybackMs());
                         setCommentOpen(true);
                       }
                     : undefined
@@ -1394,47 +1459,7 @@ export default function ShareRoute() {
                 }
                 onReact={
                   viewerCanUseFullscreenInteractions
-                    ? (emoji) => {
-                        if (!session) {
-                          requireSignIn("react");
-                          return false;
-                        }
-                        tracking.reportReaction(emoji);
-                        const liveCt = isLoomEmbedBacked
-                          ? null
-                          : playerRef.current?.video?.currentTime;
-                        const liveMs =
-                          typeof liveCt === "number" &&
-                          Number.isFinite(liveCt) &&
-                          liveCt >= 0 &&
-                          liveCt < 1e7
-                            ? Math.floor(liveCt * 1000)
-                            : playbackMs;
-                        return fetch(
-                          agentNativePath(
-                            "/_agent-native/actions/react-to-recording",
-                          ),
-                          {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              recordingId: recording.id,
-                              emoji,
-                              videoTimestampMs: liveMs,
-                            }),
-                          },
-                        )
-                          .then((res) => {
-                            if (!res.ok)
-                              throw new Error(`react failed: ${res.status}`);
-                            return dataQ.refetch();
-                          })
-                          .then(() => true)
-                          .catch((err) => {
-                            console.warn("[clips] react failed", err);
-                            return false;
-                          });
-                      }
+                    ? reactToRecording
                     : undefined
                 }
                 className="h-full w-full rounded-none sm:rounded-xl"
@@ -1449,8 +1474,15 @@ export default function ShareRoute() {
                         onDraftChange={setCommentDraft}
                         onClose={() => setCommentOpen(false)}
                         onAdded={() => {
-                          setPanel(null);
                           void dataQ.refetch();
+                          if (resumedAccountActionRef.current === "comment") {
+                            resumedAccountActionRef.current = null;
+                            trackEvent("share_account_action_completed", {
+                              surface: "public_share",
+                              recording_id: recording.id,
+                              intent: "comment",
+                            });
+                          }
                         }}
                       />
                     );
@@ -1466,104 +1498,128 @@ export default function ShareRoute() {
                 : null}
             </div>
 
-            <section className="flex shrink-0 flex-col gap-3 px-4 sm:flex-row sm:items-start sm:px-0">
-              <div className="min-w-0 flex-1">
-                <div className="mb-3 sm:hidden">
+            <section className="flex shrink-0 flex-col gap-3 px-4 pt-1 sm:px-0">
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
                   {showTitleSkeleton ? (
                     <Skeleton
                       aria-label={t("sharePage.generatingTitle")}
                       className="h-7 w-72 max-w-full"
                     />
                   ) : (
-                    <h1 className="truncate text-2xl font-semibold leading-tight">
+                    <h1 className="truncate text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl">
                       {visibleTitle}
                     </h1>
                   )}
+                  <div className="mt-2 flex min-w-0 items-center gap-2">
+                    <ClipsAvatar
+                      email={ownerEmail}
+                      alt={ownerEmail}
+                      fallback={ownerInitial}
+                      className="size-7 shrink-0"
+                      fallbackClassName="bg-muted text-[10px] font-semibold text-muted-foreground"
+                    />
+                    <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+                      <bdi className="min-w-0 max-w-full truncate font-medium text-foreground">
+                        {ownerEmail}
+                      </bdi>
+                      {recordedOn ? (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>{recordedOn}</span>
+                        </>
+                      ) : null}
+                      <span aria-hidden="true">·</span>
+                      <span>{visibilityLabel}</span>
+                    </p>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <RecordingViewsBadge
+                    recordingId={recording.id}
+                    recordingTitle={recording.title}
+                    viewCount={viewCount}
+                    reactionCount={reactions.length}
+                    durationMs={recording.durationMs}
+                    canViewDetails={viewerCanEdit}
+                    className="shrink-0 border-0 shadow-none"
+                  />
                   {recording.enableReactions ? (
-                    <ReactionsTray
-                      reactions={reactions}
+                    <ShareReactionPicker
                       disabled={Boolean(session) && !viewerCanComment}
-                      className="border-0 shadow-none"
-                      onReact={(emoji) => {
-                        if (!session) {
-                          requireSignIn("react");
-                          return false;
-                        }
-                        tracking.reportReaction(emoji);
-                        const liveMs =
-                          playerRef.current?.getCurrentOriginalMs() ??
-                          playbackMs;
-                        return fetch(
-                          agentNativePath(
-                            "/_agent-native/actions/react-to-recording",
-                          ),
-                          {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              recordingId: recording.id,
-                              emoji,
-                              videoTimestampMs: liveMs,
-                            }),
-                          },
-                        )
-                          .then((res) => {
-                            if (!res.ok)
-                              throw new Error(`react failed: ${res.status}`);
-                            return dataQ.refetch();
-                          })
-                          .then(() => true)
-                          .catch((err) => {
-                            console.warn("[clips] react failed", err);
-                            return false;
-                          });
+                      onReact={reactToRecording}
+                    />
+                  ) : null}
+                  {!viewerIsOwner && canDownloadRecording ? (
+                    <RecordingOptionsMenu
+                      recordingId={recording.id}
+                      canDelete={false}
+                      canDownload
+                      downloadPending={downloading}
+                      downloadLabel={t("recordRoute.downloadRecording")}
+                      downloadingLabel={t("sharePage.downloading")}
+                      onDownload={() => void downloadRecording()}
+                    />
+                  ) : null}
+                  {viewerIsOwner ? (
+                    <RecordingOptionsMenu
+                      recordingId={recording.id}
+                      canDelete
+                      canDownload={canDownloadRecording}
+                      downloadPending={downloading}
+                      downloadLabel={t("recordRoute.downloadRecording")}
+                      downloadingLabel={t("sharePage.downloading")}
+                      onDownload={() => {
+                        void downloadRecording();
                       }}
+                      onDeleted={() => navigate("/library", { replace: true })}
                     />
                   ) : null}
                 </div>
-                {recording.description ? (
-                  <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+              </div>
+              {recording.description ? (
+                <div className="mt-2 rounded-lg bg-muted/50 px-3 py-2.5 text-sm leading-5">
+                  <p
+                    className={cn(
+                      "max-w-4xl whitespace-pre-wrap break-words text-foreground/85",
+                      !descriptionExpanded && "line-clamp-2",
+                    )}
+                  >
                     {recording.description}
                   </p>
-                ) : null}
-                {viewerCanEdit && canDownloadRecording ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={downloadRecording}
-                    disabled={downloading}
-                    className="mt-3 gap-1.5 border-0 shadow-none"
-                  >
-                    <IconDownload className="h-4 w-4" />
-                    {downloading
-                      ? t("sharePage.downloading")
-                      : t("recordRoute.downloadRecording")}
-                  </Button>
-                ) : null}
-              </div>
+                  {recording.description.length > 180 ? (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="mt-1 h-auto p-0 text-xs font-medium text-foreground"
+                      onClick={() =>
+                        setDescriptionExpanded((expanded) => !expanded)
+                      }
+                    >
+                      {descriptionExpanded
+                        ? t("settings.collapse")
+                        : t("shareDialog.more")}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </section>
 
             {recording.enableComments ? (
               <section
                 ref={commentsSectionRef}
-                className="mx-4 border-t border-border pt-5 sm:mx-0"
+                className="scroll-mt-14 flex min-h-0 flex-1 flex-col px-1 pb-5 pt-4"
               >
-                <div className="mb-4 flex items-center gap-2">
-                  <h2 className="text-sm font-semibold">
-                    {t("sharePage.comments")}
-                  </h2>
-                  {comments.length > 0 ? (
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {comments.length}
-                    </span>
-                  ) : null}
-                </div>
+                <h2 className="mb-3 shrink-0 text-sm font-semibold">
+                  {t("sharePage.comments")}
+                </h2>
                 <CommentsPanel
                   recordingId={recording.id}
                   comments={comments}
                   currentMs={playbackMs}
+                  getCurrentMs={resolvePlaybackMs}
                   currentUserEmail={session?.email}
                   currentUserName={session?.name}
                   enableComments={recording.enableComments}
@@ -1591,83 +1647,139 @@ export default function ShareRoute() {
         </main>
       </div>
 
-      {panel ? (
-        <aside className="absolute inset-0 flex min-h-0 min-w-0 flex-col border-l border-border bg-background xl:static xl:w-[380px] xl:flex-none">
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-            <h2 className="text-sm font-semibold">
-              {panel === "transcript"
-                ? t("sharePage.transcript")
-                : t("sharePage.agent")}
-            </h2>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label={t("autoRecordPrompt.dismiss")}
-              onClick={() => setPanel(null)}
-            >
-              <IconX className="size-4" />
-            </Button>
-          </div>
-          {panel === "agent" ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {sessionStatus === "loading" ||
-              sessionStatus === "signing-out" ? null : session ? (
-                <AgentPanel
-                  emptyStateText={t("recordingPage.askAboutClip")}
-                  dynamicSuggestions={false}
-                  scope={
-                    recording
-                      ? { type: "recording" as const, id: recording.id }
-                      : null
-                  }
-                  missingApiKeySetupLayout="sidebar"
-                  suggestions={[
-                    t("recordingPage.summarizeClip"),
-                    t("recordingPage.findKeyMoments"),
-                    t("recordingPage.listFollowUpActions"),
-                    t("recordingPage.draftQuestions"),
-                  ]}
-                  browserTabId={getBrowserTabId()}
-                  showHeader={false}
-                  showTabBar={false}
-                />
-              ) : (
-                <PublicAgentEmptyState
-                  signupHref={signupHref}
-                  onCtaClick={fireShareCtaClick}
-                />
-              )}
-            </div>
-          ) : null}
-          {panel === "transcript" ? (
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-              <TranscriptPanel
-                segments={transcriptSegments}
-                fullText={transcriptFullText}
-                durationMs={recording.durationMs}
-                currentMs={playbackMs}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                status={transcriptStatus}
-                failureReason={transcriptFailureReason}
-                recordingTitle={recording.title}
+      <Tabs
+        value={panel}
+        onValueChange={(value) => setPanel(value as SharePanel)}
+        className="contents"
+      >
+        <RecordingSidePanel
+          className="xl:col-start-2 xl:row-start-2"
+          tabs={
+            <ViewerTabsList>
+              <ViewerTabsTrigger value="transcript">
+                {t("sharePage.transcript")}
+              </ViewerTabsTrigger>
+              <ViewerTabsTrigger value="agent">
+                {t("sharePage.agent")}
+              </ViewerTabsTrigger>
+            </ViewerTabsList>
+          }
+        >
+          <TabsContent
+            value="agent"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto"
+          >
+            {sessionStatus === "loading" ||
+            sessionStatus === "signing-out" ? null : session ? (
+              <AgentPanel
+                emptyStateText={t("recordingPage.askAboutClip")}
+                dynamicSuggestions={false}
+                scope={
+                  recording
+                    ? { type: "recording" as const, id: recording.id }
+                    : null
+                }
+                missingApiKeySetupLayout="sidebar"
+                suggestions={[
+                  t("recordingPage.summarizeClip"),
+                  t("recordingPage.findKeyMoments"),
+                  t("recordingPage.listFollowUpActions"),
+                  t("recordingPage.draftQuestions"),
+                ]}
+                browserTabId={getBrowserTabId()}
+                showHeader={false}
+                showTabBar={false}
               />
-            </div>
-          ) : null}
-        </aside>
-      ) : null}
+            ) : (
+              <PublicAgentEmptyState
+                signupHref={signupHref}
+                signInHref={signInHref}
+                onCtaClick={fireShareCtaClick}
+                onSignup={() => openCreateAccount("agent")}
+              />
+            )}
+          </TabsContent>
+          <TabsContent
+            value="transcript"
+            className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3"
+          >
+            <TranscriptPanel
+              segments={transcriptSegments}
+              fullText={transcriptFullText}
+              durationMs={recording.durationMs}
+              currentMs={playbackMs}
+              onSeek={(ms) => playerRef.current?.seek(ms)}
+              status={transcriptStatus}
+              failureReason={transcriptFailureReason}
+              recordingTitle={recording.title}
+            />
+          </TabsContent>
+        </RecordingSidePanel>
+      </Tabs>
 
-      <SignInPromptDialog
-        open={signInIntent !== null}
+      <AccountGateDialog
+        open={accountGateIntent !== null}
         onOpenChange={(open) => {
-          if (!open) setSignInIntent(null);
+          if (!open) setAccountGateIntent(null);
         }}
-        intent={signInIntent ?? "comment"}
+        intent={accountGateIntent ?? "continue"}
         returnTo={shareReturnTo}
         onSignIn={() => fireShareCtaClick("signin")}
-        onSignUp={() => fireShareCtaClick("signup")}
+        onAuthenticated={() => {
+          setAccountGateIntent(null);
+          setRefreshSessionAfterAuth(true);
+          retrySession();
+        }}
       />
     </div>
+  );
+}
+
+function ShareReactionPicker({
+  disabled,
+  onReact,
+}: {
+  disabled?: boolean;
+  onReact: (emoji: string) => boolean | Promise<boolean>;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={disabled}
+          className="h-8 gap-1.5 px-2 text-xs"
+        >
+          <IconMoodSmile className="size-4" />
+          {t("recordingPage.react")}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="center" className="w-auto p-1.5">
+        <div className="flex items-center gap-0.5">
+          {REACTION_EMOJIS.map((emoji) => (
+            <Button
+              key={emoji}
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 rounded-full text-lg"
+              aria-label={`${t("recordingPage.react")} ${REACTION_NAMES[emoji]}`}
+              onClick={() => {
+                setOpen(false);
+                void onReact(emoji);
+              }}
+            >
+              {emoji}
+            </Button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1681,92 +1793,80 @@ function sanitizeFilename(name: string): string {
   );
 }
 
+function formatRecordedOn(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+    date,
+  );
+}
+
 function PublicAgentEmptyState({
   signupHref,
+  signInHref,
   onCtaClick,
+  onSignup,
 }: {
   signupHref: string;
-  onCtaClick: (cta: "signup" | "download" | "try_clips" | "signin") => void;
+  signInHref: string;
+  onCtaClick: (cta: "signup" | "download" | "signin") => void;
+  onSignup?: () => void;
 }) {
   const t = useT();
-  const [platform, setPlatform] = useState<ViewerPlatform | null>(null);
-
-  useEffect(() => {
-    setPlatform(detectViewerPlatform());
-  }, []);
-
-  const downloadLabel =
-    platform === "mac"
-      ? t("sharePage.downloadForMac")
-      : platform === "windows"
-        ? t("sharePage.downloadForWindows")
-        : platform === "linux"
-          ? t("sharePage.downloadForLinux")
-          : t("sharePage.downloadDesktopApp");
 
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <div className="mb-6 flex flex-col items-center gap-3">
-        <img
-          src={appPath("/agent-native-icon-light.svg")}
-          alt="Agent-Native"
-          className="block h-8 w-auto dark:hidden"
-        />
-        <img
-          src={appPath("/agent-native-icon-dark.svg")}
-          alt="Agent-Native"
-          className="hidden h-8 w-auto dark:block"
-        />
-      </div>
-      <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
-        <a
-          href={CLIPS_TEMPLATE_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-        >
-          {t("sharePage.agentNativeClips")}
-        </a>{" "}
-        {t("sharePage.agentNativeClipsIntro")}{" "}
-        <a
-          href={CLIPS_SOURCE_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-        >
-          {t("sharePage.openSource")}
-        </a>
-        ,{" "}
-        <a
-          href={CLIPS_AGENT_DOCS_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-        >
-          {t("sharePage.agentFriendly")}
-        </a>{" "}
-        {t("sharePage.loomAlternative")}
-      </p>
-      <div className="mt-7 flex w-full max-w-[220px] flex-col gap-2">
+      <div className="w-full max-w-xs">
+        <h2 className="text-base font-semibold text-foreground">
+          {t("sharePage.agentEmptyTitle")}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {t("sharePage.agentEmptyDescription")}
+        </p>
+        {onSignup ? (
+          <Button
+            type="button"
+            className="mt-6 w-full"
+            onClick={() => {
+              onCtaClick("signup");
+              onSignup();
+            }}
+          >
+            {t("signInPrompt.createAccount")}
+          </Button>
+        ) : (
+          <Button asChild className="mt-6 w-full">
+            <a href={signupHref} onClick={() => onCtaClick("signup")}>
+              {t("signInPrompt.createAccount")}
+            </a>
+          </Button>
+        )}
+        <p className="mt-3 text-xs text-muted-foreground">
+          {t("sharePage.agentEmptySignInPrompt")}{" "}
+          <a
+            href={signInHref}
+            onClick={() => onCtaClick("signin")}
+            className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
+          >
+            {t("signInPrompt.signIn")}
+          </a>
+        </p>
         <CaptureInstallButton
-          className="w-full gap-2"
-          align="center"
+          variant="link"
+          size="sm"
+          className="mt-4 h-auto gap-1.5 px-0 py-0 text-xs font-medium text-muted-foreground"
           onClick={() => onCtaClick("download")}
           downloadedChildren={
             <>
-              <IconDeviceDesktop className="h-4 w-4" />
+              <IconDeviceDesktop className="size-3.5" />
               {t("captureInstall.openDesktopApp")}
             </>
           }
         >
-          <IconDownload className="h-4 w-4" />
-          {downloadLabel}
+          <IconDownload className="size-3.5" />
+          {t("sharePage.downloadDesktopApp")}
         </CaptureInstallButton>
-        <Button asChild variant="outline" className="w-full">
-          <a href={signupHref} onClick={() => onCtaClick("signup")}>
-            {t("sharePage.signUp")}
-          </a>
-        </Button>
       </div>
     </div>
   );
