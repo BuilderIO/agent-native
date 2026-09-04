@@ -64,10 +64,16 @@ function syncSlideEditorBlockFormatting(
   target: HTMLElement,
   clearMissing = false,
 ): void {
+  const canRoundTripAttributes =
+    target.tagName === "P" ||
+    target.tagName === "LI" ||
+    /^H[1-6]$/.test(target.tagName);
   for (const attributeName of SLIDE_EDITOR_BLOCK_ATTRIBUTES) {
     const value = source.getAttribute(attributeName);
     if (value !== null) target.setAttribute(attributeName, value);
-    else if (clearMissing) target.removeAttribute(attributeName);
+    else if (clearMissing && canRoundTripAttributes) {
+      target.removeAttribute(attributeName);
+    }
   }
   for (const property of SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES) {
     const value = source.style.getPropertyValue(property);
@@ -118,6 +124,20 @@ export function contentForSlideTextContainer(
     syncSlideEditorBlockFormatting(source, paragraph);
     return paragraph.outerHTML;
   }
+  if (tagName.toUpperCase() === "P") {
+    const paragraph = doc.createElement("p");
+    syncSlideEditorBlockFormatting(first as HTMLElement, paragraph);
+    paragraph.innerHTML = first.innerHTML;
+    return paragraph.outerHTML;
+  }
+  if (tagName.toUpperCase() === "LI") {
+    const list = doc.createElement("ul");
+    const item = doc.createElement("li");
+    syncSlideEditorBlockFormatting(first as HTMLElement, item);
+    item.innerHTML = first.innerHTML;
+    list.appendChild(item);
+    return list.outerHTML;
+  }
   if (["BLOCKQUOTE", "OL", "UL"].includes(tagName.toUpperCase())) {
     const wrapper = doc.createElement(tagName.toLowerCase());
     syncSlideEditorBlockFormatting(first as HTMLElement, wrapper);
@@ -156,10 +176,20 @@ export function restoreSlideTextContainerContent(
     return element;
   }
 
+  const nextListItemRoot =
+    element.tagName === "LI" &&
+    (nextRoot?.tagName === "OL" || nextRoot?.tagName === "UL") &&
+    nextRoot.children.length === 1 &&
+    nextRoot.firstElementChild?.tagName === "LI"
+      ? (nextRoot.firstElementChild as HTMLElement)
+      : null;
   const preservesListItemRoot =
     element.tagName === "LI" &&
-    nextChildren.length > 0 &&
-    nextChildren.every((child) => ["OL", "P", "UL"].includes(child.tagName));
+    (nextListItemRoot !== null ||
+      (nextChildren.length > 0 &&
+        nextChildren.every((child) =>
+          ["OL", "P", "UL"].includes(child.tagName),
+        )));
   const preservesListRoot =
     (element.tagName === "UL" || element.tagName === "OL") &&
     nextRoot !== null &&
@@ -195,6 +225,11 @@ export function restoreSlideTextContainerContent(
         element,
         true,
       );
+    }
+    if (nextListItemRoot) {
+      syncSlideEditorBlockFormatting(nextListItemRoot, element, true);
+      element.innerHTML = nextListItemRoot.innerHTML;
+      return element;
     }
     element.innerHTML = html;
     return element;

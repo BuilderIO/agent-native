@@ -141,6 +141,64 @@ describe("slide rich text normalization", () => {
     expect(restored.getAttribute("data-pptx-paragraph")).toBe("2");
   });
 
+  it("preserves paragraph and list-item formatting through editor wrappers", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<p style="position:absolute;left:8px;color:red;font-size:24px;text-align:right" dir="rtl" data-pptx-paragraph="2">Paragraph</p><ul><li style="position:absolute;left:12px;color:blue;font-size:18px" dir="ltr" data-pptx-paragraph="3"><p>Item</p><ul><li>Nested</li></ul></li></ul>';
+    const paragraph = root.firstElementChild as HTMLElement;
+    const item = root.querySelector("ul > li") as HTMLElement;
+
+    const paragraphEditorContent = contentForSlideTextContainer(
+      paragraph.tagName,
+      paragraph.outerHTML,
+    );
+    const paragraphSeed = document.createElement("div");
+    paragraphSeed.innerHTML = paragraphEditorContent;
+    expect(paragraphSeed.firstElementChild?.tagName).toBe("P");
+    expect((paragraphSeed.firstElementChild as HTMLElement).style.color).toBe(
+      "red",
+    );
+    expect(
+      paragraphSeed.firstElementChild?.getAttribute("data-pptx-paragraph"),
+    ).toBe("2");
+
+    const restoredParagraph = restoreSlideTextContainerContent(
+      paragraph,
+      paragraphEditorContent,
+    );
+    expect(restoredParagraph.style.left).toBe("8px");
+    expect(restoredParagraph.style.color).toBe("red");
+    expect(restoredParagraph.style.fontSize).toBe("24px");
+    expect(restoredParagraph.getAttribute("dir")).toBe("rtl");
+
+    const itemEditorContent = contentForSlideTextContainer(
+      item.tagName,
+      item.outerHTML,
+    );
+    const itemSeed = document.createElement("div");
+    itemSeed.innerHTML = itemEditorContent;
+    const seededItem = itemSeed.querySelector("ul > li") as HTMLElement;
+    expect(seededItem.style.color).toBe("blue");
+    expect(seededItem.getAttribute("dir")).toBe("ltr");
+    expect(seededItem.querySelector(":scope > ul li")?.textContent).toBe(
+      "Nested",
+    );
+
+    const restoredItem = restoreSlideTextContainerContent(
+      item,
+      itemEditorContent,
+    );
+    expect(restoredItem).toBe(item);
+    expect(restoredItem.style.left).toBe("12px");
+    expect(restoredItem.style.color).toBe("blue");
+    expect(restoredItem.style.fontSize).toBe("18px");
+    expect(restoredItem.getAttribute("dir")).toBe("ltr");
+    expect(restoredItem.getAttribute("data-pptx-paragraph")).toBe("3");
+    expect(restoredItem.querySelector(":scope > ul li")?.textContent).toBe(
+      "Nested",
+    );
+  });
+
   it("clears removed heading formatting without clearing its position", () => {
     const root = document.createElement("div");
     root.innerHTML =
@@ -225,6 +283,25 @@ describe("slide rich text normalization", () => {
     expect(restored.style.textAlign).toBe("center");
     expect(restored.getAttribute("dir")).toBe("rtl");
     expect(restored.getAttribute("data-pptx-paragraph")).toBe("2");
+  });
+
+  it("preserves blockquote attributes the editor cannot round-trip", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<blockquote style="position:absolute;left:10px;color:red" dir="rtl" data-pptx-paragraph="1"><p>Quote</p></blockquote>';
+    const quote = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      quote,
+      '<blockquote style="color:blue"><p>Quote</p></blockquote>',
+    );
+
+    expect(restored).toBe(quote);
+    expect(restored.style.position).toBe("absolute");
+    expect(restored.style.left).toBe("10px");
+    expect(restored.style.color).toBe("blue");
+    expect(restored.getAttribute("dir")).toBe("rtl");
+    expect(restored.getAttribute("data-pptx-paragraph")).toBe("1");
   });
 
   it("keeps positioned list objects when changing list type", () => {
