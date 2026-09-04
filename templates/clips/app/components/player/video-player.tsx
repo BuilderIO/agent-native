@@ -351,6 +351,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const suppressNextClickRef = useRef(false);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    const autoPlayAttemptedSourceRef = useRef("");
     const playAttemptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
@@ -1341,6 +1342,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setLoomStartMs(null);
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
+      autoPlayAttemptedSourceRef.current = "";
       clearPlayAttemptWatchdog();
       setCanPlay(false);
       setIsPlayPending(!!autoPlay);
@@ -1352,6 +1354,22 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       clearPlayAttemptWatchdog,
       recordingId,
     ]);
+
+    useEffect(() => {
+      if (!autoPlay || !domVideoSrc || !activeVideoSrc || isLoomEmbed) return;
+      if (autoPlayAttemptedSourceRef.current === activeVideoSrc) return;
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      autoPlayAttemptedSourceRef.current = activeVideoSrc;
+      if (!v.paused && !v.ended) return;
+
+      // Native autoplay can reject without dispatching a media event. Route a
+      // tracked attempt through the same promise and watchdog as click-to-play
+      // so blocked embeds immediately regain an actionable play control.
+      requestPlay();
+    }, [activeVideoSrc, autoPlay, domVideoSrc, isLoomEmbed, requestPlay]);
 
     useEffect(() => {
       setThumbnailLoadFailed(false);
