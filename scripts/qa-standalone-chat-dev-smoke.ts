@@ -1745,10 +1745,7 @@ async function waitForChatText(
     // context after the provider has already completed a stream. A blank
     // durable document is the same recoverable state even when the read itself
     // does not throw a navigation error.
-    if (
-      options.recoverDurableRoute &&
-      durableRouteRecoveryAttempts < 3
-    ) {
+    if (options.recoverDurableRoute && durableRouteRecoveryAttempts < 3) {
       try {
         const surface = await readChatSurfaceState(page);
         if (
