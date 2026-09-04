@@ -225,10 +225,7 @@ export function SnoozeModal({
           })
           .catch((err: any) => {
             const msg = err?.message ?? "";
-            if (
-              msg.includes("no such table") ||
-              msg.includes("scheduled_jobs")
-            ) {
+            if (msg.includes("scheduled_jobs")) {
               toast.error(t("mail.toasts.snoozeDbNotReady"));
             } else {
               toast.error(msg || t("mail.toasts.couldNotSnooze"));

@@ -57,20 +57,20 @@ export interface UpsertPlanAssetResult {
   assetId: string;
   /**
    * A CDN URL when an upload provider was configured and the upload succeeded.
-   * `null` only for local-development fallback rows in `plan_assets`.
+   * `null` only for PGlite development fallback rows in `plan_assets`.
    */
   cdnUrl: string | null;
   /**
    * The final `src` to embed in the image block.
    * - CDN URL when provider upload succeeded.
-   * - Local route URL (`/_agent-native/plan-asset/...`) for dev fallback rows.
+   * - Local route URL (`/_agent-native/plan-asset/...`) for PGlite fallback rows.
    */
   src: string;
   filename: string;
 }
 
 function requiresConfiguredPlanAssetStorage(): boolean {
-  return process.env.NODE_ENV === "production" || !isLocalPlanAssetDatabase();
+  return process.env.NODE_ENV === "production" || !isPGlitePlanAssetDatabase();
 }
 
 function appDatabaseUrl(): string {
@@ -82,19 +82,14 @@ function appDatabaseUrl(): string {
   return process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || "";
 }
 
-function isLocalPlanAssetDatabase(): boolean {
+function isPGlitePlanAssetDatabase(): boolean {
   const url = appDatabaseUrl().toLowerCase();
-  return (
-    url === "" ||
-    url.startsWith("file:") ||
-    url.startsWith("pglite:") ||
-    !url.includes("://")
-  );
+  return url === "" || url.startsWith("pglite:");
 }
 
 /**
  * Store a plan asset, uploading via the active file-upload provider first.
- * Falls back to the `plan_assets` SQL table only on local databases.
+ * Falls back to the `plan_assets` SQL table only during local PGlite development.
  *
  * Enforces single-asset and per-plan size caps.
  */
@@ -159,7 +154,7 @@ export async function upsertPlanAsset(
     throw new Error(PLAN_ASSET_STORAGE_REQUIRED_REASON);
   }
 
-  // Local SQL fallback: store base64 in plan_assets for development-only use.
+  // PGlite fallback: store base64 in plan_assets for development-only use.
   const assetId = `passet_${randomUUID().replace(/-/g, "")}`;
   const now = new Date().toISOString();
   await db.insert(schema.planAssets).values({

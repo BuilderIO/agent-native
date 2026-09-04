@@ -144,11 +144,11 @@ copying shares, visibility, generation runs, or handoff sessions.
 
 `delete-library` deletes in order:
 
-1. `image_assets WHERE library_id = ?`
-2. `image_generation_runs WHERE library_id = ?`
-3. `image_collections WHERE library_id = ?`
-4. `image_library_shares WHERE resource_id = ?`
-5. `image_libraries WHERE id = ?`
+1. `image_assets WHERE library_id = $1`
+2. `image_generation_runs WHERE library_id = $1`
+3. `image_collections WHERE library_id = $1`
+4. `image_library_shares WHERE resource_id = $1`
+5. `image_libraries WHERE id = $1`
 
 The asset rows are deleted from SQL but the underlying objects in S3 / local fallback are **not** automatically reaped — that's a v2 background job. For now, the orphaned blobs are tolerable since the framework's asset URLs all check access via the asset row.
 

@@ -71,7 +71,7 @@ async function resolveOrgRole(
   // a denial and 403s org owners whenever the database is briefly unreachable.
   const { rows } = await getDbExec()
     .execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`,
       args: [orgId, userEmail.toLowerCase()],
     })
     .catch((error: unknown) => {
@@ -219,7 +219,7 @@ export async function listDbAdminConnections(
                  created_by AS "createdBy", created_at AS "createdAt",
                  updated_at AS "updatedAt", org_id AS "orgId"
           FROM ${CONNECTIONS_TABLE}
-          WHERE org_id = ?
+          WHERE org_id = $1
           ORDER BY updated_at DESC, name ASC`,
     args: [ctx.orgId],
   });
@@ -267,7 +267,7 @@ export async function saveDbAdminConnection(
     sql: `INSERT INTO ${CONNECTIONS_TABLE}
             (id, name, app_id, app_url, database_url_secret_key,
              created_by, created_at, updated_at, org_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             app_id = excluded.app_id,
@@ -303,7 +303,7 @@ export async function deleteDbAdminConnection(
   if (!target) return { deleted: false };
 
   await getDbExec().execute({
-    sql: `DELETE FROM ${CONNECTIONS_TABLE} WHERE id = ? AND org_id = ?`,
+    sql: `DELETE FROM ${CONNECTIONS_TABLE} WHERE id = $1 AND org_id = $2`,
     args: [id, ctx.orgId],
   });
   await deleteAppSecret({
@@ -324,7 +324,7 @@ async function getConnectionRow(
                  created_by AS "createdBy", created_at AS "createdAt",
                  updated_at AS "updatedAt", org_id AS "orgId"
           FROM ${CONNECTIONS_TABLE}
-          WHERE id = ? AND org_id = ?
+          WHERE id = $1 AND org_id = $2
           LIMIT 1`,
     args: [id, ctx.orgId],
   });

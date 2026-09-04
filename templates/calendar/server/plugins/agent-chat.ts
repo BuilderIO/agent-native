@@ -109,7 +109,7 @@ Some less-common tool schemas are loaded on demand. Use tool-search with a speci
 
 ## Critical: Use Actions And Provider APIs, Not Raw SQL
 
-Google Calendar events are NOT stored in the local database. They are fetched live from Google Calendar API via actions. Never use db-query or db-exec for calendar operations.
+Google Calendar events are NOT stored in the app's PostgreSQL database. They are fetched live from Google Calendar API via actions. Never use db-query or db-exec for calendar operations.
 
 Provider-specific Calendar actions are shortcuts, not limits. If a first-class action cannot express the exact Google Calendar/CRM endpoint, calendar id, filter, request body, pagination mode, attendee search, recurrence field, or API version needed, call \`provider-api-catalog\` and \`provider-api-docs\` as needed, then call \`provider-api-request\` against the provider's real HTTP API. Use this raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Calendar cannot do something the underlying API can do.
 

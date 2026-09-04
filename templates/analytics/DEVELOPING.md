@@ -156,7 +156,7 @@ pnpm test       # Run Vitest tests
 
 `pnpm dev` pins `DATABASE_URL` to `pglite:./data/pglite` so local work does not
 accidentally touch a production database from `.env`. To intentionally test
-against another local database, set `ANALYTICS_DATABASE_URL` for that command:
+against another PostgreSQL database, set `ANALYTICS_DATABASE_URL` for that command:
 
 ```bash
 ANALYTICS_DATABASE_URL=postgres://localhost/analytics_dev pnpm dev

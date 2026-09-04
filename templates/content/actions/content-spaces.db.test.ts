@@ -94,7 +94,7 @@ afterAll(() => {
 
 async function addOrganization(id: string, name: string, owner = OWNER) {
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
     args: [id, name, owner, Date.now()],
   });
 }
@@ -106,7 +106,7 @@ async function addMember(
   role = "member",
 ) {
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: [id, orgId, email, role, Date.now()],
   });
 }
@@ -721,7 +721,7 @@ describe("Content space provisioning", () => {
     );
 
     await getDbExec().execute({
-      sql: "UPDATE organizations SET name = ? WHERE id = ?",
+      sql: "UPDATE organizations SET name = $1 WHERE id = $2",
       args: ["After rename", orgId],
     });
     const rerun = await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -836,7 +836,7 @@ describe("Content space provisioning", () => {
     );
     const spaceId = organizationContentSpaceId("org-shared");
     await getDbExec().execute({
-      sql: "DELETE FROM org_members WHERE id = ?",
+      sql: "DELETE FROM org_members WHERE id = $1",
       args: ["member-shared"],
     });
     await runWithRequestContext({ userEmail: MEMBER }, async () => {

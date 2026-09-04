@@ -74,7 +74,7 @@ pnpm action view-screen
 
 ```bash
 # Use db-exec to insert/update
-pnpm action db-exec --sql "INSERT INTO decks (id, title, data) VALUES (?, ?, ?)" --params '["new-id", "Title", "{...}"]'
+pnpm action db-exec --sql "INSERT INTO decks (id, title, data) VALUES ($1, $2, $3)" --params '["new-id", "Title", "{...}"]'
 ```
 
 **From actions:**

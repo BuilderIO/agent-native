@@ -90,7 +90,7 @@ describe("withLocalEmailMutationLock", () => {
     ).toBe(true);
     expect(
       mocks.execute.mock.calls.some(([query]) =>
-        /^DELETE FROM (?:public\.)?settings WHERE key = \? AND value = \?/.test(
+        /^DELETE FROM (?:public\.)?settings WHERE key = \$1 AND value = \$2/.test(
           query.sql,
         ),
       ),
@@ -110,7 +110,7 @@ describe("withLocalEmailMutationLock", () => {
 
     expect(
       mocks.execute.mock.calls.some(([query]) =>
-        /^UPDATE (?:public\.)?settings SET value = \?, updated_at = \? WHERE key = \? AND value = \?/.test(
+        /^UPDATE (?:public\.)?settings SET value = \$1, updated_at = \$2 WHERE key = \$3 AND value = \$4/.test(
           query.sql,
         ),
       ),

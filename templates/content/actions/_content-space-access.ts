@@ -58,7 +58,7 @@ export async function getContentOrganizationMembership(
     sql: `SELECT m.role AS role, o.name AS name, o.created_by AS "createdBy"
           FROM org_members m
           INNER JOIN organizations o ON o.id = m.org_id
-          WHERE m.org_id = ? AND LOWER(m.email) = ?
+          WHERE m.org_id = $1 AND LOWER(m.email) = $2
           LIMIT 1`,
     args: [orgId, normalizeContentSpaceEmail(userEmail)],
   });
@@ -90,12 +90,12 @@ export async function listContentOrganizationMemberships(userEmail: string) {
                  o.created_by AS "createdBy"
           FROM org_members m
           INNER JOIN organizations o ON o.id = m.org_id
-          WHERE LOWER(m.email) = ?
+          WHERE LOWER(m.email) = $1
           ORDER BY m.org_id ASC`,
       args: [normalizeContentSpaceEmail(userEmail)],
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("no such table")) {
+    if (error instanceof Error && error.message.includes("does not exist")) {
       return [];
     }
     throw error;

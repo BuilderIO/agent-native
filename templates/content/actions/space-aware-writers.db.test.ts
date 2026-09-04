@@ -63,11 +63,11 @@ async function addOrganizationMember(args: {
   role?: string;
 }) {
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
     args: [args.orgId, "Shared workspace", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: [
       `${args.orgId}:${args.email}`,
       args.orgId,

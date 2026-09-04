@@ -348,7 +348,7 @@ describe("first-party BigQuery backend", () => {
       expect(query.sql).toContain(
         "event_name IS DISTINCT FROM 'http.response'",
       );
-      expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
+      expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT $3");
       expect(query.sql).not.toContain("SELECT *");
       expect(query.sql).not.toContain("UNION ALL");
     }
@@ -383,8 +383,8 @@ describe("first-party BigQuery backend", () => {
     expect(execute).toHaveBeenCalledTimes(2);
     const [orgQuery] = execute.mock.calls[0] ?? [];
     const [personalQuery] = execute.mock.calls[1] ?? [];
-    expect(orgQuery.sql).toContain("(received_at, id) > (?, ?)");
-    expect(personalQuery.sql).toContain("(received_at, id) > (?, ?)");
+    expect(orgQuery.sql).toContain("(received_at, id) > ($3, $4)");
+    expect(personalQuery.sql).toContain("(received_at, id) > ($3, $4)");
     expect(orgQuery.args).toEqual([
       "org_builder",
       "2026-06-09T00:00:00.000Z",
@@ -429,8 +429,8 @@ describe("first-party BigQuery backend", () => {
     ).resolves.toMatchObject({ copied: 0, complete: true });
 
     const [orgQuery] = execute.mock.calls[0] ?? [];
-    expect(orgQuery.sql).toContain("(received_at, id) < (?, ?)");
-    expect(orgQuery.sql).toContain("(received_at, id) > (?, ?)");
+    expect(orgQuery.sql).toContain("(received_at, id) < ($3, $4)");
+    expect(orgQuery.sql).toContain("(received_at, id) > ($5, $6)");
     expect(orgQuery.args).toEqual([
       "org_builder",
       "2026-06-09T00:00:00.000Z",
@@ -557,7 +557,7 @@ describe("first-party BigQuery backend", () => {
     expect(execute).toHaveBeenCalledTimes(3);
     const [hydrateQuery] = execute.mock.calls[2] ?? [];
     expect(hydrateQuery.sql).toContain("SELECT id, public_key_id, event_name");
-    expect(hydrateQuery.sql).toContain("WHERE id IN (?)");
+    expect(hydrateQuery.sql).toContain("WHERE id IN ($1)");
     expect(hydrateQuery.args).toEqual(["org-event"]);
     vi.unstubAllGlobals();
   });
@@ -582,7 +582,7 @@ describe("first-party BigQuery backend", () => {
       async (query: { sql: string; args: string[] }) => {
         if (query.sql.includes("SELECT id, received_at")) {
           return {
-            rows: query.sql.includes("org_id = ?") ? indexedRows : [],
+            rows: query.sql.includes("org_id = $1") ? indexedRows : [],
           };
         }
         return {

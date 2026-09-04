@@ -227,7 +227,7 @@ const mocks = vi.hoisted(() => {
   };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
-      if (sql.includes("WHERE id = ? AND capture_id = ?")) {
+      if (sql.includes("WHERE id = $3 AND capture_id = $4")) {
         const [status, updatedAt, id, captureId, leaseToken] = args;
         const row = rows.ingestQueue.find(
           (item) =>

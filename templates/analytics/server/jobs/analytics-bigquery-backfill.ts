@@ -252,7 +252,7 @@ export async function getFirstPartyAnalyticsBigQueryBackfillJob(
                  lease_expires_at, next_run_at, last_error, completed_at,
                  updated_at
             FROM ${JOB_TABLE}
-           WHERE id = ?
+           WHERE id = $1
            LIMIT 1`,
     args: [jobId(scope.orgId ?? "")],
     timeoutMs: 3_000,
@@ -270,11 +270,11 @@ async function getNextFirstPartyAnalyticsBigQueryBackfillJob(
   const scopeClauses: string[] = [];
   const args: unknown[] = [now, now];
   if (scope?.orgId) {
-    scopeClauses.push("AND org_id = ?");
+    scopeClauses.push(`AND org_id = $${args.length + 1}`);
     args.push(scope.orgId);
   }
   if (scope?.userEmail) {
-    scopeClauses.push("AND owner_email = ?");
+    scopeClauses.push(`AND owner_email = $${args.length + 1}`);
     args.push(scope.userEmail);
   }
   const result = await db.execute({
@@ -283,11 +283,11 @@ async function getNextFirstPartyAnalyticsBigQueryBackfillJob(
                  lease_expires_at, next_run_at, last_error, completed_at,
                  updated_at
             FROM ${JOB_TABLE}
-           WHERE next_run_at <= ?
+           WHERE next_run_at <= $1
              AND (
                status = 'pending'
                OR (status = 'running' AND lease_expires_at IS NOT NULL
-                   AND lease_expires_at <= ?)
+                   AND lease_expires_at <= $2)
              )
              ${scopeClauses.join("\n             ")}
            ORDER BY updated_at ASC
@@ -405,7 +405,7 @@ async function finalizeCoordinatorIfComplete(
   const remainingResult = await db.execute({
     sql: `SELECT COUNT(*) AS remaining
             FROM ${SHARD_TABLE}
-           WHERE job_id = ? AND status <> 'completed'`,
+           WHERE job_id = $1 AND status <> 'completed'`,
     args: [job.id],
     timeoutMs: 5_000,
     maxAttempts: 1,
@@ -419,7 +419,7 @@ async function finalizeCoordinatorIfComplete(
   const summaryResult = await db.execute({
     sql: `SELECT COALESCE(SUM(copied_count), 0) AS copied_count
             FROM ${SHARD_TABLE}
-           WHERE job_id = ?`,
+           WHERE job_id = $1`,
     args: [job.id],
     timeoutMs: 5_000,
     maxAttempts: 1,
@@ -427,7 +427,7 @@ async function finalizeCoordinatorIfComplete(
   const endpointResult = await db.execute({
     sql: `SELECT end_at, end_id
             FROM ${SHARD_TABLE}
-           WHERE job_id = ?
+           WHERE job_id = $1
            ORDER BY end_at DESC, end_id DESC
            LIMIT 1`,
     args: [job.id],
@@ -443,10 +443,10 @@ async function finalizeCoordinatorIfComplete(
     : job.cursor;
   await db.execute({
     sql: `UPDATE ${JOB_TABLE}
-             SET status = 'completed', backfill_cursor = ?,
-                 copied_count = copied_count + ?, lease_token = NULL, lease_expires_at = NULL,
-                 next_run_at = ?, last_error = NULL, completed_at = ?, updated_at = ?
-           WHERE id = ? AND status <> 'completed'`,
+             SET status = 'completed', backfill_cursor = $1,
+                 copied_count = copied_count + $2, lease_token = NULL, lease_expires_at = NULL,
+                 next_run_at = $3, last_error = NULL, completed_at = $4, updated_at = $5
+           WHERE id = $6 AND status <> 'completed'`,
     args: [
       cursor,
       numberValue(summary ?? {}, "copied_count", "copiedCount"),
@@ -467,7 +467,7 @@ async function ensureBackfillShards(
 ): Promise<void> {
   if (job.status === "completed") return;
   const existing = await db.execute({
-    sql: `SELECT shard_id FROM ${SHARD_TABLE} WHERE job_id = ? LIMIT 1`,
+    sql: `SELECT shard_id FROM ${SHARD_TABLE} WHERE job_id = $1 LIMIT 1`,
     args: [job.id],
     timeoutMs: 5_000,
     maxAttempts: 1,
@@ -484,8 +484,8 @@ async function ensureBackfillShards(
               batch_size, backfill_cursor_at, backfill_cursor_id,
               status, copied_count, lease_token, lease_expires_at,
               next_run_at, last_error, completed_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL,
-                      'pending', 0, NULL, NULL, ?, NULL, NULL, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL,
+                      'pending', 0, NULL, NULL, $12, NULL, NULL, $13)
             ON CONFLICT (shard_id) DO NOTHING`,
       args: [
         id,
@@ -526,12 +526,12 @@ async function claimNextShard(
                    status, copied_count, lease_token, lease_expires_at,
                    next_run_at, updated_at
              FROM ${SHARD_TABLE}
-             WHERE job_id = ?
-               AND next_run_at <= ?
+             WHERE job_id = $1
+               AND next_run_at <= $2
                AND (
                  status = 'pending'
                  OR (status = 'running' AND lease_expires_at IS NOT NULL
-                     AND lease_expires_at <= ?)
+                     AND lease_expires_at <= $3)
                )
              ORDER BY start_at DESC, start_id DESC, updated_at ASC
              LIMIT 1`,
@@ -543,13 +543,13 @@ async function claimNextShard(
     if (!candidate) return null;
     const updated = await tx.execute({
       sql: `UPDATE ${SHARD_TABLE}
-               SET status = 'running', lease_token = ?, lease_expires_at = ?,
-                   updated_at = ?
-             WHERE shard_id = ? AND job_id = ? AND next_run_at <= ?
+               SET status = 'running', lease_token = $1, lease_expires_at = $2,
+                   updated_at = $3
+             WHERE shard_id = $4 AND job_id = $5 AND next_run_at <= $6
                AND (
                  status = 'pending'
                  OR (status = 'running' AND lease_expires_at IS NOT NULL
-                     AND lease_expires_at <= ?)
+                     AND lease_expires_at <= $7)
                )`,
       args: [
         token,
@@ -604,11 +604,11 @@ async function finishShard(
   const now = new Date().toISOString();
   const updated = await db.execute({
     sql: `UPDATE ${SHARD_TABLE}
-             SET status = ?, backfill_cursor_at = ?, backfill_cursor_id = ?,
-                 copied_count = copied_count + ?, lease_token = NULL,
-                 lease_expires_at = NULL, next_run_at = ?, last_error = NULL,
-                 completed_at = ?, updated_at = ?
-           WHERE shard_id = ? AND lease_token = ?`,
+             SET status = $1, backfill_cursor_at = $2, backfill_cursor_id = $3,
+                 copied_count = copied_count + $4, lease_token = NULL,
+                 lease_expires_at = NULL, next_run_at = $5, last_error = NULL,
+                 completed_at = $6, updated_at = $7
+           WHERE shard_id = $8 AND lease_token = $9`,
     args: [
       result.complete ? "completed" : "pending",
       nextCursor?.receivedAt ?? null,
@@ -639,8 +639,8 @@ async function scheduleShardRetry(
   await db.execute({
     sql: `UPDATE ${SHARD_TABLE}
              SET status = 'pending', lease_token = NULL, lease_expires_at = NULL,
-                 next_run_at = ?, last_error = ?, updated_at = ?
-           WHERE shard_id = ? AND lease_token = ?`,
+                 next_run_at = $1, last_error = $2, updated_at = $3
+           WHERE shard_id = $4 AND lease_token = $5`,
     args: [
       retryAt,
       error.slice(0, 1_000),
@@ -653,8 +653,8 @@ async function scheduleShardRetry(
   });
   await db.execute({
     sql: `UPDATE ${JOB_TABLE}
-             SET last_error = ?, updated_at = ?
-           WHERE id = ? AND status <> 'completed'`,
+             SET last_error = $1, updated_at = $2
+           WHERE id = $3 AND status <> 'completed'`,
     args: [error.slice(0, 1_000), new Date().toISOString(), shard.jobId],
     timeoutMs: 5_000,
     maxAttempts: 1,
@@ -700,7 +700,7 @@ export async function acquireDedicatedFirstPartyAnalyticsBackfillLease(
   }
   const id = jobId(scope.orgId);
   const sharded = await executor().execute({
-    sql: `SELECT shard_id FROM ${SHARD_TABLE} WHERE job_id = ? LIMIT 1`,
+    sql: `SELECT shard_id FROM ${SHARD_TABLE} WHERE job_id = $1 LIMIT 1`,
     args: [id],
     timeoutMs: 5_000,
     maxAttempts: 1,
@@ -717,12 +717,12 @@ export async function acquireDedicatedFirstPartyAnalyticsBackfillLease(
   ).toISOString();
   const claimed = await executor().execute({
     sql: `UPDATE ${JOB_TABLE}
-             SET status = 'running', lease_token = ?, lease_expires_at = ?,
-                 updated_at = ?
-           WHERE id = ? AND table_ref = ?
+             SET status = 'running', lease_token = $1, lease_expires_at = $2,
+                 updated_at = $3
+           WHERE id = $4 AND table_ref = $5
              AND (status = 'pending'
                   OR (status = 'running' AND lease_expires_at IS NOT NULL
-                      AND lease_expires_at <= ?))`,
+                      AND lease_expires_at <= $6))`,
     args: [token, leaseExpiresAt, now, id, table, now],
     timeoutMs: 5_000,
     maxAttempts: 1,
@@ -756,8 +756,8 @@ export async function acquireDedicatedFirstPartyAnalyticsBackfillLease(
     const result = await executor().execute({
       sql: `UPDATE ${JOB_TABLE}
                SET status = 'pending', lease_token = NULL,
-                   lease_expires_at = NULL, next_run_at = ?, updated_at = ?
-             WHERE id = ? AND lease_token = ?`,
+                   lease_expires_at = NULL, next_run_at = $1, updated_at = $2
+             WHERE id = $3 AND lease_token = $4`,
       args: [releasedAt, releasedAt, id, token],
       timeoutMs: 5_000,
       maxAttempts: 1,
@@ -786,7 +786,7 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
             id, org_id, owner_email, table_ref, batch_size, backfill_cursor,
               status, copied_count, lease_token, lease_expires_at, next_run_at,
               last_error, completed_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?, NULL, NULL, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', 0, NULL, NULL, $7, NULL, NULL, $8)
             ON CONFLICT (id) DO NOTHING`,
     args: [
       id,
@@ -805,9 +805,9 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
     const batchSize = boundedBatchSize(requestedBatchSize);
     await executor().execute({
       sql: `UPDATE ${JOB_TABLE}
-               SET batch_size = ?
-             WHERE id = ?
-               AND batch_size < ?`,
+               SET batch_size = $1
+             WHERE id = $2
+               AND batch_size < $3`,
       args: [batchSize, id, batchSize],
       timeoutMs: 5_000,
       maxAttempts: 1,
@@ -873,8 +873,8 @@ async function recordPressurePause(
   const retryAt = new Date(Date.now() + PRESSURE_RETRY_MS).toISOString();
   await db.execute({
     sql: `UPDATE ${JOB_TABLE}
-             SET last_error = ?, next_run_at = ?, updated_at = ?
-           WHERE id = ? AND status <> 'completed'`,
+             SET last_error = $1, next_run_at = $2, updated_at = $3
+           WHERE id = $4 AND status <> 'completed'`,
     args: [reason.slice(0, 1_000), retryAt, new Date().toISOString(), jobId],
     timeoutMs: 5_000,
     maxAttempts: 1,

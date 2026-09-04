@@ -90,7 +90,7 @@ function nowSql(): string {
 
 function ensureStateSql(): string {
   return `INSERT INTO analytics_rollup_backfill_state (id, status, updated_at)
-       VALUES (?, 'pending', ${nowSql()})
+       VALUES ($1, 'pending', ${nowSql()})
        ON CONFLICT (id) DO NOTHING`;
 }
 
@@ -103,10 +103,10 @@ function createBackfillLeaseToken(): string {
 
 function claimStateSql(): string {
   return `UPDATE analytics_rollup_backfill_state
-          SET status = 'running', lease_token = ?,
+          SET status = 'running', lease_token = $1,
               lease_expires_at = now() + INTERVAL '${BACKFILL_LEASE_MINUTES} minutes',
               updated_at = now()
-        WHERE id = ?
+        WHERE id = $2
           AND (
             status = 'pending'
             OR (
@@ -123,7 +123,7 @@ function releaseStateLeaseSql(): string {
   return `UPDATE analytics_rollup_backfill_state
              SET status = 'pending', lease_token = NULL,
                  lease_expires_at = NULL, updated_at = now()
-           WHERE id = ? AND lease_token = ?`;
+           WHERE id = $1 AND lease_token = $2`;
 }
 
 async function stateStatus(db: {
@@ -133,7 +133,7 @@ async function stateStatus(db: {
   }>;
 }): Promise<string | null> {
   const result = await db.execute({
-    sql: "SELECT status FROM analytics_rollup_backfill_state WHERE id = ?",
+    sql: "SELECT status FROM analytics_rollup_backfill_state WHERE id = $1",
     args: [BACKFILL_STATE_ID],
   });
   const status = result.rows[0]?.status;
@@ -146,7 +146,7 @@ async function completeState(tx: {
   await tx.execute({
     sql: `UPDATE analytics_rollup_backfill_state
           SET status = 'completed', completed_at = ${nowSql()}, updated_at = ${nowSql()}
-        WHERE id = ?`,
+        WHERE id = $1`,
     args: [BACKFILL_STATE_ID],
   });
 }
@@ -183,7 +183,7 @@ async function runTransactionalBackfill(
         `SET LOCAL statement_timeout = '${BACKFILL_LEASE_MINUTES}min'`,
       );
       const lockResult = await tx.execute({
-        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0::bigint)) AS acquired",
         args: [FIRST_PARTY_ANALYTICS_ROLLUP_BACKFILL_LOCK_KEY],
       });
       const acquired = lockResult.rows[0]?.acquired;

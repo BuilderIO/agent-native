@@ -22,7 +22,7 @@ describe("video storage policy", () => {
     vi.unstubAllEnvs();
   });
 
-  it("allows SQL recording chunk scratch only for local database mode", () => {
+  it("allows SQL recording chunk scratch only for local PGlite mode", () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
     expect(requiresConfiguredVideoStorage()).toBe(false);

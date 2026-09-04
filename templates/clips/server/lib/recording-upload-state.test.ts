@@ -61,7 +61,7 @@ describe("recording upload state helpers", () => {
 
     const query = dbMock.execute.mock.calls[0]?.[0];
     expect(query.sql).toContain("(value::jsonb ->> 'bytes')::bigint");
-    expect(query.sql).toContain("length(key) = ?");
+    expect(query.sql).toContain("length(key) = $3");
     expect(query.sql).not.toContain("SELECT key, value");
   });
 

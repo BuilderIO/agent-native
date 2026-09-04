@@ -199,7 +199,7 @@ UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual 
     },
     {
       // plan_events is an append-only log shared across every plan. loadPlanBundle
-      // reads `WHERE plan_id = ? ORDER BY created_at` on each plan open, which
+      // reads `WHERE plan_id = $1 ORDER BY created_at` on each plan open, which
       // seq-scanned the whole growing table (plan_sections.plan_id and
       // plan_comments.plan_id are already covered by v7/v8/v17 composites; this
       // was the one hot-path lookup left unindexed).

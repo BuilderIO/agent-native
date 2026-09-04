@@ -2200,11 +2200,11 @@ it("repairs a legacy organization database into its organization space", async (
   const databaseId = "legacy_org_builder_database";
   const databaseDocumentId = "legacy_org_builder_document";
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
     args: [orgId, "Legacy Builder Org", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["legacy-builder-org-owner", orgId, OWNER, "owner", Date.now()],
   });
   await db.insert(schema.documents).values({

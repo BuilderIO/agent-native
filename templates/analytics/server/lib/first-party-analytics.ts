@@ -1000,6 +1000,7 @@ function scopedTableSource(
   tableName: string,
   scope: AnalyticsScope,
   today: string,
+  parameterOffset: number,
 ): {
   sql: string;
   args: Array<string | null>;
@@ -1008,10 +1009,10 @@ function scopedTableSource(
     const tenantKeys = scope.orgId
       ? [`org:${scope.orgId}`, `user:${scope.userEmail}`]
       : [`user:${scope.userEmail}`];
-    const branches = tenantKeys.map(
-      () =>
-        `SELECT * FROM ${tableName} WHERE tenant_key = ? AND event_date <= ?`,
-    );
+    const branches = tenantKeys.map((_, index) => {
+      const tenantKeyParameter = parameterOffset + index * 2 + 1;
+      return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}`;
+    });
     return {
       // Rollups have a tenant_key/event_date index. Keep the org and personal
       // fallback branches separate so rollup reads stay indexable as well.
@@ -1020,28 +1021,29 @@ function scopedTableSource(
     };
   }
 
-  const freshness = freshnessClause(tableName);
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
+    const orgParameter = parameterOffset + 1;
+    const ownerParameter = parameterOffset + 3;
     return {
       // Keep the org and personal fallback as separate branches so Postgres can
       // use each branch's composite tenant/date indexes instead of scanning one
       // broad org index for an OR predicate.
-      sql: `(SELECT * FROM ${tableName} WHERE org_id = ? AND ${freshness} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
+      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
   }
   return {
-    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
+    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)})`,
     args: [ownerEmail, today],
   };
 }
 
-function freshnessClause(tableName: string): string {
+function freshnessClause(tableName: string, parameter: number): string {
   if (tableName === "analytics_events") {
-    return "(COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= ?)";
+    return `(COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $${parameter})`;
   }
-  return "(substr(started_at, 1, 10) <= ?)";
+  return `(substr(started_at, 1, 10) <= $${parameter})`;
 }
 
 export function scopedAnalyticsSql(
@@ -1066,7 +1068,12 @@ export function scopedAnalyticsSql(
         !RESERVED_ALIAS_WORDS.has(normalizedAlias)
           ? aliasPart
           : ` AS ${normalizedTable}`;
-      const scopedSource = scopedTableSource(normalizedTable, scope, today);
+      const scopedSource = scopedTableSource(
+        normalizedTable,
+        scope,
+        today,
+        args.length,
+      );
       args.push(...scopedSource.args);
       return `${keyword} ${scopedSource.sql}${usableAlias}`;
     },

@@ -139,11 +139,11 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
   const expiresAt = now + RECORDING_ORG_ID_BACKFILL_LEASE_MS;
   await exec.execute({
     sql: `INSERT INTO clips_backfill_leases (lease_key, holder, expires_at)
-      VALUES (?, ?, ?)
+      VALUES ($1, $2, $3)
       ON CONFLICT (lease_key) DO UPDATE SET
         holder = excluded.holder,
         expires_at = excluded.expires_at
-      WHERE clips_backfill_leases.expires_at <= ?`,
+      WHERE clips_backfill_leases.expires_at <= $4`,
     args: [
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
       recordingOrgIdBackfillHolder,
@@ -153,7 +153,7 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
   });
   const result = await exec.execute({
     sql: `SELECT holder FROM clips_backfill_leases
-      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+      WHERE lease_key = $1 AND holder = $2 AND expires_at > $3`,
     args: [
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
       recordingOrgIdBackfillHolder,
@@ -166,8 +166,8 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
 async function renewRecordingOrgIdBackfillLease(): Promise<boolean> {
   const result = await getDbExec().execute({
     sql: `UPDATE clips_backfill_leases
-      SET expires_at = ?
-      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+      SET expires_at = $1
+      WHERE lease_key = $2 AND holder = $3 AND expires_at > $4`,
     args: [
       Date.now() + RECORDING_ORG_ID_BACKFILL_LEASE_MS,
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
@@ -193,7 +193,7 @@ async function backfillRecordingOrgIdsInBatches(): Promise<void> {
             SELECT id FROM recordings
             WHERE org_id IS NULL AND workspace_id IS NOT NULL
             ORDER BY id
-            LIMIT ?
+            LIMIT $1
           )`,
         args: [RECORDING_ORG_ID_BACKFILL_BATCH_SIZE],
       });
@@ -211,7 +211,7 @@ async function backfillRecordingOrgIdsInBatches(): Promise<void> {
     await exec
       .execute({
         sql: `DELETE FROM clips_backfill_leases
-          WHERE lease_key = ? AND holder = ?`,
+          WHERE lease_key = $1 AND holder = $2`,
         args: [
           RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
           recordingOrgIdBackfillHolder,
@@ -1264,29 +1264,16 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //    `organizations` table has a simple shape: id, name, created_by, created_at.
   // guard:allow-unscoped — schema migration backfill — system-level by design
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO organizations (id, name, created_by, created_at)
-        SELECT
-          w.id,
-          w.name,
-          w.owner_email,
-          EXTRACT(EPOCH FROM COALESCE(w.created_at::TIMESTAMPTZ, NOW())) * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO organizations (id, name, created_by, created_at)
-        SELECT
-          w.id,
-          w.name,
-          w.owner_email,
-          strftime('%s','now') * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO organizations (id, name, created_by, created_at)
+      SELECT
+        w.id,
+        w.name,
+        w.owner_email,
+        EXTRACT(EPOCH FROM COALESCE(w.created_at::TIMESTAMPTZ, NOW())) * 1000
+      FROM workspaces w
+      WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
+    `);
   } catch (err) {
     console.warn(
       `[db] workspaces → organizations sync failed:`,
@@ -1316,37 +1303,20 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //     were implicitly members in the old Clips workspace model — this is
   //     the step that lands the current user inside their new org.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          'ownr-' || w.id,
-          w.id,
-          w.owner_email,
-          'admin',
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          'ownr-' || w.id,
-          w.id,
-          w.owner_email,
-          'admin',
-          strftime('%s','now') * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_members (id, org_id, email, role, joined_at)
+      SELECT
+        'ownr-' || w.id,
+        w.id,
+        w.owner_email,
+        'admin',
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM workspaces w
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_members m
+        WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] workspace owners → org_members sync failed:`,
@@ -1358,37 +1328,20 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //     framework `admin`, everything else (`creator`, `creator-lite`,
   //     `viewer`) → `member`.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          wm.id,
-          wm.workspace_id,
-          wm.email,
-          CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM workspace_members wm
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          wm.id,
-          wm.workspace_id,
-          wm.email,
-          CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
-          strftime('%s','now') * 1000
-        FROM workspace_members wm
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_members (id, org_id, email, role, joined_at)
+      SELECT
+        wm.id,
+        wm.workspace_id,
+        wm.email,
+        CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM workspace_members wm
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_members m
+        WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] workspace_members → org_members sync failed:`,
@@ -1398,37 +1351,20 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
 
   // 4) Copy invites → org_invitations (pending only).
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
-        SELECT
-          i.id,
-          i.workspace_id,
-          i.email,
-          i.invited_by,
-          EXTRACT(EPOCH FROM NOW()) * 1000,
-          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
-        FROM invites i
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_invitations x WHERE x.id = i.id
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
-        SELECT
-          i.id,
-          i.workspace_id,
-          i.email,
-          i.invited_by,
-          strftime('%s','now') * 1000,
-          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
-        FROM invites i
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_invitations x WHERE x.id = i.id
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
+      SELECT
+        i.id,
+        i.workspace_id,
+        i.email,
+        i.invited_by,
+        EXTRACT(EPOCH FROM NOW()) * 1000,
+        CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
+      FROM invites i
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_invitations x WHERE x.id = i.id
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] invites → org_invitations sync failed:`,
@@ -1442,41 +1378,22 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //    `u:<email>:active-org-id`. `settings.updated_at` is NOT NULL so we
   //    set it to now.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO settings (key, value, updated_at)
-        SELECT
-          'u:' || LOWER(sub.email) || ':active-org-id',
-          '{"orgId":"' || sub.org_id || '"}',
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM (
-          SELECT DISTINCT ON (LOWER(email)) email, org_id
-          FROM org_members
-          ORDER BY LOWER(email), joined_at DESC
-        ) sub
-        WHERE NOT EXISTS (
-          SELECT 1 FROM settings s
-          WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO settings (key, value, updated_at)
-        SELECT
-          'u:' || LOWER(sub.email) || ':active-org-id',
-          '{"orgId":"' || sub.org_id || '"}',
-          strftime('%s','now') * 1000
-        FROM (
-          SELECT email, org_id, MAX(joined_at) AS jmax
-          FROM org_members
-          GROUP BY LOWER(email)
-        ) sub
-        WHERE NOT EXISTS (
-          SELECT 1 FROM settings s
-          WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO settings (key, value, updated_at)
+      SELECT
+        'u:' || LOWER(sub.email) || ':active-org-id',
+        '{"orgId":"' || sub.org_id || '"}',
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM (
+        SELECT DISTINCT ON (LOWER(email)) email, org_id
+        FROM org_members
+        ORDER BY LOWER(email), joined_at DESC
+      ) sub
+      WHERE NOT EXISTS (
+        SELECT 1 FROM settings s
+        WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] active-org-id user-setting backfill failed:`,
@@ -1512,26 +1429,21 @@ async function tableHasColumns(
   columns: readonly string[],
 ): Promise<boolean> {
   const exec = getDbExec();
-  const pg = true;
   assertSafeIdentifier(name);
 
   if (!(await tableExists(name))) return false;
 
   try {
-    if (pg) {
-      const result = await exec.execute({
-        sql: `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
-        args: [name],
-      });
-      const present = new Set(
-        (result.rows as Array<{ column_name?: string }>).map(
-          (row) => row.column_name,
-        ),
-      );
-      return columns.every((column) => present.has(column));
-    }
-
-    return false;
+    const result = await exec.execute({
+      sql: `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+      args: [name],
+    });
+    const present = new Set(
+      (result.rows as Array<{ column_name?: string }>).map(
+        (row) => row.column_name,
+      ),
+    );
+    return columns.every((column) => present.has(column));
   } catch {
     return false;
   }

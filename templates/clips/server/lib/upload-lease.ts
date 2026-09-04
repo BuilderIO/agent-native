@@ -221,11 +221,9 @@ export async function reapExpiredUploads(
   options: { now?: number; limit?: number; dryRun?: boolean } = {},
 ): Promise<ReapResult> {
   const exec = getDbExec();
-  const pg = true;
   const nowIso = new Date(options.now ?? Date.now()).toISOString();
   const limit = Math.max(1, Math.min(options.limit ?? 200, 1000));
   const dryRun = options.dryRun === true;
-  const p = (i: number) => (pg ? `$${i}` : "?");
 
   // guard:allow-unscoped — system upload reaper, owner-agnostic by design.
   const probe = await exec.execute({
@@ -233,7 +231,7 @@ export async function reapExpiredUploads(
           FROM recordings
           WHERE status IN ('uploading', 'processing')
             AND upload_lease_expires_at IS NOT NULL
-            AND upload_lease_expires_at < ${p(1)}
+            AND upload_lease_expires_at < $1
           ORDER BY upload_lease_expires_at ASC
           LIMIT ${limit}`,
     args: [nowIso],
@@ -263,11 +261,11 @@ export async function reapExpiredUploads(
     const result = await exec.execute({
       sql: `UPDATE recordings
             SET status = 'failed',
-                failure_reason = ${p(1)},
-                updated_at = ${p(2)}
+                failure_reason = $1,
+                updated_at = $2
             WHERE status IN ('uploading', 'processing')
-              AND upload_lease_expires_at < ${p(3)}
-              AND id IN (${ids.map((_, i) => p(i + 4)).join(", ")})
+              AND upload_lease_expires_at < $3
+              AND id IN (${ids.map((_, i) => `$${i + 4}`).join(", ")})
             RETURNING id`,
       args: [UPLOAD_LEASE_EXPIRED_REASON, nowIso, nowIso, ...ids],
     });
@@ -290,7 +288,7 @@ export async function reapExpiredUploads(
       const sessionKey = resumableSessionKey(id, generationId);
       const sessionState = await readResumableSessionState(
         exec,
-        p(1),
+        "$1",
         sessionKey,
       );
       if (sessionState.present && !sessionState.session) {
@@ -312,7 +310,7 @@ export async function reapExpiredUploads(
         resumableSessionsAborted += 1;
       }
       await exec.execute({
-        sql: `DELETE FROM application_state WHERE key = ${p(1)}`,
+        sql: `DELETE FROM application_state WHERE key = $1`,
         args: [sessionKey],
       });
     }
@@ -360,8 +358,7 @@ async function selectUnclaimedChunkKeys(limit: number): Promise<string[]> {
 async function deleteUnclaimedChunkScratch(limit: number): Promise<number> {
   const keys = await selectUnclaimedChunkKeys(limit);
   if (keys.length === 0) return 0;
-  const pg = true;
-  const placeholders = keys.map((_, i) => (pg ? `$${i + 1}` : "?")).join(", ");
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
   const result = await getDbExec().execute({
     sql: `DELETE FROM application_state WHERE key IN (${placeholders})`,
     args: keys,

@@ -1501,7 +1501,7 @@ export async function createDashboardRevisionSnapshot(
  *
  * `expectedUpdatedAt` fences the update against concurrent writers: pass the
  * `updatedAt` observed by an earlier `getDashboard` call and the UPDATE only
- * applies `WHERE id = ? AND updated_at = ?`. If another writer already saved
+ * applies `WHERE id = $1 AND updated_at = $2`. If another writer already saved
  * in between, the fenced UPDATE affects zero rows and this throws
  * `DashboardConflictError` instead of silently clobbering their write. Omit
  * it (the default) to keep the prior unconditional last-write-wins behavior,
@@ -2526,7 +2526,7 @@ export async function createAnalysisRevisionSnapshot(
  *
  * `expectedUpdatedAt` fences the update against concurrent writers: pass the
  * `updatedAt` observed by an earlier `getAnalysis` call and the UPDATE only
- * applies `WHERE id = ? AND updated_at = ?`. If another writer already saved
+ * applies `WHERE id = $1 AND updated_at = $2`. If another writer already saved
  * in between, the fenced UPDATE affects zero rows and this throws
  * `AnalysisConflictError` instead of silently clobbering their write. Omit it
  * (the default) to keep the prior unconditional last-write-wins behavior,

@@ -32,10 +32,7 @@ const VAULT_ONLY_KEYS = new Set([
 
 function isMissingTableError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return (
-    /no such table/i.test(message) ||
-    /relation .* does not exist/i.test(message)
-  );
+  return /relation .* does not exist/i.test(message);
 }
 
 export class VaultUnavailableError extends Error {

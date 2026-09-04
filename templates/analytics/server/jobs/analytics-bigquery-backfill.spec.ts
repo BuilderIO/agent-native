@@ -100,7 +100,7 @@ describe("durable BigQuery backfill worker", () => {
           scope.orgId,
           scope.userEmail,
         ],
-        sql: expect.stringContaining("AND org_id = ?"),
+        sql: expect.stringContaining("AND org_id = $3"),
       }),
     );
   });
@@ -349,7 +349,7 @@ describe("durable BigQuery backfill worker", () => {
     expect(tx.execute).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        sql: expect.stringContaining("WHERE job_id = ?"),
+        sql: expect.stringContaining("WHERE job_id = $1"),
         args: expect.arrayContaining([job.id]),
       }),
     );
@@ -398,7 +398,7 @@ describe("durable BigQuery backfill worker", () => {
     );
     expect(db.execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        sql: expect.stringContaining("SET batch_size = ?"),
+        sql: expect.stringContaining("SET batch_size = $1"),
         args: [750, job.id, 750],
       }),
     );
@@ -459,7 +459,7 @@ describe("durable BigQuery backfill worker", () => {
     );
     expect(db.execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        sql: expect.stringContaining("SET batch_size = ?"),
+        sql: expect.stringContaining("SET batch_size = $1"),
         args: [750, job.id, 750],
       }),
     );

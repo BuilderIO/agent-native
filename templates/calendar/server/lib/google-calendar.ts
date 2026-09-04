@@ -607,7 +607,7 @@ async function getBetterAuthUserImage(
   if (!email) return undefined;
   try {
     const { rows } = await getDbExec().execute({
-      sql: 'SELECT image FROM "user" WHERE email = ? LIMIT 1',
+      sql: 'SELECT image FROM "user" WHERE email = $1 LIMIT 1',
       args: [email],
     });
     return optionalString(rows[0]?.image);

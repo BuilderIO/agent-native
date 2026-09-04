@@ -184,7 +184,7 @@ export async function tryConsumeGuestMint(event: H3Event): Promise<boolean> {
   const cutoff = isoAgo(windowMs);
 
   const count = await countRows(
-    `SELECT COUNT(*) AS n FROM plan_guest_mints WHERE ip_hash = ? AND created_at > ?`,
+    `SELECT COUNT(*) AS n FROM plan_guest_mints WHERE ip_hash = $1 AND created_at > $2`,
     [ipHash, cutoff],
   );
   // countRows returned null => DB error => fail open.
@@ -193,12 +193,12 @@ export async function tryConsumeGuestMint(event: H3Event): Promise<boolean> {
   try {
     const db = getDbExec();
     await db.execute({
-      sql: `INSERT INTO plan_guest_mints (id, ip_hash, created_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO plan_guest_mints (id, ip_hash, created_at) VALUES ($1, $2, $3)`,
       args: [randomUUID(), ipHash, new Date().toISOString()],
     });
     // Opportunistic prune of expired rows to bound table growth. Best-effort.
     await db.execute({
-      sql: `DELETE FROM plan_guest_mints WHERE created_at < ?`,
+      sql: `DELETE FROM plan_guest_mints WHERE created_at < $1`,
       args: [cutoff],
     });
   } catch {
@@ -222,7 +222,7 @@ export async function assertGuestCreateWithinLimits(
 
   // 1. Per-guest ownership cap. Bounds the rows a single identity can hold.
   const owned = await countRows(
-    `SELECT COUNT(*) AS n FROM plans WHERE owner_email = ?`,
+    `SELECT COUNT(*) AS n FROM plans WHERE owner_email = $1`,
     [ownerEmail],
   );
   const maxPlans = guestMaxPlans();
@@ -235,7 +235,7 @@ export async function assertGuestCreateWithinLimits(
   // 2. Global anonymous-create throttle (backstop for IP-spoofing / cookie
   //    rotation). Counts guest-owned plans created within the window.
   const recent = await countRows(
-    `SELECT COUNT(*) AS n FROM plans WHERE owner_email LIKE ? AND created_at > ?`,
+    `SELECT COUNT(*) AS n FROM plans WHERE owner_email LIKE $1 AND created_at > $2`,
     [`guest-%@${GUEST_AUTHOR_DOMAIN}`, isoAgo(guestGlobalWindowMs())],
   );
   if (recent !== null && recent >= guestGlobalLimit()) {

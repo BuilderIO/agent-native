@@ -180,7 +180,7 @@ async function getL2(key: string): Promise<QueryResult | null> {
     const db = getDbExec();
     const nowIso = new Date().toISOString();
     const { rows } = await db.execute({
-      sql: "SELECT result FROM bigquery_cache WHERE key = ? AND expires_at > ?",
+      sql: "SELECT result FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
       args: [key, nowIso],
     });
     if (!rows.length) return null;
@@ -204,11 +204,11 @@ async function setL2(
     const serialized = JSON.stringify(result);
     // Upsert - use delete+insert to keep the sink write semantics explicit.
     await db.execute({
-      sql: "DELETE FROM bigquery_cache WHERE key = ?",
+      sql: "DELETE FROM bigquery_cache WHERE key = $1",
       args: [key],
     });
     await db.execute({
-      sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+      sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6)",
       args: [
         key,
         sql,
@@ -223,7 +223,7 @@ async function setL2(
     // Run ~1% of the time to avoid thrashing on every write.
     if (Math.random() < 0.01) {
       await db.execute({
-        sql: "DELETE FROM bigquery_cache WHERE expires_at <= ?",
+        sql: "DELETE FROM bigquery_cache WHERE expires_at <= $1",
         args: [now.toISOString()],
       });
     }

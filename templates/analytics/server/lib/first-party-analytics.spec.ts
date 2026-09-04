@@ -568,17 +568,17 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_events WHERE org_id = ?",
+      "FROM (SELECT * FROM analytics_events WHERE org_id = $1",
     );
     expect(scoped.sql).toContain(
-      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = ?",
+      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = $3",
     );
     expect(
       scoped.sql.match(
-        /COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?/g,
+        /COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \$\d+/g,
       ),
     ).toHaveLength(2);
-    expect(scoped.sql).not.toContain("org_id = ? OR");
+    expect(scoped.sql).not.toContain("org_id = $1 OR");
     expect(scoped.args).toEqual([
       "org_123",
       "2026-07-01",
@@ -594,7 +594,7 @@ describe("scopedAnalyticsSql", () => {
       "2026-07-01",
     );
 
-    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= ?");
+    expect(scoped.sql).toContain("substr(started_at, 1, 10) <= $2");
     expect(scoped.args).toEqual(["alice@example.com", "2026-07-01"]);
   });
 
@@ -606,9 +606,9 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ? UNION ALL SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ?)",
+      "FROM (SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = $1 AND event_date <= $2 UNION ALL SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = $3 AND event_date <= $4)",
     );
-    expect(scoped.sql).not.toContain("event_date >= ?");
+    expect(scoped.sql).not.toContain("event_date >= $1");
     expect(scoped.args).toEqual([
       "org:org_123",
       "2026-07-01",
@@ -625,7 +625,7 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = ? AND event_date <= ?)",
+      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = $1 AND event_date <= $2)",
     );
     expect(scoped.args).toEqual(["user:alice@example.com", "2026-07-01"]);
   });

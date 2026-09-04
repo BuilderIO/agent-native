@@ -20,30 +20,30 @@ async function writeReconciledFactoryConfig(
   const { row } = plan;
   await exec.execute({
     sql: `UPDATE factory_config SET
-      id = ?,
-      factory_id = ?,
-      slack_workspace = ?,
-      slack_channel_id = ?,
-      slack_channel_name = ?,
-      builder_slack_user_id = ?,
-      polling_enabled = ?,
-      last_slack_ts = ?,
-      slack_history_cursor = ?,
-      repository = ?,
-      github_polling_enabled = ?,
-      sentry_polling_enabled = ?,
-      sentry_org_slug = ?,
-      sentry_project_slug = ?,
-      sentry_environment = ?,
-      last_sentry_seen_at = ?,
-      automation_failure_alerts_enabled = ?,
-      automation_failure_alert_email = ?,
-      last_automation_failure_alert_key = ?,
-      last_automation_failure_alert_at = ?,
-      owner_email = ?,
-      created_at = ?,
-      updated_at = ?
-      WHERE id = ? AND org_id = ?`,
+      id = $1,
+      factory_id = $2,
+      slack_workspace = $3,
+      slack_channel_id = $4,
+      slack_channel_name = $5,
+      builder_slack_user_id = $6,
+      polling_enabled = $7,
+      last_slack_ts = $8,
+      slack_history_cursor = $9,
+      repository = $10,
+      github_polling_enabled = $11,
+      sentry_polling_enabled = $12,
+      sentry_org_slug = $13,
+      sentry_project_slug = $14,
+      sentry_environment = $15,
+      last_sentry_seen_at = $16,
+      automation_failure_alerts_enabled = $17,
+      automation_failure_alert_email = $18,
+      last_automation_failure_alert_key = $19,
+      last_automation_failure_alert_at = $20,
+      owner_email = $21,
+      created_at = $22,
+      updated_at = $23
+      WHERE id = $24 AND org_id = $25`,
     args: [
       row.id,
       row.factory_id,
@@ -74,7 +74,7 @@ async function writeReconciledFactoryConfig(
   });
   for (const deleteId of plan.deleteIds) {
     await exec.execute({
-      sql: `DELETE FROM factory_config WHERE id = ? AND org_id = ?`,
+      sql: `DELETE FROM factory_config WHERE id = $1 AND org_id = $2`,
       args: [deleteId, row.org_id],
     });
   }
@@ -86,7 +86,7 @@ async function reconcileDefaultFactoryConfigRows(): Promise<void> {
   const defaultFactoryId = "product-feedback";
   const configRows = await exec.execute({
     sql: `SELECT * FROM factory_config
-          WHERE factory_id IS NULL OR factory_id = '' OR factory_id = ?`,
+          WHERE factory_id IS NULL OR factory_id = '' OR factory_id = $1`,
     args: [defaultFactoryId],
   });
   const rows = (configRows.rows ?? [])
@@ -117,7 +117,7 @@ async function clearDuplicateSlackChannelAssignments(): Promise<void> {
         slack_channel_name = NULL,
         last_slack_ts = NULL,
         slack_history_cursor = NULL
-        WHERE id = ? AND org_id = ?`,
+        WHERE id = $1 AND org_id = $2`,
       args: [clear.id, clear.org_id],
     });
   }
@@ -448,12 +448,12 @@ const migrations = [
       ] as const;
       for (const table of tables) {
         await exec.execute({
-          sql: `UPDATE ${table} SET factory_id = ? WHERE factory_id IS NULL OR factory_id = ''`,
+          sql: `UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL OR factory_id = ''`,
           args: [defaultFactoryId],
         });
       }
       const configRows = await exec.execute({
-        sql: `SELECT id, org_id FROM factory_config WHERE factory_id = ?`,
+        sql: `SELECT id, org_id FROM factory_config WHERE factory_id = $1`,
         args: [defaultFactoryId],
       });
       for (const row of configRows.rows ?? []) {
@@ -462,13 +462,13 @@ const migrations = [
         if (!orgId || id.includes(":")) continue;
         const nextId = `${orgId}:${defaultFactoryId}`;
         const existing = await exec.execute({
-          sql: `SELECT id FROM factory_config WHERE id = ? AND org_id = ?`,
+          sql: `SELECT id FROM factory_config WHERE id = $1 AND org_id = $2`,
           args: [nextId, orgId],
         });
         if ((existing.rows?.length ?? 0) > 0) continue;
         try {
           await exec.execute({
-            sql: `UPDATE factory_config SET id = ? WHERE id = ? AND org_id = ?`,
+            sql: `UPDATE factory_config SET id = $1 WHERE id = $2 AND org_id = $3`,
             args: [nextId, id, orgId],
           });
         } catch (error) {

@@ -32,7 +32,7 @@ function exactChunkKeyArgs(
   ];
 }
 
-const exactChunkKeyWhere = `session_id = ? AND key LIKE ? ESCAPE '!' AND length(key) = ? AND key >= ? AND key <= ?`;
+const exactChunkKeyWhere = `session_id = $1 AND key LIKE $2 ESCAPE '!' AND length(key) = $3 AND key >= $4 AND key <= $5`;
 
 function isChunkKeyForGeneration(
   key: string,

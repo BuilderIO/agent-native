@@ -225,15 +225,15 @@ describe("import-content-source descriptions", () => {
 
   it("requires editor access before importing into an organization space", async () => {
     await getDbExec().execute({
-      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
       args: [ORG_ID, "Import viewer org", OWNER, Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["import-viewer-membership", ORG_ID, VIEWER, "member", Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["import-owner-membership", ORG_ID, OWNER, "owner", Date.now()],
     });
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG_ID }, () =>

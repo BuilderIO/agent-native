@@ -53,15 +53,15 @@ beforeAll(async () => {
     id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
   )`);
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
     args: [ORG_ID, "Files Org", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["files-owner-membership", ORG_ID, OWNER, "owner", Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["files-viewer-membership", ORG_ID, VIEWER, "member", Date.now()],
   });
   await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -1087,15 +1087,15 @@ describe("Content Files membership reconciliation", () => {
   it("lets an ordinary member backfill legacy organization pages without changing their content or ownership", async () => {
     const viewerOrgId = "files-viewer-org";
     await getDbExec().execute({
-      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
       args: [viewerOrgId, "Viewer Org", OWNER, Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["viewer-org-owner", viewerOrgId, OWNER, "owner", Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["viewer-org-viewer", viewerOrgId, VIEWER, "member", Date.now()],
     });
     await runWithRequestContext({ userEmail: OWNER }, () =>

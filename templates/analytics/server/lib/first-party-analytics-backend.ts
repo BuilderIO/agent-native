@@ -522,9 +522,17 @@ function sqlLiteral(value: string | null): string {
 }
 
 function bindSqlArguments(sql: string, args: Array<string | null>): string {
-  let index = 0;
-  return sql.replace(/\?/g, () => {
-    const value = args[index++];
+  let nextPositionalIndex = 0;
+  return sql.replace(/\$(\d+)|\?/g, (placeholder, explicitIndex: string) => {
+    const index = explicitIndex
+      ? Number(explicitIndex) - 1
+      : nextPositionalIndex++;
+    if (!Number.isInteger(index) || index < 0) {
+      throw new Error(
+        `First-party BigQuery query has an invalid bind ${placeholder}`,
+      );
+    }
+    const value = args[index];
     if (value === undefined) {
       throw new Error("First-party BigQuery query has too few bind arguments");
     }
@@ -1097,8 +1105,8 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
   // because the sink normalizes it before insert.
   const normalizedScopeSql = scopedSql.replace(
-    /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?\)/g,
-    "(event_date <= ?)",
+    /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= (\$\d+|\?)\)/g,
+    (_match, placeholder: string) => `(event_date <= ${placeholder})`,
   );
   const translated =
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
@@ -1392,12 +1400,29 @@ function backfillBranchSql(
   args: unknown[];
 } {
   const lowerCursor = cursor.receivedAt ? cursor : rangeStart;
-  const cursorSql = lowerCursor ? "(received_at, id) > (?, ?)" : "";
+  let nextParameter = predicateArgs.length + 1;
+  const lookbackParameter = `$${nextParameter++}`;
+  const defaultSkipEvents =
+    skipEventNames.length === DEFAULT_BACKFILL_SKIP_EVENTS.length &&
+    skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0];
+  const skipParameters = defaultSkipEvents
+    ? []
+    : skipEventNames.map(() => `$${nextParameter++}`);
+  const rangeEndParameters = rangeEnd
+    ? [`$${nextParameter++}`, `$${nextParameter++}`]
+    : [];
+  const cursorParameters = lowerCursor
+    ? [`$${nextParameter++}`, `$${nextParameter++}`]
+    : [];
+  const limitParameter = `$${nextParameter++}`;
+  const cursorSql = lowerCursor
+    ? `(received_at, id) > (${cursorParameters[0]}, ${cursorParameters[1]})`
+    : "";
   const cursorArgs = lowerCursor
     ? [lowerCursor.receivedAt, lowerCursor.id]
     : [];
   const rangeEndSql = rangeEnd
-    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (?, ?)`
+    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (${rangeEndParameters[0]}, ${rangeEndParameters[1]})`
     : "";
   const rangeEndArgs = rangeEnd ? [rangeEnd.receivedAt, rangeEnd.id] : [];
   const skipSql =
@@ -1405,15 +1430,19 @@ function backfillBranchSql(
     skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0]
       ? "event_name IS DISTINCT FROM 'http.response'"
       : skipEventNames.length
-        ? `(event_name IS NULL OR event_name NOT IN (${skipEventNames.map(() => "?").join(", ")}))`
+        ? `(event_name IS NULL OR event_name NOT IN (${skipParameters.join(", ")}))`
         : "";
-  const filters = ["received_at >= ?", skipSql, rangeEndSql].filter(Boolean);
+  const filters = [
+    `received_at >= ${lookbackParameter}`,
+    skipSql,
+    rangeEndSql,
+  ].filter(Boolean);
   return {
     sql: `SELECT id, received_at
       FROM analytics_events
       WHERE ${predicate}
         AND ${filters.join("\n        AND ")}${cursorSql ? `\n        AND ${cursorSql}` : ""}
-      ORDER BY received_at ${order}, id ${order} LIMIT ?`,
+      ORDER BY received_at ${order}, id ${order} LIMIT ${limitParameter}`,
     args: [
       ...predicateArgs,
       lookbackStart,
@@ -1442,15 +1471,15 @@ export async function getFirstPartyAnalyticsBackfillHighWaterMark(
   const skipEventNames = configuredSkipEventNames(options?.skipEventNames);
   const branches = scope.orgId
     ? [
-        { predicate: "org_id = ?", args: [scope.orgId] },
+        { predicate: "org_id = $1", args: [scope.orgId] },
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ]
     : [
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ];
@@ -1486,7 +1515,7 @@ function backfillRowsByIdsSql(ids: string[]): {
   return {
     sql: `SELECT ${FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS.join(", ")}
       FROM analytics_events
-      WHERE id IN (${ids.map(() => "?").join(", ")})`,
+      WHERE id IN (${ids.map((_, index) => `$${index + 1}`).join(", ")})`,
     args: ids,
   };
 }
@@ -1545,15 +1574,15 @@ export async function backfillFirstPartyAnalyticsBatch(
   const rangeEndInclusive = options?.rangeEndInclusive === true;
   const branches = scope.orgId
     ? [
-        { predicate: "org_id = ?", args: [scope.orgId] },
+        { predicate: "org_id = $1", args: [scope.orgId] },
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ]
     : [
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ];

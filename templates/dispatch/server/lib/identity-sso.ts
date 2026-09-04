@@ -362,7 +362,7 @@ export async function createIdentityAuthorizationCode(
     sql:
       "INSERT INTO identity_sso_authorization_code " +
       "(code_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, created_at, expires_at, consumed_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
     args: [
       identityCodeHash(code),
       input.state,
@@ -382,7 +382,7 @@ export async function createIdentityAuthorizationCode(
   });
   void getDbExec()
     .execute({
-      sql: "DELETE FROM identity_sso_authorization_code WHERE expires_at < ?",
+      sql: "DELETE FROM identity_sso_authorization_code WHERE expires_at < $1",
       args: [now],
     })
     .catch(() => {});
@@ -414,7 +414,7 @@ export async function consumeIdentityAuthorizationCode(input: {
   const { rows } = await getDbExec().execute({
     sql:
       "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, expires_at, consumed_at " +
-      "FROM identity_sso_authorization_code WHERE code_hash = ?",
+      "FROM identity_sso_authorization_code WHERE code_hash = $1",
     args: [codeHash],
   });
   if (rows.length !== 1) return null;
@@ -435,8 +435,8 @@ export async function consumeIdentityAuthorizationCode(input: {
   }
   const result = await getDbExec().execute({
     sql:
-      "UPDATE identity_sso_authorization_code SET consumed_at = ? " +
-      "WHERE code_hash = ? AND consumed_at IS NULL",
+      "UPDATE identity_sso_authorization_code SET consumed_at = $1 " +
+      "WHERE code_hash = $2 AND consumed_at IS NULL",
     args: [Date.now(), codeHash],
   });
   if (affectedRows(result) !== 1) return null;
