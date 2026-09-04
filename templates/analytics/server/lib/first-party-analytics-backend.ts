@@ -539,11 +539,12 @@ function readSqlQuotedEnd(
   sql: string,
   start: number,
   quote: "'" | '"' | "`",
+  allowBackslashEscapes = false,
 ): number {
   let index = start + 1;
   while (index < sql.length) {
     const character = sql[index];
-    if (character === "\\") {
+    if (allowBackslashEscapes && character === "\\") {
       index += 2;
       continue;
     }
@@ -569,7 +570,11 @@ function bindSqlArguments(sql: string, args: Array<string | null>): string {
     const nextCharacter = sql[index + 1];
 
     if (character === "'" || character === '"' || character === "`") {
-      const end = readSqlQuotedEnd(sql, index, character);
+      const isEscapeString =
+        character === "'" &&
+        /[eE]/.test(sql[index - 1] ?? "") &&
+        !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
+      const end = readSqlQuotedEnd(sql, index, character, isEscapeString);
       result += sql.slice(index, end);
       index = end;
       continue;
