@@ -1671,11 +1671,15 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
 }
 
 async function fillAndSubmitComposer(page: Page, text: string): Promise<void> {
-  const editor = page.locator('[data-agent-composer-slot="editor-input"]');
   await waitForStableChatSurface(page);
   await retryAfterNavigation("prepare composer", async () => {
-    await editor.waitFor({ state: "visible" });
-    await editor.evaluate((node, value) => {
+    await page.evaluate((value) => {
+      const node = document.querySelector<HTMLElement>(
+        '[data-agent-composer-slot="editor-input"]',
+      );
+      if (!node?.isConnected) {
+        throw new Error("Chat composer is not mounted");
+      }
       node.focus();
       const selection = window.getSelection();
       const range = document.createRange();
