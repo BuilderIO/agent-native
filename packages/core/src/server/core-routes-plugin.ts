@@ -1890,6 +1890,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
         `${FRAMEWORK_ROUTE_PREFIX}/identity`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
+        `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
@@ -1900,6 +1901,7 @@ export function createCoreRoutesPlugin(
         ...(!options.disableHealth ? [`${P}/health`] : []),
         `${P}/identity`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
+        ...(!options.disableAppState ? [`${P}/application-state`] : []),
       ]);
 
       // Keep the framework-owned S3-compatible provider available even when an
@@ -1908,6 +1910,13 @@ export function createCoreRoutesPlugin(
       // provider under the conventional `s3` id, so preserve that explicit
       // registration instead of replacing it during core bootstrap.
       ensureS3FileUploadProvider();
+
+      if (!options.disableAppState) {
+        // Application state is part of the client bootstrap contract. Register
+        // it before optional plugin/bootstrap work so the first localization
+        // write cannot fall through to the template router on a cold start.
+        mountApplicationStateRoutes(nitroApp, P);
+      }
 
       // This response is a side-effect-free static contract used by the SSR
       // shell. Mount it before optional default-plugin/bootstrap work so a
@@ -5229,10 +5238,6 @@ export function createCoreRoutesPlugin(
             return "";
           }),
         );
-      }
-
-      if (!options.disableAppState) {
-        mountApplicationStateRoutes(nitroApp, P);
       }
 
       resolveInit();
