@@ -2,6 +2,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+
 import {
   TEMPLATES,
   type TemplateMeta,
@@ -16,6 +19,15 @@ const REGISTRY_SCHEMA =
   "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
 const REPOSITORY_URL = "https://github.com/BuilderIO/agent-native";
 const REGISTRY_NAMESPACE = "io.github.builderio";
+const registrySchema = JSON.parse(
+  readFileSync(path.join(REPO_ROOT, "mcp-registry/server.schema.json"), "utf8"),
+) as Record<string, unknown>;
+if (registrySchema.$id !== REGISTRY_SCHEMA) {
+  throw new Error(`MCP Registry schema snapshot must be ${REGISTRY_SCHEMA}.`);
+}
+const registryAjv = new Ajv({ allErrors: true, strict: false });
+addFormats(registryAjv);
+const registrySchemaValidator = registryAjv.compile(registrySchema);
 
 const REGISTRY_VERSIONS: Record<string, string> = {
   analytics: "1.0.0",
@@ -35,6 +47,10 @@ const REGISTRY_VERSIONS: Record<string, string> = {
 
 const REGISTRY_DESCRIPTION_OVERRIDES: Record<string, string> = {
   plan: "Structured visual plans and PR recaps with diagrams, prototypes, annotations, and sharing",
+};
+
+const REGISTRY_WEBSITE_OVERRIDES: Record<string, string> = {
+  brain: "https://brain.agent-native.com",
 };
 
 const DEPLOYMENT_SITE_ALIASES: Record<string, string> = {
@@ -146,6 +162,13 @@ function buildRegistryServers(
       );
     }
   }
+  for (const name of Object.keys(REGISTRY_WEBSITE_OVERRIDES)) {
+    if (!publicNames.has(name)) {
+      throw new Error(
+        `MCP Registry website exists for non-public app ${name}.`,
+      );
+    }
+  }
 
   const names = new Set<string>();
   return publicTemplates.map((template) => {
@@ -193,7 +216,9 @@ function buildRegistryServer(
       REGISTRY_DESCRIPTION_OVERRIDES[template.name] ??
       normalizeDescription(template.hint),
     version: REGISTRY_VERSIONS[template.name],
-    websiteUrl: `https://www.agent-native.com/apps/${template.name}`,
+    websiteUrl:
+      REGISTRY_WEBSITE_OVERRIDES[template.name] ??
+      `https://www.agent-native.com/apps/${template.name}`,
     repository: {
       url: REPOSITORY_URL,
       source: "github",
@@ -266,6 +291,13 @@ function validateRegistryServer(server: RegistryServer, appName: string): void {
   ) {
     throw new Error(
       `MCP Registry remote for ${appName} must be one HTTPS Streamable HTTP URL.`,
+    );
+  }
+
+  const serializedServer = JSON.parse(JSON.stringify(server)) as unknown;
+  if (!registrySchemaValidator(serializedServer)) {
+    throw new Error(
+      `MCP Registry schema validation failed for ${appName}: ${registryAjv.errorsText(registrySchemaValidator.errors)}`,
     );
   }
 }
