@@ -417,22 +417,42 @@ describe("db-patch", () => {
 
     it("refuses an ambiguous match by default (strict uniqueness) and writes nothing", async () => {
       const h = docPg("foo and foo and foo");
-      const out = await runPatchPg(h, [
-        "--table",
-        "documents",
-        "--column",
-        "content",
-        "--where",
-        "id = 'd1'",
-        "--find",
-        "foo",
-        "--replace",
-        "bar",
-      ]);
-      expect(out.applied).toBe(0);
-      expect(out.results[0].status).toBe("not-found");
-      expect(out.results[0].occurrences).toBe(3);
-      expect(out.results[0].detail).toContain("3 occurrences");
+      const { default: dbPatch } = await import("./patch.js");
+      await expect(
+        dbPatch([
+          "--table",
+          "documents",
+          "--column",
+          "content",
+          "--where",
+          "id = 'd1'",
+          "--find",
+          "foo",
+          "--replace",
+          "bar",
+        ]),
+      ).rejects.toThrow(/3 occurrences/);
+      expect(h.updateCount()).toBe(0);
+    });
+
+    it("aborts an ambiguous edit before a later edit can commit", async () => {
+      const h = docPg("foo and foo and alpha");
+      const { default: dbPatch } = await import("./patch.js");
+      await expect(
+        dbPatch([
+          "--table",
+          "documents",
+          "--column",
+          "content",
+          "--where",
+          "id = 'd1'",
+          "--edits",
+          JSON.stringify([
+            { find: "foo", replace: "bar" },
+            { find: "alpha", replace: "beta" },
+          ]),
+        ]),
+      ).rejects.toThrow(/2 occurrences/);
       expect(h.updateCount()).toBe(0);
     });
 
@@ -633,17 +653,13 @@ describe("db-patch", () => {
       expect(result.list).toEqual(["a", "d", "b", "c"]);
     });
 
-    it("move forward (to a higher index in the same array) shifts the target down by one after the source splice", async () => {
-      // Move index 0 to index 2 within the same array. The source splice removes
-      // "a" first (→ b, c, d) and because target 2 > source 0 the destination is
-      // decremented to 1, so "a" is reinserted at index 1 → b, a, c, d. This is
-      // the stable-index convention shared with move-before.
-      const h = deckPg({ list: ["a", "b", "c", "d"] });
+    it("moves a forward array item to the requested index", async () => {
+      const h = deckPg({ list: ["a", "b", "c"] });
       const { out, result } = await runDeckOps(h, [
         { op: "move", from: "/list/0", path: "/list/2" },
       ]);
       expect(out.applied).toBe(1);
-      expect(result.list).toEqual(["b", "a", "c", "d"]);
+      expect(result.list).toEqual(["b", "c", "a"]);
     });
 
     it("records a per-op failure without aborting surviving ops, and writes the partial result", async () => {

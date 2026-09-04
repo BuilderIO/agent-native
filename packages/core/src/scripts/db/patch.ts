@@ -226,15 +226,7 @@ function applyJsonOp(root: any, op: JsonOp): string {
         ? fromParent.splice(fromKey as number, 1)[0]
         : fromParent[fromKey as string];
       if (!Array.isArray(fromParent)) delete fromParent[fromKey as string];
-      let [toParent, toKey] = resolveParent(root, parsePointer(op.path));
-      if (
-        Array.isArray(toParent) &&
-        Array.isArray(fromParent) &&
-        toParent === fromParent &&
-        (toKey as number) > (fromKey as number)
-      ) {
-        toKey = (toKey as number) - 1;
-      }
+      const [toParent, toKey] = resolveParent(root, parsePointer(op.path));
       if (Array.isArray(toParent)) toParent.splice(toKey as number, 0, value);
       else toParent[toKey as string] = value;
       return `${op.op} ${op.from} -> ${op.path}`;
@@ -330,13 +322,7 @@ function applyEdits(
       continue;
     }
     if (!replaceAll && occurrences > 1) {
-      results.push({
-        index,
-        status: "not-found",
-        detail: buildAmbiguousMessage(edit.find, output, occurrences),
-        occurrences,
-      });
-      continue;
+      fail(buildAmbiguousMessage(edit.find, output, occurrences));
     }
     output = replaceAll
       ? output.split(edit.find).join(edit.replace)
