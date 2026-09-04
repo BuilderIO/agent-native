@@ -6315,6 +6315,10 @@ describe("runAgentLoop", () => {
       // `errorCode: permanent_precondition` marker is diagnostic; every real
       // emitter of the sentence also sends that marker.
       'Error running find-closest-match: closest candidate: "...needs a setup step outside this turn before it can run..." (no code line, not this run\'s own stop)',
+      // The marker text itself, but on an INDENTED echoed candidate line, not
+      // this framework's own column-0 framing — a retryable patch miss from
+      // an edit tool, not a stop.
+      "Error running find-closest-match: Closest matches in the current extension:\n  line 12: code: permanent_precondition",
     ]) {
       expect(permanentPreconditionRemedy(recoverable)).toBeNull();
     }

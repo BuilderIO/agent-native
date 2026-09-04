@@ -3963,6 +3963,13 @@ export function permanentPreconditionRemedy(message: string): string | null {
   for (const pattern of PERMANENT_PRECONDITION_PATTERNS) {
     if (pattern.test(trimmed)) return trimmed;
   }
+  // Line-anchored markers, tested against the RAW message: `trimmed` has
+  // already collapsed every newline (and the indentation that disqualifies an
+  // echoed candidate line below) into a single space, which would let an
+  // indented line match a `^…$` anchor meant for column 0.
+  for (const pattern of PERMANENT_PRECONDITION_LINE_PATTERNS) {
+    if (pattern.test(message)) return trimmed;
+  }
   return null;
 }
 
@@ -3997,19 +4004,24 @@ const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   // narrowing the range, so it stopped turns that were one argument away from
   // succeeding. The count-based breaker still ends a genuine runtime gate
   // after six.
-  // A nested A2A/ask_app delegation embeds the callee's OWN terminal-stop
-  // text verbatim: `formatA2ATerminalError` (agent-chat/action-filters-a2a.ts)
-  // writes the callee's `errorCode` as a `code: …` line, and `fail(message, {
-  // errorCode: "permanent_precondition" })` renders here as `(errorCode:
-  // permanent_precondition)`. Both echo the same literal value this module
-  // assigns below, so matching it is recognizing this framework's own marker,
-  // not guessing at third-party error shapes. Deliberately NOT matched: the
-  // "needs a setup step outside this turn" prose those same call sites always
-  // pair with this marker — a tool result that merely echoes or quotes that
-  // sentence (e.g. a closest-match candidate list built from other content)
-  // would otherwise be misread as this framework's own stop, and nothing is
-  // lost since every real emitter also sends the marker below.
-  /\b"?(?:error)?code"?\s*:\s*"?permanent_precondition\b/i,
+];
+
+/**
+ * Framing-anchored variants of the marker above: matched against the framework's
+ * exact layout, not the words anywhere in the text.
+ *
+ * `formatA2ATerminalError` (agent-chat/action-filters-a2a.ts) writes a nested
+ * A2A/ask_app delegation's own `errorCode` as its OWN line, always starting at
+ * column 0. `fail(message, { errorCode: "permanent_precondition" })` renders
+ * as `(errorCode: permanent_precondition)` appended to a line this module
+ * builds, which likewise starts at column 0. An echoed diagnostic or
+ * candidate line — a closest-match list from an edit tool, e.g. "  line 12:
+ * code: permanent_precondition" — is always indented, so anchoring the line
+ * start to column 0 excludes it without excluding the framework's own text.
+ */
+const PERMANENT_PRECONDITION_LINE_PATTERNS: readonly RegExp[] = [
+  /^code:\s*permanent_precondition\s*$/m,
+  /^(?!\s)[^\n]*\(errorCode:\s*permanent_precondition\)\s*$/m,
 ];
 
 const SOURCE_SWEEP_TOOL_NAME =

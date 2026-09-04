@@ -232,13 +232,11 @@ function applyInsert(
     );
   }
 
+  // occurrence, if given, was already validated (positive integer, in range)
+  // by findTargetedMatches above — an out-of-range value returns
+  // "occurrence_out_of_range" and is handled in the !result.ok branch.
   const occurrence = edit.occurrence ?? 1;
-  const match = matches[occurrence - 1];
-  if (!match) {
-    throw new SlideContentEditError(
-      `${edit.op} could not find occurrence ${occurrence}`,
-    );
-  }
+  const match = matches[occurrence - 1]!;
   const insertAt = edit.op === "insert-before" ? match.index : match.end;
   return {
     content:
@@ -261,10 +259,11 @@ function isCountedNoOp(edit: {
 }
 
 /**
- * Shared not-found / ambiguous / invalid-occurrence reporting for the
- * literal-find ops (replace, insert-before, insert-after). Always throws —
- * callers check the `required`/`expectedMatches` no-op case themselves before
- * reaching here.
+ * Shared not-found / ambiguous / invalid-occurrence / out-of-range reporting
+ * for the literal-find ops (replace, insert-before, insert-after). Always
+ * throws — callers check the `required`/`expectedMatches` no-op case
+ * themselves before reaching here (and only for a true "not_found": matches
+ * exist for "occurrence_out_of_range", so that is never a no-op).
  */
 function throwLiteralMatchFailure(
   op: string,
@@ -279,6 +278,21 @@ function throwLiteralMatchFailure(
   if (result.reason === "invalid_occurrence") {
     throw new SlideContentEditError(
       `${op} occurrence must be a positive integer, got ${result.occurrence}`,
+    );
+  }
+  if (result.reason === "occurrence_out_of_range") {
+    // Restores the pre-helper validation order: an expectedMatches mismatch
+    // against the REAL total count is reported before the occurrence miss.
+    if (
+      expectedMatches !== undefined &&
+      result.matchCount !== expectedMatches
+    ) {
+      throw new SlideContentEditError(
+        `${op} expected ${expectedMatches} match(es), found ${result.matchCount}`,
+      );
+    }
+    throw new SlideContentEditError(
+      `${op} could not find occurrence ${result.occurrence}`,
     );
   }
   const expected =

@@ -275,4 +275,40 @@ describe("extension content patching", () => {
 
     expect(result.content).toBe("<p>Same</p><p>Different</p><p>Same</p>");
   });
+
+  it("errors on { occurrence: 2, expectedMatches: 0 } when one match exists, instead of treating it as a no-op", async () => {
+    const content = "<div>One</div>";
+
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            op: "replace",
+            find: "One",
+            replace: "Two",
+            occurrence: 2,
+            expectedMatches: 0,
+          },
+        ],
+      }),
+    ).rejects.toThrow("replace expected 0 match(es), found 1");
+  });
+
+  it("still treats { expectedMatches: 0 } as a no-op when zero matches exist, occurrence included", async () => {
+    const content = "<div>One</div>";
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "replace",
+          find: "Missing",
+          replace: "Two",
+          occurrence: 1,
+          expectedMatches: 0,
+        },
+      ],
+    });
+
+    expect(result.content).toBe("<div>One</div>");
+    expect(result.applied).toEqual(["replace:0"]);
+  });
 });

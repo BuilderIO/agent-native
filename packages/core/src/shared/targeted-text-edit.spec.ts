@@ -104,6 +104,21 @@ describe("findTargetedMatches", () => {
       });
     },
   );
+
+  it("reports occurrence_out_of_range (a distinct reason from not_found) when matches exist but fewer than requested", () => {
+    const content = "<p>Same</p>";
+    const result = findTargetedMatches(content, "<p>Same</p>", {
+      occurrence: 2,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "occurrence_out_of_range",
+      occurrence: 2,
+      matchCount: 1,
+    });
+    if (result.ok || result.reason !== "occurrence_out_of_range") return;
+    expect(result.matches).toHaveLength(1);
+  });
 });
 
 describe("applyTargetedReplace", () => {
@@ -180,7 +195,7 @@ describe("applyTargetedReplace", () => {
     });
   });
 
-  it("returns not_found with the existing matches as candidates when occurrence is out of range", () => {
+  it("returns occurrence_out_of_range (not not_found) when matches exist but fewer than requested", () => {
     const content = "<p>Same</p>";
     const result = applyTargetedReplace(
       content,
@@ -190,10 +205,14 @@ describe("applyTargetedReplace", () => {
         occurrence: 2,
       },
     );
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toBe("not_found");
-    expect(result.candidates).toHaveLength(1);
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "occurrence_out_of_range",
+      occurrence: 2,
+      matchCount: 1,
+    });
+    if (result.ok || result.reason !== "occurrence_out_of_range") return;
+    expect(result.matches).toHaveLength(1);
   });
 
   it.each([0, 0.5, -1, NaN])(

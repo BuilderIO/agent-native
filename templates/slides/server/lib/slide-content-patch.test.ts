@@ -146,4 +146,21 @@ describe("applySlideContentEdits", () => {
       );
     },
   );
+
+  it("errors on { occurrence: 2, expectedMatches: 0 } when one match exists, instead of treating it as a no-op", async () => {
+    await expect(
+      applySlideContentEdits("<div>One</div>", [
+        { find: "One", replace: "Two", occurrence: 2, expectedMatches: 0 },
+      ]),
+    ).rejects.toThrow("replace expected 0 match(es), found 1");
+  });
+
+  it("still treats { expectedMatches: 0 } as a no-op when zero matches exist, occurrence included", async () => {
+    const result = await applySlideContentEdits("<div>One</div>", [
+      { find: "Missing", replace: "Two", occurrence: 1, expectedMatches: 0 },
+    ]);
+
+    expect(result.content).toBe("<div>One</div>");
+    expect(result.applied).toEqual(["replace:0"]);
+  });
 });

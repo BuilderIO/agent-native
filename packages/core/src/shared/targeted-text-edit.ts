@@ -19,7 +19,11 @@
  * Never throws: every outcome is a discriminated result. Callers decide what
  * "not found" or "ambiguous" should mean for their op (fail loudly, no-op,
  * etc). An `occurrence` that isn't a positive integer is reported as
- * "invalid_occurrence" rather than silently coerced to 1.
+ * "invalid_occurrence" rather than silently coerced to 1. An `occurrence`
+ * past the number of real matches is reported as "occurrence_out_of_range" —
+ * a DIFFERENT reason than "not_found" — because matches exist; a caller's
+ * zero-matches no-op (`expectedMatches: 0` / `required: false`) must not
+ * treat "found some, just not that many" the same as "found none".
  */
 
 export interface TargetedTextEditOptions {
@@ -55,7 +59,14 @@ export interface TargetedAmbiguousMatch {
 export type TargetedMatchFailure =
   | { ok: false; reason: "not_found"; candidates: TargetedCandidate[] }
   | { ok: false; reason: "ambiguous"; matches: TargetedAmbiguousMatch[] }
-  | { ok: false; reason: "invalid_occurrence"; occurrence: number };
+  | { ok: false; reason: "invalid_occurrence"; occurrence: number }
+  | {
+      ok: false;
+      reason: "occurrence_out_of_range";
+      occurrence: number;
+      matchCount: number;
+      matches: TargetedMatch[];
+    };
 
 export type TargetedMatchesResult =
   | { ok: true; matches: TargetedMatch[] }
@@ -116,6 +127,19 @@ export function findTargetedMatches(
     };
   }
 
+  // A valid occurrence past the end of the real matches is a DIFFERENT
+  // failure than zero matches — matches exist, so a caller's `expectedMatches:
+  // 0` / `required: false` no-op must not swallow this as "not found".
+  if (opts.occurrence !== undefined && opts.occurrence > matches.length) {
+    return {
+      ok: false,
+      reason: "occurrence_out_of_range",
+      occurrence: opts.occurrence,
+      matchCount: matches.length,
+      matches,
+    };
+  }
+
   return { ok: true, matches };
 }
 
@@ -146,24 +170,11 @@ export function applyTargetedReplace(
     };
   }
 
-  // opts.occurrence, if given, was already validated by findTargetedMatches
-  // above (an invalid value returns "invalid_occurrence" before we get here).
+  // opts.occurrence, if given, was already validated (positive integer, and
+  // in range) by findTargetedMatches above — an out-of-range value returns
+  // "occurrence_out_of_range" before we get here, so this index always hits.
   const occurrence = opts.occurrence ?? 1;
-  const match = matches[occurrence - 1];
-  if (!match) {
-    // The requested occurrence doesn't exist. Report the ones that do (as
-    // "candidates") instead of the generic no-match candidates — the text was
-    // found, just not that many times.
-    return {
-      ok: false,
-      reason: "not_found",
-      candidates: matches.slice(0, MAX_CANDIDATES).map((m) => ({
-        line: m.line,
-        text: truncate(m.text, SNIPPET_MAX_CHARS),
-        similarity: 1,
-      })),
-    };
-  }
+  const match = matches[occurrence - 1]!;
 
   const next =
     content.slice(0, match.index) + replacement + content.slice(match.end);
