@@ -1404,15 +1404,66 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
 }
 
 function getAgentKitOptimizeDeps(cwd: string): string[] {
+  const standaloneChatEntries =
+    findCoreSrcDir(cwd) === null
+      ? [
+          ...(hasDep("@agent-native/agentkit", cwd)
+            ? [
+                "@agent-native/agentkit/react/components",
+                "@agent-native/agentkit/react/context",
+                "@agent-native/agentkit/react/root",
+              ]
+            : []),
+          ...(hasDep("@agent-native/core", cwd)
+            ? [
+                "@agent-native/core/client/agentkit-chat/composer",
+                "@agent-native/core/client/agentkit-chat/connections",
+                "@agent-native/core/client/agentkit-chat/questions",
+                "@agent-native/core/client/agentkit-chat/rail",
+                "@agent-native/core/client/agentkit-chat/suggestions",
+                "@agent-native/core/client/agentkit-chat/transport",
+                "@agent-native/core/client/analytics",
+                "@agent-native/core/client/api-path",
+                "@agent-native/core/client/error-boundary",
+                "@agent-native/core/client/hooks",
+                "@agent-native/core/client/i18n",
+                "@agent-native/core/client/navigation",
+                "@agent-native/core/client/route-chunk-recovery",
+                "@agent-native/core/client/theme",
+              ]
+            : []),
+          ...(hasDep("@agent-native/toolkit", cwd)
+            ? [
+                "@agent-native/toolkit/agentkit",
+                "@agent-native/toolkit/app-shell",
+                "@agent-native/toolkit/app-shell/header-actions",
+                "@agent-native/toolkit/chat-history/ChatHistoryList",
+                "@agent-native/toolkit/composer/runtime-adapters",
+                "@agent-native/toolkit/provider",
+              ]
+            : []),
+        ]
+      : [];
+
   // AgentKit, Core, Toolkit, and their ESM dependencies stay native. Prebundle
-  // only React's shared singleton and the CommonJS leaf modules imported by
+  // the small set of framework entry points needed to hydrate standalone Chat,
+  // plus React's shared singleton and the CommonJS leaf modules imported by
   // those ESM graphs. Vite's normal discovery follows every lazy route in a
   // generated app; that made a cold Chat optimize unrelated inspector,
   // charting, syntax-highlighting, and editor surfaces before rendering.
   return [
+    ...standaloneChatEntries,
     ...(hasDep("react", cwd) ? ["react"] : []),
     ...(hasDep("react-dom", cwd)
       ? ["react-dom", "react-dom/client", "react-dom/server"]
+      : []),
+    ...(hasDep("@tanstack/react-query", cwd) ? ["@tanstack/react-query"] : []),
+    ...(hasDep("next-themes", cwd) ? ["next-themes"] : []),
+    ...(hasDep("react-router", cwd)
+      ? ["react-router", "react-router/dom"]
+      : []),
+    ...(hasDep("@radix-ui/react-tooltip", cwd)
+      ? ["@radix-ui/react-tooltip"]
       : []),
     "@agent-native/core > @assistant-ui/react",
     "@agent-native/core > @assistant-ui/react > assistant-stream > secure-json-parse",

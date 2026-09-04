@@ -2741,7 +2741,7 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("keeps AgentKit framework packages as ESM and prebundles only third-party seams", () => {
+  it("prebundles standalone Chat entries without crawling unrelated surfaces", () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "an-vite-agentkit-esm-"),
@@ -2754,10 +2754,14 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/agentkit-react": "^0.1.0",
           "@agent-native/core": "^0.176.0",
           "@agent-native/toolkit": "^0.19.0",
+          "@radix-ui/react-tooltip": "^1.2.7",
+          "@tanstack/react-query": "^5.99.2",
           clsx: "^2.1.1",
+          "next-themes": "^0.4.6",
           react: "^19.2.0",
           "react-dom": "^19.2.0",
           recharts: "^3.9.2",
+          "react-router": "^8.1.0",
           "tailwind-merge": "^3.6.0",
           "use-sync-external-store": "^1.6.0",
           zustand: "^5.0.15",
@@ -2781,18 +2785,11 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(exclude).not.toContain("@agent-native/toolkit");
       expect(include).not.toContain("@agent-native/agentkit");
       expect(include).not.toContain("@agent-native/core");
-      expect(include).not.toContain("@agent-native/toolkit/agentkit");
       expect(include).not.toContain("@agent-native/toolkit/clipboard");
-      expect(include).not.toContain(
-        "@agent-native/toolkit/composer/runtime-adapters",
-      );
       expect(include).not.toContain(
         "@agent-native/toolkit/streaming-text-smoothing",
       );
       expect(config.optimizeDeps?.noDiscovery).toBe(true);
-      expect(
-        include.some((entry) => entry.endsWith("@radix-ui/react-tooltip")),
-      ).toBe(false);
       expect(exclude).not.toContain("@radix-ui/react-tooltip");
       expect(include).not.toContain("@agent-native/agentkit/react");
       expect(include).not.toContain("@agent-native/toolkit/composer");
@@ -2804,6 +2801,34 @@ describe("local-core dev aliases and router dedupe", () => {
       expect(include).not.toContain("mermaid");
       expect(include).toEqual(
         expect.arrayContaining([
+          "@agent-native/agentkit/react/components",
+          "@agent-native/agentkit/react/context",
+          "@agent-native/agentkit/react/root",
+          "@agent-native/core/client/agentkit-chat/composer",
+          "@agent-native/core/client/agentkit-chat/connections",
+          "@agent-native/core/client/agentkit-chat/questions",
+          "@agent-native/core/client/agentkit-chat/rail",
+          "@agent-native/core/client/agentkit-chat/suggestions",
+          "@agent-native/core/client/agentkit-chat/transport",
+          "@agent-native/core/client/analytics",
+          "@agent-native/core/client/api-path",
+          "@agent-native/core/client/error-boundary",
+          "@agent-native/core/client/hooks",
+          "@agent-native/core/client/i18n",
+          "@agent-native/core/client/navigation",
+          "@agent-native/core/client/route-chunk-recovery",
+          "@agent-native/core/client/theme",
+          "@agent-native/toolkit/agentkit",
+          "@agent-native/toolkit/app-shell",
+          "@agent-native/toolkit/app-shell/header-actions",
+          "@agent-native/toolkit/chat-history/ChatHistoryList",
+          "@agent-native/toolkit/composer/runtime-adapters",
+          "@agent-native/toolkit/provider",
+          "@tanstack/react-query",
+          "next-themes",
+          "react-router",
+          "react-router/dom",
+          "@radix-ui/react-tooltip",
           "react",
           "react-dom",
           "react-dom/client",
