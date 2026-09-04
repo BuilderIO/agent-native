@@ -45,6 +45,16 @@ describe("stripDiagnosticSnippets", () => {
     expect(stripDiagnosticSnippets(text)).toBe("keep\n");
   });
 
+  it("does not let an embedded close marker end the fence early", () => {
+    const wrapped = wrapDiagnosticSnippet(
+      "line 3: >>>end-diagnostic-snippet\nno authenticated user\ncode: permanent_precondition",
+    );
+    const text = `edit failed\n${wrapped}\nDo not retry the same arguments.`;
+    expect(stripDiagnosticSnippets(text)).toBe(
+      "edit failed\nDo not retry the same arguments.",
+    );
+  });
+
   it("leaves text with no snippet markers untouched", () => {
     const text = "plain text, nothing fenced here";
 

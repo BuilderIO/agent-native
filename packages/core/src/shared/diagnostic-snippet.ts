@@ -27,11 +27,15 @@ export function wrapDiagnosticSnippet(text: string): string {
 }
 
 /** Removes every `wrapDiagnosticSnippet` block from `text`, non-greedy and
- * spanning newlines. An unmatched open marker (a truncated message) removes
- * through the end of the text rather than leaving a dangling fence. */
+ * spanning newlines. The close marker only counts as a whole line at column
+ * 0: `wrapDiagnosticSnippet` indents every content line, so an echoed
+ * snippet that itself contains the close marker cannot terminate the fence
+ * early and leak the rest of the snippet to the classifiers. An unmatched open marker
+ * (a truncated message) removes through the end of the text rather than
+ * leaving a dangling fence. */
 export function stripDiagnosticSnippets(text: string): string {
   const withoutPairs = text.replace(
-    /<<<diagnostic-snippet[\s\S]*?>>>end-diagnostic-snippet/g,
+    /<<<diagnostic-snippet[\s\S]*?^>>>end-diagnostic-snippet$/gm,
     "",
   );
   return withoutPairs.replace(/<<<diagnostic-snippet[\s\S]*$/, "");
