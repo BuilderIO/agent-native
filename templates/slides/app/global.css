@@ -1087,6 +1087,8 @@ button[title="Open agent sidebar"] {
 .slide-content .fmd-slide h3 {
   margin: 0;
   padding: 0;
+  font-size: inherit;
+  line-height: inherit;
   color: inherit;
   letter-spacing: inherit;
 }
@@ -1458,6 +1460,44 @@ button[title="Open agent sidebar"] {
 .slide-content .slide-shared-rich-editor .an-rich-md-prose li p {
   margin: 0;
   font-size: inherit;
+}
+
+.slide-content .fmd-slide li[data-editing-block="true"] {
+  list-style: none;
+}
+
+.slide-content
+  .fmd-slide
+  li[data-editing-block="true"]
+  > .slide-rich-editor-host
+  .an-rich-md-prose
+  > :is(ul, ol) {
+  padding-left: 0;
+  padding-inline-start: 0;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose h2 {
+  font-size: 1.875rem;
+  font-weight: 600;
+  line-height: 1.375;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose h3 {
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose h4 {
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .slide-content .slide-shared-rich-editor .an-rich-md-prose code {
