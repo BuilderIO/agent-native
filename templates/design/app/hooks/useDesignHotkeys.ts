@@ -205,8 +205,7 @@ export interface UseDesignHotkeysProps {
    * modifiers held) or SHIFT_TOOL_SHORTCUTS (which has no "a" entry).
    */
   onAddAutoLayout?: DesignHotkeyHandler;
-  /** Figma's Shift+\ "Minimize UI" shortcut, applied here to the full Design
-   *  chrome (left rail, right panel, and bottom toolbar). */
+  /** Cmd/Ctrl+\ toggles the left and right Design sidebars. */
   /**
    * Whether Design can act on its own chords at all. False on a read-only or
    * signed-out prototype, where consuming Cmd+Z/Cmd+D/Cmd+G would cost the
@@ -214,6 +213,8 @@ export interface UseDesignHotkeysProps {
    */
   canClaimBoundChords?: boolean;
   onToggleUi?: DesignHotkeyHandler;
+  /** Cmd/Ctrl+Shift+\ toggles the minimal Design chrome mode. */
+  onToggleMinimalUi?: DesignHotkeyHandler;
   onToggleLayoutGrids?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
@@ -784,16 +785,13 @@ export function handleDesignHotkey(
     return run(props.onAddAutoLayout);
   }
 
-  // Figma's Shift+\ "Minimize UI" chord avoids the bare Cmd+\ shortcut that
-  // desktop coding hosts can reserve for closing their focused pane. Use the
-  // physical key code because Shift+\ produces "|" on US keyboard layouts.
-  if (
-    !primary &&
-    !event.altKey &&
-    event.shiftKey &&
-    event.code === "Backslash"
-  ) {
-    return run(props.onToggleUi);
+  // Cmd/Ctrl+Shift+\ toggles the minimal Design chrome mode, while the
+  // unshifted chord toggles the sidebars. Use the physical key code so both
+  // shortcuts remain stable across keyboard layouts.
+  if (primary && !event.altKey && event.code === "Backslash") {
+    return event.shiftKey
+      ? claim(props.onToggleMinimalUi)
+      : claim(props.onToggleUi);
   }
 
   // Figma: Shift+C — Show/Hide comments. Plain "c" (no modifiers) is the

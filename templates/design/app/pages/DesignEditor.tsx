@@ -98,6 +98,7 @@ import {
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
 import { isComponentInstance } from "@shared/component-model";
+import { DESIGN_REVIEW_PANEL } from "@shared/design-flags";
 import type { A11yFinding } from "@shared/design-review";
 import {
   DESIGN_CAPABILITY_NAMES,
@@ -125,7 +126,6 @@ import {
   breakpointUpperBoundPx,
   utilityStem,
 } from "@shared/responsive-classes";
-import { createElementReviewAnchor } from "@shared/review-anchor";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import {
@@ -145,6 +145,8 @@ import {
   IconArchive,
   IconPhoto,
   IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
   IconCheck,
   IconDownload,
   IconClipboard,
@@ -1448,13 +1450,11 @@ function DesignEditor() {
   // resizable 220–420px content range.
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
-  // Figma's Minimize UI action hides the left rail, right inspector panel,
-  // and bottom toolbar chrome so the canvas fills the viewport. No prior
-  // panel-visibility state existed to hook into (grepped for
-  // leftPanelCollapsed/rightPanelCollapsed/showLeftPanel/etc. — none found),
-  // so this is a new single boolean gating those three chrome containers'
-  // rendering.
+  // Cmd/Ctrl+\ hides the sidebars while leaving the bottom tools available.
   const [uiHidden, setUiHidden] = useState(false);
+  const [minimalUi, setMinimalUi] = useState(false);
+  const [minimalLeftSidebarOpen, setMinimalLeftSidebarOpen] = useState(false);
+  const [minimalRightSidebarOpen, setMinimalRightSidebarOpen] = useState(false);
   const [keyboardShortcutsOpen, setKeyboardShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -6946,6 +6946,7 @@ function DesignEditor() {
   }, [fusionApp?.source]);
 
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  const designReviewPanelEnabled = useFeatureFlag(DESIGN_REVIEW_PANEL.key);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
   // `fusionUrl` written by the "Make it real" migration; falls back to the
@@ -7871,7 +7872,9 @@ function DesignEditor() {
   >(() => {
     // The Builder shell has no persisted Design action surface, so exposing
     // Run audit there only produces the shell's "API is disabled" error.
-    if (!id || !activeFile || shellMode) return undefined;
+    if (!designReviewPanelEnabled || !id || !activeFile || shellMode) {
+      return undefined;
+    }
     const reviewMatchesActiveFile = reviewFileId === activeFile.id;
     return {
       findings: reviewMatchesActiveFile ? reviewFindings : [],
@@ -7889,6 +7892,7 @@ function DesignEditor() {
     };
   }, [
     activeFile,
+    designReviewPanelEnabled,
     handleReviewFindingClick,
     handleReviewFixApplied,
     handleRunDesignAudit,
@@ -8009,56 +8013,6 @@ function DesignEditor() {
     [activeFile?.id],
   );
 
-  const selectedReviewLayerContext = useMemo(() => {
-    if (!activeFile?.id || !selectedElement) return null;
-
-    const selectedScreen = overviewScreens.find(
-      (screen) => screen.id === activeFile.id,
-    );
-    const frameGeometry = canvasFrameGeometryById[activeFile.id];
-    const nodeId =
-      selectedCodeLayerNode?.dataAttributes[
-        "data-agent-native-node-id"
-      ]?.trim() ||
-      selectedElement.sourceId?.trim() ||
-      selectedCodeLayerNode?.id.trim() ||
-      null;
-    const anchor = createElementReviewAnchor({
-      nodeId,
-      selector: selectedElement.selector,
-      rect: selectedElement.boundingRect,
-      viewportWidth:
-        activeBreakpointWidthState ??
-        frameGeometry?.width ??
-        selectedScreen?.width ??
-        activeScreenBaseWidthPx,
-      viewportHeight: frameGeometry?.height ?? selectedScreen?.height,
-    });
-    if (!anchor) return null;
-
-    const layerName =
-      selectedCodeLayerNode?.layerName.trim() ||
-      selectedElement.componentName?.trim() ||
-      selectedElement.id?.trim() ||
-      selectedElement.tagName.toLowerCase();
-    return {
-      anchor,
-      label: layerName,
-      metadata: {
-        layerName,
-        tagName: selectedElement.tagName.toLowerCase(),
-      },
-    };
-  }, [
-    activeBreakpointWidthState,
-    activeFile?.id,
-    activeScreenBaseWidthPx,
-    canvasFrameGeometryById,
-    overviewScreens,
-    selectedCodeLayerNode,
-    selectedElement,
-  ]);
-
   const reviewCommentsPanelProps = useMemo<
     ReviewCommentsPanelProps | undefined
   >(
@@ -8066,14 +8020,6 @@ function DesignEditor() {
       id
         ? {
             designId: id,
-            activeFileId: activeFile?.id,
-            commentAnchor: selectedReviewLayerContext?.anchor,
-            commentMetadata: selectedReviewLayerContext?.metadata,
-            commentContextLabel: selectedReviewLayerContext
-              ? t("review.commentingOn", {
-                  name: selectedReviewLayerContext.label,
-                })
-              : undefined,
             canComment: canCommentDesign,
             canResolve: canEditDesign,
             canDeleteComment: (comment) =>
@@ -8083,9 +8029,6 @@ function DesignEditor() {
             signInHref: signInToCommentHref,
             canDispatchToAgent: canEditDesign,
             sendingThreadId: reviewSendingThreadId,
-            onDispatchCommentToAgent: canEditDesign
-              ? handleDispatchCommentToAgent
-              : undefined,
             onSendThreadToAgent: canEditDesign
               ? handleSendReviewThreadToAgent
               : undefined,
@@ -8093,19 +8036,14 @@ function DesignEditor() {
           }
         : undefined,
     [
-      activeFile?.id,
+      canCommentDesign,
+      canEditDesign,
       handleReviewThreadSelect,
-      handleDispatchCommentToAgent,
       handleSendReviewThreadToAgent,
       id,
-      isSignedIn,
-      canEditDesign,
-      canCommentDesign,
       reviewSendingThreadId,
-      selectedReviewLayerContext,
       session?.email,
       signInToCommentHref,
-      t,
     ],
   );
 
@@ -12201,9 +12139,13 @@ function DesignEditor() {
   );
 
   // ── UI toggles, ungroup, reparent, cut, screen deletion ────────────────────
-  // Figma's Minimize UI action. Fully wired: uiHidden gates the
-  // left rail, right inspector panel, and bottom toolbar chrome containers
-  // declared above.
+  const handleToggleMinimalUi = useCallback(() => {
+    setMinimalUi((current) => !current);
+    setUiHidden(false);
+    setMinimalLeftSidebarOpen(false);
+    setMinimalRightSidebarOpen(false);
+  }, []);
+
   const handleToggleUi = useCallback(() => {
     setUiHidden((current) => !current);
   }, []);
@@ -13621,6 +13563,7 @@ function DesignEditor() {
   const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
     keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
     suppressProjectMenuReturnFocusRef.current = true;
+    setMinimalUi(false);
     setUiHidden(false);
     setKeyboardShortcutsOpen(true);
   }, []);
@@ -13644,6 +13587,7 @@ function DesignEditor() {
     const activeElement = document.activeElement;
     keyboardShortcutsReturnFocusRef.current =
       activeElement instanceof HTMLElement ? activeElement : null;
+    setMinimalUi(false);
     setUiHidden(false);
     setKeyboardShortcutsOpen(true);
   }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
@@ -14049,11 +13993,13 @@ function DesignEditor() {
   }, []);
 
   const handleShowLayersPanel = useCallback(() => {
+    setMinimalUi(false);
     setUiHidden(false);
     setActiveLeftPanel("file");
   }, []);
 
   const handleShowAssetsPanel = useCallback(() => {
+    setMinimalUi(false);
     setUiHidden(false);
     setActiveLeftPanel("assets");
   }, []);
@@ -14240,6 +14186,7 @@ function DesignEditor() {
     // Show/Hide UI and Show/Hide comments are view-only chrome toggles, not
     // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
+    onToggleMinimalUi: handleToggleMinimalUi,
     onToggleComments: handleToggleComments,
     onToggleLayoutGrids: canEditDesign ? handleToggleLayoutGrids : undefined,
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
@@ -19695,6 +19642,13 @@ function DesignEditor() {
     activeLeftPanel === "code"
       ? Math.max(leftSidebarWidth, 640)
       : Math.max(Math.min(leftSidebarWidth, 420), 220);
+  const leftSidebarVisible =
+    !hostOwnsChrome && !uiHidden && (!minimalUi || minimalLeftSidebarOpen);
+  const rightSidebarVisible =
+    !hostOwnsChrome &&
+    !uiHidden &&
+    !initialGenerationChromeLimited &&
+    (!minimalUi || minimalRightSidebarOpen);
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -19794,7 +19748,10 @@ function DesignEditor() {
     // so flex-1 on the child doesn't resolve to the available height. h-full
     // works because main itself has a definite height (flex-1 inside a
     // flex-col page shell). Without this the canvas collapses to ~150px.
-    <div className="h-full flex flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]">
+    <div
+      data-design-editor
+      className="relative flex h-full flex-col overflow-hidden bg-[var(--design-editor-canvas-bg)]"
+    >
       {/* ── Render: Builder embed preview ── */}
       {isBuilderDesignEmbed && builderPreviewUrl && (
         <div className="absolute inset-0 z-50 flex flex-col bg-[var(--design-editor-canvas-bg)]">
@@ -19826,7 +19783,7 @@ function DesignEditor() {
       )}
       {/* ── Render: main canvas area ── */}
       <div className="flex-1 flex overflow-hidden relative">
-        {!hostOwnsChrome && !uiHidden ? (
+        {leftSidebarVisible ? (
           <div
             data-design-chrome-region="left-shell"
             className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]"
@@ -20136,7 +20093,6 @@ function DesignEditor() {
             infinite canvas, and ResponsiveInteractBar's Close is the way
             back. */}
         {!hostOwnsChrome &&
-          !uiHidden &&
           !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
           // Not gated on activeFile: a new design has no file rows at all, so
@@ -20505,7 +20461,7 @@ function DesignEditor() {
                     <ReadOnlyDesignBanner
                       pinMode={pinMode}
                       onCommentPin={
-                        !hostOwnsChrome && !uiHidden && canCommentDesign
+                        !hostOwnsChrome && canCommentDesign
                           ? handlePinToolToggle
                           : undefined
                       }
@@ -21110,7 +21066,7 @@ function DesignEditor() {
         )}
 
         {/* ── Render: right rail ── */}
-        {!hostOwnsChrome && !uiHidden && !initialGenerationChromeLimited ? (
+        {rightSidebarVisible ? (
           <div
             ref={rightSidebarContentRef}
             data-design-chrome-region="right-panel"
@@ -21134,11 +21090,129 @@ function DesignEditor() {
             )}
           </div>
         ) : null}
+
+        {minimalUi && !hostOwnsChrome ? (
+          <div
+            data-design-minimal-ui
+            className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
+          >
+            <div
+              data-design-minimal-bar="left"
+              className="pointer-events-auto absolute left-3 top-3 flex h-10 min-w-0 max-w-[calc(100%-1.5rem)] items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0 rounded-md"
+                    aria-label={
+                      "Exit minimal UI" /* i18n-ignore minimal UI chrome */
+                    }
+                    onClick={handleToggleMinimalUi}
+                  >
+                    <AgentNativeMenuMark className="size-5 text-foreground dark:text-white" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Exit minimal UI" /* i18n-ignore minimal UI chrome */}
+                </TooltipContent>
+              </Tooltip>
+              <div className="min-w-0 flex-1 px-1">{projectTitleControl}</div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0 rounded-md"
+                    aria-expanded={minimalLeftSidebarOpen && !uiHidden}
+                    aria-label={
+                      minimalLeftSidebarOpen && !uiHidden
+                        ? "Hide layers panel" /* i18n-ignore minimal UI chrome */
+                        : "Show layers panel" /* i18n-ignore minimal UI chrome */
+                    }
+                    onClick={() => {
+                      if (uiHidden) {
+                        setUiHidden(false);
+                        return;
+                      }
+                      setMinimalLeftSidebarOpen((current) => !current);
+                    }}
+                  >
+                    {minimalLeftSidebarOpen && !uiHidden ? (
+                      <IconChevronLeft className="size-4" />
+                    ) : (
+                      <IconChevronRight className="size-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {
+                    minimalLeftSidebarOpen && !uiHidden
+                      ? "Hide layers panel" /* i18n-ignore minimal UI chrome */
+                      : "Show layers panel" /* i18n-ignore minimal UI chrome */
+                  }
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <div
+              data-design-minimal-bar="right"
+              className="pointer-events-auto absolute right-3 top-3 flex max-w-[calc(100%-1.5rem)] items-start overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
+            >
+              {!minimalRightSidebarOpen || uiHidden ? (
+                <div className="min-w-0 overflow-hidden">
+                  {rightSidebarActions}
+                </div>
+              ) : null}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="m-1 size-8 shrink-0 rounded-md"
+                    aria-expanded={minimalRightSidebarOpen && !uiHidden}
+                    aria-label={
+                      minimalRightSidebarOpen && !uiHidden
+                        ? "Hide design panel" /* i18n-ignore minimal UI chrome */
+                        : "Show design panel" /* i18n-ignore minimal UI chrome */
+                    }
+                    disabled={initialGenerationChromeLimited}
+                    onClick={() => {
+                      if (uiHidden) {
+                        setUiHidden(false);
+                        return;
+                      }
+                      setMinimalRightSidebarOpen((current) => !current);
+                    }}
+                  >
+                    {minimalRightSidebarOpen && !uiHidden ? (
+                      <IconChevronRight className="size-4" />
+                    ) : (
+                      <IconChevronLeft className="size-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {
+                    minimalRightSidebarOpen && !uiHidden
+                      ? "Hide design panel" /* i18n-ignore minimal UI chrome */
+                      : "Show design panel" /* i18n-ignore minimal UI chrome */
+                  }
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* ── Render: mobile inspector sheet ── */}
       {!hostOwnsChrome &&
       !uiHidden &&
+      !minimalUi &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
         <Sheet>
