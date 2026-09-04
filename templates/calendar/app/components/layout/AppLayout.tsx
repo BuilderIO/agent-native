@@ -412,8 +412,9 @@ export function AppLayout({ children }: AppLayoutProps) {
               onClose={() => setSidebarOpen(false)}
               collapsed={
                 !isMobile &&
-                (sidebarCollapsed ||
-                  (perAppChatOpen && !sidebarExpandedWhileChatOpen))
+                (perAppChatOpen
+                  ? !sidebarExpandedWhileChatOpen
+                  : sidebarCollapsed)
               }
               onCollapsedChange={
                 isMobile
