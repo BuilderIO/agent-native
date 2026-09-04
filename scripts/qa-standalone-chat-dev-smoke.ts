@@ -2614,8 +2614,33 @@ async function main(): Promise<void> {
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) {
         network.navigationCancellationUntil = Date.now() + 2_000;
-        browserDiagnostics.push(`main-frame navigation: ${frame.url()}`);
+        void page
+          .evaluate(() => {
+            const navigation = performance.getEntriesByType(
+              "navigation",
+            )[0] as PerformanceNavigationTiming | undefined;
+            return navigation?.type ?? "unknown";
+          })
+          .then((type) => {
+            browserDiagnostics.push(
+              `main-frame navigation (${type}): ${frame.url()}`,
+            );
+          })
+          .catch(() => {
+            browserDiagnostics.push(`main-frame navigation: ${frame.url()}`);
+          });
       }
+    });
+
+    page.on("request", (request) => {
+      if (request.frame() !== page.mainFrame()) return;
+      if (request.resourceType() !== "document") return;
+      browserDiagnostics.push(
+        `document request: ${request.method()} ${request.url()}`,
+      );
+    });
+    page.on("domcontentloaded", () => {
+      browserDiagnostics.push(`domcontentloaded: ${page.url()}`);
     });
 
     page.on("pageerror", (error) => browserErrors.push(error.message));
@@ -2623,6 +2648,12 @@ async function main(): Promise<void> {
       const text = message.text();
       if (text.startsWith("[agent-native]")) {
         browserDiagnostics.push(`${message.type()}: ${text}`);
+      }
+      if (
+        message.type() === "warning" &&
+        /(route|reload|module|hydr|vite)/iu.test(text)
+      ) {
+        browserDiagnostics.push(`warning: ${text}`);
       }
       if (message.type() !== "error") return;
       if (isBenignConsoleError(text)) {
