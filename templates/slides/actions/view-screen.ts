@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
+import { backgroundCssValue } from "../shared/slide-background.js";
 import {
   hashSlideContent,
   slideFitMeasurementMatchesSlide,
@@ -151,6 +152,7 @@ export default defineAction({
         id: string;
         layout?: string;
         content?: string;
+        background?: string;
         layoutFitRevision?: string;
       }> = Array.isArray(deck?.slides) ? deck.slides : [];
       const slideIndex =
@@ -222,13 +224,22 @@ export default defineAction({
       // The slide being edited is one of many; without the deck's shared
       // vocabulary an agent asked to restyle it invents a palette that only
       // that slide uses. Summarize the siblings so the edit can match them.
+      // A slide's fill lives in `slide.background`, rendered as a class
+      // outside the HTML, so it is folded in as a wrapper the tally can see.
       const deckStyle = formatHtmlStyleSummary(
         summarizeHtmlStyles(
           slides
-            .map((s, i) => ({
-              label: `slide ${i + 1}`,
-              html: typeof s.content === "string" ? s.content : "",
-            }))
+            .map((s, i) => {
+              const fill =
+                backgroundCssValue(s.background) ?? s.background ?? "";
+              const html = typeof s.content === "string" ? s.content : "";
+              return {
+                label: `slide ${i + 1}`,
+                html: fill
+                  ? `<div style="background: ${fill}">${html}</div>`
+                  : html,
+              };
+            })
             .filter((fragment) => fragment.html.length > 0),
         ),
         { noun: "slide" },

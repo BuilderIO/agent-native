@@ -38,8 +38,10 @@ const TEXT_COLOR_RE = /(?<![-\w])color\s*:\s*([^;"'}]+)/gi;
 const FONT_FAMILY_RE = /font-family\s*:\s*([^;}]+)/gi;
 const FONT_SHORTHAND_RE =
   /(?<![-\w])font\s*:\s*[^;}]*?\d+(?:\.\d+)?(?:px|rem|em|%)(?:\s*\/\s*[\w.%]+)?\s+([^;}]+)/gi;
+// Either attribute quote and any CSS length: a 2.5rem heading is still part
+// of the vocabulary.
 const HEADING_SIZE_RE =
-  /<h[1-6]\b[^>]*style\s*=\s*"[^"]*?font-size\s*:\s*([\d.]+px)/gi;
+  /<h[1-6]\b[^>]*style\s*=\s*(["'])[^"']*?font-size\s*:\s*([\d.]+(?:px|rem|em|%|vw|vh|pt))/gi;
 const IGNORED_COLOR_WORDS = new Set([
   "inherit",
   "initial",
@@ -81,17 +83,26 @@ function normalizeFamily(raw: string): string | undefined {
   return generic.has(first.toLowerCase()) ? undefined : first;
 }
 
+function collectGroup(
+  html: string,
+  pattern: RegExp,
+  group: number,
+  normalize: (raw: string) => string | undefined,
+): Set<string> {
+  const values = new Set<string>();
+  for (const match of html.matchAll(pattern)) {
+    const value = normalize(match[group] ?? "");
+    if (value) values.add(value);
+  }
+  return values;
+}
+
 function collect(
   html: string,
   pattern: RegExp,
   normalize: (raw: string) => string | undefined,
 ): Set<string> {
-  const values = new Set<string>();
-  for (const match of html.matchAll(pattern)) {
-    const value = normalize(match[1] ?? "");
-    if (value) values.add(value);
-  }
-  return values;
+  return collectGroup(html, pattern, 1, normalize);
 }
 
 function tally(
@@ -148,7 +159,7 @@ export function summarizeHtmlStyles(
     fontFamilies.push({ label, values: families });
     headingSizes.push({
       label,
-      values: collect(html, HEADING_SIZE_RE, (raw) => raw.trim()),
+      values: collectGroup(html, HEADING_SIZE_RE, 2, (raw) => raw.trim()),
     });
   }
   return {

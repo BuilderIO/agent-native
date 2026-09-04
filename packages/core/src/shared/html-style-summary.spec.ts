@@ -48,6 +48,20 @@ describe("summarizeHtmlStyles", () => {
     ]);
   });
 
+  it("reads heading sizes from single-quoted attributes and non-pixel units", () => {
+    const summary = summarizeHtmlStyles([
+      {
+        label: "a",
+        html: `<h1 style='margin: 0; font-size: 2.5rem'>A</h1><h2 style="font-size: 120%">B</h2><h3 style="font-size: 24px">C</h3>`,
+      },
+    ]);
+    expect(summary.headingSizes.map((entry) => entry.value).sort()).toEqual([
+      "120%",
+      "2.5rem",
+      "24px",
+    ]);
+  });
+
   it("ignores non-color keywords and reports gradients and images by kind", () => {
     const summary = summarizeHtmlStyles([
       {
