@@ -323,6 +323,11 @@ function stampBuilderIds(container: HTMLElement) {
     }
     ensureBuilderId(element);
     if (isRichTextBlock(element)) {
+      for (const descendant of Array.from(
+        element.querySelectorAll<HTMLElement>("[data-slide-text-block]"),
+      )) {
+        descendant.removeAttribute("data-slide-text-block");
+      }
       element.setAttribute("data-slide-text-block", "true");
       return;
     }

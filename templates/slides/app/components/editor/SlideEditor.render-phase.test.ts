@@ -65,6 +65,9 @@ describe("SlideEditor render-phase safety", () => {
       'element.setAttribute("data-slide-text-block", "true")',
     );
     expect(source).toContain(
+      'element.querySelectorAll<HTMLElement>("[data-slide-text-block]")',
+    );
+    expect(source).toContain(
       'element.removeAttribute("data-slide-text-block")',
     );
     expect(source).toContain(
