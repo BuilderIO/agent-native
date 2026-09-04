@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { buildLabelDisplayNames, labelTabHref } from "./AppLayout";
+import {
+  buildLabelDisplayNames,
+  getTabPrefetchTarget,
+  labelTabHref,
+} from "./AppLayout";
 
 function appLayoutSource(): string {
   return readFileSync(new URL("./AppLayout.tsx", import.meta.url), "utf8");
@@ -113,9 +117,17 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("filtersLimitReached");
     expect(source).toContain("activeAccounts.size > 0");
     expect(source).toContain(
-      'useEmails("all", activeSavedFilter?.query, undefined,',
+      'useEmails("inbox", activeSavedFilter?.query, undefined,',
     );
     expect(source).toContain("activeFilterHasNextPage");
+  });
+
+  it("keeps native Tab focus navigation and warms visible tab queries", () => {
+    const source = appLayoutSource();
+
+    expect(source).not.toContain('key: "Tab"');
+    expect(source).toContain("prefetchEmails(");
+    expect(source).toContain("Promise.allSettled(");
   });
 
   it("does not show a false count for an inactive saved filter", () => {
@@ -218,6 +230,33 @@ describe("labelTabHref", () => {
     // inbox, so they keep the client-slice-of-inbox behavior on purpose.
     expect(labelTabHref("important")).toBe("/inbox?label=important");
     expect(labelTabHref("updates")).toBe("/inbox?label=updates");
+  });
+});
+
+describe("getTabPrefetchTarget", () => {
+  it("maps saved filters and label tabs to their real mailbox queries", () => {
+    expect(
+      getTabPrefetchTarget(
+        { id: "filter:pitch", href: "/inbox?filter=pitch", type: "filter" },
+        [{ id: "pitch", query: "from:pitch@example.com" }],
+      ),
+    ).toEqual({ view: "inbox", search: "from:pitch@example.com" });
+    expect(
+      getTabPrefetchTarget(
+        {
+          id: "pitch",
+          href: "/all?label=pitch",
+          type: "label",
+        },
+        [],
+      ),
+    ).toEqual({ view: "all", label: "pitch" });
+    expect(
+      getTabPrefetchTarget(
+        { id: "important", href: "/inbox?label=important", type: "label" },
+        [],
+      ),
+    ).toEqual({ view: "inbox" });
   });
 });
 

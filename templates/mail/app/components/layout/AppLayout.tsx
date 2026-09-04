@@ -67,6 +67,7 @@ import {
   useSettings,
   useUpdateSettings,
   useEmails,
+  prefetchEmails,
   useReportSpam,
   useBlockSender,
   useMuteThread,
@@ -220,6 +221,36 @@ export function labelTabHref(labelId: string): string {
   return `/${view}?label=${encodeURIComponent(labelId)}`;
 }
 
+type MailPrefetchTarget = {
+  view: string;
+  search?: string;
+  label?: string;
+};
+
+export function getTabPrefetchTarget(
+  tab: {
+    id: string;
+    href: string;
+    type: "system" | "label" | "filter";
+  },
+  savedFilters: readonly Pick<SavedMailFilter, "id" | "query">[],
+): MailPrefetchTarget | null {
+  if (tab.type === "filter") {
+    const filter = savedFilters.find(
+      (candidate) => candidate.id === tab.id.slice("filter:".length),
+    );
+    return filter ? { view: "inbox", search: filter.query } : null;
+  }
+
+  const url = new URL(tab.href, "https://mail.local");
+  const view = url.pathname.split("/").filter(Boolean)[0] || "inbox";
+  const label = url.searchParams.get("label") ?? undefined;
+  if (view === "inbox" && (!label || isInboxScopedAppLabel(label))) {
+    return { view: "inbox" };
+  }
+  return { view, ...(label ? { label } : {}) };
+}
+
 interface AppLayoutProps {
   children: React.ReactNode;
 }
@@ -267,6 +298,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
 function AppLayoutInner({ children }: AppLayoutProps) {
   const t = useT();
+  const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const compose = useComposeState();
   const headerActions = useHeaderActions();
@@ -436,7 +468,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     data: activeFilterEmails = [],
     totalEstimate: activeFilterTotalEstimate,
     hasNextPage: activeFilterHasNextPage,
-  } = useEmails("all", activeSavedFilter?.query, undefined, {
+  } = useEmails("inbox", activeSavedFilter?.query, undefined, {
     enabled: Boolean(activeSavedFilter),
   });
   const {
@@ -797,6 +829,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return tabs;
   }, [activeLabel, labels, labelAliases, labelDisplayNames, visibleTabs]);
 
+  useEffect(() => {
+    if (tabsLoading) return;
+    const targets = new Map<string, MailPrefetchTarget>();
+    for (const tab of visibleTabs) {
+      const target = getTabPrefetchTarget(tab, savedFilters);
+      if (!target) continue;
+      targets.set(JSON.stringify(target), target);
+    }
+    void Promise.allSettled(
+      [...targets.values()].map((target) =>
+        prefetchEmails(queryClient, target.view, target.search, target.label),
+      ),
+    );
+  }, [queryClient, savedFilters, tabsLoading, visibleTabs]);
+
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
     () => collapsibleViews.filter((v) => !pinnedLabels.includes(v.id)),
@@ -1112,20 +1159,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setDropIndicator(null);
   }, []);
 
-  // Global keyboard shortcuts
-  const cycleTab = useCallback(
-    (reverse?: boolean) => {
-      if (visibleTabs.length < 2) return;
-      const activeIdx = visibleTabs.findIndex((t) => t.isActive);
-      const delta = reverse ? -1 : 1;
-      const nextIdx =
-        (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
-        visibleTabs.length;
-      void navigate(visibleTabs[nextIdx].href);
-    },
-    [visibleTabs, navigate],
-  );
-
   const handleSnooze = useCallback(() => {
     const listSnoozeEvent = new CustomEvent("email:shortcut-snooze", {
       cancelable: true,
@@ -1186,15 +1219,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { key: "!", shift: true, handler: handleSpam },
     { key: "z", handler: runUndo },
     {
-      key: "Tab",
-      handler: () => cycleTab(false),
-    },
-    {
-      key: "Tab",
-      shift: true,
-      handler: () => cycleTab(true),
-    },
-    {
       key: "Escape",
       handler: () => {
         setSearchQuery("");
@@ -1215,14 +1239,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, []);
 
   // Sequence shortcuts (g + key = go to view)
-  const qc = useQueryClient();
   useSequenceShortcuts([
     {
       keys: ["g", "i"],
       handler: () => {
         void navigate("/inbox");
-        void qc.invalidateQueries({ queryKey: ["emails"] });
-        void qc.invalidateQueries({ queryKey: ["labels"] });
+        void queryClient.invalidateQueries({ queryKey: ["emails"] });
+        void queryClient.invalidateQueries({ queryKey: ["labels"] });
       },
     },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
@@ -1608,8 +1631,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   if (inboxIsFetching) return;
                   setIsManuallyRefreshing(true);
                   markExternalEmailRefresh();
-                  void qc.invalidateQueries({ queryKey: ["emails"] });
-                  void qc.invalidateQueries({ queryKey: ["labels"] });
+                  void queryClient.invalidateQueries({ queryKey: ["emails"] });
+                  void queryClient.invalidateQueries({ queryKey: ["labels"] });
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}
                 disabled={inboxIsFetching}
