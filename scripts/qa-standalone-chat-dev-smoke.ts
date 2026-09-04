@@ -1649,22 +1649,31 @@ async function waitForChatLayoutBoxes(
   while (Date.now() < deadline) {
     try {
       const boxes = await page.evaluate(() => {
-        const readBox = (selector: string): LayoutBox | null => {
-          const node = document.querySelector<HTMLElement>(selector);
-          if (!node) return null;
-          const rect = node.getBoundingClientRect();
-          return {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-          };
-        };
+        const chatNode = document.querySelector<HTMLElement>(
+          "section.agentkit-chat",
+        );
+        const composerNode = document.querySelector<HTMLElement>(
+          '.agentkit-composer[data-agent-composer-slot="root"]',
+        );
+        const chatRect = chatNode?.getBoundingClientRect();
+        const composerRect = composerNode?.getBoundingClientRect();
         return {
-          chatBox: readBox("section.agentkit-chat"),
-          composerBox: readBox(
-            '.agentkit-composer[data-agent-composer-slot="root"]',
-          ),
+          chatBox: chatRect
+            ? {
+                x: chatRect.x,
+                y: chatRect.y,
+                width: chatRect.width,
+                height: chatRect.height,
+              }
+            : null,
+          composerBox: composerRect
+            ? {
+                x: composerRect.x,
+                y: composerRect.y,
+                width: composerRect.width,
+                height: composerRect.height,
+              }
+            : null,
         };
       });
       const { chatBox, composerBox } = boxes;
