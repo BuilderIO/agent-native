@@ -2,7 +2,7 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
@@ -56,11 +56,16 @@ async function copyRecordingLink(recordingId: string): Promise<void> {
 }
 
 async function writeNavigateAppState(recordingId: string): Promise<void> {
-  await fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ view: "recording", recordingId }),
-  }).catch(() => {});
+  await fetch(
+    agentNativePath(
+      `/_agent-native/application-state/navigate:${getBrowserTabId()}`,
+    ),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ view: "recording", recordingId }),
+    },
+  ).catch(() => {});
 }
 
 function userFacingActionErrorMessage(error: string): string {

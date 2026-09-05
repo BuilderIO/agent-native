@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  readAppState: vi.fn(),
+  readAppStateForCurrentTab: vi.fn(),
   getRequestUserEmail: vi.fn(),
   getSetting: vi.fn(),
   readSettings: vi.fn(),
@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: mocks.readAppState,
+  readAppStateForCurrentTab: mocks.readAppStateForCurrentTab,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -79,7 +79,7 @@ function email(id: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.readAppState.mockResolvedValue({ view: "inbox" });
+  mocks.readAppStateForCurrentTab.mockResolvedValue({ view: "inbox" });
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.getSetting.mockResolvedValue(null);
   mocks.readSettings.mockResolvedValue({ savedFilters: [], pinnedLabels: [] });
@@ -124,7 +124,7 @@ describe("view-screen Mail preview", () => {
   });
 
   it("refills after inbox filtering removes the provider sentinel", async () => {
-    mocks.readAppState.mockResolvedValue({
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",
       label: "important",
     });
@@ -181,7 +181,7 @@ describe("view-screen Mail preview", () => {
   });
 
   it("reports label-map failures as partial account coverage", async () => {
-    mocks.readAppState.mockResolvedValue({
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",
       label: "important",
     });
@@ -206,7 +206,7 @@ describe("view-screen Mail preview", () => {
   });
 
   it("limits label-map reads to the active account selection", async () => {
-    mocks.readAppState.mockResolvedValue({
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",
       label: "important",
       activeAccounts: [OWNER.toUpperCase()],
@@ -248,7 +248,7 @@ describe("view-screen Mail preview", () => {
 
   it("reports selected accounts that no longer resolve", async () => {
     const missingAccount = "missing@example.com";
-    mocks.readAppState.mockResolvedValue({
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",
       activeAccounts: [missingAccount],
     });
@@ -264,7 +264,7 @@ describe("view-screen Mail preview", () => {
   });
 
   it("does not read label maps for saved filters outside Inbox", async () => {
-    mocks.readAppState.mockResolvedValue({ view: "sent" });
+    mocks.readAppStateForCurrentTab.mockResolvedValue({ view: "sent" });
     mocks.readSettings.mockResolvedValue({
       savedFilters: [{ id: "filter", query: "from:sender@example.com" }],
       pinnedLabels: [],
@@ -298,7 +298,7 @@ describe("view-screen Mail preview", () => {
   });
 
   it("caps refill work for a sparse filtered partition", async () => {
-    mocks.readAppState.mockResolvedValue({
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",
       label: "important",
     });

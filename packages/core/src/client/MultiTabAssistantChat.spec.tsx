@@ -16,6 +16,7 @@ import {
   _resetAgentChatContextForTests,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import {
   MultiTabAssistantChat,
@@ -27,6 +28,22 @@ import type { ChatThreadScope, ChatThreadSummary } from "./use-chat-threads.js";
 afterEach(() => {
   invalidateClientStatusRequests();
 });
+
+function openTabsStorageKey(
+  storageKey: string,
+  scope?: { type: string; id: string },
+): string {
+  const scopePart = scope ? `:scope:${scope.type}:${scope.id}` : "";
+  return `agent-chat-open-tabs:${storageKey}:tab:${getBrowserTabId()}${scopePart}`;
+}
+
+function legacyOpenTabsStorageKey(
+  storageKey: string,
+  scope?: { type: string; id: string },
+): string {
+  const scopePart = scope ? `:scope:${scope.type}:${scope.id}` : "";
+  return `agent-chat-open-tabs:${storageKey}${scopePart}`;
+}
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -343,7 +360,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:bridge-test",
+      openTabsStorageKey("bridge-test"),
       JSON.stringify(["thread-1"]),
     );
     container = document.createElement("div");
@@ -1082,7 +1099,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   it("rehydrates the open tabs for the newly active resource scope", async () => {
     const storageKey = "scope-navigation-test";
     const scopedOpenTabsKey = (designId: string) =>
-      `agent-chat-open-tabs:${storageKey}:scope:design:${designId}`;
+      openTabsStorageKey(storageKey, { type: "design", id: designId });
     const baseThread = threadMocks.threads[0];
     threadMocks.threads = [
       { ...baseThread, id: "thread-a" },
@@ -1647,7 +1664,7 @@ describe("MultiTabAssistantChat cold-start first message", () => {
     // A tab is restored, but no thread is active yet — the exact cold-start
     // window where the bootstrap createThread() has not resolved.
     window.localStorage.setItem(
-      "agent-chat-open-tabs:cold-start",
+      openTabsStorageKey("cold-start"),
       JSON.stringify(["thread-1"]),
     );
     threadMocks.activeThreadId = "";
@@ -1711,7 +1728,7 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:mode-b",
+      openTabsStorageKey("mode-b"),
       JSON.stringify(["thread-1"]),
     );
     _resetAgentChatSubmitBufferForTests();
@@ -1995,7 +2012,7 @@ describe("MultiTabAssistantChat agent-team tabs", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:agent-team-test",
+      openTabsStorageKey("agent-team-test"),
       JSON.stringify(["thread-1"]),
     );
     container = document.createElement("div");
@@ -2096,7 +2113,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:dup-test",
+      openTabsStorageKey("dup-test"),
       JSON.stringify(["thread-1", "thread-2", "thread-2"]),
     );
 
@@ -2121,6 +2138,72 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       "thread-1",
       "thread-2",
     ]);
+  });
+
+  it("migrates legacy open tabs and sub-agent metadata into this browser tab", async () => {
+    const storageKey = "legacy-tab-migration-test";
+    const child = makeThread("thread-child");
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [
+      makeThread("thread-1"),
+      makeThread("thread-2"),
+      child,
+    ];
+    window.localStorage.setItem(
+      legacyOpenTabsStorageKey(storageKey),
+      JSON.stringify(["thread-1", "thread-2", "thread-2", "thread-child"]),
+    );
+    window.localStorage.setItem(
+      `agent-chat-parent-map:${storageKey}`,
+      JSON.stringify({ "thread-child": "thread-1" }),
+    );
+    window.localStorage.setItem(
+      `agent-chat-sub-agent-names:${storageKey}`,
+      JSON.stringify({ "thread-child": "Research" }),
+    );
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const tabId = getBrowserTabId();
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(openTabsStorageKey(storageKey)) ?? "null",
+      ),
+    ).toEqual(["thread-1", "thread-2"]);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          `agent-chat-parent-map:${storageKey}:tab:${tabId}`,
+        ) ?? "null",
+      ),
+    ).toEqual({ "thread-child": "thread-1" });
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          `agent-chat-sub-agent-names:${storageKey}:tab:${tabId}`,
+        ) ?? "null",
+      ),
+    ).toEqual({ "thread-child": "Research" });
   });
 
   it("replaces an active missing thread with a fresh chat", async () => {
@@ -2187,7 +2270,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       },
     ];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:short-title-test",
+      openTabsStorageKey("short-title-test"),
       JSON.stringify(["short-title-thread"]),
     );
 
@@ -2212,7 +2295,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:dup-active-test",
+      openTabsStorageKey("dup-active-test"),
       JSON.stringify(["thread-1", "thread-1"]),
     );
     // Mirrors the real `useChatThreads.createThread`, which sets the new
@@ -2259,7 +2342,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       makeThread("thread-3"),
     ];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:close-test",
+      openTabsStorageKey("close-test"),
       JSON.stringify(["thread-1", "thread-2", "thread-3"]),
     );
 
@@ -2321,7 +2404,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:last-tab-test",
+      openTabsStorageKey("last-tab-test"),
       JSON.stringify(["thread-1"]),
     );
     threadMocks.createThread.mockImplementation(async () => {
@@ -2363,7 +2446,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:duplicate-close-test",
+      openTabsStorageKey("duplicate-close-test"),
       JSON.stringify(["thread-1"]),
     );
 
@@ -2421,7 +2504,7 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     threadMocks.activeThreadId = "thread-1";
     threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];
     window.localStorage.setItem(
-      "agent-chat-open-tabs:backlog-test",
+      openTabsStorageKey("backlog-test"),
       JSON.stringify(["thread-1"]),
     );
 
@@ -2483,7 +2566,7 @@ describe("MultiTabAssistantChat page overlay", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:page-overlay-test",
+      openTabsStorageKey("page-overlay-test"),
       JSON.stringify(["thread-1"]),
     );
     container = document.createElement("div");
@@ -2600,7 +2683,7 @@ describe("MultiTabAssistantChat history popover", () => {
     );
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-chat-open-tabs:history-test",
+      openTabsStorageKey("history-test"),
       JSON.stringify(["thread-1"]),
     );
     container = document.createElement("div");

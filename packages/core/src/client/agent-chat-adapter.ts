@@ -27,6 +27,7 @@ import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentChatStreamingUrl, agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   createRunStreamToken,
@@ -2118,7 +2119,9 @@ export function createAgentChatAdapter(
   const harnessRef = options?.harnessRef;
   const hostedHarnessRef = options?.hostedHarnessRef;
   const execModeRef = options?.execModeRef;
-  const browserTabId = options?.browserTabId;
+  const browserTabId =
+    options?.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const scopeRef = options?.scopeRef;
   const surface = options?.surface ?? "app";
   // A queued recovery can survive until a server-owned continuation finishes,
@@ -2709,6 +2712,9 @@ export function createAgentChatAdapter(
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
+        if (browserTabId) {
+          headers["x-agent-native-browser-tab"] = browserTabId;
+        }
         try {
           const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
           if (tz) headers["x-user-timezone"] = tz;
