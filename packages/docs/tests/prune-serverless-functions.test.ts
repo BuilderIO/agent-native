@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertPrerendered,
   attributeChunks,
+  pruneFunction,
 } from "../scripts/prune-serverless-functions";
 
 /**
@@ -93,5 +94,19 @@ describe("prune-serverless-functions", () => {
     ]);
 
     expect(missing).toEqual([]);
+  });
+
+  it("keeps query-sensitive Getting Started chunks on the SSR function", () => {
+    const chunks = path.join(dir, "_chunks");
+    mkdirSync(chunks);
+    writeChunk("docs-content.mjs", [
+      [
+        "../../../core/docs/content/locales/fr-FR/getting-started.mdx",
+        "getting-started-FR.mjs",
+      ],
+    ]);
+    writeFileSync(path.join(chunks, "getting-started-FR.mjs"), "export {};\n");
+
+    expect(pruneFunction(dir)).toEqual({ removed: 0, bytes: 0 });
   });
 });

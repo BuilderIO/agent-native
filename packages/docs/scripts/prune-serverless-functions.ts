@@ -145,9 +145,16 @@ function pruneFunction(functionDir: string): {
   for (const chunk of localeOnly) {
     const keys = keysByChunk.get(chunk) ?? [];
     // A redirect slug never renders its own page, and a draft is not
-    // prerendered; both keep their chunk rather than gamble on the 301/500.
+    // prerendered; query-sensitive Getting Started also stays on SSR so its
+    // `?tab=cloud` variant has a renderer. Keep those chunks rather than
+    // gamble on a 301/404 or a missing query variant.
     if (
-      keys.some((key) => redirectSlugs.has(slugFromKey(key)) || isDraft(key))
+      keys.some((key) => {
+        const slug = slugFromKey(key);
+        return (
+          redirectSlugs.has(slug) || slug === "getting-started" || isDraft(key)
+        );
+      })
     ) {
       continue;
     }
