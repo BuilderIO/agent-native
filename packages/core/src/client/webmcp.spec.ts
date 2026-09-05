@@ -9,6 +9,7 @@ vi.mock("@mcp-b/webmcp-polyfill", () => ({
   initializeWebMCPPolyfill,
 }));
 
+import { getBrowserTabId } from "./browser-tab-id.js";
 import type { AgentNativeClientAction } from "./host-bridge.js";
 import {
   AgentNativeWebMcpUnsupportedError,

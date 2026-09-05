@@ -39,6 +39,21 @@ beforeEach(() => {
   testState.insertedValues = null;
 });
 
+describe("create-design description and next-step steering", () => {
+  it("does not steer callers toward show-design-questions or waiting for the user", () => {
+    expect(action.tool.description).not.toMatch(/wait for the user/i);
+    expect(action.tool.description).not.toMatch(/show-design-questions/);
+  });
+
+  it("points nextRequiredAction at authoring and saving the screen directly", async () => {
+    const result = await action.run({ title: "Todo app" });
+
+    expect(result.nextRequiredAction).not.toMatch(/wait for the user/i);
+    expect(result.nextRequiredAction).not.toMatch(/show-design-questions/);
+    expect(result.nextRequiredAction).toMatch(/generate-design|create-file/);
+  });
+});
+
 describe("create-design org visibility", () => {
   it("creates active-org designs as org-visible", async () => {
     await action.run({ title: "Team design" });

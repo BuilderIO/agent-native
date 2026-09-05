@@ -816,6 +816,28 @@ describe("generate-design: new-file creation path (unchanged)", () => {
     });
   });
 
+  it("lands urlPath and the deep link on the overview canvas focused on the new screen", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "New landing page",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Hello</body></html>",
+        },
+      ],
+    });
+
+    const savedFileId = result.savedFiles[0]!.id;
+    expect(result.urlPath).toBe(
+      `/design/design-1?view=overview&screen=${savedFileId}`,
+    );
+    const link = action.link?.({ args: {}, result });
+    expect(link?.url).toContain(`screen=${savedFileId}`);
+    expect(link?.url).toContain("view=editor");
+  });
+
   it("defaults a generated web screen to a desktop canvas and responsive breakpoints", async () => {
     await action.run({
       designId: "design-1",

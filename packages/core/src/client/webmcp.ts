@@ -119,8 +119,11 @@ interface NativeRegisteredTool {
   annotations?: unknown;
 }
 
-const DEFAULT_INPUT_CHARS = 20_000;
-const DEFAULT_RESULT_CHARS = 50_000;
+// A single authored screen, deck, or document must fit in one write: a
+// hand-authored HTML screen alone is routinely 30-80k chars, so these match
+// DEFAULT_MANIFEST_CHARS rather than a smaller "typical tool call" size.
+const DEFAULT_INPUT_CHARS = 500_000;
+const DEFAULT_RESULT_CHARS = 500_000;
 const DEFAULT_SCHEMA_CHARS = 50_000;
 const DEFAULT_DESCRIPTION_CHARS = 2_000;
 const DEFAULT_TOOL_COUNT = 100;

@@ -11,9 +11,9 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import {
   assertValidFields,
-  FIELD_TYPES,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
+import { formFieldSchema } from "../shared/field-schema.js";
 import {
   assertValidFormCompletionSettings,
   FORM_SETTINGS_KEYS,
@@ -53,10 +53,10 @@ export default defineAction({
     // array/object — the UI POSTs JSON bodies via useActionMutation, which
     // serializes the inputs directly.
     fields: z
-      .union([z.string(), z.array(z.any())])
+      .union([z.string(), z.array(formFieldSchema)])
       .optional()
       .describe(
-        `Array of complete field objects with id, type, label, and required (or JSON string of the same). Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings such as 'text: Enter a name'.`,
+        "Array of complete field objects (or JSON string of the same). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'.",
       ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])

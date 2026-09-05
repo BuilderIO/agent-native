@@ -89,7 +89,8 @@ const editDocumentSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Replacement text in single-edit mode; omit to delete the matched text (default: "").',
+      'Replacement text in single-edit mode; omit to delete the matched text (default: ""). ' +
+        'Plain Markdown body, no admonition/callout shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
     ),
   edits: textEditsSchema
     .optional()
@@ -119,13 +120,15 @@ const externalEditDocumentSchema = editDocumentSchema.extend({
     .string()
     .min(1)
     .describe(
-      "Opaque revision returned by get-document for the exact body being edited.",
+      "Required. Opaque revision returned by get-document for the exact body being edited.",
     ),
   idempotencyKey: z
     .string()
     .min(1)
     .max(200)
-    .describe("Caller-generated stable key for one logical document edit."),
+    .describe(
+      "Required. Caller-generated stable key for one logical document edit.",
+    ),
 });
 
 async function resolveEditCreativeContext(args: {

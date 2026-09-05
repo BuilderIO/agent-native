@@ -23,9 +23,8 @@ function designDeepLink(designId: string): string {
 export default defineAction({
   description:
     "Create a new empty design project shell. This is not a renderable " +
-    "artifact by itself. For non-trivial new prompts, call " +
-    "show-design-questions next and wait for the user's answers; only call " +
-    "generate-design directly when the direction is already unambiguous.",
+    "artifact by itself — author the screen HTML next and save it with " +
+    "generate-design (files + canvasFrames) or create-file.",
   schema: z.object({
     id: z
       .string()
@@ -96,7 +95,7 @@ export default defineAction({
       projectType,
       renderable: false,
       nextRequiredAction:
-        "show-design-questions for non-trivial new prompts, then generate-design or present-design-variants after the user answers",
+        "Author the screen HTML, then save it with generate-design or create-file.",
     };
   },
   link: ({ result }) => {

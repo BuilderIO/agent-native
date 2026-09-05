@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -166,10 +166,21 @@ function sourceEditabilityForDeck(
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Read a Slides deck or one slide. Pass the deck ID as `id` and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits.",
+    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits.",
   timeoutMs: 60_000,
   schema: z.object({
-    id: z.string().min(1).describe("Deck ID"),
+    id: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Deck ID. `deckId` is accepted as an alias; pass either one."),
+    deckId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Deck ID. Alias of `id`, matching create-deck / add-slide / update-slide / patch-deck.",
+      ),
     slideId: z
       .string()
       .optional()
@@ -201,7 +212,14 @@ export default defineAction({
     }),
   },
   run: async (args, ctx) => {
-    const { row, data, slides } = await loadDeckWithUniqueSlideIds(args.id);
+    const deckId = args.deckId ?? args.id;
+    if (!deckId) {
+      fail("Pass the deck id as `id` or `deckId`.", {
+        errorCode: "deck_id_missing",
+        statusCode: 400,
+      });
+    }
+    const { row, data, slides } = await loadDeckWithUniqueSlideIds(deckId);
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -321,12 +339,16 @@ export default defineAction({
     };
   },
   link: ({ result, args }) => {
-    const id =
-      result && typeof result === "object"
-        ? (result as { id?: string }).id
+    const argId =
+      typeof args.deckId === "string"
+        ? args.deckId
         : typeof args.id === "string"
           ? args.id
           : undefined;
+    const id =
+      result && typeof result === "object"
+        ? (result as { id?: string }).id
+        : argId;
     if (!id) return null;
     return {
       url: deckDeepLink(id),

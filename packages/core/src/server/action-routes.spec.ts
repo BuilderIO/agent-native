@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getRequestRunContext } from "./request-context.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
@@ -2656,6 +2657,63 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).resolves.toEqual({ caller: "webmcp" });
     expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves getRequestRunContext().browserTabId from X-Agent-Native-Browser-Tab, on both the webmcp and /mcp/tool paths, and leaves it undefined without the header", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    // The action itself reads the context — same helper
+    // `readAppStateForCurrentTab` (application-state/script-helpers.ts) uses
+    // to scope app state to the calling tab.
+    const run = vi.fn(async () => ({
+      browserTabId: getRequestRunContext()?.browserTabId,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(nitroApp, {
+      eligible: {
+        tool: { description: "Eligible", parameters: { type: "object" } },
+        run,
+        readOnly: true,
+      } as any,
+    });
+
+    const webMcpRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
+    );
+    const mcpToolRoute = mounted.find(
+      ({ path }) => path === "/mcp/tool/eligible",
+    );
+
+    await expect(
+      webMcpRoute?.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-browser-tab": "tab-abc123" },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+
+    await expect(
+      mcpToolRoute?.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-browser-tab": "tab-abc123" },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+
+    // No header sent (CLI/external-agent callers that predate tab scoping):
+    // no id is fabricated, it just stays undefined.
+    await expect(
+      webMcpRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: undefined });
   });
 
   it("serves only explicitly public read-only actions to anonymous pages", async () => {
