@@ -7,6 +7,16 @@ packages/core/docs/content/locales/ar-SA/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/ar-SA/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ar-SA/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ar-SA/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/ar-SA/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/ar-SA/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/ar-SA/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ar-SA/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ar-SA/progress.mdx|Writing to target DB
@@ -23,6 +33,17 @@ packages/core/docs/content/locales/ar-SA/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Top objectives
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Workstreams table
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Open questions
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/ar-SA/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ar-SA/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ar-SA/toolkit-context-knowledge.mdx|Context X-Ray
@@ -37,6 +58,16 @@ packages/core/docs/content/locales/de-DE/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/de-DE/file-uploads.mdx|No provider
 packages/core/docs/content/locales/de-DE/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/de-DE/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/de-DE/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/de-DE/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/de-DE/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/de-DE/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/de-DE/progress.mdx|Writing to target DB
@@ -52,6 +83,17 @@ packages/core/docs/content/locales/de-DE/template-content.mdx|Top objectives
 packages/core/docs/content/locales/de-DE/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/de-DE/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/de-DE/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Open questions
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/de-DE/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/de-DE/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/de-DE/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
@@ -63,6 +105,16 @@ packages/core/docs/content/locales/es-ES/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/es-ES/file-uploads.mdx|No provider
 packages/core/docs/content/locales/es-ES/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/es-ES/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/es-ES/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/es-ES/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/es-ES/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/es-ES/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/es-ES/progress.mdx|Writing to target DB
@@ -80,6 +132,17 @@ packages/core/docs/content/locales/es-ES/template-content.mdx|Top objectives
 packages/core/docs/content/locales/es-ES/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/es-ES/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/es-ES/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Open questions
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/es-ES/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/es-ES/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/es-ES/toolkit-context-knowledge.mdx|Context X-Ray
@@ -92,6 +155,16 @@ packages/core/docs/content/locales/fr-FR/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/fr-FR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/fr-FR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/fr-FR/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/fr-FR/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/fr-FR/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/fr-FR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/fr-FR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/fr-FR/progress.mdx|Writing to target DB
@@ -109,6 +182,17 @@ packages/core/docs/content/locales/fr-FR/template-content.mdx|Top objectives
 packages/core/docs/content/locales/fr-FR/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/fr-FR/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/fr-FR/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Open questions
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/fr-FR/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/fr-FR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/fr-FR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/fr-FR/toolkit-context-knowledge.mdx|Context X-Ray
@@ -137,6 +221,16 @@ packages/core/docs/content/locales/hi-IN/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/hi-IN/file-uploads.mdx|No provider
 packages/core/docs/content/locales/hi-IN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/hi-IN/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/hi-IN/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/hi-IN/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/hi-IN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/hi-IN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/hi-IN/progress.mdx|Writing to target DB
@@ -153,6 +247,17 @@ packages/core/docs/content/locales/hi-IN/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Top objectives
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Workstreams table
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Open questions
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/hi-IN/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/hi-IN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/hi-IN/toolkit-context-knowledge.mdx|Context X-Ray
@@ -166,6 +271,16 @@ packages/core/docs/content/locales/ja-JP/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/ja-JP/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ja-JP/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ja-JP/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/ja-JP/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/ja-JP/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/ja-JP/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ja-JP/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ja-JP/progress.mdx|Writing to target DB
@@ -183,6 +298,17 @@ packages/core/docs/content/locales/ja-JP/template-content.mdx|Top objectives
 packages/core/docs/content/locales/ja-JP/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/ja-JP/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/ja-JP/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Open questions
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/ja-JP/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ja-JP/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ja-JP/toolkit-context-knowledge.mdx|Context X-Ray
@@ -196,6 +322,16 @@ packages/core/docs/content/locales/ko-KR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ko-KR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ko-KR/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/ko-KR/onboarding.mdx|Hide setup
+packages/core/docs/content/locales/ko-KR/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/ko-KR/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/ko-KR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ko-KR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ko-KR/progress.mdx|Writing to target DB
@@ -212,6 +348,17 @@ packages/core/docs/content/locales/ko-KR/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Top objectives
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Workstreams table
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Open questions
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/ko-KR/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ko-KR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ko-KR/toolkit-context-knowledge.mdx|Context X-Ray
@@ -226,6 +373,16 @@ packages/core/docs/content/locales/pt-BR/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/pt-BR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/pt-BR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/pt-BR/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/pt-BR/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/pt-BR/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/pt-BR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/pt-BR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/pt-BR/progress.mdx|Writing to target DB
@@ -242,6 +399,17 @@ packages/core/docs/content/locales/pt-BR/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Top objectives
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Workstreams table
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Open questions
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/pt-BR/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/pt-BR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/pt-BR/toolkit-context-knowledge.mdx|Context X-Ray
@@ -258,6 +426,16 @@ packages/core/docs/content/locales/zh-CN/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/zh-CN/file-uploads.mdx|No provider
 packages/core/docs/content/locales/zh-CN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-CN/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/zh-CN/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/zh-CN/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/zh-CN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-CN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-CN/progress.mdx|Writing to target DB
@@ -274,6 +452,17 @@ packages/core/docs/content/locales/zh-CN/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Top objectives
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Workstreams table
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Open questions
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/zh-CN/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/zh-CN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-CN/toolkit-context-knowledge.mdx|Context X-Ray
@@ -290,6 +479,16 @@ packages/core/docs/content/locales/zh-TW/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/zh-TW/file-uploads.mdx|No provider
 packages/core/docs/content/locales/zh-TW/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-TW/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/zh-TW/plan-plugin.mdx|OAuth in the browser
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|Another literal.
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|Fixes and improvements reach this repo automatically on each run.
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|Lines starting with # are comments.
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|Literal substring — any diff line containing this string is allowed.
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|Or with a pinned ref for reproducibility:
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|To pin a specific version for reproducibility replace '@main' with a
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|Write the thin caller instead of the full copy:
+packages/core/docs/content/locales/zh-TW/pr-visual-recap.mdx|tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 packages/core/docs/content/locales/zh-TW/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-TW/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-TW/progress.mdx|Writing to target DB
@@ -306,6 +505,17 @@ packages/core/docs/content/locales/zh-TW/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Top objectives
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Workstreams table
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Annotated code walkthrough
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Checkout redesign plan
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Current wireframe
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Decision: keep existing checkout shell
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Hand back feedback
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Implementation plan
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Open questions
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Pin on primary CTA
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Proposed wireframe
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Question for agent
+packages/core/docs/content/locales/zh-TW/template-plan.mdx|Resolved copy note
 packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/zh-TW/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-TW/toolkit-context-knowledge.mdx|Context X-Ray

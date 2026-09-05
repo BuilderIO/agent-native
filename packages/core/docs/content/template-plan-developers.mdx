@@ -5,43 +5,89 @@ description: "The Plan template's data model, action surface, custom MDX block s
 
 # Extending Plan
 
-This page is for anyone customizing or self-hosting the Plan template, or writing
-a coding agent integration against its actions directly. Most users should
-install the skill with the CLI instead of scaffolding the app — see
+This page is for anyone customizing or self-hosting the Plan template, or
+writing a coding agent integration against its actions directly. Most users
+should install the skill with the CLI instead of scaffolding the app — see
 [Visual Plans](/docs/template-plan).
 
-## Quick start
+## Quick start {#quick-start}
+
+<Steps>
+
+### Create the app
 
 ```bash
 npx @agent-native/core@latest create my-plans --standalone --template plan
 cd my-plans
 pnpm install
+```
+
+This needs [Node.js](https://nodejs.org) 22 or later and
+[pnpm](https://pnpm.io) installed first. See
+[Getting started](/docs/getting-started) if you haven't installed either
+yet.
+
+### Start the dev server
+
+```bash
 pnpm dev
 ```
 
-The hosted app-backed skill uses:
+</Steps>
+
+The hosted app-backed skill most users install instead uses:
 
 - App: `https://plan.agent-native.com`
 - MCP: `https://plan.agent-native.com/mcp`
 
-The local template is useful when you are developing Plans itself, testing
+The local template is useful when you're developing Plans itself, testing
 local persistence, or running a fully self-hosted review surface.
+
+<FileTree
+  id="doc-block-plan-layout"
+  title="Plan template layout"
+  entries={[
+    {
+      path: "actions/",
+      note: "defineAction operations — the single source of truth",
+    },
+    { path: "app/routes/", note: "React Router file routes" },
+    {
+      path: "app/components/plan/",
+      note: "the plan review UI and the browser block registry",
+    },
+    { path: "server/db/schema.ts", note: "Drizzle schema — plan tables" },
+    {
+      path: "shared/plan-content.ts",
+      note: "the normalized plan content model (PlanBlock union)",
+    },
+    {
+      path: "shared/plan-block-registry.ts",
+      note: "server-side, React-free block registry",
+    },
+    {
+      path: ".agents/skills/",
+      note: "31 skills — plan-authoring-flow, plan-comments-and-feedback, plan-events, plan-source-sync, and more",
+    },
+    { path: "AGENTS.md", note: "top-level agent guide" },
+  ]}
+/>
 
 ## Data model
 
 Schema lives in `templates/plan/server/db/schema.ts`. Core tables:
 
-| Table              | What it holds                                                                                                                                                                           |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url`, `deleted_at`/`deleted_by` |
-| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
+| Table              | What it holds                                                                                                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id`/`url`, usage stats, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                             |
 | `plan_comments`    | Threaded comments — `parent_comment_id`, `kind`, `status`, `anchor`, `message`, `author_email`, `resolution_target`, `mentions_json`, `resolved_by`                                     |
 | `plan_events`      | Audit log of agent/human events on a plan — `type`, `message`, JSON `payload`, `created_by`                                                                                             |
-| `plan_reports`     | Abuse reports on a public plan — `reason`, `status`, `reporter_email`, `occurrence_count`                                                                                               |
+| `plan_reports`     | Abuse reports on a public plan — `reason`, `status`, `reporter_email`, `occurrence_count`                                                                                                |
 | `plan_versions`    | Point-in-time snapshots for version history — `snapshot_json`, `change_label`, plus denormalized `block_count`/`section_count`/`preview_text` for fast listing                          |
-| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                                                    |
-| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                                           |
-| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                                                 |
+| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                                                     |
+| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                                            |
+| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                                                  |
 
 <DataModel
   id="doc-block-1dtds8f"
@@ -457,28 +503,29 @@ Schema lives in `templates/plan/server/db/schema.ts`. Core tables:
   ]}
 />
 
-## Key actions
+## Action inventory {#action-inventory}
 
-Actions in `templates/plan/actions/`:
+Every operation is a TypeScript file in `templates/plan/actions/`, auto-mounted
+at `POST /_agent-native/actions/:name`.
 
-- **Creation & conversion** — `create-visual-plan`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`, `create-visual-recap`, `visualize-plan`, `convert-visual-plan-to-prototype`
-- **Reading & editing** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `show-visual-plan`, `get-plan-blocks`, `list-plan-components`, `visual-answer`
+- **Creation and conversion** — `create-visual-plan`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`, `create-visual-recap`, `visualize-plan`, `convert-visual-plan-to-prototype`
+- **Reading and editing** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `show-visual-plan`, `get-plan-blocks`, `list-plan-components`, `visual-answer`
 - **Lifecycle** — `delete-visual-plan` for owner-only soft delete, restore, and typed-confirmation permanent delete
-- **Publishing & sharing** — `publish-visual-plan`, `export-visual-plan`
+- **Publishing and sharing** — `publish-visual-plan`, `export-visual-plan`
 - **Versions** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
-- **Feedback & moderation** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`, `report-visual-plan`
-- **Access** — `get-plan-access-status`, `request-plan-access` — both browser-only (`agentTool: false`); the agent does not call these itself
+- **Feedback and moderation** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`, `report-visual-plan`
+- **Access** — `get-plan-access-status`, `request-plan-access` — both browser-only (`agentTool: false`); the agent never calls these itself
 - **MDX source sync** — `read-visual-plan-source`, `import-visual-plan-source`, `patch-visual-plan-source`
 - **Local plan folders (DB-free)** — `get-local-plan-folder`, `update-local-plan-folder`, `update-local-plan-comments`, `promote-local-plan-folder`, `validate-local-plan-source`
-- **Context & navigation** — `view-screen`, `navigate`
+- **Context and navigation** — `view-screen`, `navigate`
 - **Search** — `search-pr-recaps`
 
 ## Custom MDX blocks {#custom-mdx-blocks}
 
-Plans source files are MDX, but the app does not render arbitrary imported JSX
-components. A custom MDX tag must be registered as a Plan block so the server can
-parse and serialize it, the browser can render and edit it, and the agent can
-see it in the block vocabulary returned by `get-plan-blocks`.
+Plans source files are MDX, but the app doesn't render arbitrary imported JSX
+components. A custom MDX tag must be registered as a Plan block so the server
+can parse and serialize it, the browser can render and edit it, and the agent
+can see it in the block vocabulary returned by `get-plan-blocks`.
 
 A registered block has three surfaces:
 
@@ -486,15 +533,16 @@ A registered block has three surfaces:
 - A normalized runtime type/schema entry in `shared/plan-content.ts`.
 - A browser block spec with `Read` and optional `Edit` React components.
 
-Keep the block `type` and MDX `tag` stable. The `type` is stored in normalized
-plan JSON; the `tag` is the component name in `plan.mdx`. The registry handles
-the base MDX attributes `id`, `title`, `summary`, and `editable`, so do not
-repeat them in `toAttrs`.
+Keep the block `type` and MDX `tag` stable. The `type` is stored in
+normalized plan JSON; the `tag` is the component name in `plan.mdx`. The
+registry handles the base MDX attributes `id`, `title`, `summary`, and
+`editable`, so don't repeat them in `toAttrs`.
 
 1. Add a shared config for the data shape and MDX round trip.
 
 <AnnotatedCode
   id="doc-block-plan6"
+  title="Defining a new block's data shape and MDX round trip"
   filename="templates/plan/shared/risk-card.config.ts"
   language="ts"
   code={
@@ -527,10 +575,10 @@ repeat them in `toAttrs`.
 2. Extend the normalized Plan content model in
    `templates/plan/shared/plan-content.ts`.
 
-Add the new `type` to `PlanBlockType`, add a matching block interface to the
-`PlanBlock` union, and add the same data shape to `planBlockSchema`. This keeps
-database saves, source imports, and `update-block` patches validating the custom
-block instead of rejecting it as an unknown type.
+   Add the new `type` to `PlanBlockType`, add a matching block interface to
+   the `PlanBlock` union, and add the same data shape to `planBlockSchema`.
+   This keeps database saves, source imports, and `update-block` patches
+   validating the custom block instead of rejecting it as an unknown type.
 
 3. Register the React-free server spec in
    `templates/plan/shared/plan-block-registry.ts`.
@@ -629,10 +677,10 @@ Token refresh failures can strand active reviewer sessions.
 </RiskCard>
 ```
 
-The server registry makes this source importable/exportable, and the client
-registry makes it render in `PlanBlockView`. If the block should be generated by
-agents, keep `label`, `description`, `placement`, and `empty` precise; those
-fields flow into the live block vocabulary.
+The server registry makes this source importable and exportable, and the
+client registry makes it render in `PlanBlockView`. If the block should be
+generated by agents, keep `label`, `description`, `placement`, and `empty`
+precise — those fields flow into the live block vocabulary.
 
 When overriding an existing block, register the override after the shared
 library registration. Last registration wins for both `type` and MDX `tag`.
@@ -668,30 +716,53 @@ pnpm --filter plan test -- plan-mdx plan-block-registry
       path: "app/routes/agent.tsx",
       note: "the standard /agent context/files/connections/jobs/access surface",
     },
-    {
-      path: ".agents/skills/",
-      note: "27 skills — plan-authoring-flow, plan-comments-and-feedback, plan-events, plan-source-sync, plan-version-history, and more",
-    },
   ]}
 />
 
 `app/routes/extensions.tsx` and `app/routes/team.tsx` are thin redirects to
 `/settings/extensions` and `/settings/organization` — Plan installs the same
-framework-wide [Extensions](/docs/extensions) mini-app system and organization
-management every other template gets, rather than a Plan-specific system.
-Extensions are sandboxed Alpine.js mini-apps a user installs at runtime from
-Settings; they are unrelated to the custom MDX blocks above, which are
-TypeScript block types compiled into the Plan renderer itself. Use an
-extension when you want a small widget inside Plan without a code change; use
-a custom MDX block when the plan content itself needs a new structured shape.
+framework-wide [Extensions](/docs/extensions) mini-app system and
+organization management every other template gets, rather than a
+Plan-specific system. Extensions are sandboxed Alpine.js mini-apps a user
+installs at runtime from Settings; they're unrelated to the custom MDX
+blocks above, which are TypeScript block types compiled into the Plan
+renderer itself. Use an extension when you want a small widget inside Plan
+without a code change; use a custom MDX block when the plan content itself
+needs a new structured shape.
 
 ## Local mode (advanced, offline) {#local-mode}
 
-For fully offline, no-account use, you can run the Plans app locally and point
-it at local MDX folders. For the stricter no-DB path, use
+For fully offline, no-account use, you can run the Plans app locally and
+point it at local MDX folders. For the stricter no-DB path, use
 [local-files privacy mode](/docs/template-plan-local-and-desktop#local-files),
-which reads from MDX folders instead of creating local SQL rows. Local mode is
-a separate, advanced path — not the default hosted flow.
+which reads from MDX folders instead of creating local SQL rows. Local mode
+is a separate, advanced path — not the default hosted flow.
+
+## Customizing it
+
+Every part of the app is editable source. Start here:
+
+- **`templates/plan/actions/`** — add a new file with `defineAction` to
+  expose new capability to both the agent and the frontend.
+- **`templates/plan/app/routes/`** — the page surface listed above.
+- **`templates/plan/app/components/plan/`** — the review UI: the plan
+  viewer, comment threads, and the browser block registry
+  (`planBlocks.tsx`).
+- **`templates/plan/server/db/schema.ts`** — the data model. Add columns or
+  tables with Drizzle; migrations must be strictly additive, never dropping
+  or renaming an existing table or column.
+- **`templates/plan/shared/plan-content.ts` and
+  `plan-block-registry.ts`** — the custom MDX block system described above.
+- **`templates/plan/.agents/skills/`** — guidance the agent reads before
+  acting, including `plan-authoring-flow`, `plan-comments-and-feedback`,
+  `plan-events`, and `plan-source-sync`. Add a new skill folder when you add
+  a capability big enough to need its own guidance.
+- **`templates/plan/AGENTS.md`** — the top-level agent guide. Update it
+  whenever you add a feature so the agent discovers it without exploring.
+
+The agent can make most of these changes itself — ask it to "add a due-date
+field to plans and surface it in the plan list" and it will update the
+schema, migrate, wire the UI, and write the action.
 
 ## What's next
 

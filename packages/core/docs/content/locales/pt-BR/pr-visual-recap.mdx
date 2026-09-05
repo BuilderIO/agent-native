@@ -1,65 +1,97 @@
 ---
-title: "Recapitulação visual de relações públicas"
-description: "Uma ação GitHub que executa a habilidade de recapitulação visual do seu repositório em cada PR. Um agente de codificação LLM lê a comparação, publica um plano de recapitulação interativo, mostra uma verificação informativa e publica um comentário de PR fixo com uma captura de tela embutida. Informativo e sem bloqueio."
+title: "Recapitulação Visual de PR"
+description: "Uma GitHub Action que roda a habilidade visual-recap do seu repositório em cada PR. Um agente de codificação com LLM lê o diff, publica um plano de recapitulação interativo, mostra uma verificação informativa e publica um comentário fixo no PR com uma captura de tela embutida. Informativo e não bloqueante."
 ---
 
-# Recapitulação visual de relações públicas
+# Recapitulação Visual de PR
 
-PR Visual Recap é uma ação GitHub que transforma cada pull request em uma **revisão visual de código**. Em cada push, um agente de codificação LLM executa a habilidade [`visual-recap`](/docs/template-plan) empacotada mais recente (ou a cópia confirmada do seu repositório quando `VISUAL_RECAP_SKILL_SOURCE=repo`) em relação ao diferencial de PR, publica um plano de recapitulação estruturado no aplicativo de Planos hospedado, mostra uma verificação `Visual Recap` informativa enquanto é executado e exibe **um comentário de PR fixo** vinculado ao plano interativo com uma **captura de tela embutida** incorporada diretamente no comente.
+A Recapitulação Visual de PR é uma GitHub Action que transforma cada pull
+request em uma **revisão de código visual**, sem que ninguém precise se
+lembrar de rodar um comando manualmente. Esta página é para quem está
+instalando, configurando ou protegendo essa Action. A cada push, um agente
+de codificação com LLM roda a habilidade
+[`visual-recap`](/docs/template-plan) empacotada mais recente (ou a cópia
+commitada do seu repositório, quando `VISUAL_RECAP_SKILL_SOURCE=repo`)
+sobre o diff do PR, publica um plano de recapitulação estruturado no
+aplicativo Plans hospedado, mostra uma verificação informativa
+`Visual Recap` enquanto roda, e cria ou atualiza **um único comentário fixo
+de PR** que aponta para o plano interativo com uma **captura de tela
+embutida** diretamente no comentário.
 
-Este não é um renderizador de comparação determinístico. A ação invoca um agente de codificação real (Código Claude CLI por padrão, ou OpenAI Codex CLI) que lê a alteração, decide o que importa e cria a recapitulação chamando a ferramenta Planos MCP `create-visual-recap` - a mesma ferramenta que o comando de barra `/visual-recap` usa. Você obtém uma visão de alta altitude, esquema/API/antes e depois da mudança, em vez de uma parede de diferenças brutas.
+Isso não é um renderizador de diff determinístico. A action invoca um
+agente de codificação real (CLI do Claude Code por padrão, CLI do OpenAI
+Codex, ou Agent-Native Code com um provedor compatível com OpenAI) que lê a
+mudança, decide o que importa e escreve a recapitulação chamando a
+ferramenta MCP do Plans `create-visual-recap` — a mesma ferramenta que o
+comando de barra `/visual-recap` usa. Você obtém uma visão de alto nível, em
+blocos de schema/API/antes-depois da mudança, em vez de uma parede de diff
+bruto.
 
-A recapitulação é **informativa e não bloqueadora**. Ele cria uma linha de verificação para que os revisores possam ver que a geração está em andamento, mas não é uma verificação obrigatória, nunca bloqueia o PR e nunca substitui a leitura da comparação real. O comentário fixo é um auxílio à revisão, não uma aprovação.
+A recapitulação é **informativa e não bloqueante**. Ela cria uma linha de
+verificação para que os revisores vejam que a geração está em andamento,
+mas não é uma verificação obrigatória, nunca bloqueia o PR e nunca substitui
+a leitura do diff de fato. O comentário fixo é um auxílio de revisão, não
+uma aprovação.
 
-## O que faz
+## O que ela faz
 
-Em cada push de PR, o fluxo de trabalho:
+A cada push no PR, o workflow:
 
-1. Coleta uma diferença limitada entre a base e o cabeçalho do PR.
-2. Cria uma verificação informativa `Visual Recap` GitHub com `Visual recap in progress`.
-3. Executa o agente de codificação configurado nessa comparação. O agente lê o guia de habilidades `visual-recap` incluído (ou sua cópia fixada no repositório) e escreve uma recapitulação, publicando-a com `create-visual-recap`.
-4. Lê o plano publicado URL que o agente escreveu para `recap-url.txt`.
-5. Abre aquele URL no Chrome sem cabeça e captura a tela do plano renderizado nos modos claro e escuro.
-6. Carrega os PNGs em uma rota de imagem pública assinada no aplicativo Planos.
-7. Insere um único comentário de PR fixo que incorpora as capturas de tela **inline** com um elemento `<picture>` (veiculado por meio do proxy de imagem camuflada do GitHub) ao lado do link para a recapitulação interativa.
-8. Conclui a verificação `Visual Recap` como bem-sucedida, ignorada ou neutra.
+1. Coleta um diff limitado entre a base e o head do PR.
+2. Cria uma verificação informativa `Visual Recap` no GitHub com
+   `Visual recap in progress`.
+3. Roda o agente de codificação configurado sobre esse diff. O agente lê as
+   instruções da habilidade `visual-recap` empacotada (ou a cópia fixada no
+   seu repositório) e escreve uma recapitulação, publicando-a com
+   `create-visual-recap`.
+4. Lê a URL do plano publicado que o agente escreveu em `recap-url.txt`.
+5. Abre essa URL em um Chrome headless e captura o plano renderizado nos
+   modos claro e escuro.
+6. Envia os PNGs para uma rota de imagem pública assinada no aplicativo
+   Plans.
+7. Cria ou atualiza um único comentário fixo de PR que incorpora as
+   capturas de tela **embutidas** com um elemento `<picture>` (servido pelo
+   proxy de imagens camo do GitHub) ao lado do link para a recapitulação
+   interativa.
+8. Conclui a verificação `Visual Recap` como sucesso, ignorada ou neutra.
 
-<Diagram id="doc-block-8iqfz5" title={"O que acontece em cada push de relações públicas"} summary={"Uma comparação limitada alimenta um agente de codificação real, que cria uma recapitulação; o fluxo de trabalho faz uma captura de tela e exibe um comentário fixo."}>
+<Diagram id="doc-block-1af1rpi" title="O que acontece a cada push no PR" summary={"Um diff limitado alimenta um agente de codificação real, que escreve uma recapitulação; o workflow a captura em tela e cria ou atualiza um único comentário fixo."}>
 
 ```html
 <div class="diagram-recap">
   <div class="diagram-node">
-    Push do PR<br /><small class="diagram-muted"
-      >bounded base&hellip;head diff</small
+    Push no PR<br /><small class="diagram-muted"
+      >diff limitado base&hellip;head</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
-    Agente de código<br /><small class="diagram-muted"
-      >Claude Code / Codex lê o diff</small
+    Agente de codificação<br /><small class="diagram-muted"
+      >backend configurado lê o diff</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">
     <span class="diagram-pill accent">create-visual-recap</span
-    ><small class="diagram-muted">publishes recap plan</small>
+    ><small class="diagram-muted">publica o plano de recapitulação</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
     Chrome headless<br /><small class="diagram-muted"
-      >light + dark screenshots</small
+      >capturas em modo claro e escuro</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box">
-    Um comentário fixo no PR<br /><small class="diagram-muted"
-      >inline screenshot + plan link</small
+    Um comentário fixo de PR<br /><small class="diagram-muted"
+      >captura de tela embutida + link do plano</small
     >
   </div>
 </div>
 <div class="diagram-foot diagram-muted">
-  Plus an informational <span class="diagram-pill">Visual Recap</span> check
-  &mdash; non-blocking, never required.
+  Além de uma verificação informativa
+  <span class="diagram-pill">Visual Recap</span> &mdash; não bloqueante,
+  nunca obrigatória.
 </div>
 ```
 
@@ -90,179 +122,322 @@ Em cada push de PR, o fluxo de trabalho:
 
 </Diagram>
 
-Um re-push atualiza o mesmo plano e o mesmo comentário fixo em vigor – sem planos órfãos, sem spam de comentários.
+Um novo push atualiza o mesmo plano e o mesmo comentário fixo no lugar —
+sem planos órfãos, sem spam de comentários.
 
 ## Instalando
 
-Quando você instala Planos interativamente, o Agent-Native CLI pergunta se deseja adicionar
-recapitulações visuais automáticas de relações públicas. Diga sim para escrever a ação GitHub ou adicione-a
-explicitamente a qualquer momento:
+Ao instalar o Plans de forma interativa, o CLI do Agent-Native pergunta se
+deseja adicionar Recapitulações Visuais de PR automáticas. Diga sim para
+escrever a GitHub Action, ou adicione explicitamente a qualquer momento:
 
 ```bash
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-Isso instala a habilidade `visual-plan` (que inclui a habilidade `visual-recap` que a ação executa) e grava `.github/workflows/pr-visual-recap.yml` em seu repositório. O fluxo de trabalho chama **subcomandos CLI publicados** por meio de `npx @agent-native/recap-cli@latest recap <subcommand>` — incluindo `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check` e `usage` – portanto, nada é copiado em seu repositório como scripts auxiliares. `setup` e `doctor` são os auxiliares interativos que você executa localmente; `gate` é a etapa de segurança que o fluxo de trabalho executa antes de cada recapitulação.
+Isso instala a habilidade `visual-plan` (que inclui a habilidade
+`visual-recap` que a action executa) e escreve
+`.github/workflows/pr-visual-recap.yml` no seu repositório. O workflow
+chama **subcomandos publicados do CLI** por meio de
+`npx @agent-native/recap-cli@latest recap <subcommand>` — incluindo `gate`,
+`collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`,
+`shot`, `comment`, `check` e `usage` — então nada é copiado para o seu
+repositório como scripts auxiliares. `setup` e `doctor` são os auxiliares
+interativos que você roda localmente; `gate` é a etapa de portão de
+segurança que o workflow roda antes de cada recapitulação.
 
-Em seguida, execute o assistente de configuração guiada:
+Depois rode o auxiliar de configuração guiada:
 
 ```bash
 npx @agent-native/recap-cli@latest recap setup
 npx @agent-native/recap-cli@latest recap doctor
 ```
 
-`recap setup` atualiza o fluxo de trabalho, usa `gh` para definir GitHub Actions
-segredos/variáveis quando os valores estão disponíveis no ambiente ou nos planos locais
-armazenamento de token de publicação e imprime comandos exatos que faltam para qualquer coisa que não pode
-conjunto. Os valores secretos são enviados para `gh` por meio de stdin, não por argumentos de comando. Confirmar
-o arquivo de fluxo de trabalho gerado e abra um PR para vê-lo ser executado.
+O `recap setup` atualiza o workflow, usa o `gh` para definir
+secrets/variáveis da GitHub Action quando os valores estão disponíveis a
+partir do ambiente ou do armazenamento local de token de publicação do
+Plans, e imprime os comandos exatos que faltam para o que não conseguir
+definir. Os valores de secret são enviados ao `gh` pelo stdin, não por
+argumentos de comando. Faça o commit do arquivo de workflow gerado e abra
+um PR para vê-lo rodar.
 
-Por padrão, o fluxo de trabalho cria seu prompt de agente a partir do pacote mais recente
-Orientação `visual-recap` em `@agent-native/recap-cli@latest`, incluindo qualquer irmão
-arquivos de referência que acompanham a habilidade. Se o seu repositório for personalizado intencionalmente e
-fixa sua pasta `visual-recap` comprometida, defina a variável do repositório
-`VISUAL_RECAP_SKILL_SOURCE=repo`.
+Por padrão, o workflow monta o prompt do agente a partir das instruções
+mais recentes da habilidade `visual-recap` empacotada em
+`@agent-native/recap-cli@latest`, incluindo quaisquer arquivos de
+referência complementares que a habilidade traga. Se seu repositório
+personaliza e fixa intencionalmente sua pasta commitada `visual-recap`,
+defina a variável de repositório `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
-## Seleção do executor
+## Seleção de executor
 
-Por padrão, o fluxo de trabalho é executado em executores `ubuntu-latest` hospedados pelo GitHub. Para usar outro executor hospedado ou seu próprio executor auto-hospedado, defina a variável de repositório ou organização `VISUAL_RECAP_RUNS_ON` como uma string JSON válida ou uma matriz JSON de rótulos de executor:
+O workflow roda em executores `ubuntu-latest` hospedados pelo GitHub por
+padrão. Para usar um executor hospedado diferente ou seu próprio executor
+auto-hospedado, defina a variável de repositório ou organização
+`VISUAL_RECAP_RUNS_ON` com uma string JSON válida ou um array JSON de
+rótulos de executor:
 
 ```text
 "ubuntu-latest"
 ["self-hosted", "linux", "x64", "visual-recap"]
 ```
 
-As aspas JSON são obrigatórias. Esse valor seleciona o executor do trabalho completo `recap`. Para configurá-lo durante a instalação guiada, passe o mesmo valor JSON para `--runs-on` e depois valide o fluxo de trabalho e a disponibilidade do executor com `doctor`:
+As aspas do JSON são obrigatórias. Essa configuração seleciona o executor
+completo do job `recap`. Para configurá-la durante a configuração guiada,
+passe o mesmo valor JSON para `--runs-on`, depois valide o workflow e a
+disponibilidade do executor com `doctor`:
 
 ```bash
 npx @agent-native/recap-cli@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
 npx @agent-native/recap-cli@latest recap doctor
 ```
 
-O gate leve usa `ubuntu-latest` separadamente. Repositórios sem executores hospedados pelo GitHub podem definir `VISUAL_RECAP_GATE_RUNS_ON` como um único rótulo de texto simples, sem JSON, ou usar `--gate-runs-on visual-recap-gate`. O rótulo personalizado só vale para autores `OWNER`, `MEMBER` ou `COLLABORATOR` do mesmo repositório; forks e outros autores são forçados para `ubuntu-latest` e podem ficar sem agendamento se os executores hospedados estiverem desativados. Use um executor dedicado e, de preferência, efêmero: o gate padrão não baixa a árvore do PR e avalia a lógica do fluxo de trabalho e os metadados do PR.
+O portão de segurança leve usa por padrão, separadamente, o
+`ubuntu-latest` hospedado pelo GitHub. Repositórios que desativam os
+executores hospedados pelo GitHub podem definir
+`VISUAL_RECAP_GATE_RUNS_ON` com **um único rótulo de executor simples**
+(não JSON), ou passar `--gate-runs-on visual-recap-gate` durante a
+configuração. O workflow reutilizável expõe o mesmo valor como sua entrada
+`gate-runs-on`. Isso evita analisar JSON dinâmico antes de o GitHub
+conseguir agendar o portão. O rótulo personalizado só é selecionado para
+PRs do mesmo repositório, de autoria de um `OWNER`, `MEMBER` ou
+`COLLABORATOR`. Forks e todos os outros autores são forçados ao
+`ubuntu-latest` hospedado pelo GitHub antes de o job começar; em um
+repositório apenas auto-hospedado, essas execuções não confiáveis podem
+ficar sem agendamento em vez de tocar uma máquina auto-hospedada.
 
-`recap doctor` rejeita JSON malformado ou não compatível e informa quando o GitHub não apresenta nenhum executor on-line que corresponda a todos os rótulos configurados. O registro, a instalação, as atualizações, a capacidade e a manutenção do executor continuam sendo sua responsabilidade; o Agent-Native seleciona os rótulos, mas não fornece nem opera o executor.
+O `recap doctor` rejeita JSON malformado ou não suportado e informa quando
+o GitHub não expõe um executor online correspondente a cada rótulo
+configurado. Registro, instalação, upgrades, capacidade e manutenção do
+executor continuam sendo sua responsabilidade; o Agent-Native seleciona os
+rótulos, mas não fornece nem opera o executor.
 
-**Segurança:** Prefira executores auto-hospedados efêmeros. Executores auto-hospedados persistentes devem atender apenas a repositórios privados cujos colaboradores sejam confiáveis. O fluxo de trabalho falha de forma segura antes de agendar trabalho auto-hospedado para autores não confiáveis de PRs públicos ou de forks, mas uma máquina persistente ainda mantém o estado do espaço de trabalho e dos processos entre os trabalhos. Não enfraqueça essa barreira nem encaminhe contribuições não confiáveis para um executor persistente.
+**Segurança:** prefira executores auto-hospedados dedicados e efêmeros. Um
+executor de portão personalizado recebe apenas eventos de PR confiáveis do
+mesmo repositório. O portão padrão não faz checkout da árvore do PR; ele
+avalia a lógica do workflow e os metadados do PR no GitHub. Uma máquina
+persistente ainda retém estado de processo entre jobs, então não a
+compartilhe com cargas de trabalho não relacionadas. O workflow falha de
+forma fechada antes de disparar qualquer portão auto-hospedado ou job
+completo de recapitulação para autores não confiáveis de PRs públicos ou de
+fork. Não enfraqueça esse limite nem encaminhe contribuições não confiáveis
+para um executor persistente.
 
-## Seleção de back-end
+## Seleção de backend
 
-Escolha qual agente de codificação executa a habilidade com a variável de repositório `VISUAL_RECAP_AGENT`:
+Escolha qual agente de codificação roda a habilidade com a variável de
+repositório `VISUAL_RECAP_AGENT`:
 
-| `VISUAL_RECAP_AGENT` | Agente de codificação | Chave API necessária |
-| -------------------- | --------------------- | -------------------- |
-| `claude` _(padrão)_  | Código Claude CLI     | `ANTHROPIC_API_KEY`  |
-| `codex`              | OpenAI Codex CLI      | `OPENAI_API_KEY`     |
+| `VISUAL_RECAP_AGENT` | Agente de codificação                   | Chave de API necessária | Variáveis necessárias                         |
+| --------------------- | --------------------------------------- | ----------------------- | ---------------------------------------------- |
+| `claude` _(padrão)_   | CLI do Claude Code                      | `ANTHROPIC_API_KEY`     | —                                              |
+| `codex`               | CLI do OpenAI Codex                     | `OPENAI_API_KEY`        | —                                              |
+| `openai-compatible`   | Agent-Native Code + provedor compatível | `VISUAL_RECAP_API_KEY`  | `VISUAL_RECAP_BASE_URL`, `VISUAL_RECAP_MODEL`  |
 
-Se a variável não estiver definida, a ação usará `claude`.
+Se a variável não estiver definida, a action usa `claude`.
 
 ## Modelo e raciocínio
 
-Além do back-end, duas variáveis de repositório ajustam _como_ o agente é executado:
+Além do backend, estas variáveis de repositório ajustam como o agente roda:
 
-- **`VISUAL_RECAP_MODEL`** fixa o modelo passado para CLI (`--model`) — por exemplo, `gpt-5.6-luna` para Codex, um ID de modelo Claude, ou `deepseek-chat` para DeepSeek. É obrigatória para `openai-compatible`. Para o back-end **Claude**, se a variável não estiver definida, o padrão agora é `claude-sonnet-5`; defina-a explicitamente para usar um modelo Claude diferente, como o mais barato `claude-haiku-4-5`. Para o back-end **Codex**, se não estiver definida, é usado o modelo padrão do próprio CLI do Codex.
-- **`VISUAL_RECAP_REASONING`** define a profundidade do raciocínio: `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Aplica-se ao backend Codex; O raciocínio de Claude é baseado em modelo, então esta variável é ignorada lá.
-- **`VISUAL_RECAP_SKILL_SOURCE`** controla a atualização do prompt: `auto`/unset usa o pacote de orientação de habilidades mais recente, enquanto `repo` fixa-se à pasta de habilidades `visual-recap` do repositório local confirmado.
+- **`VISUAL_RECAP_MODEL`** fixa o modelo passado ao CLI (`--model`) — por
+  exemplo, `gpt-5.6-luna` para o Codex, um id de modelo Claude, ou
+  `deepseek-chat` para o DeepSeek. É obrigatório para `openai-compatible`.
+  Para o backend **Claude**, deixá-la indefinida agora usa por padrão
+  `claude-sonnet-5`; defina a variável explicitamente para usar um modelo
+  Claude diferente, como o mais barato `claude-haiku-4-5`. Para o backend
+  **Codex**, deixá-la indefinida usa o próprio modelo padrão do CLI do
+  Codex.
+- **`VISUAL_RECAP_REASONING`** define a profundidade de raciocínio: `none`,
+  `minimal`, `low`, `medium`, `high` ou `xhigh`. Ela se aplica ao backend
+  Codex; o raciocínio do Claude é orientado pelo modelo, então essa
+  variável é ignorada ali.
+- **`VISUAL_RECAP_BASE_URL`** seleciona a URL base HTTP(S) para o backend
+  `openai-compatible`. Use o endpoint compatível com OpenAI do provedor,
+  como DeepSeek ou Kimi, sem embutir credenciais na URL.
+- **`VISUAL_RECAP_SKILL_SOURCE`** controla a atualidade do prompt:
+  `auto`/indefinido usa as instruções mais recentes da habilidade
+  empacotada, enquanto `repo` fixa na pasta de habilidade `visual-recap`
+  commitada no repositório.
 
-Por exemplo, para executar a recapitulação em Codex com GPT-5.6 Sol com raciocínio alto, defina as variáveis de repositório `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` e `VISUAL_RECAP_REASONING=high`.
+Por exemplo, para rodar a recapitulação no Codex com o GPT-5.6 Sol em
+raciocínio alto, defina as variáveis de repositório
+`VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` e
+`VISUAL_RECAP_REASONING=high`.
+
+Para o DeepSeek, defina `VISUAL_RECAP_AGENT=openai-compatible`,
+`VISUAL_RECAP_BASE_URL=https://api.deepseek.com/v1`,
+`VISUAL_RECAP_MODEL=deepseek-chat`, e o secret `VISUAL_RECAP_API_KEY`. O
+Kimi funciona da mesma forma, com sua própria URL base e id de modelo
+compatíveis com OpenAI. Outros provedores compatíveis com OpenAI usam as
+mesmas três configurações.
 
 ## Custo
 
-Cada execução de recapitulação é uma sessão completa de agente de codificação lendo um diff real, não um resumo barato baseado em modelo, então seu custo acompanha a escolha do modelo e a frequência com que é executada:
+Cada execução de recapitulação é uma sessão agêntica completa de um agente
+de codificação lendo um diff real, não um resumo templado barato, então seu
+custo acompanha a escolha do modelo e a frequência de execução:
 
-- **Uma sessão completa por push no PR.** O gatilho padrão dispara em `synchronize`, então um PR que recebe dez pushes executa o agente dez vezes.
-- **O PR inteiro a cada vez**, não apenas os commits desde a última execução — o custo escala com o tamanho total do PR, não com o tamanho incremental do diff.
-- **Entrada do diff limitada a ~600KB.** Isso limita o pior caso por execução, mas diffs grandes ainda custam significativamente mais do que os pequenos.
-- **Uma nova tentativa automática em caso de falha**, o que pode aproximadamente dobrar o custo de uma execução que falha de forma transitória.
+- **Uma sessão completa por push no PR.** O gatilho padrão dispara em
+  `synchronize`, então um PR que recebe dez pushes roda o agente dez vezes.
+- **O PR inteiro a cada vez**, não apenas os commits desde a última
+  execução — o custo escala com o tamanho total do PR, não com o diff
+  incremental.
+- **Entrada de diff limitada a ~600KB.** Isso limita o pior caso por
+  execução, mas diffs grandes ainda custam significativamente mais que
+  pequenos.
+- **Uma nova tentativa automática em caso de falha**, o que pode
+  praticamente dobrar o custo de uma execução que falha de forma
+  transitória.
 
-Para reduzir o custo:
+Para reduzir custo:
 
-- **Fixe um modelo mais barato.** Para Claude, defina `VISUAL_RECAP_MODEL=claude-haiku-4-5` para repositórios simples ou pequenos — é o nível Claude mais barato; `claude-sonnet-5` (o padrão) é o nível equilibrado.
-- **Mude para Codex com um modelo mais barato.** Defina `VISUAL_RECAP_AGENT=codex` com `VISUAL_RECAP_MODEL=gpt-5.6-luna` (o nível GPT-5.6 mais barato) ou `gpt-5.6-terra` (nível intermediário), e defina `VISUAL_RECAP_REASONING=low` para reduzir ainda mais o gasto com tokens de raciocínio. A profundidade de raciocínio só se aplica ao Codex.
-- **Aponte para um provedor mais barato compatível com OpenAI.** Defina `VISUAL_RECAP_AGENT=openai-compatible` com `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` direcionados ao DeepSeek, Kimi ou qualquer outro endpoint compatível com OpenAI.
-- **Recapitule com menos frequência.** Edite o `on.pull_request.types` do fluxo de trabalho instalado de `[opened, synchronize, reopened, ready_for_review, labeled, closed]` para `[opened, ready_for_review, closed]` para que ele só recapitule quando um PR é aberto e quando é mesclado, em vez de a cada push.
+- **Fixe um modelo mais barato.** Para o Claude, defina
+  `VISUAL_RECAP_MODEL=claude-haiku-4-5` para repositórios simples ou
+  pequenos — é o tier mais barato da Claude; `claude-sonnet-5` (o padrão) é
+  o tier equilibrado.
+- **Mude para o Codex com um modelo mais barato.** Defina
+  `VISUAL_RECAP_AGENT=codex` com `VISUAL_RECAP_MODEL=gpt-5.6-luna` (o tier
+  mais barato do GPT-5.6) ou `gpt-5.6-terra` (tier intermediário), e defina
+  `VISUAL_RECAP_REASONING=low` para cortar ainda mais o gasto com tokens de
+  raciocínio. A profundidade de raciocínio só se aplica ao Codex.
+- **Aponte para um provedor compatível com OpenAI mais barato.** Defina
+  `VISUAL_RECAP_AGENT=openai-compatible` com
+  `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`
+  apontando para DeepSeek, Kimi ou qualquer outro endpoint compatível com
+  OpenAI.
+- **Exija um rótulo explícito de PR.** Defina
+  `VISUAL_RECAP_REQUIRED_LABELS=visual recap` para manter o workflow
+  instalado, mas pular recapitulações até que um PR tenha esse rótulo. Use
+  uma lista separada por vírgulas, como `visual recap,recap`, quando vários
+  rótulos devem habilitar a recapitulação. Aplicar um rótulo listado
+  desperta o workflow imediatamente.
+- **Recapitule com menos frequência.** Edite o `on.pull_request.types` do
+  workflow instalado de
+  `[opened, synchronize, reopened, ready_for_review, labeled, closed]` para
+  `[opened, ready_for_review, closed]`, para que ele recapitule apenas
+  quando um PR abre e quando é mesclado, em vez de a cada push.
 
-Cada execução registra o que realmente foi gasto: a etapa `recap usage` do fluxo de trabalho anexa o uso de tokens e custo ao plano publicado, para que você possa ver o gasto real por execução em vez de adivinhar.
+Toda execução registra o que realmente gastou: a etapa `recap usage` do
+workflow anexa o uso de tokens e custo ao plano publicado, então você pode
+olhar o gasto real por execução em vez de adivinhar.
 
-## Segredos e variáveis
+## Secrets e variáveis {#secrets-and-variables}
 
-Defina-os em **Configurações → Segredos e variáveis → Actions** do seu repositório.
+Defina isto em **Settings → Secrets and variables → Actions** do seu
+repositório.
 
-### Segredos (são necessários apenas dois)
+### Secrets para o backend padrão
 
-| Segredo             | Propósito                                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_TOKEN`  | Token revogável cunhado por `npx @agent-native/core@latest connect`. Autoriza a publicação do plano de recapitulação e do upload da captura de tela. |
-| `ANTHROPIC_API_KEY` | A chave LLM para o back-end padrão do código Claude.                                                                                                 |
+| Secret              | Finalidade                                                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`  | Token revogável gerado por `npx @agent-native/core@latest connect`. Autoriza publicar o plano de recapitulação e o envio da captura de tela. |
+| `ANTHROPIC_API_KEY` | A chave de LLM para o backend padrão do Claude Code.                                                                              |
 
-**Equipes: use um token de serviço organizacional.** Um token pessoal está vinculado à pessoa
-quem o cunhou — se eles deixarem a organização ou revogarem seus tokens, todos os repositórios usarão
-esse segredo começa a falhar com os 401s, e os planos criados pelo CI são propriedade deles
-individual em vez da equipe. Um token de serviço organizacional pertence ao seu
-**organização**: atua como principal de serviço (`svc-<name>@service.<orgId>`),
-sobrevive a qualquer saída individual, as recapitulações que publica são visíveis para a organização e
-qualquer proprietário ou administrador da organização pode listá-lo ou revogá-lo. Mint one (somente proprietário/administrador da organização):
+**Times: use um token de serviço da organização.** Um token pessoal fica
+vinculado à pessoa que o gerou — se ela sair da organização ou revogar seus
+tokens, todo repositório que usa esse secret começa a falhar com 401, e os
+planos criados pelo CI passam a pertencer a essa pessoa em vez de ao time.
+Um token de serviço da organização pertence à sua **organização**: ele age
+como um principal de serviço (`svc-<name>@service.<orgId>`), sobrevive à
+saída de qualquer indivíduo, as recapitulações que ele publica ficam
+visíveis para a organização, e qualquer owner ou admin da organização pode
+listá-lo ou revogá-lo. Gere um (apenas owner/admin da organização):
 
 ```bash
 npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
 ```
 
-O comando autentica você no navegador e imprime o token de serviço
-exatamente uma vez — armazene-o como o segredo `PLAN_RECAP_TOKEN`. Gerencie mais tarde com
-o `list-org-service-tokens` e `revoke-org-service-token` actions no
-Aplicativo Planos.
+O comando autentica você no navegador e depois imprime o token de serviço
+exatamente uma vez — armazene-o como o secret `PLAN_RECAP_TOKEN`.
+Gerencie-o depois com as actions `list-org-service-tokens` e
+`revoke-org-service-token` no aplicativo Plans.
 
-**Solo: um token pessoal ainda funciona.** Crie-o com `npx @agent-native/core@latest connect`
-em seu aplicativo Planos. Para o aplicativo hospedado, isso também grava um local
-arquivo de token de publicação que `npx @agent-native/recap-cli@latest recap setup` pode ler:
+**Solo: um token pessoal ainda funciona.** Gere-o com
+`npx @agent-native/core@latest connect` no seu aplicativo Plans. Para o
+aplicativo hospedado, isso também escreve um arquivo local de token de
+publicação que `npx @agent-native/recap-cli@latest recap setup` pode ler:
 
 ```bash
 npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
 npx @agent-native/recap-cli@latest recap setup
 ```
 
-Se preferir a configuração manual, cole o token no segredo GitHub. Utilize um
-espaço reservado como `plan_recap_xxxxxxxxxxxxxxxx` apenas para exemplos — nunca confirme um
-token real.
+Se preferir configurar manualmente, cole o token no secret do GitHub. Use
+um placeholder como `plan_recap_xxxxxxxxxxxxxxxx` apenas para exemplos —
+nunca faça commit de um token real.
 
-### Opcional (somente se você alterar os padrões)
+### Opcional (apenas se você mudar os padrões)
 
-| Segredo/variável         | Padrão                                                                | Quando você precisar                                                                                                                                                                                                                                                                                                    |
-| ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                                                                     | Segredo. Defina junto com `VISUAL_RECAP_AGENT=codex` para executar a recapitulação com Codex.                                                                                                                                                                                                                           |
-| `VISUAL_RECAP_AGENT`     | `claude`                                                              | Variável. Seleciona o back-end do agente de codificação (`claude` ou `codex`).                                                                                                                                                                                                                                          |
-| `VISUAL_RECAP_MODEL`     | `claude-sonnet-5` para Claude; obrigatório para o back-end compatível | Variável. ID do modelo do provedor para back-ends compatíveis com OpenAI (obrigatório nesse caso). Para Claude, se não definida, o padrão agora é `claude-sonnet-5` — defina-a para substituir, por ex. `claude-haiku-4-5` para o nível mais barato. Para Codex, se não definida, usa o próprio padrão do CLI do Codex. |
-| `VISUAL_RECAP_REASONING` | padrão de cada modelo                                                 | Variável. Profundidade de raciocínio: `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Aplica-se ao back-end Codex.                                                                                                                                                                                               |
-| `RECAP_CLI_VERSION`      | `latest`                                                              | Variável. Fixa a versão `@agent-native/recap-cli` CLI que o fluxo de trabalho instala - por exemplo. `1.5.0`. Consulte [Version pinning](#version-pinning-copy-variant).                                                                                                                                                |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                                       | Segredo. Somente ao auto-hospedar o aplicativo Planos em uma origem diferente.                                                                                                                                                                                                                                          |
+| Secret / variável              | Padrão                                                          | Quando você precisa dele                                                                                                                                                                                                                              |
+| ------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`                | —                                                                 | Secret. Defina junto com `VISUAL_RECAP_AGENT=codex` para rodar a recapitulação com o Codex em vez disso.                                                                                                                                             |
+| `VISUAL_RECAP_API_KEY`          | —                                                                 | Secret. Defina com `VISUAL_RECAP_AGENT=openai-compatible` para DeepSeek, Kimi ou outro provedor compatível com OpenAI.                                                                                                                                |
+| `VISUAL_RECAP_AGENT`            | `claude`                                                          | Variável. Seleciona o backend do agente de codificação (`claude`, `codex` ou `openai-compatible`).                                                                                                                                                    |
+| `VISUAL_RECAP_BASE_URL`         | obrigatória para o backend compatível                             | Variável. URL base HTTP(S) para o backend compatível com OpenAI; credenciais são rejeitadas.                                                                                                                                                          |
+| `VISUAL_RECAP_MODEL`            | `claude-sonnet-5` para o Claude; obrigatória para o backend compatível | Variável. Id de modelo do provedor para backends compatíveis com OpenAI (obrigatório ali). Para o Claude, indefinida agora usa por padrão `claude-sonnet-5` — defina para sobrescrever, por exemplo `claude-haiku-4-5` para o tier mais barato. Para o Codex, indefinida usa o próprio padrão do CLI do Codex. |
+| `VISUAL_RECAP_REASONING`        | padrão de cada modelo                                             | Variável. Profundidade de raciocínio: `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Aplica-se ao backend Codex.                                                                                                                              |
+| `VISUAL_RECAP_REQUIRED_LABELS`  | —                                                                 | Variável. Rótulos de PR separados por vírgula. Quando definida, o portão pula até que o PR tenha ao menos um rótulo listado, por exemplo `visual recap`.                                                                                             |
+| `RECAP_CLI_VERSION`             | `latest`                                                          | Variável. Fixa a versão do `@agent-native/recap-cli` que o workflow instala — por exemplo, `1.5.0`. Veja [Fixação de versão](#version-pinning-copy-variant).                                                                                          |
+| `PLAN_RECAP_APP_URL`            | `https://plan.agent-native.com`                                   | Secret. Apenas quando o aplicativo Plans está auto-hospedado em outra origem.                                                                                                                                                                          |
 
-O fluxo de trabalho detecta automaticamente como invocar seu auxiliar CLI (fonte local dentro deste monorepo, o `@agent-native/recap-cli` publicado em outro lugar), portanto, não há variável `RECAP_CLI` a ser definida.
+O workflow detecta automaticamente como invocar seu CLI auxiliar (código
+fonte local dentro deste monorepo, ou o `@agent-native/recap-cli` publicado
+em outros lugares), então não há uma variável `RECAP_CLI` para definir.
 
 ## Captura de tela embutida no comentário
 
-Depois que o agente publica a recapitulação, o fluxo de trabalho faz capturas de tela do plano renderizado no Chrome headless nos modos claro e escuro e carrega os PNGs em uma rota de imagem pública assinada no aplicativo Planos. O comentário fixo de PR então incorpora essas capturas de tela **inline** com um elemento `<picture>` – GitHub as reservou por meio de seu proxy camuflado, para que os revisores vejam uma prévia que corresponde ao tema GitHub diretamente no comentário, sem abrir nada. O link para o plano interativo completo fica ao lado dele, para quando eles quiserem explorar, comentar ou fazer anotações.
+Depois que o agente publica a recapitulação, o workflow captura o plano
+renderizado em Chrome headless nos modos claro e escuro e envia os PNGs
+para uma rota de imagem pública assinada no aplicativo Plans. O comentário
+fixo de PR então incorpora essas capturas de tela **embutidas** com um
+elemento `<picture>` — o GitHub as reexibe pelo seu proxy camo, então os
+revisores veem uma prévia que combina com o tema do GitHub deles diretamente
+no comentário, sem precisar abrir nada. O link para o plano interativo
+completo fica logo ao lado, para quando eles quiserem explorar, comentar ou
+anotar.
 
-## RPs bifurcados
+## PRs de fork
 
 ### Comportamento padrão (nenhuma ação necessária)
 
-O fluxo de trabalho principal do `pr-visual-recap.yml` é acionado no gatilho `pull_request` simples, **não** no `pull_request_target`. Portanto, os PRs de fork são executados **sem acesso aos segredos do repositório**, de modo que o fluxo de trabalho não encontra `PLAN_RECAP_TOKEN` e não funciona de forma limpa – sem falha na publicação, sem credenciais expostas. As recapitulações são executadas automaticamente para PRs de ramificações no mesmo repositório, onde os segredos estão disponíveis.
+O workflow principal `pr-visual-recap.yml` dispara no gatilho simples
+`pull_request`, **não** em `pull_request_target`. PRs de fork, portanto,
+rodam **sem acesso aos secrets do repositório**, então o workflow não
+encontra `PLAN_RECAP_TOKEN` e não faz nada de forma limpa — sem publicação
+falha, sem credenciais expostas. Recapitulações rodam automaticamente para
+PRs de branches no mesmo repositório, onde os secrets estão disponíveis.
 
-Isso também significa que você pode mesclar o arquivo de fluxo de trabalho **antes** que os segredos existam: sem nenhum token configurado, cada execução é silenciosa e autônoma até que você defina os segredos. A etapa `gate` também ignora PRs de rascunho e PRs de autoria de bot automaticamente, portanto, nenhuma recapitulação do gatilho é executada por padrão.
+Isso também significa que você pode mesclar o arquivo do workflow **antes**
+de os secrets existirem: sem um token configurado, toda execução é um
+no-op silencioso até você definir os secrets. A etapa `gate` também pula
+PRs em rascunho e PRs de autoria de bots automaticamente, então nenhum dos
+dois dispara execuções de recapitulação por padrão.
 
-### Aceite o fluxo de trabalho de fork controlado por rótulo
+### Habilitando o workflow de fork controlado por rótulo
 
-Se você deseja gerar recapitulações para PRs de bifurcação, um segundo arquivo de fluxo de trabalho está disponível: `.github/workflows/pr-visual-recap-fork.yml`. Ele usa `pull_request_target` (que é executado com segredos do repositório base), mas nunca faz check-out ou executa código fork. Autores de bifurcação confiáveis ​​com associação de autor GitHub `OWNER`, `MEMBER` ou `COLLABORATOR` são executados automaticamente. PRs de bifurcação externa exigem uma aceitação explícita do mantenedor **por cabeça** por meio de um novo evento de rótulo `recap` antes da execução do agente de recapitulação.
+Se você quiser gerar recapitulações para PRs de fork, um segundo arquivo de
+workflow está disponível: `.github/workflows/pr-visual-recap-fork.yml`. Ele
+usa `pull_request_target` (que roda com os secrets do repositório base),
+mas nunca faz checkout nem executa código do fork. Autores de fork
+confiáveis, com associação de autor do GitHub `OWNER`, `MEMBER` ou
+`COLLABORATOR`, rodam automaticamente. PRs de fork externos exigem uma
+**autorização explícita do mantenedor por head** por meio de um evento novo
+do rótulo `recap` antes de o agente de recapitulação rodar.
 
-Para instalá-lo, copie o arquivo de [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) para o diretório `.github/workflows/` do seu repositório junto com o `pr-visual-recap.yml` existente. Os mesmos segredos (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`) se aplicam.
+Para instalá-lo, copie o arquivo de
+[BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml)
+para a pasta `.github/workflows/` do seu repositório, ao lado do
+`pr-visual-recap.yml` já existente. A mesma configuração de backend se
+aplica, incluindo `VISUAL_RECAP_API_KEY`, `VISUAL_RECAP_BASE_URL` e
+`VISUAL_RECAP_MODEL` ao usar um provedor compatível com OpenAI.
 
-<Diagram id="doc-block-t1ajfw" title={"Portão de consentimento de RP do Fork"} summary={"Os PRs do Fork não recebem segredos por padrão; autores confiáveis ​​são executados automaticamente e colaboradores externos exigem um novo rótulo de recapitulação do mantenedor."}>
+<Diagram id="doc-block-h3lne0" title="Portão de consentimento para PR de fork" summary={"PRs de fork não recebem secrets por padrão; autores confiáveis rodam automaticamente, e colaboradores externos exigem um rótulo recap novo do mantenedor."}>
 
 ```html
 <div class="diagram-fork">
   <div class="diagram-node">
     PR de fork aberto<br /><small class="diagram-muted"
-      >main workflow has no secrets</small
+      >workflow principal não tem secrets</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -273,21 +448,22 @@ Para instalá-lo, copie o arquivo de [BuilderIO/agent-native](https://github.com
     >
   </div>
   <div class="diagram-card">
-    <span class="diagram-pill warn">Contribuidor externo</span
+    <span class="diagram-pill warn">Colaborador externo</span
     ><small class="diagram-muted"
-      >mantenedor revisa o diff e depois aplica <code>recap</code></small
+      >mantenedor revisa o diff, depois aplica <code>recap</code></small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">
-    Verificações de gate<br /><small class="diagram-muted"
-      >fork PR? &amp; trusted or fresh label?</small
+    Verificações do portão<br /><small class="diagram-muted"
+      >é PR de fork? &amp; confiável ou rótulo novo?</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box ok">
-    Execuções de recapitulação<br /><small class="diagram-muted"
-      >apenas código do repo base · diff do fork é entrada de texto</small
+    Recapitulação roda<br /><small class="diagram-muted"
+      >apenas código do repositório base · diff do fork é entrada de
+      texto</small
     >
   </div>
 </div>
@@ -321,60 +497,94 @@ Para instalá-lo, copie o arquivo de [BuilderIO/agent-native](https://github.com
 
 </Diagram>
 
-### Como funciona o portão de rótulos
+### Como funciona o portão de rótulo
 
-1. Um contribuidor fork abre um PR. O fluxo de trabalho normal do `pull_request` é ignorado porque o GitHub retém segredos das execuções de bifurcação.
-2. O fluxo de trabalho do fork verifica a associação do autor do PR. Autores confiáveis (`OWNER`, `MEMBER` ou `COLLABORATOR`) são executados automaticamente em eventos abertos, sincronizados, reabertos e prontos para revisão.
-3. Contribuidores externos exigem que um mantenedor revise a comparação atual (especialmente para conteúdo em formato de injeção imediata — veja abaixo) e, em seguida, aplique o rótulo `recap` ao PR.
-4. A porta do rótulo do contribuidor externo é SHA por cabeça: se o contribuidor enviar mais commits, o próximo evento de sincronização será ignorado até que um mantenedor remova e reaplique `recap` após revisar a nova diferença.
+1. Um contribuidor de fork abre um PR. O workflow normal `pull_request`
+   pula porque o GitHub não fornece secrets para execuções de fork.
+2. O workflow de fork verifica a associação de autor do PR. Autores
+   confiáveis (`OWNER`, `MEMBER` ou `COLLABORATOR`) rodam automaticamente
+   nos eventos de abertura, sincronização, reabertura e pronto-para-revisão.
+3. Colaboradores externos exigem que um mantenedor revise o diff atual
+   (especialmente por conteúdo com formato de prompt injection — veja
+   abaixo) e depois aplique o rótulo `recap` ao PR.
+4. O portão de rótulo para colaboradores externos é por head SHA: se o
+   colaborador enviar mais commits, o próximo evento de sincronização pula
+   até que um mantenedor remova e reaplique `recap` depois de revisar o
+   novo diff.
 
-### O que o fluxo de trabalho do fork faz e o que NOT faz
+### O que o workflow de fork faz e NÃO faz
 
-| O fluxo de trabalho DOES                                                                                                             | O fluxo de trabalho faz NOT                                                               |
-| ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| Faça check-out do **repositório base** na **ref da ramificação base** — somente código confiável                                     | Verifique ou execute qualquer código do fork                                              |
-| Busque a cabeça do fork como uma referência remota (`git fetch origin pull/<n>/head:refs/recap/fork-head`) - buscar commits é seguro | Instale pacotes do fork, execute scripts de fork ou avalie o conteúdo do fork como código |
-| Execute `git diff base...refs/recap/fork-head` — comparação de texto puro de dois objetos já obtidos                                 | Use o diff como algo diferente de entrada de texto para o LLM                             |
-| Execute a habilidade de recapitulação visual e a configuração do agente do **repo base**                                             | Carregue qualquer habilidade ou configuração do fork                                      |
-| Passe a comparação pela mesma etapa de verificação secreta (fechamento com falha) que os PRs primários                               | Ignorar a verificação secreta                                                             |
-| Adicione uma nota explícita de proteção de prompt ao prompt do agente, marcando o conteúdo diferente como não confiável              | Conceda ao agente quaisquer permissões adicionais além do agente de recapitulação normal  |
+| O workflow FAZ                                                                                                          | O workflow NÃO faz                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Faz checkout do **repositório base** na **ref da branch base** — apenas código confiável                                  | Fazer checkout ou executar qualquer código do fork                                    |
+| Busca o head do fork como uma ref remota (`git fetch origin pull/<n>/head:refs/recap/fork-head`) — buscar commits é seguro | Instalar pacotes do fork, rodar scripts do fork, ou avaliar conteúdo do fork como código |
+| Roda `git diff base...refs/recap/fork-head` — diff de texto puro entre dois objetos já buscados                           | Usar o diff como qualquer coisa além de entrada de texto para o LLM                    |
+| Roda a habilidade visual-recap e a configuração de agente do **repositório base**                                         | Carregar qualquer habilidade ou configuração do fork                                  |
+| Passa o diff pela mesma etapa de varredura de secrets (fail-closed) que PRs de primeira parte                             | Pular a varredura de secrets                                                          |
+| Adiciona uma nota explícita de reforço de prompt ao prompt do agente, marcando o conteúdo do diff como não confiável      | Conceder ao agente qualquer permissão além do agente de recapitulação normal          |
 
-### Por que você deve revisar a diferença antes de rotular
+### Por que você deve revisar o diff antes de rotular
 
-O fork diff é um texto controlado pelo invasor que o agente de recapitulação lê como entrada. Uma comparação cuidadosamente elaborada pode conter conteúdo de injeção imediata (por exemplo, linhas de comparação que se parecem com instruções do agente) destinadas a fazer o agente de recapitulação tomar actions não intencional (por exemplo, exfiltrar o token de publicação ou produzir conteúdo de recapitulação enganoso).
+O diff do fork é texto controlado por um invasor em potencial, que o agente
+de recapitulação lê como entrada. Um diff cuidadosamente elaborado poderia
+conter conteúdo de prompt injection — por exemplo, linhas de diff que se
+parecem com instruções de agente — com a intenção de fazer o agente de
+recapitulação realizar ações não pretendidas (por exemplo, exfiltrar o
+token de publicação ou produzir conteúdo de recapitulação enganoso).
 
-Antes de aplicar o rótulo `recap`, dê uma olhada na comparação para:
+Antes de aplicar o rótulo `recap`, examine o diff em busca de:
 
-- Linhas que parecem comandos diretos ou instruções de função ("Ignorar instruções anteriores...", "Você está agora...", "Escrever o token em...").
-- Nomes de arquivos incomuns que podem ser mal interpretados conforme prompts do sistema.
-- Conteúdo codificado em arquivos adicionados que podem ser decodificados em instruções.
+- Linhas que parecem comandos diretos ou instruções de papel ("Ignore
+  previous instructions...", "You are now...", "Write the token to...").
+- Nomes de arquivo incomuns que poderiam ser lidos por engano como prompts
+  de sistema.
+- Conteúdo codificado em arquivos adicionados que poderia se decodificar em
+  instruções.
 
-Essas mitigações já estão em camadas no fluxo de trabalho (verificação secreta, porta de caminho confidencial, nota de proteção imediata, lista de permissões de ferramentas de agente restritas), mas a revisão de rótulos é a principal linha de defesa.
+Essas mitigações já estão em camadas no workflow (varredura de secrets,
+portão de caminhos sensíveis, nota de reforço de prompt, lista de
+permissões restrita de ferramentas do agente), mas a revisão do rótulo é a
+principal linha de defesa.
 
-### Relação com o fluxo de trabalho principal
+### Relação com o workflow principal
 
-Os dois arquivos de fluxo de trabalho são independentes. Para atualizações de PR não bifurcadas, `pr-visual-recap.yml` é o único fluxo de trabalho executado. Para PRs de bifurcação, o fluxo de trabalho normal termina em seu portão de bifurcação e `pr-visual-recap-fork.yml` é executado automaticamente para autores confiáveis ​​da mesma organização ou após um novo rótulo `recap` do mantenedor para contribuidores externos. Eles compartilham o mesmo marcador de comentário fixo e encadeamento de ID de plano, portanto, tanto PRs quanto PRs bifurcados produzem um único comentário atualizado no mesmo PR.
+Os dois arquivos de workflow são independentes. Para atualizações de PR
+que não são de fork, `pr-visual-recap.yml` é o único workflow que roda.
+Para PRs de fork, o workflow normal sai no seu portão de fork, e
+`pr-visual-recap-fork.yml` roda automaticamente para autores confiáveis da
+mesma organização ou depois de um rótulo `recap` novo do mantenedor para
+colaboradores externos. Eles compartilham o mesmo marcador de comentário
+fixo e o encadeamento por id de plano, então tanto PRs quanto PRs de fork
+produzem um único comentário criado ou atualizado no mesmo PR.
 
-### Proteção automodificável {#self-modifying-guard}
+### Proteção contra automodificação {#self-modifying-guard}
 
-A etapa `gate` ignora totalmente a recapitulação quando um PR atinge qualquer um dos caminhos a seguir, portanto, um PR nunca pode reescrever o fluxo de trabalho, a habilidade ou a configuração do agente que o trabalho de recapitulação confiável carrega e exfiltra os segredos:
+A etapa `gate` pula a recapitulação inteiramente quando um PR toca qualquer
+um dos caminhos a seguir, para que um PR nunca possa reescrever o workflow,
+a habilidade ou a configuração de agente que o job confiável de
+recapitulação carrega e exfiltrar secrets:
 
-| Padrão de caminho                          | Motivo                                              |
-| ------------------------------------------ | --------------------------------------------------- |
-| `.github/workflows/pr-visual-recap.yml`    | O próprio fluxo de trabalho                         |
-| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows            |
-| `**/.claude/**`                            | Configurações do agente que o executor carrega      |
-| `**/CLAUDE.md`                             | Instruções do agente que o executor carrega         |
-| `**/AGENTS.md`                             | Instruções do agente que o executor carrega         |
-| `**/.mcp.json`                             | Configuração do servidor MCP que o executor carrega |
+| Padrão de caminho                          | Motivo                                     |
+| ------------------------------------------- | ------------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`     | O próprio workflow                          |
+| `**/skills/visual-(recap\|plan\|plans)/**`  | A habilidade visual-recap que o agente segue |
+| `**/.claude/**`                             | Configurações de agente que o runner carrega |
+| `**/CLAUDE.md`                              | Instruções de agente que o runner carrega    |
+| `**/AGENTS.md`                              | Instruções de agente que o runner carrega    |
+| `**/.mcp.json`                              | Configuração de servidor MCP que o runner carrega |
 
-No monorepo `BuilderIO/agent-native`, o fluxo de trabalho executa a recapitulação CLI a partir da origem confiável da ramificação base em vez da origem PR-head. Isso mantém as alterações normais do pacote, incluindo `packages/core/**`, elegíveis para recapitulações sem executar o código CLI modificado por PR.
+No monorepo `BuilderIO/agent-native`, o workflow roda o CLI de
+recapitulação a partir do código-fonte confiável da branch base, em vez do
+código-fonte do head do PR. Isso mantém mudanças normais de pacote,
+incluindo `packages/core/**`, elegíveis para recapitulações sem executar
+código de CLI modificado pelo PR.
 
 ## Modo de privacidade de arquivos locais
 
-A ação GitHub foi projetada para revisão de relações públicas hospedada e compartilhável. Se você quiser um
-recapitular sem enviar conteúdo de recapitulação para o banco de dados do Plano Agent-Native, execute o
-mesmo fluxo auxiliar localmente no modo de arquivos locais:
+A GitHub Action é projetada para revisão de PR hospedada e compartilhável.
+Se você quiser uma recapitulação sem enviar o conteúdo dela ao banco de
+dados do Agent-Native Plan, rode o mesmo fluxo auxiliar localmente, no modo
+de arquivos locais:
 
 ```bash
 npx @agent-native/recap-cli@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
@@ -382,100 +592,140 @@ npx @agent-native/recap-cli@latest recap scan --diff recap.diff
 npx @agent-native/recap-cli@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
 ```
 
-Entregue o `recap-prompt.md` gerado ao seu agente de codificação. No modo de arquivos locais
-o prompt instrui o agente a escrever `plans/pr-123-visual-recap/plan.mdx`
-mais arquivos visuais opcionais e depois execute:
+Entregue o `recap-prompt.md` gerado ao seu agente de codificação. No modo
+de arquivos locais, o prompt instrui o agente a escrever
+`plans/pr-123-visual-recap/plan.mdx` mais arquivos visuais opcionais, e
+então rodar:
 
 ```bash
 npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap --kind recap --open
 ```
 
-O URL retornado abre o plano hospedado UI enquanto o navegador lê a recapitulação MDX
-de uma ponte localhost. O conteúdo de recapitulação não está gravado no plano hospedado
-banco de dados, e o URL só funciona na máquina que executa a ponte. Se você correr
-o aplicativo Plan localmente com o mesmo `PLAN_LOCAL_DIR`, o
-A rota `/local-plans/pr-123-visual-recap` também é válida. Pastas apoiadas por repositórios podem
-abrir como `/local-plans/pr-123-visual-recap?path=plans%2Fpr-123-visual-recap`.
-Este modo desativa o comentário de PR fixo hospedado, upload de captura de tela in-line,
-usar anexo e comentários do navegador até que você publique explicitamente.
+A URL retornada abre a UI hospedada do Plan enquanto o navegador lê o MDX
+da recapitulação por uma ponte localhost. O conteúdo da recapitulação não é
+escrito no banco de dados hospedado do Plan, e a URL só funciona na máquina
+que roda a ponte. Se você rodar o aplicativo Plan localmente com o mesmo
+`PLAN_LOCAL_DIR`, a rota `/local-plans/pr-123-visual-recap` também é
+válida. Pastas apoiadas em repositório podem abrir como
+`/local-plans/pr-123-visual-recap?path=plans%2Fpr-123-visual-recap`. Esse
+modo desativa o comentário fixo hospedado do PR, o envio da captura de tela
+embutida, o anexo de uso e os comentários do navegador até você publicar
+explicitamente.
 
 ## É informativo, não um portão
 
-A recapitulação é um auxílio de revisão que se sobrepõe ao fluxo normal de relações públicas:
+A recapitulação é um auxílio de revisão em camada sobre o fluxo normal de
+PR:
 
-- Ele mostra uma linha de verificação `Visual Recap` para visibilidade, mas **nunca é uma verificação obrigatória** e nunca bloqueia a fusão.
-- Uma falha de geração ou publicação é concluída de forma neutra e aparece como um comentário explicativo e fixo, e não como um X vermelho em código não relacionado.
-- A recapitulação e sua captura de tela **não implicam que a comparação tenha sido revisada**. Os revisores ainda precisam ler as linhas alteradas.
+- Ela mostra uma linha de verificação `Visual Recap` para visibilidade, mas
+  **nunca é uma verificação obrigatória** e nunca bloqueia a mesclagem.
+- Uma falha de geração ou publicação é concluída de forma neutra e aparece
+  como um comentário fixo explicativo, não como um X vermelho em código
+  não relacionado.
+- A recapitulação e sua captura de tela **não implicam que o diff foi
+  revisado**. Os revisores ainda precisam ler as linhas realmente
+  alteradas.
 
 ## Fixação de versão (variante de cópia) {#version-pinning-copy-variant}
 
-Por padrão, o fluxo de trabalho da variante de cópia instala o `@agent-native/recap-cli@latest` em tempo de execução para que cada execução de recapitulação selecione automaticamente o CLI mais recente. Se seu CI precisar de ferramentas reproduzíveis, defina a variável de repositório **`RECAP_CLI_VERSION`** para fixar a versão instalada:
+Por padrão, o workflow na variante de cópia instala
+`@agent-native/recap-cli@latest` em tempo de execução, para que toda
+execução de recapitulação use automaticamente o CLI mais recente. Se seu CI
+precisa de ferramentas reprodutíveis, defina a variável de repositório
+**`RECAP_CLI_VERSION`** para fixar a versão instalada:
 
-1. Vá para **Configurações → Segredos e variáveis → Actions → Variáveis** do seu repositório.
+1. Vá em **Settings → Secrets and variables → Actions → Variables** do seu
+   repositório.
 2. Crie uma variável chamada `RECAP_CLI_VERSION` com um valor como `1.5.0`.
 
-A variável é opcional. Deixe-o sem definição (ou defina-o como `latest`) para rastrear o lançamento mais recente.
+A variável é opcional. Deixe-a indefinida (ou defina como `latest`) para
+acompanhar o lançamento mais recente.
 
-Para a variante do chamador reutilizável, use a entrada `cli-version` (consulte [Version pinning](#version-pinning) na seção reutilizável).
+Para a variante de chamador reutilizável, use a entrada `cli-version` em
+vez disso (veja [Fixação de versão](#version-pinning) na seção
+reutilizável).
 
-## Lista de permissões de verificação secreta
+## Lista de permissões da varredura de secrets
 
-Antes de publicar uma recapitulação, o fluxo de trabalho executa `npx @agent-native/recap-cli@latest recap scan` para detectar prováveis segredos na comparação. Qualquer PR cuja comparação corresponda a um padrão de segredo conhecido é bloqueado com um comentário explicativo — a recapitulação não é publicada e nenhum conteúdo de comparação é enviado ao agente de codificação.
+Antes de publicar uma recapitulação, o workflow roda
+`npx @agent-native/recap-cli@latest recap scan` para detectar possíveis
+secrets no diff. Qualquer PR cujo diff corresponda a um padrão conhecido de
+secret é bloqueado com um comentário explicativo — a recapitulação não é
+publicada, e nenhum conteúdo do diff é enviado ao agente de codificação.
 
-Em casos raros, um repositório possui acessórios de teste intencionais ou strings não secretas que se assemelham superficialmente a padrões secretos (por exemplo, uma chave de acessório em um arquivo de teste). Para suprimir um falso positivo, crie `.github/recap-scan-allowlist` na raiz do seu repositório.
+Em casos raros, um repositório tem fixtures de teste intencionais ou
+strings não secretas que se parecem superficialmente com padrões de
+secret (por exemplo, uma chave de fixture em um arquivo de teste). Para
+suprimir um falso positivo, crie `.github/recap-scan-allowlist` na raiz do
+seu repositório.
 
 ### Formato
 
-Cada linha que não esteja em branco e sem comentários é uma **substring literal** ou um padrão **`/regex/flags`**:
+Cada linha não vazia e que não seja comentário é uma **substring literal**
+ou um padrão **`/regex/flags`**:
 
 ```
-# As linhas que começam com # são comentários.
+# Lines starting with # are comments.
 
-# Substring literal — qualquer linha diff contendo esta string é permitida.
+# Literal substring — any diff line containing this string is allowed.
 sk-test-fixture1234567890abcdef
 
 # Regex pattern — written as /pattern/flags (JS syntax).
 /^.STRIPE_KEY=sk-test-/i
 
-# Outro literal.
+# Another literal.
 EXAMPLE_API_KEY=placeholder-value
 ```
 
 Regras:
 
-- Uma linha é **suprimida** (permitida) quando contém o literal ou quando a linha completa corresponde ao regex.
-- O arquivo é **fechado com falha**: se estiver ausente, nenhuma supressão será aplicada — o scanner se comporta como antes.
+- Uma linha é **suprimida** (permitida) quando contém o literal, ou quando
+  a linha inteira corresponde ao regex.
+- O arquivo é **fail-closed**: se estiver ausente, nenhuma supressão se
+  aplica — o scanner se comporta como antes.
 - Um arquivo vazio equivale a nenhum arquivo.
-- Linhas regex malformadas são tratadas como strings literais.
+- Linhas de regex malformadas são tratadas como strings literais.
 
-A lista de permissões só é consultada pelo portão de varredura secreta. Isso não afeta o que o agente de codificação pode ler — se o portão passar, o agente receberá a diferença completa de qualquer maneira.
+A lista de permissões só é consultada pelo portão de varredura de secrets.
+Ela não afeta o que o agente de codificação pode ler — se o portão passar,
+o agente recebe o diff completo de qualquer forma.
 
-## Adote como um fluxo de trabalho reutilizável
+## Adotando como um workflow reutilizável
 
 ### Por que usar a variante reutilizável?
 
-O instalador padrão copia o fluxo de trabalho completo de aproximadamente 360 linhas YAML em seu repositório (a opção **copiar**). Esta é a escolha certa para repositórios isolados ou repositórios que precisam auditar cada linha do que é executado. A desvantagem é que as correções de bugs e melhorias nunca chegam até você – você precisa executar novamente o `npx @agent-native/recap-cli@latest recap setup` manualmente após cada lançamento.
+O instalador padrão copia o YAML completo do workflow, com ~360 linhas,
+para o seu repositório (a opção **cópia**). Essa é a escolha certa para
+repositórios air-gapped ou que precisam auditar cada linha do que roda. A
+desvantagem é que correções de bugs e melhorias nunca chegam até você — é
+preciso rodar `npx @agent-native/recap-cli@latest recap setup` manualmente
+depois de cada lançamento.
 
-A opção **reutilizável** grava um chamador fino de aproximadamente 20 linhas. Delega para `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` via `uses:`. Cada chamador seleciona automaticamente a lógica mais recente quando o fluxo de trabalho é executado, sem necessidade de atualização local.
+A opção **reutilizável** escreve um chamador fino de ~20 linhas em vez
+disso. Ele delega para
+`BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` via
+`uses:`. Todo chamador recebe automaticamente a lógica mais recente quando
+o workflow roda, sem necessidade de atualização local.
 
-|                                                 | Copiar (padrão)                       | Reutilizável                      |
-| ----------------------------------------------- | ------------------------------------- | --------------------------------- |
-| Tamanho do fluxo de trabalho no seu repositório | ~360 linhas                           | ~20 linhas                        |
-| Captura correções automaticamente               | Não — execute novamente `recap setup` | Sim                               |
-| Air-gap/auditabilidade total                    | Sim                                   | Não                               |
-| Fixável em uma versão específica                | Somente editando localmente           | Sim — defina `@v1.2.3` em `uses:` |
+|                                        | Cópia (padrão)              | Reutilizável                     |
+| --------------------------------------- | ---------------------------- | ---------------------------------- |
+| Tamanho do workflow no seu repositório  | ~360 linhas                  | ~20 linhas                         |
+| Recebe correções automaticamente        | Não — rode `recap setup` de novo | Sim                             |
+| Air-gap / auditabilidade completa       | Sim                          | Não                                 |
+| Pode ser fixado em uma versão específica | Somente editando localmente  | Sim — defina `@v1.2.3` em `uses:` |
 
-### Snippet do autor da chamada
+### Trecho do chamador
 
-Isso é o que `npx @agent-native/recap-cli@latest recap setup --reusable` escreve (ou você pode colá-lo manualmente):
+Isto é o que `npx @agent-native/recap-cli@latest recap setup --reusable`
+escreve (ou você pode colar manualmente):
 
 ```yaml
 name: PR Visual Recap
 
-# Chamador thin — a lógica completa do fluxo de trabalho reside em BuilderIO/agent-native.
-# Correções e melhorias chegam a este repositório automaticamente a cada execução.
-# Para fixar uma versão específica para reprodutibilidade, substitua '@main' por uma
-# tag ou SHA, por exemplo '@v1.2.3' ou '@abc1234'.
+# Thin caller — the full workflow logic lives in BuilderIO/agent-native.
+# Fixes and improvements reach this repo automatically on each run.
+# To pin a specific version for reproducibility replace '@main' with a
+# tag or SHA, e.g. '@v1.2.3' or '@abc1234'.
 
 on:
   pull_request:
@@ -495,10 +745,12 @@ jobs:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:
       agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
+      base-url: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
@@ -507,39 +759,68 @@ jobs:
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 
-Aplicam-se os mesmos segredos e variáveis descritos em [Secrets and variables](#secrets-and-variables). O chamador reutilizável encaminha `VISUAL_RECAP_RUNS_ON` como `runs-on` para o trabalho completo e `VISUAL_RECAP_GATE_RUNS_ON` como o rótulo simples `gate-runs-on` para o gate. Ambos usam `ubuntu-latest` quando omitidos.
+Os mesmos secrets e variáveis descritos em
+[Secrets e variáveis](#secrets-and-variables) se aplicam — defina-os nas
+configurações do seu repositório da mesma forma que na variante de cópia.
+O chamador reutilizável encaminha `VISUAL_RECAP_RUNS_ON` pela sua entrada
+JSON `runs-on` para o job completo de recapitulação, `VISUAL_RECAP_GATE_RUNS_ON`
+pela sua entrada de rótulo simples `gate-runs-on` para o portão somente de
+metadados, e `VISUAL_RECAP_REQUIRED_LABELS` por `required-labels` para o
+controle opcional por rótulo de PR. A entrada de executor do portão só é
+usada para autores confiáveis do mesmo repositório; outros PRs usam o
+`ubuntu-latest` hospedado pelo GitHub. Omitir as entradas de executor
+preserva seus padrões `ubuntu-latest`; omitir rótulos obrigatórios preserva
+o comportamento automático de recapitulação.
 
-### Instalação via CLI
+### Instalando pelo CLI
 
 ```bash
-# Escreva o chamador thin em vez da cópia completa:
+# Write the thin caller instead of the full copy:
 npx @agent-native/recap-cli@latest recap setup --reusable
 
-# Ou com uma referência fixada para reprodutibilidade:
+# Or with a pinned ref for reproducibility:
 npx @agent-native/recap-cli@latest recap setup --reusable --ref v1.2.3
 ```
 
-Ambas as variantes gravam o fluxo de trabalho em `.github/workflows/pr-visual-recap.yml`. Se um fluxo de trabalho existente já existir e for diferente, o comando recusará e solicitará que você passe `--force` para substituição.
+As duas variantes escrevem o workflow em
+`.github/workflows/pr-visual-recap.yml`. Se já existir um workflow ali e
+ele for diferente, o comando recusa e informa que é preciso passar
+`--force` para sobrescrever.
 
-Depois de escrever, execute `npx @agent-native/recap-cli@latest recap doctor` normalmente para confirmar se os segredos estão configurados.
+Depois de escrever, rode `npx @agent-native/recap-cli@latest recap doctor`
+normalmente para confirmar que os secrets estão configurados.
 
-### Fixação de versão
+### Fixação de versão {#version-pinning}
 
-Por padrão, o chamador faz referência a `@main`, que sempre usa a versão publicada mais recente do fluxo de trabalho reutilizável. Para repositórios de produção que precisam de CI reproduzível, fixe em uma tag ou SHA:
+Por padrão, o chamador referencia `@main`, que sempre usa a versão
+publicada mais recente do workflow reutilizável. Para repositórios de
+produção que precisam de CI reprodutível, fixe em uma tag ou SHA:
 
 ```yaml
 uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@v1.2.3
 ```
 
-A entrada `cli-version` controla qual versão do `@agent-native/recap-cli` CLI é executada dentro do fluxo de trabalho. Deixe-a em `"latest"` para rastrear a versão mais recente ou fixe-a em uma string de versão (por exemplo, `"1.5.0"`) para reprodutibilidade total.
+A entrada `cli-version` controla qual versão do `@agent-native/recap-cli`
+roda dentro do workflow — deixe-a em `"latest"` para acompanhar o
+lançamento mais recente, ou fixe-a em uma string de versão (por exemplo,
+`"1.5.0"`) para reprodutibilidade completa.
 
-### contexto do evento workflow_call
+### Contexto do evento workflow_call
 
-Os fluxos de trabalho `workflow_call` herdam o contexto do evento do **chamador**. O fluxo de trabalho reutilizável usa expressões `github.event.pull_request.*` para ler o número PR, cabeçalho SHA, base SHA, carimbo de data/hora de mesclagem e metadados PR — eles funcionam corretamente apenas quando o chamador é acionado em `pull_request`. O snippet do chamador acima já inclui os tipos de eventos corretos. O evento `closed` está incluído para que recapitulações de relações públicas mescladas possam ser carimbadas com `merged_at` e posteriormente pesquisadas como trabalho enviado.
+Workflows `workflow_call` herdam o contexto de evento do **chamador**. O
+workflow reutilizável usa expressões `github.event.pull_request.*` para ler
+o número do PR, o SHA do head, o SHA da base, o timestamp de mesclagem e os
+metadados do PR — isso funciona corretamente apenas quando o chamador
+dispara em `pull_request`. O trecho de chamador acima já inclui os tipos de
+evento corretos. O evento `closed` é incluído para que recapitulações de
+PRs mesclados possam ser marcadas com `merged_at` e depois pesquisadas
+como trabalho entregue.
 
-Não acione o chamador em `workflow_dispatch` ou `push` — esses eventos não carregam uma carga útil `pull_request` e o portão ignorará a recapitulação com "sem carga útil pull_request".
+Não dispare o chamador em `workflow_dispatch` ou `push` — esses eventos não
+carregam um payload `pull_request`, e o portão vai pular a recapitulação
+com "no pull_request payload".
 
-## Relacionado
+## O que vem a seguir
 
-- [Visual Plans](/docs/template-plan) — o `/visual-plan` e `/visual-recap` skills, o conector de planos hospedado e a superfície de revisão interativa na qual esta ação é publicada.
-- [Skills](/docs/skills-guide) — instalando skills nativo do agente em seu agente de codificação.
+- [Visual Plans](/docs/template-plan) — as habilidades `/visual-plan` e `/visual-recap`, o conector Plans hospedado, e a superfície de revisão interativa para a qual esta action publica.
+- [Skills](/docs/skills-guide) — instalando habilidades do agent-native no seu agente de codificação.
