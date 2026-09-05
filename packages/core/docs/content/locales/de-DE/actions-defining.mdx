@@ -124,6 +124,28 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
             "Erbt `agentTool`. `false` verbirgt sie vor externen Agenten über MCP und A2A, `true` deklariert die Zugehörigkeit zum kuratierten Katalog. Siehe Zugriff & Autorisierung.",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Auf true setzen, wenn ein erfolgreicher Aufruf die Kontrolle an den Nutzer übergibt (Frageformular, Aufnahmedialog); dann muss es der erste oder einzige Aufruf im Turn sein. Vor MCP, WebMCP und A2A verborgen, sofern nicht mcpTool: true gesetzt ist – ein externer Aufrufer kann keine In-App-Antwort empfangen. Siehe Externe Agenten.",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "Reiner, synchroner Deep-Link-Builder, der von MCP-Hosts und der Desktop-App gelesen wird. Siehe Weitere Oberflächen.",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "Bettet die echte App-Route inline in MCP-App-Hosts ein. Siehe Weitere Oberflächen.",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -194,6 +216,8 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
 
 Das Schema erfüllt zwei Aufgaben. Es wandelt sich für die Tool-Definition der Claude API in JSON Schema um, und es validiert die Eingabe zur Laufzeit, bevor `run()` ausgelöst wird. Ungültige Eingaben erreichen Ihren Handler nie.
 
+Geben Sie Enum-Werte und Defaults in `.describe()` an, halten Sie den primären Id-Namen innerhalb einer Tool-Familie identisch (`id`, nicht ein Mix aus `id`/`deckId`), und machen Sie die einzeilige Beschreibung ausreichend, um das Tool aus einem kompakten Katalog heraus aufzurufen – die in jeder App mitgelieferte `actions`-Skill enthält die Checkliste.
+
 ## Rückgabewert validieren {#output-schema}
 
 `schema` validiert _Eingaben_. Um auch zu validieren, was eine Action **zurückgibt**, übergeben Sie ein `outputSchema` (ein beliebiges mit Standard Schema kompatibles Schema: Zod, Valibot, ArkType, dieselbe Oberfläche wie `schema`). Das Framework validiert die Eingabe vor `run()` und validiert das Ergebnis, nachdem `run()` aufgelöst wurde.
@@ -222,6 +246,10 @@ export default defineAction({
 | `"fallback"` | Gibt den bereitgestellten `outputFallback`-Wert anstelle des ungültigen Ergebnisses zurück.                                    |
 
 Wenn `run()` erfolgreich ist, gibt das Framework den validierten Wert zurück, sodass alle Defaults oder Coercions auf `outputSchema` greifen, genau wie bei der Eingabe. Wenn Sie kein `outputSchema` übergeben, bleibt der Rückgabewert unverändert.
+
+## Ergebnisverträge {#result-contracts}
+
+Ein Create- oder Update-Ergebnis wird von mehr als nur seinem Aufrufer gelesen. Geben Sie `id` zurück (damit `link` einen Deep Link in die Bearbeitungsansicht bauen kann), eine einzeilige `message`, und – wenn die Operation ein Schritt in einem Ablauf ist, den der Agent weitertreiben soll – `nextRequiredAction` mit dem Namen des nächsten Tools. Formulieren Sie es nie so, als würde auf den Nutzer gewartet: MCP-/WebMCP-/A2A-Aufrufer können keine In-App-Antwort empfangen. Die Agent-Loop behält `nextRequiredAction` in Fortsetzungs-Prompts bei, selbst wenn ein großes Ergebnis gekürzt wird, und MCP-Aufrufer sehen es als `Next: …`.
 
 ## HTTP-Konfiguration {#http}
 

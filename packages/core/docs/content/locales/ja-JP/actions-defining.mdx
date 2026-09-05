@@ -124,6 +124,28 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
             "`agentTool` を継承します。`false` に設定すると、MCP と A2A 経由の外部エージェントから非表示になります。`true` に設定すると、厳選されたカタログに属することを宣言します。「アクセスと認可」を参照してください。",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "呼び出しが成功するとユーザーに制御を渡す場合(質問フォーム、インテークダイアログ)に true にします。その場合はターン内で最初または唯一の呼び出しにしてください。mcpTool: true を指定しない限り MCP、WebMCP、A2A からは非表示です — 外部の呼び出し元はアプリ内での回答を受け取れないためです。「外部エージェント」を参照してください。",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "MCP ホストとデスクトップ アプリが読み取る、純粋で同期的なディープリンク ビルダーです。「その他のサーフェス」を参照してください。",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "実際のアプリ ルートを MCP-App ホスト内にインラインで埋め込みます。「その他のサーフェス」を参照してください。",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -194,6 +216,8 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
 
 スキーマは2つの役割を果たします。Claude API のツール定義向けに JSON Schema へ変換されることと、`run()` が発火する前に実行時に入力を検証することです。無効な入力がハンドラーに届くことはありません。
 
+enum の値とデフォルト値は `.describe()` に記述し、ツール ファミリー全体で主キーの id 名を統一し(`id`/`deckId` のような混在ではなく `id` に揃える)、コンパクトなカタログからツールを呼び出すのに十分な 1 行の説明にしてください — すべてのアプリに同梱される `actions` スキルにチェックリストがあります。
+
 ## 戻り値を検証する {#output-schema}
 
 `schema` は _入力_ を検証します。アクションが **返す値** も検証したい場合は、`outputSchema` を渡してください (Zod、Valibot、ArkType など、`schema` と同じく任意の Standard Schema 互換スキーマを使えます)。フレームワークは `run()` の前に入力を検証し、`run()` が解決した後に結果を検証します。
@@ -222,6 +246,10 @@ export default defineAction({
 | `"fallback"` | 無効な結果の代わりに、指定された `outputFallback` の値を返します。                                  |
 
 `run()` が成功すると、フレームワークは検証済みの値を返すため、`outputSchema` に設定されたデフォルト値や型変換が、入力の場合と同じように反映されます。`outputSchema` を渡さない場合、戻り値は変更されません。
+
+## 結果の契約 {#result-contracts}
+
+create や update の結果は、呼び出し元以外からも読まれます。`id`(`link` が編集ビューへのディープリンクを組み立てられるように)、1 行の `message`、そして — その操作がエージェントが引き続き進めるべきフローの一部である場合は — 次のツール名を示す `nextRequiredAction` を返してください。ユーザーを待っているかのような書き方は絶対にしないでください。MCP・WebMCP・A2A の呼び出し元はアプリ内での回答を受け取れません。大きな結果が切り詰められた場合でも、エージェント ループは継続プロンプトに `nextRequiredAction` を保持し続け、MCP の呼び出し元にはそれが `Next: …` として見えます。
 
 ## HTTP 設定 {#http}
 

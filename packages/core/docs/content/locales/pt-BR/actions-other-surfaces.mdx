@@ -104,6 +104,8 @@ export default defineAction({
 
 Mantenha `link` como o fallback para CLI e hosts MCP sem UI. Ele também é o alvo de lançamento do embed. A ponte de embed (a sessão assinada de embed-start, transplante vs. renderização em controlled-frame, a ponte de host `ui/*`, CSP, e o clamping de altura) é de responsabilidade de [External Agents](/docs/external-agents#mcp-app-bridge).
 
+Não existe uma verificação automática de que um template tenha `view-screen`, `navigate`, ou um conjunto de create/read/update/list para seu recurso principal; o scaffold já vem com `view-screen` e `navigate`, e `pnpm guard:external-result-contract` reprova qualquer linguagem de "esperar pelo usuário" no `description` ou `nextRequiredAction` de uma action exposta externamente, e exige um deep link em uma nova action `create-*` exposta externamente. A presença é um item de revisão.
+
 ## Actions padrão {#standard-actions}
 
 Todo template deve incluir estas duas para [context awareness](/docs/context-awareness).

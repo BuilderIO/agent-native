@@ -124,6 +124,28 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
             "Hérite d’`agentTool`. Mettez false pour la masquer aux agents externes via MCP et A2A, ou true pour déclarer son appartenance au catalogue trié. Voir Accès et autorisation.",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Mettez true quand un appel réussi remet le contrôle à l’utilisateur (formulaire de question, dialogue de saisie) ; faites-en le premier ou unique appel du tour. Masqué de MCP, WebMCP et A2A sauf si mcpTool: true — un appelant externe ne peut pas recevoir de réponse dans l’app. Voir Agents externes.",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "Constructeur de lien profond pur et synchrone, lu par les hôtes MCP et l’app de bureau. Voir Autres surfaces.",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "Intègre la vraie route de l’app en ligne dans les hôtes MCP-App. Voir Autres surfaces.",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -194,6 +216,8 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
 
 Le schéma remplit deux rôles. Il se convertit en JSON Schema pour la définition d’outil de l’API Claude, et il valide l’entrée à l’exécution avant que `run()` ne se déclenche. Une entrée invalide n’atteint jamais votre gestionnaire.
 
+Indiquez les valeurs enum et les valeurs par défaut dans `.describe()`, gardez le nom de l’id principal identique dans toute une famille d’outils (`id`, pas un mélange d’`id`/`deckId`), et faites en sorte que la description d’une ligne suffise à appeler l’outil depuis un catalogue compact — la skill `actions` livrée avec chaque app contient la checklist.
+
 ## Valider la valeur de retour {#output-schema}
 
 `schema` valide les _entrées_. Pour aussi valider ce qu’une action **renvoie**, passez un `outputSchema` (n’importe quel schéma compatible Standard Schema : Zod, Valibot, ArkType, la même surface que `schema`). Le framework valide l’entrée avant `run()` et valide le résultat après la résolution de `run()`.
@@ -222,6 +246,10 @@ export default defineAction({
 | `"fallback"` | Renvoie la valeur `outputFallback` fournie à la place du résultat invalide.                             |
 
 Quand `run()` réussit, le framework renvoie la valeur validée, de sorte que les valeurs par défaut ou les coercions de `outputSchema` s’appliquent, de la même manière que pour l’entrée. Quand vous ne passez pas de `outputSchema`, la valeur de retour reste inchangée.
+
+## Contrats de résultat {#result-contracts}
+
+Un résultat de création ou de mise à jour est lu par plus que son appelant. Renvoyez `id` (pour que `link` puisse construire un lien profond vers la vue d’édition), un `message` d’une ligne, et — quand l’opération est une étape d’un flux que l’agent doit continuer à piloter — `nextRequiredAction` nommant l’outil suivant. Ne le formulez jamais comme une attente de l’utilisateur : les appelants MCP/WebMCP/A2A ne peuvent pas recevoir de réponse dans l’app. La boucle de l’agent conserve `nextRequiredAction` dans les prompts de continuation même quand un résultat volumineux est tronqué, et les appelants MCP le voient sous la forme `Next: …`.
 
 ## Configuration HTTP {#http}
 

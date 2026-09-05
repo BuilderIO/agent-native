@@ -12,14 +12,26 @@ import { beforeAll, describe, expect, it } from "vitest";
  * When those defaults reached raw HTML, a light-themed deck rendered its
  * headings and body in the hardcoded white and was illegible, and no edit to
  * the slide could repair it: the color lived in this stylesheet, not in the
- * slide. `data-slide-content-scope` is set only on the raw-HTML container
- * (SlideRenderer's BlankSlideContent), so it is the seam between the two.
+ * slide. `data-slide-content-scope` is the seam between the two, and
+ * SlideRenderer stamps it on every container that renders slide-authored
+ * HTML — the raw-HTML container and any markdown layout whose slide declares
+ * its own color. (SlideRenderer.test.tsx covers the stamping itself; this file
+ * covers what the stylesheet then does.)
  *
  * happy-dom resolves selector specificity but not `inherit`, so the assertion
  * is on the winning declaration: `inherit` means the slide's own color wins.
  */
 const RAW_SLIDE = (inner: string) =>
   '<div class="slide-content" data-slide-content-scope="scope-1">' +
+  `<div style="color: rgb(41, 37, 36); background: #fdf6ec">${inner}</div>` +
+  "</div>";
+
+/** What a "content"/"two-column" layout renders once the slide declares a
+ *  color: the same palette-off marker, on the AutoFitContent container that
+ *  carries `slide-content`. */
+const MARKDOWN_LAYOUT_SLIDE = (inner: string) =>
+  '<div class="fmd-autofit-scale slide-content" ' +
+  'data-slide-content-scope="authored-colors">' +
   `<div style="color: rgb(41, 37, 36); background: #fdf6ec">${inner}</div>` +
   "</div>";
 
@@ -57,6 +69,9 @@ describe("slide-content text colors", () => {
   for (const [tag, inner] of Object.entries(markup)) {
     it(`lets raw slide HTML own its own <${tag}> color`, () => {
       expect(colorOf(RAW_SLIDE(inner), tag)).toBe("inherit");
+    });
+    it(`lets a markdown-layout slide own its own <${tag}> color`, () => {
+      expect(colorOf(MARKDOWN_LAYOUT_SLIDE(inner), tag)).toBe("inherit");
     });
   }
 
