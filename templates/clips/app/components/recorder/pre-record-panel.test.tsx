@@ -161,6 +161,12 @@ describe("PreRecordPanel desktop-aligned setup", () => {
     expect(selectedMode?.className).toContain(
       "dark:data-[state=on]:text-background",
     );
+    expect(selectedMode?.className).toContain(
+      "rounded-[var(--recorder-mode-option-radius)]",
+    );
+    expect(selectedMode?.closest('[role="radiogroup"]')?.className).toContain(
+      "rounded-[var(--recorder-mode-toggle-radius)]",
+    );
     expect(cameraSwitch?.getAttribute("data-state")).toBe("checked");
     expect(micSwitch?.getAttribute("data-state")).toBe("checked");
     expect(selectedMode?.parentElement?.getAttribute("data-state")).toBe(
@@ -199,6 +205,10 @@ describe("PreRecordPanel desktop-aligned setup", () => {
     expect(sourceTrigger).not.toBeNull();
     expect(cameraTrigger).not.toBeNull();
     expect(microphoneTrigger).not.toBeNull();
+    for (const trigger of [sourceTrigger, cameraTrigger, microphoneTrigger]) {
+      expect(trigger?.className).toContain("focus-visible:ring-inset");
+      expect(trigger?.className).not.toContain("focus-visible:ring-offset");
+    }
     expect(startButton).toBeDefined();
     expect(
       container.querySelectorAll('[data-testid="microphone-waveform"]'),
@@ -215,6 +225,20 @@ describe("PreRecordPanel desktop-aligned setup", () => {
         ),
       ),
     ).toBe(false);
+  });
+
+  it("uses available web width before truncating device labels", async () => {
+    await renderPanel();
+
+    const panel = container.querySelector(".max-w-\\[420px\\]");
+    const microphoneTrigger = container.querySelector(
+      '[aria-label="preRecord.defaultMicrophone"]',
+    );
+    const microphoneLabel = microphoneTrigger?.querySelector("span");
+
+    expect(panel).not.toBeNull();
+    expect(microphoneLabel?.className).toContain("truncate");
+    expect(microphoneLabel?.className).not.toContain("max-w-");
   });
 
   it("uses the desktop camera transition without changing microphone state", async () => {
@@ -553,6 +577,28 @@ describe("PreRecordPanel desktop-aligned setup", () => {
     const menu = document.body.querySelector('[role="menu"]');
     expect(menu?.className).not.toContain("overflow-y-auto");
     expect(menu?.className).not.toContain("overflow-y-scroll");
+  });
+
+  it("does not restore a pointer-dismissed device menu as keyboard focus", async () => {
+    await renderPanel();
+
+    const cameraTrigger = container.querySelector(
+      '[aria-label="preRecord.defaultCamera"]',
+    );
+    await act(async () => {
+      openMenu(cameraTrigger);
+      await Promise.resolve();
+    });
+
+    const selectedCamera = document.body.querySelector(
+      '[role="menuitemradio"]',
+    );
+    await act(async () => {
+      click(selectedCamera);
+      await Promise.resolve();
+    });
+
+    expect(document.activeElement).not.toBe(cameraTrigger);
   });
 
   it("bounds long camera and microphone menus and selects from full pickers", async () => {

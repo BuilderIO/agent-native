@@ -4728,6 +4728,7 @@ export function App({
             }
             onClick={() => beginRecording()}
           >
+            <span className="rec-dot" aria-hidden="true" />
             <span className="start-label">{startButtonLabel}</span>
             {startButtonLoading ? (
               <span

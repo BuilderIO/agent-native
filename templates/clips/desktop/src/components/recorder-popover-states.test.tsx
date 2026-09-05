@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -40,6 +43,49 @@ const commonDeviceProps = {
 };
 
 describe("recorder popover failure states", () => {
+  it("keeps the start affordance and mode-toggle radii aligned with web", () => {
+    const appSource = readFileSync(
+      resolve(process.cwd(), "src/app.tsx"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      resolve(process.cwd(), "src/styles.css"),
+      "utf8",
+    );
+    const tokens = readFileSync(
+      resolve(process.cwd(), "src/tailwind.css"),
+      "utf8",
+    );
+    const modeToggleStyles = styles.slice(
+      styles.indexOf(".mode-toggle {"),
+      styles.indexOf(".mode-tooltip {"),
+    );
+    const recordingDotStyles = styles.slice(
+      styles.indexOf(".rec-dot {"),
+      styles.indexOf(".active-recording-card {"),
+    );
+
+    expect(appSource).toContain(
+      '<span className="rec-dot" aria-hidden="true" />',
+    );
+    expect(modeToggleStyles).toContain(
+      "border-radius: var(--recorder-mode-toggle-radius)",
+    );
+    expect(modeToggleStyles).toContain(
+      "border-radius: var(--recorder-mode-option-radius)",
+    );
+    expect(tokens).toContain("--recorder-mode-option-radius: 14px");
+    expect(tokens).toContain("--recorder-mode-toggle-inset: 4px");
+    expect(tokens).toContain(
+      "var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)",
+    );
+    expect(recordingDotStyles).toContain("width: 8px");
+    expect(recordingDotStyles).toContain(
+      "background: hsl(var(--ui-destructive))",
+    );
+    expect(recordingDotStyles).not.toContain("box-shadow");
+  });
+
   it("makes a disabled camera row quiet and reversible", () => {
     const html = renderToStaticMarkup(
       <MediaDeviceRow {...commonDeviceProps} kind="camera" on={false} />,

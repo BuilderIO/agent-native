@@ -132,15 +132,19 @@ describe("record route lifecycle shell", () => {
       resolve(process.cwd(), "app/routes/record.tsx"),
       "utf8",
     );
+    const tokens = readFileSync(
+      resolve(process.cwd(), "app/global.css"),
+      "utf8",
+    );
     const callout = source.slice(
       source.indexOf("function DesktopRecorderCallout"),
       source.indexOf("export function RecorderRouteStatus"),
     );
 
     expect(source).toContain("min-h-[100dvh]");
-    expect(source).toContain("max-w-[320px]");
+    expect(source).toContain("max-w-[420px]");
     expect(source).toContain(
-      'className="mx-auto grid w-full max-w-[320px] gap-2"',
+      'className="mx-auto grid w-full max-w-[420px] gap-2"',
     );
     expect(callout).toContain('variant="ghost"');
     expect(callout).toContain("text-xs font-normal text-muted-foreground");
@@ -152,6 +156,11 @@ describe("record route lifecycle shell", () => {
       /\b(?:bg-black|text-white|from-zinc|to-black)\b/,
     );
     expect(source).not.toContain("transition-all");
+    expect(tokens).toContain("--recorder-mode-option-radius: 1.125rem");
+    expect(tokens).toContain("--recorder-mode-toggle-inset: 0.3125rem");
+    expect(tokens).toContain(
+      "var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)",
+    );
   });
 
   it("keeps auto-upload as a hidden route bridge instead of panel chrome", () => {

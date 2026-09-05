@@ -143,8 +143,8 @@ const COMPACT_DEVICE_LIMIT = 4;
 const CONTROL_ROW_CLASS =
   "grid min-h-10 grid-cols-[20px_minmax(0,1fr)_44px] items-center gap-3 rounded-lg px-2";
 const CONTROL_TRIGGER_CLASS =
-  "flex h-10 w-full min-w-0 items-center gap-2 rounded-md text-start text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
-const DEVICE_MENU_CLASS = "w-64";
+  "flex h-10 w-full min-w-0 items-center gap-2 rounded-md text-start text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
+const DEVICE_MENU_CLASS = "w-80 max-w-[calc(100vw-1rem)]";
 const SWITCH_CLASS =
   "data-[state=checked]:bg-success data-[state=unchecked]:bg-muted-foreground/30";
 
@@ -384,6 +384,7 @@ export function PreRecordPanel({
   const [microphonePickerOpen, setMicrophonePickerOpen] = useState(false);
   const cameraMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const microphoneMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownInputModalityRef = useRef<"keyboard" | "pointer">("pointer");
   const [enumError, setEnumError] = useState<string | null>(null);
   const [micAccessStatus, setMicAccessStatus] =
     useState<DeviceAccessStatus>("idle");
@@ -402,6 +403,17 @@ export function PreRecordPanel({
           error,
         );
       });
+  }, []);
+  const markDropdownPointerInteraction = useCallback(() => {
+    dropdownInputModalityRef.current = "pointer";
+  }, []);
+  const markDropdownKeyboardInteraction = useCallback(() => {
+    dropdownInputModalityRef.current = "keyboard";
+  }, []);
+  const handleDropdownCloseAutoFocus = useCallback((event: Event) => {
+    if (dropdownInputModalityRef.current === "pointer") {
+      event.preventDefault();
+    }
   }, []);
 
   const modeOptions = useMemo<ModeOption[]>(
@@ -857,7 +869,7 @@ export function PreRecordPanel({
 
   return (
     <TooltipProvider delayDuration={180}>
-      <div className="mx-auto w-full max-w-[320px] overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+      <div className="mx-auto w-full max-w-[420px] overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
         {visibleModeOptions.length > 1 ? (
           <div className="flex justify-center px-4 pb-3 pt-4">
             <ToggleGroup
@@ -868,7 +880,7 @@ export function PreRecordPanel({
               }}
               variant="outline"
               aria-label={t("recordRoute.clipsRecorder")}
-              className="grid w-[240px] grid-cols-3 gap-1 rounded-full border border-border bg-muted p-1"
+              className="grid w-[240px] grid-cols-3 gap-1 rounded-[var(--recorder-mode-toggle-radius)] border border-border bg-muted p-1"
             >
               {visibleModeOptions.map((option) => {
                 const Icon = option.icon;
@@ -879,7 +891,7 @@ export function PreRecordPanel({
                         <ToggleGroupItem
                           value={option.value}
                           aria-label={option.label}
-                          className="h-9 w-full rounded-full border-0 px-0 text-muted-foreground shadow-none hover:bg-background/70 hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm dark:data-[state=on]:bg-foreground dark:data-[state=on]:text-background"
+                          className="h-9 w-full rounded-[var(--recorder-mode-option-radius)] border-0 px-0 text-muted-foreground shadow-none hover:bg-background/70 hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm dark:data-[state=on]:bg-foreground dark:data-[state=on]:text-background"
                         >
                           <span
                             className="relative inline-flex"
@@ -915,6 +927,8 @@ export function PreRecordPanel({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
+                    onPointerDownCapture={markDropdownPointerInteraction}
+                    onKeyDownCapture={markDropdownKeyboardInteraction}
                     className={cn(
                       CONTROL_TRIGGER_CLASS,
                       "col-span-2 grid grid-cols-[minmax(0,1fr)_44px] gap-3",
@@ -936,6 +950,10 @@ export function PreRecordPanel({
                   sideOffset={6}
                   className="w-[216px]"
                   collisionPadding={8}
+                  onPointerDownCapture={markDropdownPointerInteraction}
+                  onPointerDownOutside={markDropdownPointerInteraction}
+                  onKeyDownCapture={markDropdownKeyboardInteraction}
+                  onCloseAutoFocus={handleDropdownCloseAutoFocus}
                 >
                   <DropdownMenuRadioGroup
                     value={displaySurface}
@@ -970,6 +988,8 @@ export function PreRecordPanel({
                   <button
                     ref={cameraMenuTriggerRef}
                     type="button"
+                    onPointerDownCapture={markDropdownPointerInteraction}
+                    onKeyDownCapture={markDropdownKeyboardInteraction}
                     className={CONTROL_TRIGGER_CLASS}
                     aria-label={selectedCameraLabel}
                   >
@@ -986,6 +1006,10 @@ export function PreRecordPanel({
                   sideOffset={6}
                   className={DEVICE_MENU_CLASS}
                   collisionPadding={8}
+                  onPointerDownCapture={markDropdownPointerInteraction}
+                  onPointerDownOutside={markDropdownPointerInteraction}
+                  onKeyDownCapture={markDropdownKeyboardInteraction}
+                  onCloseAutoFocus={handleDropdownCloseAutoFocus}
                 >
                   <DropdownMenuRadioGroup
                     value={cameraId}
@@ -1055,12 +1079,12 @@ export function PreRecordPanel({
                   <button
                     ref={microphoneMenuTriggerRef}
                     type="button"
+                    onPointerDownCapture={markDropdownPointerInteraction}
+                    onKeyDownCapture={markDropdownKeyboardInteraction}
                     className={CONTROL_TRIGGER_CLASS}
                     aria-label={selectedMicLabel}
                   >
-                    <span className="min-w-0 max-w-[7.5rem] truncate">
-                      {selectedMicLabel}
-                    </span>
+                    <span className="min-w-0 truncate">{selectedMicLabel}</span>
                     <MicrophoneVisualizer
                       deviceId={micId === "default" ? null : micId}
                       disabled={busy}
@@ -1083,6 +1107,10 @@ export function PreRecordPanel({
                   sideOffset={6}
                   className={DEVICE_MENU_CLASS}
                   collisionPadding={8}
+                  onPointerDownCapture={markDropdownPointerInteraction}
+                  onPointerDownOutside={markDropdownPointerInteraction}
+                  onKeyDownCapture={markDropdownKeyboardInteraction}
+                  onCloseAutoFocus={handleDropdownCloseAutoFocus}
                 >
                   <DropdownMenuRadioGroup
                     value={micId}

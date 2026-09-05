@@ -205,6 +205,11 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-collapse: cubic-bezier(0.2, 0, 0, 1);
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --recorder-mode-option-radius: 14px;
+  --recorder-mode-toggle-inset: 4px;
+  --recorder-mode-toggle-radius: calc(
+    var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)
+  );
 
   /* Layered rather than one soft blur: a hairline for the edge, a tight
      contact shadow for the lift, a wide ambient one for depth. A single

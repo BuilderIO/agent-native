@@ -219,7 +219,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .mode-toggle {
   display: inline-flex;
   background: var(--surface);
-  border-radius: var(--radius-pill);
+  border-radius: var(--recorder-mode-toggle-radius);
   padding: 3px;
   justify-self: center;
   border: 1px solid var(--border);
@@ -236,7 +236,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border: none;
   background: transparent;
   color: var(--fg-muted);
-  border-radius: var(--radius-pill);
+  border-radius: var(--recorder-mode-option-radius);
   cursor: pointer;
   transition-property: background-color, color, box-shadow, transform;
   transition-duration: 120ms;
@@ -1003,8 +1003,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+  flex: 0 0 auto;
+  background: hsl(var(--ui-destructive));
 }
 
 .active-recording-card {

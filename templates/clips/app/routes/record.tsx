@@ -553,7 +553,7 @@ function PreRecordPanelSkeleton() {
   return (
     <div
       aria-busy="true"
-      className="mx-auto w-full max-w-[320px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+      className="mx-auto w-full max-w-[420px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
     >
       <div className="flex justify-center px-4 pb-3 pt-4">
         <Skeleton className="h-11 w-[240px] rounded-full" />
@@ -607,7 +607,7 @@ export function RecorderRouteStatus({
       : Math.min(100, Math.max(0, Math.round(progress * 100)));
 
   return (
-    <section className="w-full max-w-[320px] rounded-2xl border border-border bg-card p-5 shadow-sm">
+    <section className="w-full max-w-[420px] rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div
         role={role}
         aria-live={role === "alert" ? "assertive" : "polite"}
@@ -2750,7 +2750,7 @@ export default function RecordRoute() {
           it renders its own standalone surface for direct visits. */}
       {uiState === "idle" && (
         <RecorderRouteViewport>
-          <div className="mx-auto grid w-full max-w-[320px] gap-2">
+          <div className="mx-auto grid w-full max-w-[420px] gap-2">
             <div className="min-w-0">
               {storageConfigured === null ? (
                 <PreRecordPanelSkeleton />
