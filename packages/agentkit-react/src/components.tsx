@@ -200,6 +200,74 @@ function AgentKitRegionSlot({
 const allowedAgentProtocols = new Set(["http:", "https:", "mailto:", "blob:"]);
 const allowedAgentImageProtocols = new Set(["http:", "https:", "blob:"]);
 
+/** Keeps an unfinished bold delimiter literal while a streamed message grows. */
+function escapeIncompleteStrongMarkdown(text: string): string {
+  const delimiterPositions = new Map<"**" | "__", number[]>();
+  let inFence = false;
+  let fenceMarker = "";
+  let inlineCodeTicks = 0;
+  let offset = 0;
+
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimStart();
+    if (!inFence) {
+      const fenceMatch = /^(?:`{3,}|~{3,})/.exec(trimmed);
+      if (fenceMatch) {
+        inFence = true;
+        fenceMarker = fenceMatch[0]!.charAt(0).repeat(fenceMatch[0]!.length);
+      }
+    }
+
+    if (!inFence) {
+      for (let index = 0; index < line.length; index += 1) {
+        if (line[index] === "\\") {
+          index += 1;
+          continue;
+        }
+        if (line[index] === "`") {
+          let tickCount = 1;
+          while (line[index + tickCount] === "`") tickCount += 1;
+          inlineCodeTicks = inlineCodeTicks === 0 ? tickCount : 0;
+          index += tickCount - 1;
+          continue;
+        }
+        if (inlineCodeTicks !== 0) continue;
+        const delimiter = line.slice(index, index + 2);
+        if (delimiter !== "**" && delimiter !== "__") continue;
+        const positions = delimiterPositions.get(delimiter) ?? [];
+        positions.push(offset + index);
+        delimiterPositions.set(delimiter, positions);
+        index += 1;
+      }
+    } else {
+      const closeMatch = /^(?:`{3,}|~{3,})\s*$/.exec(trimmed);
+      if (
+        closeMatch &&
+        closeMatch[0]!.charAt(0) === fenceMarker.charAt(0) &&
+        closeMatch[0]!.trim().length >= fenceMarker.length
+      ) {
+        inFence = false;
+        fenceMarker = "";
+      }
+    }
+    offset += line.length + 1;
+  }
+
+  const unmatched = [...delimiterPositions.entries()].flatMap(
+    ([delimiter, positions]) =>
+      positions.length % 2 === 1
+        ? [{ delimiter, position: positions.at(-1)! }]
+        : [],
+  );
+  return unmatched
+    .sort((left, right) => right.position - left.position)
+    .reduce(
+      (value, { delimiter, position }) =>
+        `${value.slice(0, position)}\\${delimiter[0]}\\${delimiter[1]}${value.slice(position + 2)}`,
+      text,
+    );
+}
+
 /** Rejects executable and embedded-data URLs before they reach a default anchor. */
 export function safeAgentHref(href?: string): string | undefined {
   if (!href) return undefined;
@@ -217,6 +285,7 @@ const AgentMarkdownBlock = memo(function AgentMarkdownBlock({
 }: {
   text: string;
 }) {
+  const safeText = escapeIncompleteStrongMarkdown(text);
   return (
     <ReactMarkdown
       skipHtml
@@ -232,7 +301,7 @@ const AgentMarkdownBlock = memo(function AgentMarkdownBlock({
         },
       }}
     >
-      {text}
+      {safeText}
     </ReactMarkdown>
   );
 });
