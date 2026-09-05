@@ -3,7 +3,42 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockExecute = vi.fn();
 const mockTransaction = vi.fn(
   async (fn: (tx: { execute: typeof mockExecute }) => unknown) =>
-    fn({ execute: mockExecute }),
+    fn({
+      execute: async (input: { sql: string; args?: unknown[] }) => {
+        if (!input.sql.includes("ORDER BY id FOR UPDATE")) {
+          return mockExecute(input);
+        }
+        const result = await mockExecute(input);
+        const contextResult =
+          mockGetOrgContext.mock.results[
+            mockGetOrgContext.mock.results.length - 1
+          ]?.value;
+        const context = await contextResult;
+        const emails = (input.args ?? []).slice(1).map(String);
+        const targetEmail = emails[emails.length - 1];
+        const actorEmail = String(context?.email ?? "owner@example.test");
+        const actorRow = {
+          id: "actor-1",
+          email: actorEmail,
+          role: context?.role ?? "owner",
+          federationRemovalPendingAt: null,
+        };
+        const targetRows = (result.rows ?? []).map(
+          (row: any, index: number) => ({
+            id: row.id ?? `target-${index}`,
+            email: row.email ?? targetEmail,
+            ...row,
+          }),
+        );
+        return {
+          ...result,
+          rows:
+            actorEmail.toLowerCase() === targetEmail?.toLowerCase()
+              ? targetRows
+              : [actorRow, ...targetRows],
+        };
+      },
+    }),
 );
 const mockGetOrgContext = vi.fn();
 const mockGetSession = vi.hoisted(() => vi.fn());
@@ -11,6 +46,14 @@ const mockAddFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockRevokeFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockUpdateFederatedOrganizationMemberRole = vi.hoisted(() => vi.fn());
 const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
+const MockFederatedMemberOperationError = vi.hoisted(
+  () =>
+    class FederatedMemberOperationError extends Error {
+      constructor(readonly statusCode: number) {
+        super(`Identity authority member operation failed (${statusCode}).`);
+      }
+    },
+);
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -39,6 +82,7 @@ vi.mock("./federation.js", () => ({
     mockAddFederatedOrganizationMember(...args),
   revokeFederatedOrganizationMember: (...args: any[]) =>
     mockRevokeFederatedOrganizationMember(...args),
+  FederatedMemberOperationError: MockFederatedMemberOperationError,
   syncOrganizationToIdentityHub: vi.fn(async () => false),
   updateFederatedOrganizationMemberRole: (...args: any[]) =>
     mockUpdateFederatedOrganizationMemberRole(...args),
@@ -697,6 +741,7 @@ describe("org handlers", () => {
 
       mockExecute
         .mockResolvedValueOnce({ rows: [{ role: "admin" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [{ role: "admin" }], rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
       await changeMemberRoleHandler(
         makeEvent("/_agent-native/org/members/member@example.test/role", {
@@ -710,6 +755,7 @@ describe("org handlers", () => {
 
     it("propagates a role change before updating the local roster", async () => {
       mockExecute
+        .mockResolvedValueOnce({ rows: [{ role: "member" }], rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [{ role: "member" }], rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
       mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(true);
@@ -728,6 +774,7 @@ describe("org handlers", () => {
           actorRole: "owner",
           memberEmail: "member@example.test",
           memberRole: "admin",
+          expectedMemberRole: "member",
         },
       );
     });

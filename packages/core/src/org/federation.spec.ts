@@ -40,6 +40,7 @@ vi.mock("./request-org-cache.js", () => ({
 
 const {
   addFederatedOrganizationMember,
+  FederatedMemberOperationError,
   provisionFederatedOrganization,
   revokeFederatedOrganizationMember,
   syncOrganizationToIdentityHub,
@@ -368,6 +369,7 @@ describe("cross-app organization federation", () => {
         actorRole: "owner",
         memberEmail: "member@example.test",
         memberRole: "admin",
+        expectedMemberRole: "member",
       }),
     ).resolves.toBe(true);
     expect(signA2ATokenMock).toHaveBeenLastCalledWith(
@@ -379,9 +381,48 @@ describe("cross-app organization federation", () => {
           federation_operation: "update-member-role",
           federation_member_email: "member@example.test",
           federation_member_role: "admin",
+          federation_expected_member_role: "member",
         }),
       }),
     );
+  });
+
+  it("preserves an authority role conflict as a typed error", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/FROM organizations/i.test(sql)) {
+        return {
+          rows: [
+            {
+              id: "dispatch-org-1",
+              name: "Example Org",
+              identity_authority: "https://dispatch.agent-native.com",
+              identity_id: "dispatch-org-1",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 409 })),
+    );
+
+    await expect(
+      updateFederatedOrganizationMemberRole({} as any, {
+        orgId: "dispatch-org-1",
+        actorEmail: "owner@example.test",
+        actorRole: "owner",
+        memberEmail: "member@example.test",
+        memberRole: "admin",
+        expectedMemberRole: "member",
+      }),
+    ).rejects.toMatchObject({
+      name: "FederatedMemberOperationError",
+      statusCode: 409,
+    });
+    expect(FederatedMemberOperationError).toBeDefined();
   });
 
   it("uses the canonical identity id for a mapped local organization", async () => {

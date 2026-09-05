@@ -21,3 +21,6 @@ PostgreSQL.
 Allow still-authorized owners and admins to retry a pending federated member
 removal through the original DELETE after identity-authority success leaves
 local cleanup incomplete.
+
+Require federated role-change callers to assert the target's expected current
+role so stale or older assertions fail closed before a local role write.

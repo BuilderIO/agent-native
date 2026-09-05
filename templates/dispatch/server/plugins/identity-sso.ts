@@ -32,6 +32,7 @@ import {
   getOrgContext,
   getOrgDomain,
   invalidateMemberOrgCaches,
+  lockOrgMembersForMutation,
 } from "@agent-native/core/org";
 import {
   getH3App,
@@ -440,6 +441,7 @@ export const organizationFederationHandler = defineEventHandler(
         ? claims.federation_member_email.trim().toLowerCase()
         : "";
     const federationMemberRole = claims.federation_member_role;
+    const federationExpectedMemberRole = claims.federation_expected_member_role;
     const rawFederationRosterHash = claims.federation_roster_hash;
     if (
       rawFederationRosterHash !== undefined &&
@@ -481,6 +483,24 @@ export const organizationFederationHandler = defineEventHandler(
       federationMemberRole !== undefined
     ) {
       return jsonResponse({ error: "Invalid federated member role" }, 400);
+    }
+    if (
+      federationOperation === "update-member-role" &&
+      !validFederatedMemberRole(federationExpectedMemberRole)
+    ) {
+      return jsonResponse(
+        { error: "Invalid federated expected member role" },
+        400,
+      );
+    }
+    if (
+      federationOperation !== "update-member-role" &&
+      federationExpectedMemberRole !== undefined
+    ) {
+      return jsonResponse(
+        { error: "Invalid federated expected member role" },
+        400,
+      );
     }
     if (federationRosterHash && federationOperation !== undefined) {
       return jsonResponse(
@@ -885,27 +905,41 @@ export const organizationFederationHandler = defineEventHandler(
           );
         }
         const roleUpdate = await transaction(async (tx) => {
-          const targets = await tx.execute({
-            sql: `SELECT role, federation_removal_pending_at FROM org_members
-                  WHERE org_id = ? AND LOWER(email) = ? FOR UPDATE`,
-            args: [orgId, federationMemberEmail],
-          });
-          if (targets.rows.length !== 1) return "conflict";
-          const target = targets.rows[0] as {
-            role?: unknown;
-            federation_removal_pending_at?: unknown;
-          };
-          const expectedRole = String(target.role ?? "");
+          const lockedMembers = await lockOrgMembersForMutation(tx, orgId, [
+            email,
+            federationMemberEmail,
+          ]);
+          const lockedActorRows = lockedMembers.filter(
+            (member) => member.email.trim().toLowerCase() === email,
+          );
+          const lockedTargetRows = lockedMembers.filter(
+            (member) =>
+              member.email.trim().toLowerCase() === federationMemberEmail,
+          );
+          if (lockedActorRows.length !== 1) return "unauthorized";
+          const lockedActor = lockedActorRows[0];
           if (
-            !validOrganizationRole(expectedRole) ||
-            target.federation_removal_pending_at != null
+            lockedActor.federationRemovalPendingAt != null ||
+            !validOrganizationRole(lockedActor.role) ||
+            (lockedActor.role !== "owner" && lockedActor.role !== "admin") ||
+            lockedActor.role !== orgRole
+          ) {
+            return "unauthorized";
+          }
+          if (lockedTargetRows.length !== 1) return "conflict";
+          const target = lockedTargetRows[0];
+          const lockedExpectedRole = target.role;
+          if (
+            !validOrganizationRole(lockedExpectedRole) ||
+            target.federationRemovalPendingAt != null ||
+            lockedExpectedRole !== federationExpectedMemberRole
           ) {
             return "conflict";
           }
-          if (expectedRole === "owner") return "owner";
+          if (lockedExpectedRole === "owner") return "owner";
           if (
-            actorRole === "admin" &&
-            (expectedRole === "admin" || memberRole === "admin")
+            lockedActor.role === "admin" &&
+            (lockedExpectedRole === "admin" || memberRole === "admin")
           ) {
             return "forbidden";
           }
@@ -914,7 +948,12 @@ export const organizationFederationHandler = defineEventHandler(
                   WHERE org_id = ? AND LOWER(email) = ?
                     AND role = ?
                     AND federation_removal_pending_at IS NULL`,
-            args: [memberRole, orgId, federationMemberEmail, expectedRole],
+            args: [
+              memberRole,
+              orgId,
+              federationMemberEmail,
+              lockedExpectedRole,
+            ],
           });
           if (updated.rowsAffected !== 1) {
             if (updated.rowsAffected > 1) {
@@ -931,6 +970,9 @@ export const organizationFederationHandler = defineEventHandler(
             { error: "Organization membership changed during role update" },
             409,
           );
+        }
+        if (roleUpdate === "unauthorized") {
+          return jsonResponse({ error: "Unauthorized" }, 403);
         }
         if (roleUpdate === "owner") {
           return jsonResponse(
@@ -967,23 +1009,37 @@ export const organizationFederationHandler = defineEventHandler(
         // This lock covers only the local authority decision and write. The
         // caller may be a satellite whose federation request is waiting for
         // this response, so it must never cover a network call.
-        const targets = await tx.execute({
-          sql: `SELECT role, federation_removal_pending_at FROM org_members
-                WHERE org_id = ? AND LOWER(email) = ? FOR UPDATE`,
-          args: [orgId, federationMemberEmail],
-        });
-        const targetRows = targets.rows as Array<{
-          role?: unknown;
-          federation_removal_pending_at?: unknown;
-        }>;
+        const lockedMembers = await lockOrgMembersForMutation(tx, orgId, [
+          email,
+          federationMemberEmail,
+        ]);
+        const targetRows = lockedMembers.filter(
+          (member) =>
+            member.email.trim().toLowerCase() === federationMemberEmail,
+        );
+        if (!isSelfRemoval) {
+          const actorRows = lockedMembers.filter(
+            (member) => member.email.trim().toLowerCase() === email,
+          );
+          if (actorRows.length !== 1) return "unauthorized";
+          const lockedActor = actorRows[0];
+          if (
+            lockedActor.federationRemovalPendingAt != null ||
+            !validOrganizationRole(lockedActor.role) ||
+            (lockedActor.role !== "owner" && lockedActor.role !== "admin") ||
+            lockedActor.role !== orgRole
+          ) {
+            return "unauthorized";
+          }
+        }
         if (targetRows.length === 0) {
           return "already-removed";
         }
 
         const hasPendingRemoval = targetRows.some(
-          (row) => row.federation_removal_pending_at != null,
+          (row) => row.federationRemovalPendingAt != null,
         );
-        const roles = targetRows.map((row) => String(row.role ?? ""));
+        const roles = targetRows.map((row) => row.role);
         if (roles.some((role) => !validOrganizationRole(role))) {
           return "forbidden";
         }
@@ -993,7 +1049,7 @@ export const organizationFederationHandler = defineEventHandler(
           roles.some(
             (role) =>
               !canRemoveOrgMember(
-                actorRole as "owner" | "admin" | "member",
+                orgRole,
                 role as "owner" | "admin" | "member",
               ),
           )
@@ -1028,6 +1084,9 @@ export const organizationFederationHandler = defineEventHandler(
           { error: "You do not have permission to remove this member" },
           403,
         );
+      }
+      if (removal === "unauthorized") {
+        return jsonResponse({ error: "Unauthorized" }, 403);
       }
       invalidateMemberOrgCaches();
       return jsonResponse(

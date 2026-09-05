@@ -74,14 +74,44 @@ async function loadHandlers(
   pglite: Pglite,
   options: {
     actorRole: "owner" | "admin";
+    actorPresent?: boolean;
+    lockedActorRole?: "owner" | "admin" | "member";
     reportPartialMarker?: boolean;
     failLocalCleanupOnce?: boolean;
+    rejectRoleUpdateWithConflict?: boolean;
     revoke?: () => Promise<boolean>;
     updateRole?: () => Promise<boolean>;
   },
 ) {
+  if (options.actorPresent !== false) {
+    await pglite
+      .prepare(
+        `INSERT INTO org_members (id, org_id, email, role, joined_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `actor-${options.actorRole}`,
+        "org-1",
+        `${options.actorRole}@example.test`,
+        options.lockedActorRole ?? options.actorRole,
+        0,
+      );
+  }
   const revoke = vi.fn(options.revoke ?? (async () => true));
-  const updateRole = vi.fn(options.updateRole ?? (async () => true));
+  class FederatedMemberOperationError extends Error {
+    constructor(readonly statusCode: number) {
+      super(`Identity authority member operation failed (${statusCode}).`);
+    }
+  }
+  const updateRole = vi.fn(
+    options.updateRole ??
+      (async () => {
+        if (options.rejectRoleUpdateWithConflict) {
+          throw new FederatedMemberOperationError(409);
+        }
+        return true;
+      }),
+  );
   let failLocalCleanup = options.failLocalCleanupOnce ?? false;
   vi.doMock("h3", () => ({
     createError: ({
@@ -114,6 +144,7 @@ async function loadHandlers(
   }));
   vi.doMock("./federation.js", () => ({
     addFederatedOrganizationMember: vi.fn(),
+    FederatedMemberOperationError,
     revokeFederatedOrganizationMember: revoke,
     syncOrganizationToIdentityHub: vi.fn(),
     updateFederatedOrganizationMemberRole: updateRole,
@@ -178,9 +209,11 @@ describe("member mutation guards (real pglite)", () => {
           ),
         ).resolves.toEqual({ success: true });
         expect(revoke).toHaveBeenCalledTimes(1);
-        expect(await pglite.prepare(`SELECT * FROM org_members`).all()).toEqual(
-          [],
-        );
+        expect(
+          await pglite
+            .prepare(`SELECT * FROM org_members WHERE LOWER(email) = ?`)
+            .all("member@example.test"),
+        ).toEqual([]);
       } finally {
         await pglite.close();
       }
@@ -223,9 +256,9 @@ describe("member mutation guards (real pglite)", () => {
         await pglite
           .prepare(
             `SELECT federation_removal_pending_at FROM org_members
-             WHERE org_id = ? ORDER BY id`,
+             WHERE org_id = ? AND LOWER(email) = ? ORDER BY id`,
           )
-          .all("org-1"),
+          .all("org-1", "member@example.test"),
       ).toEqual([
         { federation_removal_pending_at: null },
         { federation_removal_pending_at: null },
@@ -324,9 +357,11 @@ describe("member mutation guards (real pglite)", () => {
           success: true,
         });
         expect(revoke).toHaveBeenCalledTimes(2);
-        expect(await pglite.prepare(`SELECT * FROM org_members`).all()).toEqual(
-          [],
-        );
+        expect(
+          await pglite
+            .prepare(`SELECT * FROM org_members WHERE LOWER(email) = ?`)
+            .all("member@example.test"),
+        ).toEqual([]);
       } finally {
         await pglite.close();
       }
@@ -375,9 +410,11 @@ describe("member mutation guards (real pglite)", () => {
         success: true,
       });
       expect(revoke).toHaveBeenCalledTimes(2);
-      expect(await pglite.prepare(`SELECT * FROM org_members`).all()).toEqual(
-        [],
-      );
+      expect(
+        await pglite
+          .prepare(`SELECT * FROM org_members WHERE LOWER(email) = ?`)
+          .all("member@example.test"),
+      ).toEqual([]);
     } finally {
       await pglite.close();
     }
@@ -456,13 +493,156 @@ describe("member mutation guards (real pglite)", () => {
         await pglite
           .prepare(
             `SELECT federation_removal_pending_at FROM org_members
-             WHERE org_id = ? ORDER BY id`,
+             WHERE org_id = ? AND LOWER(email) = ? ORDER BY id`,
           )
-          .all("org-1"),
+          .all("org-1", "member@example.test"),
       ).toEqual([
         { federation_removal_pending_at: 1 },
         { federation_removal_pending_at: null },
       ]);
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it.each([
+    ["demoted", { lockedActorRole: "member" as const }],
+    ["removed", { actorPresent: false }],
+  ])(
+    "does not claim or federate removal when the actor was %s before locking",
+    async (_state, actor) => {
+      const pglite = await createTestPglite();
+      await seedMembers(pglite);
+      await pglite
+        .prepare(
+          `INSERT INTO org_members (id, org_id, email, role, joined_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run("member-1", "org-1", "member@example.test", "member", 1);
+
+      try {
+        const { removeMemberHandler, revoke } = await loadHandlers(pglite, {
+          actorRole: "owner",
+          ...actor,
+        });
+
+        await expect(
+          removeMemberHandler(
+            event("/_agent-native/org/members/member@example.test"),
+          ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(revoke).not.toHaveBeenCalled();
+        expect(
+          await pglite
+            .prepare(
+              `SELECT federation_removal_pending_at FROM org_members WHERE id = ?`,
+            )
+            .get("member-1"),
+        ).toEqual({ federation_removal_pending_at: null });
+      } finally {
+        await pglite.close();
+      }
+    },
+  );
+
+  it("does not federate a role update when the actor was demoted before locking", async () => {
+    const pglite = await createTestPglite();
+    await seedMembers(pglite);
+    await pglite
+      .prepare(
+        `INSERT INTO org_members (id, org_id, email, role, joined_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run("member-1", "org-1", "member@example.test", "member", 1);
+
+    try {
+      const { changeMemberRoleHandler, updateRole } = await loadHandlers(
+        pglite,
+        { actorRole: "owner", lockedActorRole: "member" },
+      );
+
+      await expect(
+        changeMemberRoleHandler(
+          event("/_agent-native/org/members/member@example.test/role", {
+            role: "admin",
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(updateRole).not.toHaveBeenCalled();
+      expect(
+        await pglite
+          .prepare(`SELECT role FROM org_members WHERE id = ?`)
+          .get("member-1"),
+      ).toEqual({ role: "member" });
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("keeps the local role unchanged when the authority rejects a stale expected role", async () => {
+    const pglite = await createTestPglite();
+    await seedMembers(pglite);
+    await pglite
+      .prepare(
+        `INSERT INTO org_members (id, org_id, email, role, joined_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run("member-1", "org-1", "member@example.test", "member", 1);
+
+    try {
+      const { changeMemberRoleHandler, updateRole } = await loadHandlers(
+        pglite,
+        { actorRole: "owner", rejectRoleUpdateWithConflict: true },
+      );
+
+      await expect(
+        changeMemberRoleHandler(
+          event("/_agent-native/org/members/member@example.test/role", {
+            role: "admin",
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(updateRole).toHaveBeenCalledTimes(1);
+      expect(
+        await pglite
+          .prepare(`SELECT role FROM org_members WHERE id = ?`)
+          .get("member-1"),
+      ).toEqual({ role: "member" });
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("validates a no-op role request against the authority's expected role", async () => {
+    const pglite = await createTestPglite();
+    await seedMembers(pglite);
+    await pglite
+      .prepare(
+        `INSERT INTO org_members (id, org_id, email, role, joined_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run("member-1", "org-1", "member@example.test", "member", 1);
+
+    try {
+      const { changeMemberRoleHandler, updateRole } = await loadHandlers(
+        pglite,
+        { actorRole: "owner" },
+      );
+
+      await expect(
+        changeMemberRoleHandler(
+          event("/_agent-native/org/members/member@example.test/role", {
+            role: "member",
+          }),
+        ),
+      ).resolves.toEqual({ email: "member@example.test", role: "member" });
+      expect(updateRole).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          memberRole: "member",
+          expectedMemberRole: "member",
+        }),
+      );
     } finally {
       await pglite.close();
     }
@@ -543,7 +723,7 @@ describe("member mutation guards (real pglite)", () => {
     }
   });
 
-  it("accepts the desired role when a shared authority applied it first", async () => {
+  it("does not deadlock when a shared authority applies the desired role first", async () => {
     const pglite = await createTestPglite();
     await seedMembers(pglite);
     await pglite

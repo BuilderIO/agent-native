@@ -56,11 +56,16 @@ import { getOrgContext, createOrganization } from "./context.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import {
   addFederatedOrganizationMember,
+  FederatedMemberOperationError,
   updateFederatedOrganizationMemberRole,
   revokeFederatedOrganizationMember,
   syncOrganizationToIdentityHub,
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import {
+  lockOrgMembersForMutation,
+  type LockedOrgMemberForMutation,
+} from "./member-mutation-locks.js";
 import { canRemoveOrgMember } from "./permissions.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type {
@@ -72,6 +77,33 @@ import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 const pendingFederatedOrgSyncs = new Map<string, Promise<void>>();
+
+function lockedMembersForEmail(
+  rows: readonly LockedOrgMemberForMutation[],
+  email: string,
+): LockedOrgMemberForMutation[] {
+  const normalizedEmail = email.trim().toLowerCase();
+  return rows.filter(
+    (row) => row.email.trim().toLowerCase() === normalizedEmail,
+  );
+}
+
+function lockedActorRole(
+  rows: readonly LockedOrgMemberForMutation[],
+  email: string,
+  contextRole: OrgRole | null,
+): OrgRole | null {
+  const actorRows = lockedMembersForEmail(rows, email);
+  if (
+    actorRows.length !== 1 ||
+    actorRows[0].federationRemovalPendingAt != null ||
+    actorRows[0].role !== contextRole ||
+    (actorRows[0].role !== "owner" && actorRows[0].role !== "admin")
+  ) {
+    return null;
+  }
+  return actorRows[0].role;
+}
 
 async function syncFederatedOrgBestEffort(
   event: H3Event,
@@ -893,6 +925,7 @@ export const removeMemberHandler = defineEventHandler(
     if (!ctx.orgId) {
       throw createError({ statusCode: 400, message: "No organization found" });
     }
+    const orgId = ctx.orgId;
     if (ctx.role !== "owner" && ctx.role !== "admin") {
       throw createError({
         statusCode: 403,
@@ -929,33 +962,36 @@ export const removeMemberHandler = defineEventHandler(
     // Claim every case-insensitive match in one short local transaction. The
     // row locks make the read, role authorization, and pending-removal marker
     // one decision; never keep them while calling the identity authority.
-    const claimedRowCount = await e.transaction(async (tx) => {
-      const targetRows = await tx.execute({
-        sql: `SELECT role, federation_removal_pending_at FROM org_members
-              WHERE org_id = ? AND LOWER(email) = ? FOR UPDATE`,
-        args: [ctx.orgId, memberEmailLower],
-      });
-      if (targetRows.rows.length === 0) {
+    const claim = await e.transaction(async (tx) => {
+      const lockedRows = await lockOrgMembersForMutation(tx, orgId, [
+        ctx.email,
+        memberEmail,
+      ]);
+      const actorRole = lockedActorRole(lockedRows, ctx.email, ctx.role);
+      if (!actorRole) {
+        throw createError({
+          statusCode: 403,
+          message: "Only owners and admins can remove members",
+        });
+      }
+      const targetRows = lockedMembersForEmail(lockedRows, memberEmail);
+      if (targetRows.length === 0) {
         throw createError({ statusCode: 404, message: "Member not found" });
       }
-      if (
-        targetRows.rows.some(
-          (row: any) => !canRemoveOrgMember(ctx.role, row.role),
-        )
-      ) {
+      if (targetRows.some((row) => !canRemoveOrgMember(actorRole, row.role))) {
         throw createError({
           statusCode: 403,
           message: "You do not have permission to remove this member",
         });
       }
-      const pendingRowCount = targetRows.rows.filter(
-        (row: any) => row.federation_removal_pending_at != null,
+      const pendingRowCount = targetRows.filter(
+        (row) => row.federationRemovalPendingAt != null,
       ).length;
-      if (pendingRowCount === targetRows.rows.length) {
+      if (pendingRowCount === targetRows.length) {
         // A prior authority success can be followed by a failed local delete.
         // The marker is restrictive state, not a grant: the checks above run
         // again on every retry, but preserve the original claim for cleanup.
-        return targetRows.rows.length;
+        return { actorRole, rowCount: targetRows.length };
       }
       if (pendingRowCount !== 0) {
         throw createError({
@@ -965,7 +1001,7 @@ export const removeMemberHandler = defineEventHandler(
       }
 
       const removableRoles = (["owner", "admin", "member"] as OrgRole[]).filter(
-        (candidateRole) => canRemoveOrgMember(ctx.role, candidateRole),
+        (candidateRole) => canRemoveOrgMember(actorRole, candidateRole),
       );
 
       const marked = await tx.execute({
@@ -973,22 +1009,22 @@ export const removeMemberHandler = defineEventHandler(
               WHERE org_id = ? AND LOWER(email) = ?
                 AND federation_removal_pending_at IS NULL
                 AND role IN (${removableRoles.map(() => "?").join(", ")})`,
-        args: [Date.now(), ctx.orgId, memberEmailLower, ...removableRoles],
+        args: [Date.now(), orgId, memberEmailLower, ...removableRoles],
       });
-      if (marked.rowsAffected !== targetRows.rows.length) {
+      if (marked.rowsAffected !== targetRows.length) {
         throw createError({
           statusCode: 409,
           message: "Member changed while removal was being prepared",
         });
       }
-      return targetRows.rows.length;
+      return { actorRole, rowCount: targetRows.length };
     });
 
     try {
       await revokeFederatedOrganizationMember(event, {
-        orgId: ctx.orgId,
+        orgId,
         actorEmail: ctx.email,
-        actorRole: ctx.role,
+        actorRole: claim.actorRole,
         memberEmail,
       });
     } catch (error) {
@@ -1009,11 +1045,11 @@ export const removeMemberHandler = defineEventHandler(
         sql: `DELETE FROM org_members
               WHERE org_id = ? AND LOWER(email) = ?
                 AND federation_removal_pending_at IS NOT NULL`,
-        args: [ctx.orgId, memberEmailLower],
+        args: [orgId, memberEmailLower],
       });
       if (
         deleted.rowsAffected !== 0 &&
-        deleted.rowsAffected !== claimedRowCount
+        deleted.rowsAffected !== claim.rowCount
       ) {
         throw new Error("claimed member rows changed before local cleanup");
       }
@@ -1022,7 +1058,7 @@ export const removeMemberHandler = defineEventHandler(
           sql: `SELECT 1 FROM org_members
                 WHERE org_id = ? AND LOWER(email) = ?
                 LIMIT 1`,
-          args: [ctx.orgId, memberEmailLower],
+          args: [orgId, memberEmailLower],
         });
         if (remaining.rows.length !== 0) {
           throw new Error("claimed member rows remain after local cleanup");
@@ -1058,6 +1094,7 @@ export const changeMemberRoleHandler = defineEventHandler(
     if (!ctx.orgId) {
       throw createError({ statusCode: 400, message: "No organization found" });
     }
+    const orgId = ctx.orgId;
     if (ctx.role !== "owner" && ctx.role !== "admin") {
       throw createError({
         statusCode: 403,
@@ -1075,67 +1112,107 @@ export const changeMemberRoleHandler = defineEventHandler(
     const role = body?.role === "admin" ? "admin" : "member";
 
     const e = await exec();
-
-    // Look up the target member's current role to enforce sensible rules
-    // about what changes are allowed.
-    const current = await e.execute({
-      sql: `SELECT role, federation_removal_pending_at FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [ctx.orgId, memberEmailLower],
-    });
-    if (current.rows.length === 0) {
-      throw createError({ statusCode: 404, message: "Member not found" });
-    }
-    if (current.rows.length !== 1) {
-      throw createError({
-        statusCode: 409,
-        message: "Member has ambiguous legacy membership rows",
-      });
-    }
-    if ((current.rows[0] as any).federation_removal_pending_at != null) {
+    if (!e.transaction) {
       throw createError({
         statusCode: 503,
-        message: "This membership is pending identity-authority cleanup.",
-      });
-    }
-    const currentRole = String((current.rows[0] as any).role) as OrgRole;
-
-    if (currentRole === "owner") {
-      throw createError({
-        statusCode: 400,
-        message: "Cannot change the organization owner's role",
+        message: "Member role changes cannot be safely prepared right now",
       });
     }
 
-    // Admins are scoped to managing members. If they could promote
-    // members to admin, they could grant near-owner powers without owner
-    // approval. Restrict admin/admin role transitions to the owner.
-    if (ctx.role === "admin" && (currentRole === "admin" || role === "admin")) {
-      throw createError({
-        statusCode: 403,
-        message: "Only the organization owner can manage admins",
-      });
-    }
+    const prepared = await e.transaction(async (tx) => {
+      const lockedRows = await lockOrgMembersForMutation(tx, orgId, [
+        ctx.email,
+        memberEmail,
+      ]);
+      const actorRole = lockedActorRole(lockedRows, ctx.email, ctx.role);
+      if (!actorRole) {
+        throw createError({
+          statusCode: 403,
+          message: "Only owners and admins can change member roles",
+        });
+      }
+      const targetRows = lockedMembersForEmail(lockedRows, memberEmail);
+      if (targetRows.length === 0) {
+        throw createError({ statusCode: 404, message: "Member not found" });
+      }
+      if (targetRows.length !== 1) {
+        throw createError({
+          statusCode: 409,
+          message: "Member has ambiguous legacy membership rows",
+        });
+      }
+      const target = targetRows[0];
+      if (target.federationRemovalPendingAt != null) {
+        throw createError({
+          statusCode: 503,
+          message: "This membership is pending identity-authority cleanup.",
+        });
+      }
+      const currentRole = target.role;
 
-    // Self-demotion guard: prevent the only admin from removing their own
-    // ability to manage things, and prevent the owner-self edge case
-    // (already filtered above by the currentRole check).
-    if (memberEmailLower === ctx.email.toLowerCase() && ctx.role === "admin") {
-      throw createError({
-        statusCode: 400,
-        message: "Use the owner account to change your own admin role",
-      });
-    }
+      if (currentRole === "owner") {
+        throw createError({
+          statusCode: 400,
+          message: "Cannot change the organization owner's role",
+        });
+      }
+      if (currentRole !== "admin" && currentRole !== "member") {
+        throw createError({
+          statusCode: 409,
+          message:
+            "Member changed while the role update was being synchronized",
+        });
+      }
+
+      // Admins are scoped to managing members. If they could promote
+      // members to admin, they could grant near-owner powers without owner
+      // approval. Restrict admin/admin role transitions to the owner.
+      if (
+        actorRole === "admin" &&
+        (currentRole === "admin" || role === "admin")
+      ) {
+        throw createError({
+          statusCode: 403,
+          message: "Only the organization owner can manage admins",
+        });
+      }
+
+      // Self-demotion guard: prevent the only admin from removing their own
+      // ability to manage things, and prevent the owner-self edge case
+      // (already filtered above by the currentRole check).
+      if (
+        memberEmailLower === ctx.email.toLowerCase() &&
+        actorRole === "admin"
+      ) {
+        throw createError({
+          statusCode: 400,
+          message: "Use the owner account to change your own admin role",
+        });
+      }
+
+      return { actorRole, currentRole };
+    });
 
     try {
       await updateFederatedOrganizationMemberRole(event, {
-        orgId: ctx.orgId,
+        orgId,
         actorEmail: ctx.email,
-        actorRole: ctx.role,
+        actorRole: prepared.actorRole,
         memberEmail,
         memberRole: role,
+        expectedMemberRole: prepared.currentRole,
       });
     } catch (error) {
+      if (
+        error instanceof FederatedMemberOperationError &&
+        error.statusCode === 409
+      ) {
+        throw createError({
+          statusCode: 409,
+          message:
+            "Member changed while the role update was being synchronized",
+        });
+      }
       void error;
       throw createError({
         statusCode: 503,
@@ -1144,31 +1221,49 @@ export const changeMemberRoleHandler = defineEventHandler(
       });
     }
 
-    const updated = await e.execute({
-      sql: `UPDATE org_members SET role = ?
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND role = ? AND federation_removal_pending_at IS NULL`,
-      args: [role, ctx.orgId, memberEmailLower, currentRole],
-    });
-    if (updated.rowsAffected !== 1) {
-      // A shared identity authority can apply the desired role to this same
-      // database before its response returns. Treat that active final state as
-      // success, but never mistake a pending removal for a completed update.
-      const confirmed = await e.execute({
-        sql: `SELECT 1 FROM org_members
-              WHERE org_id = ? AND LOWER(email) = ?
-                AND role = ? AND federation_removal_pending_at IS NULL
-              LIMIT 1`,
-        args: [ctx.orgId, memberEmailLower, role],
-      });
-      if (confirmed.rows.length === 0) {
+    await e.transaction(async (tx) => {
+      const lockedRows = await lockOrgMembersForMutation(tx, orgId, [
+        ctx.email,
+        memberEmail,
+      ]);
+      if (!lockedActorRole(lockedRows, ctx.email, ctx.role)) {
+        throw createError({
+          statusCode: 403,
+          message: "Only owners and admins can change member roles",
+        });
+      }
+      const targetRows = lockedMembersForEmail(lockedRows, memberEmail);
+      const target = targetRows[0];
+      if (
+        targetRows.length !== 1 ||
+        target.federationRemovalPendingAt != null ||
+        (target.role !== prepared.currentRole && target.role !== role)
+      ) {
         throw createError({
           statusCode: 409,
           message:
             "Member changed while the role update was being synchronized",
         });
       }
-    }
+      // A shared identity authority can apply the desired role to this same
+      // database before its response returns. Treat that active final state as
+      // success, but never mistake a pending removal for a completed update.
+      if (target.role === role) return;
+
+      const updated = await tx.execute({
+        sql: `UPDATE org_members SET role = ?
+              WHERE id = ? AND role = ?
+                AND federation_removal_pending_at IS NULL`,
+        args: [role, target.id, prepared.currentRole],
+      });
+      if (updated.rowsAffected !== 1) {
+        throw createError({
+          statusCode: 409,
+          message:
+            "Member changed while the role update was being synchronized",
+        });
+      }
+    });
     invalidateMemberOrgCaches();
 
     return { email: memberEmailLower, role };
