@@ -25,6 +25,8 @@ minimumReleaseAgeExclude:
 # range — see packages/{recap-cli,creative-context}/package.json.
 catalog:
   "@assistant-ui/react": ^0.12.19
+  "@assistant-ui/store": 0.2.13
+  "@assistant-ui/tap": 0.5.16
   "@playwright/test": 1.61.1
   "@radix-ui/react-dialog": ^1.1.19
   "@radix-ui/react-dropdown-menu": ^2.1.20
