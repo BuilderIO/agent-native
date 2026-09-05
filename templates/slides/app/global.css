@@ -329,7 +329,7 @@ button[title="Open agent sidebar"] {
   font-family: "Poppins", sans-serif;
 }
 
-/* Per-element inline text editing — highlight the text leaf that is
+/* Per-element inline text editing — highlight the text layer that is
    currently being edited so the user can see which block is active. */
 .slide-content [data-editing-block="true"] {
   outline: 2px solid #609ff8;
@@ -340,15 +340,12 @@ button[title="Open agent sidebar"] {
 .slide-content [data-editing-block="true"]:focus {
   outline: 2px solid #609ff8;
 }
-/* Subtle hover highlight on editable text leaves to hint clickability.
+/* Subtle hover highlight on editable text layers to hint clickability.
    Scoped to `[data-editable]` so read-only decks don't show an outline that
    makes text look editable when it isn't. */
-.slide-image-clickable[data-editable] .slide-content p:hover,
-.slide-image-clickable[data-editable] .slide-content h1:hover,
-.slide-image-clickable[data-editable] .slide-content h2:hover,
-.slide-image-clickable[data-editable] .slide-content h3:hover,
-.slide-image-clickable[data-editable] .slide-content h4:hover,
-.slide-image-clickable[data-editable] .slide-content span:hover {
+.slide-image-clickable[data-editable]
+  .slide-content
+  [data-slide-text-block="true"]:hover {
   outline: 1px dashed rgba(96, 159, 248, 0.4);
   outline-offset: 3px;
   border-radius: 2px;
@@ -1072,9 +1069,7 @@ button[title="Open agent sidebar"] {
 
 /* Prevent slide-content defaults from overriding FMD styles */
 .slide-content .fmd-slide p,
-.slide-content .fmd-slide li,
-.slide-content .fmd-slide ul,
-.slide-content .fmd-slide ol {
+.slide-content .fmd-slide li {
   margin: 0;
   padding: 0;
   font-size: inherit;
@@ -1082,9 +1077,28 @@ button[title="Open agent sidebar"] {
   color: inherit;
 }
 
+.slide-content .fmd-slide ul,
+.slide-content .fmd-slide ol {
+  margin: 0;
+  padding-left: 1.5em;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  list-style-position: outside;
+}
+
+.slide-content .fmd-slide ul {
+  list-style-type: disc;
+}
+
+.slide-content .fmd-slide ol {
+  list-style-type: decimal;
+}
+
 .slide-content .fmd-slide h1,
 .slide-content .fmd-slide h2,
-.slide-content .fmd-slide h3 {
+.slide-content .fmd-slide h3,
+.slide-content .fmd-slide h4 {
   margin: 0;
   padding: 0;
   font-size: inherit;
@@ -1451,6 +1465,35 @@ button[title="Open agent sidebar"] {
   list-style-position: outside;
 }
 
+.slide-content
+  .slide-shared-rich-editor
+  .an-rich-md-prose
+  ul[style*="--slide-legacy-list"] {
+  padding-left: 0;
+  list-style: none;
+}
+
+.slide-content
+  .slide-shared-rich-editor
+  .an-rich-md-prose
+  ul[style*="--slide-legacy-list"]
+  > li {
+  list-style: none;
+}
+
+.slide-content
+  .slide-shared-rich-editor
+  .an-rich-md-prose
+  ul[style*="--slide-legacy-list"]
+  > li::before {
+  content: var(--slide-legacy-marker-content, "•");
+  color: var(--slide-legacy-marker-color, currentColor);
+  font-size: var(--slide-legacy-marker-size, 0.5em);
+  position: relative;
+  top: var(--slide-legacy-marker-top, -0.25em);
+  flex-shrink: 0;
+}
+
 .slide-content .slide-shared-rich-editor .an-rich-md-prose li {
   display: list-item;
   margin: 0;
@@ -1476,26 +1519,30 @@ button[title="Open agent sidebar"] {
   padding-inline-start: 0;
 }
 
+.slide-content .fmd-slide h1,
 .slide-content .slide-shared-rich-editor .an-rich-md-prose h1 {
-  font-size: 3rem;
+  font-size: 2em;
   font-weight: 700;
   line-height: 1.25;
 }
 
+.slide-content .fmd-slide h2,
 .slide-content .slide-shared-rich-editor .an-rich-md-prose h2 {
-  font-size: 1.875rem;
+  font-size: 1.5em;
   font-weight: 600;
   line-height: 1.375;
 }
 
+.slide-content .fmd-slide h3,
 .slide-content .slide-shared-rich-editor .an-rich-md-prose h3 {
-  font-size: 1.5rem;
+  font-size: 1.25em;
   font-weight: 500;
   line-height: 1.5;
 }
 
+.slide-content .fmd-slide h4,
 .slide-content .slide-shared-rich-editor .an-rich-md-prose h4 {
-  font-size: 1.25rem;
+  font-size: 1em;
   font-weight: 500;
   line-height: 1.5;
 }
