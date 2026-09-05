@@ -258,6 +258,16 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
   const originalReload = win.location.reload.bind(win.location);
   const patchedReload = function patchedReload() {
     if (
+      hasViteDevRecovery(win) &&
+      Date.now() - state.routeModuleFailureAt <= 1_000
+    ) {
+      // React Router reloads after reporting a route-module failure. Give the
+      // dev server one bounded same-route refresh, then leave the failure
+      // visible instead of letting a persistent stale module thrash the page.
+      reloadForStaleChunk(win);
+      return;
+    }
+    if (
       isAgentNativeDesktop(win) &&
       Date.now() - state.routeModuleFailureAt <= 1_000
     ) {
@@ -349,11 +359,13 @@ export function installRouteChunkRecovery(
   try {
     consoleRef.error = (...args: unknown[]) => {
       // React Router logs before calling location.reload(). In Vite dev the
-      // recovery script owns that reload; recovering here as well can turn a
-      // same-route failure into a document replacement loop.
-      if (args.some(isRouteModuleReloadMessage) && !hasViteDevRecovery(win)) {
+      // recovery layer owns the bounded refresh; recovering here as well can
+      // turn a same-route failure into a document replacement loop.
+      if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        recoverToIntendedNavigation(win, state);
+        if (!hasViteDevRecovery(win)) {
+          recoverToIntendedNavigation(win, state);
+        }
       }
       originalError(...args);
     };
