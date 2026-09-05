@@ -400,7 +400,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
 
               <div className="flex flex-col items-center gap-1 px-2">
                 <ImportMenu
-                  uploadHref="/record?autoUpload=1"
+                  uploadHref="/record"
                   importLoomHref="/import"
                   iconOnly
                   variant="ghost"
@@ -440,7 +440,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   <NavLink to="/record">{t("navigation.newRecording")}</NavLink>
                 </Button>
                 <ImportMenu
-                  uploadHref="/record?autoUpload=1"
+                  uploadHref="/record"
                   importLoomHref="/import"
                   size="sm"
                   variant="ghost"

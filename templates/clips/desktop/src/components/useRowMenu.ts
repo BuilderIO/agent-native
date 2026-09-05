@@ -1,32 +1,35 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 
 /**
- * Open/close state for a settings-row dropdown menu (source, camera, mic
- * pickers). Closes on outside click and Escape — native-feeling popover
- * behavior. `rowRef` must be attached to the row container so outside-click
- * detection knows what "inside" means.
+ * Coordinates the Radix menus used by recorder rows. Radix owns outside-click,
+ * Escape, focus return, and keyboard navigation; this small shared channel
+ * ensures opening one row closes any other row menu in the popover.
  */
 export function useRowMenu() {
+  const id = useId();
   const [open, setOpen] = useState(false);
-  const rowRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    function onDoc(ev: MouseEvent) {
-      const el = rowRef.current;
-      if (!el) return;
-      if (!el.contains(ev.target as Node)) setOpen(false);
-    }
-    function onKey(ev: KeyboardEvent) {
-      if (ev.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
+    const onOtherMenuOpen = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== id) setOpen(false);
     };
-  }, [open]);
+    window.addEventListener("clips:row-menu-open", onOtherMenuOpen);
+    return () => {
+      window.removeEventListener("clips:row-menu-open", onOtherMenuOpen);
+    };
+  }, [id]);
 
-  return { open, setOpen, rowRef };
+  const onOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        window.dispatchEvent(
+          new CustomEvent("clips:row-menu-open", { detail: id }),
+        );
+      }
+      setOpen(nextOpen);
+    },
+    [id],
+  );
+
+  return { open, onOpenChange };
 }

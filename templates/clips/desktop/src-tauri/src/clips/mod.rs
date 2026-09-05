@@ -1659,9 +1659,6 @@ pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Show the popover window without toggling, and keep it shown even if it
-/// loses focus (popover hides on blur by default, but during post-recording
-/// review we want it sticky while the user reads the "Recording saved" copy).
 /// Resize the popover window to match the rendered React app height. The
 /// React side measures its own shell with a ResizeObserver and calls this
 /// whenever the height changes — gives us auto-sizing without having to
@@ -3211,11 +3208,9 @@ pub fn position_popover_with_size(
 
         // Center the popover horizontally on the icon.
         let mut x = icon_x + icon_w / 2 - (win_size.width as i32) / 2;
-        // Drop the panel below the icon with a tiny gap. The window IS the
-        // visible panel — its elevation is the native NSWindow shadow, which
-        // paints outside the window bounds, so no shadow-gutter offset here.
-        let gap = 6_i32;
-        let mut y = icon_y + icon_h + gap;
+        // Native menu-bar panels meet the lower edge of the status item. The
+        // NSWindow shadow paints outside these exact bounds.
+        let mut y = icon_y + icon_h;
 
         // Find the monitor that actually contains the tray icon. The popover
         // is parked at (2,2) on the primary display, so current_monitor()

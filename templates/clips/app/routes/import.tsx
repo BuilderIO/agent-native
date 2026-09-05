@@ -27,6 +27,7 @@ import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import {
   VIDEO_STORAGE_STATUS_KEY,
   useVideoStorageStatus,
@@ -108,13 +109,7 @@ export default function ImportRoute() {
     return qs ? `/record?${qs}` : "/record";
   }, [spaceIdFromUrl, folderIdFromUrl]);
 
-  const uploadHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
-    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
-    params.set("autoUpload", "1");
-    return `/record?${params.toString()}`;
-  }, [spaceIdFromUrl, folderIdFromUrl]);
+  const { input: uploadInput, openUploadPicker } = useUploadVideoPicker();
 
   const [loomUrl, setLoomUrl] = useState("");
   const [phase, setPhase] = useState<ImportPhase>("form");
@@ -369,13 +364,14 @@ export default function ImportRoute() {
 
               {!busy ? (
                 <div className="flex items-center justify-center gap-4 border-t border-border px-6 py-4">
-                  <Link
-                    to={uploadHref}
+                  <button
+                    type="button"
+                    onClick={() => openUploadPicker(recordHref)}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
                   >
                     <IconUpload className="h-3.5 w-3.5" />
                     {t("preRecord.uploadVideo")}
-                  </Link>
+                  </button>
                   <Link
                     to={recordHref}
                     className="text-xs font-medium text-muted-foreground hover:text-foreground"
@@ -394,6 +390,7 @@ export default function ImportRoute() {
           )}
         </div>
       </div>
+      {uploadInput}
     </div>
   );
 }

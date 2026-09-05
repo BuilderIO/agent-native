@@ -1207,6 +1207,45 @@ const messages = {
     selectedPreview: "चुने हुए कैमरे का पूर्वावलोकन",
     preview: "कैमरा पूर्वावलोकन",
     setBubbleSize: "कैमरा बबल आकार {{size}} सेट करें",
+    needsAttention: "कैमरा जाँचें",
+    unsupported: "यह ब्राउज़र लाइव कैमरा जाँच का समर्थन नहीं करता है।",
+    policyBlocked:
+      "यह पेज कैमरे का एक्सेस रोक रहा है। Clips को सीधे खोलें और फिर कोशिश करें।",
+    secureContextRequired: "कैमरा जाँच के लिए HTTPS या localhost ज़रूरी है।",
+    permissionBlocked:
+      "कैमरे का एक्सेस बंद है। इस साइट की सेटिंग में इसकी अनुमति दें, फिर पेज रीलोड करें।",
+    permissionDenied:
+      "कैमरे का एक्सेस अस्वीकार कर दिया गया। साइट की कैमरा सेटिंग और सिस्टम की प्राइवेसी सेटिंग जाँचें, फिर पेज रीलोड करें।",
+    notFound: "कोई कैमरा नहीं मिला। कैमरा जोड़ें या कोई दूसरा कैमरा चुनें।",
+    inUse: "कैमरा किसी दूसरे ऐप में इस्तेमाल हो रहा है। उसे बंद करें या कोई दूसरा कैमरा चुनें।",
+    startFailed: "कैमरा जाँच शुरू नहीं हो सकी।",
+    disconnected: "कैमरा डिस्कनेक्ट हो गया।",
+    noVideo: "कैमरे से कोई वीडियो नहीं मिला।",
+  },
+  microphoneVisualizer: {
+    off: "बंद",
+    needsAttention: "माइक जाँचें",
+    signal: "सिग्नल",
+    listening: "सुन रहा है",
+    opening: "खुल रहा है",
+    openingEllipsis: "खुल रहा है...",
+    stop: "रोकें",
+    test: "माइक जाँचें",
+    unsupported: "यह ब्राउज़र लाइव माइक्रोफ़ोन जाँच का समर्थन नहीं करता है।",
+    policyBlocked:
+      "यह पेज माइक्रोफ़ोन का एक्सेस रोक रहा है। Clips को सीधे खोलें और फिर कोशिश करें।",
+    secureContextRequired: "माइक्रोफ़ोन जाँच के लिए HTTPS या localhost ज़रूरी है।",
+    permissionBlockedBrowser:
+      "माइक्रोफ़ोन का एक्सेस बंद है। इस साइट की सेटिंग में इसकी अनुमति दें, फिर पेज रीलोड करें।",
+    permissionBlockedDesktop:
+      "माइक्रोफ़ोन का एक्सेस बंद है। सिस्टम की प्राइवेसी सेटिंग में इसकी अनुमति दें, फिर रिकॉर्डर दोबारा खोलें।",
+    permissionDenied:
+      "माइक्रोफ़ोन का एक्सेस अस्वीकार कर दिया गया। साइट की माइक्रोफ़ोन सेटिंग और सिस्टम की प्राइवेसी सेटिंग जाँचें, फिर पेज रीलोड करें।",
+    notFound: "कोई माइक्रोफ़ोन नहीं मिला। माइक्रोफ़ोन जोड़ें या कोई दूसरा इनपुट चुनें।",
+    inUse:
+      "माइक्रोफ़ोन किसी दूसरे ऐप में इस्तेमाल हो रहा है। उसे बंद करें या कोई दूसरा इनपुट चुनें।",
+    startFailed: "माइक्रोफ़ोन जाँच शुरू नहीं हो सकी।",
+    disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
     builderTimeout:
@@ -1325,6 +1364,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (स्थानीयकृत)",
     defaultCamera: "Default camera (स्थानीयकृत)",
     shortCameraLabel: "Camera {{id}} (स्थानीयकृत)",
+    moreCameras: "और कैमरे…",
+    cameraPickerTitle: "कैमरा चुनें",
+    moreMicrophones: "और माइक्रोफ़ोन…",
+    microphonePickerTitle: "माइक्रोफ़ोन चुनें",
+    closeDevicePicker: "डिवाइस चयन बंद करें",
     noAudio: "No audio (स्थानीयकृत)",
     noCamera: "No camera (स्थानीयकृत)",
     loomImportFailed: "Could not import that Loom. (स्थानीयकृत)",
@@ -1347,9 +1391,10 @@ const messages = {
     cameraOff: "Camera off (स्थानीयकृत)",
     includeCameraAria: "Include camera in this recording (स्थानीयकृत)",
     startRecording: "Start recording (स्थानीयकृत)",
+    startCameraRecording: "कैमरा रिकॉर्डिंग शुरू करें",
     micOffConfirmTitle: "आपका माइक म्यूट है",
     micOffConfirmDescription: "अपने वीडियो में आवाज़ के लिए माइक्रोफ़ोन अनम्यूट करें।",
-    startWithoutMic: "जारी रखें",
+    startWithoutMic: "ऑडियो के बिना रिकॉर्ड करें",
     unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
     importLoom: "Import Loom (स्थानीयकृत)",
@@ -1416,6 +1461,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (स्थानीयकृत)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (स्थानीयकृत)",
+    compressingRecording: "आपकी रिकॉर्डिंग को संपीड़ित किया जा रहा है…",
     savingRecording: "Saving your recording… (स्थानीयकृत)",
     sessionExpired: "Session expired (स्थानीयकृत)",
     sessionExpiredDescription:
@@ -1429,6 +1475,10 @@ const messages = {
     whatToCheck: "What to check (स्थानीयकृत)",
     downloadRecording: "Download (स्थानीयकृत)",
     openRecorderInTab: "Open recorder in tab (स्थानीयकृत)",
+    retryUpload: "अपलोड फिर से आज़माएँ",
+    tryAgain: "फिर से कोशिश करें",
+    storageConnectedReopeningRecorder:
+      "स्टोरेज कनेक्ट हो गया। रिकॉर्डर फिर से खोला जा रहा है...",
     connectStorageToFinish:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:

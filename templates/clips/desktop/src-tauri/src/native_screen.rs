@@ -27,7 +27,7 @@ use screencapturekit::stream::{
     configuration::SCStreamConfiguration, content_filter::SCContentFilter,
     output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, sc_stream::SCStream,
 };
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
@@ -132,6 +132,12 @@ mod fragment_fence_backend_tests {
 }
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
+
+#[derive(Clone, Serialize)]
+struct RecorderAudioLevelPayload {
+    level: f32,
+    source: &'static str,
+}
 
 // Custom ScreenCaptureKit capture engine: AVAssetWriter fragmented-MP4
 // writer, live audio mixer, and the AVFoundation FFI glue live in a child
@@ -2711,6 +2717,7 @@ fn rotate_screencapturekit_segment(
 
     let start_result = refuse_if_capture_stop_pending().and_then(|()| {
         start_screencapturekit_backend_at(
+            &app,
             &segment_path,
             restart.include_audio,
             restart.capture_system_audio,
@@ -3085,6 +3092,7 @@ fn start_segment_backend(
                 )
             } else {
                 start_screencapturekit_backend_at(
+                    app,
                     segment_path,
                     include_audio,
                     capture_system_audio,
@@ -3259,6 +3267,7 @@ pub async fn native_fullscreen_prefetch_capture_content() -> Result<(), String> 
 /// `output_path`. Shared by the initial start and the resume path.
 #[cfg(target_os = "macos")]
 pub(crate) fn start_screencapturekit_backend_at(
+    app: &AppHandle,
     output_path: &Path,
     include_audio: bool,
     capture_system_audio: bool,
@@ -3359,11 +3368,32 @@ pub(crate) fn start_screencapturekit_backend_at(
         let sample_count = Arc::new(AtomicU64::new(0));
         let flag_cb = Arc::clone(&flag);
         let sample_count_cb = Arc::clone(&sample_count);
+        let app_cb = app.clone();
+        let level_tick = Arc::new(AtomicU32::new(0));
+        let level_tick_cb = Arc::clone(&level_tick);
         stream.add_output_handler(
-            move |_sample, of_type| {
+            move |sample, of_type| {
                 if matches!(of_type, SCStreamOutputType::Microphone) {
                     sample_count_cb.fetch_add(1, Ordering::Relaxed);
                     flag_cb.store(true, Ordering::Relaxed);
+                    let tick = level_tick_cb.fetch_add(1, Ordering::Relaxed);
+                    if tick % 3 == 0 {
+                        if let Some(samples) = extract_mono_audio(&sample, "recording-mic") {
+                            let level = samples
+                                .iter()
+                                .copied()
+                                .map(f32::abs)
+                                .fold(0.0_f32, f32::max)
+                                .min(1.0);
+                            let _ = app_cb.emit(
+                                "voice:audio-level",
+                                RecorderAudioLevelPayload {
+                                    level,
+                                    source: "mic",
+                                },
+                            );
+                        }
+                    }
                 }
             },
             SCStreamOutputType::Microphone,
@@ -5254,6 +5284,7 @@ fn start_screencapturekit_recording(
         )?
     } else {
         start_screencapturekit_backend_at(
+            app,
             &path,
             include_audio,
             capture_system_audio,
