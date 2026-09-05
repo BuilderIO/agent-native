@@ -1,13 +1,9 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
-import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agentkit-chat/rail";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
-import { TAB_ID } from "@/lib/tab-id";
+import { getChatHomeThreadId } from "@/lib/chat-home-thread";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source AI app starter with actions`;
 const SEO_DESCRIPTION =
@@ -28,67 +24,29 @@ export function meta() {
   ];
 }
 
-function chatThreadPath(threadId: string | null) {
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home";
-}
-
 export default function ChatRoute() {
-  const { threadId } = useParams();
+  const [threadId] = useState(getChatHomeThreadId);
   const navigate = useNavigate();
-  const t = useT();
-  const threadUrlSync = threadId
-    ? {
-        routeThreadId: threadId,
-        getPath: chatThreadPath,
-        navigate,
-      }
-    : undefined;
+  const handoffStartedRef = useRef(false);
 
   useEffect(() => {
-    function handleChatRunning(event: Event) {
-      const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");
+    if (handoffStartedRef.current) return;
+    handoffStartedRef.current = true;
+    markAgentChatHomeHandoff("chat");
+    try {
+      const navigation = navigate(`/chat/${encodeURIComponent(threadId)}`, {
+        replace: true,
+      });
+      if (navigation instanceof Promise) {
+        void navigation.catch(() => {
+          handoffStartedRef.current = false;
+        });
+      }
+    } catch (error) {
+      handoffStartedRef.current = false;
+      throw error;
     }
+  }, [navigate, threadId]);
 
-    window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
-      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, []);
-
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="h-full"
-        defaultMode="chat"
-        storageKey="chat"
-        threadUrlSync={threadUrlSync}
-        browserTabId={TAB_ID}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[
-          t("chat.suggestionCapabilities"),
-          t("chat.suggestionCustomize"),
-          t("chat.suggestionActions"),
-        ]}
-        emptyStateText={t("chat.emptyState")}
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder={t("chat.composerPlaceholder")}
-        composerSlot={
-          <div className="mx-auto mb-5 max-w-xl px-4 text-center">
-            <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
-              {t("chat.heroTitle")}
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {t("chat.heroDescription")}
-            </p>
-          </div>
-        }
-      />
-    </div>
-  );
+  return null;
 }

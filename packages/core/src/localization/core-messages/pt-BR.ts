@@ -117,6 +117,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "Abra o aplicativo para desktop para usar este chat.",
   "composer.removeAttachment": "Remover {{name}}",
   "composer.scrollToBottom": "Rolar até o final",
+  "composer.suggestedPrompts": "Prompts sugeridos",
   "composer.stopResponse": "Parar resposta",
   "composer.subAgentReadOnly":
     "Envie mensagens ao chat do orquestrador — este subagente é executado automaticamente",
@@ -183,6 +184,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Remover da fila",
   "queue.sendNow": "Enviar agora",
   "queue.sendNowHint": "Enviar agora (interrompe a resposta atual)",
+  "queue.steer": "Orientar",
+  "queue.steerHint": "Enviar esta mensagem em seguida",
+  "queue.moreActions": "Mais ações",
+  "queue.moveToTop": "Mover para o topo",
   "recovery.connectingBuilder": "Conectando ao Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",

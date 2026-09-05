@@ -7,6 +7,43 @@ import {
 } from "./McpConnectionSuggestion.js";
 
 describe("findMcpConnectionSuggestionIntegration", () => {
+  it("never promotes integrations from user-authored composer text", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Connect Cloudflare so I can explain this app.",
+      }),
+    ).toBeNull();
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Send the update to Slack.",
+      }),
+    ).toBeNull();
+  });
+
+  it("allows an explicitly agent-requested connection beside the composer", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Please connect Cloudflare so I can inspect the deployment.",
+        requestedByAgent: true,
+      })?.id,
+    ).toBe("cloudflare");
+  });
+
+  it("resolves structured requests only through the trusted integration catalog", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "The agent needs this connection.",
+        integrationId: "slack",
+      })?.id,
+    ).toBe("slack");
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Connect https://untrusted.example/oauth.",
+        integrationId: "untrusted-provider",
+      }),
+    ).toBeNull();
+  });
+
   it("does not select a provider from incidental assistant response text", () => {
     expect(
       findMcpConnectionSuggestionIntegration({
@@ -25,6 +62,25 @@ describe("findMcpConnectionSuggestionIntegration", () => {
         variant: "response",
       })?.id,
     ).toBe("hubspot");
+  });
+
+  it("selects Slack from a concrete authentication failure response", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Slack connection required — please authenticate Slack in Dispatch to continue.",
+        contextText:
+          "Use Slack auth.test and surface a connection request if needed.",
+        variant: "response",
+      })?.id,
+    ).toBe("slack");
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "I couldn’t complete the Slack auth.test call because the Dispatch connection requires authentication.",
+        contextText:
+          "Use Slack auth.test and surface a connection request if needed.",
+        variant: "response",
+      })?.id,
+    ).toBe("slack");
   });
 
   it("uses the preceding user mention when the agent asks to connect it", () => {

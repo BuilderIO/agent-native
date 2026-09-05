@@ -37,7 +37,7 @@ export interface MentionPopoverRef {
 
 interface MentionPopoverProps {
   type: "@" | "/";
-  position: { top: number; left: number } | null;
+  position: { top: number; left: number; width?: number } | null;
   mentionItems: MentionItem[];
   skills: SkillResult[];
   commands?: SlashCommand[];
@@ -50,7 +50,8 @@ interface MentionPopoverProps {
   onClose: () => void;
 }
 
-const iconProps = { size: 14, className: "shrink-0 text-muted-foreground" };
+const iconProps = { size: 16, className: "shrink-0 text-muted-foreground" };
+const COMPOSER_POPOVER_GAP = 8;
 
 function CommandIcon({ icon }: { icon?: string }) {
   switch (icon) {
@@ -285,11 +286,20 @@ export const MentionPopover = forwardRef<
       <div className="fixed inset-0 z-[9998]" onClick={onClose} />
       <div
         data-agent-native-composer-popover="true"
-        className="fixed z-[9999] w-[320px] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
+        className="fixed z-[9999] overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 shadow-2xl"
         style={{
-          bottom: `calc(100vh - ${position.top}px + 4px)`,
-          left: Math.max(8, Math.min(position.left, window.innerWidth - 336)),
-          maxHeight: Math.min(320, position.top - 8),
+          bottom: `calc(100vh - ${position.top}px + ${COMPOSER_POPOVER_GAP}px)`,
+          left: Math.max(
+            16,
+            Math.min(
+              position.left,
+              window.innerWidth -
+                Math.min(position.width ?? 640, window.innerWidth - 32) -
+                16,
+            ),
+          ),
+          width: Math.min(position.width ?? 640, window.innerWidth - 32),
+          maxHeight: Math.max(0, Math.min(440, position.top - 16)),
         }}
       >
         {isLoading && itemCount === 0 ? (
@@ -315,14 +325,14 @@ export const MentionPopover = forwardRef<
             )}
           </div>
         ) : (
-          <div ref={listRef} className="p-1">
+          <div ref={listRef}>
             {isLoading && <LoadingSkeletonRow />}
             {type === "@"
               ? (() => {
                   let flatIndex = 0;
                   return groupedMentions.map((group) => (
                     <div key={group.section}>
-                      <div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                      <div className="px-3 pb-2 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground/70">
                         {sectionLabel(group.section)}
                       </div>
                       {group.items.map((item) => {
@@ -331,9 +341,9 @@ export const MentionPopover = forwardRef<
                           <button
                             key={item.id}
                             data-mention-index={idx}
-                            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm ${
+                            className={`flex min-h-14 w-full items-center gap-4 rounded-xl px-3 py-2.5 text-start ${
                               idx === selectedIndex
-                                ? "bg-accent text-accent-foreground"
+                                ? "bg-muted text-foreground"
                                 : "hover:bg-accent/50"
                             }`}
                             onMouseEnter={() => setSelectedIndex(idx)}
@@ -343,11 +353,11 @@ export const MentionPopover = forwardRef<
                               icon={item.icon}
                               media={item.media}
                             />
-                            <span className="truncate text-sm">
+                            <span className="truncate text-[15px]">
                               {item.label}
                             </span>
                             {item.description && (
-                              <span className="ms-auto shrink-0 truncate max-w-[160px] text-xs text-muted-foreground">
+                              <span className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground">
                                 {item.description}
                               </span>
                             )}
@@ -363,7 +373,7 @@ export const MentionPopover = forwardRef<
                     <>
                       {commands.length > 0 && (
                         <div>
-                          <div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                          <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
                             {t("agentChat.mentions.commands", {
                               defaultValue: "Commands",
                             })}
@@ -374,25 +384,23 @@ export const MentionPopover = forwardRef<
                               <button
                                 key={cmd.name}
                                 data-mention-index={i}
-                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm ${
+                                className={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-start ${
                                   i === selectedIndex
-                                    ? "bg-accent text-accent-foreground"
+                                    ? "bg-muted text-foreground"
                                     : "hover:bg-accent/50"
                                 }`}
                                 onMouseEnter={() => setSelectedIndex(i)}
                                 onClick={() => onSelectCommand?.(cmd)}
                               >
                                 <CommandIcon icon={cmd.icon} />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-sm">
-                                    /{cmd.name}
-                                  </span>
-                                  {cmd.description && (
-                                    <span className="block truncate text-xs text-muted-foreground">
-                                      {cmd.description}
-                                    </span>
-                                  )}
+                                <span className="min-w-0 truncate text-[13px] font-medium leading-4">
+                                  /{cmd.name}
                                 </span>
+                                {cmd.description && (
+                                  <span className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground">
+                                    {cmd.description}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
@@ -401,7 +409,7 @@ export const MentionPopover = forwardRef<
                       {skills.length > 0 && (
                         <div>
                           {commands.length > 0 && (
-                            <div className="px-2 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                            <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
                               {t("agentChat.mentions.skills", {
                                 defaultValue: "Skills",
                               })}
@@ -417,25 +425,23 @@ export const MentionPopover = forwardRef<
                                 >
                                   <button
                                     data-mention-index={i}
-                                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm ${
+                                    className={`flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-start ${
                                       i === selectedIndex
-                                        ? "bg-accent text-accent-foreground"
+                                        ? "bg-muted text-foreground"
                                         : "hover:bg-accent/50"
                                     }`}
                                     onMouseEnter={() => setSelectedIndex(i)}
                                     onClick={() => onSelectSkill(skill)}
                                   >
                                     <IconStack2 {...iconProps} />
-                                    <span className="min-w-0 flex-1">
-                                      <span className="block truncate text-sm">
-                                        {skill.name}
-                                      </span>
-                                      {skill.description && (
-                                        <span className="block truncate text-xs text-muted-foreground">
-                                          {skill.description}
-                                        </span>
-                                      )}
+                                    <span className="min-w-0 truncate text-[13px] font-medium leading-4">
+                                      {skill.name}
                                     </span>
+                                    {skill.description && (
+                                      <span className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground">
+                                        {skill.description}
+                                      </span>
+                                    )}
                                   </button>
                                 </FullDescriptionTooltip>
                               );

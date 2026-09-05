@@ -34,7 +34,7 @@ function indexOfAll(source: string, needles: string[]): number[] {
 }
 
 describe("core-routes-plugin pre-bootstrap registration order", () => {
-  it("registers security headers and CORS before the identity/embed-start routes, all before awaitBootstrap", () => {
+  it("registers security headers, application state, and handshake routes before awaitBootstrap", () => {
     const source = pluginSource();
     const [securityHeaders, cors, identity, embedStart, awaitBootstrapCall] =
       indexOfAll(source, [
@@ -46,9 +46,18 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
         "createEmbedStartRouteHandler({ getExistingSession: getSession })",
         "await awaitBootstrap(nitroApp);",
       ]);
+    const pluginStart = source.indexOf(
+      "export function createCoreRoutesPlugin(",
+    );
+    const appState = source.indexOf(
+      "mountApplicationStateRoutes(nitroApp, P);",
+      source.indexOf("ensureS3FileUploadProvider();", pluginStart),
+    );
+    expect(appState).toBeGreaterThan(-1);
 
-    expect(securityHeaders).toBeLessThan(cors);
-    expect(cors).toBeLessThan(identity);
+    expect(appState).toBeLessThan(securityHeaders);
+    expect(appState).toBeLessThan(cors);
+    expect(appState).toBeLessThan(identity);
     expect(identity).toBeLessThan(embedStart);
     expect(embedStart).toBeLessThan(awaitBootstrapCall);
   });
@@ -80,6 +89,9 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
 
     expect(excludedPaths).toContain("${FRAMEWORK_ROUTE_PREFIX}/identity");
     expect(excludedPaths).toContain("${FRAMEWORK_ROUTE_PREFIX}/embed/start");
+    expect(excludedPaths).toContain(
+      "${FRAMEWORK_ROUTE_PREFIX}/application-state",
+    );
   });
 
   it("marks both handshake paths ready before bootstrap", () => {
@@ -92,6 +104,7 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
 
     expect(markedPaths).toContain("`${P}/identity`");
     expect(markedPaths).toContain("`${P}/embed/start`");
+    expect(markedPaths).toContain("`${P}/application-state`");
     // Respects the same disableEmbedRoute guard as the actual registration —
     // marking a route "ready" that was never mounted would be a lie, even if
     // a harmless one (h3 just 404s).

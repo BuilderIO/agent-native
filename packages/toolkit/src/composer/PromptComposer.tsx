@@ -86,7 +86,13 @@ export interface PromptComposerProps {
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
   placeholder?: string;
+  /** Accessible name forwarded to the rich text editor. */
+  ariaLabel?: string;
   disabled?: boolean;
+  /** Prevent submission while preserving editor focus and draft entry. */
+  submitting?: boolean;
+  /** Present the primary action as queueing instead of immediate send. */
+  willQueue?: boolean;
   /** Called when a host-gated composer is clicked while it is disabled. */
   onDisabledClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
@@ -129,6 +135,10 @@ export interface PromptComposerProps {
   initialTextKey?: string | number;
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
+  /** Current agent execution mode shown in the shared composer toolbar. */
+  execMode?: "build" | "plan";
+  /** Called when the user switches between acting and read-only planning. */
+  onExecModeChange?: (mode: "build" | "plan") => void;
   /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
   toolbarSlot?: ReactNode;
   /** Custom attachment button to render instead of the default "+" affordance. */
@@ -504,7 +514,10 @@ function PromptAttachmentStrip() {
 function PromptComposerInner({
   onSubmit,
   placeholder,
+  ariaLabel,
   disabled,
+  submitting,
+  willQueue = false,
   onDisabledClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
@@ -526,6 +539,8 @@ function PromptComposerInner({
   initialText,
   initialTextKey,
   modeControl,
+  execMode,
+  onExecModeChange,
   toolbarSlot,
   attachButton,
   actionButton,
@@ -726,8 +741,11 @@ function PromptComposerInner({
       >
         <PromptAttachmentStrip />
         <TiptapComposer
+          ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled || gateComposer}
+          submitting={submitting}
+          willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
           placeholder={
@@ -748,6 +766,8 @@ function PromptComposerInner({
           extensionTools={extensionTools}
           attachButton={attachButton}
           modeControl={modeControl}
+          execMode={execMode}
+          onExecModeChange={onExecModeChange}
           toolbarSlot={toolbarSlot}
           actionButton={actionButton}
           extraActionButton={extraActionButton}

@@ -175,7 +175,11 @@ export function getViteDevRecoveryScript(): string {
   window.addEventListener("vite:preloadError", function(e) {
     var payload = e && e.payload;
     var msg = String((payload && (payload.message || payload)) || "");
-    if (!msg || looksLikeViteFailureMessage(msg)) {
+    // A preload event without a concrete error is not enough evidence to
+    // reload the document. Vite can emit an empty payload while a route
+    // preload is being cancelled; treating that cancellation as an optimizer
+    // failure strands the app on its SSR loading fallback.
+    if (looksLikeViteFailureMessage(msg)) {
       if (e.preventDefault) e.preventDefault();
       scheduleReload("preload error");
     }

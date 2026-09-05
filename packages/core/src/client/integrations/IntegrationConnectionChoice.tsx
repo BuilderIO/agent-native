@@ -2,6 +2,7 @@ import { IconLoader2, IconUser, IconUsersGroup } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
 import { useT } from "../i18n.js";
+import { cn } from "../utils.js";
 
 export interface IntegrationConnectionChoiceProps {
   name: string;
@@ -11,6 +12,7 @@ export interface IntegrationConnectionChoiceProps {
   workspaceOptionDisabledReason?: string;
   personalOnlyReason?: string;
   busy?: boolean;
+  compact?: boolean;
   onPersonal: () => void;
   onWorkspace: () => void;
 }
@@ -24,14 +26,20 @@ export function IntegrationConnectionChoice({
   workspaceOptionDisabledReason,
   personalOnlyReason,
   busy = false,
+  compact = false,
   onPersonal,
   onWorkspace,
 }: IntegrationConnectionChoiceProps) {
   const t = useT();
 
   return (
-    <div className="flex min-h-full flex-1 flex-col bg-background">
-      <header className="flex min-h-16 items-center border-b border-border px-6 sm:px-10">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <header
+        className={cn(
+          "flex items-center border-b border-border",
+          compact ? "min-h-14 px-6" : "min-h-16 px-6 sm:px-10",
+        )}
+      >
         <div className="flex min-w-0 items-center gap-3">
           {logo ? (
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/50 text-foreground">
@@ -44,16 +52,26 @@ export function IntegrationConnectionChoice({
         </div>
       </header>
 
-      <main className="flex flex-1 justify-center overflow-y-auto px-6 py-12 sm:px-10 sm:py-[12vh]">
+      <main
+        className={cn(
+          "flex flex-1 justify-center overflow-y-auto px-6",
+          compact ? "py-6" : "py-12 sm:px-10 sm:py-[12vh]",
+        )}
+      >
         <div className="w-full max-w-[420px] self-start">
-          <h1 className="text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-[28px]">
+          <h1
+            className={cn(
+              "font-semibold tracking-[-0.03em] text-foreground",
+              compact ? "text-lg" : "text-2xl sm:text-[28px]",
+            )}
+          >
             {t("mcpIntegrations.scopeChoiceTitle")}
           </h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             {t("mcpIntegrations.scopeChoiceDescription")}
           </p>
 
-          <div className="mt-8 grid gap-2.5">
+          <div className={cn("grid gap-2.5", compact ? "mt-5" : "mt-8")}>
             <button
               type="button"
               onClick={onPersonal}

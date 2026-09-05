@@ -7,6 +7,11 @@ export interface McpConnectionResumeRequest {
   message: string;
   returnUrl: string;
   createdAt: number;
+  agentKit?: {
+    threadId: string;
+    runId: string;
+    requestId: string;
+  };
 }
 
 function currentReturnUrl(): string {
@@ -25,7 +30,10 @@ function getSessionStorage(): Storage | null {
   }
 }
 
-export function saveMcpConnectionResume(message: string): boolean {
+export function saveMcpConnectionResume(
+  message: string,
+  agentKit?: McpConnectionResumeRequest["agentKit"],
+): boolean {
   const trimmedMessage = message.trim();
   if (
     !trimmedMessage ||
@@ -40,6 +48,7 @@ export function saveMcpConnectionResume(message: string): boolean {
     message: trimmedMessage,
     returnUrl: currentReturnUrl(),
     createdAt: Date.now(),
+    ...(agentKit ? { agentKit } : {}),
   };
   try {
     storage.setItem(MCP_CONNECTION_RESUME_STORAGE_KEY, JSON.stringify(request));
@@ -80,6 +89,19 @@ export function consumeMcpConnectionResume(
     typeof request.message !== "string" ||
     typeof request.returnUrl !== "string" ||
     typeof request.createdAt !== "number"
+  ) {
+    clearMcpConnectionResume();
+    return null;
+  }
+  if (
+    request.agentKit !== undefined &&
+    (!request.agentKit ||
+      typeof request.agentKit.threadId !== "string" ||
+      !request.agentKit.threadId.trim() ||
+      typeof request.agentKit.runId !== "string" ||
+      !request.agentKit.runId.trim() ||
+      typeof request.agentKit.requestId !== "string" ||
+      !request.agentKit.requestId.trim())
   ) {
     clearMcpConnectionResume();
     return null;

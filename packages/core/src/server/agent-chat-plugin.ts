@@ -36,7 +36,10 @@ import {
   createA2AApproval,
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
-import type { Message as A2AMessage } from "../a2a/types.js";
+import type {
+  A2AConnectionRequestMetadata,
+  Message as A2AMessage,
+} from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
 import { clientAbortReason } from "../agent/abort-reasons.js";
 import {
@@ -2401,6 +2404,54 @@ export function createAgentChatPlugin(
                     approvalId: pending.id,
                     tool: approval.tool,
                     approvalUrl,
+                  },
+                },
+              ],
+            };
+            return;
+          }
+
+          const connectionRequest = [...a2aEvents]
+            .reverse()
+            .find(
+              (
+                event,
+              ): event is Extract<
+                AgentChatEvent,
+                { type: "connection_required" }
+              > => event.type === "connection_required",
+            );
+          if (connectionRequest) {
+            const requestMetadata: A2AConnectionRequestMetadata = {
+              version: 1,
+              provider: connectionRequest.provider,
+              reason: connectionRequest.reason,
+              ...(connectionRequest.appId
+                ? { appId: connectionRequest.appId }
+                : {}),
+              ...(connectionRequest.detail
+                ? { detail: connectionRequest.detail }
+                : {}),
+            };
+            yield {
+              role: "agent" as const,
+              metadata: {
+                agentNativeTaskState: "input-required",
+                agentNativeConnectionRequest: requestMetadata,
+              },
+              parts: [
+                buildA2AAgentActivityPart(activityState),
+                {
+                  type: "text" as const,
+                  text:
+                    connectionRequest.detail ??
+                    `Connect ${connectionRequest.provider} to continue.`,
+                },
+                {
+                  type: "data" as const,
+                  data: {
+                    kind: "agent-native/connection-required",
+                    ...requestMetadata,
                   },
                 },
               ],

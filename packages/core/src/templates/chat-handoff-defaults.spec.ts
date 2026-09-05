@@ -17,7 +17,6 @@ function workspaceRoot(): string {
 const ROOT = workspaceRoot();
 
 const PAGE_CHAT_TEMPLATES = [
-  "chat",
   "assets",
   "analytics",
   "brain",
@@ -68,13 +67,29 @@ describe("page-chat handoff defaults", () => {
     },
   );
 
-  it("lets Chat and Assets restore the shared active thread at chat home", () => {
-    for (const template of ["chat", "assets"] as const) {
-      const route = readTemplateFile(template, "app/routes/home.tsx");
-      expect(route).toContain("const threadUrlSync = threadId");
-      expect(route).toContain("threadUrlSync={threadUrlSync}");
-      expect(route).not.toContain("routeThreadId: threadId ?? null");
-    }
+  it("lets Assets restore the shared active thread at chat home", () => {
+    const route = readTemplateFile("assets", "app/routes/home.tsx");
+    expect(route).toContain("const threadUrlSync = threadId");
+    expect(route).toContain("threadUrlSync={threadUrlSync}");
+    expect(route).not.toContain("routeThreadId: threadId ?? null");
+  });
+
+  it("routes Chat home to AgentKit Chat with a URL-backed thread", () => {
+    const route = readTemplateFile("chat", "app/routes/home.tsx");
+    const chatSurface = readTemplateFile(
+      "chat",
+      "app/components/chat/ChatRouteContent.tsx",
+    );
+    expect(route).toContain('markAgentChatHomeHandoff("chat")');
+    expect(route).toContain("getChatHomeThreadId");
+    expect(route).toContain("useNavigate");
+    expect(route).toMatch(
+      /navigate\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`,\s*\{\s*replace:\s*true,?\s*\}\s*\)/s,
+    );
+    expect(route).toContain("return null;");
+    expect(route).toContain("useState(");
+    expect(chatSurface).toContain("AgentKitRoot");
+    expect(chatSurface).toContain("AgentKitChat");
   });
 
   it("does not force Plan's page chat to start a fresh thread", () => {

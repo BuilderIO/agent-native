@@ -112,6 +112,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "इस चैट का उपयोग करने के लिए Desktop खोलें।",
   "composer.removeAttachment": "{{name}} हटाएँ",
   "composer.scrollToBottom": "सबसे नीचे जाएँ",
+  "composer.suggestedPrompts": "सुझाए गए प्रॉम्प्ट",
   "composer.stopResponse": "जवाब रोकें",
   "composer.subAgentReadOnly":
     "ऑर्केस्ट्रेटर चैट को संदेश भेजें — यह सब-एजेंट अपने-आप चलता है",
@@ -481,6 +482,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "कतार से हटाएँ",
   "queue.sendNow": "अभी भेजें",
   "queue.sendNowHint": "अभी भेजें (मौजूदा जवाब रुक जाएगा)",
+  "queue.steer": "दिशा दें",
+  "queue.steerHint": "यह संदेश अगला भेजें",
+  "queue.moreActions": "अन्य कार्रवाइयाँ",
+  "queue.moveToTop": "सबसे ऊपर ले जाएँ",
   "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",

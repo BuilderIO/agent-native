@@ -69,6 +69,7 @@ const CHECK_NAMES = [
   "guards",
   "drizzle",
   "qa_static",
+  "agentkit_acceptance",
 ] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
@@ -179,6 +180,14 @@ function buildChecks(
   const workspaceChanged = changedPaths.some(isWorkspacePath);
   const coreChanged = hasPath(changedPaths, "packages/core/");
   const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
+  const agentkitChanged = changedPaths.some((path) =>
+    /^packages\/agentkit(?:\/|-)/u.test(path),
+  );
+  const sharedAppConfigChanged = hasPath(
+    changedPaths,
+    "packages/shared-app-config/",
+  );
+  const chatChanged = hasPath(changedPaths, "templates/chat/");
   const schedulingChanged = hasPath(changedPaths, "packages/scheduling/");
   const dispatchChanged = hasPath(changedPaths, "packages/dispatch/");
   const contentChanged = hasPath(changedPaths, "templates/content/");
@@ -210,7 +219,7 @@ function buildChecks(
       coreChanged ||
       dispatchChanged ||
       schedulingChanged ||
-      hasPath(changedPaths, "templates/chat/") ||
+      chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
     ssr_boot:
@@ -233,6 +242,12 @@ function buildChecks(
       );
     }),
     qa_static: templateChanged,
+    agentkit_acceptance:
+      coreChanged ||
+      toolkitChanged ||
+      agentkitChanged ||
+      sharedAppConfigChanged ||
+      chatChanged,
   };
 }
 
