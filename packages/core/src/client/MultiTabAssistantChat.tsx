@@ -890,6 +890,7 @@ export function MultiTabAssistantChat({
       ? `tab:${browserTabId}`
       : undefined;
   const keyPrefix = localStorageNamespace ? `:${localStorageNamespace}` : "";
+  const legacyKeyPrefix = storageKey ? `:${storageKey}` : "";
   const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
   const contextNamespace = scope
     ? scope.contextKey?.trim() || `scope:${scope.type}:${scope.id}`
@@ -1397,11 +1398,19 @@ export function MultiTabAssistantChat({
   // Parent-child thread mapping — persisted to localStorage.
   // Maps childThreadId → parentThreadId for sub-agent tabs.
   const PARENT_MAP_KEY = `agent-chat-parent-map${keyPrefix}`;
+  const LEGACY_PARENT_MAP_KEY = `agent-chat-parent-map${legacyKeyPrefix}`;
   const [parentMap, setParentMap] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem(PARENT_MAP_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch {}
+      const legacySaved =
+        saved === null && PARENT_MAP_KEY !== LEGACY_PARENT_MAP_KEY
+          ? localStorage.getItem(LEGACY_PARENT_MAP_KEY)
+          : null;
+      const raw = saved ?? legacySaved;
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // coercion-ok: unavailable or malformed localStorage is absent metadata.
+    }
     return {};
   });
   const parentMapRef = useRef(parentMap);
@@ -1418,11 +1427,17 @@ export function MultiTabAssistantChat({
   // Sub-agent display names — persisted to localStorage.
   // Maps childThreadId → short name (e.g. "Research", "Draft email").
   const SUB_AGENT_NAMES_KEY = `agent-chat-sub-agent-names${keyPrefix}`;
+  const LEGACY_SUB_AGENT_NAMES_KEY = `agent-chat-sub-agent-names${legacyKeyPrefix}`;
   const [subAgentNames, setSubAgentNames] = useState<Record<string, string>>(
     () => {
       try {
         const saved = localStorage.getItem(SUB_AGENT_NAMES_KEY);
-        if (saved) return JSON.parse(saved);
+        const legacySaved =
+          saved === null && SUB_AGENT_NAMES_KEY !== LEGACY_SUB_AGENT_NAMES_KEY
+            ? localStorage.getItem(LEGACY_SUB_AGENT_NAMES_KEY)
+            : null;
+        const raw = saved ?? legacySaved;
+        if (raw) return JSON.parse(raw);
       } catch {}
       return {};
     },
@@ -1445,23 +1460,33 @@ export function MultiTabAssistantChat({
   // (and rebroadcasting their run state) while another resource is open.
   const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
   const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
+  const LEGACY_OPEN_TABS_KEY = `agent-chat-open-tabs${legacyKeyPrefix}${scopeKeyPart}`;
+  const readStoredOpenTabs = useCallback((): string[] | undefined => {
+    try {
+      const saved = localStorage.getItem(OPEN_TABS_KEY);
+      const legacySaved =
+        saved === null && OPEN_TABS_KEY !== LEGACY_OPEN_TABS_KEY
+          ? localStorage.getItem(LEGACY_OPEN_TABS_KEY)
+          : null;
+      const raw = saved ?? legacySaved;
+      if (raw === null) return undefined;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return undefined;
+      const deduped = dedupeIds(parsed);
+      for (const id of deduped) mountedTabsRef.current.add(id);
+      return deduped;
+    } catch {
+      // coercion-ok: unavailable or malformed localStorage is an absent tab list.
+    }
+    return undefined;
+  }, [LEGACY_OPEN_TABS_KEY, OPEN_TABS_KEY]);
   const [openTabIds, setOpenTabIdsRaw] = useState<string[]>(() => {
     if (!restoreActiveThread && activeThreadId) {
       for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
       return [activeThreadId];
     }
-    try {
-      const saved = localStorage.getItem(OPEN_TABS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const deduped = dedupeIds(parsed);
-          // Mark restored tabs as mounted
-          for (const id of deduped) mountedTabsRef.current.add(id);
-          return deduped;
-        }
-      }
-    } catch {}
+    const restored = readStoredOpenTabs();
+    if (restored && restored.length > 0) return restored;
     return [];
   });
 
@@ -1498,21 +1523,13 @@ export function MultiTabAssistantChat({
       setOpenTabIds(activeThreadId ? [activeThreadId] : []);
       return;
     }
-    try {
-      const saved = localStorage.getItem(OPEN_TABS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          for (const id of parsed) mountedTabsRef.current.add(id);
-          setOpenTabIds(parsed);
-          return;
-        }
-      }
-    } catch {
-      // coercion-ok: malformed persisted tab data is an absent tab list.
+    const restored = readStoredOpenTabs();
+    if (restored) {
+      setOpenTabIds(restored);
+      return;
     }
     setOpenTabIds([]);
-  }, [OPEN_TABS_KEY, activeThreadId, restoreActiveThread]);
+  }, [OPEN_TABS_KEY, activeThreadId, readStoredOpenTabs, restoreActiveThread]);
 
   useBrowserLayoutEffect(() => {
     const nextScope = scope;

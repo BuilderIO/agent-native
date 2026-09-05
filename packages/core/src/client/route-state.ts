@@ -478,7 +478,11 @@ export function useAgentRouteState<
   const commandKeys = useMemo(() => {
     const scopedKey = appStateKeyForBrowserTab(commandKey, browserTabId);
     const keys = [scopedKey];
-    if (browserTabId && readGlobalCommandFallback) keys.push(commandKey);
+    if (
+      (!browserTabId || readGlobalCommandFallback) &&
+      commandKey !== scopedKey
+    )
+      keys.push(commandKey);
     return uniqueKeys(keys);
   }, [browserTabId, commandKey, readGlobalCommandFallback]);
   const commandQueryKey = useMemo<QueryKey>(

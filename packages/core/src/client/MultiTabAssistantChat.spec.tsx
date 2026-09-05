@@ -37,6 +37,14 @@ function openTabsStorageKey(
   return `agent-chat-open-tabs:${storageKey}:tab:${getBrowserTabId()}${scopePart}`;
 }
 
+function legacyOpenTabsStorageKey(
+  storageKey: string,
+  scope?: { type: string; id: string },
+): string {
+  const scopePart = scope ? `:scope:${scope.type}:${scope.id}` : "";
+  return `agent-chat-open-tabs:${storageKey}${scopePart}`;
+}
+
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   implementPlan: vi.fn(() => false),
@@ -2130,6 +2138,72 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       "thread-1",
       "thread-2",
     ]);
+  });
+
+  it("migrates legacy open tabs and sub-agent metadata into this browser tab", async () => {
+    const storageKey = "legacy-tab-migration-test";
+    const child = makeThread("thread-child");
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [
+      makeThread("thread-1"),
+      makeThread("thread-2"),
+      child,
+    ];
+    window.localStorage.setItem(
+      legacyOpenTabsStorageKey(storageKey),
+      JSON.stringify(["thread-1", "thread-2", "thread-2", "thread-child"]),
+    );
+    window.localStorage.setItem(
+      `agent-chat-parent-map:${storageKey}`,
+      JSON.stringify({ "thread-child": "thread-1" }),
+    );
+    window.localStorage.setItem(
+      `agent-chat-sub-agent-names:${storageKey}`,
+      JSON.stringify({ "thread-child": "Research" }),
+    );
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const tabId = getBrowserTabId();
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(openTabsStorageKey(storageKey)) ?? "null",
+      ),
+    ).toEqual(["thread-1", "thread-2"]);
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          `agent-chat-parent-map:${storageKey}:tab:${tabId}`,
+        ) ?? "null",
+      ),
+    ).toEqual({ "thread-child": "thread-1" });
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          `agent-chat-sub-agent-names:${storageKey}:tab:${tabId}`,
+        ) ?? "null",
+      ),
+    ).toEqual({ "thread-child": "Research" });
   });
 
   it("replaces an active missing thread with a fresh chat", async () => {
