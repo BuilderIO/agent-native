@@ -330,7 +330,8 @@ const PATTERNS = [
     key: "agent-tool-misuse",
     label:
       "Had to tell an agent which tool to call, or to author content itself instead of delegating to ask_app / the in-app agent",
-    fixedBy: "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
+    fixedBy:
+      "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
     re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
   },
   // Measured for the first time on 2026-08-12, after three prose rewrites of the

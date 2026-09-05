@@ -201,7 +201,7 @@ export default createAgentChatPlugin({
 
 The builtin cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_session`, `create_workspace_app`, `list_templates`) are always included regardless of the declared list.
 
-`connectorCatalog` decides which actions external callers can see. Which of them are *key* is not a second list: the MCP `instructions` and the page's WebMCP manifest advertise `Key tools for this app: …` generated from the plugin's `initialToolNames` (override with `mcp.keyToolNames`), and the in-app `AGENTS.md` action table names the same actions in the same words — see [WebMCP](/docs/webmcp).
+`connectorCatalog` decides which actions external callers can see. Which of them are _key_ is not a second list: the MCP `instructions` and the page's WebMCP manifest advertise `Key tools for this app: …` generated from the plugin's `initialToolNames` (override with `mcp.keyToolNames`), and the in-app `AGENTS.md` action table names the same actions in the same words — see [WebMCP](/docs/webmcp).
 
 `mcp.catalog: "app"` is the opposite choice: it serves this app's entire action registry flat, with no compact or connector trimming. The two are mutually exclusive — declaring both throws at plugin init rather than silently ignoring the allow-list, since an allow-list exists to keep something off the external surface.
 
