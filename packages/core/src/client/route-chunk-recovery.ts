@@ -199,6 +199,7 @@ function recoverToIntendedNavigation(
 ): boolean {
   const target = getFreshIntendedNavigation(state, win.location.href);
   const sameCurrentTarget =
+    isAgentNativeDesktop(win) &&
     !target &&
     state.intendedHref === win.location.href &&
     Date.now() - state.intendedAt <= INTENDED_NAV_MAX_AGE_MS
@@ -257,33 +258,16 @@ function patchHistoryMethod(
 function patchReload(win: Window, state: RouteChunkRecoveryState): void {
   const originalReload = win.location.reload.bind(win.location);
   const patchedReload = function patchedReload() {
-    if (
-      hasViteDevRecovery(win) &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
-      // React Router reloads after reporting a route-module failure. Give the
-      // dev server one bounded same-route refresh, then leave the failure
-      // visible instead of letting a persistent stale module thrash the page.
+    if (Date.now() - state.routeModuleFailureAt <= 1_000) {
+      // The console hook may already have started the recovery navigation.
+      // React Router calls reload immediately after logging, so navigating a
+      // second time here can turn one stale route into a reload loop.
+      if (state.recovering) return;
+      if (recoverToIntendedNavigation(win, state)) return;
+      if (isAgentNativeDesktop(win)) return;
+      // A current-route failure has no alternate target. Refresh once using
+      // the session-scoped cooldown, then leave persistent failures visible.
       reloadForStaleChunk(win);
-      return;
-    }
-    if (
-      isAgentNativeDesktop(win) &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
-      return;
-    }
-    if (
-      state.recoveryHref &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
-      hardNavigate(win, state.recoveryHref);
-      return;
-    }
-    if (
-      Date.now() - state.routeModuleFailureAt <= 1_000 &&
-      recoverToIntendedNavigation(win, state)
-    ) {
       return;
     }
     originalReload();
@@ -363,9 +347,7 @@ export function installRouteChunkRecovery(
       // turn a same-route failure into a document replacement loop.
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        if (!hasViteDevRecovery(win)) {
-          recoverToIntendedNavigation(win, state);
-        }
+        recoverToIntendedNavigation(win, state);
       }
       originalError(...args);
     };

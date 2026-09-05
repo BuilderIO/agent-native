@@ -278,7 +278,7 @@ describe("route chunk recovery", () => {
     // failure. If our best-effort reload patch sticks, it must not reload the
     // old page; if it cannot stick in a real browser, the href is already fixed.
     fakeLocation.reload();
-    expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
     expect(originalReload).not.toHaveBeenCalled();
   });
 
@@ -522,7 +522,7 @@ describe("route chunk recovery", () => {
     expect(fakeWindow.addEventListener).toHaveBeenCalledTimes(2);
   });
 
-  it("falls back to the original reload when there is no fresh target", () => {
+  it("bounds same-route React Router reloads when there is no fresh target", () => {
     const { fakeWindow, fakeLocation, originalReload } = createFakeWindow();
 
     installRouteChunkRecovery(fakeWindow);
@@ -531,9 +531,16 @@ describe("route chunk recovery", () => {
       "Error loading route module `/dispatch/assets/new-app-stale.js`, reloading page...",
     );
     fakeLocation.reload();
+    fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/new-app-stale.js`, reloading page...",
+    );
+    fakeLocation.reload();
 
-    expect(fakeLocation.assign).not.toHaveBeenCalled();
-    expect(originalReload).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/apps",
+    );
+    expect(originalReload).not.toHaveBeenCalled();
   });
 
   it("reloads the current page once for a stale chunk, then respects the cooldown", () => {
