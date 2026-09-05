@@ -147,6 +147,10 @@ import { type ElementInfo, type PortableStyleSnapshot } from "./types";
  * resizable frame inside an infinite, pannable surface.
  */
 const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
+/** The board layers sit inside the canvas container, which redefines this var
+ *  when the design stores a colour — so reading it live is what keeps every
+ *  board layer the same colour as the canvas around it. */
+const CANVAS_BACKGROUND_VAR = "var(--design-editor-canvas-bg)";
 const SCREEN_HEIGHT = 640;
 const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
@@ -226,7 +230,6 @@ function hasScreenChildLayers(content: string): boolean {
 
 import {
   getBoardContentKey,
-  resolveBoardSurfaceBackground,
   getBoardContentLayerSignature,
   getBoardSurfaceContentBounds,
   getBoardSurfaceRenderContent,
@@ -685,19 +688,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       height: surfaceSize.height / scale,
     };
   }, [canvasZoom, pan.x, pan.y, surfaceSize.height, surfaceSize.width]);
-  // The board iframe cannot read the host's CSS vars. Prefer the live
-  // design canvas colour; the theme var is only the unset fallback.
-  const boardSurfaceBackground = useMemo(() => {
-    const themed =
-      typeof window === "undefined"
-        ? ""
-        : window
-            .getComputedStyle(document.documentElement)
-            .getPropertyValue("--design-editor-canvas-bg")
-            .trim();
-    return resolveBoardSurfaceBackground(canvasBackground, themed);
-  }, [canvasBackground, resolvedTheme]);
-
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
     const focusGeometry = boardSurfaceFocusPoint
@@ -746,16 +736,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       return null;
     }
     return getBoardSurfaceStaticPreviewContent({
+      darkScheme: resolvedTheme === "dark",
       html: boardSurfaceHtml,
       logicalGeometry: boardFrameGeometry,
       viewport: boardStaticPreviewViewport,
-      background: boardSurfaceBackground,
     });
   }, [
     boardSurfaceHtml,
     boardFrameGeometry,
     boardStaticPreviewViewport,
-    boardSurfaceBackground,
+    resolvedTheme,
   ]);
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
@@ -8547,7 +8537,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 pointerEvents: "none",
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
-                background: boardSurfaceBackground,
+                background: CANVAS_BACKGROUND_VAR,
               }}
             />
           </div>
@@ -8572,8 +8562,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             });
             const boardLayerSignature =
               getBoardContentLayerSignature(boardFileContent);
-            const boardRenderContent =
-              getBoardSurfaceRenderContent(boardFileContent);
+            const boardRenderContent = getBoardSurfaceRenderContent(
+              boardFileContent,
+              resolvedTheme === "dark",
+            );
             return (
               // Overflow-hidden wrapper so the board iframe never bleeds outside
               // its declared logical surface. z-index 0 keeps it below screen
@@ -8593,7 +8585,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   // board document. Inside the document it would be part of
                   // the srcdoc, so every colour-picker tick would rebuild the
                   // iframe; out here it is a CSS change and updates instantly.
-                  background: boardSurfaceBackground,
+                  background: CANVAS_BACKGROUND_VAR,
                 }}
               >
                 <DesignCanvas

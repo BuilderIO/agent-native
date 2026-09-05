@@ -432,6 +432,7 @@ async function createDraftPrimitive(
     end: { x: number; y: number };
   },
 ): Promise<void> {
+  const before = await primitiveNodeIdsInDesign(page);
   await toolButton(page, toolName).click();
   await expect(toolButton(page, toolName)).toHaveAttribute(
     "aria-pressed",
@@ -444,6 +445,17 @@ async function createDraftPrimitive(
     "true",
   );
   await expect(selectedLayerRow(page)).toContainText(selectionLabel);
+  // The draft commits in the browser before autosave reaches SQL, so any
+  // server read taken straight after this returns the file without the node.
+  await expect
+    .poll(
+      async () => {
+        const after = await primitiveNodeIdsInDesign(page);
+        return after.some((id) => !before.includes(id));
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
 }
 
 async function designFiles(page: Page): Promise<DesignFileRecord[]> {
@@ -525,6 +537,25 @@ async function primitiveNodeIds(
         .filter(Boolean);
     },
     { html: content, primitiveKind: kind },
+  );
+}
+
+async function primitiveNodeIdsInDesign(page: Page): Promise<string[]> {
+  const files = await designFiles(page);
+  return page.evaluate(
+    (contents: string[]) => {
+      const parser = new DOMParser();
+      return contents.flatMap((html) =>
+        Array.from(
+          parser
+            .parseFromString(html, "text/html")
+            .querySelectorAll<HTMLElement>("[data-an-primitive]"),
+        )
+          .map((element) => element.dataset.agentNativeNodeId ?? "")
+          .filter(Boolean),
+      );
+    },
+    files.map((file) => file.content),
   );
 }
 
@@ -1978,11 +2009,6 @@ test("dragging a rectangle between screens moves it across files", async ({
     start: drawStart,
     end: drawEnd,
   });
-  await expect
-    .poll(() => primitiveNodeIds(page, "index.html", "rectangle"), {
-      timeout: 20_000,
-    })
-    .toHaveLength(homeIdsBefore.length + 1);
   const homeIdsAfterCreate = await primitiveNodeIds(
     page,
     "index.html",
@@ -2079,10 +2105,14 @@ test("dragging within an auto-layout row reorders at the visual insertion point 
   const betaBox = await beta.boundingBox();
   if (!alphaBox || !betaBox) throw new Error("missing auto-layout buttons");
 
+  // Land inside Beta's trailing half. A drop past Beta's right edge is only
+  // still inside the row when the buttons leave slack there, and their width
+  // is font-metric dependent — on CI it escaped to the row's parent and the
+  // button reordered out of the row instead of within it.
   const fired = await dragCanvasByText(
     page,
     "Alpha Button",
-    betaBox.x + betaBox.width - (alphaBox.x + alphaBox.width / 2) + 12,
+    betaBox.x + betaBox.width * 0.75 - (alphaBox.x + alphaBox.width / 2),
     0,
   );
   expect(fired).toContain("visual-structure-change");
@@ -2457,11 +2487,6 @@ test("dragging a screen primitive into a board rectangle nests and persists", as
     start: boardStart,
     end: boardEnd,
   });
-  await expect
-    .poll(() => primitiveNodeIds(page, "__board__.html", "rectangle"), {
-      timeout: 20_000,
-    })
-    .toHaveLength(boardIdsBefore.length + 1);
   const boardIdsAfter = await primitiveNodeIds(
     page,
     "__board__.html",

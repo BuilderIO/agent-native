@@ -323,17 +323,19 @@ test("left sidebar switches between all screens and focused screens", async ({
   await expect(allScreens).toHaveAttribute("aria-current", "page");
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 
+  const screenCards = page.locator("[data-screen-card]");
+  await expect(screenCards.first()).toBeVisible();
+
   await homeScreen.click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
-  await expect
-    .poll(
-      async () =>
-        (await page.locator("iframe[data-design-preview-iframe]").boundingBox())
-          ?.width ?? 0,
-      { timeout: 10_000 },
-    )
-    .toBeGreaterThan(600);
+  // Leaving the board is the switch under test. The focused preview's width is
+  // the screen's own device width, so pinning a pixel floor here asserts the
+  // seed's frame geometry instead — 320 once the overview persists one.
+  await expect(screenCards).toHaveCount(0, { timeout: 10_000 });
+  await expect(
+    page.locator("iframe[data-design-preview-iframe]"),
+  ).toBeVisible();
 
   await allScreens.click();
   await expect(allScreens).toHaveAttribute("aria-current", "page");

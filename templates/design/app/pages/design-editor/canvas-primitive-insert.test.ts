@@ -458,23 +458,24 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
   });
 
-  it("is not white on a board whose surface has been set to white", () => {
-    // isBoardTarget assumes the board is always dark; the body can say otherwise.
-    const white =
+  it("ignores a background on the board body, which is never painted", () => {
+    // The board renderer forces its document transparent, so this white is
+    // invisible: judging it would put dark text on the dark canvas in front.
+    const whiteBody =
       "<!doctype html><html><head><title>S</title></head>" +
       '<body style="background-color: #ffffff"></body></html>';
     const html =
       appendCanvasPrimitiveToHtml(
-        white,
+        whiteBody,
         {
           kind: "text",
           nodeId: "t",
           geometry: { x: 10, y: 10, width: 120, height: 24 },
           text: "sfasfsadfsa",
         },
-        { isBoardTarget: true },
+        { isBoardTarget: true, boardBackground: "hsl(0 0% 10%)" },
       ) ?? "";
-    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
   });
 
   it("is still white when dropped straight onto the dark board", () => {
@@ -487,9 +488,28 @@ describe("text takes its colour from what it lands on", () => {
           geometry: { x: 10, y: 10, width: 120, height: 24 },
           text: "on the board",
         },
-        { isBoardTarget: true },
+        { isBoardTarget: true, boardBackground: "hsl(0 0% 10%)" },
       ) ?? "";
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("inherits instead of going white on a light canvas", () => {
+    // The board document is transparent, so its colour can only arrive from
+    // the host — without it the light canvas reads as the old dark board and
+    // the text lands white-on-light.
+    const html =
+      appendCanvasPrimitiveToHtml(
+        blankScreenHtml("S"),
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 10, y: 10, width: 120, height: 24 },
+          text: "on a light canvas",
+        },
+        { isBoardTarget: true, boardBackground: "rgb(235, 235, 235)" },
+      ) ?? "";
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
   });
 });
 
