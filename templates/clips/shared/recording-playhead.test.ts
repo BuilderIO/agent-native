@@ -93,6 +93,75 @@ describe("the recording playhead has a shared visual source", () => {
     }
   });
 
+  it("keeps the desktop start affordance and mode-toggle radii aligned with web", () => {
+    const appSource = readFileSync(
+      resolve(clipsRoot, "desktop/src/app.tsx"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      resolve(clipsRoot, "desktop/src/styles.css"),
+      "utf8",
+    );
+    const tokens = readFileSync(
+      resolve(clipsRoot, "desktop/src/tailwind.css"),
+      "utf8",
+    );
+    const modeToggleStyles = styles.slice(
+      styles.indexOf(".mode-toggle {"),
+      styles.indexOf(".mode-tooltip {"),
+    );
+    const recordingDotStyles = styles.slice(
+      styles.indexOf(".rec-dot {"),
+      styles.indexOf(".active-recording-card {"),
+    );
+
+    expect(appSource).toContain(
+      '<span className="rec-dot" aria-hidden="true" />',
+    );
+    expect(modeToggleStyles).toContain(
+      "border-radius: var(--recorder-mode-toggle-radius)",
+    );
+    expect(modeToggleStyles).toContain(
+      "border-radius: var(--recorder-mode-option-radius)",
+    );
+    expect(tokens).toContain("--recorder-mode-option-radius: 14px");
+    expect(tokens).toContain("--recorder-mode-toggle-inset: 4px");
+    expect(tokens).toContain(
+      "var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)",
+    );
+    expect(recordingDotStyles).toContain("width: 8px");
+    expect(recordingDotStyles).toContain(
+      "background: hsl(var(--ui-destructive))",
+    );
+    expect(recordingDotStyles).not.toContain("box-shadow");
+  });
+
+  it("uses discard language for an unfinished take on both surfaces", () => {
+    const desktopSource = readFileSync(
+      resolve(clipsRoot, "desktop/src/overlays/record-pill.tsx"),
+      "utf8",
+    );
+    const webSource = readFileSync(
+      resolve(clipsRoot, "app/components/recorder/recording-toolbar.tsx"),
+      "utf8",
+    );
+    const englishCatalog = readFileSync(
+      resolve(clipsRoot, "app/i18n/en-US.ts"),
+      "utf8",
+    );
+
+    expect(desktopSource).toContain('delete: "Discard recording"');
+    expect(desktopSource).toContain('deleteShortcut: "Discard (⌥⇧C)"');
+    expect(desktopSource).toContain(
+      "`Discard ${formatDurationCopy(durationMs)}?`",
+    );
+    expect(desktopSource).toContain('deleteConfirm: "Discard"');
+    expect(desktopSource).not.toContain('delete: "Delete recording"');
+    expect(webSource).toContain('delete: t("recordingToolbar.cancel")');
+    expect(englishCatalog).toContain('cancel: "Discard recording"');
+    expect(englishCatalog).toContain('discardRecording: "Discard recording"');
+  });
+
   it("renders the docked orientation through the shared component", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);

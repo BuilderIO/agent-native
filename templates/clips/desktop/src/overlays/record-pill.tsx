@@ -1433,13 +1433,13 @@ export function RecordingPill() {
             resumeShortcut: "Resume (⌥⇧P)",
             restart: "Restart recording",
             restartShortcut: "Restart (⌥⇧R)",
-            delete: "Delete recording",
-            deleteShortcut: "Delete (⌥⇧C)",
+            delete: "Discard recording",
+            deleteShortcut: "Discard (⌥⇧C)",
             restartQuestion: "Start a new recording?",
             deleteQuestion: (durationMs) =>
-              `Delete ${formatDurationCopy(durationMs)}?`,
+              `Discard ${formatDurationCopy(durationMs)}?`,
             restartConfirm: "Restart",
-            deleteConfirm: "Delete",
+            deleteConfirm: "Discard",
             resumeConfirm: "Resume",
           }}
           onStop={stop}
