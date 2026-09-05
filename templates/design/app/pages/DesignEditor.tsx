@@ -2624,6 +2624,22 @@ function DesignEditor() {
       );
     }, 4000);
   }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
+  const handleGenerationStopped = useCallback(() => {
+    clearGenerationCompleteTimer();
+    clearAutoRetryTimer();
+    clearStoredRunLivenessTimer();
+    clearPendingGeneration(id);
+    setGenerationChatTabId(null);
+    setHasPendingGeneration(false);
+    setGenerationIssue(null);
+    setRetryablePrompt(null);
+    staleToastShownRef.current = false;
+  }, [
+    clearAutoRetryTimer,
+    clearGenerationCompleteTimer,
+    clearStoredRunLivenessTimer,
+    id,
+  ]);
   const scheduleStoredRunLivenessCheck = useCallback(
     (runTabId: string) => {
       clearStoredRunLivenessTimer();
@@ -2657,6 +2673,7 @@ function DesignEditor() {
     track: trackAgentGeneration,
   } = useAgentGenerating({
     onComplete: handleGenerationComplete,
+    onStopped: handleGenerationStopped,
     onStale: markGenerationStale,
     shouldAdoptRunningTab: () =>
       Boolean(id) &&
