@@ -20,8 +20,8 @@ import { table, text, integer, ownableColumns } from "../../db/schema.js";
  *   own threshold.
  *
  * The table is ownable (scoped reads/writes via `accessFilter`/`assertAccess`
- * per the `security` skill) and dialect-agnostic (Drizzle helpers from
- * `db/schema`, never raw SQLite types). The companion migrations live in
+ * per the `security` skill) and uses Drizzle helpers from `db/schema`.
+ * The companion migrations live in
  * `./migrations.ts` and are additive-only.
  */
 export const observationalMemory = table("observational_memory", {

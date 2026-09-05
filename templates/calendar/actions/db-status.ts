@@ -8,9 +8,6 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const url = process.env.DATABASE_URL || "file:./data/app.db";
-    const isLocal = url.startsWith("file:");
-
     try {
       const db = getDb();
       await db
@@ -20,8 +17,7 @@ export default defineAction({
 
       return {
         status: "connected",
-        mode: isLocal ? "local" : "remote",
-        url: isLocal ? url : url.replace(/\/\/.*@/, "//***@"),
+        mode: "postgres",
         tables: [
           "bookings",
           "booking_links",
@@ -34,7 +30,7 @@ export default defineAction({
     } catch (err: any) {
       return {
         status: "disconnected",
-        mode: isLocal ? "local" : "remote",
+        mode: "postgres",
         error: err.message,
       };
     }

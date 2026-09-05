@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
 import {
   resourceDeleteByPath,
@@ -561,12 +561,9 @@ async function insertStarterWorkspaceResource(
 ) {
   const exec = getDbExec();
   const resourceId = starterResourceId(ctx, starter.path);
-  const sql = isPostgres()
-    ? `INSERT INTO workspace_resources (id, owner_email, org_id, kind, name, description, path, content, scope, created_by, created_at, updated_at)
+  const sql = `INSERT INTO workspace_resources (id, owner_email, org_id, kind, name, description, path, content, scope, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO NOTHING`
-    : `INSERT OR IGNORE INTO workspace_resources (id, owner_email, org_id, kind, name, description, path, content, scope, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+       ON CONFLICT (id) DO NOTHING`;
   await exec.execute({
     sql,
     args: [

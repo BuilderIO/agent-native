@@ -2,7 +2,7 @@
 // dedupe/merge pair, and one-call workspace orientation. All three are about
 // what happens to real rows — a partition that reports what it skipped, a claim
 // that refuses to clobber a concurrent move, a merge that keeps both sides — so
-// they run against a real libsql (SQLite) database with the app's migrations.
+// they run against a real PGlite database with the app's migrations.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-lifecycle-actions-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-lifecycle-actions-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -180,7 +180,7 @@ async function loadLifecycle(attributeId = STAGE_ATTRIBUTE_ID) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -223,9 +223,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 // ---------------------------------------------------------------------------

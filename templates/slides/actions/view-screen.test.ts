@@ -172,6 +172,40 @@ describe("view-screen", () => {
     );
   });
 
+  it("names a representative sibling even when the deck tallies no styles", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Class styled",
+        data: JSON.stringify({
+          title: "Class styled",
+          slides: [
+            {
+              id: "slide-a",
+              layout: "content",
+              content:
+                '<div class="fmd-slide bg-black text-white"><h2>A</h2></div>',
+            },
+            {
+              id: "slide-b",
+              layout: "content",
+              content:
+                '<div class="fmd-slide bg-black text-white"><h2>B</h2></div>',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "representativeSlide: id=slide-b (slide 2, layout=content)",
+    );
+    expect(result).not.toContain("backgrounds:");
+  });
+
   it("does not surface a selection from a different slide", async () => {
     mockRows = [
       {

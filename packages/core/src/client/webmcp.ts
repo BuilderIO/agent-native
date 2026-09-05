@@ -1137,7 +1137,10 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
         agentNativePath("/_agent-native/webmcp/manifest"),
         {
           credentials: "same-origin",
-          headers: { Accept: "application/json" },
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Browser-Tab": getBrowserTabId(),
+          },
         },
       );
       if (!response.ok) {
@@ -1165,14 +1168,7 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
               headers: {
                 Accept: "application/json",
                 "Content-Type": "application/json",
-                // Same header the frontend action client (use-action.ts)
-                // sends with the same value, so the server resolves one
-                // `getRequestRunContext()?.browserTabId` regardless of
-                // which client called the action — a WebMCP call from this
-                // page reads/writes this tab's app state (navigation,
-                // selection) instead of whichever tab wrote the global key
-                // last.
-                "X-Request-Source": getBrowserTabId(),
+                "X-Agent-Native-Browser-Tab": getBrowserTabId(),
               },
               body: JSON.stringify(args),
               ...(runtime.signal ? { signal: runtime.signal } : {}),

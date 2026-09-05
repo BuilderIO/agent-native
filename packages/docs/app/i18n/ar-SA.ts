@@ -156,8 +156,8 @@ const arSA = {
           body: "عرّف العمل مرة واحدة واستخدمه من UI وagent وHTTP وMCP وA2A وCLI.",
         },
         sqlStateOrm: {
-          title: "حالة SQL وORM",
-          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات غير مرتبطة بالمزود.",
+          title: "حالة PostgreSQL وORM",
+          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات PostgreSQL وPGlite.",
         },
         dbAdmin: {
           title: "إدارة قاعدة البيانات",
@@ -210,7 +210,7 @@ const arSA = {
       body1:
         "Agent-Native هو framework مفتوح المصدر لبناء agentic applications: ابدأ مع Chat، وعرّف actions مشتركة، ثم أضف UI و jobs والتعاون حول نفس state.",
       body2:
-        "استخدم قاعدة بياناتك ومزود الاستضافة و model stack وكود app الخاص بك.",
+        "استخدم PGlite المحلي أو PostgreSQL المستضاف، ومزوّد الاستضافة وmodel stack وكود app الخاص بك.",
       cta: "اقرأ دليل framework",
       primitives: {
         actions: {
@@ -221,17 +221,17 @@ const arSA = {
         sharedState: {
           title: "حالة مشتركة",
           description:
-            "يحافظ SQL-backed app state على تزامن البشر و agents و sessions.",
+            "تحافظ حالة التطبيق المدعومة بـPostgreSQL وPGlite على تزامن البشر و agents و sessions.",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "يتم شحن app-agent loop و tools و skills و memory و jobs و observability معا.",
         },
-        backendAgnostic: {
-          title: "غير مرتبط بbackend معين",
+        postgresSpecific: {
+          title: "خاص بـPostgreSQL",
           description:
-            "وصّل أي قاعدة بيانات SQL مدعومة من Drizzle وأي host متوافق مع Nitro.",
+            "استخدم مساعدات مخطط PostgreSQL في إطار العمل مع PGlite المحلي أو Postgres المستضاف على أي مضيف متوافق مع Nitro.",
         },
       },
     },
@@ -310,7 +310,7 @@ const arSA = {
     },
     quickStart: {
       title: "ابدأ مع أمر واحد",
-      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و SQLite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
+      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و PGlite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
     },
     finalCta: {
       title: "software مبني لعصر agentic era",
@@ -468,7 +468,7 @@ const arSA = {
           body: "الوكيل يعرف ما يشاهده المستخدمون وما يحددونه وما يحررونه.",
         },
         sharedSql: {
-          title: "بيانات SQL مشتركة",
+          title: "بيانات PostgreSQL المشتركة",
           body: "المستخدمون والوكلاء يقرأون ويحدّثون المصدر الموثوق نفسه.",
         },
         skillsMemory: {
@@ -524,12 +524,23 @@ const arSA = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ألا تريد البناء محليًا؟",
-      exploreApp: "استكشف تطبيقًا مباشرًا",
-      between: "أولًا، أو",
-      joinWaitlist: "انضم إلى قائمة الانتظار",
-      end: "للبناء في المتصفح بدلًا من ذلك.",
+    tabs: {
+      label: "اختر طريقة البناء",
+      local: "البناء محليًا",
+      localDescription: "استخدم CLI للبناء على جهازك.",
+      cloud: "البناء في السحابة",
+      cloudDescription: "ابنِ في المتصفح باستخدام Builder.io.",
+    },
+    cloud: {
+      intro:
+        "ابنِ التطبيقات نفسها من دون تثبيت أي شيء. صِف ما تريده، وسيكتب الوكيل التعليمات البرمجية ويشغّلها في مساحة عمل يستضيفها Builder لك.",
+      stepOneTitle: "أنشئ حسابًا في Builder",
+      stepOneBody:
+        "استخدم حساب Builder الخاص بك للبناء في المتصفح. ابدأ مجانًا من دون إحضار مفاتيح API.",
+      stepTwoTitle: "ابدأ بكتابة طلبك",
+      stepTwoBody: "صِف ما تريد بناءه بلغة واضحة وسيُنشئه الوكيل لك.",
+      stepThreeTitle: "النشر",
+      stepThreeBody: "عندما تكون مستعدًا، انشر تطبيقك بنقرة واحدة في Builder.",
     },
   },
   templatesPage: {
@@ -553,7 +564,6 @@ const arSA = {
     tryCommunityDemo: "تجربة العرض",
     customizeDescription: "استخدم هذا التطبيق كنقطة بداية.",
     customizeOnline: "عبر الإنترنت",
-    customizeOnlineBadge: "انضم إلى قائمة الانتظار",
     customizeLocally: "محلي",
     communityNew: "جديد",
     communityComingSoon: "قريبًا",
@@ -607,16 +617,8 @@ const arSA = {
     readDocs: "اقرأ المستندات",
     buildOnline: "ابنِ عبر الإنترنت",
     popoverTitle: "أنشئ في المتصفح",
-    popoverBody:
-      "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
-    emailLabel: "البريد الإلكتروني",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "انضم إلى قائمة الانتظار",
-    joining: "جارٍ الانضمام…",
-    joined:
-      "أنت على قائمة الانتظار. سنرسل لك بريدًا عندما يتوفر الوصول للبناء عبر الإنترنت.",
-    invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا.",
-    submitError: "تعذر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
+    popoverBody: "أنشئ تطبيقات agent-native بسرعة في السحابة مع Builder.io.",
+    launchBuilder: "شغّل Builder",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",

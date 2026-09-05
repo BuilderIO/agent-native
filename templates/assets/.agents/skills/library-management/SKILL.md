@@ -98,7 +98,7 @@ made:
   clears from the tray and comes back in `assetsRetained`. The delete itself is
   conditional on the state that was authorized, so an editor's save always beats
   an in-flight dismissal, and the outcome is confirmed by re-reading rather than
-  by an adapter-specific row count.
+  by a confirming Postgres read.
 
 `assertCanDraft` returns `{ role, canApprove }`. Generation actions report `draftPendingApproval: true` when `canApprove` is false so the caller can say the images are waiting on an editor instead of claiming they were saved. `get-library-access` exposes the same answer to the UI and to other agents.
 
@@ -144,11 +144,11 @@ copying shares, visibility, generation runs, or handoff sessions.
 
 `delete-library` deletes in order:
 
-1. `image_assets WHERE library_id = ?`
-2. `image_generation_runs WHERE library_id = ?`
-3. `image_collections WHERE library_id = ?`
-4. `image_library_shares WHERE resource_id = ?`
-5. `image_libraries WHERE id = ?`
+1. `image_assets WHERE library_id = $1`
+2. `image_generation_runs WHERE library_id = $1`
+3. `image_collections WHERE library_id = $1`
+4. `image_library_shares WHERE resource_id = $1`
+5. `image_libraries WHERE id = $1`
 
 The asset rows are deleted from SQL but the underlying objects in S3 / local fallback are **not** automatically reaped — that's a v2 background job. For now, the orphaned blobs are tolerable since the framework's asset URLs all check access via the asset row.
 

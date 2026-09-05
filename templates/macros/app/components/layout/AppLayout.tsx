@@ -34,6 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiFetch } from "@/lib/api";
+import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 import { Header } from "./Header";
@@ -86,7 +87,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         : isAnalytics
           ? "analytics"
           : "entry";
-    apiFetch(agentNativePath("/_agent-native/application-state/navigation"), {
+    apiFetch(`/_agent-native/application-state/navigation:${TAB_ID}`, {
       method: "PUT",
       body: JSON.stringify({ view, path: location.pathname }),
     }).catch(() => {});
@@ -94,11 +95,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   // useDbSync invalidates this key when the agent writes a navigate command.
   const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
+    queryKey: ["navigate-command", TAB_ID],
     queryFn: async () => {
       try {
         const res = await fetch(
-          agentNativePath("/_agent-native/application-state/navigate"),
+          agentNativePath(
+            `/_agent-native/application-state/navigate:${TAB_ID}`,
+          ),
         );
         if (!res.ok) return null;
         return await res.json();
@@ -126,10 +129,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         void navigate("/home");
       }
       // Clear the command
-      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-        method: "DELETE",
-      }).catch(() => {});
-      queryClient.setQueryData(["navigate-command"], null);
+      fetch(
+        agentNativePath(`/_agent-native/application-state/navigate:${TAB_ID}`),
+        {
+          method: "DELETE",
+        },
+      ).catch(() => {});
+      queryClient.setQueryData(["navigate-command", TAB_ID], null);
     }
   }, [navCommand, navigate, queryClient]);
 

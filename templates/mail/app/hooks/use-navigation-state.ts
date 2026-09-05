@@ -1,7 +1,6 @@
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useSemanticNavigationState } from "@agent-native/core/client/navigation";
 import { useCallback, useState } from "react";
-
-import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: string;
@@ -34,7 +33,8 @@ export function useNavigationState() {
   const { command, clearCommand } = useSemanticNavigationState<NavigationState>(
     {
       state: pendingState,
-      requestSource: TAB_ID,
+      browserTabId: getBrowserTabId(),
+      requestSource: getBrowserTabId(),
       writeDebounceMs: 500,
       onCommand: () => {
         // Command consumption is handled by callers via the returned

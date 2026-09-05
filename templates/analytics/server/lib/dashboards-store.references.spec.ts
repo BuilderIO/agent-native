@@ -11,7 +11,6 @@ const state = vi.hoisted(() => ({
   limit: null as number | null,
 }));
 
-vi.mock("@agent-native/core/db", () => ({ isPostgres: () => false }));
 vi.mock("@agent-native/core/server", () => ({ recordChange: () => undefined }));
 vi.mock("@agent-native/core/settings", () => ({
   listSettingsByPrefix: vi.fn(async (prefix: string) =>

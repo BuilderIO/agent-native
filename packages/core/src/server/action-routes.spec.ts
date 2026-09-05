@@ -67,6 +67,7 @@ vi.mock("../org/context.js", () => ({
     mockResolveOrgIdForEmail(...args),
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
   resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
+  isFederationMembershipValidatedForEvent: () => false,
 }));
 
 vi.mock("./auth.js", () => ({
@@ -724,6 +725,7 @@ describe("mountActionRoutes", () => {
       ping: {
         run: vi.fn(async () => ({
           browserSessionId: getRequestContext()?.browserSessionId,
+          browserTabId: getRequestContext()?.run?.browserTabId,
           clientPlatform: getRequestContext()?.clientPlatform,
         })),
       } as any,
@@ -737,6 +739,7 @@ describe("mountActionRoutes", () => {
       _method: "POST",
       _headers: {
         "x-agent-native-session-id": "pinned-session-1",
+        "x-agent-native-browser-tab": "tab-a",
         "x-agent-native-client-platform": "mobile",
       },
       req: { json: async () => ({}) },
@@ -749,10 +752,12 @@ describe("mountActionRoutes", () => {
 
     expect(await mounted[0].handler(withSession)).toEqual({
       browserSessionId: "pinned-session-1",
+      browserTabId: "tab-a",
       clientPlatform: "mobile",
     });
     expect(await mounted[0].handler(withoutSession)).toEqual({
       browserSessionId: undefined,
+      browserTabId: undefined,
       clientPlatform: undefined,
     });
   });
@@ -2262,10 +2267,7 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
-  it.each([
-    "no such table: org_members",
-    'relation "org_members" does not exist',
-  ])(
+  it.each(['relation "org_members" does not exist'])(
     "suppresses the verified first-boot missing org table error: %s",
     async (message) => {
       const { mountActionRoutes } = await import("./action-routes.js");
@@ -2657,7 +2659,7 @@ describe("mountWebMcpActionRoutes", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
-  it("resolves getRequestRunContext().browserTabId from X-Request-Source, on both the webmcp and /mcp/tool paths, and leaves it undefined without the header", async () => {
+  it("resolves getRequestRunContext().browserTabId from X-Agent-Native-Browser-Tab, on both the webmcp and /mcp/tool paths, and leaves it undefined without the header", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     // The action itself reads the context — same helper
@@ -2690,7 +2692,7 @@ describe("mountWebMcpActionRoutes", () => {
     await expect(
       webMcpRoute?.handler({
         _method: "POST",
-        _headers: { "x-request-source": "tab-abc123" },
+        _headers: { "x-agent-native-browser-tab": "tab-abc123" },
         req: { json: async () => ({}) },
       }),
     ).resolves.toEqual({ browserTabId: "tab-abc123" });
@@ -2698,7 +2700,7 @@ describe("mountWebMcpActionRoutes", () => {
     await expect(
       mcpToolRoute?.handler({
         _method: "POST",
-        _headers: { "x-request-source": "tab-abc123" },
+        _headers: { "x-agent-native-browser-tab": "tab-abc123" },
         req: { json: async () => ({}) },
       }),
     ).resolves.toEqual({ browserTabId: "tab-abc123" });

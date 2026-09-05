@@ -125,9 +125,8 @@ export default defineAction({
       // meeting ids instead, then fetch their participant rows unbounded.
       //
       // PostgreSQL requires every ORDER BY expression on a SELECT DISTINCT to
-      // also appear in the select list (SQLite has no such rule, which is why
-      // this passed locally against SQLite but fails on Postgres in prod) —
-      // so `recency` is selected here as its own column, not just ordered by.
+      // also appear in the select list, so `recency` is selected here as its
+      // own column, not just ordered by.
       // It's safe to include: every row for a given meetingId shares the same
       // recency value (it comes from the joined meetings row), so adding it
       // to the DISTINCT projection can't create spurious per-meeting duplicates.

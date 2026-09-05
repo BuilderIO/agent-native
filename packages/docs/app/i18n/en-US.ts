@@ -177,8 +177,8 @@ const enUS = {
           body: "Define work once and use it from the UI, agent, HTTP, MCP, A2A, and CLI.",
         },
         sqlStateOrm: {
-          title: "SQL state and ORM",
-          body: "Durable app data, application state, migrations, and provider-agnostic schemas.",
+          title: "PostgreSQL state and ORM",
+          body: "Durable app data, application state, migrations, and PostgreSQL/PGlite schemas.",
         },
         dbAdmin: {
           title: "DB admin",
@@ -231,7 +231,7 @@ const enUS = {
       body1:
         "Agent-Native is an open-source framework for building agentic applications: start with chat, define shared actions, then add UI, jobs, and collaboration around the same state.",
       body2:
-        "Bring your own database, hosting provider, model stack, and app code.",
+        "Use local PGlite or hosted PostgreSQL, your hosting provider, model stack, and app code.",
       cta: "Read the framework guide",
       primitives: {
         actions: {
@@ -242,17 +242,17 @@ const enUS = {
         sharedState: {
           title: "Shared state",
           description:
-            "SQL-backed app state keeps humans, agents, and sessions in sync.",
+            "PostgreSQL/PGlite-backed app state keeps humans, agents, and sessions in sync.",
         },
         agentRuntime: {
           title: "Agent runtime",
           description:
             "The app-agent loop, tools, skills, memory, jobs, and observability ship together.",
         },
-        backendAgnostic: {
-          title: "Backend agnostic",
+        postgresSpecific: {
+          title: "PostgreSQL-specific",
           description:
-            "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
+            "Use the framework’s PostgreSQL schema helpers with local PGlite or hosted Postgres on any Nitro-compatible host.",
         },
       },
     },
@@ -331,7 +331,7 @@ const enUS = {
     },
     quickStart: {
       title: "Start with a Command",
-      body: "One command creates a chat-first local app backed by actions, durable threads, and SQLite. Use `--headless` only for automation-first workflows with no browser UI yet.",
+      body: "One command creates a chat-first local app backed by actions, durable threads, and PGlite. Use `--headless` only for automation-first workflows with no browser UI yet.",
     },
     finalCta: {
       title: "Software built for the agentic era",
@@ -469,7 +469,7 @@ const enUS = {
           body: "The agent knows what users are viewing, selecting, and editing.",
         },
         sharedSql: {
-          title: "Shared SQL data",
+          title: "Shared PostgreSQL data",
           body: "Users and agents read and update the same source of truth.",
         },
         skillsMemory: {
@@ -526,12 +526,25 @@ const enUS = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Not building locally?",
-      exploreApp: "Explore a live app",
-      between: "first, or",
-      joinWaitlist: "join the waitlist",
-      end: "to build in the browser instead.",
+    tabs: {
+      label: "Choose how to build",
+      local: "Build locally",
+      localDescription: "Use the CLI to build on your machine.",
+      cloud: "Build in the cloud",
+      cloudDescription: "Build in the browser with Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Build the same apps without installing anything. You describe what you want; the agent writes and runs the code in a workspace Builder hosts for you.",
+      stepOneTitle: "Create a Builder account",
+      stepOneBody:
+        "Use your Builder account to build in the browser. Free to start, and no API keys to bring.",
+      stepTwoTitle: "Prompt away",
+      stepTwoBody:
+        "Describe what you want to build in plain language and the agent will create it for you.",
+      stepThreeTitle: "Deploy",
+      stepThreeBody:
+        "When you're ready, deploy your app with one click in Builder.",
     },
   },
   templatesPage: {
@@ -556,7 +569,6 @@ const enUS = {
     tryCommunityDemo: "Try demo",
     customizeDescription: "Use this app as a starting point.",
     customizeOnline: "Online",
-    customizeOnlineBadge: "Join waitlist",
     customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
@@ -611,15 +623,8 @@ const enUS = {
     buildOnline: "Build online",
     popoverTitle: "Build in the browser",
     popoverBody:
-      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
-    emailLabel: "Email",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "Join waitlist",
-    joining: "Joining…",
-    joined:
-      "You're on the waitlist. We'll email you when build-online access opens.",
-    invalidEmail: "Enter a valid email address.",
-    submitError: "Couldn't join the waitlist. Please try again.",
+      "Rapidly generate agent-native apps in the cloud with Builder.io.",
+    launchBuilder: "Launch Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",

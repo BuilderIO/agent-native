@@ -17,11 +17,14 @@ import {
   isAgentActionStopError,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { normalizeBrowserTabId } from "../application-state/script-helpers.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
-import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
+import {
+  isFederationMembershipValidatedForEvent,
+  resolveOrgByDomain,
+  resolveOrgIdForEmail,
+} from "../org/context.js";
 import {
   agentNativeMcpInstructions,
   agentNativeToolTitle,
@@ -35,6 +38,7 @@ import {
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
+  readBrowserTabIdHeader,
   readAnalyticsClientPlatformHeader,
   readSyntheticTrafficHeader,
   seedAgentRunOwnerContext,
@@ -178,26 +182,6 @@ function readTimezoneHeader(event: any): string | undefined {
 }
 
 /**
- * Read the caller's browser tab id from `X-Request-Source` — the same header
- * the frontend action client (use-action.ts) and the page-local WebMCP
- * bridge (webmcp.ts) already send with `getBrowserTabId()`. Reusing that one
- * header (instead of adding a second) means every generic action call, not
- * just WebMCP, resolves `getRequestRunContext()?.browserTabId`, so per-tab
- * app state (`readAppStateForCurrentTab`) scopes to the tab that actually
- * made the call instead of whichever tab last wrote the global key.
- * `normalizeBrowserTabId` only accepts a tab-id-shaped value, so an unrelated
- * fixed `X-Request-Source` tag some callers send (e.g. "deep-link",
- * "clips-desktop") either scopes harmlessly under its own bucket or is
- * simply not tab-id-shaped — never trusted for anything auth-related, this
- * is purely a scoping hint for app-state keys.
- */
-function readBrowserTabIdHeader(event: any): string | undefined {
-  return (
-    normalizeBrowserTabId(getHeader(event, "x-request-source")) ?? undefined
-  );
-}
-
-/**
  * True when the request originated from the browser action client
  * (`useActionQuery` / `useActionMutation` / `callAction`), which tags every
  * call with `X-Agent-Native-Frontend: 1`. Used to set `ctx.caller` to
@@ -264,7 +248,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -384,9 +368,8 @@ function normalizeOrgId(value: string | null | undefined): string | undefined {
 
 function isFirstBootMissingOrgTableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  return (
-    /no such table:?\s*["'`]?org_members["'`]?/i.test(error.message) ||
-    /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(error.message)
+  return /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(
+    error.message,
   );
 }
 
@@ -709,17 +692,14 @@ function mountActionRoutesInternal(
             timezone,
             browserSessionId,
             clientPlatform,
+            ...(browserTabId ? { run: { browserTabId } } : {}),
             ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
             requestOrigin: getForwardedRequestOrigin(event),
+            federationMembershipValidated:
+              isFederationMembershipValidatedForEvent(event, userEmail, orgId),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),
-            // `run` (not a top-level field) is deliberate: it's the same
-            // RequestContext.run sub-store `getRequestRunContext()` reads, so
-            // readAppStateForCurrentTab sees this without a second context.
-            // No header means no fabricated id — stays undefined, matching
-            // CLI/external-agent callers that predate tab scoping.
-            ...(browserTabId ? { run: { browserTabId } } : {}),
           },
           async () => {
             // Reject oversize bodies from Content-Length before parsing, so a

@@ -162,13 +162,6 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
-// update-file.ts imports isPostgres via the public "@agent-native/core/db"
-// specifier (unlike the collab package's internal relative import), so this
-// mock DOES intercept it: force the SQLite branch (no LOCK TABLE path).
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
-}));
-
 // ---------------------------------------------------------------------------
 // Minimal fake Drizzle app-DB layer: one `design_files` table backing store,
 // supporting exactly the query shapes writeInlineSourceFile/
@@ -252,6 +245,9 @@ vi.mock("../server/db/index.js", () => {
     return withLimit;
   };
   const db = {
+    execute: async () => ({ rows: [], rowsAffected: 1 }),
+    transaction: async (callback: (tx: typeof db) => Promise<unknown>) =>
+      callback(db),
     select: (_projection: unknown) => ({
       from: (_table: unknown) => ({
         where: whereBuilder,

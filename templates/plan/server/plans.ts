@@ -434,9 +434,8 @@ export function buildUpdatedPlanCommentRows(input: {
   return rows;
 }
 
-// Chunk size for batched comment inserts. Keeps a single INSERT well under
-// SQLite's default 999-bound-parameter limit and Postgres' practical
-// statement-size limits even for a wide comment row shape.
+// Chunk size for batched comment inserts keeps each statement bounded even for
+// a wide comment row shape.
 const PLAN_COMMENT_INSERT_CHUNK_SIZE = 200;
 
 export async function insertInitialPlanComments(input: {

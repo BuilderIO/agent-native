@@ -9,54 +9,50 @@ async function loadTabId() {
   return import("./browser-tab-id.js");
 }
 
-describe("getBrowserTabId", () => {
+function stubNavigationType(type: PerformanceNavigationTiming["type"]) {
+  vi.spyOn(performance, "getEntriesByType").mockImplementation((entryType) => {
+    if (entryType !== "navigation") return [];
+    return [{ type } as PerformanceNavigationTiming];
+  });
+}
+
+describe("browser tab id", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     window.sessionStorage.clear();
   });
 
-  it("is stable across repeated calls", async () => {
-    const { getBrowserTabId } = await loadTabId();
+  it("persists the generated id across reloads in one tab", async () => {
+    stubNavigationType("navigate");
 
-    const first = getBrowserTabId();
-    const second = getBrowserTabId();
+    const first = await loadTabId();
+    const id = first.getBrowserTabId();
+    const stored = window.sessionStorage.getItem(STORAGE_KEY);
+    vi.restoreAllMocks();
+    stubNavigationType("reload");
 
-    expect(first).toBeTruthy();
-    expect(second).toBe(first);
+    const second = await loadTabId();
+    expect(second.getBrowserTabId()).toBe(id);
+    expect(id).toBe(stored);
+    expect(stored).toBeTruthy();
   });
 
-  it("persists the id in sessionStorage", async () => {
+  it("claims a fresh id for a duplicated tab with copied session storage", async () => {
+    stubNavigationType("navigate");
+    window.sessionStorage.setItem(STORAGE_KEY, "original-tab");
+
     const { getBrowserTabId } = await loadTabId();
 
-    const id = getBrowserTabId();
-    const stored = JSON.parse(
-      window.sessionStorage.getItem(STORAGE_KEY) ?? "null",
-    );
-
-    expect(stored).toMatchObject({ tabId: id, active: true });
+    expect(getBrowserTabId()).not.toBe("original-tab");
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe(getBrowserTabId());
   });
 
-  it("regenerates when the stored id was last claimed by an active owner", async () => {
-    window.sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        tabId: "owned-elsewhere",
-        ownerId: "other",
-        active: true,
-      }),
-    );
+  it("does not reuse malformed stored ids", async () => {
+    stubNavigationType("reload");
+    window.sessionStorage.setItem(STORAGE_KEY, "bad/tab");
 
     const { getBrowserTabId } = await loadTabId();
-    const id = getBrowserTabId();
 
-    expect(id).not.toBe("owned-elsewhere");
-  });
-
-  it("accepts an older plain-string stored value", async () => {
-    window.sessionStorage.setItem(STORAGE_KEY, "legacy-plain-id");
-
-    const { getBrowserTabId } = await loadTabId();
-    const id = getBrowserTabId();
-
-    expect(id).toBe("legacy-plain-id");
+    expect(getBrowserTabId()).not.toBe("bad/tab");
   });
 });

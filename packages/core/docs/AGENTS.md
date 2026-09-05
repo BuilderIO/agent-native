@@ -62,7 +62,7 @@ preserve public action, state, auth, and agent-chat runtime contracts.
 | Task                                  | Start with                                                                                               |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Define or call app operations         | `content/actions.md`, `content/client.md`                                                                |
-| Add SQL data, schema, or access rules | `content/database.md`, `content/security.md`, `content/sharing.md`                                       |
+| Add PostgreSQL data, schema, or access rules | `content/server-database.mdx`, `content/security.md`, `content/sharing.md`                         |
 | Keep the UI and agent in sync         | `content/context-awareness.md`, `content/client.md`                                                      |
 | Localize UI copy and language choices | `content/internationalization.md`, `content/client.md`                                                   |
 | Build headless or chat-first apps     | `content/pure-agent-apps.md`, `content/agent-surfaces.md`, `content/using-your-agent.md`                 |

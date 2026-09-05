@@ -71,9 +71,8 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 
 | Variable                                                                       | Purpose                                                                                                                                                                     |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                                 | Primary SQL connection URL. Local development falls back to SQLite when it is unset; production also accepts `<APP_NAME>_DATABASE_URL` or `NETLIFY_DATABASE_URL`.           |
+| `DATABASE_URL`                                                                 | Primary PostgreSQL connection URL. Local development falls back to PGlite when it is unset; production also accepts `<APP_NAME>_DATABASE_URL` or `NETLIFY_DATABASE_URL`.    |
 | `FORMS_DATABASE_URL_UNPOOLED`                                                  | Forms template's direct request-time SQL connection URL, preferred over pooled database URLs when configured.                                                               |
-| `DATABASE_AUTH_TOKEN`                                                          | Separate database auth token for providers such as Turso/libSQL.                                                                                                            |
 | `DB_CONNECT_COOLDOWN_MS`                                                       | How long an endpoint stops attempting new connections after one attempt fails (default 2000, jittered). Prevents a refused attempt from immediately producing the next one. |
 | `APP_URL`                                                                      | Optional canonical public origin for auth, OAuth, A2A, webhooks, and generated links; hosting metadata is inferred when unset.                                              |
 | `IDENTITY_SSO_APP_REGISTRY_JSON`                                               | Optional exact JSON registry of custom workspace apps that explicitly opt into Desktop cross-app SSO.                                                                       |
@@ -114,15 +113,16 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `DEBUG`                                                                        | General debug logging switch used by local tooling and selected runtime paths.                                                                                              |
 | `COOKIE_DOMAIN` / `CORS_ALLOWED_ORIGINS`                                       | Optional cookie-domain and cross-origin request policy.                                                                                                                     |
 | `PING_MESSAGE`                                                                 | Minimal template smoke-test message used by example apps.                                                                                                                   |
-| `DATABASE_*`                                                                   | Database URL, auth-token, and provider-specific connection variants.                                                                                                        |
+| `DATABASE_*`                                                                   | PostgreSQL URL, auth token, and per-app connection settings.                                                                                                                |
 | `NODE_*`                                                                       | Node runtime and CLI options such as `NODE_ENV` and `NODE_OPTIONS`.                                                                                                         |
 | `APP_*`                                                                        | Server-side app identity and public-origin configuration.                                                                                                                   |
 | `A2A_*`                                                                        | A2A lifetime, auth, and processing controls.                                                                                                                                |
 | `URL` / `PATH` / `HOME` / `PWD` / `SHELL` / `COMSPEC` / `APPDATA` / `INIT_CWD` | Host-provided process and shell metadata used by local tooling.                                                                                                             |
 | `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                                          | Tool-specific configuration and package-manager home directories.                                                                                                           |
 
-Database-specific `<APP_NAME>_DATABASE_URL` and
-`<APP_NAME>_DATABASE_AUTH_TOKEN` overrides are supported for workspace apps.
+Per-app `<APP_NAME>_DATABASE_URL` and
+Workspace apps use their `<APP_NAME>_DATABASE_URL` override for database
+selection.
 
 Production readiness is checked without returning secret values. The public
 `/_agent-native/ping?configuration=1` probe reports missing or weak auth/A2A

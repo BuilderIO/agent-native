@@ -486,7 +486,7 @@ Chaque `defineAction` est automatiquement monté à `/_agent-native/actions/<nam
 
 Il ne s'agit pas d'un mode sans base de données ou sans état. La boucle app-agent stocke les sessions,
 les fils, les exécutions, les paramètres, les identifiants, l'état de l'application et les enregistrements de partage en
-SQL. Le développement local utilise SQLite par défaut ; les applications automatisation-d'abord hébergées doivent
+SQL. Le développement local utilise PGlite par défaut ; les applications automatisation-d'abord hébergées doivent
 utiliser une base de données SQL persistante.
 
 Si vous avez besoin de toute la boucle d'agent sans interface depuis le dossier du projet, utilisez :

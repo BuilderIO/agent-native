@@ -158,6 +158,11 @@ export default defineAction({
             .where(eq(schema.responses.formId, nav.formId));
           const selectionState = (await readAppStateForCurrentTab(
             "forms-selection",
+            {
+              // No global fallback: another tab's selected field must never
+              // become this tab's patch target.
+              fallbackToGlobal: false,
+            },
           )) as FormsSelectionState | null;
           const selection = buildFormSelectionSummary(
             selectionState,

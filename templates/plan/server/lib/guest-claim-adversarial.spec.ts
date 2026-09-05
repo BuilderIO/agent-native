@@ -279,9 +279,9 @@ describe("guest-abuse — adversarial counting & windows", () => {
     if (/FROM plan_guest_mints/i.test(sql) && /COUNT/i.test(sql)) {
       return { rows: [{ n: dbState.mintCount }] };
     }
-    if (/owner_email = \?/i.test(sql))
+    if (/owner_email = \$1/i.test(sql))
       return { rows: [{ n: dbState.ownedCount }] };
-    if (/owner_email LIKE \?/i.test(sql))
+    if (/owner_email LIKE \$1/i.test(sql))
       return { rows: [{ n: dbState.globalCount }] };
     return { rows: [] };
   });
@@ -372,7 +372,7 @@ describe("guest-abuse — adversarial counting & windows", () => {
     const injected =
       "guest-22222222-2222-2222-2222-222222222222@agent-native.guest";
     await assertGuestCreateWithinLimits(injected);
-    const capCall = dbState.calls.find((c) => /owner_email = \?/i.test(c.sql));
+    const capCall = dbState.calls.find((c) => /owner_email = \$1/i.test(c.sql));
     expect(capCall?.args[0]).toBe(injected); // passed as a parameter, verbatim
     // The SQL text must NOT contain the email value (proves parameterization).
     expect(capCall?.sql).not.toContain(injected);
@@ -407,15 +407,15 @@ describe("guest-abuse — adversarial counting & windows", () => {
   });
 
   it("does NOT count the guest's own cap against a different guest's plans (global LIKE is separate from the per-guest exact count)", async () => {
-    // Per-guest cap uses owner_email = ?; the global throttle uses LIKE. They
+    // Per-guest cap uses owner_email = $1; the global throttle uses LIKE. They
     // must be two distinct queries with distinct args.
     process.env.PLAN_GUEST_MAX_PLANS = "100";
     process.env.PLAN_GUEST_GLOBAL_CREATE_LIMIT = "1000";
     dbState.ownedCount = 1;
     dbState.globalCount = 1;
     await assertGuestCreateWithinLimits(GUEST);
-    const exact = dbState.calls.find((c) => /owner_email = \?/i.test(c.sql));
-    const like = dbState.calls.find((c) => /owner_email LIKE \?/i.test(c.sql));
+    const exact = dbState.calls.find((c) => /owner_email = \$1/i.test(c.sql));
+    const like = dbState.calls.find((c) => /owner_email LIKE \$1/i.test(c.sql));
     expect(exact?.args[0]).toBe(GUEST); // exact identity
     expect(like?.args[0]).toBe("guest-%@agent-native.guest"); // any guest
   });

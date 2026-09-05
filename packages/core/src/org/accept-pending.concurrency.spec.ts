@@ -1,5 +1,6 @@
-import Database from "better-sqlite3";
 import { describe, it, expect, vi, afterEach } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 /**
  * Regression coverage for the `acceptPendingInvitationsForEmail` TOCTOU race
@@ -10,36 +11,40 @@ import { describe, it, expect, vi, afterEach } from "vitest";
  * both INSERT, producing a duplicate `org_members` row.
  *
  * Unlike storage.spec.ts's mocked-`execute` fixture, this uses a real
- * in-memory better-sqlite3 database — including the unique expression index
+ * in-memory PGlite database — including the unique expression index
  * added in migrations.ts (org-members-unique-lower-email-idx) — so the
  * `ON CONFLICT (org_id, LOWER(email)) DO NOTHING` insert is exercised
  * against genuine constraint enforcement, not a captured-SQL mock.
  */
 
-function createSqliteExec(sqlite: Database.Database) {
+function createPgliteExec(
+  pglite: Awaited<ReturnType<typeof createTestPglite>>,
+) {
   return {
     async execute(input: string | { sql: string; args?: unknown[] }) {
       const sql = typeof input === "string" ? input : input.sql;
       const args = typeof input === "string" ? [] : (input.args ?? []);
       const trimmed = sql.trim().toUpperCase();
       if (trimmed.startsWith("SELECT")) {
-        const rows = sqlite.prepare(sql).all(...(args as any[]));
+        const rows = await pglite.prepare(sql).all(...(args as any[]));
         return { rows, rowsAffected: 0 };
       }
-      const info = sqlite.prepare(sql).run(...(args as any[]));
+      const info = await pglite.prepare(sql).run(...(args as any[]));
       return { rows: [], rowsAffected: info.changes };
     },
   };
 }
 
-function seedOrgTables(sqlite: Database.Database) {
-  sqlite.exec(`
+async function seedOrgTables(
+  pglite: Awaited<ReturnType<typeof createTestPglite>>,
+) {
+  await pglite.exec(`
     CREATE TABLE org_invitations (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       invited_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
       status TEXT NOT NULL,
       role TEXT
     );
@@ -48,7 +53,8 @@ function seedOrgTables(sqlite: Database.Database) {
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL,
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER,
       UNIQUE(org_id, email)
     );
     CREATE UNIQUE INDEX org_members_org_lower_email_uidx
@@ -56,9 +62,11 @@ function seedOrgTables(sqlite: Database.Database) {
   `);
 }
 
-async function loadAcceptPendingWithSqlite(sqlite: Database.Database) {
+async function loadAcceptPendingWithPglite(
+  pglite: Awaited<ReturnType<typeof createTestPglite>>,
+) {
   vi.doMock("../db/client.js", () => ({
-    getDbExec: () => createSqliteExec(sqlite),
+    getDbExec: () => createPgliteExec(pglite),
     isLocalDatabase: () => true,
   }));
   vi.doMock("../settings/user-settings.js", () => ({
@@ -68,17 +76,17 @@ async function loadAcceptPendingWithSqlite(sqlite: Database.Database) {
   return mod;
 }
 
-describe("acceptPendingInvitationsForEmail (real sqlite, concurrency)", () => {
-  afterEach(() => {
+describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
+  afterEach(async () => {
     vi.resetModules();
     vi.doUnmock("../db/client.js");
     vi.doUnmock("../settings/user-settings.js");
   });
 
   it("processing the same invitation twice concurrently yields exactly one membership row", async () => {
-    const sqlite = new Database(":memory:");
-    seedOrgTables(sqlite);
-    sqlite
+    const pglite = await createTestPglite();
+    await seedOrgTables(pglite);
+    await pglite
       .prepare(
         `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -94,7 +102,7 @@ describe("acceptPendingInvitationsForEmail (real sqlite, concurrency)", () => {
       );
 
     const { acceptPendingInvitationsForEmail } =
-      await loadAcceptPendingWithSqlite(sqlite);
+      await loadAcceptPendingWithPglite(pglite);
 
     // Simulates a retried signup hook calling the acceptance path twice for
     // the same email before either has committed its INSERT.
@@ -109,27 +117,27 @@ describe("acceptPendingInvitationsForEmail (real sqlite, concurrency)", () => {
       expect(r.accepted).toEqual([{ invitationId: "inv1", orgId: "org1" }]);
     }
 
-    const { count } = sqlite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM org_members`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(1);
 
-    const member = sqlite
+    const member = (await pglite
       .prepare(`SELECT org_id, email, role FROM org_members`)
-      .get() as { org_id: string; email: string; role: string };
+      .get()) as { org_id: string; email: string; role: string };
     expect(member).toEqual({
       org_id: "org1",
       email: "a@b.com",
       role: "member",
     });
 
-    sqlite.close();
+    await pglite.close();
   });
 
   it("a case-variant duplicate row does not block idempotent acceptance", async () => {
-    const sqlite = new Database(":memory:");
-    seedOrgTables(sqlite);
-    sqlite
+    const pglite = await createTestPglite();
+    await seedOrgTables(pglite);
+    await pglite
       .prepare(
         `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -146,14 +154,14 @@ describe("acceptPendingInvitationsForEmail (real sqlite, concurrency)", () => {
     // Pre-existing legacy row with different casing — the exact-string
     // UNIQUE(org_id, email) constraint never caught this, only the new
     // expression index does.
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       )
       .run("member1", "org1", "A@B.com", "member", Date.now());
 
     const { acceptPendingInvitationsForEmail } =
-      await loadAcceptPendingWithSqlite(sqlite);
+      await loadAcceptPendingWithPglite(pglite);
 
     await expect(
       acceptPendingInvitationsForEmail("a@b.com"),
@@ -161,11 +169,11 @@ describe("acceptPendingInvitationsForEmail (real sqlite, concurrency)", () => {
       accepted: [{ invitationId: "inv1", orgId: "org1" }],
     });
 
-    const { count } = sqlite
+    const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM org_members`)
-      .get() as { count: number };
+      .get()) as { count: number };
     expect(count).toBe(1);
 
-    sqlite.close();
+    await pglite.close();
   });
 });

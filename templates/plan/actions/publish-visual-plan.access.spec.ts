@@ -4,7 +4,7 @@
  * publish-visual-plan is the share/account bridge: it loads a plan, then pushes
  * the full plan content (MDX + repoPath) to a connected hosted instance using a
  * DEVICE-level bearer token, and writes hostedPlanId/hostedPlanUrl back onto the
- * plan row. This spec drives the REAL action against a REAL libSQL DB with the
+ * plan row. This spec drives the REAL action against a REAL PostgreSQL DB with the
  * REAL core access helpers, mocking only `fetch` and the publish-auth resolver.
  *
  * It pins the access level publish enforces (currently viewer-level read, NOT
@@ -13,14 +13,18 @@
  * FAIL so the gap is visible (see the two `BUG:` tests).
  */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { registerShareableResource } from "@agent-native/core/sharing";
-import { createClient, type Client } from "@libsql/client";
+
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 import { eq } from "drizzle-orm";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   afterEach,
@@ -34,8 +38,28 @@ import {
 
 import * as planSchema from "../server/db/schema.js";
 
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      results.push(await client.query(postgresSql(sql)));
+    return results.at(-1);
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
+
+let client: PGlite;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
 
 vi.mock("../server/db/index.js", () => ({
@@ -132,9 +156,9 @@ beforeAll(async () => {
   vi.stubGlobal("fetch", fetchMock);
 
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-publish-"));
-  client = createClient({ url: `file:${path.join(dbDir, "test.db")}` });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
-  await client.executeMultiple(`
+  await execute(`
     CREATE TABLE plans (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, brief TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'plan',
@@ -161,7 +185,7 @@ beforeAll(async () => {
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, parent_comment_id TEXT, section_id TEXT, kind TEXT NOT NULL DEFAULT 'comment', status TEXT NOT NULL DEFAULT 'open', anchor TEXT, message TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT 'human', author_email TEXT, author_name TEXT, resolution_target TEXT, mentions_json TEXT, resolved_by TEXT, resolved_at TEXT, consumed_at TEXT, deleted_at TEXT, deleted_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
-    CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, chat_context TEXT, summary_status TEXT, summary_source TEXT, block_count INTEGER, section_count INTEGER, has_canvas INTEGER, has_prototype INTEGER, preview_text TEXT);
+    CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, chat_context TEXT, summary_status TEXT, summary_source TEXT, block_count INTEGER, section_count INTEGER, has_canvas BOOLEAN, has_prototype BOOLEAN, preview_text TEXT);
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE plan_assets (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, filename TEXT NOT NULL, mime_type TEXT NOT NULL, data TEXT NOT NULL, byte_size INTEGER NOT NULL, created_at TEXT NOT NULL);
   `);
@@ -181,15 +205,15 @@ beforeAll(async () => {
     .default as AnyAction;
 });
 
-afterAll(() => {
-  client?.close();
+afterAll(async () => {
+  await client?.close();
   vi.unstubAllGlobals();
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
-  await client.executeMultiple(`
+  await execute(`
     DELETE FROM plan_events; DELETE FROM plan_comments; DELETE FROM plan_sections;
     DELETE FROM plan_versions; DELETE FROM plan_shares; DELETE FROM plans;
   `);

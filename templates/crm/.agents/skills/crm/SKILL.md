@@ -29,7 +29,7 @@ Model source of truth: `shared/crm-contract.ts`. Type registry:
 ## Setup and modes
 
 - `configure-native-crm` starts a local-authoritative CRM with no provider,
-  portable across SQLite, Postgres, and D1. Then use the normal record, list,
+  backed by Postgres through local PGlite or a hosted database. Then use the normal record, list,
   task, view, and evidence actions. Never require a connection for Native SQL.
 - After HubSpot or Salesforce is authorized in workspace Connections, register
   it with `configure-crm-connection`. Never pass a token. HubSpot starts with

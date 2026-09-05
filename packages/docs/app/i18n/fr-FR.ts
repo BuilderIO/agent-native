@@ -158,8 +158,8 @@ const frFR = {
           body: "Définissez le travail une fois et utilisez-le depuis l’UI, l’agent, HTTP, MCP, A2A et CLI.",
         },
         sqlStateOrm: {
-          title: "État SQL et ORM",
-          body: "Données d’app durables, état applicatif, migrations et schémas indépendants du fournisseur.",
+          title: "État PostgreSQL et ORM",
+          body: "Données d’app durables, état applicatif, migrations et schémas PostgreSQL/PGlite.",
         },
         dbAdmin: {
           title: "Admin base de données",
@@ -212,7 +212,7 @@ const frFR = {
       body1:
         "Agent-Native est un framework open source pour construire des agentic applications : commencez avec Chat, définissez des actions partagées, puis ajoutez UI, jobs et collaboration autour du même état.",
       body2:
-        "Apportez votre propre base de données, fournisseur d'hébergement, stack de modèles et code d'app.",
+        "Utilisez PGlite local ou PostgreSQL hébergé, votre fournisseur d’hébergement, votre stack de modèles et votre code d’app.",
       cta: "Lire le guide du framework",
       primitives: {
         actions: {
@@ -230,10 +230,10 @@ const frFR = {
           description:
             "L'app-agent loop, les tools, skills, memory, jobs et l'observabilité sont livrés ensemble.",
         },
-        backendAgnostic: {
-          title: "Indépendant du backend",
+        postgresSpecific: {
+          title: "Spécifique à PostgreSQL",
           description:
-            "Branchez n'importe quelle base de données SQL prise en charge par Drizzle et n'importe quel hôte compatible Nitro.",
+            "Utilisez les assistants de schéma PostgreSQL du framework avec PGlite local ou Postgres hébergé sur n’importe quel hôte compatible Nitro.",
         },
       },
     },
@@ -313,7 +313,7 @@ const frFR = {
     },
     quickStart: {
       title: "Commencez avec une commande",
-      body: "Une commande crée une app locale chat-first adossée à actions, durable threads et SQLite. Utilisez `--headless` seulement pour les workflows automation-first sans UI navigateur pour le moment.",
+      body: "Une commande crée une app locale chat-first adossée à actions, durable threads et PGlite. Utilisez `--headless` seulement pour les workflows automation-first sans UI navigateur pour le moment.",
     },
     finalCta: {
       title: "Un logiciel conçu pour l'ère agentic",
@@ -471,7 +471,7 @@ const frFR = {
           body: "L'agent sait ce que les utilisateurs consultent, sélectionnent et éditent.",
         },
         sharedSql: {
-          title: "Données SQL partagées",
+          title: "Données PostgreSQL partagées",
           body: "Les utilisateurs et les agents lisent et mettent à jour la même source de vérité.",
         },
         skillsMemory: {
@@ -527,12 +527,25 @@ const frFR = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Vous ne développez pas en local ?",
-      exploreApp: "Explorez d’abord une application en ligne",
-      between: "ou",
-      joinWaitlist: "inscrivez-vous sur la liste d’attente",
-      end: "pour développer dans le navigateur.",
+    tabs: {
+      label: "Choisissez votre mode de création",
+      local: "Développer en local",
+      localDescription: "Utilisez la CLI pour développer sur votre machine.",
+      cloud: "Développer dans le cloud",
+      cloudDescription: "Développez dans le navigateur avec Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Développez les mêmes applications sans rien installer. Décrivez ce que vous voulez et l’agent écrit et exécute le code dans un espace de travail hébergé par Builder.",
+      stepOneTitle: "Créer un compte Builder",
+      stepOneBody:
+        "Utilisez votre compte Builder pour développer dans le navigateur. Commencez gratuitement, sans fournir de clés API.",
+      stepTwoTitle: "À vous de prompter",
+      stepTwoBody:
+        "Décrivez en langage courant ce que vous voulez créer et l’agent le fera pour vous.",
+      stepThreeTitle: "Déployer",
+      stepThreeBody:
+        "Quand vous êtes prêt, déployez votre application en un clic dans Builder.",
     },
   },
   templatesPage: {
@@ -558,7 +571,6 @@ const frFR = {
     tryCommunityDemo: "Essayer la démo",
     customizeDescription: "Utilisez cette app comme point de départ.",
     customizeOnline: "En ligne",
-    customizeOnlineBadge: "Rejoindre la liste d'attente",
     customizeLocally: "Local",
     communityNew: "Nouveau",
     communityComingSoon: "Bientôt disponible",
@@ -616,15 +628,8 @@ const frFR = {
     buildOnline: "Créer en ligne",
     popoverTitle: "Créer dans le navigateur",
     popoverBody:
-      "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
-    emailLabel: "E-mail",
-    emailPlaceholder: "vous@entreprise.com",
-    joinWaitlist: "Rejoindre la liste d'attente",
-    joining: "Inscription…",
-    joined:
-      "Vous êtes sur la liste d'attente. Nous vous enverrons un e-mail quand l'accès à la création en ligne ouvrira.",
-    invalidEmail: "Saisissez une adresse e-mail valide.",
-    submitError: "Impossible de rejoindre la liste d'attente. Réessayez.",
+      "Générez rapidement des apps agent-native dans le cloud avec Builder.io.",
+    launchBuilder: "Lancer Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Collez dans votre terminal.",

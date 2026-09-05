@@ -152,8 +152,8 @@ const messages = {
           body: "一次定義工作，然後從 UI、agent、HTTP、MCP、A2A 和 CLI 使用。",
         },
         sqlStateOrm: {
-          title: "SQL 狀態與 ORM",
-          body: "持久應用資料、application state、遷移，以及不綁供應商的 schema。",
+          title: "PostgreSQL 狀態與 ORM",
+          body: "持久應用資料、application state、遷移，以及 PostgreSQL/PGlite schema。",
         },
         dbAdmin: {
           title: "資料庫管理",
@@ -205,7 +205,8 @@ const messages = {
       title: "面向 agent-native apps 的框架",
       body1:
         "Agent-Native 是一個開放原始碼框架，用來建置 agentic applications：從 Chat 開始，定義共享 actions，再圍繞同一份 state 新增 UI、jobs 和協作。",
-      body2: "使用你自己的資料庫、託管服務、模型堆疊和 app 程式碼。",
+      body2:
+        "使用本機 PGlite 或託管 PostgreSQL，以及你自己的託管服務、模型堆疊和 app 程式碼。",
       cta: "閱讀框架指南",
       primitives: {
         actions: {
@@ -222,10 +223,10 @@ const messages = {
           description:
             "app-agent loop、tools、skills、memory、jobs 和可觀測性一起交付。",
         },
-        backendAgnostic: {
-          title: "後端無關",
+        postgresSpecific: {
+          title: "PostgreSQL 專用",
           description:
-            "接入任何 Drizzle 支援的 SQL 資料庫和 Nitro 相容的託管環境。",
+            "使用框架的 PostgreSQL schema 幫助程式，在本機使用 PGlite，或在任何 Nitro 相容主機上使用託管 Postgres。",
         },
       },
     },
@@ -303,7 +304,7 @@ const messages = {
     },
     quickStart: {
       title: "從一條指令開始",
-      body: "一條指令會建立一個聊天優先的本機 app，背後有 actions、durable threads 和 SQLite 支撐。只有 automation-first workflow 暫時不需要瀏覽器 UI 時才使用 `--headless`。",
+      body: "一條指令會建立一個聊天優先的本機 app，背後有 actions、durable threads 和 PGlite 支撐。只有 automation-first workflow 暫時不需要瀏覽器 UI 時才使用 `--headless`。",
     },
     finalCta: {
       title: "為 agentic 時代而建的軟體",
@@ -460,7 +461,7 @@ const messages = {
           body: "agent 知道使用者正在查看、選取和編輯的內容。",
         },
         sharedSql: {
-          title: "共用的 SQL 資料",
+          title: "共用的 PostgreSQL 資料",
           body: "使用者和 agent 讀取並更新同一份可信資料來源。",
         },
         skillsMemory: {
@@ -516,12 +517,23 @@ const messages = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "不在本機建置？",
-      exploreApp: "先試用線上應用程式",
-      between: "或",
-      joinWaitlist: "加入候補名單",
-      end: "改為在瀏覽器中建置。",
+    tabs: {
+      label: "選擇建置方式",
+      local: "本機建置",
+      localDescription: "使用 CLI 在你的電腦上建置。",
+      cloud: "雲端建置",
+      cloudDescription: "使用 Builder.io 在瀏覽器中建置。",
+    },
+    cloud: {
+      intro:
+        "不需安裝任何東西，就能建置相同的應用程式。描述您想要的內容，代理會在 Builder 為您託管的工作區中撰寫並執行程式碼。",
+      stepOneTitle: "建立 Builder 帳號",
+      stepOneBody:
+        "使用 Builder 帳號在瀏覽器中建置。免費開始，不必自備 API 金鑰。",
+      stepTwoTitle: "開始輸入提示",
+      stepTwoBody: "用自然語言描述您想建立的內容，代理會為您建立。",
+      stepThreeTitle: "部署",
+      stepThreeBody: "準備好後，在 Builder 中一鍵部署您的應用程式。",
     },
   },
   templatesPage: {
@@ -545,7 +557,6 @@ const messages = {
     tryCommunityDemo: "體驗示範",
     customizeDescription: "以這個應用程式為起點。",
     customizeOnline: "線上",
-    customizeOnlineBadge: "加入候補名單",
     customizeLocally: "本機",
     communityNew: "新應用程式",
     communityComingSoon: "即將推出",
@@ -596,15 +607,8 @@ const messages = {
     readDocs: "閱讀文件",
     buildOnline: "線上建置",
     popoverTitle: "在瀏覽器中建置",
-    popoverBody:
-      "Builder.io 可以在雲端啟動並自訂 agent-native app — 包含 actions、auth、SQL 狀態與 agent chat。加入等候名單以取得早期存取權。",
-    emailLabel: "電子郵件",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "加入等候名單",
-    joining: "正在加入…",
-    joined: "你已在等候名單中。線上建置存取開放時，我們會寄信通知你。",
-    invalidEmail: "請輸入有效的電子郵件地址。",
-    submitError: "無法加入等候名單。請再試一次。",
+    popoverBody: "使用 Builder.io 在雲端快速產生 agent-native 應用程式。",
+    launchBuilder: "啟動 Builder",
   },
   templateCard: {
     pasteIntoTerminal: "貼上到您的終端中。",

@@ -1,7 +1,6 @@
 /**
  * True when `err` is a UNIQUE / PRIMARY KEY constraint violation from either
- * supported driver (Postgres 23505, SQLite SQLITE_CONSTRAINT_UNIQUE /
- * _PRIMARYKEY). Shared by any action that inserts a row guarded by a
+ * Postgres 23505). Shared by any action that inserts a row guarded by a
  * best-effort unique index and needs to recover from a losing race instead of
  * failing outright — see `design_files_design_filename_unique_idx` in
  * `server/plugins/db.ts` for the index this is meant to catch a conflict
@@ -11,13 +10,6 @@
 export function isUniqueConstraintViolation(err: unknown): boolean {
   const e = err as { code?: unknown; message?: unknown } | null;
   if (e?.code === "23505") return true;
-  const code = typeof e?.code === "string" ? e.code : "";
-  if (
-    code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
-    code === "SQLITE_CONSTRAINT_UNIQUE"
-  ) {
-    return true;
-  }
   const msg = typeof e?.message === "string" ? e.message.toLowerCase() : "";
   return (
     msg.includes("unique constraint") ||

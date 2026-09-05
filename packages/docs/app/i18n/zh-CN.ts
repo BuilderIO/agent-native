@@ -154,8 +154,8 @@ const zhCN = {
           body: "一次定义工作，然后从 UI、agent、HTTP、MCP、A2A 和 CLI 使用它。",
         },
         sqlStateOrm: {
-          title: "SQL 状态与 ORM",
-          body: "持久应用数据、application state、迁移，以及不绑定供应商的 schema。",
+          title: "PostgreSQL 状态与 ORM",
+          body: "持久应用数据、application state、迁移，以及 PostgreSQL/PGlite schema。",
         },
         dbAdmin: {
           title: "数据库管理",
@@ -207,7 +207,8 @@ const zhCN = {
       title: "面向 agent-native apps 的框架",
       body1:
         "Agent-Native 是一个开源框架，用来构建 agentic applications：从 Chat 开始，定义共享 actions，再围绕同一份 state 添加 UI、jobs 和协作。",
-      body2: "使用你自己的数据库、托管服务、模型栈和 app 代码。",
+      body2:
+        "使用本地 PGlite 或托管 PostgreSQL，以及你自己的托管服务、模型栈和 app 代码。",
       cta: "阅读框架指南",
       primitives: {
         actions: {
@@ -224,10 +225,10 @@ const zhCN = {
           description:
             "app-agent loop、tools、skills、memory、jobs 和可观测性一起交付。",
         },
-        backendAgnostic: {
-          title: "后端无关",
+        postgresSpecific: {
+          title: "PostgreSQL 专用",
           description:
-            "接入任何 Drizzle 支持的 SQL 数据库和 Nitro 兼容的托管环境。",
+            "使用框架的 PostgreSQL schema 助手，在本地使用 PGlite，或在任何 Nitro 兼容主机上使用托管 Postgres。",
         },
       },
     },
@@ -305,7 +306,7 @@ const zhCN = {
     },
     quickStart: {
       title: "从一条命令开始",
-      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 SQLite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
+      body: "一条命令会创建一个聊天优先的本地 app，背后有 actions、durable threads 和 PGlite 支撑。只有 automation-first workflow 暂时不需要浏览器 UI 时才使用 `--headless`。",
     },
     finalCta: {
       title: "为 agentic 时代而建的软件",
@@ -462,7 +463,7 @@ const zhCN = {
           body: "agent 知道用户正在查看、选择和编辑的内容。",
         },
         sharedSql: {
-          title: "共享的 SQL 数据",
+          title: "共享的 PostgreSQL 数据",
           body: "用户和 agent 读取并更新同一份可信数据源。",
         },
         skillsMemory: {
@@ -518,12 +519,23 @@ const zhCN = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "不在本地构建？",
-      exploreApp: "先试用在线应用",
-      between: "或",
-      joinWaitlist: "加入候补名单",
-      end: "改为在浏览器中构建。",
+    tabs: {
+      label: "选择构建方式",
+      local: "本地构建",
+      localDescription: "使用 CLI 在你的计算机上构建。",
+      cloud: "云端构建",
+      cloudDescription: "使用 Builder.io 在浏览器中构建。",
+    },
+    cloud: {
+      intro:
+        "无需安装任何内容，即可构建相同的应用。描述你想要的内容，智能体会在 Builder 为你托管的工作区中编写并运行代码。",
+      stepOneTitle: "创建 Builder 账号",
+      stepOneBody:
+        "使用 Builder 账号在浏览器中构建。免费开始，无需自带 API 密钥。",
+      stepTwoTitle: "开始输入提示",
+      stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
+      stepThreeTitle: "部署",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
     },
   },
   templatesPage: {
@@ -547,7 +559,6 @@ const zhCN = {
     tryCommunityDemo: "体验演示",
     customizeDescription: "以这个应用为起点。",
     customizeOnline: "在线",
-    customizeOnlineBadge: "加入等候名单",
     customizeLocally: "本地",
     communityNew: "新应用",
     communityComingSoon: "即将推出",
@@ -597,15 +608,8 @@ const zhCN = {
     readDocs: "阅读文档",
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
-    popoverBody:
-      "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
-    emailLabel: "邮箱",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "加入候补名单",
-    joining: "正在加入…",
-    joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
-    invalidEmail: "请输入有效的邮箱地址。",
-    submitError: "无法加入候补名单。请重试。",
+    popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    launchBuilder: "启动 Builder",
   },
   templateCard: {
     pasteIntoTerminal: "粘贴到您的终端中。",

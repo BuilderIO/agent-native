@@ -57,8 +57,6 @@ const IGNORED_FILE_PATTERNS = [
   /\.tsbuildinfo$/,
   /\.log$/,
   /\.tmp\.json$/,
-  /\.db(?:-shm|-wal|-journal)?$/,
-  /\.sqlite\d?$/,
 ];
 
 const MANUAL_EXACT = new Set([

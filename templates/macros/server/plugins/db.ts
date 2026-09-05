@@ -2,17 +2,16 @@ import {
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
-  isPostgres,
 } from "@agent-native/core/db";
 
 import * as schema from "../db/schema.js";
 
 function pk(): string {
-  return isPostgres() ? "SERIAL PRIMARY KEY" : "INTEGER PRIMARY KEY";
+  return "SERIAL PRIMARY KEY";
 }
 
 function realType(): string {
-  return isPostgres() ? "DOUBLE PRECISION" : "REAL";
+  return "DOUBLE PRECISION";
 }
 
 /**

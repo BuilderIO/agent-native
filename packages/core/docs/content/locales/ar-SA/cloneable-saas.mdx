@@ -140,7 +140,7 @@ GitHub أو عناوين URL لأشجار GitHub أو أدلتها الفرعي�
 
 - **وكيل عامل** — متصل بالتطبيق، وقادر على تنفيذ actions على بياناتك، ويعرف ما تنظر إليه. راجع [Messaging the agent](/docs/messaging).
 - **المصادقة** — تسجيل الدخول، والجلسات، والمؤسسات، وعزل المستأجرين المتعددين.
-- **قاعدة بيانات** — المخطط والاستعلامات وعمليات الترحيل، جاهزة للاستخدام. أحضر قاعدة بيانات SQL الخاصة بك (Postgres، SQLite، Turso، D1)؛ يتكيف إطار العمل معها.
+- **قاعدة البيانات** — مخطط واستعلامات وترحيلات جاهزة للاستخدام. استخدم PGlite محليًا أثناء التطوير وقاعدة PostgreSQL مستضافة في البيئات المنشورة.
 - **UI في الوقت الفعلي** — تظل الشاشة متزامنة مع الوكيل. على سبيل المثال، تؤدي صياغة رسالة بريد إلكتروني في الدردشة إلى تحديث البريد الوارد فورًا.
 - **جاهز للنشر** — انشر على Netlify، أو Vercel، أو Cloudflare، أو AWS، أو أي مضيف يشغّل Node.
 - **عناصر ربط العلامة التجارية** — غيّر الاسم والألوان والشعار والنسخة.
@@ -286,6 +286,6 @@ npx @agent-native/core@latest create my-platform
 
 املأ `.env` (`ANTHROPIC_API_KEY` و`DATABASE_URL`)، ثم شغّل `pnpm install` و`pnpm dev`. لا يوجد تسجيل دخول يجب تنفيذه ولا مسارات نائبة.
 
-أهداف النشر: أي مضيف متوافق مع Nitro (Node وCloudflare وNetlify وVercel وDeno وLambda وBun) وأي قاعدة بيانات SQL متوافقة مع SQL (SQLite وPostgres وTurso وD1 وSupabase وNeon). بالنسبة لمساحات العمل، تقوم `npx @agent-native/core@latest deploy` بإنشاء كل تطبيق في وقت واحد وشحنه خلف مصدر واحد. انظر [Deployment](/docs/deployment).
+أهداف النشر: أي مضيف متوافق مع Nitro وقاعدة بيانات PostgreSQL مستضافة. بالنسبة لمساحات العمل، تقوم `npx @agent-native/core@latest deploy` بإنشاء كل تطبيق في وقت واحد وشحنه خلف مصدر واحد. انظر [Deployment](/docs/deployment).
 
 لتأليف ونشر قالب التطبيق الخاص بك، راجع [Creating Templates](/docs/creating-templates).

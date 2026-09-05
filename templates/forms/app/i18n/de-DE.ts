@@ -334,12 +334,9 @@ const messages = {
     sharePubliclyDescription:
       "Um Inhalte öffentlich zu teilen, verbinden Sie eine Cloud-Datenbank.",
     providerDescriptions: {
-      turso: "SQLite am Edge",
       neon: "Serverloses Postgres",
       supabase: "Open-Source-Alternative zu Firebase",
-      d1: "SQLite am Edge",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Einrichtungsschritte",
     authToken: "Authentifizierungstoken",
     connectedReloading: "Erfolgreich verbunden. Wird neu geladen...",

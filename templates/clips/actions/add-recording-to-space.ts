@@ -28,9 +28,8 @@ export default defineAction({
     // `db.transaction` alone does not serialize concurrent callers here —
     // under Postgres/Neon's default READ COMMITTED isolation, two callers can
     // both read the same spaceIds and the later UPDATE clobbers the earlier
-    // one's change (a lost update). Row locks (`.for('update')`) aren't used
-    // anywhere else in this codebase and aren't portable to SQLite, so
-    // instead use an optimistic compare-and-swap retry loop on the existing
+    // one's change (a lost update). Instead use an optimistic compare-and-swap
+    // retry loop on the existing
     // column: read the current raw spaceIds string, compute the next value,
     // then only commit if the column still matches what we read (mirrors the
     // CAS pattern in react-to-comment.ts). A concurrent writer that lands

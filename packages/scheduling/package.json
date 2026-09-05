@@ -67,7 +67,6 @@
   },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
-    "@libsql/client": "^0.15.8",
     "@tabler/icons-react": "catalog:",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",

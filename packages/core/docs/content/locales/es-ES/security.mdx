@@ -238,13 +238,13 @@ El marco crea vistas temporales SQL que filtran las consultas automáticamente:
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 Las declaraciones INSERT se inyectan automáticamente `owner_email` cuando la columna aún no está presente.
 
-Las herramientas `db-query` / `db-exec` rechazan referencias a tablas calificadas por esquema (`public.<table>`, `main.<table>`): un nombre calificado se resuelve en la tabla base y omitiría la vista temporal anterior. Los agentes utilizan nombres de tablas simples; el alcance se aplica automáticamente.
+Las herramientas `db-query` / `db-exec` rechazan referencias a tablas calificadas por esquema (`public.<table>`): un nombre calificado se resuelve en la tabla base y omitiría la vista temporal anterior. Los agentes utilizan nombres de tablas simples; el alcance se aplica automáticamente.
 
 ### Alcance por organización (`org_id`)
 

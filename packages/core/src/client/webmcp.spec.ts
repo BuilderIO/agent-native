@@ -279,49 +279,16 @@ describe("automatic server action WebMCP registration", () => {
       "/docs/_agent-native/webmcp/manifest",
       expect.any(Object),
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/docs/_agent-native/webmcp/actions/get-order",
       expect.objectContaining({ method: "POST" }),
     );
-  });
-
-  it("sends the current browser tab id on every action invocation", async () => {
-    const modelContext = {
-      registerTool: vi.fn(async () => {}),
-      getTools: vi.fn(async () => []),
-      executeTool: vi.fn(async () => ""),
-    };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify([
-            {
-              name: "get-order",
-              description: "Read an order",
-              inputSchema: { type: "object" },
-            },
-          ]),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "order-1" })));
-
-    const registration = createAgentNativeServerActionWebMcpRegistration({
-      document: documentWithModelContext(modelContext),
-      fetch: fetchMock,
-    });
-    await registration.start();
-    const tool = modelContext.registerTool.mock.calls[0]?.[0];
-    await tool?.execute({});
-
-    // Same header, same value convention as the frontend action client
-    // (use-action.ts): the server resolves one `browserTabId` regardless of
-    // which client made the call.
-    const [, runInit] = fetchMock.mock.calls[1]!;
-    expect((runInit as RequestInit).headers).toMatchObject({
-      "X-Request-Source": getBrowserTabId(),
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
     });
   });
 
@@ -402,6 +369,9 @@ describe("automatic server action WebMCP registration", () => {
       "/_agent-native/webmcp/manifest",
       expect.objectContaining({ credentials: "same-origin" }),
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/_agent-native/webmcp/actions/get-order",
@@ -412,6 +382,9 @@ describe("automatic server action WebMCP registration", () => {
         signal: expect.any(AbortSignal),
       }),
     );
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
   });
 
   it("accepts framework-scale catalogs and long backend descriptions", async () => {

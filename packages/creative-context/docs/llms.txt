@@ -11,7 +11,7 @@ for every generated artifact.
 - Structured corpus data lives in the app's existing SQL database. Large and
   private binaries live in private blob storage and SQL stores only handles.
 - PostgreSQL installations use pgvector in the same `DATABASE_URL` database.
-  SQLite keeps lexical and caption search; visual search fails with explicit
+  PGlite keeps lexical and caption search; visual search fails with explicit
   PostgreSQL setup guidance. No additional database or vector service exists.
 - Imports are inventory-first, incremental, leased, resumable, idempotent, and
   versioned. Context packs pin immutable item versions for reproducibility.

@@ -66,7 +66,6 @@ import {
   type TimeZoneGridHost,
 } from "@/components/booking/TimeZoneGrid";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import {
@@ -881,7 +880,6 @@ export default function BookingLinksPage({
   const [bookingSlug, setBookingSlug] = useState("meeting");
   const [timezone, setTimezone] = useState("America/New_York");
   const [usernameInput, setUsernameInput] = useState("");
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const googleStatus = useGoogleAuthStatus();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
@@ -2217,15 +2215,6 @@ export default function BookingLinksPage({
         </TabsContent>
       </Tabs>
 
-      {showCloudUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <CloudUpgrade
-            title={t("bookingLinks.shareBookingLink")}
-            description={t("bookingLinks.cloudUpgradeDescription")}
-            onClose={() => setShowCloudUpgrade(false)}
-          />
-        </div>
-      )}
       <BookingLinkCreateDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}

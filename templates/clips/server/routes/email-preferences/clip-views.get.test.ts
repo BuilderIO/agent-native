@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getAppProductionUrl: vi.fn(() => "https://clips.example"),
   getQuery: vi.fn(),
   mutateUserSetting: vi.fn(),
   readToken: vi.fn(),
   setResponseHeaders: vi.fn(),
   setResponseStatus: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getAppProductionUrl: () => mocks.getAppProductionUrl(),
+  withConfiguredAppBasePath: (value: string) => value,
 }));
 
 vi.mock("h3", () => ({
@@ -54,6 +60,10 @@ describe("Clip view email opt-out route", () => {
       viewNotifications: false,
     });
     expect(result).toContain("Clip view emails are off");
+    expect(result).toContain("See or edit all notification settings");
+    expect(result).toContain(
+      'href="https://clips.example/settings/notifications"',
+    );
   });
 
   it("does not mutate settings for an invalid or expired token", async () => {

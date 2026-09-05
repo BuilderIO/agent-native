@@ -14,7 +14,6 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: vi.fn(() => ({ execute: vi.fn() })),
-  isPostgres: vi.fn(() => true),
 }));
 
 vi.mock("../embeddings/providers.js", () => ({

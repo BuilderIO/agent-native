@@ -270,7 +270,6 @@ function emitTelemetry(
         envValue("VERCEL_GIT_COMMIT_SHA") ??
         envValue("GIT_COMMIT_SHA"),
       db_source: db.source,
-      db_dialect: db.dialect,
       db_url_hash: db.urlHash,
       db_neon_endpoint: db.neon?.endpointId,
       db_neon_pooled: db.neon?.pooled,

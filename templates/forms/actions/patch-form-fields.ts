@@ -68,9 +68,20 @@ export function withFormLock<T>(
 const fieldOpSchema = z.union([
   z.object({
     op: z.literal("upsert"),
-    field: formFieldSchema.describe(
-      "Complete field object, with `id` set to the field being replaced (see the field schema's own per-property descriptions for what each property means per type). Never use shorthand strings. This REPLACES the whole field, so never rebuild one from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the field with get-form first, or the options past the cap are deleted.",
-    ),
+    // `id` is optional on create-form (auto-generated from the label) but the
+    // merge keys on it, so an id-less upsert would append a field that then
+    // fails validation.
+    field: formFieldSchema
+      .extend({
+        id: formFieldSchema.shape.id
+          .unwrap()
+          .describe(
+            "Stable field id: an existing id replaces that field, a new id appends one.",
+          ),
+      })
+      .describe(
+        "Complete field object, with `id` set to the field being replaced (see the field schema's own per-property descriptions for what each property means per type). Never use shorthand strings. This REPLACES the whole field, so never rebuild one from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the field with get-form first, or the options past the cap are deleted.",
+      ),
   }),
   z.object({
     op: z.literal("remove"),

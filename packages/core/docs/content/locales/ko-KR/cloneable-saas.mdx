@@ -153,7 +153,7 @@ seed data 또는 provider 요구 사항을 문서화하세요. 설치의 source 
 
 - **작동하는 에이전트** — 앱에 연결되어 있고, 데이터에 대해 actions를 수행할 수 있으며, 보고 있는 내용을 인식합니다. [Messaging the agent](/docs/messaging)를 참조하세요.
 - **인증** — 로그인, 세션, 조직, 다중 테넌트 격리.
-- **데이터베이스** — 스키마, 쿼리, 마이그레이션이 바로 사용할 수 있게 준비되어 있습니다. 자체 SQL 데이터베이스(Postgres, SQLite, Turso, D1)를 가져오면 프레임워크가 이에 맞춰 조정됩니다.
+- **데이터베이스** — 바로 사용할 수 있는 스키마, 쿼리, 마이그레이션입니다. 개발 중에는 로컬 PGlite를 사용하고 배포 환경에서는 호스팅 PostgreSQL을 사용하세요.
 - **실시간 UI** — 화면은 에이전트와 동기화 상태를 유지합니다. 예를 들어 채팅에서 이메일 초안을 작성하면 받은편지함이 즉시 업데이트됩니다.
 - **배포 가능** — Netlify, Vercel, Cloudflare, AWS 또는 Node를 실행하는 모든 호스트에 배포합니다.
 - **브랜딩 후크** — 이름, 색상, 로고, 문구를 변경합니다.
@@ -299,6 +299,6 @@ CLI는 먼저 **어떻게 시작하시겠습니까?**라고 묻습니다. Chat�
 
 `.env`(`ANTHROPIC_API_KEY` 및 `DATABASE_URL`)를 입력한 다음 `pnpm install`과 `pnpm dev`를 실행하세요. 구현해야 할 로그인도, 자리 표시자 경로도 없습니다.
 
-배포 대상: 모든 Nitro 호환 호스트(Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) 및 모든 Drizzle 호환 SQL 데이터베이스(SQLite, Postgres, Turso, D1, Supabase, Neon). 작업 공간의 경우 `npx @agent-native/core@latest deploy`는 모든 앱을 한 번에 빌드하여 단일 원본으로 제공합니다. [Deployment](/docs/deployment)를 참조하세요.
+배포 대상: 지원되는 모든 Nitro 호환 호스트와 호스팅 PostgreSQL 데이터베이스입니다. 작업 공간에서는 `npx @agent-native/core@latest deploy`가 모든 앱을 한 번에 빌드하여 단일 origin 뒤에 제공합니다. [Deployment](/docs/deployment)를 참조하세요.
 
 자신만의 앱 템플릿을 작성하고 게시하려면 [Creating Templates](/docs/creating-templates)를 참조하세요.

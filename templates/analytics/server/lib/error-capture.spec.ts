@@ -1,7 +1,33 @@
-import { createClient, type Client } from "@libsql/client";
+import { createRequire } from "node:module";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(client: PGliteClient, statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      results.push(await client.query(postgresSql(sql)));
+    }
+    return results[results.length - 1];
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const recordChangeMock = vi.hoisted(() => vi.fn());
@@ -447,7 +473,7 @@ describe("extractExceptionInput", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ingestException upsert behavior (real in-memory libsql DB)
+// ingestException upsert behavior (real in-memory PostgreSQL DB)
 // ---------------------------------------------------------------------------
 
 function baseRaw(
@@ -488,8 +514,10 @@ function derivedFor(
 
 const SCOPE = { ownerEmail: "alice@example.com", orgId: null };
 
-async function createTables(client: Client): Promise<void> {
-  await client.execute(`
+async function createTables(client: PGliteClient): Promise<void> {
+  await execute(
+    client,
+    `
     CREATE TABLE error_issues (
       id text PRIMARY KEY,
       fingerprint text NOT NULL,
@@ -507,14 +535,17 @@ async function createTables(client: Client): Promise<void> {
       assignee text,
       app text,
       template text,
-      created_at text NOT NULL DEFAULT (datetime('now')),
-      updated_at text NOT NULL DEFAULT (datetime('now')),
+      created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
       owner_email text NOT NULL DEFAULT 'local@localhost',
       org_id text,
       visibility text NOT NULL DEFAULT 'private'
     )
-  `);
-  await client.execute(`
+  `,
+  );
+  await execute(
+    client,
+    `
     CREATE TABLE error_issue_shares (
       id text PRIMARY KEY,
       resource_id text NOT NULL,
@@ -522,10 +553,13 @@ async function createTables(client: Client): Promise<void> {
       principal_id text NOT NULL,
       role text NOT NULL DEFAULT 'viewer',
       created_by text NOT NULL,
-      created_at text NOT NULL DEFAULT (datetime('now'))
+      created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
-  `);
-  await client.execute(`
+  `,
+  );
+  await execute(
+    client,
+    `
     CREATE TABLE error_events (
       id text PRIMARY KEY,
       issue_id text NOT NULL,
@@ -536,7 +570,7 @@ async function createTables(client: Client): Promise<void> {
       level text NOT NULL DEFAULT 'error',
       stack text NOT NULL DEFAULT '[]',
       raw_stack text,
-      handled integer NOT NULL DEFAULT 1,
+      handled BOOLEAN NOT NULL DEFAULT true,
       url text,
       user_id text,
       anonymous_id text,
@@ -550,12 +584,15 @@ async function createTables(client: Client): Promise<void> {
       extra text NOT NULL DEFAULT '{}',
       breadcrumbs text NOT NULL DEFAULT '[]',
       occurred_at text NOT NULL,
-      created_at text NOT NULL DEFAULT (datetime('now')),
+      created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
       owner_email text NOT NULL DEFAULT 'local@localhost',
       org_id text
     )
-  `);
-  await client.execute(`
+  `,
+  );
+  await execute(
+    client,
+    `
     CREATE TABLE session_recordings (
       id text PRIMARY KEY,
       client_recording_id text NOT NULL,
@@ -563,8 +600,11 @@ async function createTables(client: Client): Promise<void> {
       org_id text,
       visibility text NOT NULL DEFAULT 'private'
     )
-  `);
-  await client.execute(`
+  `,
+  );
+  await execute(
+    client,
+    `
     CREATE TABLE session_recording_shares (
       id text PRIMARY KEY,
       resource_id text NOT NULL,
@@ -572,16 +612,17 @@ async function createTables(client: Client): Promise<void> {
       principal_id text NOT NULL,
       role text NOT NULL DEFAULT 'viewer',
       created_by text NOT NULL,
-      created_at text NOT NULL DEFAULT (datetime('now'))
+      created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
-  `);
+  `,
+  );
 }
 
 describe("ingestException", () => {
-  let client: Client;
+  let client: PGliteClient;
 
   beforeEach(async () => {
-    client = createClient({ url: ":memory:" });
+    client = await PGlite.create("memory://");
     await createTables(client);
     const db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
@@ -591,8 +632,8 @@ describe("ingestException", () => {
     getUserSettingMock.mockResolvedValue(null);
   });
 
-  afterEach(() => {
-    client.close();
+  afterEach(async () => {
+    await client.close();
   });
 
   async function loadIssues() {
@@ -777,7 +818,7 @@ describe("ingestException", () => {
       derivedFor({ userId: "other-user-id", userKey: "other@example.com" }),
     );
     const db = drizzle(client, { schema }) as any;
-    await client.execute({
+    await execute(client, {
       sql: `
         INSERT INTO session_recordings
           (id, client_recording_id, owner_email, org_id, visibility)
@@ -878,7 +919,7 @@ describe("ingestException", () => {
   });
 
   it("does not expose private replay links through an org-shared issue", async () => {
-    await client.execute({
+    await execute(client, {
       sql: `
         INSERT INTO session_recordings
           (id, client_recording_id, owner_email, org_id, visibility)
@@ -916,10 +957,10 @@ describe("ingestException", () => {
 });
 
 describe("matchErrorIssuesBySignatures", () => {
-  let client: Client;
+  let client: PGliteClient;
 
   beforeEach(async () => {
-    client = createClient({ url: ":memory:" });
+    client = await PGlite.create("memory://");
     await createTables(client);
     const db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);

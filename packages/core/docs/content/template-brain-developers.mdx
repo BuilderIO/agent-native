@@ -19,7 +19,7 @@ See [Getting Started](/docs/getting-started) for `cd`/install/dev steps. Open th
 
 All data lives in SQL via Drizzle. Brain's schema is `templates/brain/server/db/schema.ts` — **23 tables**, not the nine you'd guess from the core ingest-to-answer flow. The extra tables back three subsystems that don't show up in casual use: per-conversation audience scoping (who is allowed to see a given capture or knowledge entry), a hybrid full-text-plus-semantic search index, and lightweight source grouping ("projects").
 
-Retrieval itself has no vector-database dependency to run or pay for. Full-text search runs on every deployment target (SQLite, Postgres, Neon, D1, Turso). When the deployment is Postgres, Brain also builds a pgvector-backed semantic index automatically and blends its ranking with full-text results — no separate service, no extra configuration flag, and no vectors leave the same `brain_search_embeddings` table everything else lives in.
+Retrieval itself has no vector-database dependency to run or pay for. Full-text search runs in local PGlite and hosted Postgres. Hosted Postgres can also build a pgvector-backed semantic index automatically and blend its ranking with full-text results - no separate service or configuration flag is required.
 
 <DataModel
   id="doc-block-qwo0b1"

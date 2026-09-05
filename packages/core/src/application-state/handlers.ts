@@ -8,8 +8,10 @@ import {
   type H3Event,
 } from "h3";
 
+import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { appStateKeyForBrowserTab } from "./script-helpers.js";
 import {
   appStateGet,
   appStateGetManyEntries,
@@ -39,11 +41,27 @@ function safeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_:-]/g, "");
 }
 
+const TAB_SCOPED_KEYS = new Set([
+  "navigation",
+  "navigate",
+  "__url__",
+  "__set_url__",
+]);
+
+function requestScopedKey(key: string, event: H3Event): string {
+  return TAB_SCOPED_KEYS.has(key)
+    ? appStateKeyForBrowserTab(key, readBrowserTabIdHeader(event))
+    : key;
+}
+
 // --- Generic state handlers ---
 
 export const getState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
-  const key = safeKey(String(getRouterParam(event, "key")));
+  const key = requestScopedKey(
+    safeKey(String(getRouterParam(event, "key"))),
+    event,
+  );
   const value = await appStateGet(sessionId, key);
   return value ?? null;
 });
@@ -63,11 +81,16 @@ export const MAX_APP_STATE_BATCH_KEYS = 100;
 export const getStateMany = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const raw = getQuery(event).keys;
-  const requested = (Array.isArray(raw) ? raw : [raw])
-    .flatMap((entry) => String(entry ?? "").split(","))
-    .map((key) => safeKey(key.trim()))
-    .filter((key) => key.length > 0);
-  const keys = [...new Set(requested)];
+  const requested = [
+    ...new Set(
+      (Array.isArray(raw) ? raw : [raw])
+        .flatMap((entry) => String(entry ?? "").split(","))
+        .map((key) => safeKey(key.trim()))
+        .filter((key) => key.length > 0),
+    ),
+  ];
+  const storageKeys = requested.map((key) => requestScopedKey(key, event));
+  const keys = [...new Set(storageKeys)];
 
   if (keys.length === 0) {
     throw createError({
@@ -83,17 +106,28 @@ export const getStateMany = defineEventHandler(async (event: H3Event) => {
   }
 
   const entries = await appStateGetManyEntries(sessionId, keys);
+  const entriesByKey = new Map(
+    entries.map((entry) => [entry.key, entry.value]),
+  );
   const values: Record<string, unknown> = {};
-  for (const entry of entries) values[entry.key] = entry.value;
+  requested.forEach((key, index) => {
+    const storageKey = storageKeys[index];
+    if (storageKey !== undefined && entriesByKey.has(storageKey)) {
+      values[key] = entriesByKey.get(storageKey);
+    }
+  });
   return {
     values,
-    missing: keys.filter((key) => !(key in values)),
+    missing: requested.filter((key) => !(key in values)),
   };
 });
 
 export const putState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
-  const key = safeKey(String(getRouterParam(event, "key")));
+  const key = requestScopedKey(
+    safeKey(String(getRouterParam(event, "key"))),
+    event,
+  );
   const body = await readBody(event);
   const requestSource = getHeader(event, "x-request-source") || undefined;
   await appStatePut(sessionId, key, body, { requestSource });
@@ -102,7 +136,10 @@ export const putState = defineEventHandler(async (event: H3Event) => {
 
 export const compareAndSetState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
-  const key = safeKey(String(getRouterParam(event, "key")));
+  const key = requestScopedKey(
+    safeKey(String(getRouterParam(event, "key"))),
+    event,
+  );
   const body = (await readBody(event)) as {
     expected?: Record<string, unknown> | null;
     next?: Record<string, unknown> | null;
@@ -127,7 +164,10 @@ export const compareAndSetState = defineEventHandler(async (event: H3Event) => {
 
 export const deleteState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
-  const key = safeKey(String(getRouterParam(event, "key")));
+  const key = requestScopedKey(
+    safeKey(String(getRouterParam(event, "key"))),
+    event,
+  );
   const requestSource = getHeader(event, "x-request-source") || undefined;
   await appStateDelete(sessionId, key, { requestSource });
   return { ok: true };

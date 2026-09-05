@@ -13,11 +13,6 @@ export default createCoreRoutesPlugin({
       label: "Forms Unpooled Database URL",
       required: false,
     },
-    {
-      key: "FORMS_DATABASE_AUTH_TOKEN",
-      label: "Forms Database Auth Token",
-      required: false,
-    },
     { key: "DATABASE_URL", label: "Database URL", required: false },
     {
       key: "DATABASE_URL_UNPOOLED",
@@ -32,16 +27,6 @@ export default createCoreRoutesPlugin({
     {
       key: "NETLIFY_DATABASE_URL_UNPOOLED",
       label: "Netlify Unpooled Database URL",
-      required: false,
-    },
-    {
-      key: "DATABASE_AUTH_TOKEN",
-      label: "Database Auth Token",
-      required: false,
-    },
-    {
-      key: "NETLIFY_DATABASE_AUTH_TOKEN",
-      label: "Netlify Database Auth Token",
       required: false,
     },
     {

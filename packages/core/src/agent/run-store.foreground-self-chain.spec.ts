@@ -1,10 +1,11 @@
-import Database from "better-sqlite3";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 /**
  * SQL invariants behind the foreground self-chain
  * (`AGENT_CHAT_FOREGROUND_SELF_CHAIN`) — the "no double-run when the client
- * also continues" proof, exercised against a real SQLite engine (so the
+ * also continues" proof, exercised against a real PGlite engine (so the
  * conditional UPDATE / rowsAffected semantics are real, not mocked).
  *
  * The handoff protocol (see `chainServerDrivenContinuation` in
@@ -27,28 +28,31 @@ import { describe, expect, it, vi } from "vitest";
  *      (`listUnclaimedBackgroundRunIds` + `reapUnclaimedBackgroundRun`).
  */
 
-const sqlite = new Database(":memory:");
+const pglite = await createTestPglite();
+
+afterAll(async () => {
+  await pglite.close();
+});
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [] as unknown[], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
@@ -78,12 +82,12 @@ function ids(): { chunk0: string; successor: string; thread: string } {
   };
 }
 
-function setLiveness(runId: string, atMs: number): void {
-  sqlite
-    .prepare(
+async function setLiveness(runId: string, atMs: number): Promise<void> {
+  await (
+    await pglite.prepare(
       `UPDATE agent_runs SET heartbeat_at = ?, started_at = ? WHERE id = ?`,
     )
-    .run(atMs, atMs, runId);
+  ).run(atMs, atMs, runId);
 }
 
 /** Backdates BOTH heartbeat_at and last_progress_at (the full liveness basis
@@ -95,18 +99,18 @@ function setLiveness(runId: string, atMs: number): void {
  *  still in flight. Backdating heartbeat_at alone is NOT enough to reproduce
  *  the bug — a fresh `last_progress_at` from `insertRun` would keep the
  *  MAX-based liveness basis "fresh" regardless of in-flight grace. */
-function setStaleLiveness(runId: string, atMs: number): void {
-  sqlite
-    .prepare(
+async function setStaleLiveness(runId: string, atMs: number): Promise<void> {
+  await (
+    await pglite.prepare(
       `UPDATE agent_runs SET heartbeat_at = ?, last_progress_at = ? WHERE id = ?`,
     )
-    .run(atMs, atMs, runId);
+  ).run(atMs, atMs, runId);
 }
 
-function readInFlightSince(runId: string): number | null {
-  const row = sqlite
-    .prepare(`SELECT in_flight_since FROM agent_runs WHERE id = ?`)
-    .get(runId) as { in_flight_since: number | null } | undefined;
+async function readInFlightSince(runId: string): Promise<number | null> {
+  const row = (await (
+    await pglite.prepare(`SELECT in_flight_since FROM agent_runs WHERE id = ?`)
+  ).get(runId)) as { in_flight_since: number | null } | undefined;
   return row?.in_flight_since ?? null;
 }
 
@@ -190,7 +194,7 @@ describe("foreground self-chain — reaper coverage for the handoff window", () 
       dispatchMode: "background",
     });
     // The dispatch was silently lost; the row's liveness ages out.
-    setLiveness(successor, Date.now() - 60_000);
+    await setLiveness(successor, Date.now() - 60_000);
 
     // The SAME sweep that covers durable-background handoffs picks it up —
     // the foreground self-chain adds no new reaper brain.
@@ -223,7 +227,7 @@ describe("foreground self-chain — reaper coverage for the handoff window", () 
     await insertRun(successor, thread, "turn-1", {
       dispatchMode: "background",
     });
-    setLiveness(successor, Date.now() - 60_000);
+    await setLiveness(successor, Date.now() - 60_000);
 
     // A backstop (client-poll past the bound, or reapIfStale) reaps the row
     // first: it is now terminal.
@@ -250,7 +254,7 @@ describe("foreground self-chain — reaper coverage for the handoff window", () 
     // A concurrent unclaimed-reap can no longer touch it — its WHERE clause
     // requires dispatch_mode='background', which the claim already changed. So
     // the claimed worker owns the run exclusively; no reap, no second claim.
-    setLiveness(successor, Date.now() - 60_000);
+    await setLiveness(successor, Date.now() - 60_000);
     expect(await reapUnclaimedBackgroundRun(successor)).toBe(false);
     expect((await getRunById(successor))?.status).toBe("running");
     expect(await claimBackgroundRun(successor)).toBe(false);
@@ -279,10 +283,10 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     // 'background' -> 'background-processing') — the real state while it
     // holds a long A2A call.
     await claimBackgroundRun(runId);
-    expect(readInFlightSince(runId)).toBeNull();
+    expect(await readInFlightSince(runId)).toBeNull();
 
     await setRunInFlightMarker(runId, true);
-    const since = readInFlightSince(runId);
+    const since = await readInFlightSince(runId);
     expect(since).not.toBeNull();
     expect(since).toBeGreaterThan(Date.now() - 5_000);
 
@@ -290,17 +294,17 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     // ORIGINAL start time with a later one.
     await new Promise((r) => setTimeout(r, 5));
     await setRunInFlightMarker(runId, true);
-    expect(readInFlightSince(runId)).toBe(since);
+    expect(await readInFlightSince(runId)).toBe(since);
 
     await setRunInFlightMarker(runId, false);
-    expect(readInFlightSince(runId)).toBeNull();
+    expect(await readInFlightSince(runId)).toBeNull();
 
     // A delayed clear from an older tool must not erase a newer marker.
     await setRunInFlightMarker(runId, true, 111);
     await setRunInFlightMarker(runId, false, 999);
-    expect(readInFlightSince(runId)).toBe(111);
+    expect(await readInFlightSince(runId)).toBe(111);
     await setRunInFlightMarker(runId, false, 111);
-    expect(readInFlightSince(runId)).toBeNull();
+    expect(await readInFlightSince(runId)).toBeNull();
   });
 
   it("does NOT reap a background run whose heartbeat lapsed past BACKGROUND_RUN_STALE_MS while in-flight work is within the bounded grace", async () => {
@@ -315,7 +319,10 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     // Heartbeat write failed for the whole stale window (the reported
     // incident: 90.1s time-since-progress) while an A2A call started only
     // seconds ago and is still well within IN_FLIGHT_RUN_STALE_GRACE_MS.
-    setStaleLiveness(runId, Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000));
+    await setStaleLiveness(
+      runId,
+      Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000),
+    );
     await setRunInFlightMarker(runId, true);
 
     const reaped = await reapIfStale(runId);
@@ -333,13 +340,16 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     // 'background' -> 'background-processing') — the real state while it
     // holds a long A2A call.
     await claimBackgroundRun(runId);
-    setStaleLiveness(runId, Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000));
+    await setStaleLiveness(
+      runId,
+      Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000),
+    );
     // The marker is still SET (work never resolved), but its own start time
     // is now past the bounded grace — a genuinely dead in-flight call, not a
     // slow one. Written directly (not via setRunInFlightMarker, which only
     // writes when NULL) to simulate time having passed since the real 0->1
     // transition.
-    sqlite
+    await pglite
       .prepare(`UPDATE agent_runs SET in_flight_since = ? WHERE id = ?`)
       .run(Date.now() - (IN_FLIGHT_RUN_STALE_GRACE_MS + 5_000), runId);
 
@@ -360,10 +370,13 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     // 'background' -> 'background-processing') — the real state while it
     // holds a long A2A call.
     await claimBackgroundRun(runId);
-    setStaleLiveness(runId, Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000));
+    await setStaleLiveness(
+      runId,
+      Date.now() - (BACKGROUND_RUN_STALE_MS + 5_000),
+    );
     // No setRunInFlightMarker call — in_flight_since stays NULL, exactly like
     // every pre-existing row before this migration.
-    expect(readInFlightSince(runId)).toBeNull();
+    expect(await readInFlightSince(runId)).toBeNull();
 
     const reaped = await reapIfStale(runId);
 
@@ -382,11 +395,11 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     // guard — inherited the full 14.5-minute grace despite writing nothing at
     // all. 23 prod rows across five apps sat that grace out.
     await setRunInFlightMarker(runId, true);
-    setStaleLiveness(
+    await setStaleLiveness(
       runId,
       Date.now() - (IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS + 5_000),
     );
-    expect(readInFlightSince(runId)).toBeGreaterThan(
+    expect(await readInFlightSince(runId)).toBeGreaterThan(
       Date.now() - IN_FLIGHT_RUN_STALE_GRACE_MS,
     );
 

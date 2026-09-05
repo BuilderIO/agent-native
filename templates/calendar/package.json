@@ -21,7 +21,6 @@
     "@agent-native/scheduling": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
-    "@libsql/client": "^0.15.0",
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons-react": "catalog:",
     "chrono-node": "2.9.1",

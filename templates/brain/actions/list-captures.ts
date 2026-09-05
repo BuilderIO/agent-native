@@ -116,9 +116,9 @@ export default defineAction({
 
     // Project only the columns the list path uses. The heavy `content` blob is
     // never fetched unless a preview was explicitly requested, and even then we
-    // pull only a truncated slice via substr (portable across Postgres and
-    // SQLite, both 1-indexed). `contentPreview` collapses whitespace, so we
-    // over-fetch a margin so the trimmed preview still reaches previewLength.
+    // pull only a truncated slice via Postgres' 1-indexed substr.
+    // `contentPreview` collapses whitespace, so we over-fetch a margin so the
+    // trimmed preview still reaches previewLength.
     const previewSliceLength = args.includePreview
       ? Math.min(args.previewLength * 4, 4000)
       : 0;
