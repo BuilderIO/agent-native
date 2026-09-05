@@ -205,7 +205,8 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
     instructions:
-      "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-html / export-zip / export-coding-handoff / export-design-as-figma-svg. Persist early: create or update the design and its files as soon as a coherent candidate exists.",
+      "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-html / export-zip / export-coding-handoff / export-design-as-figma-svg. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
+      "For visual authoring, resolve design-system context before writing. When a read result includes `designSystem` or `designSystemContext` with `agentContext`, use it as authoritative; do not invent a generic palette. For an existing design, call view-screen or get-design-snapshot first. For a new design where the user names a system, call list-design-systems, choose the matching system or its `isDefault` system, then call get-design-system before create-design or generate-design. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions.",
   },
   finalResponseGuard: designFinalResponseGuard,
   // Enable sandboxed JavaScript execution so Design agents can fetch,
@@ -216,10 +217,6 @@ export default createAgentChatPlugin({
   runSoftTimeoutMs: DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   runNoProgressTimeoutMs: DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
-  mcp: {
-    instructions:
-      "For visual authoring, resolve design-system context before writing. When a read result includes `designSystem` or `designSystemContext` with `agentContext`, use it as authoritative; do not invent a generic palette. For an existing design, call view-screen or get-design-snapshot first. For a new design where the user names a system, call list-design-systems, choose the matching system or its `isDefault` system, then call get-design-system before create-design or generate-design. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions.",
-  },
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
 
 Final responses should be concise and operational. Lead with what changed or what is needed. For ordinary design actions, use 1-3 short sentences or at most 3 flat bullets. Do not narrate your process, repeat the user's request, paste HTML or tool results, or write an essay. Mention screenshots and audits only as brief completion evidence. Expand only when the user explicitly asks for an explanation or detailed critique.
