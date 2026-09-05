@@ -72,6 +72,24 @@ describe("direct recording route shell cue", () => {
     expect(menu).not.toContain('t("recordingPage.cleanUpRecording")');
   });
 
+  it("keeps background AI work in one persistent Sonner lifecycle", () => {
+    const route = readRoute("r.$recordingId.tsx");
+
+    expect(route).toContain("const aiRequestStatusQ = useQuery");
+    expect(route).toContain('status === "queued" || status === "working"');
+    expect(route).toContain("startAiRequestToast");
+    expect(route).toContain("completeAiRequestToast");
+    expect(route).toContain("failAiRequestToast");
+    expect(route).toContain("duration: Number.POSITIVE_INFINITY");
+    expect(route).not.toContain("silenceRemovalStatus");
+    expect(route).not.toContain(
+      'toast.success(t("recordingPage.silenceQueued"))',
+    );
+    expect(route).not.toContain(
+      'toast.success(t("recordingPage.fillerQueued"))',
+    );
+  });
+
   it("keeps Share primary and unifies mobile viewer panels", () => {
     const route = readRoute("r.$recordingId.tsx");
     const toolbarStart = route.indexOf("const recordingActions = (");

@@ -11,12 +11,15 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  queueAiRequest,
+  withAiRequestStatusInstructions,
+} from "./lib/ai-request-status.js";
 
 export default defineAction({
   description:
@@ -40,22 +43,32 @@ export default defineAction({
       );
     }
 
+    const requestedAt = new Date().toISOString();
+    const message =
+      `Identify filler words in recording ${args.recordingId} and trim them out. ` +
+      `Read the transcript segments from this request's context. Filler words include: ` +
+      `"um", "uh", "er", "ah", "like" (when used as filler), "you know", "I mean", ` +
+      `"basically", "actually" (repeated). For each filler, estimate its startMs/endMs ` +
+      `within the segment. Then call \`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each filler. ` +
+      `Be conservative — only trim unambiguous fillers; do NOT cut meaningful speech.`;
     const request = {
       kind: "remove-filler-words" as const,
       recordingId: args.recordingId,
-      requestedAt: new Date().toISOString(),
+      requestedAt,
       segmentsJson: transcript.segmentsJson,
-      message:
-        `Identify filler words in recording ${args.recordingId} and trim them out. ` +
-        `Read the transcript segments from this request's context. Filler words include: ` +
-        `"um", "uh", "er", "ah", "like" (when used as filler), "you know", "I mean", ` +
-        `"basically", "actually" (repeated). For each filler, estimate its startMs/endMs ` +
-        `within the segment. Then call \`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each filler. ` +
-        `Be conservative — only trim unambiguous fillers; do NOT cut meaningful speech.`,
+      message: withAiRequestStatusInstructions({
+        message,
+        recordingId: args.recordingId,
+        kind: "remove-filler-words",
+      }),
     };
 
-    await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    await queueAiRequest({
+      recordingId: args.recordingId,
+      kind: "remove-filler-words",
+      requestedAt,
+      request,
+    });
 
     console.log(
       `Delegation queued: remove-filler-words for ${args.recordingId}`,

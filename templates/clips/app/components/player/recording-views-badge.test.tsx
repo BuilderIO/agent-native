@@ -170,6 +170,11 @@ describe("RecordingViewsBadge", () => {
     expect(chartSource).toContain("<PolarRadiusAxis");
     expect(chartSource).toContain("<RadialBar");
     expect(chartSource).toContain("<ChartTooltipContent");
+    expect(chartSource).toContain("isAnimationActive={false}");
+    expect(chartSource).toContain("animationDuration={600}");
+    expect(chartSource).toContain('isAnimationActive="auto"');
+    expect(chartSource).toContain('addEventListener("pointermove"');
+    expect(chartSource).toContain("position={position}");
     expect(chartSource).toContain('dataKey="value"');
     expect(chartSource).toContain("domain={[0, 100]}");
     expect(chartSource).toContain('indicatorClassName="bg-highlight"');

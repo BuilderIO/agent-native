@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
+  actionErrorMessage,
   useActionMutation,
   useActionQuery,
   useSession,
@@ -23,6 +24,10 @@ import {
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
 import { ShareCopyRow } from "@agent-native/toolkit/sharing";
+import type {
+  ClipsAiRequestKind,
+  ClipsAiRequestStatus,
+} from "@shared/ai-request-status";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -131,6 +136,7 @@ import {
   notifyAiRequestQueued,
   useAutoTitleBridge,
 } from "@/hooks/use-auto-title";
+import { useCompletionAudioCue } from "@/hooks/use-completion-audio-cue";
 import { useFolders, useSpaces } from "@/hooks/use-library";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
@@ -449,11 +455,36 @@ interface GeneratedWorkflowState {
   error?: string;
 }
 
-interface SilenceRemovalStatus {
-  kind?: "remove-silences";
-  status?: "queued" | "working" | "completed" | "failed";
-  message?: string | null;
-  updatedAt?: string;
+function aiRequestProgressKey(kind: ClipsAiRequestKind): string {
+  switch (kind) {
+    case "generate-metadata":
+    case "regenerate-title":
+      return "recordingPage.titleGenerationQueued";
+    case "regenerate-summary":
+      return "recordingPage.descriptionQueued";
+    case "regenerate-chapters":
+      return "recordingPage.chapterQueued";
+    case "remove-filler-words":
+      return "recordingPage.fillerQueued";
+    case "remove-silences":
+      return "recordingPage.silenceWorking";
+  }
+}
+
+function aiRequestCompletionKey(kind: ClipsAiRequestKind): string {
+  switch (kind) {
+    case "generate-metadata":
+    case "regenerate-title":
+      return "recordingPage.titleUpdated";
+    case "regenerate-summary":
+      return "recordingPage.descriptionUpdated";
+    case "regenerate-chapters":
+      return "recordingPage.chaptersGenerated";
+    case "remove-filler-words":
+      return "recordingPage.fillerCompleted";
+    case "remove-silences":
+      return "recordingPage.silenceCompleted";
+  }
 }
 
 function useIsCompactRecordingLayout() {
@@ -689,9 +720,33 @@ export default function RecordingPage() {
     start: startProcessingToast,
     success: completeProcessingToast,
   } = useSonnerLifecycleToast();
+  const {
+    error: failAiRequestToast,
+    info: stopAiRequestToast,
+    start: startAiRequestToast,
+    success: completeAiRequestToast,
+  } = useSonnerLifecycleToast();
+  const {
+    error: failTranscriptToast,
+    start: startTranscriptToast,
+    success: completeTranscriptToast,
+  } = useSonnerLifecycleToast();
+  const {
+    error: failWorkflowToast,
+    start: startWorkflowToast,
+    success: completeWorkflowToast,
+  } = useSonnerLifecycleToast();
+  const {
+    cancel: cancelCompletionCue,
+    play: playCompletionCue,
+    prime: primeCompletionCue,
+  } = useCompletionAudioCue();
   const lifecyclePhaseRef = useRef<
     "failed" | "processing" | "ready" | "uploading" | null
   >(null);
+  const activeAiRequestKindRef = useRef<ClipsAiRequestKind | null>(null);
+  const transcriptLifecycleActiveRef = useRef(false);
+  const workflowLifecycleActiveRef = useRef(false);
 
   useEffect(() => {
     if (!recording) return;
@@ -803,6 +858,37 @@ export default function RecordingPage() {
   const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
   const transcriptStatus = playerDataQ.data?.transcript?.status;
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
+  useEffect(() => {
+    if (!transcriptLifecycleActiveRef.current || !transcriptStatus) return;
+    if (transcriptStatus === "pending") {
+      startTranscriptToast(t("transcriptPanel.transcribing"));
+      return;
+    }
+    if (transcriptStatus === "ready") {
+      completeTranscriptToast(t("recordingPage.transcriptionCompleted"));
+      playCompletionCue();
+    } else if (transcriptStatus === "failed") {
+      failTranscriptToast(t("transcriptPanel.transcriptUnavailableTitle"), {
+        ...(transcriptFailureReason
+          ? { description: transcriptFailureReason }
+          : {}),
+        duration: Number.POSITIVE_INFINITY,
+      });
+      cancelCompletionCue();
+    } else {
+      return;
+    }
+    transcriptLifecycleActiveRef.current = false;
+  }, [
+    cancelCompletionCue,
+    completeTranscriptToast,
+    failTranscriptToast,
+    playCompletionCue,
+    startTranscriptToast,
+    t,
+    transcriptFailureReason,
+    transcriptStatus,
+  ]);
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
   // Reaching this page already requires a signed-in session with at least
@@ -946,7 +1032,7 @@ export default function RecordingPage() {
       );
     },
   });
-  const silenceRemovalStatusQ = useQuery<SilenceRemovalStatus | null>({
+  const aiRequestStatusQ = useQuery<ClipsAiRequestStatus | null>({
     queryKey: [
       "app-state",
       "clips-ai-request-status",
@@ -962,7 +1048,7 @@ export default function RecordingPage() {
         : false,
     queryFn: async ({ signal }) => {
       if (!recording?.id) return null;
-      return readClientAppState<SilenceRemovalStatus>(
+      return readClientAppState<ClipsAiRequestStatus>(
         `clips-ai-request-status-${recording.id}`,
         { signal },
       );
@@ -972,10 +1058,88 @@ export default function RecordingPage() {
     generatedWorkflowQ.data?.recordingId === recording?.id
       ? generatedWorkflowQ.data
       : null;
-  const silenceRemovalStatus =
-    silenceRemovalStatusQ.data?.kind === "remove-silences"
-      ? silenceRemovalStatusQ.data
-      : null;
+  const aiRequestStatus = aiRequestStatusQ.data?.kind
+    ? aiRequestStatusQ.data
+    : null;
+
+  useEffect(() => {
+    const status = generatedWorkflow?.status;
+    if (!status) return;
+    if (status === "generating") {
+      workflowLifecycleActiveRef.current = true;
+      startWorkflowToast(t("recordingPage.workflowQueued"));
+      return;
+    }
+    if (!workflowLifecycleActiveRef.current) return;
+
+    if (status === "ready") {
+      completeWorkflowToast(t("recordingPage.workflowReady"));
+      playCompletionCue();
+    } else if (status === "failed") {
+      failWorkflowToast(t("recordingPage.workflowFailed"), {
+        ...(generatedWorkflow.error
+          ? { description: generatedWorkflow.error }
+          : {}),
+        duration: Number.POSITIVE_INFINITY,
+      });
+      cancelCompletionCue();
+    } else {
+      return;
+    }
+    workflowLifecycleActiveRef.current = false;
+  }, [
+    cancelCompletionCue,
+    completeWorkflowToast,
+    failWorkflowToast,
+    generatedWorkflow?.error,
+    generatedWorkflow?.requestedAt,
+    generatedWorkflow?.status,
+    playCompletionCue,
+    startWorkflowToast,
+    t,
+  ]);
+
+  useEffect(() => {
+    const kind = aiRequestStatus?.kind;
+    const status = aiRequestStatus?.status;
+    if (!kind || !status) return;
+
+    if (status === "queued" || status === "working") {
+      activeAiRequestKindRef.current = kind;
+      startAiRequestToast(t(aiRequestProgressKey(kind)));
+      return;
+    }
+    if (activeAiRequestKindRef.current !== kind) return;
+
+    if (status === "completed") {
+      completeAiRequestToast(t(aiRequestCompletionKey(kind)), {
+        ...(aiRequestStatus.message
+          ? { description: aiRequestStatus.message }
+          : {}),
+      });
+      playCompletionCue();
+    } else {
+      failAiRequestToast(t("recordingPage.aiRequestFailed"), {
+        ...(aiRequestStatus.message
+          ? { description: aiRequestStatus.message }
+          : {}),
+        duration: Number.POSITIVE_INFINITY,
+      });
+      cancelCompletionCue();
+    }
+    activeAiRequestKindRef.current = null;
+  }, [
+    aiRequestStatus?.kind,
+    aiRequestStatus?.message,
+    aiRequestStatus?.status,
+    aiRequestStatus?.updatedAt,
+    cancelCompletionCue,
+    completeAiRequestToast,
+    failAiRequestToast,
+    playCompletionCue,
+    startAiRequestToast,
+    t,
+  ]);
 
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
@@ -1124,93 +1288,161 @@ export default function RecordingPage() {
   const firstCta = ctas[0] ?? null;
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
+  const beginAiRequest = (kind: ClipsAiRequestKind) => {
+    activeAiRequestKindRef.current = kind;
+    primeCompletionCue();
+    startAiRequestToast(t(aiRequestProgressKey(kind)));
+  };
+  const handleBackgroundAiError = (err: Error) => {
+    activeAiRequestKindRef.current = null;
+    cancelCompletionCue();
+    failAiRequestToast(t("recordingPage.aiRequestFailed"), {
+      description: actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
+      duration: Number.POSITIVE_INFINITY,
+    });
+  };
   const requestTranscript = useActionMutation("request-transcript" as any, {
     onSuccess: (result: any) => {
+      if (result?.queued) {
+        transcriptLifecycleActiveRef.current = true;
+        startTranscriptToast(t("transcriptPanel.transcribing"));
+      }
       void playerDataQ.refetch();
-      if (result?.queued) toast.success(t("transcriptPanel.transcribing"));
     },
-    onError: (err: Error) =>
-      toast.error(
-        t("recordingPage.retryFailed", {
-          message: err?.message ?? t("recordingPage.networkError"),
+    onError: (err: Error) => {
+      transcriptLifecycleActiveRef.current = false;
+      cancelCompletionCue();
+      failTranscriptToast(t("transcriptPanel.transcriptUnavailableTitle"), {
+        description: t("recordingPage.retryFailed", {
+          message: actionErrorMessage(err) ?? t("recordingPage.networkError"),
         }),
-      ),
+        duration: Number.POSITIVE_INFINITY,
+      });
+    },
   });
+  const requestTranscriptWithLifecycle = (args: {
+    recordingId: string;
+    force?: boolean;
+    regenerate?: boolean;
+  }) => {
+    transcriptLifecycleActiveRef.current = true;
+    primeCompletionCue();
+    startTranscriptToast(t("transcriptPanel.transcribing"));
+    requestTranscript.mutate(args as any);
+  };
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
+        activeAiRequestKindRef.current = "regenerate-title";
+        startAiRequestToast(t(aiRequestProgressKey("regenerate-title")));
+        void aiRequestStatusQ.refetch();
       }
       setMetadataRefreshUntil(Date.now() + 60_000);
       void playerDataQ.refetch();
-      if (result?.updated) {
-        toast.success(t("recordingPage.titleUpdated"));
+      if (result?.updated && result?.queued !== true) {
+        activeAiRequestKindRef.current = null;
+        completeAiRequestToast(t("recordingPage.titleUpdated"));
+        playCompletionCue();
       } else if (result?.reason === "builder_credits_paused") {
-        toast.message(t("builderCredits.pausedTitle"), {
+        activeAiRequestKindRef.current = null;
+        cancelCompletionCue();
+        stopAiRequestToast(t("builderCredits.pausedTitle"), {
           description: t("builderCredits.titleDescription"),
         });
       } else if (result?.skipped) {
-        toast.message(t("recordingPage.transcriptNotReady"), {
+        activeAiRequestKindRef.current = null;
+        cancelCompletionCue();
+        stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
           description: t("recordingPage.tryAfterTranscription"),
         });
-      } else {
-        toast.success(t("recordingPage.titleGenerationQueued"));
       }
     },
-    onError: handleAiError,
+    onError: handleBackgroundAiError,
   });
   const regenerateSummary = useActionMutation("regenerate-summary" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
+        activeAiRequestKindRef.current = "regenerate-summary";
+        startAiRequestToast(t(aiRequestProgressKey("regenerate-summary")));
+        void aiRequestStatusQ.refetch();
       }
       setMetadataRefreshUntil(Date.now() + 60_000);
       void playerDataQ.refetch();
-      toast.success(t("recordingPage.descriptionQueued"));
+      if (result?.updated === true) {
+        activeAiRequestKindRef.current = null;
+        completeAiRequestToast(t("recordingPage.descriptionUpdated"));
+        playCompletionCue();
+      } else if (result?.skipped === true) {
+        activeAiRequestKindRef.current = null;
+        cancelCompletionCue();
+        stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
+          description: t("recordingPage.tryAfterTranscription"),
+        });
+      }
     },
-    onError: handleAiError,
+    onError: handleBackgroundAiError,
   });
   const regenerateChapters = useActionMutation("regenerate-chapters" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
+        activeAiRequestKindRef.current = "regenerate-chapters";
+        startAiRequestToast(t(aiRequestProgressKey("regenerate-chapters")));
+        void aiRequestStatusQ.refetch();
       }
-      toast.success(t("recordingPage.chapterQueued"));
     },
-    onError: handleAiError,
+    onError: handleBackgroundAiError,
   });
   const removeFillerWords = useActionMutation("remove-filler-words" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
+        activeAiRequestKindRef.current = "remove-filler-words";
+        startAiRequestToast(t(aiRequestProgressKey("remove-filler-words")));
+        void aiRequestStatusQ.refetch();
       }
-      toast.success(t("recordingPage.fillerQueued"));
     },
-    onError: handleAiError,
+    onError: handleBackgroundAiError,
   });
   const removeSilences = useActionMutation("remove-silences" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
+        activeAiRequestKindRef.current = "remove-silences";
+        startAiRequestToast(t(aiRequestProgressKey("remove-silences")));
+        void aiRequestStatusQ.refetch();
       }
-      toast.success(t("recordingPage.silenceQueued"));
-      void silenceRemovalStatusQ.refetch();
     },
-    onError: handleAiError,
+    onError: handleBackgroundAiError,
   });
-  const silenceRemovalBusy =
+  const aiRequestBusy =
+    regenerateTitle.isPending ||
+    regenerateSummary.isPending ||
+    regenerateChapters.isPending ||
+    removeFillerWords.isPending ||
     removeSilences.isPending ||
-    silenceRemovalStatus?.status === "queued" ||
-    silenceRemovalStatus?.status === "working";
+    aiRequestStatus?.status === "queued" ||
+    aiRequestStatus?.status === "working";
   const generateWorkflow = useActionMutation("generate-workflow" as any, {
     onSuccess: (result: any) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
+        workflowLifecycleActiveRef.current = true;
+        startWorkflowToast(t("recordingPage.workflowQueued"));
       }
-      toast.success(t("recordingPage.workflowQueued"));
       void generatedWorkflowQ.refetch();
     },
-    onError: handleAiError,
+    onError: (err: Error) => {
+      workflowLifecycleActiveRef.current = false;
+      cancelCompletionCue();
+      failWorkflowToast(t("recordingPage.workflowFailed"), {
+        description:
+          actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
+        duration: Number.POSITIVE_INFINITY,
+      });
+    },
   });
   const aiPrefsQ = useActionQuery<{ includeFullVideoInAi?: boolean }>(
     "get-clips-ai-prefs" as any,
@@ -1245,9 +1477,12 @@ export default function RecordingPage() {
   }
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
-    if (generatedWorkflow?.status === "generating") return;
+    if (aiRequestBusy || generatedWorkflow?.status === "generating") return;
     setEditing(false);
     openAgentPanel();
+    workflowLifecycleActiveRef.current = true;
+    primeCompletionCue();
+    startWorkflowToast(t("recordingPage.workflowQueued"));
     generateWorkflow.mutate({
       recordingId: recording.id,
       kind,
@@ -1257,6 +1492,7 @@ export default function RecordingPage() {
 
   const workflowBusy =
     generateWorkflow.isPending || generatedWorkflow?.status === "generating";
+  const backgroundAiBusy = aiRequestBusy || workflowBusy;
 
   useEffect(() => {
     if (recording && panel === "settings" && !canEdit) setPanel("transcript");
@@ -1729,20 +1965,20 @@ export default function RecordingPage() {
             onRetry={
               canEdit
                 ? () =>
-                    requestTranscript.mutate({
+                    requestTranscriptWithLifecycle({
                       recordingId: recording.id,
                       force: true,
-                    } as any)
+                    })
                 : undefined
             }
             onRegenerate={
               canEdit && transcriptStatus === "ready"
                 ? () =>
-                    requestTranscript.mutate({
+                    requestTranscriptWithLifecycle({
                       recordingId: recording.id,
                       force: true,
                       regenerate: true,
-                    } as any)
+                    })
                 : undefined
             }
             isRegenerating={requestTranscript.isPending}
@@ -1931,45 +2167,49 @@ export default function RecordingPage() {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              disabled={removeFillerWords.isPending}
-              onSelect={() =>
+              disabled={backgroundAiBusy}
+              onSelect={() => {
+                beginAiRequest("remove-filler-words");
                 removeFillerWords.mutate({
                   recordingId: recording.id,
-                } as any)
-              }
+                } as any);
+              }}
             >
               {t("recordingPage.removeFillerWords")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={silenceRemovalBusy}
-              onSelect={() =>
+              disabled={backgroundAiBusy}
+              onSelect={() => {
+                beginAiRequest("remove-silences");
                 removeSilences.mutate({
                   recordingId: recording.id,
                   thresholdMs: 1200,
-                } as any)
-              }
+                } as any);
+              }}
             >
               {t("recordingPage.removeSilences")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={regenerateChapters.isPending}
-              onSelect={() =>
+              disabled={backgroundAiBusy}
+              onSelect={() => {
+                beginAiRequest("regenerate-chapters");
                 regenerateChapters.mutate({
                   recordingId: recording.id,
                   openInChat: true,
-                } as any)
-              }
+                } as any);
+              }}
             >
               {t("recordingPage.autoChapters")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={regenerateSummary.isPending}
-              onSelect={() =>
+              disabled={backgroundAiBusy}
+              onSelect={() => {
+                beginAiRequest("regenerate-summary");
                 regenerateSummary.mutate({
                   recordingId: recording.id,
                   openInChat: true,
-                } as any)
-              }
+                } as any);
+              }}
             >
               {t("recordingPage.regenerateDescription")}
             </DropdownMenuItem>
@@ -1982,11 +2222,11 @@ export default function RecordingPage() {
                 <DropdownMenuItem
                   disabled={requestTranscript.isPending}
                   onSelect={() =>
-                    requestTranscript.mutate({
+                    requestTranscriptWithLifecycle({
                       recordingId: recording.id,
                       force: true,
                       regenerate: true,
-                    } as any)
+                    })
                   }
                 >
                   {requestTranscript.isPending ? (
@@ -1995,12 +2235,13 @@ export default function RecordingPage() {
                   {t("transcriptPanel.regenerate")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={regenerateTitle.isPending}
-                  onSelect={() =>
+                  disabled={backgroundAiBusy}
+                  onSelect={() => {
+                    beginAiRequest("regenerate-title");
                     regenerateTitle.mutate({
                       recordingId: recording.id,
-                    } as any)
-                  }
+                    } as any);
+                  }}
                 >
                   {t("recordingPage.regenerateTitle")}
                 </DropdownMenuItem>
@@ -2015,7 +2256,7 @@ export default function RecordingPage() {
                   const menuItem = (
                     <DropdownMenuItem
                       key={item.kind}
-                      disabled={workflowBusy}
+                      disabled={backgroundAiBusy}
                       onSelect={() => handleGenerateWorkflow(item.kind)}
                       className={
                         item.tooltipKey ? "justify-between gap-3" : undefined
@@ -2155,38 +2396,6 @@ export default function RecordingPage() {
                 </p>
                 {titleGenerationPaused ? (
                   <BuilderCreditsTitleNotice className="mt-2" />
-                ) : null}
-                {silenceRemovalStatus ? (
-                  <div
-                    className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    {silenceRemovalStatus.status === "queued" ||
-                    silenceRemovalStatus.status === "working" ? (
-                      <Spinner className="size-3" />
-                    ) : null}
-                    <span>
-                      {silenceRemovalStatus.status === "queued"
-                        ? t("recordingPage.silenceQueued")
-                        : silenceRemovalStatus.status === "working"
-                          ? t("recordingPage.silenceWorking", {
-                              defaultValue: "Removing silences…",
-                            })
-                          : silenceRemovalStatus.status === "completed"
-                            ? t("recordingPage.silenceCompleted", {
-                                defaultValue: "Silence removal complete",
-                              })
-                            : t("recordingPage.silenceFailed", {
-                                defaultValue: "Silence removal failed",
-                              })}
-                    </span>
-                    {silenceRemovalStatus.message ? (
-                      <span className="truncate">
-                        · {silenceRemovalStatus.message}
-                      </span>
-                    ) : null}
-                  </div>
                 ) : null}
               </div>
 
@@ -2361,34 +2570,6 @@ export default function RecordingPage() {
                         </div>
                         {titleGenerationPaused ? (
                           <BuilderCreditsTitleNotice className="mt-2" />
-                        ) : null}
-                        {silenceRemovalStatus ? (
-                          <div
-                            className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"
-                            role="status"
-                            aria-live="polite"
-                          >
-                            {silenceRemovalStatus.status === "queued" ||
-                            silenceRemovalStatus.status === "working" ? (
-                              <Spinner className="size-3" />
-                            ) : null}
-                            <span>
-                              {silenceRemovalStatus.status === "queued"
-                                ? t("recordingPage.silenceQueued")
-                                : silenceRemovalStatus.status === "working"
-                                  ? t("recordingPage.silenceWorking", {
-                                      defaultValue: "Removing silences…",
-                                    })
-                                  : silenceRemovalStatus.status === "completed"
-                                    ? t("recordingPage.silenceCompleted", {
-                                        defaultValue:
-                                          "Silence removal complete",
-                                      })
-                                    : t("recordingPage.silenceFailed", {
-                                        defaultValue: "Silence removal failed",
-                                      })}
-                            </span>
-                          </div>
                         ) : null}
                       </div>
                       {session ? recordingActions : null}

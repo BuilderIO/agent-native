@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
+const mockReadAppState = vi.hoisted(() => vi.fn(async () => null));
 const mockAssertAccess = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
 }));
 vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: mockReadAppState,
   writeAppState: mockWriteAppState,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
@@ -18,6 +20,7 @@ import action from "./update-ai-request-status";
 describe("update-ai-request-status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadAppState.mockResolvedValue(null);
   });
 
   it("writes a scoped completion status for queued silence removal", async () => {
@@ -45,5 +48,46 @@ describe("update-ai-request-status", () => {
         message: "Removed 2 silent ranges.",
       }),
     );
+  });
+
+  it("supports filler-word progress and preserves the request timestamp", async () => {
+    mockReadAppState.mockResolvedValue({
+      kind: "remove-filler-words",
+      status: "queued",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+    });
+    const args = action.schema.parse({
+      recordingId: "rec_123",
+      kind: "remove-filler-words",
+      status: "working",
+    });
+
+    await action.run(args);
+
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "clips-ai-request-status-rec_123",
+      expect.objectContaining({
+        kind: "remove-filler-words",
+        status: "working",
+        requestedAt: "2026-09-04T12:00:00.000Z",
+      }),
+    );
+  });
+
+  it("rejects a stale update for a different active request", async () => {
+    mockReadAppState.mockResolvedValue({
+      kind: "remove-silences",
+      status: "working",
+    });
+    const args = action.schema.parse({
+      recordingId: "rec_123",
+      kind: "remove-filler-words",
+      status: "completed",
+    });
+
+    await expect(action.run(args)).rejects.toThrow(
+      "remove-silences is the active request",
+    );
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 });
