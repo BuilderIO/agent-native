@@ -97,7 +97,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float px = (1. / iResolution.y) / cellSize;
   float edge = max(px * 1.2, 0.004);
   float dist = length(cellUv);
-  float dotMask = 1. - S(radius - edge, radius + edge, dist);
+  float dotMask = step(0.0001, tone) * (1. - S(radius - edge, radius + edge, dist));
   float glowTerm = (1. - S(radius, radius + GLOW * 0.9, dist)) * GLOW * tone;
   float value = clamp(dotMask + glowTerm * 0.6, 0., 1.);
   value *= clamp(1. - dot(uv, uv) * VIGNETTE, 0., 1.);
