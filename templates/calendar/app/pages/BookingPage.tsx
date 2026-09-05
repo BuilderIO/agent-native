@@ -77,8 +77,7 @@ function BookingPageShell({
         className,
       )}
     >
-      <StarfieldBackground className="fixed inset-0 opacity-[0.22] dark:opacity-[0.15]" />
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,hsl(var(--background)/0.88)_72%)] dark:bg-[radial-gradient(ellipse_at_center,hsl(var(--background)/0.35)_0%,#000000_100%)]" />
+      <StarfieldBackground className="fixed inset-0 z-0 opacity-[0.3] dark:opacity-[0.15]" />
       <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
         <LanguagePicker variant="ghost-icon" />
         <ThemeToggle />

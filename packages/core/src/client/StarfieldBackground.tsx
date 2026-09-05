@@ -22,20 +22,22 @@ uniform vec3 uBgColor;
 uniform float uBrightness;
 
 #define S(a, b, t) smoothstep(a, b, t)
-#define WAVE_COUNT 5.
-#define WAVE_SCALE 5.5
-#define FLOW_ANGLE 119.
-#define WARP 0.35
-#define SPEED 0.65
-#define FOCUS_FOLLOW 0.65
-#define SPREAD 1.2
-#define DOT_DENSITY 131.
-#define DOT_SCALE 1.35
-#define GLOW 1.
-#define SEED 56.
-#define VIGNETTE 1.7
-#define TONE_GAMMA 2.6
-#define FADE_IN_SECONDS 0.7
+
+const float WAVE_COUNT = 5.;
+const float WAVE_SCALE = 5.5;
+const float FLOW_ANGLE = 119.;
+const float WARP = 0.35;
+const float SPEED = 0.65;
+const float FOCUS_FOLLOW = 0.65;
+const vec2 FOCUS = vec2(0., -0.05);
+const float SPREAD = 1.2;
+const float DOT_DENSITY = 131.;
+const float DOT_SCALE = 1.35;
+const float GLOW = 1.;
+const float SEED = 56.;
+const float VIGNETTE = 1.7;
+const float TONE_GAMMA = 2.6;
+const float FADE_IN_SECONDS = 0.7;
 
 float N21(vec2 p) {
   p += SEED;
@@ -87,7 +89,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 cellCenter = (cell + 0.5) * cellSize;
   vec2 cellUv = (uv - cellCenter) / cellSize;
   float tone = waveField(cellCenter, t);
-  vec2 focus = (vec2(0., -0.05) + (pointerUv - vec2(0., -0.05)) * FOCUS_FOLLOW * uPointer.z);
+  vec2 focus = FOCUS + (pointerUv - FOCUS) * FOCUS_FOLLOW * uPointer.z;
   float distFromFocus = length(cellCenter - focus) / SPREAD;
   tone *= exp(-1.6 * distFromFocus * distFromFocus);
   tone = pow(clamp(tone, 0., 1.), TONE_GAMMA);
