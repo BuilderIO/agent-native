@@ -2659,6 +2659,55 @@ describe("mountWebMcpActionRoutes", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
+  it("filters manifest.keyToolNames to tools this manifest actually lists", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        eligible: {
+          tool: { description: "Eligible", parameters: { type: "object" } },
+          run: vi.fn(),
+          readOnly: true,
+        } as any,
+        // Not exposed to external agents, so it never reaches the manifest's
+        // own `tools` list even though it's in `keyToolNames` below.
+        hidden: {
+          tool: { description: "Hidden", parameters: { type: "object" } },
+          run: vi.fn(),
+          agentTool: false,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: vi.fn(async () => "owner@example.com"),
+        manifest: {
+          name: "Clips",
+          description: "Read clips",
+          keyToolNames: ["eligible", "hidden"],
+        },
+      },
+    );
+
+    const compatibilityRoute = mounted.find(
+      ({ path }) => path === "/.well-known/mcp.json",
+    );
+    const compatibilityManifest = await compatibilityRoute?.handler({
+      _method: "GET",
+      _headers: { host: "clips.example.com", "x-forwarded-proto": "https" },
+    });
+
+    expect(compatibilityManifest.instructions).toContain(
+      "Key tools for this app: eligible.",
+    );
+    expect(compatibilityManifest.instructions).not.toContain("hidden");
+  });
+
   it("resolves getRequestRunContext().browserTabId from X-Agent-Native-Browser-Tab, on both the webmcp and /mcp/tool paths, and leaves it undefined without the header", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

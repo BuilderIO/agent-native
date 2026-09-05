@@ -384,6 +384,43 @@ describe("DeckContext fallback polling", () => {
     expect(deckCallCount(api.fetchMock) - deckBefore).toBeGreaterThanOrEqual(2);
   });
 
+  it("reads the deck back when a page-local WebMCP write announces itself", async () => {
+    // The WebMCP bridge dispatches `agentNative:refresh-data` after every
+    // mutating page-local call. On beta an add-slide called through
+    // `window.__agentNativeWebMcp` in a hidden tab returned ok and the new
+    // slide was still missing 152s later: the writing tab was waiting out the
+    // 60s SSE fallback interval and nothing here listened for the write.
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const deckBefore = deckCallCount(api.fetchMock);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallCount(api.fetchMock)).toBeGreaterThan(deckBefore);
+  });
+
   it("stops polling a hidden tab that has no deck open", async () => {
     window.history.pushState({}, "", "/");
     const api = setupFetch();
@@ -402,5 +439,33 @@ describe("DeckContext fallback polling", () => {
     });
 
     expect(listCallCount(api.fetchMock)).toBe(listBefore);
+  });
+
+  it("still reads once on an announced write in a hidden tab with no deck open", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    api.setServerDecks([]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const listBefore = listCallCount(api.fetchMock);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const listAfterWrite = listCallCount(api.fetchMock);
+    expect(listAfterWrite).toBeGreaterThan(listBefore);
+
+    // One read, not a resumed poll loop: the idle gate is skipped for the
+    // announced write only.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(listCallCount(api.fetchMock)).toBe(listAfterWrite);
   });
 });

@@ -70,9 +70,9 @@ export default defineAction({
     });
     const agentChangeId = deckVersionChangeGroupFromAction(ctx);
     if (agentChangeId) {
-      notifyClients(deckId, { agentChangeId });
+      await notifyClients(deckId, { agentChangeId });
     } else {
-      notifyClients(deckId);
+      await notifyClients(deckId);
     }
     await writeAppState("refresh-signal", {
       ts: now,

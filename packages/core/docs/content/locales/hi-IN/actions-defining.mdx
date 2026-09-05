@@ -124,6 +124,28 @@ description: "defineAction() की संरचना: schema, run, और HTTP
             "`agentTool` से विरासत में लेता है। MCP और A2A के ज़रिए बाहरी एजेंट्स से छिपाने के लिए false करें, या चुनी हुई सूची में सदस्यता घोषित करने के लिए true करें। Access और Authorization देखें।",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "इसे true करें जब कोई सफल कॉल यूज़र को नियंत्रण सौंप दे (प्रश्न फ़ॉर्म, intake डायलॉग); इसे turn की पहली या एकमात्र कॉल बनाएं। mcpTool: true न होने पर यह MCP, WebMCP, और A2A से छिपा रहता है — कोई बाहरी caller in-app जवाब नहीं पा सकता। External Agents देखें।",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "शुद्ध, synchronous deep-link बिल्डर, जिसे MCP hosts और desktop app पढ़ते हैं। Other Surfaces देखें।",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "असली app route को MCP-App hosts में इनलाइन embed करता है। Other Surfaces देखें।",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -194,6 +216,8 @@ description: "defineAction() की संरचना: schema, run, और HTTP
 
 schema दो काम करता है। यह Claude API टूल परिभाषा के लिए JSON Schema में बदल जाता है, और यह `run()` चलने से पहले runtime पर इनपुट को वैलिडेट करता है। अमान्य इनपुट कभी आपके handler तक नहीं पहुंचता।
 
+enum वैल्यू और defaults को `.describe()` में बताएं, पूरे tool family में primary id नाम एक जैसा रखें (`id`, न कि `id`/`deckId` का मिश्रण), और एक-पंक्ति वाला description इतना पर्याप्त बनाएं कि compact catalog से टूल को कॉल किया जा सके — हर app में शिप होने वाली `actions` skill में checklist दी गई है।
+
 ## Return वैल्यू को वैलिडेट करना {#output-schema}
 
 `schema` _inputs_ को वैलिडेट करता है। कोई action क्या **लौटाता** है उसे भी वैलिडेट करने के लिए, एक `outputSchema` पास करें (कोई भी Standard Schema-संगत schema: Zod, Valibot, ArkType, `schema` जैसी ही सतह)। फ्रेमवर्क `run()` से पहले इनपुट को वैलिडेट करता है और `run()` के resolve होने के बाद result को वैलिडेट करता है।
@@ -222,6 +246,10 @@ export default defineAction({
 | `"fallback"` | अमान्य result की जगह दिया गया `outputFallback` वैल्यू लौटाता है।                                               |
 
 जब `run()` सफल होता है, फ्रेमवर्क वैलिडेटेड वैल्यू लौटाता है, इसलिए `outputSchema` पर कोई भी defaults या coercions उसी तरह लागू होते हैं जैसे वे input के लिए होते हैं। जब आप कोई `outputSchema` पास नहीं करते, तो return वैल्यू अपरिवर्तित रहता है।
+
+## Result contracts {#result-contracts}
+
+किसी create या update result को उसके caller से ज़्यादा लोग पढ़ते हैं। `id` लौटाएं (ताकि `link` editing view में जाने वाला deep link बना सके), एक-पंक्ति का `message`, और — जब operation किसी ऐसे flow का एक step हो जिसे agent को आगे चलाते रहना है — अगले tool का नाम बताने वाला `nextRequiredAction`। इसे कभी भी ऐसे न लिखें जैसे यह यूज़र का इंतज़ार कर रहा हो: MCP/WebMCP/A2A caller in-app जवाब नहीं पा सकते। बड़ा result truncate होने पर भी agent loop, continuation prompts में `nextRequiredAction` को बनाए रखता है, और MCP callers इसे `Next: …` के रूप में देखते हैं।
 
 ## HTTP कॉन्फ़िग {#http}
 

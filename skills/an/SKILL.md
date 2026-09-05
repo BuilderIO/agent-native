@@ -39,7 +39,7 @@ exact granted app id. If the requested app is not listed, explain that it must
 be granted in Dispatch's Agents access settings. Do not invent a URL, use a
 localhost URL, or route around the Dispatch grant.
 
-## Work in Slides
+## Work in the opened app
 
 Prefer direct app tools when the host exposes them. After opening an app, call
 `list-host-webmcp-tools` when available, then use `run-host-webmcp-tool`
@@ -60,41 +60,17 @@ Dispatch's unified `/mcp` endpoint still exposes generic cross-app verbs; a
 direct app MCP connection or page WebMCP surface is where named app actions
 appear.
 
-Every Slides edit request must tell the app agent to:
+The app's MCP `instructions` name its key tools (generated from the app's own
+list); follow those names verbatim and use `tool-search` for anything else —
+never guess a tool name.
 
-1. Call `view-screen` before editing when the current deck, slide, layout,
-   or selection is relevant.
-2. Use the current deck and slide ids returned by screen state. Never guess an
-   id from a title, slide number, or stale conversation context.
-3. Prefer the smallest atomic action that satisfies the request. Do not
-   regenerate a whole deck for a focused visual change.
-4. Read the result back with `get-deck` or another relevant read action and
-   report what changed.
-
-For a request such as “make this bigger”, use the listed direct tool when
-available. Otherwise send a focused task like:
-
-```
-Inspect the current Slides screen first. Use the active selection from
-view-screen, including its stable objectId or runtimeSelector and current
-style. Increase only the selected element's size with the smallest supported
-update-slide or patch-deck operation. Read the edited slide back and report the
-result. If there is no active selection, do not guess; ask the user to select
-an element or identify it.
-```
-
-The app's screen state is the source of truth for what the user has open. It
-contains the current deck, slide, editor view, and compact selected-element
-metadata without copying the entire browser screen into the prompt. Use
-`navigate` for a deliberate slide change and preserve the user's current
-selection when the request is a focused edit.
-
-For creation or broad changes, use the exposed direct actions when they cover
-the request. Otherwise ask the Slides agent to open or inspect the current
-screen, use the existing deck actions, and return the editor surface or open
-link for review. If the task runs asynchronously, poll the returned
-`ask_app_status` task until it reaches a terminal state; a queued task is
-not proof that the edit completed.
+1. Call `view-screen` before any selection-dependent edit and use the ids it
+   returns; never guess an id from a title, index, or stale context.
+2. If `view-screen` returns a `selection` and `nextRequiredAction`, make
+   that call directly with the smallest atomic change; do not regenerate a
+   whole artifact for a focused edit.
+3. Read the result back with the app's matching read action and report what
+   changed. A queued `ask_app_status` task is not proof an edit completed.
 
 ## Authentication and host behavior
 

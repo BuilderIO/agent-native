@@ -38,6 +38,8 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  // Read-only; the selected-text edit rule in mcp.instructions depends on it.
+  "view-screen",
   "list-decks",
   "get-deck",
   "get-design-system",
@@ -149,7 +151,7 @@ export default createAgentChatPlugin({
   mcp: {
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
-      "For every new deck, including bare requests, call get-workspace-defaults before authoring. Preserve design-system precedence: an explicit designSystemId or create-deck's effective personal default wins over the workspace default. For a bare request, do not patch the workspace designSystemId after creation; create an empty deck with create-deck so it can resolve the effective default, then, if its returned designSystemId is non-null, call get-design-system before adding slides. For an explicit design-system choice, pass that id to create-deck and, if the returned effective designSystemId is non-null, call get-design-system before adding slides. Follow the exact agentContext tokens, assets, and custom instructions in slide HTML. For deck edits, call view-screen only when the active target IDs or selection are unknown. If it returns an exact selectedText browser range, make the focused change immediately with update-slide using one literal edits replacement and expectedMatches=1, optionally passing currentSlideContentHash as baseContentHash. An element text preview is context, not an exact replacement range. Do not call get-deck without slideId, enumerate slides, or inspect the full deck for that path. Use targeted get-deck with slideId only for missing, preview-only, truncated, ambiguous, or structural edits. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove an entire deck. Read back the same slide after writing when it still exists; a delegated ask_app or call-agent response is unverified until that readback confirms the persisted state.",
+      "For every new deck, call get-workspace-defaults before authoring; an explicit designSystemId or create-deck's effective personal default wins over the workspace default, and when create-deck returns a non-null designSystemId call get-design-system before adding slides and follow its agentContext tokens, assets, and custom instructions in slide HTML. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash; do not load the full deck for that path. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Read back the same slide after writing; a delegated ask_app response is unverified until that readback confirms it.",
   },
   externalAgents: { writes: "allowlisted" },
   durableBackgroundRuns: true,

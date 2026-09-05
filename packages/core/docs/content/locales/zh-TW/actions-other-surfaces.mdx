@@ -98,6 +98,8 @@ export default defineAction({
 
 請將 `link` 保留作為 CLI 與非 UI MCP 主機的備援方案，它同時也是內嵌的啟動目標。內嵌橋接（已簽署的內嵌啟動工作階段、transplant 與 controlled-frame 渲染方式的取捨、`ui/*` 主機橋接、CSP，以及高度限制）的所有權屬於[外部代理](/docs/external-agents#mcp-app-bridge)。
 
+目前沒有自動檢查來確認某個範本是否具備 `view-screen`、`navigate`，或針對其主要資源的 create/read/update/list 完整集合；鷹架會內建 `view-screen` 與 `navigate`，而 `pnpm guard:external-result-contract` 會攔截對外公開的 action 的 `description` 或 `nextRequiredAction` 中「等待使用者」之類的措辭，並要求新增的、對外公開的 `create-*` action 攜帶深層連結。是否存在這些 action 是一項需要人工審查的事項。
+
 ## 標準 actions {#standard-actions}
 
 每個範本都應該包含這兩個 action，以支援[情境感知](/docs/context-awareness)。

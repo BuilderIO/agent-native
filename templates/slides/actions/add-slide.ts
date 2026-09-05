@@ -487,7 +487,7 @@ export default defineAction({
       // Broadcast to any open editors so the new slide appears immediately.
       // Include the new slideId + agent actor (backwards-compatible payload).
       const agentChangeId = deckVersionChangeGroupFromAction(ctx);
-      notifyClients(deckId, {
+      await notifyClients(deckId, {
         slideId: newSlideId,
         actor: "agent",
         ...(agentChangeId ? { agentChangeId } : {}),
