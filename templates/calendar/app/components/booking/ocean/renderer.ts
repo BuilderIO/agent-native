@@ -215,6 +215,7 @@ export function createRenderer({
     if (disposed) {
       try {
         destroyGraph(nextGraph);
+        // coercion-ok: Cleanup is best-effort after the renderer device is disposed.
       } catch {
         // Best-effort cleanup after the device was already disposed.
       }
