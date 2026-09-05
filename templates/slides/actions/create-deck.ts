@@ -184,7 +184,7 @@ export default defineAction({
     slides: rawSlides,
     deckId,
     aspectRatio,
-    designSystemId,
+    designSystemId: explicitDesignSystemId,
     designSystem,
     contextPackId,
     contextModeOverride,
@@ -263,6 +263,14 @@ export default defineAction({
     const firstSlideContent = slides[0]?.content;
     const resolvedTitle =
       repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
+
+    // Resolve the title form before the branches split so replacing a deck
+    // honors it the same way creating one does.
+    const designSystemId =
+      explicitDesignSystemId ??
+      (designSystem
+        ? await resolveDesignSystemIdByTitle(designSystem)
+        : undefined);
 
     if (deckId) {
       if (designSystemId) {
@@ -362,11 +370,7 @@ export default defineAction({
       await assertAccess("design-system", resolvedDesignSystemId, "viewer");
     } else {
       resolvedDesignSystemId =
-        (designSystem
-          ? await resolveDesignSystemIdByTitle(designSystem)
-          : undefined) ??
-        (await resolveDefaultDesignSystemId(ownerEmail)) ??
-        undefined;
+        (await resolveDefaultDesignSystemId(ownerEmail)) ?? undefined;
     }
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

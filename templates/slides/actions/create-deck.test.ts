@@ -327,6 +327,26 @@ describe("create-deck — aspectRatio", () => {
     expect(data.aspectRatio).toBe("1:1");
   });
 
+  it("honors a designSystem title when replacing an existing deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+    titleQueryRows = [{ id: "ds-acme" }];
+    const result = await action.run({
+      title: "T2",
+      slides: [],
+      deckId: "deck-1",
+      designSystem: "Acme",
+    });
+    expect(updatedFields!.designSystemId).toBe("ds-acme");
+    expect(JSON.parse(updatedFields!.data as string).designSystemId).toBe(
+      "ds-acme",
+    );
+    expect(result.designSystemId).toBe("ds-acme");
+  });
+
   it("scopes existing-deck navigation to the invoking browser tab", async () => {
     existingDeckRow = {
       id: "deck-1",

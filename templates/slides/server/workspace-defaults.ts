@@ -162,7 +162,10 @@ export async function resolveDefaultDesignSystemId(
     .from(schema.designSystems)
     .where(
       and(
-        eq(schema.designSystems.ownerEmail, ownerEmail),
+        eq(
+          sql`lower(${schema.designSystems.ownerEmail})`,
+          ownerEmail.trim().toLowerCase(),
+        ),
         eq(schema.designSystems.isDefault, true),
         orgId
           ? eq(schema.designSystems.orgId, orgId)
