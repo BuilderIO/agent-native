@@ -29,6 +29,7 @@
     "h3": "catalog:",
     "isbot": "^5",
     "nanoid": "^5.1.9",
+    "vgpu": "0.3.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -67,6 +68,8 @@
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "^5.99.2",
     "@types/node": "^24.2.1",
+    "@vgpu/wgsl": "0.3.1",
+    "@webgpu/types": "0.1.72",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
