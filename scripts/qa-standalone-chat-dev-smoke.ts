@@ -126,7 +126,7 @@ interface RunningDev {
   closed: Promise<void>;
   isClosed: () => boolean;
   logs: string[];
-  dbPath: string;
+  dataDir: string;
   viteReload: ViteReloadTracker;
 }
 
@@ -405,15 +405,15 @@ function prepareIsolatedDataDir(): string {
   const dataDir = path.join(appDir, ".data");
   fs.rmSync(dataDir, { recursive: true, force: true });
   fs.mkdirSync(dataDir, { recursive: true });
-  return path.join(dataDir, "smoke.db");
+  return dataDir;
 }
 
 function devEnv(
   baseUrl: string,
-  dbPath: string,
+  dataDir: string,
   providerBaseUrl: string,
 ): NodeJS.ProcessEnv {
-  const databaseUrl = `file:${dbPath}`;
+  const databaseUrl = `pglite:${dataDir}`;
   return {
     ...process.env,
     NODE_ENV: "development",
@@ -632,8 +632,8 @@ async function waitForUnauthenticatedPollReady(
 async function startDevOnce(providerBaseUrl: string): Promise<RunningDev> {
   tryFreePort(port);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const dbPath = prepareIsolatedDataDir();
-  log(`database: file:${dbPath}`);
+  const dataDir = prepareIsolatedDataDir();
+  log(`database: pglite:${dataDir}`);
   const logs: string[] = [];
   const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   const child = spawn(
@@ -650,7 +650,7 @@ async function startDevOnce(providerBaseUrl: string): Promise<RunningDev> {
     ],
     {
       cwd: appDir,
-      env: devEnv(baseUrl, dbPath, providerBaseUrl),
+      env: devEnv(baseUrl, dataDir, providerBaseUrl),
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     },
@@ -683,7 +683,7 @@ async function startDevOnce(providerBaseUrl: string): Promise<RunningDev> {
     closed: closePromise,
     isClosed: () => closed,
     logs,
-    dbPath,
+    dataDir,
     viteReload,
   };
   try {
