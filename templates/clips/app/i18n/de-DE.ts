@@ -1256,6 +1256,48 @@ const messages = {
     selectedPreview: "Vorschau der ausgewählten Kamera",
     preview: "Kameravorschau",
     setBubbleSize: "Kamerablasengröße {{size}} festlegen",
+    needsAttention: "Kamera prüfen",
+    unsupported: "Dieser Browser unterstützt keine Live-Kameraprüfung.",
+    policyBlocked:
+      "Diese Seite blockiert den Kamerazugriff. Öffne Clips direkt und versuche es erneut.",
+    secureContextRequired: "Kameraprüfungen erfordern HTTPS oder localhost.",
+    permissionBlocked:
+      "Der Kamerazugriff ist blockiert. Erlaube ihn in den Website-Einstellungen und lade die Seite neu.",
+    permissionDenied:
+      "Der Kamerazugriff wurde verweigert. Prüfe die Kameraeinstellung der Website und die Datenschutzeinstellungen des Systems und lade die Seite neu.",
+    notFound:
+      "Keine Kamera gefunden. Schließe eine an oder wähle eine andere Kamera.",
+    inUse:
+      "Die Kamera wird von einer anderen App verwendet. Schließe sie oder wähle eine andere Kamera.",
+    startFailed: "Die Kameraprüfung konnte nicht gestartet werden.",
+    disconnected: "Kamera getrennt.",
+    noVideo: "Kein Kamerabild erkannt.",
+  },
+  microphoneVisualizer: {
+    off: "Aus",
+    needsAttention: "Mikrofon prüfen",
+    signal: "Signal",
+    listening: "Hört zu",
+    opening: "Wird geöffnet",
+    openingEllipsis: "Wird geöffnet...",
+    stop: "Stoppen",
+    test: "Mikrofon testen",
+    unsupported: "Dieser Browser unterstützt keine Live-Mikrofonprüfung.",
+    policyBlocked:
+      "Diese Seite blockiert den Mikrofonzugriff. Öffne Clips direkt und versuche es erneut.",
+    secureContextRequired: "Mikrofonprüfungen erfordern HTTPS oder localhost.",
+    permissionBlockedBrowser:
+      "Der Mikrofonzugriff ist blockiert. Erlaube ihn in den Website-Einstellungen und lade die Seite neu.",
+    permissionBlockedDesktop:
+      "Der Mikrofonzugriff ist blockiert. Erlaube ihn in den Datenschutzeinstellungen des Systems und öffne den Rekorder erneut.",
+    permissionDenied:
+      "Der Mikrofonzugriff wurde verweigert. Prüfe die Mikrofoneinstellung der Website und die Datenschutzeinstellungen des Systems und lade die Seite neu.",
+    notFound:
+      "Kein Mikrofon gefunden. Schließe eines an oder wähle einen anderen Eingang.",
+    inUse:
+      "Das Mikrofon wird von einer anderen App verwendet. Schließe sie oder wähle einen anderen Eingang.",
+    startFailed: "Die Mikrofonprüfung konnte nicht gestartet werden.",
+    disconnected: "Mikrofon getrennt.",
   },
   storageSetup: {
     builderTimeout:
@@ -1374,6 +1416,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (Lokalisiert)",
     defaultCamera: "Default camera (Lokalisiert)",
     shortCameraLabel: "Camera {{id}} (Lokalisiert)",
+    moreCameras: "Weitere Kameras…",
+    cameraPickerTitle: "Kamera auswählen",
+    moreMicrophones: "Weitere Mikrofone…",
+    microphonePickerTitle: "Mikrofon auswählen",
+    closeDevicePicker: "Geräteauswahl schließen",
     noAudio: "No audio (Lokalisiert)",
     noCamera: "No camera (Lokalisiert)",
     loomImportFailed: "Could not import that Loom. (Lokalisiert)",
@@ -1396,10 +1443,11 @@ const messages = {
     cameraOff: "Camera off (Lokalisiert)",
     includeCameraAria: "Include camera in this recording (Lokalisiert)",
     startRecording: "Start recording (Lokalisiert)",
+    startCameraRecording: "Kameraaufnahme starten",
     micOffConfirmTitle: "Dein Mikrofon ist stummgeschaltet",
     micOffConfirmDescription:
       "Damit dein Video Ton hat, musst du dein Mikrofon wieder einschalten.",
-    startWithoutMic: "Weiter",
+    startWithoutMic: "Ohne Ton aufnehmen",
     unmuteMicrophone: "Stummschaltung aufheben",
     uploadVideo: "Upload video (Lokalisiert)",
     importLoom: "Import Loom (Lokalisiert)",
@@ -1467,6 +1515,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (Lokalisiert)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (Lokalisiert)",
+    compressingRecording: "Aufzeichnung wird komprimiert…",
     savingRecording: "Saving your recording… (Lokalisiert)",
     sessionExpired: "Session expired (Lokalisiert)",
     sessionExpiredDescription:
@@ -1480,6 +1529,10 @@ const messages = {
     whatToCheck: "What to check (Lokalisiert)",
     downloadRecording: "Download (Lokalisiert)",
     openRecorderInTab: "Open recorder in tab (Lokalisiert)",
+    retryUpload: "Upload erneut versuchen",
+    tryAgain: "Erneut versuchen",
+    storageConnectedReopeningRecorder:
+      "Speicher verbunden. Recorder wird erneut geöffnet...",
     connectStorageToFinish:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:

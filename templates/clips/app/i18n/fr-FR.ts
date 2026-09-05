@@ -1248,6 +1248,52 @@ const messages = {
     selectedPreview: "Aperçu de la caméra sélectionnée",
     preview: "Aperçu caméra",
     setBubbleSize: "Définir la taille de la bulle caméra {{size}}",
+    needsAttention: "Vérifier la caméra",
+    unsupported:
+      "Ce navigateur ne prend pas en charge le test de caméra en direct.",
+    policyBlocked:
+      "Cette page bloque l’accès à la caméra. Ouvrez Clips directement et réessayez.",
+    secureContextRequired:
+      "Les tests de caméra nécessitent HTTPS ou localhost.",
+    permissionBlocked:
+      "L’accès à la caméra est bloqué. Autorisez-le dans les réglages de ce site, puis rechargez la page.",
+    permissionDenied:
+      "L’accès à la caméra a été refusé. Vérifiez le réglage de caméra du site et les réglages de confidentialité du système, puis rechargez la page.",
+    notFound:
+      "Aucune caméra trouvée. Branchez-en une ou choisissez une autre caméra.",
+    inUse:
+      "Cette caméra est utilisée par une autre application. Fermez-la ou choisissez une autre caméra.",
+    startFailed: "Impossible de démarrer le test de caméra.",
+    disconnected: "Caméra déconnectée.",
+    noVideo: "Aucune vidéo de la caméra détectée.",
+  },
+  microphoneVisualizer: {
+    off: "Désactivé",
+    needsAttention: "Vérifier le micro",
+    signal: "Signal",
+    listening: "Écoute",
+    opening: "Ouverture",
+    openingEllipsis: "Ouverture...",
+    stop: "Arrêter",
+    test: "Tester le micro",
+    unsupported:
+      "Ce navigateur ne prend pas en charge le test de microphone en direct.",
+    policyBlocked:
+      "Cette page bloque l’accès au microphone. Ouvrez Clips directement et réessayez.",
+    secureContextRequired:
+      "Les tests de microphone nécessitent HTTPS ou localhost.",
+    permissionBlockedBrowser:
+      "L’accès au microphone est bloqué. Autorisez-le dans les réglages de ce site, puis rechargez la page.",
+    permissionBlockedDesktop:
+      "L’accès au microphone est bloqué. Autorisez-le dans les réglages de confidentialité du système, puis rouvrez l’enregistreur.",
+    permissionDenied:
+      "L’accès au microphone a été refusé. Vérifiez le réglage du microphone du site et les réglages de confidentialité du système, puis rechargez la page.",
+    notFound:
+      "Aucun microphone trouvé. Branchez-en un ou choisissez une autre entrée.",
+    inUse:
+      "Ce microphone est utilisé par une autre application. Fermez-la ou choisissez une autre entrée.",
+    startFailed: "Impossible de démarrer le test du microphone.",
+    disconnected: "Microphone déconnecté.",
   },
   storageSetup: {
     builderTimeout:
@@ -1366,6 +1412,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (Localisé)",
     defaultCamera: "Default camera (Localisé)",
     shortCameraLabel: "Camera {{id}} (Localisé)",
+    moreCameras: "Plus de caméras…",
+    cameraPickerTitle: "Choisir une caméra",
+    moreMicrophones: "Plus de microphones…",
+    microphonePickerTitle: "Choisir un microphone",
+    closeDevicePicker: "Fermer le sélecteur d’appareil",
     noAudio: "No audio (Localisé)",
     noCamera: "No camera (Localisé)",
     loomImportFailed: "Could not import that Loom. (Localisé)",
@@ -1388,10 +1439,11 @@ const messages = {
     cameraOff: "Camera off (Localisé)",
     includeCameraAria: "Include camera in this recording (Localisé)",
     startRecording: "Start recording (Localisé)",
+    startCameraRecording: "Démarrer l’enregistrement caméra",
     micOffConfirmTitle: "Votre micro est désactivé",
     micOffConfirmDescription:
       "Pour avoir du son dans votre vidéo, vous devez réactiver votre microphone.",
-    startWithoutMic: "Continuer",
+    startWithoutMic: "Enregistrer sans audio",
     unmuteMicrophone: "Réactiver le micro",
     uploadVideo: "Upload video (Localisé)",
     importLoom: "Import Loom (Localisé)",
@@ -1458,6 +1510,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (Localisé)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (Localisé)",
+    compressingRecording: "Compression de votre enregistrement…",
     savingRecording: "Saving your recording… (Localisé)",
     sessionExpired: "Session expired (Localisé)",
     sessionExpiredDescription:
@@ -1471,6 +1524,10 @@ const messages = {
     whatToCheck: "What to check (Localisé)",
     downloadRecording: "Download (Localisé)",
     openRecorderInTab: "Open recorder in tab (Localisé)",
+    retryUpload: "Réessayer l’envoi",
+    tryAgain: "Réessayer",
+    storageConnectedReopeningRecorder:
+      "Stockage connecté. Réouverture de l’enregistreur...",
     connectStorageToFinish:
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:

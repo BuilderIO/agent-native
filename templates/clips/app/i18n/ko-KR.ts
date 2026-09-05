@@ -1218,6 +1218,50 @@ const messages = {
     selectedPreview: "선택한 카메라 미리보기",
     preview: "카메라 미리보기",
     setBubbleSize: "카메라 버블 크기 {{size}} 설정",
+    needsAttention: "카메라 확인",
+    unsupported: "이 브라우저는 실시간 카메라 테스트를 지원하지 않습니다.",
+    policyBlocked:
+      "이 페이지에서 카메라 접근을 차단했습니다. Clips를 직접 열고 다시 시도하세요.",
+    secureContextRequired:
+      "카메라 테스트에는 HTTPS 또는 localhost가 필요합니다.",
+    permissionBlocked:
+      "카메라 접근이 차단되었습니다. 이 사이트의 설정에서 허용한 다음 페이지를 새로고침하세요.",
+    permissionDenied:
+      "카메라 접근이 거부되었습니다. 사이트의 카메라 설정과 시스템 개인정보 보호 설정을 확인한 다음 페이지를 새로고침하세요.",
+    notFound:
+      "카메라를 찾을 수 없습니다. 카메라를 연결하거나 다른 카메라를 선택하세요.",
+    inUse:
+      "다른 앱에서 카메라를 사용 중입니다. 해당 앱을 닫거나 다른 카메라를 선택하세요.",
+    startFailed: "카메라 테스트를 시작할 수 없습니다.",
+    disconnected: "카메라 연결이 끊어졌습니다.",
+    noVideo: "카메라 영상이 감지되지 않았습니다.",
+  },
+  microphoneVisualizer: {
+    off: "끔",
+    needsAttention: "마이크 확인",
+    signal: "신호 있음",
+    listening: "수신 중",
+    opening: "여는 중",
+    openingEllipsis: "여는 중...",
+    stop: "중지",
+    test: "마이크 테스트",
+    unsupported: "이 브라우저는 실시간 마이크 테스트를 지원하지 않습니다.",
+    policyBlocked:
+      "이 페이지에서 마이크 접근을 차단했습니다. Clips를 직접 열고 다시 시도하세요.",
+    secureContextRequired:
+      "마이크 테스트에는 HTTPS 또는 localhost가 필요합니다.",
+    permissionBlockedBrowser:
+      "마이크 접근이 차단되었습니다. 이 사이트의 설정에서 허용한 다음 페이지를 새로고침하세요.",
+    permissionBlockedDesktop:
+      "마이크 접근이 차단되었습니다. 시스템 개인정보 보호 설정에서 허용한 다음 녹화기를 다시 여세요.",
+    permissionDenied:
+      "마이크 접근이 거부되었습니다. 사이트의 마이크 설정과 시스템 개인정보 보호 설정을 확인한 다음 페이지를 새로고침하세요.",
+    notFound:
+      "마이크를 찾을 수 없습니다. 마이크를 연결하거나 다른 입력을 선택하세요.",
+    inUse:
+      "다른 앱에서 마이크를 사용 중입니다. 해당 앱을 닫거나 다른 입력을 선택하세요.",
+    startFailed: "마이크 테스트를 시작할 수 없습니다.",
+    disconnected: "마이크 연결이 끊어졌습니다.",
   },
   storageSetup: {
     builderTimeout:
@@ -1336,6 +1380,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (현지화됨)",
     defaultCamera: "Default camera (현지화됨)",
     shortCameraLabel: "Camera {{id}} (현지화됨)",
+    moreCameras: "카메라 더 보기…",
+    cameraPickerTitle: "카메라 선택",
+    moreMicrophones: "마이크 더 보기…",
+    microphonePickerTitle: "마이크 선택",
+    closeDevicePicker: "기기 선택 닫기",
     noAudio: "No audio (현지화됨)",
     noCamera: "No camera (현지화됨)",
     loomImportFailed: "Could not import that Loom. (현지화됨)",
@@ -1358,10 +1407,11 @@ const messages = {
     cameraOff: "Camera off (현지화됨)",
     includeCameraAria: "Include camera in this recording (현지화됨)",
     startRecording: "Start recording (현지화됨)",
+    startCameraRecording: "카메라 녹화 시작",
     micOffConfirmTitle: "마이크가 음소거되었습니다",
     micOffConfirmDescription:
       "동영상에 소리를 넣으려면 마이크 음소거를 해제하세요.",
-    startWithoutMic: "계속",
+    startWithoutMic: "오디오 없이 녹화",
     unmuteMicrophone: "음소거 해제",
     uploadVideo: "Upload video (현지화됨)",
     importLoom: "Import Loom (현지화됨)",
@@ -1428,6 +1478,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (현지화됨)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (현지화됨)",
+    compressingRecording: "녹화를 압축하는 중…",
     savingRecording: "Saving your recording… (현지화됨)",
     sessionExpired: "Session expired (현지화됨)",
     sessionExpiredDescription:
@@ -1441,6 +1492,10 @@ const messages = {
     whatToCheck: "What to check (현지화됨)",
     downloadRecording: "Download (현지화됨)",
     openRecorderInTab: "Open recorder in tab (현지화됨)",
+    retryUpload: "업로드 다시 시도",
+    tryAgain: "다시 시도",
+    storageConnectedReopeningRecorder:
+      "저장소가 연결되었습니다. 녹화 도구를 다시 여는 중...",
     connectStorageToFinish:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:

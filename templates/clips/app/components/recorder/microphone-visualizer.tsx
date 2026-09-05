@@ -1,8 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { MIC_AUDIBLE_LEVEL, MIC_SILENCE_WARNING_MS } from "@shared/audio-meter";
 import { LiveWaveform } from "@shared/live-waveform";
+import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type MicrophoneTestStatus = "idle" | "starting" | "live" | "error";
@@ -10,8 +11,7 @@ export type MicrophoneTestStatus = "idle" | "starting" | "live" | "error";
 export interface MicrophoneVisualizerProps {
   deviceId: string | null;
   disabled?: boolean;
-  idleActionLabel?: string;
-  idleHelper?: string;
+  unlocked?: boolean;
   className?: string;
   onStatusChange?: (
     status: MicrophoneTestStatus,
@@ -41,6 +41,18 @@ function stopStream(stream: MediaStream | null): void {
 }
 
 type MicrophonePermissionState = PermissionState | "unknown";
+type Translate = ReturnType<typeof useT>;
+type MicrophoneErrorKind =
+  | "unsupported"
+  | "policyBlocked"
+  | "secureContextRequired"
+  | "permissionBlockedBrowser"
+  | "permissionBlockedDesktop"
+  | "permissionDenied"
+  | "notFound"
+  | "inUse"
+  | "startFailed"
+  | "disconnected";
 
 function isDesktopShell(): boolean {
   if (typeof window === "undefined") return false;
@@ -55,11 +67,39 @@ function isDesktopShell(): boolean {
   );
 }
 
-function micBlockedMessage(): string {
-  if (isDesktopShell()) {
-    return "Microphone access is blocked for this app. Enable the microphone for the app in your system Privacy settings, then reopen the recorder.";
+function microphoneErrorMessage(
+  t: Translate,
+  kind: MicrophoneErrorKind,
+): string {
+  switch (kind) {
+    case "unsupported":
+      return t("microphoneVisualizer.unsupported");
+    case "policyBlocked":
+      return t("microphoneVisualizer.policyBlocked");
+    case "secureContextRequired":
+      return t("microphoneVisualizer.secureContextRequired");
+    case "permissionBlockedBrowser":
+      return t("microphoneVisualizer.permissionBlockedBrowser");
+    case "permissionBlockedDesktop":
+      return t("microphoneVisualizer.permissionBlockedDesktop");
+    case "permissionDenied":
+      return t("microphoneVisualizer.permissionDenied");
+    case "notFound":
+      return t("microphoneVisualizer.notFound");
+    case "inUse":
+      return t("microphoneVisualizer.inUse");
+    case "disconnected":
+      return t("microphoneVisualizer.disconnected");
+    case "startFailed":
+      return t("microphoneVisualizer.startFailed");
   }
-  return "Your browser has blocked microphone access for this site, so it won't prompt. Allow the microphone in this site's settings, then reload.";
+}
+
+function micBlockedMessage(t: Translate): string {
+  return microphoneErrorMessage(
+    t,
+    isDesktopShell() ? "permissionBlockedDesktop" : "permissionBlockedBrowser",
+  );
 }
 
 function isMicrophoneBlockedByPolicy(): boolean {
@@ -95,7 +135,10 @@ async function getMicrophonePermissionState(): Promise<MicrophonePermissionState
   }
 }
 
-export async function friendlyMicError(err: unknown): Promise<string> {
+export async function friendlyMicError(
+  err: unknown,
+  t: Translate,
+): Promise<string> {
   const name = (err as { name?: string } | null)?.name ?? "";
   const message =
     err instanceof Error ? err.message : typeof err === "string" ? err : "";
@@ -112,33 +155,32 @@ export async function friendlyMicError(err: unknown): Promise<string> {
   });
 
   if (blockedByPolicy) {
-    return "This page is blocking microphone access via Permissions-Policy. Restart the dev server, reload /record, then try again.";
+    return microphoneErrorMessage(t, "policyBlocked");
   }
   if (!window.isSecureContext) {
-    return "Microphone prompts require HTTPS or localhost. Open this app on localhost or an HTTPS URL, then try again.";
+    return microphoneErrorMessage(t, "secureContextRequired");
   }
   if (permissionState === "denied") {
-    return micBlockedMessage();
+    return micBlockedMessage(t);
   }
   if (/NotAllowedError|Permission denied|denied|blocked/i.test(combined)) {
-    return "The browser or operating system denied microphone access. Check this site's microphone setting and your system privacy settings for this browser, then reload.";
+    return microphoneErrorMessage(t, "permissionDenied");
   }
   if (
     /NotFoundError|DevicesNotFoundError|no device|not found/i.test(combined)
   ) {
-    return "No microphone was found. Plug one in or choose a different input.";
+    return microphoneErrorMessage(t, "notFound");
   }
   if (/NotReadableError|TrackStartError|in use/i.test(combined)) {
-    return "That microphone is busy in another app. Close the other app or choose a different input.";
+    return microphoneErrorMessage(t, "inUse");
   }
-  return message || "Could not start the microphone check.";
+  return microphoneErrorMessage(t, "startFailed");
 }
 
 export function MicrophoneVisualizer({
   deviceId,
   disabled,
-  idleActionLabel = "Test mic",
-  idleHelper,
+  unlocked = false,
   className,
   onStatusChange,
   onSignalChange,
@@ -150,13 +192,16 @@ export function MicrophoneVisualizer({
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const signalRef = useRef(false);
+  const noSignalRef = useRef(false);
   const [level, setLevel] = useState<number | null>(null);
-  const lastSignalAtRef = useRef(0);
+  const lastSignalAtRef = useRef<number | null>(null);
+  const silenceStartedAtRef = useRef<number | null>(null);
   const previousDeviceIdRef = useRef(deviceId);
 
   const [status, setStatus] = useState<MicrophoneTestStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [hasSignal, setHasSignalState] = useState(false);
+  const [noSignal, setNoSignalState] = useState(false);
 
   const setSignal = useCallback(
     (next: boolean) => {
@@ -168,8 +213,14 @@ export function MicrophoneVisualizer({
     [onSignalChange],
   );
 
+  const setNoSignal = useCallback((next: boolean) => {
+    if (noSignalRef.current === next) return;
+    noSignalRef.current = next;
+    setNoSignalState(next);
+  }, []);
+
   const stopCurrent = useCallback(
-    (emitSignal = true) => {
+    (emitSignal = true, emitState = true) => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -187,14 +238,21 @@ export function MicrophoneVisualizer({
       }
       stopStream(streamRef.current);
       streamRef.current = null;
-      lastSignalAtRef.current = 0;
+      lastSignalAtRef.current = null;
+      silenceStartedAtRef.current = null;
+      if (emitState) {
+        setLevel(null);
+        setNoSignal(false);
+      } else {
+        noSignalRef.current = false;
+      }
       if (emitSignal) {
         setSignal(false);
       } else {
         signalRef.current = false;
       }
     },
-    [setSignal],
+    [setNoSignal, setSignal],
   );
 
   const drawLive = useCallback(
@@ -211,23 +269,36 @@ export function MicrophoneVisualizer({
         }
         const rms = Math.sqrt(sum / data.length);
         const now = performance.now();
-        if (rms > 0.022) {
+        const audible = rms >= MIC_AUDIBLE_LEVEL;
+        if (audible) {
           lastSignalAtRef.current = now;
+          silenceStartedAtRef.current = null;
           setSignal(true);
-        } else if (now - lastSignalAtRef.current > 700) {
-          setSignal(false);
+          setNoSignal(false);
+        } else {
+          silenceStartedAtRef.current ??= now;
+          if (
+            lastSignalAtRef.current === null ||
+            now - lastSignalAtRef.current > 700
+          ) {
+            setSignal(false);
+          }
+          if (now - silenceStartedAtRef.current >= MIC_SILENCE_WARNING_MS) {
+            setNoSignal(true);
+          }
         }
 
         // The analyser is the only part of the meter this app owns; the shape
         // and the level math are shared with the desktop app so a microphone
         // reads the same here as it does in the recorder and the meeting pill.
-        setLevel(rms);
+        // Sub-threshold room noise is silence, not decorative activity.
+        setLevel(audible ? rms : 0);
         rafRef.current = requestAnimationFrame(draw);
       };
 
       draw();
     },
-    [setSignal],
+    [setNoSignal, setSignal],
   );
 
   const stopTest = useCallback(() => {
@@ -242,24 +313,21 @@ export function MicrophoneVisualizer({
     if (disabled) return;
     const AudioContextCtor = getAudioContextCtor();
     if (!navigator.mediaDevices?.getUserMedia || !AudioContextCtor) {
-      const message =
-        "Your browser doesn't support live microphone checks. Try a recent Brave, Chrome, Edge, Safari, or Firefox.";
+      const message = microphoneErrorMessage(t, "unsupported");
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
       return;
     }
     if (isMicrophoneBlockedByPolicy()) {
-      const message =
-        "This page is blocking microphone access via Permissions-Policy. Restart the dev server, reload /record, then try again.";
+      const message = microphoneErrorMessage(t, "policyBlocked");
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
       return;
     }
     if (!window.isSecureContext) {
-      const message =
-        "Microphone prompts require HTTPS or localhost. Open this app on localhost or an HTTPS URL, then try again.";
+      const message = microphoneErrorMessage(t, "secureContextRequired");
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
@@ -273,7 +341,7 @@ export function MicrophoneVisualizer({
     const permissionState = await getMicrophonePermissionState();
     if (runIdRef.current !== runId) return;
     if (permissionState === "denied") {
-      const message = micBlockedMessage();
+      const message = micBlockedMessage(t);
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
@@ -319,6 +387,21 @@ export function MicrophoneVisualizer({
       streamRef.current = stream;
       audioContextRef.current = audioContext;
       sourceRef.current = source;
+      const startedAt = performance.now();
+      lastSignalAtRef.current = null;
+      silenceStartedAtRef.current = startedAt;
+      setNoSignal(false);
+      for (const track of stream.getAudioTracks()) {
+        track.addEventListener("ended", () => {
+          if (runIdRef.current !== runId) return;
+          runIdRef.current += 1;
+          stopCurrent();
+          const message = microphoneErrorMessage(t, "disconnected");
+          setError(message);
+          setStatus("error");
+          onStatusChange?.("error", { error: message });
+        });
+      }
       setStatus("live");
       onStatusChange?.("live", { error: null });
       drawLive(analyser);
@@ -333,7 +416,7 @@ export function MicrophoneVisualizer({
       }
       stopStream(stream);
       if (runIdRef.current !== runId) return;
-      const message = await friendlyMicError(err);
+      const message = await friendlyMicError(err, t);
       // friendlyMicError awaits the Permissions API, so re-check after.
       if (runIdRef.current !== runId) return;
       setSignal(false);
@@ -341,23 +424,26 @@ export function MicrophoneVisualizer({
       setStatus("error");
       onStatusChange?.("error", { error: message });
     }
-  }, [deviceId, disabled, drawLive, onStatusChange, setSignal, stopCurrent]);
+  }, [
+    deviceId,
+    disabled,
+    drawLive,
+    onStatusChange,
+    setNoSignal,
+    setSignal,
+    stopCurrent,
+    t,
+  ]);
 
   useEffect(() => {
-    if (disabled) {
-      previousDeviceIdRef.current = deviceId;
-      if (status === "live" || status === "starting") {
-        stopTest();
-      } else {
-      }
+    const deviceChanged = previousDeviceIdRef.current !== deviceId;
+    previousDeviceIdRef.current = deviceId;
+    if (disabled || !unlocked) {
+      if (status !== "idle") stopTest();
       return;
     }
-    if (previousDeviceIdRef.current === deviceId) return;
-    previousDeviceIdRef.current = deviceId;
-    if (status === "live" || status === "starting") {
-      void startTest();
-    }
-  }, [deviceId, disabled, startTest, status, stopTest]);
+    if (deviceChanged || status === "idle") void startTest();
+  }, [deviceId, disabled, startTest, status, stopTest, unlocked]);
 
   // Idle and error both rest the meter by holding `level` at null, so there is
   // nothing left to draw on a state change.
@@ -368,74 +454,59 @@ export function MicrophoneVisualizer({
   useEffect(() => {
     return () => {
       runIdRef.current += 1;
-      stopCurrent(false);
+      stopCurrent(false, false);
     };
   }, [stopCurrent]);
 
   const live = status === "live";
   const starting = status === "starting";
-  const statusLabel = disabled
-    ? "Off"
-    : error
-      ? "Needs access"
-      : live
-        ? hasSignal
-          ? "Signal"
-          : "Listening"
-        : starting
-          ? "Opening"
-          : null;
+  const noAudioDetected = live && noSignal;
+  const statusLabel = error
+    ? t("microphoneVisualizer.needsAttention")
+    : live
+      ? noAudioDetected
+        ? t("preRecord.noAudio")
+        : hasSignal
+          ? t("microphoneVisualizer.signal")
+          : t("microphoneVisualizer.listening")
+      : starting
+        ? t("microphoneVisualizer.opening")
+        : t("clipsFinalRaw.selectedMicrophoneWaveform");
 
   return (
-    <div className={cn("space-y-2", disabled && "opacity-70", className)}>
-      <div className="flex items-center gap-2">
-        <div
-          className={cn(
-            "relative h-7 min-w-0 flex-1 overflow-hidden rounded-full border bg-muted/20",
-            live && hasSignal ? "border-foreground/35" : "border-border",
-          )}
-        >
-          <span
-            role="img"
-            aria-label={t("clipsFinalRaw.selectedMicrophoneWaveform")}
-            className="absolute inset-0 flex items-center justify-center"
-          >
-            <LiveWaveform
-              level={live ? level : null}
-              bars={18}
-              barWidth={2}
-              barGap={3}
-            />
-          </span>
-          {statusLabel ? (
-            <span
-              className={cn(
-                "pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm",
-                error && "text-foreground",
-              )}
-            >
-              {statusLabel}
-            </span>
-          ) : null}
-        </div>
-        <Button
-          type="button"
-          variant={live ? "outline" : "secondary"}
-          size="sm"
-          disabled={disabled || starting}
-          onClick={live ? stopTest : startTest}
-          className="h-7 shrink-0 px-2.5 text-xs"
-        >
-          {live ? "Stop" : starting ? "Opening..." : idleActionLabel}
-        </Button>
-      </div>
-      {error ? (
-        <p className="text-[11px] leading-snug text-foreground">{error}</p>
-      ) : idleHelper && !live && !starting ? (
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          {idleHelper}
-        </p>
-      ) : null}
-    </div>
+    <span
+      data-microphone-visualizer="inline"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className={cn(
+        "flex min-w-12 flex-1 items-center justify-end overflow-hidden text-muted-foreground",
+        (error || noAudioDetected) && "text-destructive",
+        className,
+      )}
+    >
+      {error || noAudioDetected ? (
+        <IconAlertTriangle
+          className="size-3.5 shrink-0"
+          stroke={2}
+          aria-hidden="true"
+        />
+      ) : starting ? (
+        <IconLoader2
+          className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+          stroke={2}
+          aria-hidden="true"
+        />
+      ) : (
+        <LiveWaveform
+          level={live ? level : null}
+          bars={14}
+          barWidth={2}
+          barGap={2}
+          dimmed={disabled || !unlocked}
+        />
+      )}
+      <span className="sr-only">{statusLabel}</span>
+    </span>
   );
 }

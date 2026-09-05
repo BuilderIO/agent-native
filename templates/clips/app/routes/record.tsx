@@ -25,15 +25,22 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCamera,
+  IconCircleCheck,
   IconDeviceDesktop,
   IconDownload,
   IconExternalLink,
   IconMicrophone,
   IconRefresh,
-  IconVideo,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 
@@ -138,6 +145,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export function meta() {
   return [{ title: enMessages.recordRoute.pageTitle }];
@@ -468,18 +481,6 @@ function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
   return null;
 }
 
-function getRecordingErrorTitle(
-  error: string,
-  t: ReturnType<typeof useT>,
-): string {
-  if (isUploadSizeError(error)) return t("recordRoute.videoTooLarge");
-  if (isUploadFailureError(error)) return t("recordRoute.uploadFailed");
-  if (isScreenPermissionError(error)) return "Screen recording needs access";
-  if (isCameraPermissionError(error)) return "Camera needs access";
-  if (isMicrophonePermissionError(error)) return "Microphone needs access";
-  return t("recordRoute.couldNotStartRecording");
-}
-
 function isUploadSizeError(error: string): boolean {
   return /too large to upload|too large for clips|limit is \d|file is too large|file size/i.test(
     error,
@@ -550,37 +551,20 @@ interface PendingRecording {
 
 function PreRecordPanelSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-border bg-muted/20 shadow-lg">
-      <div className="space-y-4 p-6">
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-3 w-64" />
-        </div>
-        <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
-          <Skeleton className="h-11 rounded-lg" />
-          <Skeleton className="h-11 rounded-lg" />
-          <Skeleton className="h-11 rounded-lg" />
-        </div>
+    <div
+      aria-busy="true"
+      className="mx-auto w-full max-w-[320px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+    >
+      <div className="flex justify-center px-4 pb-3 pt-4">
+        <Skeleton className="h-11 w-[240px] rounded-full" />
       </div>
-      <div className="space-y-0 border-t border-border">
-        <div className="flex items-center gap-3 px-6 py-4">
-          <Skeleton className="h-8 w-8 rounded-lg" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-3 w-36" />
-          </div>
-        </div>
-        <div className="flex items-center gap-3 border-t border-border px-6 py-4">
-          <Skeleton className="h-8 w-8 rounded-lg" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-3 w-48" />
-          </div>
-        </div>
+      <div className="grid gap-2 px-5 pb-4">
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-9 w-full rounded-lg" />
       </div>
-      <div className="space-y-3 border-t border-border p-6">
+      <div className="border-t border-border p-3">
         <Skeleton className="h-11 w-full rounded-md" />
-        <Skeleton className="mx-auto h-8 w-48 rounded-md" />
       </div>
     </div>
   );
@@ -589,23 +573,11 @@ function PreRecordPanelSkeleton() {
 function DesktopRecorderCallout() {
   const t = useT();
   return (
-    <aside className="w-full rounded-2xl border border-border bg-card p-4 shadow-lg">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <IconDeviceDesktop className="h-4 w-4" />
-        </div>
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">
-            {t("recordRoute.betterInDesktop")}
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {t("recordRoute.desktopAppDescription")}
-          </p>
-        </div>
-      </div>
+    <aside className="flex justify-center">
       <CaptureInstallButton
         size="sm"
-        className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
+        variant="ghost"
+        className="h-8 text-xs font-normal text-muted-foreground hover:text-foreground"
         downloadedChildren={t("captureInstall.openDesktopApp")}
       >
         {t("recordRoute.downloadDesktopApp")}
@@ -614,7 +586,75 @@ function DesktopRecorderCallout() {
   );
 }
 
-function RecordingErrorCard({
+export function RecorderRouteStatus({
+  icon,
+  label,
+  busy = false,
+  progress,
+  role = "status",
+  children,
+}: {
+  icon?: ReactNode;
+  label: ReactNode;
+  busy?: boolean;
+  progress?: number | null;
+  role?: "status" | "alert";
+  children?: ReactNode;
+}) {
+  const normalizedProgress =
+    progress === null || progress === undefined
+      ? null
+      : Math.min(100, Math.max(0, Math.round(progress * 100)));
+
+  return (
+    <section className="w-full max-w-[320px] rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div
+        role={role}
+        aria-live={role === "alert" ? "assertive" : "polite"}
+        aria-busy={busy || undefined}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            {busy ? <Spinner className="size-4" /> : icon}
+          </div>
+          <div className="min-w-0 flex-1 text-sm font-medium text-foreground">
+            {label}
+          </div>
+        </div>
+        {normalizedProgress !== null && (
+          <div className="mt-4 flex items-center gap-3">
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={normalizedProgress}
+              className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
+                style={{ width: `${normalizedProgress}%` }}
+              />
+            </div>
+            <span className="w-9 text-end text-xs tabular-nums text-muted-foreground">
+              {normalizedProgress}%
+            </span>
+          </div>
+        )}
+      </div>
+      {children && <div className="mt-4">{children}</div>}
+    </section>
+  );
+}
+
+function RecorderRouteViewport({ children }: { children: ReactNode }) {
+  return (
+    <main className="flex min-h-[100dvh] w-full flex-col overflow-x-clip px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-20 sm:px-6 sm:py-10">
+      <div className="my-auto flex w-full justify-center">{children}</div>
+    </main>
+  );
+}
+
+export function RecordingErrorCard({
   error,
   mode,
   micDeviceId,
@@ -649,70 +689,83 @@ function RecordingErrorCard({
   const directUrl = directRecorderUrl();
   const friendlyMessage = friendlyRecordingErrorMessage(error);
   const showTechnicalDetails = friendlyMessage !== error;
+  const openDirectly = policyError || embeddedScreenError;
+  const downloadIsPrimary = canDownloadRecording && !canRetryUpload;
 
   return (
-    <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
-      <div className="border-b border-border p-6">
-        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-foreground">
-          <IconAlertTriangle className="h-5 w-5" />
+    <section className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 text-start shadow-sm">
+      <div
+        role="alert"
+        aria-live="assertive"
+        className="flex items-start gap-3"
+      >
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+          <IconAlertTriangle className="size-4" />
         </div>
-        <h2 className="text-lg font-semibold text-foreground">
-          {getRecordingErrorTitle(error, t)}
-        </h2>
-        <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">
+        <h2 className="min-w-0 flex-1 break-words pt-1.5 text-sm font-semibold leading-snug text-foreground">
           {friendlyMessage}
-        </p>
-        {showTechnicalDetails && (
-          <details className="mt-3 text-start text-xs text-muted-foreground">
-            <summary className="cursor-pointer font-medium text-foreground">
-              {t("recordRoute.technicalDetails")}
-            </summary>
-            <p className="mt-2 max-h-28 overflow-auto break-words rounded-lg border border-border bg-muted/40 p-2 leading-relaxed">
-              {error}
-            </p>
-          </details>
-        )}
+        </h2>
       </div>
 
       {guidance && (
-        <div className="border-b border-border bg-muted/25 px-6 py-4 text-start">
-          <div className="text-xs font-medium text-foreground">
+        <details className="mt-4 text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">
             {t("recordRoute.whatToCheck")}
-          </div>
-          <p className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">
-            {guidance}
-          </p>
-        </div>
+          </summary>
+          <p className="mt-2 break-words leading-relaxed">{guidance}</p>
+        </details>
       )}
 
-      <div className="space-y-3 p-6">
-        {/* Offer the download whenever local recording data survives, no matter
-            why the upload failed — the user should never lose their video. They
-            can re-import the saved file later via "Upload a video file". */}
-        {canDownloadRecording && (
-          <>
-            <Button onClick={onDownloadRecording} className="w-full gap-2">
-              <IconDownload className="h-4 w-4" />
-              {t("recordRoute.downloadRecording")}
-            </Button>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Your recording is safe on this device. Download it now and upload
-              the file later from the recorder if it still won&apos;t save.
-            </p>
-          </>
-        )}
-        <Button variant="outline" onClick={onTryAgain} className="w-full gap-2">
-          <IconRefresh className="h-4 w-4" />
-          {canRetryUpload ? "Retry upload" : "Try again"}
-        </Button>
-        {(policyError || embeddedScreenError) && (
+      {showTechnicalDetails && (
+        <details className="mt-3 text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">
+            {t("recordRoute.technicalDetails")}
+          </summary>
+          <p className="mt-2 max-h-24 overflow-y-auto break-words rounded-lg border border-border bg-muted/40 p-2 leading-relaxed">
+            {error}
+          </p>
+        </details>
+      )}
+
+      <div className="mt-5 grid gap-2">
+        {openDirectly && (
           <Button
             type="button"
             onClick={() => openUrlFromUserGesture(directUrl)}
             className="w-full gap-2"
           >
-            <IconExternalLink className="h-4 w-4" />
+            <IconExternalLink className="size-4" />
             {t("recordRoute.openRecorderInTab")}
+          </Button>
+        )}
+        {!openDirectly && !downloadIsPrimary && (
+          <Button onClick={onTryAgain} className="w-full gap-2">
+            <IconRefresh className="size-4" />
+            {canRetryUpload
+              ? t("recordRoute.retryUpload")
+              : t("recordRoute.tryAgain")}
+          </Button>
+        )}
+        {canDownloadRecording && (
+          <Button
+            variant={downloadIsPrimary ? "default" : "outline"}
+            onClick={onDownloadRecording}
+            className="w-full gap-2"
+          >
+            <IconDownload className="size-4" />
+            {t("recordRoute.downloadRecording")}
+          </Button>
+        )}
+        {(openDirectly || downloadIsPrimary) && (
+          <Button
+            variant="outline"
+            onClick={onTryAgain}
+            className="w-full gap-2"
+          >
+            <IconRefresh className="h-4 w-4" />
+            {canRetryUpload
+              ? t("recordRoute.retryUpload")
+              : t("recordRoute.tryAgain")}
           </Button>
         )}
         {permissionError &&
@@ -721,12 +774,12 @@ function RecordingErrorCard({
           settings.length > 0 && (
             <div
               className={cn(
-                "grid gap-2",
-                settings.length === 1
-                  ? "grid-cols-1"
-                  : settings.length === 2
-                    ? "grid-cols-2"
-                    : "grid-cols-3",
+                "grid grid-cols-1 gap-2",
+                settings.length === 2
+                  ? "sm:grid-cols-2"
+                  : settings.length === 3
+                    ? "sm:grid-cols-3"
+                    : undefined,
               )}
             >
               {settings.includes("screen") && (
@@ -736,7 +789,7 @@ function RecordingErrorCard({
                   onClick={() => {
                     openUrlFromUserGesture(MAC_SCREEN_RECORDING_PREF_URL);
                   }}
-                  className="gap-1.5 px-2 text-xs"
+                  className="w-full gap-1.5 px-2 text-xs"
                 >
                   <IconDeviceDesktop className="h-3.5 w-3.5" />
                   Screen
@@ -749,7 +802,7 @@ function RecordingErrorCard({
                   onClick={() => {
                     openUrlFromUserGesture(MAC_CAMERA_PREF_URL);
                   }}
-                  className="gap-1.5 px-2 text-xs"
+                  className="w-full gap-1.5 px-2 text-xs"
                 >
                   <IconCamera className="h-3.5 w-3.5" />
                   Camera
@@ -762,7 +815,7 @@ function RecordingErrorCard({
                   onClick={() => {
                     openUrlFromUserGesture(MAC_MICROPHONE_PREF_URL);
                   }}
-                  className="gap-1.5 px-2 text-xs"
+                  className="w-full gap-1.5 px-2 text-xs"
                 >
                   <IconMicrophone className="h-3.5 w-3.5" />
                   Mic
@@ -771,7 +824,7 @@ function RecordingErrorCard({
             </div>
           )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -801,6 +854,8 @@ export default function RecordRoute() {
     [t],
   );
   const [uiState, setUiState] = useState<UiState>("idle");
+  const autoUploadInputRef = useRef<HTMLInputElement>(null);
+  const autoOpenUploadTriggeredRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
@@ -859,13 +914,6 @@ export default function RecordRoute() {
     const params = new URLSearchParams(location.search);
     return params.get("autoUpload") === "1";
   }, [location.search]);
-  const importLoomHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
-    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
-    const qs = params.toString();
-    return qs ? `/import?${qs}` : "/import";
-  }, [spaceIdFromUrl, folderIdFromUrl]);
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
     : !!storageQuery.data?.configured;
@@ -1865,6 +1913,19 @@ export default function RecordRoute() {
     [markStorageConfigured, navigate, probeVideoMetadata, showSavedToast],
   );
 
+  useEffect(() => {
+    if (
+      !autoOpenUploadFromUrl ||
+      autoOpenUploadTriggeredRef.current ||
+      storageConfigured !== true ||
+      uiState !== "idle"
+    ) {
+      return;
+    }
+    autoOpenUploadTriggeredRef.current = true;
+    autoUploadInputRef.current?.click();
+  }, [autoOpenUploadFromUrl, storageConfigured, uiState]);
+
   const saveBrowserDiagnostics = useCallback(
     async (recordingId: string) => {
       const capture = browserDiagnosticsRef.current;
@@ -2615,10 +2676,7 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   // Render.
   // -------------------------------------------------------------------------
-  const showRecordingUi =
-    uiState === "recording" ||
-    uiState === "uploading" ||
-    uiState === "compressing";
+  const showRecordingUi = uiState === "recording";
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
@@ -2639,48 +2697,61 @@ export default function RecordRoute() {
     uiState === "recording";
 
   // `/record` is a fullscreen route outside the `_app` shell, so it has no
-  // sidebar back-affordance. Surface a back arrow whenever there's nothing in
-  // flight — during recording/countdown/uploading the toolbar's stop flow is
-  // the exit path. `pickingSources` is included so users aren't trapped
-  // when the browser's permission/source dialog hangs or they want to bail
-  // out before granting access.
+  // sidebar back-affordance. Source picking gets its own explicit Cancel
+  // action; in-flight recording and saving states use their dedicated controls.
   const showBackButton =
-    uiState === "idle" || uiState === "error" || uiState === "pickingSources";
+    uiState === "idle" || uiState === "error" || uiState === "complete";
 
   return (
-    <div className="relative min-h-screen bg-background">
-      {showBackButton && (
-        <button
-          type="button"
-          aria-label={t("recordRoute.backToLibrary")}
-          onClick={async () => {
-            // If we landed in `error` after partial media acquisition, the
-            // engine may still hold live screen/camera tracks. doCancel()
-            // releases them synchronously (see RecorderEngine.cancel —
-            // hardware teardown runs before the server-abort fetch is
-            // awaited), so navigate() can fire immediately while the
-            // best-effort server abort settles in the background.
-            void doCancel();
-            void navigate("/library");
+    <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
+      {autoOpenUploadFromUrl ? (
+        <input
+          ref={autoUploadInputRef}
+          data-auto-upload-bridge="true"
+          type="file"
+          accept="video/mp4,video/webm,video/quicktime,video/*"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void uploadFile(file);
+            event.currentTarget.value = "";
           }}
-          className="fixed start-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconArrowLeft className="h-5 w-5 rtl:-scale-x-100" />
-        </button>
+        />
+      ) : null}
+      {showBackButton && (
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("recordRoute.backToLibrary")}
+                onClick={() => {
+                  // If we landed in `error` after partial media acquisition,
+                  // the engine may still hold live tracks. doCancel() releases
+                  // hardware synchronously while its server cleanup settles.
+                  void doCancel();
+                  void navigate("/library");
+                }}
+                className="absolute start-3 top-3 z-30 rounded-full text-muted-foreground sm:start-4 sm:top-4"
+              >
+                <IconArrowLeft className="size-5 rtl:-scale-x-100" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("recordRoute.backToLibrary")}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
 
       {/* Idle / pre-record panel. `/record` sits outside the `_app` layout, so
           it renders its own standalone surface for direct visits. */}
       {uiState === "idle" && (
-        <div className="flex min-h-screen flex-col items-center justify-start px-4 py-10">
-          <div className="mb-6 flex items-center gap-2 text-primary">
-            <IconVideo className="h-6 w-6" />
-            <span className="text-sm font-medium uppercase tracking-wide">
-              {t("recordRoute.clipsRecorder")}
-            </span>
-          </div>
-          <div className="relative w-full max-w-6xl">
-            <div className="mx-auto w-full max-w-md">
+        <RecorderRouteViewport>
+          <div className="mx-auto grid w-full max-w-[320px] gap-2">
+            <div className="min-w-0">
               {storageConfigured === null ? (
                 <PreRecordPanelSkeleton />
               ) : storageConfigured ? (
@@ -2694,11 +2765,6 @@ export default function RecordRoute() {
                     rememberedRecorderOptions?.displaySurface ??
                     initialRecorderOptions.surface
                   }
-                  onUpload={uploadFile}
-                  importLoomHref={importLoomHref}
-                  cameraSize={cameraSize}
-                  onCameraSizeChange={handleCameraSizeChange}
-                  autoOpenUpload={autoOpenUploadFromUrl}
                 />
               ) : (
                 <StorageSetupCard
@@ -2708,25 +2774,31 @@ export default function RecordRoute() {
                 />
               )}
             </div>
-            {!isDesktopApp && (
-              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:start-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
-                <DesktopRecorderCallout />
-              </div>
-            )}
+            {!isDesktopApp && <DesktopRecorderCallout />}
           </div>
-        </div>
+        </RecorderRouteViewport>
       )}
 
       {uiState === "pickingSources" && (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
-          <div className="text-sm">{t("recordRoute.preparingSources")}</div>
-          <div className="text-xs">
-            {getPreparingSourcesCopy(
+        <RecorderRouteViewport>
+          <RecorderRouteStatus
+            busy
+            label={getPreparingSourcesCopy(
               recordingMode,
               pendingStartOptsRef.current?.micDeviceId,
             )}
-          </div>
-        </div>
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => void doCancel()}
+            >
+              {t("common.cancel")}
+            </Button>
+          </RecorderRouteStatus>
+        </RecorderRouteViewport>
       )}
 
       {/* Countdown */}
@@ -2755,19 +2827,32 @@ export default function RecordRoute() {
         )}
 
       {recordingMode !== "camera" && showRecordingUi && (
-        <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-zinc-950 via-zinc-900 to-black opacity-95">
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/70">
+        <div className="pointer-events-none fixed inset-0 bg-foreground">
+          <div
+            aria-live="polite"
+            className="absolute inset-0 flex items-center justify-center px-6 text-center text-background/70"
+          >
             <div className="flex items-center gap-2 text-sm">
-              <span className="relative inline-flex">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-30" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
-              </span>
-              {t("recordRoute.recordingScreen")}
+              <span
+                className={cn(
+                  "inline-flex size-2.5 shrink-0 rounded-full",
+                  isPaused
+                    ? "bg-muted-foreground"
+                    : "animate-pulse bg-destructive motion-reduce:animate-none",
+                )}
+              />
+              {isPaused
+                ? t("recordingToolbar.resumeRecording")
+                : t("recordRoute.recordingScreen")}
             </div>
-            <div className="text-[11px] text-white/50">
-              Press <kbd className="rounded bg-white/10 px-1.5 py-0.5">Esc</kbd>{" "}
-              to stop
-            </div>
+          </div>
+        </div>
+      )}
+
+      {recordingMode === "camera" && showRecordingUi && isPaused && (
+        <div className="pointer-events-none fixed inset-0 flex items-center justify-center bg-background/60 px-6 backdrop-blur-sm">
+          <div className="rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm">
+            {t("recordingToolbar.resumeRecording")}
           </div>
         </div>
       )}
@@ -2795,6 +2880,12 @@ export default function RecordRoute() {
         <RecordingToolbar
           active={uiState === "recording"}
           getElapsedMs={() => engineRef.current?.getElapsedMs() ?? 0}
+          getMicrophoneTrack={() =>
+            engineRef.current?.getMicrophoneTrack() ?? null
+          }
+          microphoneEnabled={wantsMicrophone(
+            rememberedRecorderOptions?.micDeviceId,
+          )}
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
@@ -2810,7 +2901,7 @@ export default function RecordRoute() {
           if (!open) resumeFromDiscardPrompt();
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-sm">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("recordingToolbar.discardConfirmTitle")}
@@ -2837,7 +2928,10 @@ export default function RecordRoute() {
       </AlertDialog>
 
       <AlertDialog open={leavePromptOpen} onOpenChange={onDialogOpenChange}>
-        <AlertDialogContent onCloseAutoFocus={onCloseAutoFocus}>
+        <AlertDialogContent
+          onCloseAutoFocus={onCloseAutoFocus}
+          className="max-w-sm"
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("recordRoute.leaveConfirmTitle")}
@@ -2865,62 +2959,57 @@ export default function RecordRoute() {
           for several minutes on long recordings — without a distinct copy
           users wonder if the app froze). */}
       {(uiState === "uploading" || uiState === "compressing") && (
-        <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
-          {!(uiState === "uploading" && uploadProgress !== null) && (
-            <Spinner className="h-10 w-10 text-white/70" />
-          )}
-          {uiState === "compressing" ? (
-            <>
-              <div className="text-sm">
-                Compressing your recording
-                {compressionProgress !== null
-                  ? ` — ${Math.round(compressionProgress * 100)}%`
-                  : "…"}
-              </div>
-              <div className="text-[11px] text-white/50">
-                {t("recordRoute.largeClipsNeedReencode")}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="text-sm">{t("recordRoute.savingRecording")}</div>
-              {uploadProgress !== null && (
-                <div className="flex w-48 flex-col items-center gap-1">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
-                    <div
-                      className="h-full rounded-full bg-white transition-all"
-                      style={{
-                        width: `${Math.min(100, Math.max(0, Math.round(uploadProgress * 100)))}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="text-[11px] text-white/50">
-                    {Math.round(uploadProgress * 100)}%
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-          <button
-            onClick={requestDiscard}
-            className="mt-1 text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
-          >
-            {t("recordingToolbar.cancel")}
-          </button>
+        <div className="fixed inset-0 z-[120] overflow-y-auto bg-background/90 backdrop-blur-sm">
+          <div className="flex min-h-full items-center justify-center p-3 sm:p-6">
+            <RecorderRouteStatus
+              busy
+              progress={
+                uiState === "compressing" ? compressionProgress : uploadProgress
+              }
+              label={
+                uiState === "compressing"
+                  ? t("recordRoute.compressingRecording")
+                  : t("recordRoute.savingRecording")
+              }
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={requestDiscard}
+                className="w-full text-muted-foreground hover:text-destructive"
+              >
+                {t("recordingToolbar.cancel")}
+              </Button>
+            </RecorderRouteStatus>
+          </div>
         </div>
+      )}
+
+      {uiState === "complete" && (
+        <RecorderRouteViewport>
+          <RecorderRouteStatus
+            icon={<IconCircleCheck className="size-4 text-primary" />}
+            label={t("recordRoute.recordingSaved")}
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => void navigate("/library")}
+            >
+              {t("recordRoute.backToLibrary")}
+            </Button>
+          </RecorderRouteStatus>
+        </RecorderRouteViewport>
       )}
 
       {/* Error state */}
       {uiState === "error" && error && (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
+        <RecorderRouteViewport>
           {error.includes("No video storage configured") ? (
-            <>
-              <div className="mb-2 flex items-center gap-2 text-primary">
-                <IconVideo className="h-6 w-6" />
-                <span className="text-sm font-medium uppercase tracking-wide">
-                  {t("recordRoute.clipsRecorder")}
-                </span>
-              </div>
+            <div className="w-full max-w-md">
               <StorageSetupCard
                 onConfigured={() => {
                   markStorageConfigured();
@@ -2933,25 +3022,27 @@ export default function RecordRoute() {
                     }, 0);
                   }
                 }}
-                connectedDescription="Storage connected. Reopening recorder..."
+                connectedDescription={t(
+                  "recordRoute.storageConnectedReopeningRecorder",
+                )}
                 connectSource="clips_record_storage_setup_card"
                 connectFlow="record"
               />
-            </>
-          ) : error === "SESSION_EXPIRED" ? (
-            <div className="max-w-md rounded-xl border border-border bg-card p-6">
-              <div className="mb-2 text-sm font-semibold text-foreground">
-                {t("recordRoute.sessionExpired")}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {t("recordRoute.sessionExpiredDescription")}
-              </div>
-              <div className="mt-4 flex justify-center">
-                <Button onClick={() => window.location.reload()}>
-                  {t("recordRoute.logIn")}
-                </Button>
-              </div>
             </div>
+          ) : error === "SESSION_EXPIRED" ? (
+            <RecorderRouteStatus
+              role="alert"
+              icon={<IconAlertTriangle className="size-4" />}
+              label={t("recordRoute.sessionExpired")}
+            >
+              <Button
+                type="button"
+                className="w-full"
+                onClick={() => window.location.reload()}
+              >
+                {t("recordRoute.logIn")}
+              </Button>
+            </RecorderRouteStatus>
           ) : (
             <RecordingErrorCard
               error={error}
@@ -2973,7 +3064,7 @@ export default function RecordRoute() {
               }}
             />
           )}
-        </div>
+        </RecorderRouteViewport>
       )}
     </div>
   );

@@ -1173,6 +1173,42 @@ const messages = {
     selectedPreview: "已选摄像头预览",
     preview: "摄像头预览",
     setBubbleSize: "设置摄像头气泡大小 {{size}}",
+    needsAttention: "检查摄像头",
+    unsupported: "此浏览器不支持实时摄像头检测。",
+    policyBlocked: "此页面阻止了摄像头访问。请直接打开 Clips 后重试。",
+    secureContextRequired: "摄像头检测需要 HTTPS 或 localhost。",
+    permissionBlocked:
+      "摄像头访问已被阻止。请在此网站的设置中允许访问，然后重新加载页面。",
+    permissionDenied:
+      "摄像头访问已被拒绝。请检查网站的摄像头设置和系统隐私设置，然后重新加载页面。",
+    notFound: "未找到摄像头。请连接摄像头或选择其他摄像头。",
+    inUse: "摄像头正被其他应用使用。请关闭该应用或选择其他摄像头。",
+    startFailed: "无法启动摄像头检测。",
+    disconnected: "摄像头已断开连接。",
+    noVideo: "未检测到摄像头画面。",
+  },
+  microphoneVisualizer: {
+    off: "关闭",
+    needsAttention: "检查麦克风",
+    signal: "有信号",
+    listening: "正在监听",
+    opening: "正在打开",
+    openingEllipsis: "正在打开...",
+    stop: "停止",
+    test: "测试麦克风",
+    unsupported: "此浏览器不支持实时麦克风检测。",
+    policyBlocked: "此页面阻止了麦克风访问。请直接打开 Clips 后重试。",
+    secureContextRequired: "麦克风检测需要 HTTPS 或 localhost。",
+    permissionBlockedBrowser:
+      "麦克风访问已被阻止。请在此网站的设置中允许访问，然后重新加载页面。",
+    permissionBlockedDesktop:
+      "麦克风访问已被阻止。请在系统隐私设置中允许访问，然后重新打开录制器。",
+    permissionDenied:
+      "麦克风访问已被拒绝。请检查网站的麦克风设置和系统隐私设置，然后重新加载页面。",
+    notFound: "未找到麦克风。请连接麦克风或选择其他输入。",
+    inUse: "麦克风正被其他应用使用。请关闭该应用或选择其他输入。",
+    startFailed: "无法启动麦克风检测。",
+    disconnected: "麦克风已断开连接。",
   },
   storageSetup: {
     builderTimeout: "5 分钟内未收到 Builder 响应。请检查弹出窗口并重试。",
@@ -1290,6 +1326,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (已本地化)",
     defaultCamera: "Default camera (已本地化)",
     shortCameraLabel: "Camera {{id}} (已本地化)",
+    moreCameras: "更多摄像头…",
+    cameraPickerTitle: "选择摄像头",
+    moreMicrophones: "更多麦克风…",
+    microphonePickerTitle: "选择麦克风",
+    closeDevicePicker: "关闭设备选择器",
     noAudio: "No audio (已本地化)",
     noCamera: "No camera (已本地化)",
     loomImportFailed: "Could not import that Loom. (已本地化)",
@@ -1312,9 +1353,10 @@ const messages = {
     cameraOff: "Camera off (已本地化)",
     includeCameraAria: "Include camera in this recording (已本地化)",
     startRecording: "Start recording (已本地化)",
+    startCameraRecording: "开始摄像头录制",
     micOffConfirmTitle: "你的麦克风已静音",
     micOffConfirmDescription: "要让视频有声音，请取消麦克风静音。",
-    startWithoutMic: "继续",
+    startWithoutMic: "无音频录制",
     unmuteMicrophone: "取消静音",
     uploadVideo: "Upload video (已本地化)",
     importLoom: "Import Loom (已本地化)",
@@ -1381,6 +1423,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (已本地化)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (已本地化)",
+    compressingRecording: "正在压缩录制内容…",
     savingRecording: "Saving your recording… (已本地化)",
     sessionExpired: "Session expired (已本地化)",
     sessionExpiredDescription:
@@ -1394,6 +1437,10 @@ const messages = {
     whatToCheck: "What to check (已本地化)",
     downloadRecording: "Download (已本地化)",
     openRecorderInTab: "Open recorder in tab (已本地化)",
+    retryUpload: "重试上传",
+    tryAgain: "重试",
+    storageConnectedReopeningRecorder:
+      "存储空间已连接。正在重新打开录制工具...",
     connectStorageToFinish:
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将完成保存。",
     connectStorageToRetryLoom:

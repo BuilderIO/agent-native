@@ -1231,6 +1231,44 @@ const messages = {
     selectedPreview: "معاينة الكاميرا المحددة",
     preview: "معاينة الكاميرا",
     setBubbleSize: "تعيين حجم فقاعة الكاميرا {{size}}",
+    needsAttention: "تحقق من الكاميرا",
+    unsupported: "هذا المتصفح لا يدعم فحص الكاميرا المباشر.",
+    policyBlocked:
+      "تحظر هذه الصفحة الوصول إلى الكاميرا. افتح Clips مباشرة وحاول مرة أخرى.",
+    secureContextRequired: "يتطلب فحص الكاميرا HTTPS أو localhost.",
+    permissionBlocked:
+      "الوصول إلى الكاميرا محظور. اسمح به في إعدادات هذا الموقع، ثم أعد تحميل الصفحة.",
+    permissionDenied:
+      "تم رفض الوصول إلى الكاميرا. تحقق من إعداد الكاميرا للموقع وإعدادات خصوصية النظام، ثم أعد تحميل الصفحة.",
+    notFound: "لم يتم العثور على كاميرا. وصّل كاميرا أو اختر كاميرا أخرى.",
+    inUse: "الكاميرا مستخدمة بواسطة تطبيق آخر. أغلقه أو اختر كاميرا أخرى.",
+    startFailed: "تعذر بدء فحص الكاميرا.",
+    disconnected: "تم فصل الكاميرا.",
+    noVideo: "لم يتم اكتشاف فيديو من الكاميرا.",
+  },
+  microphoneVisualizer: {
+    off: "متوقف",
+    needsAttention: "تحقق من الميكروفون",
+    signal: "إشارة",
+    listening: "جارٍ الاستماع",
+    opening: "جارٍ الفتح",
+    openingEllipsis: "جارٍ الفتح...",
+    stop: "إيقاف",
+    test: "اختبار الميكروفون",
+    unsupported: "هذا المتصفح لا يدعم فحص الميكروفون المباشر.",
+    policyBlocked:
+      "تحظر هذه الصفحة الوصول إلى الميكروفون. افتح Clips مباشرة وحاول مرة أخرى.",
+    secureContextRequired: "يتطلب فحص الميكروفون HTTPS أو localhost.",
+    permissionBlockedBrowser:
+      "الوصول إلى الميكروفون محظور. اسمح به في إعدادات هذا الموقع، ثم أعد تحميل الصفحة.",
+    permissionBlockedDesktop:
+      "الوصول إلى الميكروفون محظور. اسمح به في إعدادات خصوصية النظام، ثم أعد فتح المسجل.",
+    permissionDenied:
+      "تم رفض الوصول إلى الميكروفون. تحقق من إعداد الميكروفون للموقع وإعدادات خصوصية النظام، ثم أعد تحميل الصفحة.",
+    notFound: "لم يتم العثور على ميكروفون. وصّل ميكروفونًا أو اختر إدخالًا آخر.",
+    inUse: "الميكروفون مستخدم بواسطة تطبيق آخر. أغلقه أو اختر إدخالًا آخر.",
+    startFailed: "تعذر بدء فحص الميكروفون.",
+    disconnected: "تم فصل الميكروفون.",
   },
   storageSetup: {
     builderTimeout:
@@ -1349,6 +1387,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (مترجم)",
     defaultCamera: "Default camera (مترجم)",
     shortCameraLabel: "Camera {{id}} (مترجم)",
+    moreCameras: "المزيد من الكاميرات…",
+    cameraPickerTitle: "اختيار كاميرا",
+    moreMicrophones: "المزيد من الميكروفونات…",
+    microphonePickerTitle: "اختيار ميكروفون",
+    closeDevicePicker: "إغلاق منتقي الأجهزة",
     noAudio: "No audio (مترجم)",
     noCamera: "No camera (مترجم)",
     loomImportFailed: "Could not import that Loom. (مترجم)",
@@ -1371,10 +1414,11 @@ const messages = {
     cameraOff: "Camera off (مترجم)",
     includeCameraAria: "Include camera in this recording (مترجم)",
     startRecording: "Start recording (مترجم)",
+    startCameraRecording: "بدء تسجيل الكاميرا",
     micOffConfirmTitle: "الميكروفون مكتوم",
     micOffConfirmDescription:
       "لإضافة صوت إلى الفيديو، يجب إلغاء كتم صوت الميكروفون.",
-    startWithoutMic: "متابعة",
+    startWithoutMic: "تسجيل بدون صوت",
     unmuteMicrophone: "إلغاء كتم الميكروفون",
     uploadVideo: "Upload video (مترجم)",
     importLoom: "Import Loom (مترجم)",
@@ -1441,6 +1485,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (مترجم)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (مترجم)",
+    compressingRecording: "جارٍ ضغط تسجيلك…",
     savingRecording: "Saving your recording… (مترجم)",
     sessionExpired: "Session expired (مترجم)",
     sessionExpiredDescription:
@@ -1454,6 +1499,10 @@ const messages = {
     whatToCheck: "What to check (مترجم)",
     downloadRecording: "Download (مترجم)",
     openRecorderInTab: "Open recorder in tab (مترجم)",
+    retryUpload: "إعادة محاولة الرفع",
+    tryAgain: "حاول مرة أخرى",
+    storageConnectedReopeningRecorder:
+      "تم توصيل مساحة التخزين. جارٍ إعادة فتح المسجّل...",
     connectStorageToFinish:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:

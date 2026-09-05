@@ -1216,6 +1216,47 @@ const messages = {
     selectedPreview: "Selected camera preview",
     preview: "Camera preview",
     setBubbleSize: "Set camera bubble size {{size}}",
+    needsAttention: "Check camera",
+    unsupported: "Live camera checks aren't supported in this browser.",
+    policyBlocked:
+      "Camera access is blocked by this page. Open Clips directly and try again.",
+    secureContextRequired: "Camera checks require HTTPS or localhost.",
+    permissionBlocked:
+      "Camera access is blocked. Allow it in this site's settings, then reload.",
+    permissionDenied:
+      "Camera access was denied. Check the site's camera setting and system privacy settings, then reload.",
+    notFound: "No camera was found. Plug one in or choose a different camera.",
+    inUse:
+      "That camera is in use by another app. Close it or choose a different camera.",
+    startFailed: "Could not start the camera check.",
+    disconnected: "Camera disconnected.",
+    noVideo: "No camera video detected.",
+  },
+  microphoneVisualizer: {
+    off: "Off",
+    needsAttention: "Check mic",
+    signal: "Signal",
+    listening: "Listening",
+    opening: "Opening",
+    openingEllipsis: "Opening...",
+    stop: "Stop",
+    test: "Test mic",
+    unsupported: "Live microphone checks aren't supported in this browser.",
+    policyBlocked:
+      "Microphone access is blocked by this page. Open Clips directly and try again.",
+    secureContextRequired: "Microphone checks require HTTPS or localhost.",
+    permissionBlockedBrowser:
+      "Microphone access is blocked. Allow it in this site's settings, then reload.",
+    permissionBlockedDesktop:
+      "Microphone access is blocked. Allow it in system privacy settings, then reopen the recorder.",
+    permissionDenied:
+      "Microphone access was denied. Check the site's microphone setting and system privacy settings, then reload.",
+    notFound:
+      "No microphone was found. Plug one in or choose a different input.",
+    inUse:
+      "That microphone is in use by another app. Close it or choose a different input.",
+    startFailed: "Could not start the microphone check.",
+    disconnected: "Microphone disconnected.",
   },
   storageSetup: {
     builderTimeout:
@@ -1332,6 +1373,11 @@ const messages = {
     shortMicLabel: "Mic {{id}}",
     defaultCamera: "Default camera",
     shortCameraLabel: "Camera {{id}}",
+    moreCameras: "More cameras…",
+    cameraPickerTitle: "Choose a camera",
+    moreMicrophones: "More microphones…",
+    microphonePickerTitle: "Choose a microphone",
+    closeDevicePicker: "Close device picker",
     noAudio: "No audio",
     noCamera: "No camera",
     loomImportFailed: "Could not import that Loom.",
@@ -1354,10 +1400,11 @@ const messages = {
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
+    startCameraRecording: "Start camera recording",
     micOffConfirmTitle: "Your mic is muted",
     micOffConfirmDescription:
       "To have sound in your video, you’ll need to unmute your microphone.",
-    startWithoutMic: "Continue",
+    startWithoutMic: "Record without audio",
     unmuteMicrophone: "Unmute",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
@@ -1420,6 +1467,7 @@ const messages = {
     recordingScreen:
       "Recording your screen — switch to the window you want to capture",
     largeClipsNeedReencode: "Large clips need a quick re-encode before upload.",
+    compressingRecording: "Compressing your recording…",
     savingRecording: "Saving your recording…",
     sessionExpired: "Session expired",
     sessionExpiredDescription:
@@ -1433,6 +1481,10 @@ const messages = {
     whatToCheck: "What to check",
     downloadRecording: "Download",
     openRecorderInTab: "Open recorder in tab",
+    retryUpload: "Retry upload",
+    tryAgain: "Try again",
+    storageConnectedReopeningRecorder:
+      "Storage connected. Reopening recorder...",
     connectStorageToFinish:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:

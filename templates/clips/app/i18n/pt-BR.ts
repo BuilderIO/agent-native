@@ -1244,6 +1244,50 @@ const messages = {
     selectedPreview: "Prévia da câmera selecionada",
     preview: "Prévia da câmera",
     setBubbleSize: "Definir tamanho da bolha da câmera {{size}}",
+    needsAttention: "Verificar câmera",
+    unsupported:
+      "Este navegador não oferece suporte ao teste de câmera ao vivo.",
+    policyBlocked:
+      "Esta página bloqueia o acesso à câmera. Abra o Clips diretamente e tente novamente.",
+    secureContextRequired: "Os testes de câmera exigem HTTPS ou localhost.",
+    permissionBlocked:
+      "O acesso à câmera está bloqueado. Permita-o nas configurações deste site e recarregue a página.",
+    permissionDenied:
+      "O acesso à câmera foi negado. Verifique a configuração de câmera do site e as configurações de privacidade do sistema e recarregue a página.",
+    notFound:
+      "Nenhuma câmera foi encontrada. Conecte uma ou escolha outra câmera.",
+    inUse:
+      "A câmera está sendo usada por outro app. Feche-o ou escolha outra câmera.",
+    startFailed: "Não foi possível iniciar o teste da câmera.",
+    disconnected: "Câmera desconectada.",
+    noVideo: "Nenhum vídeo da câmera foi detectado.",
+  },
+  microphoneVisualizer: {
+    off: "Desativado",
+    needsAttention: "Verificar microfone",
+    signal: "Sinal",
+    listening: "Ouvindo",
+    opening: "Abrindo",
+    openingEllipsis: "Abrindo...",
+    stop: "Parar",
+    test: "Testar microfone",
+    unsupported:
+      "Este navegador não oferece suporte ao teste de microfone ao vivo.",
+    policyBlocked:
+      "Esta página bloqueia o acesso ao microfone. Abra o Clips diretamente e tente novamente.",
+    secureContextRequired: "Os testes de microfone exigem HTTPS ou localhost.",
+    permissionBlockedBrowser:
+      "O acesso ao microfone está bloqueado. Permita-o nas configurações deste site e recarregue a página.",
+    permissionBlockedDesktop:
+      "O acesso ao microfone está bloqueado. Permita-o nas configurações de privacidade do sistema e abra o gravador novamente.",
+    permissionDenied:
+      "O acesso ao microfone foi negado. Verifique a configuração de microfone do site e as configurações de privacidade do sistema e recarregue a página.",
+    notFound:
+      "Nenhum microfone foi encontrado. Conecte um ou escolha outra entrada.",
+    inUse:
+      "O microfone está sendo usado por outro app. Feche-o ou escolha outra entrada.",
+    startFailed: "Não foi possível iniciar o teste do microfone.",
+    disconnected: "Microfone desconectado.",
   },
   storageSetup: {
     builderTimeout:
@@ -1360,6 +1404,11 @@ const messages = {
     shortMicLabel: "Mic {{id}}",
     defaultCamera: "Default camera",
     shortCameraLabel: "Camera {{id}}",
+    moreCameras: "Mais câmeras…",
+    cameraPickerTitle: "Escolher uma câmera",
+    moreMicrophones: "Mais microfones…",
+    microphonePickerTitle: "Escolher um microfone",
+    closeDevicePicker: "Fechar seletor de dispositivo",
     noAudio: "No audio",
     noCamera: "No camera",
     loomImportFailed: "Could not import that Loom.",
@@ -1382,10 +1431,11 @@ const messages = {
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
+    startCameraRecording: "Iniciar gravação da câmera",
     micOffConfirmTitle: "Seu microfone está silenciado",
     micOffConfirmDescription:
       "Para que seu vídeo tenha som, ative o microfone.",
-    startWithoutMic: "Continuar",
+    startWithoutMic: "Gravar sem áudio",
     unmuteMicrophone: "Ativar microfone",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
@@ -1448,6 +1498,7 @@ const messages = {
     recordingScreen:
       "Recording your screen — switch to the window you want to capture",
     largeClipsNeedReencode: "Large clips need a quick re-encode before upload.",
+    compressingRecording: "Compactando sua gravação…",
     savingRecording: "Saving your recording…",
     sessionExpired: "Session expired",
     sessionExpiredDescription:
@@ -1461,6 +1512,10 @@ const messages = {
     whatToCheck: "What to check",
     downloadRecording: "Download",
     openRecorderInTab: "Open recorder in tab",
+    retryUpload: "Tentar enviar novamente",
+    tryAgain: "Tentar novamente",
+    storageConnectedReopeningRecorder:
+      "Armazenamento conectado. Reabrindo o gravador...",
     connectStorageToFinish:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",
     connectStorageToRetryLoom:
