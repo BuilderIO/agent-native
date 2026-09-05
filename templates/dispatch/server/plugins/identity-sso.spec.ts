@@ -37,6 +37,12 @@ const codeRows: CodeRow[] = [];
 let organizationRow: Record<string, unknown> | null = null;
 let centralActorRole: string | null = null;
 let centralMemberRole: string | null = null;
+let centralMemberPending = false;
+let centralMemberDuplicate = false;
+let roleUpdateAttempted = false;
+let roleUpdateRowsAffectedOverride: number | null = null;
+let promoteBeforeLockedRemovalCheck = false;
+let markPendingBeforeRoleWrite = false;
 
 vi.mock("@agent-native/core/feature-flags", async () => {
   const actual = await vi.importActual<
@@ -58,6 +64,13 @@ vi.mock("@agent-native/core/org", () => ({
     key: "organization.cross-app-federation",
   },
   CROSS_APP_ORG_FEDERATION_SCOPE: "organization-federation",
+  canRemoveOrgMember: (
+    actorRole: string | null | undefined,
+    memberRole: string | null | undefined,
+  ) =>
+    actorRole === "owner"
+      ? memberRole === "admin" || memberRole === "member"
+      : actorRole === "admin" && memberRole === "member",
   getOrgContext: getOrgContextMock,
   getOrgDomain: getOrgDomainMock,
   invalidateMemberOrgCaches: invalidateMemberOrgCachesMock,
@@ -105,20 +118,20 @@ vi.mock("@agent-native/core/db", () => ({
         )
       ) {
         const email = String(args[1] ?? "");
+        const role =
+          email === "owner@example.test" ? centralActorRole : centralMemberRole;
+        const pending =
+          email === "owner@example.test" ? false : centralMemberPending;
+        if (email !== "owner@example.test" && promoteBeforeLockedRemovalCheck) {
+          promoteBeforeLockedRemovalCheck = false;
+          centralMemberRole = "admin";
+        }
         return {
-          rows: (
-            email === "owner@example.test"
-              ? centralActorRole
-              : centralMemberRole
-          )
-            ? [
-                {
-                  role:
-                    email === "owner@example.test"
-                      ? centralActorRole
-                      : centralMemberRole,
-                },
-              ]
+          rows: role
+            ? Array.from({ length: centralMemberDuplicate ? 2 : 1 }, () => ({
+                role,
+                federation_removal_pending_at: pending ? Date.now() : null,
+              }))
             : [],
           rowsAffected: 0,
         };
@@ -134,10 +147,39 @@ vi.mock("@agent-native/core/db", () => ({
         };
       }
       if (/^DELETE FROM org_members/i.test(sql)) {
+        if (!centralMemberPending) return { rows: [], rowsAffected: 0 };
         centralMemberRole = null;
+        centralMemberPending = false;
         return { rows: [], rowsAffected: 1 };
       }
       if (/^UPDATE org_members/i.test(sql)) {
+        if (/SET federation_removal_pending_at/i.test(sql)) {
+          if (centralMemberPending || !centralMemberRole) {
+            return { rows: [], rowsAffected: 0 };
+          }
+          centralMemberPending = true;
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (/SET role = \?/i.test(sql)) {
+          if (args.length < 4) return { rows: [], rowsAffected: 1 };
+          roleUpdateAttempted = true;
+          if (markPendingBeforeRoleWrite) {
+            markPendingBeforeRoleWrite = false;
+            centralMemberPending = true;
+          }
+          if (
+            centralMemberPending ||
+            !centralMemberRole ||
+            args[3] !== centralMemberRole
+          ) {
+            return { rows: [], rowsAffected: 0 };
+          }
+          centralMemberRole = String(args[0]);
+          return {
+            rows: [],
+            rowsAffected: roleUpdateRowsAffectedOverride ?? 1,
+          };
+        }
         return { rows: [], rowsAffected: 1 };
       }
       if (/^DELETE FROM identity_sso_authorization_code/i.test(sql)) {
@@ -186,8 +228,19 @@ vi.mock("@agent-native/core/db", () => ({
     };
     return {
       execute,
-      transaction: async (fn: (tx: { execute: typeof execute }) => unknown) =>
-        fn({ execute }),
+      transaction: async (fn: (tx: { execute: typeof execute }) => unknown) => {
+        const snapshot = {
+          centralMemberRole,
+          centralMemberPending,
+        };
+        try {
+          return await fn({ execute });
+        } catch (error) {
+          centralMemberRole = snapshot.centralMemberRole;
+          centralMemberPending = snapshot.centralMemberPending;
+          throw error;
+        }
+      },
     };
   },
   isProductionServerlessFunctionRuntime: () => false,
@@ -233,12 +286,56 @@ function event(path: string, extra: Record<string, unknown> = {}): any {
   };
 }
 
+function configureMemberOperation(
+  operation: "remove-member" | "update-member-role",
+  options: {
+    actorRole: "owner" | "admin" | "member";
+    actorEmail?: string;
+    memberEmail?: string;
+    memberRole?: "admin" | "member";
+  },
+): void {
+  featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
+    return flag.key === "organization.cross-app-federation";
+  });
+  organizationRow = {
+    id: "dispatch-org-1",
+    name: "Example Org",
+    identity_authority: AUTHORITY,
+    identity_id: "dispatch-org-1",
+  };
+  centralActorRole = options.actorRole;
+  verifyA2ATokenMock.mockResolvedValue({
+    email: options.actorEmail ?? "owner@example.test",
+    orgDomain: null,
+    orgId: "dispatch-org-1",
+    claims: {
+      iss: "https://slides.agent-native.com",
+      app_id: "slides",
+      scope: "organization-federation",
+      org_name: "Example Org",
+      org_role: options.actorRole,
+      federation_operation: operation,
+      federation_member_email: options.memberEmail ?? "member@example.test",
+      ...(operation === "update-member-role"
+        ? { federation_member_role: options.memberRole ?? "admin" }
+        : {}),
+    },
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   codeRows.length = 0;
   organizationRow = null;
   centralActorRole = null;
   centralMemberRole = null;
+  centralMemberPending = false;
+  centralMemberDuplicate = false;
+  roleUpdateAttempted = false;
+  roleUpdateRowsAffectedOverride = null;
+  promoteBeforeLockedRemovalCheck = false;
+  markPendingBeforeRoleWrite = false;
   process.env.APP_URL = AUTHORITY;
   process.env.A2A_SECRET = "test-a2a-secret";
   process.env.AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_MAIL =
@@ -840,6 +937,150 @@ describe("organization federation endpoint", () => {
         verificationSecret: "test-slides-federation-secret",
       }),
     );
+  });
+
+  it("does not let an admin remove a member promoted before the locked removal claim", async () => {
+    centralMemberRole = "member";
+    promoteBeforeLockedRemovalCheck = true;
+    configureMemberOperation("remove-member", { actorRole: "admin" });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer stale-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(centralMemberRole).toBe("admin");
+  });
+
+  it("lets an admin remove an active member", async () => {
+    centralMemberRole = "member";
+    configureMemberOperation("remove-member", { actorRole: "admin" });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer admin-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(centralMemberRole).toBeNull();
+  });
+
+  it("finishes an authorized removal already marked pending by a loopback caller", async () => {
+    centralMemberRole = "member";
+    centralMemberPending = true;
+    configureMemberOperation("remove-member", { actorRole: "admin" });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer pending-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(centralMemberRole).toBeNull();
+  });
+
+  it("lets a pending non-owner finish their own idempotent removal", async () => {
+    centralMemberRole = "member";
+    centralMemberPending = true;
+    configureMemberOperation("remove-member", {
+      actorRole: "member",
+      actorEmail: "member@example.test",
+      memberEmail: "member@example.test",
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer pending-self-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(centralMemberRole).toBeNull();
+  });
+
+  it("does not let an admin remove another admin", async () => {
+    centralMemberRole = "admin";
+    configureMemberOperation("remove-member", { actorRole: "admin" });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer admin-admin-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(centralMemberRole).toBe("admin");
+  });
+
+  it("does not report a role update successful after removal becomes pending", async () => {
+    centralMemberRole = "member";
+    markPendingBeforeRoleWrite = true;
+    configureMemberOperation("update-member-role", {
+      actorRole: "owner",
+      memberRole: "admin",
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer pending-role-update-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(centralMemberRole).toBe("member");
+  });
+
+  it("does not write an ambiguous case-insensitive duplicate during a role update", async () => {
+    centralMemberRole = "member";
+    centralMemberDuplicate = true;
+    configureMemberOperation("update-member-role", {
+      actorRole: "owner",
+      memberRole: "admin",
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer duplicate-role-update-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(roleUpdateAttempted).toBe(false);
+    expect(centralMemberRole).toBe("member");
+  });
+
+  it("rolls back an unexpected multi-row role write", async () => {
+    centralMemberRole = "member";
+    roleUpdateRowsAffectedOverride = 2;
+    configureMemberOperation("update-member-role", {
+      actorRole: "owner",
+      memberRole: "admin",
+    });
+
+    await expect(
+      organizationFederationHandler(
+        event("/_agent-native/identity/organization", {
+          method: "POST",
+          headers: { authorization: "Bearer multi-row-role-update-assertion" },
+        }),
+      ),
+    ).rejects.toThrow(
+      "Organization membership role update matched multiple rows",
+    );
+
+    expect(roleUpdateAttempted).toBe(true);
+    expect(centralMemberRole).toBe("member");
   });
 
   it("does not use the shared A2A secret for federation assertions", async () => {

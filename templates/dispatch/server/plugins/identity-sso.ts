@@ -28,6 +28,7 @@ import {
 import {
   CROSS_APP_ORG_FEDERATION_FLAG,
   CROSS_APP_ORG_FEDERATION_SCOPE,
+  canRemoveOrgMember,
   getOrgContext,
   getOrgDomain,
   invalidateMemberOrgCaches,
@@ -873,20 +874,76 @@ export const organizationFederationHandler = defineEventHandler(
             403,
           );
         }
-        if (
-          actorRole === "admin" &&
-          (currentMemberRole === "admin" || memberRole === "admin")
-        ) {
+        const transaction = exec.transaction?.bind(exec);
+        if (!transaction) {
+          return jsonResponse(
+            {
+              error:
+                "Organization member role updates are temporarily unavailable",
+            },
+            503,
+          );
+        }
+        const roleUpdate = await transaction(async (tx) => {
+          const targets = await tx.execute({
+            sql: `SELECT role, federation_removal_pending_at FROM org_members
+                  WHERE org_id = ? AND LOWER(email) = ? FOR UPDATE`,
+            args: [orgId, federationMemberEmail],
+          });
+          if (targets.rows.length !== 1) return "conflict";
+          const target = targets.rows[0] as {
+            role?: unknown;
+            federation_removal_pending_at?: unknown;
+          };
+          const expectedRole = String(target.role ?? "");
+          if (
+            !validOrganizationRole(expectedRole) ||
+            target.federation_removal_pending_at != null
+          ) {
+            return "conflict";
+          }
+          if (expectedRole === "owner") return "owner";
+          if (
+            actorRole === "admin" &&
+            (expectedRole === "admin" || memberRole === "admin")
+          ) {
+            return "forbidden";
+          }
+          const updated = await tx.execute({
+            sql: `UPDATE org_members SET role = ?
+                  WHERE org_id = ? AND LOWER(email) = ?
+                    AND role = ?
+                    AND federation_removal_pending_at IS NULL`,
+            args: [memberRole, orgId, federationMemberEmail, expectedRole],
+          });
+          if (updated.rowsAffected !== 1) {
+            if (updated.rowsAffected > 1) {
+              throw new Error(
+                "Organization membership role update matched multiple rows.",
+              );
+            }
+            return "conflict";
+          }
+          return "updated";
+        });
+        if (roleUpdate === "conflict") {
+          return jsonResponse(
+            { error: "Organization membership changed during role update" },
+            409,
+          );
+        }
+        if (roleUpdate === "owner") {
+          return jsonResponse(
+            { error: "Cannot change the organization owner's role" },
+            403,
+          );
+        }
+        if (roleUpdate === "forbidden") {
           return jsonResponse(
             { error: "Only the organization owner can manage admins" },
             403,
           );
         }
-        await exec.execute({
-          sql: `UPDATE org_members SET role = ?
-                WHERE org_id = ? AND LOWER(email) = ?`,
-          args: [memberRole, orgId, federationMemberEmail],
-        });
         invalidateMemberOrgCaches();
         return jsonResponse(
           {
@@ -899,28 +956,82 @@ export const organizationFederationHandler = defineEventHandler(
         );
       }
 
-      if (currentMemberRole === "owner") {
+      const transaction = exec.transaction?.bind(exec);
+      if (!transaction) {
         return jsonResponse(
-          { error: "Cannot remove the organization owner" },
+          { error: "Organization member removal is temporarily unavailable" },
+          503,
+        );
+      }
+      const removal = await transaction(async (tx) => {
+        // This lock covers only the local authority decision and write. The
+        // caller may be a satellite whose federation request is waiting for
+        // this response, so it must never cover a network call.
+        const targets = await tx.execute({
+          sql: `SELECT role, federation_removal_pending_at FROM org_members
+                WHERE org_id = ? AND LOWER(email) = ? FOR UPDATE`,
+          args: [orgId, federationMemberEmail],
+        });
+        const targetRows = targets.rows as Array<{
+          role?: unknown;
+          federation_removal_pending_at?: unknown;
+        }>;
+        if (targetRows.length === 0) {
+          return isSelfRemoval ? "already-removed" : "not-found";
+        }
+
+        const hasPendingRemoval = targetRows.some(
+          (row) => row.federation_removal_pending_at != null,
+        );
+        const roles = targetRows.map((row) => String(row.role ?? ""));
+        if (roles.some((role) => !validOrganizationRole(role))) {
+          return "forbidden";
+        }
+        if (isSelfRemoval) {
+          if (roles.some((role) => role === "owner")) return "forbidden";
+        } else if (
+          roles.some(
+            (role) =>
+              !canRemoveOrgMember(
+                actorRole as "owner" | "admin" | "member",
+                role as "owner" | "admin" | "member",
+              ),
+          )
+        ) {
+          return "forbidden";
+        }
+
+        if (!hasPendingRemoval) {
+          const marked = await tx.execute({
+            sql: `UPDATE org_members SET federation_removal_pending_at = ?
+                  WHERE org_id = ? AND LOWER(email) = ?
+                    AND federation_removal_pending_at IS NULL`,
+            args: [Date.now(), orgId, federationMemberEmail],
+          });
+          if (marked.rowsAffected !== targetRows.length) {
+            throw new Error("Organization membership changed during removal.");
+          }
+        }
+
+        const deleted = await tx.execute({
+          sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?
+                AND federation_removal_pending_at IS NOT NULL`,
+          args: [orgId, federationMemberEmail],
+        });
+        if (deleted.rowsAffected !== targetRows.length) {
+          throw new Error("Organization membership changed during removal.");
+        }
+        return "removed";
+      });
+      if (removal === "not-found") {
+        return jsonResponse({ error: "Member not found" }, 404);
+      }
+      if (removal === "forbidden") {
+        return jsonResponse(
+          { error: "You do not have permission to remove this member" },
           403,
         );
       }
-      if (actorRole === "owner" && federationMemberEmail === email) {
-        return jsonResponse(
-          { error: "Organization owner cannot remove themselves" },
-          403,
-        );
-      }
-      await exec.execute({
-        sql: `UPDATE org_members SET federation_removal_pending_at = ?
-              WHERE org_id = ? AND LOWER(email) = ?
-                AND federation_removal_pending_at IS NULL`,
-        args: [Date.now(), orgId, federationMemberEmail],
-      });
-      await exec.execute({
-        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
-        args: [orgId, federationMemberEmail],
-      });
       invalidateMemberOrgCaches();
       return jsonResponse(
         {

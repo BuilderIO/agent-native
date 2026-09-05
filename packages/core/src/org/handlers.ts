@@ -920,43 +920,63 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
     const e = await exec();
-    // Read every matching row before issuing an authority revoke. A missing
-    // target must not turn into a remote delete, and legacy case-duplicate
-    // rows are safe only when every matching row is active and removable by
-    // this caller.
-    const targetRows = await e.execute({
-      sql: `SELECT role, federation_removal_pending_at FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [ctx.orgId, memberEmailLower],
-    });
-    if (targetRows.rows.length === 0) {
-      throw createError({ statusCode: 404, message: "Member not found" });
-    }
-    if (
-      targetRows.rows.some(
-        (row: any) => !canRemoveOrgMember(ctx.role, row.role),
-      )
-    ) {
-      throw createError({
-        statusCode: 403,
-        message: "You do not have permission to remove this member",
-      });
-    }
-    if (
-      targetRows.rows.some(
-        (row: any) => row.federation_removal_pending_at != null,
-      )
-    ) {
+    if (!e.transaction) {
       throw createError({
         statusCode: 503,
-        message: "This membership is pending identity-authority cleanup.",
+        message: "Member removal cannot be safely prepared right now",
       });
     }
-    await e.execute({
-      sql: `UPDATE org_members SET federation_removal_pending_at = ?
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL`,
-      args: [Date.now(), ctx.orgId, memberEmailLower],
+    // Claim every case-insensitive match in one short local transaction. The
+    // row locks make the read, role authorization, and pending-removal marker
+    // one decision; never keep them while calling the identity authority.
+    const claimedRowCount = await e.transaction(async (tx) => {
+      const targetRows = await tx.execute({
+        sql: `SELECT role, federation_removal_pending_at FROM org_members
+              WHERE org_id = ? AND LOWER(email) = ? FOR UPDATE`,
+        args: [ctx.orgId, memberEmailLower],
+      });
+      if (targetRows.rows.length === 0) {
+        throw createError({ statusCode: 404, message: "Member not found" });
+      }
+      if (
+        targetRows.rows.some(
+          (row: any) => !canRemoveOrgMember(ctx.role, row.role),
+        )
+      ) {
+        throw createError({
+          statusCode: 403,
+          message: "You do not have permission to remove this member",
+        });
+      }
+      if (
+        targetRows.rows.some(
+          (row: any) => row.federation_removal_pending_at != null,
+        )
+      ) {
+        throw createError({
+          statusCode: 503,
+          message: "This membership is pending identity-authority cleanup.",
+        });
+      }
+
+      const removableRoles = (["owner", "admin", "member"] as OrgRole[]).filter(
+        (candidateRole) => canRemoveOrgMember(ctx.role, candidateRole),
+      );
+
+      const marked = await tx.execute({
+        sql: `UPDATE org_members SET federation_removal_pending_at = ?
+              WHERE org_id = ? AND LOWER(email) = ?
+                AND federation_removal_pending_at IS NULL
+                AND role IN (${removableRoles.map(() => "?").join(", ")})`,
+        args: [Date.now(), ctx.orgId, memberEmailLower, ...removableRoles],
+      });
+      if (marked.rowsAffected !== targetRows.rows.length) {
+        throw createError({
+          statusCode: 409,
+          message: "Member changed while removal was being prepared",
+        });
+      }
+      return targetRows.rows.length;
     });
 
     try {
@@ -980,10 +1000,29 @@ export const removeMemberHandler = defineEventHandler(
     }
 
     try {
-      await e.execute({
-        sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+      const deleted = await e.execute({
+        sql: `DELETE FROM org_members
+              WHERE org_id = ? AND LOWER(email) = ?
+                AND federation_removal_pending_at IS NOT NULL`,
         args: [ctx.orgId, memberEmailLower],
       });
+      if (
+        deleted.rowsAffected !== 0 &&
+        deleted.rowsAffected !== claimedRowCount
+      ) {
+        throw new Error("claimed member rows changed before local cleanup");
+      }
+      if (deleted.rowsAffected === 0) {
+        const remaining = await e.execute({
+          sql: `SELECT 1 FROM org_members
+                WHERE org_id = ? AND LOWER(email) = ?
+                LIMIT 1`,
+          args: [ctx.orgId, memberEmailLower],
+        });
+        if (remaining.rows.length !== 0) {
+          throw new Error("claimed member rows remain after local cleanup");
+        }
+      }
     } catch (error) {
       // The durable pending marker keeps this member out of auth lookups until
       // the idempotent authority revocation and local delete are retried.
@@ -1035,14 +1074,24 @@ export const changeMemberRoleHandler = defineEventHandler(
     // Look up the target member's current role to enforce sensible rules
     // about what changes are allowed.
     const current = await e.execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
+      sql: `SELECT role, federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
     if (current.rows.length === 0) {
       throw createError({ statusCode: 404, message: "Member not found" });
+    }
+    if (current.rows.length !== 1) {
+      throw createError({
+        statusCode: 409,
+        message: "Member has ambiguous legacy membership rows",
+      });
+    }
+    if ((current.rows[0] as any).federation_removal_pending_at != null) {
+      throw createError({
+        statusCode: 503,
+        message: "This membership is pending identity-authority cleanup.",
+      });
     }
     const currentRole = String((current.rows[0] as any).role) as OrgRole;
 
@@ -1090,10 +1139,31 @@ export const changeMemberRoleHandler = defineEventHandler(
       });
     }
 
-    await e.execute({
-      sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
-      args: [role, ctx.orgId, memberEmailLower],
+    const updated = await e.execute({
+      sql: `UPDATE org_members SET role = ?
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND role = ? AND federation_removal_pending_at IS NULL`,
+      args: [role, ctx.orgId, memberEmailLower, currentRole],
     });
+    if (updated.rowsAffected !== 1) {
+      // A shared identity authority can apply the desired role to this same
+      // database before its response returns. Treat that active final state as
+      // success, but never mistake a pending removal for a completed update.
+      const confirmed = await e.execute({
+        sql: `SELECT 1 FROM org_members
+              WHERE org_id = ? AND LOWER(email) = ?
+                AND role = ? AND federation_removal_pending_at IS NULL
+              LIMIT 1`,
+        args: [ctx.orgId, memberEmailLower, role],
+      });
+      if (confirmed.rows.length === 0) {
+        throw createError({
+          statusCode: 409,
+          message:
+            "Member changed while the role update was being synchronized",
+        });
+      }
+    }
     invalidateMemberOrgCaches();
 
     return { email: memberEmailLower, role };

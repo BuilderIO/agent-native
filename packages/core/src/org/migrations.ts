@@ -203,4 +203,11 @@ export const ORG_MIGRATIONS = [
     sql: `ALTER TABLE organizations
           ADD COLUMN IF NOT EXISTS federation_roster_initialized_at INTEGER`,
   },
+  {
+    version: 1022,
+    name: "organization-federation-removal-pending-bigint",
+    // guard:allow-destructive-ddl — PostgreSQL int4 to int8 is a lossless, additive widening required for millisecond markers.
+    sql: `ALTER TABLE org_members
+          ALTER COLUMN federation_removal_pending_at TYPE BIGINT`,
+  },
 ];

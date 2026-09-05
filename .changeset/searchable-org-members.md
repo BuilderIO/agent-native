@@ -13,3 +13,7 @@ presenting failed searches as empty results.
 
 Keep a debounced member search on its first page when pagination is used while
 the new query is pending.
+
+Make federated member removals and role changes fail closed when concurrent
+membership state changes, and retain millisecond removal markers safely in
+PostgreSQL.

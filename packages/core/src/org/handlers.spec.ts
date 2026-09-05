@@ -179,6 +179,8 @@ describe("org handlers", () => {
       rows: [{ role: targetRole, federation_removal_pending_at: null }],
       rowsAffected: 0,
     });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
 
     await expect(
       removeMemberHandler(
@@ -202,6 +204,8 @@ describe("org handlers", () => {
       rows: [{ role: "member", federation_removal_pending_at: null }],
       rowsAffected: 0,
     });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
     mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
 
     await expect(
@@ -221,7 +225,7 @@ describe("org handlers", () => {
     );
     expect(mockExecute).toHaveBeenCalledTimes(3);
     expect(mockExecute.mock.calls[2][0].sql).toContain(
-      "DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?",
+      "DELETE FROM org_members",
     );
   });
 
@@ -230,6 +234,7 @@ describe("org handlers", () => {
       rows: [{ role: "member", federation_removal_pending_at: null }],
       rowsAffected: 0,
     });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
     mockRevokeFederatedOrganizationMember.mockRejectedValue(
       new Error("identity authority unavailable"),
     );
@@ -243,6 +248,59 @@ describe("org handlers", () => {
     expect(mockExecute.mock.calls[1][0].sql).toContain(
       "SET federation_removal_pending_at = ?",
     );
+  });
+
+  it("does not revoke remotely when the target is promoted before removal is claimed", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "admin@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "admin",
+    });
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [{ role: "member", federation_removal_pending_at: null }],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/member@example.test"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("DELETE FROM org_members"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not revoke remotely when only some case-insensitive matches are marked", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [
+          { role: "member", federation_removal_pending_at: null },
+          { role: "member", federation_removal_pending_at: null },
+        ],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/member@example.test"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("DELETE FROM org_members"),
+      ),
+    ).toBe(false);
   });
 
   it("does not grant a domain join to a linked organization", async () => {
@@ -637,7 +695,9 @@ describe("org handlers", () => {
       await prime();
       expect(load).toHaveBeenCalledTimes(1);
 
-      mockExecute.mockResolvedValue({ rows: [{ role: "admin" }] });
+      mockExecute
+        .mockResolvedValueOnce({ rows: [{ role: "admin" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
       await changeMemberRoleHandler(
         makeEvent("/_agent-native/org/members/member@example.test/role", {
           role: "member",
@@ -649,7 +709,9 @@ describe("org handlers", () => {
     });
 
     it("propagates a role change before updating the local roster", async () => {
-      mockExecute.mockResolvedValue({ rows: [{ role: "member" }] });
+      mockExecute
+        .mockResolvedValueOnce({ rows: [{ role: "member" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
       mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(true);
 
       await changeMemberRoleHandler(
