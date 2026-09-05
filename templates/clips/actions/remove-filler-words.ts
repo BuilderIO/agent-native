@@ -60,6 +60,7 @@ export default defineAction({
         message,
         recordingId: args.recordingId,
         kind: "remove-filler-words",
+        requestedAt,
       }),
     };
 

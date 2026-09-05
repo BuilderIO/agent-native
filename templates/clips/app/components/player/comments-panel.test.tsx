@@ -112,6 +112,23 @@ describe("comment timestamps", () => {
     expect(formatter).toHaveBeenCalledWith(0, "second", { numeric: "auto" });
   });
 
+  it("does not round into the next unit before its boundary", () => {
+    expect(
+      relativeTime(
+        new Date(now - 59.9 * 60_000).toISOString(),
+        formatRelativeTime,
+        now,
+      ),
+    ).toBe("59 minutes ago");
+    expect(
+      relativeTime(
+        new Date(now - 23.9 * 3_600_000).toISOString(),
+        formatRelativeTime,
+        now,
+      ),
+    ).toBe("23 hours ago");
+  });
+
   it("returns an empty value for an invalid timestamp", () => {
     expect(relativeTime("not-a-date", formatRelativeTime, now)).toBe("");
   });
@@ -289,10 +306,10 @@ describe("CommentsPanel reply composer", () => {
     });
 
     const reply = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Reply"),
+      (button) => button.textContent?.includes("commentsPanel.reply"),
     );
     const react = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("React"),
+      (button) => button.textContent?.includes("commentsPanel.react"),
     );
 
     expect(reply).toBeDefined();
@@ -351,7 +368,7 @@ describe("CommentsPanel reply composer", () => {
     });
 
     const replyButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Reply",
+      (button) => button.textContent?.trim() === "commentsPanel.reply",
     );
     expect(replyButton).toBeDefined();
 
@@ -416,7 +433,7 @@ describe("CommentsPanel reply composer", () => {
 
   it("submits the inline reply to the selected thread", async () => {
     const replyButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Reply",
+      (button) => button.textContent?.trim() === "commentsPanel.reply",
     );
 
     await act(async () => {

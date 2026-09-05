@@ -988,6 +988,13 @@ const messages = {
     editComment: "编辑评论",
     commentButton: "评论",
     composerPlaceholder: "添加评论…",
+    resolved: "已解决",
+    reply: "回复",
+    react: "表态",
+    resolve: "解决",
+    unresolve: "重新打开",
+    delete: "删除",
+    moreActions: "{{author}} 评论的更多操作",
   },
   shareMeeting: {
     pageTitle: "会议笔记 · Clips",
@@ -1386,6 +1393,7 @@ const messages = {
     placementThroughout: "Throughout (已本地化)",
     placementEnd: "At end (已本地化)",
     delete: "Delete (已本地化)",
+    validWebUrl: "请输入有效的 http:// 或 https:// 地址。",
   },
   recordRoute: {
     pageTitle: "New recording — Clips (已本地化)",

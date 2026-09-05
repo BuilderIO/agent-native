@@ -1064,6 +1064,13 @@ const messages = {
     editComment: "Kommentar bearbeiten",
     commentButton: "Kommentar",
     composerPlaceholder: "Kommentar hinzufügen…",
+    resolved: "Erledigt",
+    reply: "Antworten",
+    react: "Reagieren",
+    resolve: "Erledigen",
+    unresolve: "Wieder öffnen",
+    delete: "Löschen",
+    moreActions: "Weitere Aktionen für den Kommentar von {{author}}",
   },
   shareMeeting: {
     pageTitle: "Meeting-Notizen · Clips",
@@ -1473,6 +1480,7 @@ const messages = {
     placementThroughout: "Throughout (Lokalisiert)",
     placementEnd: "At end (Lokalisiert)",
     delete: "Delete (Lokalisiert)",
+    validWebUrl: "Gib eine gültige http://- oder https://-Adresse ein.",
   },
   recordRoute: {
     pageTitle: "New recording — Clips (Lokalisiert)",

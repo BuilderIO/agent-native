@@ -1103,7 +1103,9 @@ function SocialTab({
         <button
           type="button"
           className="flex h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-          onClick={() => window.open(animatedThumbnailUrl, "_blank")}
+          onClick={() =>
+            window.open(animatedThumbnailUrl, "_blank", "noopener,noreferrer")
+          }
         >
           <IconPhoto className="size-4 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate">

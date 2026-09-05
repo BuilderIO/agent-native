@@ -18,6 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type Ref, useEffect, useMemo, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -501,7 +502,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       className={cn(
         "flex min-h-0 flex-col bg-transparent",
         !isInlinePresentation && "h-full",
-        isInlinePresentation && "xl:h-full xl:min-h-0",
+        isInlinePresentation && "lg:h-full lg:min-h-0",
       )}
     >
       {isInlinePresentation && enableComments ? (
@@ -511,7 +512,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
         className={cn(
           "min-h-0",
           isInlinePresentation
-            ? "xl:flex-1 xl:overflow-y-auto xl:overscroll-contain"
+            ? "lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
             : "flex-1 overflow-y-auto",
           isSharePresentation && "flex min-h-0 flex-col",
         )}
@@ -784,11 +785,19 @@ function CommentComposer({
             {avatarUrl ? (
               <AvatarImage
                 src={avatarUrl}
-                alt={currentUserName || currentUserEmail || "Anonymous"}
+                alt={
+                  currentUserName ||
+                  currentUserEmail ||
+                  t("recordingInsights.anonymous")
+                }
               />
             ) : null}
             <AvatarFallback className="bg-primary/15 text-xs text-primary">
-              {initials(currentUserName || currentUserEmail || "Anonymous")}
+              {initials(
+                currentUserName ||
+                  currentUserEmail ||
+                  t("recordingInsights.anonymous"),
+              )}
             </AvatarFallback>
           </Avatar>
         ) : null}
@@ -800,6 +809,7 @@ function CommentComposer({
         >
           <CommentTextComposer
             value={draft}
+            aria-label={t("commentsPanel.leaveComment")}
             onChange={onDraftChange}
             onMentionAdd={onMentionAdd}
             members={members}
@@ -818,6 +828,8 @@ function CommentComposer({
           />
           {!isInlinePresentation || draft.trim() ? (
             <Button
+              type="button"
+              aria-label={t("commentsPanel.commentButton")}
               onClick={onSubmit}
               disabled={!draft.trim()}
               size={isInlinePresentation ? "sm" : "icon"}
@@ -870,6 +882,7 @@ function InlineReplyComposer({
         ref={textareaRef}
         autoFocus
         value={draft}
+        aria-label={t("commentsPanel.writeReply")}
         onChange={onDraftChange}
         onMentionAdd={onMentionAdd}
         members={members}
@@ -1034,21 +1047,23 @@ function CommentCard({
   }
 
   const avatarUrl = useAvatarUrl(comment.authorEmail);
+  const commentAuthor =
+    comment.authorName ||
+    comment.authorEmail.split("@")[0] ||
+    t("recordingInsights.anonymous");
 
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
       <Avatar className="h-7 w-7 shrink-0">
-        {avatarUrl ? (
-          <AvatarImage src={avatarUrl} alt={displayName(comment)} />
-        ) : null}
+        {avatarUrl ? <AvatarImage src={avatarUrl} alt={commentAuthor} /> : null}
         <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
-          {initials(displayName(comment))}
+          {initials(commentAuthor)}
         </AvatarFallback>
       </Avatar>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-xs">
           <span className="font-medium text-foreground truncate">
-            {displayName(comment)}
+            {commentAuthor}
           </span>
           {!isReply ? (
             <button
@@ -1062,9 +1077,10 @@ function CommentCard({
             {relativeTime(comment.createdAt, formatRelativeTime)}
           </span>
           {comment.resolved ? (
-            <span className="ml-auto text-[10px] text-green-700 bg-green-100 rounded px-1.5 py-0.5 flex items-center gap-1">
-              <IconCheck className="h-3 w-3" /> Resolved
-            </span>
+            <Badge variant="secondary" className="ms-auto gap-1 text-[10px]">
+              <IconCheck className="h-3 w-3" />
+              {t("commentsPanel.resolved")}
+            </Badge>
           ) : null}
         </div>
         {isEditing ? (
@@ -1088,21 +1104,30 @@ function CommentCard({
 
             <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
               {canParticipate ? (
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={onReply}
-                  className="hover:text-foreground flex items-center gap-1"
+                  className="h-auto gap-1 p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
                 >
                   <IconCornerDownRight className="h-3 w-3" />
-                  Reply
-                </button>
+                  {t("commentsPanel.reply")}
+                </Button>
               ) : null}
 
               {canParticipate ? (
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button className="hover:text-foreground flex items-center gap-1">
-                      <IconMoodSmile className="h-3 w-3" /> React
-                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto gap-1 p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    >
+                      <IconMoodSmile className="h-3 w-3" />
+                      {t("commentsPanel.react")}
+                    </Button>
                   </PopoverTrigger>
                   <PopoverContent
                     side="top"
@@ -1132,30 +1157,43 @@ function CommentCard({
               ) : null}
 
               {currentUserEmail && canComment ? (
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => onResolve(comment.id, !comment.resolved)}
-                  className="hover:text-foreground"
+                  className="h-auto p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
                 >
-                  {comment.resolved ? "Unresolve" : "Resolve"}
-                </button>
+                  {comment.resolved
+                    ? t("commentsPanel.unresolve")
+                    : t("commentsPanel.resolve")}
+                </Button>
               ) : null}
 
               {isOwner && canComment ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button className="ml-auto hover:text-foreground">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("commentsPanel.moreActions", {
+                        author: commentAuthor,
+                      })}
+                      className="ms-auto size-6 text-muted-foreground hover:text-foreground"
+                    >
                       <IconDots className="h-3 w-3" />
-                    </button>
+                    </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={onStartEdit}>
                       {t("commentsPanel.editComment")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      className="text-red-600"
+                      className="text-destructive focus:text-destructive"
                       onSelect={() => onDelete(comment.id)}
                     >
-                      Delete
+                      {t("commentsPanel.delete")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -1182,11 +1220,7 @@ function CommentCard({
                     onReact(comment.id, emoji);
                   }}
                   aria-pressed={mine}
-                  title={
-                    mine
-                      ? "Click to remove your reaction"
-                      : "Click to add your reaction"
-                  }
+                  title={t("commentsPanel.react")}
                   className={cn(
                     "text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 transition-colors",
                     mine
@@ -1252,10 +1286,6 @@ function commentMentionSpans(
   }));
 }
 
-function displayName(c: Comment): string {
-  return c.authorName || c.authorEmail.split("@")[0] || "Someone";
-}
-
 function initials(name: string): string {
   return name
     .split(/\s+/)
@@ -1280,16 +1310,16 @@ export function relativeTime(
     return formatRelativeTime(0, "second", { numeric: "auto" });
   }
   if (absoluteSeconds < 3600) {
-    return formatRelativeTime(Math.round(deltaSeconds / 60), "minute");
+    return formatRelativeTime(Math.trunc(deltaSeconds / 60), "minute");
   }
   if (absoluteSeconds < 86400) {
-    return formatRelativeTime(Math.round(deltaSeconds / 3600), "hour");
+    return formatRelativeTime(Math.trunc(deltaSeconds / 3600), "hour");
   }
   if (absoluteSeconds < 30 * 86400) {
-    return formatRelativeTime(Math.round(deltaSeconds / 86400), "day");
+    return formatRelativeTime(Math.trunc(deltaSeconds / 86400), "day");
   }
   if (absoluteSeconds < 365 * 86400) {
-    return formatRelativeTime(Math.round(deltaSeconds / (30 * 86400)), "month");
+    return formatRelativeTime(Math.trunc(deltaSeconds / (30 * 86400)), "month");
   }
-  return formatRelativeTime(Math.round(deltaSeconds / (365 * 86400)), "year");
+  return formatRelativeTime(Math.trunc(deltaSeconds / (365 * 86400)), "year");
 }

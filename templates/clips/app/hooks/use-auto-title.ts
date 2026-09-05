@@ -23,9 +23,9 @@ const AI_REQUEST_SOURCE_PREFIX = "app-state:clips-ai-request-";
 const AI_REQUEST_DELIVERY_TIMEOUT_MS = 10_000;
 
 /**
- * Wake the bridge after a client-side action queues AI work. Standalone
- * recording routes intentionally omit the app-wide DbSync mount, so they need
- * to advance the exact source the bridge observes locally.
+ * Wake the bridge after a client-side action queues AI work. Advance the exact
+ * source the bridge observes so the request is dispatched without waiting for
+ * the next database poll.
  */
 export function notifyAiRequestQueued(recordingId: string): void {
   if (!recordingId) return;

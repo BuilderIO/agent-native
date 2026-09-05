@@ -25,8 +25,8 @@ export function RecordingSidePanel({
     <aside
       data-recording-side-panel
       className={cn(
-        "mt-4 flex min-h-[420px] min-w-0 w-full shrink-0 flex-col overflow-hidden border-0 bg-sidebar",
-        "xl:my-4 xl:me-4 xl:min-h-0 xl:w-auto xl:rounded-xl xl:border xl:shadow-sm",
+        "mt-4 flex h-[min(420px,55dvh)] min-w-0 w-full shrink-0 flex-col overflow-hidden border-y border-border bg-background",
+        "lg:my-4 lg:me-4 lg:h-auto lg:min-h-0 lg:w-auto lg:rounded-xl lg:border lg:bg-sidebar lg:shadow-sm",
         className,
       )}
       {...props}

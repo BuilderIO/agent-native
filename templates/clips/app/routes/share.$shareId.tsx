@@ -104,6 +104,10 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+import {
+  recordingProcessingTransition,
+  type RecordingProcessingSnapshot,
+} from "@/lib/recording-processing-lifecycle";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { cn } from "@/lib/utils";
@@ -251,10 +255,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     .where(eq(schema.recordings.id, id))
     .limit(1);
 
-  const agentAccessToken =
-    url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ??
-    url.searchParams.get("t") ??
-    "";
+  const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
   const hasAgentAccessToken = Boolean(agentAccessToken);
   const tokenGrantsAgentAccess = agentAccessToken
     ? verifyScopedAgentAccessToken(agentAccessToken, {
@@ -623,7 +624,7 @@ export default function ShareRoute() {
       // Poll while the recording is still being assembled / transcoded so the
       // page auto-upgrades from "Processing" to the real player the moment
       // the server flips status to 'ready' and writes videoUrl. Mirrors
-      // r.$recordingId.tsx's playerDataQ.refetchInterval.
+      // _app.r.$recordingId.tsx's playerDataQ.refetchInterval.
       if (rec.status !== "ready" || !rec.videoUrl) {
         readyMediaPollRef.current = null;
         return 2000;
@@ -667,13 +668,12 @@ export default function ShareRoute() {
 
   const recording = dataQ.data?.data?.recording;
   const {
+    dismiss: dismissProcessingToast,
     error: failProcessingToast,
     start: startProcessingToast,
     success: completeProcessingToast,
   } = useSonnerLifecycleToast();
-  const lifecyclePhaseRef = useRef<
-    "failed" | "processing" | "ready" | "uploading" | null
-  >(null);
+  const lifecyclePhaseRef = useRef<RecordingProcessingSnapshot | null>(null);
 
   useEffect(() => {
     if (!recording) return;
@@ -683,27 +683,27 @@ export default function ShareRoute() {
           ? "ready"
           : "processing"
         : recording.status;
-    const previousPhase = lifecyclePhaseRef.current;
-    if (phase === "uploading") {
-      startProcessingToast(t("sharePage.uploadingAssembling"));
-    } else if (phase === "processing") {
-      startProcessingToast(t("sharePage.finishingClip"));
-    } else if (
-      phase === "ready" &&
-      previousPhase &&
-      previousPhase !== "ready"
-    ) {
+    const current = { recordingId: recording.id, phase };
+    const previous = lifecyclePhaseRef.current;
+    if (previous && previous.recordingId !== recording.id) {
+      dismissProcessingToast();
+    }
+    const transition = recordingProcessingTransition(previous, current);
+    if (transition === "processing") {
+      startProcessingToast(
+        phase === "uploading"
+          ? t("sharePage.uploadingAssembling")
+          : t("sharePage.finishingClip"),
+      );
+    } else if (transition === "ready") {
       completeProcessingToast(t("recordRoute.videoUploaded"));
-    } else if (
-      phase === "failed" &&
-      previousPhase &&
-      previousPhase !== "failed"
-    ) {
+    } else if (transition === "failed") {
       failProcessingToast(t("sharePage.savingWentWrong"));
     }
-    lifecyclePhaseRef.current = phase;
+    lifecyclePhaseRef.current = current;
   }, [
     completeProcessingToast,
+    dismissProcessingToast,
     failProcessingToast,
     recording?.id,
     recording?.status,
@@ -1340,9 +1340,9 @@ export default function ShareRoute() {
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
 
   return (
-    <div className="clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-y-auto bg-background xl:grid xl:h-screen xl:grid-cols-[minmax(0,1fr)_420px] xl:grid-rows-[auto_minmax(0,1fr)] xl:overflow-hidden [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background">
+    <div className="clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-y-auto bg-background lg:grid lg:h-screen lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_420px] [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background">
       {agentDiscovery}
-      <header className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 xl:flex-nowrap">
+      <header className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 lg:flex-nowrap">
         {session ? (
           <Button
             asChild
@@ -1404,9 +1404,9 @@ export default function ShareRoute() {
         </div>
       </header>
 
-      <div className="flex w-full min-w-0 flex-none flex-col overflow-visible xl:col-start-1 xl:row-start-2 xl:min-h-0 xl:flex-1 xl:overflow-y-hidden">
-        <main className="overflow-visible xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
-          <div className="mx-auto flex w-full flex-col gap-5 pb-10 sm:px-4 xl:pt-4">
+      <div className="flex w-full min-w-0 flex-none flex-col overflow-visible lg:col-start-1 lg:row-start-2 lg:min-h-0 lg:flex-1 lg:overflow-y-hidden">
+        <main className="overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+          <div className="mx-auto flex w-full flex-col gap-5 pb-10 sm:px-4 lg:pt-4">
             <div className="relative aspect-video w-full">
               <VideoPlayer
                 ref={playerRef}
@@ -1545,10 +1545,8 @@ export default function ShareRoute() {
                 <div className="flex shrink-0 items-center gap-2">
                   <RecordingViewsBadge
                     recordingId={recording.id}
-                    recordingTitle={recording.title}
                     viewCount={viewCount}
                     reactionCount={reactions.length}
-                    durationMs={recording.durationMs}
                     canViewDetails={viewerCanEdit}
                     className="shrink-0 border-0 shadow-none"
                   />
@@ -1660,7 +1658,7 @@ export default function ShareRoute() {
         className="contents"
       >
         <RecordingSidePanel
-          className="xl:col-start-2 xl:row-start-2"
+          className="lg:col-start-2 lg:row-start-2"
           tabs={
             <ViewerTabsList>
               <ViewerTabsTrigger value="transcript">

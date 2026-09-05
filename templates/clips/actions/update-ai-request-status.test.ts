@@ -24,9 +24,15 @@ describe("update-ai-request-status", () => {
   });
 
   it("writes a scoped completion status for queued silence removal", async () => {
+    mockReadAppState.mockResolvedValue({
+      kind: "remove-silences",
+      status: "working",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+    });
     const args = action.schema.parse({
       recordingId: "rec_123",
       kind: "remove-silences",
+      requestedAt: "2026-09-04T12:00:00.000Z",
       status: "completed",
       message: "Removed 2 silent ranges.",
     });
@@ -59,6 +65,7 @@ describe("update-ai-request-status", () => {
     const args = action.schema.parse({
       recordingId: "rec_123",
       kind: "remove-filler-words",
+      requestedAt: "2026-09-04T12:00:00.000Z",
       status: "working",
     });
 
@@ -78,16 +85,52 @@ describe("update-ai-request-status", () => {
     mockReadAppState.mockResolvedValue({
       kind: "remove-silences",
       status: "working",
+      requestedAt: "2026-09-04T12:00:00.000Z",
     });
     const args = action.schema.parse({
       recordingId: "rec_123",
       kind: "remove-filler-words",
+      requestedAt: "2026-09-04T12:00:00.000Z",
       status: "completed",
     });
 
     await expect(action.run(args)).rejects.toThrow(
       "remove-silences is the active request",
     );
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("rejects an update from an older run of the same request kind", async () => {
+    mockReadAppState.mockResolvedValue({
+      kind: "remove-silences",
+      status: "working",
+      requestedAt: "2026-09-04T12:01:00.000Z",
+    });
+    const args = action.schema.parse({
+      recordingId: "rec_123",
+      kind: "remove-silences",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      status: "completed",
+    });
+
+    await expect(action.run(args)).rejects.toThrow("stale");
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not regress a terminal request back to working", async () => {
+    mockReadAppState.mockResolvedValue({
+      kind: "remove-filler-words",
+      status: "completed",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+    });
+    const args = action.schema.parse({
+      recordingId: "rec_123",
+      kind: "remove-filler-words",
+      requestedAt: "2026-09-04T12:00:00.000Z",
+      status: "working",
+    });
+
+    await expect(action.run(args)).rejects.toThrow("already completed");
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 });

@@ -1026,6 +1026,13 @@ const messages = {
     editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
+    resolved: "Resolved",
+    reply: "Reply",
+    react: "React",
+    resolve: "Resolve",
+    unresolve: "Reopen",
+    delete: "Delete",
+    moreActions: "More actions for comment by {{author}}",
   },
   shareMeeting: {
     pageTitle: "Meeting notes · Clips",
@@ -1428,6 +1435,7 @@ const messages = {
     placementThroughout: "Throughout",
     placementEnd: "At end",
     delete: "Delete",
+    validWebUrl: "Enter a valid http:// or https:// address.",
   },
   recordRoute: {
     pageTitle: "New recording — Clips",

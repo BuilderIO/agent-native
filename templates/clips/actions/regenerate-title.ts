@@ -127,6 +127,7 @@ export async function queueTitleRegenerationRequest({
       message: withFullVideoAiInstructions(baseMessage, recordingId, useVideo),
       recordingId,
       kind,
+      requestedAt,
     }),
   };
 

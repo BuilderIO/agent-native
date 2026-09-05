@@ -987,6 +987,13 @@ const messages = {
     editComment: "編輯評論",
     commentButton: "留言",
     composerPlaceholder: "新增留言…",
+    resolved: "已解決",
+    reply: "回覆",
+    react: "回應",
+    resolve: "解決",
+    unresolve: "重新開啟",
+    delete: "刪除",
+    moreActions: "{{author}} 留言的更多操作",
   },
   shareMeeting: {
     pageTitle: "會議筆記 · Clips",
@@ -1377,6 +1384,7 @@ const messages = {
     placementThroughout: "整段影片",
     placementEnd: "結尾",
     delete: "刪除",
+    validWebUrl: "請輸入有效的 http:// 或 https:// 位址。",
   },
   recordRoute: {
     pageTitle: "新增錄製 · Clips",

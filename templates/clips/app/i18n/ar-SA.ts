@@ -1042,6 +1042,13 @@ const messages = {
     editComment: "تحرير التعليق",
     commentButton: "تعليق",
     composerPlaceholder: "أضف تعليقًا…",
+    resolved: "تم الحل",
+    reply: "رد",
+    react: "تفاعل",
+    resolve: "حل",
+    unresolve: "إعادة الفتح",
+    delete: "حذف",
+    moreActions: "إجراءات إضافية لتعليق {{author}}",
   },
   shareMeeting: {
     pageTitle: "ملاحظات الاجتماع · Clips",
@@ -1446,6 +1453,7 @@ const messages = {
     placementThroughout: "Throughout (مترجم)",
     placementEnd: "At end (مترجم)",
     delete: "Delete (مترجم)",
+    validWebUrl: "أدخل عنوان http:// أو https:// صالحًا.",
   },
   recordRoute: {
     pageTitle: "New recording — Clips (مترجم)",

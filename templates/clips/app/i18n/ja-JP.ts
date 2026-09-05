@@ -1043,6 +1043,13 @@ const messages = {
     editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
+    resolved: "解決済み",
+    reply: "返信",
+    react: "リアクション",
+    resolve: "解決",
+    unresolve: "再開",
+    delete: "削除",
+    moreActions: "{{author}}のコメントのその他の操作",
   },
   shareMeeting: {
     pageTitle: "会議メモ · Clips",
@@ -1452,6 +1459,7 @@ const messages = {
     placementThroughout: "Throughout (ローカライズ済み)",
     placementEnd: "At end (ローカライズ済み)",
     delete: "Delete (ローカライズ済み)",
+    validWebUrl: "有効な http:// または https:// アドレスを入力してください。",
   },
   recordRoute: {
     pageTitle: "New recording — Clips (ローカライズ済み)",

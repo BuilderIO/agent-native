@@ -1,4 +1,5 @@
 import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   BuilderConnectPopover,
@@ -19,6 +20,7 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -182,11 +184,19 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     [displaySegments, currentMs],
   );
 
-  function copyAll() {
+  async function copyAll() {
     const text = displaySegments.map((s) => s.text).join(" ");
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      const copiedSuccessfully = await writeClipboardText(text);
+      if (!copiedSuccessfully) {
+        toast.error(t("shareMeeting.copyTranscriptFailed"));
+        return;
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error(t("shareMeeting.copyTranscriptFailed"));
+    }
   }
 
   function downloadSrt() {
@@ -304,6 +314,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             value={query}
+            aria-label={t("transcriptPanel.searchPlaceholder")}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("transcriptPanel.searchPlaceholder")}
             className="pl-8 h-8 text-xs"
@@ -312,7 +323,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={copyAll}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("transcriptPanel.copyTranscript")}
+                onClick={() => void copyAll()}
+              >
                 {copied ? (
                   <IconCheck className="h-4 w-4 text-muted-foreground" />
                 ) : (
@@ -326,7 +342,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={downloadSrt}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("transcriptPanel.downloadSrt")}
+                onClick={downloadSrt}
+              >
                 <IconDownload className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -426,7 +447,7 @@ function highlight(text: string, q: string): string {
   return escaped.replace(
     new RegExp(safe, "gi"),
     (match) =>
-      `<mark class="bg-yellow-200 text-black rounded px-0.5">${match}</mark>`,
+      `<mark class="rounded bg-primary/15 px-0.5 text-foreground">${match}</mark>`,
   );
 }
 
@@ -469,20 +490,20 @@ function BuilderCreditsPausedNotice({
   return (
     <div
       className={cn(
-        "rounded-md border border-amber-300/70 bg-amber-50/80 p-3 text-amber-950 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100",
+        "rounded-md border border-border bg-muted/50 p-3 text-foreground shadow-sm",
         className,
       )}
     >
       <div className="flex items-start gap-2.5">
-        <div className="mt-0.5 rounded-md bg-amber-100 p-1 dark:bg-amber-400/15">
-          <IconBolt className="h-4 w-4 text-amber-700 dark:text-amber-200" />
+        <div className="mt-0.5 rounded-md bg-background p-1">
+          <IconBolt className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           <div>
             <p className="text-sm font-semibold">
               {t("builderCredits.pausedTitle")}
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-amber-900/80 dark:text-amber-100/80">
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               {t("builderCredits.transcriptionDescription")}
             </p>
           </div>
@@ -490,7 +511,7 @@ function BuilderCreditsPausedNotice({
             {BUILDER_CREDITS_FEATURE_LABELS.map((key) => (
               <span
                 key={key}
-                className="rounded-full border border-amber-300/70 bg-white/70 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100"
+                className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground"
               >
                 {t(key)}
               </span>
@@ -512,18 +533,13 @@ function BuilderCreditsPausedNotice({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 border-amber-300/80 bg-white/70 text-amber-950 hover:bg-amber-100 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100 dark:hover:bg-amber-900/40"
+                className="h-8"
                 onClick={onRetry}
               >
                 {t("builderCredits.retryAfterUpgrade")}
               </Button>
             ) : null}
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="h-8 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:text-amber-100 dark:hover:bg-amber-900/40"
-            >
+            <Button asChild variant="ghost" size="sm" className="h-8">
               <a href={appPath("/settings/general#ai-providers")}>
                 {t("builderCredits.openAiSetup")}
               </a>
@@ -663,7 +679,7 @@ function TranscriptSetupCard({
             {isProviderError
               ? t("transcriptPanel.providerNeedsAttentionDescription")
               : isConnectedFallbackError
-                ? "No speech was captured locally, and backup transcription did not finish. Retry in a moment."
+                ? t("transcriptPanel.backupFailed")
                 : t("transcriptPanel.enableTranscriptionDescription")}
           </p>
         </div>
@@ -673,7 +689,7 @@ function TranscriptSetupCard({
           className={cn(
             "rounded-md border p-3 transition-colors",
             builderConfigured
-              ? "border-green-500/30 bg-green-500/5"
+              ? "border-primary/30 bg-primary/5"
               : "border-border bg-background",
           )}
         >
@@ -684,22 +700,22 @@ function TranscriptSetupCard({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <p className="text-xs font-semibold">
                     {builderConfigured
-                      ? "Builder.io connected"
-                      : "Use Builder.io"}
+                      ? t("settings.builderConnected")
+                      : t("settings.connectBuilder")}
                   </p>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   {builderConfigured
-                    ? "Ready to use for backup transcription."
-                    : "Builder.io's free tier includes backup transcription."}
+                    ? t("transcriptPanel.enableTranscriptionDescription")
+                    : t("settings.builderIncludes")}
                 </p>
               </div>
             </div>
             {builderConfigured ? (
               <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                <span className="flex items-center gap-1 text-[10px] text-green-600">
+                <span className="flex items-center gap-1 text-[10px] text-primary">
                   <IconCheck className="h-3 w-3" />
-                  Connected
+                  {t("common.connected")}
                 </span>
                 {onRetry ? (
                   <Button
@@ -709,16 +725,18 @@ function TranscriptSetupCard({
                     onClick={() => onRetry()}
                     className="h-7 px-2 text-[11px]"
                   >
-                    Retry
+                    {t("transcriptPanel.retry")}
                   </Button>
                 ) : null}
               </div>
             ) : (
               <BuilderConnectPopover flow={builderConnect}>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   disabled={connecting || builderConfigured === null}
-                  className="shrink-0 inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-[11px] font-medium transition-colors hover:bg-accent disabled:opacity-50"
+                  className="h-7 shrink-0 gap-1 px-2 text-[11px]"
                 >
                   {connecting ? (
                     <>
@@ -728,10 +746,10 @@ function TranscriptSetupCard({
                   ) : (
                     <>
                       <IconExternalLink className="h-3 w-3" />
-                      Connect
+                      {t("settings.connectBuilder")}
                     </>
                   )}
-                </button>
+                </Button>
               </BuilderConnectPopover>
             )}
           </div>

@@ -1,10 +1,22 @@
 import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconMessageCircleBolt, IconUser } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconMessageCircleBolt,
+  IconUser,
+} from "@tabler/icons-react";
 import { useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import {
   Popover,
   PopoverContent,
@@ -14,10 +26,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-import {
-  ConnectAnalyticsDialog,
-  type AnalyticsInsightSnapshot,
-} from "./connect-analytics-dialog";
 import { InsightsChart } from "./insights-chart";
 import { ViewerTabsList, ViewerTabsTrigger } from "./viewer-controls";
 
@@ -45,26 +53,19 @@ interface AgentViewersResponse {
   uniqueViewers?: number;
   completionRate?: number;
   ctaConversionRate?: number;
-  dropOff?: { bucket: number; watching: number }[];
   agentViewers: AgentViewerRow[];
 }
 
 export interface RecordingViewsBadgeProps {
   recordingId: string;
-  /** Optional title used to make the Analytics handoff specific to this clip. */
-  recordingTitle?: string;
   /** Public counted-view total. Rendered as-is when details are unavailable. */
   viewCount: number;
   /** Total recorded emoji reactions for the engagement funnel. */
   reactionCount?: number;
-  /** Recording duration used to label the engagement drop-off chart. */
-  durationMs?: number;
   /** Opens the unified surface when arriving from the legacy insights route. */
   defaultOpen?: boolean;
-  /** True only for owner/editor — gates avatars, the dialog, and all viewer identities. */
+  /** True only for owner/editor — gates avatars and all viewer identities. */
   canViewDetails: boolean;
-  /** Activates a route-owned Agent surface for Analytics handoffs. */
-  onOpenAgent?: () => void;
   className?: string;
 }
 
@@ -76,18 +77,14 @@ export interface RecordingViewsBadgeProps {
  */
 export function RecordingViewsBadge({
   recordingId,
-  recordingTitle,
   viewCount,
   reactionCount = 0,
-  durationMs = 0,
   defaultOpen = false,
   canViewDetails,
-  onOpenAgent,
   className,
 }: RecordingViewsBadgeProps): React.ReactElement | null {
   const t = useT();
   const [open, setOpen] = useState(defaultOpen);
-  const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"views" | "insights">(
     defaultOpen ? "insights" : "views",
   );
@@ -119,175 +116,197 @@ export function RecordingViewsBadge({
   const agentViewers = agentViewersQuery.data?.agentViewers ?? [];
 
   const insightData = agentViewersQuery.data;
-  const analyticsSnapshot: AnalyticsInsightSnapshot = {
-    views: viewCount,
-    uniqueViewers: insightData?.uniqueViewers ?? viewers.length,
-    completionRate: insightData?.completionRate ?? null,
-    reactions: reactionCount,
-    ctaConversionRate: insightData?.ctaConversionRate ?? null,
-    hasDropOff: Boolean(insightData?.dropOff?.length && durationMs > 0),
-  };
+  const insightViews = insightData?.views ?? viewCount;
+  const uniqueViewers = insightData?.uniqueViewers ?? null;
   return (
-    <>
-      <Popover
-        open={open}
-        onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
-          if (!nextOpen) setActiveTab("views");
-        }}
-      >
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-8 cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-              className,
-            )}
-            aria-label={countLabel}
-            onClick={(event) => event.stopPropagation()}
-          >
-            {viewers.length > 0 ? (
-              <span className="hidden -space-x-1.5 sm:flex">
-                {viewers.slice(0, 3).map((viewer) => (
-                  <ViewerAvatar
-                    key={viewer.id}
-                    viewer={viewer}
-                    className="size-5 ring-2 ring-background"
-                  />
-                ))}
-              </span>
-            ) : null}
-            <span className="tabular-nums">{countLabel}</span>
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          className="z-[260] w-[460px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
-          onClick={(e) => e.stopPropagation()}
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setActiveTab("views");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-8 cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+            className,
+          )}
+          aria-label={countLabel}
+          onClick={(event) => event.stopPropagation()}
         >
-          <Tabs
-            value={activeTab}
-            onValueChange={(value) =>
-              setActiveTab(value as "views" | "insights")
-            }
-          >
-            <ViewerTabsList>
-              <ViewerTabsTrigger value="views">
-                {t("recordingInsights.viewsTab")}
-              </ViewerTabsTrigger>
-              <ViewerTabsTrigger value="insights">
-                {t("recordingInsights.insightsTab")}
-              </ViewerTabsTrigger>
-            </ViewerTabsList>
+          {viewers.length > 0 ? (
+            <span className="hidden -space-x-1.5 sm:flex">
+              {viewers.slice(0, 3).map((viewer) => (
+                <ViewerAvatar
+                  key={viewer.id}
+                  viewer={viewer}
+                  className="size-5 ring-2 ring-background"
+                />
+              ))}
+            </span>
+          ) : null}
+          <span className="tabular-nums">{countLabel}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="z-[260] w-[460px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as "views" | "insights")}
+        >
+          <ViewerTabsList>
+            <ViewerTabsTrigger value="views">
+              {t("recordingInsights.viewsTab")}
+            </ViewerTabsTrigger>
+            <ViewerTabsTrigger value="insights">
+              {t("recordingInsights.insightsTab")}
+            </ViewerTabsTrigger>
+          </ViewerTabsList>
 
-            <div className="max-h-[min(70vh,520px)] overflow-y-auto">
-              <TabsContent value="views" className="m-0 p-3">
-                <div className="mb-1 flex items-center justify-between gap-3 px-2 text-xs font-medium text-muted-foreground">
-                  <span>{t("recordingInsights.recentViewers")}</span>
-                  <span>{t("recordingInsights.completion")}</span>
+          <div className="max-h-[min(70vh,520px)] overflow-y-auto">
+            <TabsContent value="views" className="m-0 p-3">
+              <div className="mb-1 flex items-center justify-between gap-3 px-2 text-xs font-medium text-muted-foreground">
+                <span>{t("recordingInsights.recentViewers")}</span>
+                <span>{t("recordingInsights.completion")}</span>
+              </div>
+              {viewersQuery.isError ? (
+                <InsightsErrorState
+                  compact
+                  onRetry={() => void viewersQuery.refetch()}
+                />
+              ) : viewersQuery.isLoading ? (
+                <ViewerRowsSkeleton />
+              ) : viewers.length > 0 ? (
+                <ul className="grid gap-0.5">
+                  {viewers.map((viewer) => (
+                    <li
+                      key={viewer.id}
+                      className="flex min-h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/60"
+                    >
+                      <ViewerAvatar viewer={viewer} className="size-5" />
+                      <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                        {viewerLabel(viewer, t("recordingInsights.anonymous"))}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {Math.round(viewer.completedPct)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {agentViewersQuery.isError ? (
+                <InsightsErrorState
+                  compact
+                  onRetry={() => void agentViewersQuery.refetch()}
+                />
+              ) : agentViewersQuery.isLoading ? (
+                <div className="pt-1">
+                  <ViewerRowsSkeleton count={2} />
                 </div>
-                {viewersQuery.isLoading ? (
-                  <ViewerRowsSkeleton />
-                ) : viewers.length === 0 && agentViewers.length === 0 ? (
-                  <p className="px-2 py-3 text-xs text-muted-foreground">
-                    {t("recordingInsights.noViewsYet")}
-                  </p>
-                ) : (
-                  <ul className="grid gap-0.5">
-                    {viewers.map((viewer) => (
-                      <li
-                        key={viewer.id}
-                        className="flex min-h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/60"
+              ) : agentViewers.length > 0 ? (
+                <ul className="grid gap-0.5">
+                  {agentViewers.map((agent) => (
+                    <li
+                      key={agent.agentLabel ?? agent.userAgent ?? "unknown"}
+                      className="flex min-h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/60"
+                    >
+                      <AgentViewerAvatar className="size-5" />
+                      <span
+                        className="min-w-0 flex-1 truncate text-xs text-foreground"
+                        title={agent.userAgent ?? undefined}
                       >
-                        <ViewerAvatar viewer={viewer} className="size-5" />
-                        <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                          {viewerLabel(
-                            viewer,
-                            t("recordingInsights.anonymous"),
-                          )}
-                        </span>
-                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                          {Math.round(viewer.completedPct)}%
-                        </span>
-                      </li>
-                    ))}
-                    {agentViewers.map((agent) => (
-                      <li
-                        key={agent.agentLabel ?? agent.userAgent ?? "unknown"}
-                        className="flex min-h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/60"
-                      >
-                        <AgentViewerAvatar className="size-5" />
-                        <span
-                          className="min-w-0 flex-1 truncate text-xs text-foreground"
-                          title={agent.userAgent ?? undefined}
-                        >
-                          {agent.agentLabel ??
-                            t("recordingInsights.unknownAgent")}
-                        </span>
-                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                          {t("recordingInsights.viewsCount", {
-                            count: agent.views,
-                          })}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {agentViewersQuery.isLoading ? (
-                  <div className="pt-1">
-                    <ViewerRowsSkeleton count={2} />
-                  </div>
-                ) : null}
-              </TabsContent>
+                        {agent.agentLabel ??
+                          t("recordingInsights.unknownAgent")}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {t("recordingInsights.viewsCount", {
+                          count: agent.views,
+                        })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {!viewersQuery.isError &&
+              !viewersQuery.isLoading &&
+              !agentViewersQuery.isError &&
+              !agentViewersQuery.isLoading &&
+              viewers.length === 0 &&
+              agentViewers.length === 0 ? (
+                <p className="px-2 py-3 text-xs text-muted-foreground">
+                  {t("recordingInsights.noViewsYet")}
+                </p>
+              ) : null}
+            </TabsContent>
 
-              <TabsContent value="insights" className="m-0 px-4 pb-3 pt-4">
-                {agentViewersQuery.isLoading ? (
-                  <Skeleton className="h-[220px] w-full rounded-lg" />
-                ) : (
-                  <InsightsChart
-                    views={viewCount}
-                    uniqueViewers={
-                      agentViewersQuery.data?.uniqueViewers ?? viewers.length
-                    }
-                    reactions={reactionCount}
-                    completionRate={
-                      agentViewersQuery.data?.completionRate ?? null
-                    }
-                    ctaConversionRate={
-                      agentViewersQuery.data?.ctaConversionRate ?? null
-                    }
-                  />
-                )}
-                <div className="mt-2 flex justify-end border-t border-border/70 pt-2">
-                  <Button
-                    type="button"
-                    variant="link"
-                    size="sm"
-                    className="h-auto gap-1.5 px-0 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                    onClick={() => {
-                      setOpen(false);
-                      setAnalyticsOpen(true);
-                    }}
-                  >
-                    {t("recordingInsights.connectAnalytics")}
-                  </Button>
-                </div>
-              </TabsContent>
-            </div>
-          </Tabs>
-        </PopoverContent>
-      </Popover>
-      <ConnectAnalyticsDialog
-        open={analyticsOpen}
-        onOpenChange={setAnalyticsOpen}
-        onOpenAgent={onOpenAgent}
-        recordingId={recordingId}
-        recordingTitle={recordingTitle}
-        snapshot={analyticsSnapshot}
-      />
-    </>
+            <TabsContent value="insights" className="m-0 px-4 pb-3 pt-4">
+              {agentViewersQuery.isError ? (
+                <InsightsErrorState
+                  onRetry={() => void agentViewersQuery.refetch()}
+                />
+              ) : agentViewersQuery.isLoading ? (
+                <Skeleton className="h-[220px] w-full rounded-lg" />
+              ) : (
+                <InsightsChart
+                  views={insightViews}
+                  uniqueViewers={uniqueViewers}
+                  reactions={reactionCount}
+                  completionRate={
+                    agentViewersQuery.data?.completionRate ?? null
+                  }
+                  ctaConversionRate={
+                    agentViewersQuery.data?.ctaConversionRate ?? null
+                  }
+                />
+              )}
+            </TabsContent>
+          </div>
+        </Tabs>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function InsightsErrorState({
+  compact = false,
+  onRetry,
+}: {
+  compact?: boolean;
+  onRetry: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <Empty
+      className={cn(
+        "gap-3 border-0 p-4 md:p-5",
+        compact ? "min-h-28" : "min-h-52",
+      )}
+    >
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <IconAlertTriangle />
+        </EmptyMedia>
+        <EmptyTitle className="text-sm">
+          {t("sharePage.somethingWentWrong")}
+        </EmptyTitle>
+        <EmptyDescription className="text-xs">
+          {t("sharePage.pleaseTryAgain")}
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          {t("libraryGrid.retry")}
+        </Button>
+      </EmptyContent>
+    </Empty>
   );
 }
 

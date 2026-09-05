@@ -29,7 +29,6 @@ export default createAuthPlugin({
   },
   publicPaths: [
     "/share",
-    "/r",
     "/embed",
     // Prerendered to static HTML, so the CDN answers without ever reaching this
     // middleware. Sharing the constant keeps "prerendered" a strict subset of

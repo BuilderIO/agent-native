@@ -130,6 +130,7 @@ export default defineAction({
         ),
         recordingId: args.recordingId,
         kind: "regenerate-summary",
+        requestedAt,
       }),
     };
 

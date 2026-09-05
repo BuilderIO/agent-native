@@ -8,12 +8,16 @@ export function withAiRequestStatusInstructions({
   message,
   recordingId,
   kind,
+  requestedAt,
 }: {
   message: string;
   recordingId: string;
   kind: ClipsAiRequestKind;
+  requestedAt: string;
 }): string {
-  const statusCommand = `update-ai-request-status --recordingId=${recordingId} --kind=${kind}`;
+  const statusCommand =
+    `update-ai-request-status --recordingId=${recordingId} --kind=${kind} ` +
+    `--requestedAt="${requestedAt}"`;
 
   return (
     `${message} ` +

@@ -1029,6 +1029,13 @@ const messages = {
     editComment: "댓글 편집",
     commentButton: "댓글",
     composerPlaceholder: "댓글 추가…",
+    resolved: "해결됨",
+    reply: "답글",
+    react: "반응",
+    resolve: "해결",
+    unresolve: "다시 열기",
+    delete: "삭제",
+    moreActions: "{{author}}님의 댓글에 대한 추가 작업",
   },
   shareMeeting: {
     pageTitle: "회의 노트 · Clips",
@@ -1434,6 +1441,7 @@ const messages = {
     placementThroughout: "Throughout (현지화됨)",
     placementEnd: "At end (현지화됨)",
     delete: "Delete (현지화됨)",
+    validWebUrl: "유효한 http:// 또는 https:// 주소를 입력하세요.",
   },
   recordRoute: {
     pageTitle: "New recording — Clips (현지화됨)",

@@ -9,12 +9,13 @@ function readRoute(name: string): string {
 
 describe("authenticated recording route loading", () => {
   it("waits for the browser session before the direct player action", () => {
-    const route = readRoute("r.$recordingId.tsx");
+    const route = readRoute("_app.r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");
-    expect(route).toContain("if (sessionLoading)");
     expect(route).toContain(
       "if (playerDataQ.isLoading || playerDataForbidden)",
     );
+    expect(route).toContain("<RecordingWorkspaceSkeleton />");
+    expect(route).not.toContain("buildSignInReturnHref");
   });
 
   it("lets public shares proceed when session status is unavailable", () => {
@@ -101,7 +102,7 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("<RecordingSidePanel");
     expect(route).toContain('className="contents"');
     expect(route).toContain(
-      'className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 xl:flex-nowrap"',
+      'className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 lg:flex-nowrap"',
     );
     expect(route).not.toContain(
       "row-start-1 flex min-w-0 shrink-0 flex-wrap items-center gap-3 border-b border-border",
@@ -122,10 +123,10 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('t("sharePage.downloadDesktopApp")');
     expect(route).not.toContain("agentNativeClips");
     expect(route).toContain('useState<SharePanel>("transcript")');
-    expect(route).toContain("grid-cols-[minmax(0,1fr)_420px]");
+    expect(route).toContain("lg:grid-cols-[minmax(0,1fr)_360px]");
     expect(route).toContain("col-span-full row-start-1");
-    expect(route).toContain("xl:col-start-2");
-    expect(route).toContain("w-full flex-col gap-5 pb-10 sm:px-4 xl:pt-4");
+    expect(route).toContain("lg:col-start-2");
+    expect(route).toContain("w-full flex-col gap-5 pb-10 sm:px-4 lg:pt-4");
     expect(route).not.toContain("max-w-[1200px]");
     expect(route).not.toContain(
       'variant={panel === "transcript" ? "secondary" : "ghost"}',
@@ -173,7 +174,7 @@ describe("authenticated recording route loading", () => {
     expect(shareRoute).toContain('!descriptionExpanded && "line-clamp-2"');
     expect(shareRoute).not.toContain('panel === "insights"');
 
-    const recordingRoute = readRoute("r.$recordingId.tsx");
+    const recordingRoute = readRoute("_app.r.$recordingId.tsx");
     expect(recordingRoute).not.toContain(
       'trigger("insights", t("recordingPage.insights"))',
     );
@@ -184,7 +185,7 @@ describe("authenticated recording route loading", () => {
   });
 
   it("gates private recipient sharing and places overflow after Share", () => {
-    const recordingRoute = readRoute("r.$recordingId.tsx");
+    const recordingRoute = readRoute("_app.r.$recordingId.tsx");
     const shareRoute = readRoute("share.$shareId.tsx");
     const trigger = readFileSync(
       resolve(process.cwd(), "app/components/player/clips-share-trigger.tsx"),
@@ -196,12 +197,12 @@ describe("authenticated recording route loading", () => {
       '(role === "viewer" || role === "commenter") &&',
     );
     expect(recordingRoute).toContain('recording?.visibility === "private";');
-    expect(recordingRoute.match(/isPrivateRecipient \? \(/g)).toHaveLength(3);
+    expect(recordingRoute.match(/isPrivateRecipient \? \(/g)).toHaveLength(2);
     expect(
       recordingRoute.match(/t\("recordingPage\.sharedWithYou"\)/g),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
     expect(recordingRoute).toContain("const renderShareControl =");
-    expect(recordingRoute.match(/renderShareControl\(/g)).toHaveLength(3);
+    expect(recordingRoute.match(/renderShareControl\(/g)).toHaveLength(2);
     expect(shareRoute).toContain("<ClipsShareTrigger");
     expect(trigger).toContain('intent="primary"');
     expect(trigger).toContain('emphasis="solid"');

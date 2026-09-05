@@ -22,6 +22,7 @@ describe("AI request status lifecycle", () => {
       message: "Remove the filler words.",
       recordingId: "rec_123",
       kind: "remove-filler-words",
+      requestedAt: "2026-09-04T12:00:00.000Z",
     });
 
     await queueAiRequest({
@@ -45,6 +46,7 @@ describe("AI request status lifecycle", () => {
     expect(message).toContain("--status=working");
     expect(message).toContain("--status=completed");
     expect(message).toContain("--status=failed");
+    expect(message).toContain('--requestedAt="2026-09-04T12:00:00.000Z"');
   });
 
   it("turns an enqueue failure into a visible failed status", async () => {

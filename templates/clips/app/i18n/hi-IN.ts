@@ -1020,6 +1020,13 @@ const messages = {
     editComment: "टिप्पणी संपादित करें",
     commentButton: "टिप्पणी",
     composerPlaceholder: "टिप्पणी जोड़ें…",
+    resolved: "समाधान किया गया",
+    reply: "जवाब दें",
+    react: "प्रतिक्रिया दें",
+    resolve: "समाधान करें",
+    unresolve: "फिर से खोलें",
+    delete: "हटाएँ",
+    moreActions: "{{author}} की टिप्पणी के लिए और कार्रवाइयाँ",
   },
   shareMeeting: {
     pageTitle: "मीटिंग नोट्स · Clips",
@@ -1421,6 +1428,7 @@ const messages = {
     placementThroughout: "Throughout (स्थानीयकृत)",
     placementEnd: "At end (स्थानीयकृत)",
     delete: "Delete (स्थानीयकृत)",
+    validWebUrl: "मान्य http:// या https:// पता दर्ज करें।",
   },
   recordRoute: {
     pageTitle: "New recording — Clips (स्थानीयकृत)",

@@ -1,10 +1,12 @@
 import {
+  actionErrorMessage,
   useActionMutation,
   useReconciledState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 
 import {
   Accordion,
@@ -58,18 +60,44 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
   const update = useActionMutation("update-recording", {
     onSuccess: () => onRefetch?.(),
+    onError: (error) =>
+      toast.error(
+        actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+      ),
   });
   const createCta = useActionMutation("create-cta", {
-    onSuccess: () => onRefetch?.(),
+    onSuccess: () => {
+      setCreatingCta(false);
+      onRefetch?.();
+    },
+    onError: (error) =>
+      toast.error(
+        actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+      ),
   });
   const updateCta = useActionMutation("update-cta", {
-    onSuccess: () => onRefetch?.(),
+    onSuccess: () => {
+      setOpenCtaId("");
+      onRefetch?.();
+    },
+    onError: (error) =>
+      toast.error(
+        actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+      ),
   });
   const deleteCta = useActionMutation("delete-cta", {
-    onSuccess: () => onRefetch?.(),
+    onSuccess: () => {
+      setOpenCtaId("");
+      onRefetch?.();
+    },
+    onError: (error) =>
+      toast.error(
+        actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+      ),
   });
 
   const [openCtaId, setOpenCtaId] = useState("");
+  const [creatingCta, setCreatingCta] = useState(false);
 
   function patch(fields: Record<string, unknown>) {
     update.mutate({ id: recording.id, ...fields } as any);
@@ -80,7 +108,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
       {showHeader ? (
         <div className="flex h-10 items-center justify-between border-b border-border/70 px-3">
           <h2 className="text-sm font-medium">{t("playerSettings.title")}</h2>
-          <ViewerIconButton variant="ghost" onClick={onClose}>
+          <ViewerIconButton
+            variant="ghost"
+            aria-label={t("common.cancel")}
+            onClick={onClose}
+          >
             <IconX />
           </ViewerIconButton>
         </div>
@@ -154,29 +186,40 @@ export function SettingsPanel(props: SettingsPanelProps) {
             <CardTitle className="text-sm leading-none">
               {t("playerSettings.callToAction")}
             </CardTitle>
-            <ViewerButton
-              type="button"
-              variant="ghost"
-              onClick={() =>
-                createCta.mutate({
-                  recordingId: recording.id,
-                  label: t("playerSettings.defaultCtaLabel"),
-                  url: "https://example.com",
-                  color: "hsl(var(--primary))",
-                  placement: "throughout",
-                } as any)
-              }
-            >
-              {t("playerSettings.addCta")}
-            </ViewerButton>
+            {ctas.length === 0 ? (
+              <ViewerButton
+                type="button"
+                variant="ghost"
+                disabled={creatingCta}
+                onClick={() => setCreatingCta(true)}
+              >
+                {t("playerSettings.addCta")}
+              </ViewerButton>
+            ) : null}
           </CardHeader>
 
           <CardContent className="px-3 pb-3 pt-0">
-            {ctas.length === 0 ? (
+            {creatingCta ? (
+              <CtaDraftEditor
+                t={t}
+                pending={createCta.isPending}
+                onCancel={() => setCreatingCta(false)}
+                onSave={({ label, url, placement }) =>
+                  createCta.mutate({
+                    recordingId: recording.id,
+                    label,
+                    url,
+                    placement,
+                  } as any)
+                }
+              />
+            ) : null}
+            {!creatingCta && ctas.length === 0 ? (
               <p className="py-1 text-xs leading-5 text-muted-foreground">
                 {t("playerSettings.noCtas")}
               </p>
-            ) : (
+            ) : null}
+            {ctas.length > 0 ? (
               <Accordion
                 type="single"
                 collapsible
@@ -188,20 +231,103 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     key={cta.id}
                     cta={cta}
                     t={t}
+                    pending={updateCta.isPending}
+                    deletePending={deleteCta.isPending}
                     onSave={(fields) => {
                       updateCta.mutate({ id: cta.id, ...fields } as any);
-                      setOpenCtaId("");
                     }}
                     onDelete={() => {
                       deleteCta.mutate({ id: cta.id } as any);
-                      setOpenCtaId("");
                     }}
                   />
                 ))}
               </Accordion>
-            )}
+            ) : null}
           </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+function CtaDraftEditor({
+  t,
+  pending,
+  onCancel,
+  onSave,
+}: {
+  t: ReturnType<typeof useT>;
+  pending: boolean;
+  onCancel: () => void;
+  onSave: (fields: {
+    label: string;
+    url: string;
+    placement: "end" | "throughout";
+  }) => void;
+}) {
+  const [label, setLabel] = useState(t("playerSettings.defaultCtaLabel"));
+  const [url, setUrl] = useState("");
+  const [placement, setPlacement] = useState<"end" | "throughout">(
+    "throughout",
+  );
+  const canSave = label.trim().length > 0 && isPublicHttpUrl(url);
+  const invalidUrl = url.length > 0 && !isPublicHttpUrl(url);
+  const urlErrorId = "new-cta-url-error";
+
+  return (
+    <div className="grid gap-2 rounded-md border border-border/70 p-2.5">
+      <ViewerInput
+        autoFocus
+        value={label}
+        aria-label={t("playerSettings.buttonLabelPlaceholder")}
+        onChange={(event) => setLabel(event.target.value)}
+        placeholder={t("playerSettings.buttonLabelPlaceholder")}
+      />
+      <ViewerInput
+        type="url"
+        value={url}
+        aria-label={t("shareDialog.link")}
+        aria-invalid={invalidUrl}
+        aria-describedby={invalidUrl ? urlErrorId : undefined}
+        onChange={(event) => setUrl(event.target.value)}
+        placeholder="https://…"
+      />
+      {invalidUrl ? (
+        <p id={urlErrorId} className="text-xs text-destructive">
+          {t("playerSettings.validWebUrl")}
+        </p>
+      ) : null}
+      <Select
+        value={placement}
+        onValueChange={(value) => setPlacement(value as "end" | "throughout")}
+      >
+        <ViewerSelectTrigger aria-label={t("playerSettings.callToAction")}>
+          <SelectValue />
+        </ViewerSelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="throughout">
+              {t("playerSettings.placementThroughout")}
+            </SelectItem>
+            <SelectItem value="end">
+              {t("playerSettings.placementEnd")}
+            </SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <ViewerButton type="button" variant="ghost" onClick={onCancel}>
+          {t("common.cancel")}
+        </ViewerButton>
+        <ViewerButton
+          type="button"
+          disabled={!canSave || pending}
+          onClick={() =>
+            onSave({ label: label.trim(), url: url.trim(), placement })
+          }
+        >
+          {pending ? t("common.saving") : t("common.save")}
+        </ViewerButton>
       </div>
     </div>
   );
@@ -231,6 +357,8 @@ function ToggleRow({
 function CtaEditor({
   cta,
   t,
+  pending,
+  deletePending,
   onSave,
   onDelete,
 }: {
@@ -242,6 +370,8 @@ function CtaEditor({
     placement: "end" | "throughout";
   };
   t: ReturnType<typeof useT>;
+  pending: boolean;
+  deletePending: boolean;
   onSave: (fields: Record<string, unknown>) => void;
   onDelete: () => void;
 }) {
@@ -255,12 +385,12 @@ function CtaEditor({
   const [url, setUrl] = useReconciledState(cta.url, {
     active: editing.current,
   });
-  const [color, setColor] = useReconciledState(cta.color, {
-    active: editing.current,
-  });
   const [placement, setPlacement] = useReconciledState(cta.placement, {
     active: editing.current,
   });
+  const canSave = label.trim().length > 0 && isPublicHttpUrl(url);
+  const invalidUrl = url.length > 0 && !isPublicHttpUrl(url);
+  const urlErrorId = `cta-${cta.id}-url-error`;
 
   return (
     <AccordionItem
@@ -289,26 +419,33 @@ function CtaEditor({
       <AccordionContent className="grid gap-2 pb-2">
         <ViewerInput
           value={label}
+          aria-label={t("playerSettings.buttonLabelPlaceholder")}
           onChange={(e) => setLabel(e.target.value)}
           placeholder={t("playerSettings.buttonLabelPlaceholder")}
         />
         <ViewerInput
+          type="url"
           value={url}
+          aria-label={t("shareDialog.link")}
+          aria-invalid={invalidUrl}
+          aria-describedby={invalidUrl ? urlErrorId : undefined}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://…"
         />
+        {invalidUrl ? (
+          <p id={urlErrorId} className="text-xs text-destructive">
+            {t("playerSettings.validWebUrl")}
+          </p>
+        ) : null}
         <div className="flex gap-2">
-          <ViewerInput
-            type="color"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-            className="w-10 cursor-pointer p-1"
-          />
           <Select
             value={placement}
             onValueChange={(v) => setPlacement(v as "end" | "throughout")}
           >
-            <ViewerSelectTrigger className="flex-1">
+            <ViewerSelectTrigger
+              aria-label={t("playerSettings.callToAction")}
+              className="flex-1"
+            >
               <SelectValue />
             </ViewerSelectTrigger>
             <SelectContent>
@@ -328,18 +465,37 @@ function CtaEditor({
             type="button"
             variant="ghost"
             className="text-destructive hover:text-destructive"
+            disabled={deletePending || pending}
             onClick={onDelete}
           >
             {t("playerSettings.delete")}
           </ViewerButton>
           <ViewerButton
             type="button"
-            onClick={() => onSave({ label, url, color, placement })}
+            disabled={!canSave || pending || deletePending}
+            onClick={() =>
+              onSave({
+                label: label.trim(),
+                url: url.trim(),
+                placement,
+              })
+            }
           >
-            {t("common.save")}
+            {pending ? t("common.saving") : t("common.save")}
           </ViewerButton>
         </div>
       </AccordionContent>
     </AccordionItem>
   );
+}
+
+function isPublicHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    // coercion-ok: invalid draft input is intentionally represented as false
+    // so the Save action stays disabled until it becomes a web URL.
+    return false;
+  }
 }

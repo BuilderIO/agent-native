@@ -25,7 +25,6 @@ function CursorChartTooltip({
 }: {
   containerRef: RefObject<HTMLDivElement | null>;
 }) {
-  const t = useT();
   const contentRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<number | null>(null);
   const [position, setPosition] = useState<
@@ -104,7 +103,7 @@ function CursorChartTooltip({
 
 export interface InsightsChartProps {
   views: number;
-  uniqueViewers: number;
+  uniqueViewers: number | null;
   reactions?: number;
   completionRate: number | null;
   ctaConversionRate: number | null;
@@ -120,23 +119,30 @@ export function InsightsChart({
   const t = useT();
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const safeViews = Math.max(0, views);
-  const safeUniqueViewers = Math.max(0, uniqueViewers);
+  const safeUniqueViewers =
+    uniqueViewers === null ? null : Math.max(0, uniqueViewers);
   const safeReactions = Math.max(0, reactions);
-  const completion = clampRate(completionRate);
-  const ctaConversion = clampRate(ctaConversionRate);
   const rateData = [
-    {
-      metric: "completion",
-      label: t("recordingInsights.completion"),
-      value: completion,
-      fill: "var(--color-completion)",
-    },
-    {
-      metric: "ctaConversion",
-      label: t("recordingInsights.ctaConversion"),
-      value: ctaConversion,
-      fill: "var(--color-ctaConversion)",
-    },
+    ...(completionRate === null
+      ? []
+      : [
+          {
+            metric: "completion",
+            label: t("recordingInsights.completion"),
+            value: clampRate(completionRate),
+            fill: "var(--color-completion)",
+          },
+        ]),
+    ...(ctaConversionRate === null
+      ? []
+      : [
+          {
+            metric: "ctaConversion",
+            label: t("recordingInsights.ctaConversion"),
+            value: clampRate(ctaConversionRate),
+            fill: "var(--color-ctaConversion)",
+          },
+        ]),
   ];
   const chartConfig = {
     completion: {
@@ -151,12 +157,12 @@ export function InsightsChart({
 
   return (
     <section aria-label={t("insightsHub.title")}>
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(9rem,0.78fr)] items-center gap-3">
+      <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,0.78fr)]">
         <ChartContainer
           ref={chartContainerRef}
           config={chartConfig}
           aria-label={t("recordingInsights.averageCompletionRate")}
-          className="mx-auto aspect-square h-[220px] w-full max-w-[220px]"
+          className="mx-auto aspect-square h-[196px] w-full max-w-[220px] sm:h-[220px]"
         >
           <RadialBarChart
             accessibilityLayer
@@ -214,7 +220,7 @@ export function InsightsChart({
           </RadialBarChart>
         </ChartContainer>
 
-        <dl className="grid min-w-0 gap-4">
+        <dl className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-1 sm:gap-4">
           <RateMetric
             label={t("recordingInsights.completion")}
             value={formatRate(completionRate)}
@@ -225,7 +231,7 @@ export function InsightsChart({
             value={formatRate(ctaConversionRate)}
             indicatorClassName="bg-muted-foreground"
           />
-          <div className="grid grid-cols-2 gap-3 border-t border-border/70 pt-4">
+          <div className="col-span-2 grid grid-cols-2 gap-3 border-t border-border/70 pt-3 sm:col-span-1 sm:pt-4">
             <CountMetric
               label={t("recordingInsights.uniqueViewers")}
               value={safeUniqueViewers}
@@ -259,7 +265,7 @@ function RateMetric({
           indicatorClassName,
         )}
       />
-      <dt className="truncate text-xs text-muted-foreground">{label}</dt>
+      <dt className="text-xs leading-4 text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
         {value}
       </dd>
@@ -267,14 +273,18 @@ function RateMetric({
   );
 }
 
-function CountMetric({ label, value }: { label: string; value: number }) {
+function CountMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | null;
+}) {
   return (
     <div className="min-w-0">
-      <dt className="truncate text-[11px] leading-4 text-muted-foreground">
-        {label}
-      </dt>
+      <dt className="text-[11px] leading-4 text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
-        {value.toLocaleString()}
+        {value === null ? "—" : value.toLocaleString()}
       </dd>
     </div>
   );
@@ -285,5 +295,5 @@ function clampRate(value: number | null): number {
 }
 
 function formatRate(value: number | null): string {
-  return `${Math.round(clampRate(value))}%`;
+  return value === null ? "—" : `${Math.round(clampRate(value))}%`;
 }

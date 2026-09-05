@@ -31,7 +31,14 @@ import {
   IconDots,
   IconEdit,
 } from "@tabler/icons-react";
-import { Fragment, ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 
 import {
@@ -164,6 +171,8 @@ export function LibraryLayout({
   );
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const mobileSidebarRef = useRef<HTMLElement | null>(null);
+  const mobileMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     readSidebarCollapsedPreference,
   );
@@ -228,6 +237,52 @@ export function LibraryLayout({
     setSidebarOpen(false);
   }, [location.pathname]);
   useEffect(() => {
+    if (!isMobile || !sidebarOpen) return;
+
+    const sidebar = mobileSidebarRef.current;
+    if (!sidebar) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusFirstControl = () => {
+      sidebar.querySelector<HTMLElement>(focusableSelector)?.focus();
+    };
+    requestAnimationFrame(focusFirstControl);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSidebarOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(
+        sidebar.querySelectorAll<HTMLElement>(focusableSelector),
+      ).filter((element) => !element.hasAttribute("disabled"));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        sidebar.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      (previouslyFocused ?? mobileMenuTriggerRef.current)?.focus();
+    };
+  }, [isMobile, sidebarOpen]);
+  useEffect(() => {
     try {
       window.localStorage.setItem(
         SIDEBAR_COLLAPSED_STORAGE_KEY,
@@ -253,7 +308,7 @@ export function LibraryLayout({
       to: "/library",
       label: t("navigation.library"),
       icon: IconInbox,
-      match: (p) => p.startsWith("/library"),
+      match: (p) => p.startsWith("/library") || p.startsWith("/r/"),
       count: libraryCount,
     },
     {
@@ -386,6 +441,7 @@ export function LibraryLayout({
       {/* Mobile backdrop */}
       {sidebarOpen && (
         <div
+          aria-hidden="true"
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
@@ -393,6 +449,14 @@ export function LibraryLayout({
 
       {/* Left sidebar */}
       <aside
+        ref={mobileSidebarRef}
+        id="clips-primary-navigation"
+        role={isMobile ? "dialog" : undefined}
+        aria-modal={isMobile ? true : undefined}
+        aria-label={isMobile ? t("navigation.brand") : undefined}
+        tabIndex={isMobile ? -1 : undefined}
+        aria-hidden={isMobile && !sidebarOpen ? true : undefined}
+        inert={isMobile && !sidebarOpen ? true : undefined}
         className={cn(
           "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
           showCollapsedSidebar && "md:w-14",
@@ -610,8 +674,11 @@ export function LibraryLayout({
         {!pageOwnsToolbar && (
           <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
             <button
+              ref={mobileMenuTriggerRef}
               type="button"
               aria-label={t("navigation.expandSidebar")}
+              aria-expanded={sidebarOpen}
+              aria-controls="clips-primary-navigation"
               onClick={() => setSidebarOpen(true)}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
             >

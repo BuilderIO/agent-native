@@ -76,6 +76,7 @@ export default defineAction({
         ),
         recordingId: args.recordingId,
         kind: "regenerate-chapters",
+        requestedAt,
       }),
     };
 

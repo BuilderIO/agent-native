@@ -47,6 +47,16 @@ interface NavigateCommand extends Partial<NavigationState> {
   path?: string;
 }
 
+function decodePathSegment(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value);
+    // coercion-ok: null explicitly marks a malformed route segment for rejection.
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Derive a navigation-state shape from the current URL.
  *
@@ -64,8 +74,7 @@ interface NavigateCommand extends Partial<NavigationState> {
  *   /record                     -> record
  *   /bug-report                 -> bug-report
  *   /bug-report/done            -> bug-report-done
- *   /r/:recordingId             -> recording
- *   /r/:recordingId/insights    -> insights
+ *   /r/:recordingId             -> recording (or insights with ?panel=insights)
  *   /share/:shareId             -> share
  *   /embed/:shareId             -> embed
  *   /notifications              -> notifications
@@ -82,15 +91,17 @@ export function stateFromLocation(
   const searchTerm = params.get("q") || undefined;
   const p = pathname.replace(/\/+$/, "") || "/";
 
-  // /r/:recordingId[/insights]
-  const recordingMatch = p.match(/^\/r\/([^/]+)(?:\/(insights))?$/);
+  // /r/:recordingId
+  const recordingMatch = p.match(/^\/r\/([^/]+)$/);
   if (recordingMatch) {
+    const recordingId = decodePathSegment(recordingMatch[1]);
+    if (!recordingId) return { view: "library" };
     const panel = params.get("panel");
     const atParam = params.get("at") ?? params.get("t");
     const atMs = atParam == null ? undefined : Number(atParam);
     return {
-      view: recordingMatch[2] === "insights" ? "insights" : "recording",
-      recordingId: recordingMatch[1],
+      view: panel === "insights" ? "insights" : "recording",
+      recordingId,
       ...(panel === "comments" ||
       panel === "transcript" ||
       panel === "agent" ||
@@ -106,24 +117,29 @@ export function stateFromLocation(
   // /share/:shareId and /embed/:shareId
   const shareMatch = p.match(/^\/(share|embed)\/([^/]+)$/);
   if (shareMatch) {
+    const shareId = decodePathSegment(shareMatch[2]);
+    if (!shareId) return { view: "library" };
     return {
       view: shareMatch[1] === "embed" ? "embed" : "share",
-      shareId: shareMatch[2],
+      shareId,
     };
   }
 
   // /spaces/:spaceId
   const spaceMatch = p.match(/^\/spaces\/([^/]+)$/);
   if (spaceMatch) {
-    return { view: "space", spaceId: spaceMatch[1] };
+    const spaceId = decodePathSegment(spaceMatch[1]);
+    return spaceId ? { view: "space", spaceId } : { view: "library" };
   }
 
   // /library/folder/:folderId
   const folderMatch = p.match(/^\/library\/folder\/([^/]+)$/);
   if (folderMatch) {
+    const folderId = decodePathSegment(folderMatch[1]);
+    if (!folderId) return { view: "library" };
     return {
       view: "library",
-      folderId: folderMatch[1],
+      folderId,
       ...(searchTerm ? { search: searchTerm } : {}),
     };
   }
@@ -132,7 +148,8 @@ export function stateFromLocation(
   const meetingMatch = p.match(/^\/meetings(?:\/([^/]+))?$/);
   if (meetingMatch) {
     if (meetingMatch[1]) {
-      return { view: "meeting", meetingId: meetingMatch[1] };
+      const meetingId = decodePathSegment(meetingMatch[1]);
+      return meetingId ? { view: "meeting", meetingId } : { view: "library" };
     }
     // ?tab= is absent on the default Agenda tab, so report it explicitly
     // rather than leaving the agent to infer which list the user is looking at.
@@ -146,9 +163,11 @@ export function stateFromLocation(
   // /dictate (optionally /dictate/:dictationId in the future)
   const dictateMatch = p.match(/^\/dictate(?:\/([^/]+))?$/);
   if (dictateMatch) {
+    const dictationId = decodePathSegment(dictateMatch[1]);
+    if (dictateMatch[1] && !dictationId) return { view: "library" };
     return {
       view: "dictate",
-      ...(dictateMatch[1] ? { dictationId: dictateMatch[1] } : {}),
+      ...(dictationId ? { dictationId } : {}),
     };
   }
 
@@ -191,17 +210,25 @@ export function pathFromCommand(cmd: NavigateCommand): string {
       if (typeof cmd.atMs === "number" && Number.isFinite(cmd.atMs)) {
         recordingParams.set("at", String(Math.max(0, Math.round(cmd.atMs))));
       }
-      return `/r/${cmd.recordingId}${
+      return `/r/${encodeURIComponent(cmd.recordingId)}${
         recordingParams.size > 0 ? `?${recordingParams.toString()}` : ""
       }`;
     case "insights":
-      return cmd.recordingId ? `/r/${cmd.recordingId}/insights` : "/library";
+      return cmd.recordingId
+        ? `/r/${encodeURIComponent(cmd.recordingId)}?panel=insights`
+        : "/library";
     case "share":
-      return cmd.shareId ? `/share/${cmd.shareId}` : "/library";
+      return cmd.shareId
+        ? `/share/${encodeURIComponent(cmd.shareId)}`
+        : "/library";
     case "embed":
-      return cmd.shareId ? `/embed/${cmd.shareId}` : "/library";
+      return cmd.shareId
+        ? `/embed/${encodeURIComponent(cmd.shareId)}`
+        : "/library";
     case "space":
-      return cmd.spaceId ? `/spaces/${cmd.spaceId}` : "/spaces";
+      return cmd.spaceId
+        ? `/spaces/${encodeURIComponent(cmd.spaceId)}`
+        : "/spaces";
     case "spaces":
       return "/spaces";
     case "shared":
@@ -225,12 +252,16 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "meetings":
       return cmd.meetingsTab === "past" ? "/meetings?tab=past" : "/meetings";
     case "meeting":
-      return cmd.meetingId ? `/meetings/${cmd.meetingId}` : "/meetings";
+      return cmd.meetingId
+        ? `/meetings/${encodeURIComponent(cmd.meetingId)}`
+        : "/meetings";
     case "dictate":
       return "/dictate";
     case "library":
     default:
-      if (cmd.folderId) return `/library/folder/${cmd.folderId}`;
+      if (cmd.folderId) {
+        return `/library/folder/${encodeURIComponent(cmd.folderId)}`;
+      }
       return "/library";
   }
 }

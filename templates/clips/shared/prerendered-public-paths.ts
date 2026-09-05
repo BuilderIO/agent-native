@@ -15,7 +15,7 @@
  *   HTML page, so the private `/home` redirect stays on the function);
  * - it renders nothing derived from the URL's query string (`/bug-report` and
  *   `/bug-report/done` prefill from search params, so they stay dynamic);
- * - it reads no per-viewer data on the server (`/share/:id`, `/r/:id`,
- *   `/embed/:id` are public but database-backed).
+ * - it reads no per-viewer data on the server (`/share/:id` and `/embed/:id`
+ *   are public but database-backed; `/r/:id` is authenticated).
  */
 export const PRERENDERED_PUBLIC_PAGE_PATHS = ["/download"] as const;
