@@ -52,6 +52,7 @@ describe("slide-content text colors", () => {
     strong: "<strong>Text</strong>",
     em: "<em>Text</em>",
     td: "<table><tbody><tr><td>Text</td></tr></tbody></table>",
+    a: '<a href="#">Text</a>',
   };
   for (const [tag, inner] of Object.entries(markup)) {
     it(`lets raw slide HTML own its own <${tag}> color`, () => {

@@ -160,28 +160,28 @@ export default defineAction({
 
       const existing = opts?.accumulate ? rawTokens.get(cssVar) : undefined;
       if (!existing) {
-        rawTokens.set(cssVar, { value, source: src, sources: [src] });
+        rawTokens.set(cssVar, {
+          value,
+          source: src,
+          sources: [src],
+          sourceValues: { [src]: value },
+        });
         return;
       }
 
       // Same cssVar declared in more than one design file — keep the first
-      // file's (value, source) as the reported primary for compatibility,
-      // record every contributing file, and call out disagreeing values
-      // instead of silently keeping whichever file the DB happened to
-      // return last.
+      // file's (value, source) as the reported primary for compatibility and
+      // record every contributing file's value (the output only surfaces
+      // `sourceValues` when they disagree) instead of silently keeping
+      // whichever file the DB happened to return last.
       const sources = existing.sources.includes(src)
         ? existing.sources
         : [...existing.sources, src];
-      const sourceValues =
-        value !== existing.value
-          ? {
-              ...(existing.sourceValues ?? {
-                [existing.source]: existing.value,
-              }),
-              [src]: value,
-            }
-          : existing.sourceValues;
-      rawTokens.set(cssVar, { ...existing, sources, sourceValues });
+      rawTokens.set(cssVar, {
+        ...existing,
+        sources,
+        sourceValues: { ...existing.sourceValues, [src]: value },
+      });
     };
 
     for (const file of files) {
@@ -327,7 +327,9 @@ export default defineAction({
         type: classifyVar(cssVar, value),
         source,
         ...(sources.length > 1 ? { sources } : {}),
-        ...(sourceValues ? { sourceValues } : {}),
+        ...(sourceValues && new Set(Object.values(sourceValues)).size > 1
+          ? { sourceValues }
+          : {}),
         isTweakOverride: tweakCssVars.has(cssVar),
       });
     }

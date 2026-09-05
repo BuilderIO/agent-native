@@ -1088,7 +1088,8 @@ button[title="Open agent sidebar"] {
 .slide-content[data-slide-content-scope] strong,
 .slide-content[data-slide-content-scope] em,
 .slide-content[data-slide-content-scope] td,
-.slide-content[data-slide-content-scope] th {
+.slide-content[data-slide-content-scope] th,
+.slide-content[data-slide-content-scope] a {
   color: inherit;
 }
 
