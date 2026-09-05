@@ -1,5 +1,6 @@
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 
@@ -26,8 +27,17 @@ function buildHeaders(requestSource?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  if (typeof window !== "undefined") {
+    headers["X-Agent-Native-Browser-Tab"] = getBrowserTabId();
+  }
   if (requestSource) headers["X-Request-Source"] = requestSource;
   return headers;
+}
+
+function browserTabHeaders(): Record<string, string> | undefined {
+  return typeof window === "undefined"
+    ? undefined
+    : { "X-Agent-Native-Browser-Tab": getBrowserTabId() };
 }
 
 async function parseAppStateResponse<T>(
@@ -120,12 +130,14 @@ export async function readClientAppStateMany(
   const merged: ClientAppStateBatch = { values: {}, missing: [] };
   for (let i = 0; i < unique.length; i += MAX_BATCH_KEYS) {
     const chunk = unique.slice(i, i + MAX_BATCH_KEYS);
+    const browserHeaders = browserTabHeaders();
     const url = `${agentNativePath("/_agent-native/application-state")}?keys=${chunk
       .map(encodeURIComponent)
       .join(",")}`;
     const response = await fetch(url, {
       method: "GET",
       cache: "no-store",
+      ...(browserHeaders ? { headers: browserHeaders } : {}),
       signal: options.signal,
     });
     const batch = await parseAppStateResponse<ClientAppStateBatch | null>(
@@ -235,6 +247,7 @@ export async function deleteClientAppState(
     // same-origin marker the CSRF check can see from an embedded frame.
     headers: {
       "X-Agent-Native-CSRF": "1",
+      ...(browserTabHeaders() ?? {}),
       ...(options.requestSource
         ? { "X-Request-Source": options.requestSource }
         : {}),

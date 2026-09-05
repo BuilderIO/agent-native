@@ -22,6 +22,7 @@ import { normalizeDocumentTitle } from "../../shared/document-title.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
+import { getBrowserTabId } from "../browser-tab-id.js";
 import {
   Popover,
   PopoverContent,
@@ -976,6 +977,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         finalHeaders.set("X-Agent-Native-Extension-Id", extensionId);
         finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
         finalHeaders.set("X-Agent-Native-Tool-Id", extensionId);
+        finalHeaders.set("X-Agent-Native-Browser-Tab", getBrowserTabId());
         const res = await fetch(agentNativePath(path), {
           ...options,
           headers: finalHeaders,

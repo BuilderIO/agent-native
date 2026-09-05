@@ -28,6 +28,7 @@ import type {
   DbAdminQueryResult,
 } from "../../db-admin/types.js";
 import { agentNativePath } from "../api-path.js";
+import { getBrowserTabId } from "../browser-tab-id.js";
 import { useChangeVersions } from "../use-change-version.js";
 
 // ─── Base path ───────────────────────────────────────────────────────────
@@ -49,33 +50,13 @@ function requestScopeKey(config?: DbAdminRequestConfig): string {
 
 // ─── Tab id (request source) ───────────────────────────────────────────────
 
-let cachedTabId: string | null = null;
-
 /**
- * Best-effort stable per-tab identifier sent as `x-request-source` so the
- * backend can attribute changes to this tab (and skip echoing them back to the
- * originator). Mirrors the template `TAB_ID` convention without depending on a
- * template-only module.
+ * Stable per-tab identifier sent as `x-request-source` so the backend can
+ * attribute changes to this tab and skip echoing them back to the originator.
  */
 function getRequestSource(): string | undefined {
   if (typeof window === "undefined") return undefined;
-  if (cachedTabId) return cachedTabId;
-  try {
-    const existing = window.sessionStorage.getItem("agentnative.tabId");
-    if (existing) {
-      cachedTabId = existing;
-      return existing;
-    }
-    const generated =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `tab-${Math.random().toString(36).slice(2)}`;
-    window.sessionStorage.setItem("agentnative.tabId", generated);
-    cachedTabId = generated;
-    return generated;
-  } catch {
-    return undefined;
-  }
+  return getBrowserTabId();
 }
 
 // ─── Low-level fetchers ────────────────────────────────────────────────────
