@@ -566,8 +566,12 @@ describe("s3FileUploadProvider", () => {
         S3_ENDPOINT: endpoint,
         S3_REGION: "us-east-1",
       };
-      mockResolveSecret.mockImplementation(async (key: string) => values[key] ?? null);
-      const fetchMock = vi.fn(async () => new Response("media", { status: 200 }));
+      mockResolveSecret.mockImplementation(
+        async (key: string) => values[key] ?? null,
+      );
+      const fetchMock = vi.fn(
+        async () => new Response("media", { status: 200 }),
+      );
       vi.stubGlobal("fetch", fetchMock);
 
       await fetchS3ObjectByUrl(
@@ -579,7 +583,9 @@ describe("s3FileUploadProvider", () => {
       return { url, auth: String(init.headers.Authorization) };
     };
 
-    const prefixed = await signedRequestFor("https://proj.storage.example.com/storage/v1/s3");
+    const prefixed = await signedRequestFor(
+      "https://proj.storage.example.com/storage/v1/s3",
+    );
     const plain = await signedRequestFor("https://proj.storage.example.com");
 
     // The prefix appears exactly once in the request path.
