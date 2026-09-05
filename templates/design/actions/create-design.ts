@@ -4,11 +4,13 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import getDesignSystem from "./get-design-system.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -24,7 +26,10 @@ export default defineAction({
   description:
     "Create a new empty design project shell. This is not a renderable " +
     "artifact by itself — author the screen HTML next and save it with " +
-    "generate-design (files + canvasFrames) or create-file.",
+    "generate-design (files + canvasFrames) or create-file. When a design " +
+    "system is linked, the result includes its `agentContext`; apply it " +
+    "before authoring the screen. Pass the id selected by list-design-systems " +
+    "when the user names a system.",
   schema: z.object({
     id: z
       .string()
@@ -93,6 +98,11 @@ export default defineAction({
       id,
       title,
       projectType,
+      designSystemId: designSystemId ?? null,
+      designSystem: await loadAgentDesignSystemContext(
+        designSystemId,
+        async (id) => getDesignSystem.run({ id }),
+      ),
       renderable: false,
       nextRequiredAction:
         "Author the screen HTML, then save it with generate-design or create-file.",

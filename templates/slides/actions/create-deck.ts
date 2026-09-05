@@ -5,6 +5,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   recordGenerationCreativeContext,
@@ -35,6 +36,7 @@ import {
   nextDeckRevision,
 } from "./_deck-write.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
+import getDesignSystem from "./get-design-system.js";
 
 const ReuseLabelSchema = z
   .object({
@@ -117,7 +119,7 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live; the new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, effective designSystemId, and slide count.",
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
@@ -326,6 +328,10 @@ export default defineAction({
         title: existingDeckTitle,
         slideCount: slides.length,
         designSystemId: designSystemId ?? existing[0].designSystemId ?? null,
+        designSystem: await loadAgentDesignSystemContext(
+          designSystemId ?? existing[0].designSystemId ?? null,
+          async (id) => getDesignSystem.run({ id }),
+        ),
         url: getDeckUrl(deckId),
         appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
@@ -382,6 +388,10 @@ export default defineAction({
       title: resolvedTitle,
       slideCount: slides.length,
       designSystemId: resolvedDesignSystemId ?? null,
+      designSystem: await loadAgentDesignSystemContext(
+        resolvedDesignSystemId,
+        async (id) => getDesignSystem.run({ id }),
+      ),
       url: getDeckUrl(id),
       appUrl: getDeckUrl(id),
       deepLink: deckDeepLink(id),

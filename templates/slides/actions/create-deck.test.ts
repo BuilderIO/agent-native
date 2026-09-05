@@ -123,6 +123,16 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
+vi.mock("./get-design-system.js", () => ({
+  default: {
+    run: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
+  },
+}));
+
 import action from "./create-deck";
 
 beforeEach(() => {
@@ -203,6 +213,11 @@ describe("create-deck — aspectRatio", () => {
     );
     expect(insertedRow!.designSystemId).toBe("ds-explicit");
     expect(result.designSystemId).toBe("ds-explicit");
+    expect(result.designSystem).toMatchObject({
+      status: "available",
+      id: "ds-explicit",
+      agentContext: "Use --brand-accent: #123456.",
+    });
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.designSystemId).toBe("ds-explicit");
   });

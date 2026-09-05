@@ -4,7 +4,9 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
+  formatAgentDesignSystemContext,
   formatHtmlStyleSummary,
+  loadAgentDesignSystemContext,
   summarizeHtmlStyles,
 } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -23,6 +25,7 @@ import {
   type DeckFitState,
 } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
+import getDesignSystem from "./get-design-system.js";
 
 type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
   slideId: string;
@@ -238,6 +241,13 @@ export default defineAction({
         ),
         { noun: "slide" },
       );
+      const designSystem = await loadAgentDesignSystemContext(
+        rows[0].designSystemId ??
+          (typeof deck?.designSystemId === "string"
+            ? deck.designSystemId
+            : null),
+        async (id) => getDesignSystem.run({ id }),
+      );
       // Counts show the palette, not the composition; one real sibling
       // shows spacing, element order, and sizes to mirror. A class-styled
       // deck tallies nothing, and still has a sibling worth reading.
@@ -252,6 +262,9 @@ export default defineAction({
             `representativeSlide: id=${sibling.id} (slide ${representative + 1}, layout=${sibling.layout ?? "-"})   ← before a style or layout change, read it with get-deck { id: deckId, slideId: "${sibling.id}", compact: "false" } and mirror its structure and values`,
           );
         }
+      }
+      if (designSystem) {
+        lines.push("", ...formatAgentDesignSystemContext(designSystem));
       }
       if (currentSlide?.content) {
         lines.push(``);

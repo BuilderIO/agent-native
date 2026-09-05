@@ -75,7 +75,9 @@ function main() {
   }
 
   const dirtyPaths = parsePorcelain(
-    git(["status", "--porcelain", "-z"], { raw: true }),
+    git(["status", "--porcelain", "-z", "--untracked-files=all"], {
+      raw: true,
+    }),
   );
   // null = the remote branch does not exist yet, which also needs a push.
   const unpushed = git(["log", "--oneline", `origin/${branch}..HEAD`], {
@@ -149,7 +151,9 @@ function main() {
   if (committed) console.log(`  committed ${committed}`);
   console.log(`  pushed    origin/${branch}@${remoteSha}`);
   const remainingExcluded = parsePorcelain(
-    git(["status", "--porcelain", "-z"], { raw: true }),
+    git(["status", "--porcelain", "-z", "--untracked-files=all"], {
+      raw: true,
+    }),
   ).filter((file) => EXCLUDED.test(file));
   if (remainingExcluded.length > 0) {
     console.log(

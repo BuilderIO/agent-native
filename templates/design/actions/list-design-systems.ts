@@ -16,7 +16,8 @@ function canManageRole(role: "owner" | ShareRole) {
 export default defineAction({
   description:
     "List all design systems accessible to the current user. " +
-    "Returns title, id, and whether each is the default.",
+    "Returns title, id, and whether each is the default. For a named system, " +
+    "match the exact title, then call get-design-system before authoring.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -25,6 +26,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpApp: { compactCatalog: true },
   run: async (args) => {
     const db = getDb();
     const rows = await db
