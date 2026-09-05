@@ -82,7 +82,7 @@ async function loadDeckWithUniqueSlideIds(deckId: string) {
     });
 
     if (repaired) {
-      if (repaired.repaired) notifyClients(deckId);
+      if (repaired.repaired) await notifyClients(deckId);
       return repaired;
     }
   }

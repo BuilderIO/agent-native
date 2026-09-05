@@ -5,44 +5,53 @@ action surface. Use the app's existing patterns before adding new ones.
 
 ## Skills
 
-Read the matching skill before implementation. Before building common workspace or agent UI, read `agent-native-toolkit` and `customizing-agent-native` for the
-configure → compose → eject ladder. Start with `actions` for app operations,
-`storing-data` for persistence, `real-time-sync` for live updates, and
-`security` for auth, access, and secrets. Use `adding-a-feature` for new
-cross-cutting work and `self-modifying-code` when changing app source.
+Read the matching skill before implementation.
+Before building common workspace or agent UI, read `agent-native-toolkit`
+and `customizing-agent-native` for the configure → compose → eject ladder. Start with `actions` for app operations, `storing-data`
+for persistence, `real-time-sync` for live updates, and `security` for auth,
+access, and secrets. Use `adding-a-feature` for cross-cutting work and
+`self-modifying-code` when changing app source.
+
+## Agent discovery
+
+List the app's key actions once in an `## Actions` table here. MCP/WebMCP key
+tools come from `mcp.keyToolNames ?? initialToolNames`; the table may list
+more, but both must agree on the key ones and name only real actions. See
+`actions` (Return Values), `context-awareness` (Selection state), and
+`external-agents`.
 
 ## Core rules
 
-- Store structured state in SQL through Drizzle; store large files in configured
-  file/blob storage and persist only URLs, ids, or opaque handles.
+- Store structured state in SQL through Drizzle; store large files in
+  configured file/blob storage and persist only URLs, ids, or opaque handles.
 - Normal app data must flow through actions.
 - Do not create `/api/*` routes that only call, repackage, or proxy an action.
 - Define app operations with `defineAction` in `actions/`. The agent and UI
-  call the same action surface; do not duplicate an action with a JSON route.
-- If you are about to add `server/routes/api/`, stop and write an action
-  instead, except for uploads, streaming, webhooks, OAuth callbacks, public
+  call the same action surface; don't duplicate an action with a JSON route.
+- If you are about to add `server/routes/api/`, write an action instead,
+  except for uploads, streaming, webhooks, OAuth callbacks, public
   unauthenticated URLs, or non-JSON responses.
-- Keep database code PostgreSQL-specific and migrations additive. Do not use
+- Keep database code PostgreSQL-specific and migrations additive. Don't use
   adapter-only database methods or production schema push commands.
 - All AI work goes through agent chat. UI/server code must not call models or
-  hide multi-step AI in one action. Keep actions deterministic and focused; use
-  the AgentSidebar for research and follow-ups in the same thread.
+  hide multi-step AI in one action. Keep actions deterministic and focused;
+  use the AgentSidebar for research and follow-ups in the same thread.
 - Keep domain workflows on named routes and preserve the scaffold's full-page
   chat route. Use the right AgentSidebar for contextual AI and open it when a
   domain button hands work to the agent.
 - Keep the first viewport focused: one primary action, progressive disclosure,
-  concise copy, and no generic Chat label for a domain page. Never use sparkle,
-  wand, magic, or robot icons as AI affordances.
+  concise copy, no generic Chat label. Never use sparkle, wand, magic, or robot
+  icons as AI affordances.
 - Page and section data loads use layout-matching `Skeleton` geometry, never a
-  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
-  and progress actions.
+  generic "Loading..." label. Reserve `Spinner` for brief mutations and
+  progress actions.
 - Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
   type for content previews. Give the AgentSidebar a subtle surface/divider
   boundary, and stack original/generated review vertically by default.
-- Before visual work, read `frontend-design` and fill in `DESIGN.md` with the
-  product mode, visual direction, palette family, type, composition, and
-  anti-references. Preserve existing brand tokens and do not default every app
-  to warm beige plus terracotta or copy a sibling app's accent.
+- Before visual work, read `frontend-design` and fill in `DESIGN.md` (product
+  mode, visual direction, palette, type, composition, anti-references).
+  Preserve existing brand tokens; don't default to warm beige plus terracotta
+  or copy a sibling app's accent.
 - Every AI-labeled button must call `sendToAgentChat()` with
   `openSidebar: true`; label deterministic local actions as local or preview.
 - Keep application state in SQL so the agent can read navigation, selection,
@@ -50,18 +59,17 @@ cross-cutting work and `self-modifying-code` when changing app source.
 - Never hardcode keys, tokens, webhook URLs, private data, or credential-like
   literals. Use secrets, OAuth, or obvious placeholders.
 - For external integrations, inspect the workspace/provider connection catalog
-  first. Reuse an existing connection and its scoped credential resolver; only
-  use app-local vault/OAuth/settings primitives when no reusable connection
-  exists. Keep custom setup UI provider-specific and never duplicate storage.
-- A missing or unreadable value must stay distinguishable from success. Throw or
-  return an explicit error instead of silently falling back to an empty value.
+  first. Reuse an existing connection and its scoped resolver; use app-local
+  vault/OAuth/settings only when no reusable connection exists.
+- A missing or unreadable value must stay distinguishable from success. Throw
+  or return an explicit error instead of falling back to an empty value.
 
 ## Public and private routes
 
 `app/routes/_index.tsx` is the public SSR marketing page: no sessions, cookies,
 or private data. Use Toolkit `MarketingHome` with value props, backgrounds,
-action slots, or `children` for a custom hero. Keep the browser-gated app under
-`/home`; never server-redirect `/` based on authentication.
+action slots, or `children` for a custom hero. Keep the browser-gated app
+under `/home`; never server-redirect `/` based on auth.
 
 ## Lightweight defaults
 
@@ -80,9 +88,8 @@ export default defineAgentNativeConfig({
 
 ## Application state
 
-Use the existing `application_state` helpers for navigation and selection. Keep
-the shape small and explicit; include the current route/view and the selected
-object id when the UI has one.
+Use the existing `application_state` helpers for navigation and selection.
+Keep the shape small: current route/view and the selected object id.
 
 ## Actions
 
@@ -93,8 +100,8 @@ scope reads and writes to the signed-in user or organization. Prefer
 
 ## Authentication and access
 
-Auth is real Better Auth in development and production. Use `getSession()` or
-the shared request context and fail closed when there is no session. Never use a
+Auth is real Better Auth in dev and prod. Use `getSession()` or the shared
+request context and fail closed when there is no session. Never use a
 sentinel identity such as `local@localhost`. Tables with ownable columns need
 scoped reads and writes through the framework access helpers.
 
@@ -108,12 +115,11 @@ action query invalidation to reflect agent writes without a manual refresh.
 
 Version-matched docs and source examples ship with `@agent-native/core`. Use
 `pnpm action docs-search --query "<topic>"` and
-`pnpm action source-search --query "<pattern>"`; read the relevant local skill
-before relying on a framework API. Do not edit `node_modules` or deep-import
-private package internals.
+`pnpm action source-search --query "<pattern>"`; read the relevant skill
+before relying on a framework API. Never edit `node_modules` or deep-import
+package internals.
 
 ## Verification
 
 Match checks to the change: run the existing focused tests, typecheck, and
-formatter. Add a changelog entry only when `changelog.enabled` is true in the
-app's `agent-native.config.ts`.
+formatter. Add a changelog entry only when `changelog.enabled` is true.

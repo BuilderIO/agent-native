@@ -945,7 +945,7 @@ async function appendDeckSlides(
     return writeNow;
   });
 
-  notifyClients(deckId);
+  await notifyClients(deckId);
   await writeAppState("refresh-signal", { ts: now, source });
   return resolvedTitle;
 }

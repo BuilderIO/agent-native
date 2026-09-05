@@ -1183,15 +1183,15 @@ export default defineAction({
       );
       const agentChangeId = deckVersionChangeGroupFromAction(ctx);
       if (updatedSlideIds.length === 1 && !hasMixedStructuralOperation) {
-        notifyClients(deckId, {
+        await notifyClients(deckId, {
           slideId: updatedSlideIds[0],
           actor: isAgentCaller ? "agent" : "human",
           ...(agentChangeId ? { agentChangeId } : {}),
         });
       } else if (agentChangeId) {
-        notifyClients(deckId, { agentChangeId });
+        await notifyClients(deckId, { agentChangeId });
       } else {
-        notifyClients(deckId);
+        await notifyClients(deckId);
       }
 
       // Only slides whose rendered geometry actually changed can newly overflow. The editor

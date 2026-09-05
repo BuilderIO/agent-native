@@ -810,7 +810,7 @@ export default defineAction({
     // client can attribute the edit. Backwards-compatible: consumers reading
     // only { type, deckId } are unaffected.
     const agentChangeId = deckVersionChangeGroupFromAction(ctx);
-    notifyClients(deckId, {
+    await notifyClients(deckId, {
       slideId,
       actor: "agent",
       ...(agentChangeId ? { agentChangeId } : {}),

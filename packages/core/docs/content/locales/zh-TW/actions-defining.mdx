@@ -120,6 +120,28 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
             "繼承 `agentTool`。設為 false 可對經由 MCP 與 A2A 的外部代理隱藏，設為 true 則宣告它屬於精選目錄。請參閱「存取與授權」。",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "當一次成功呼叫會把控制權交給使用者時（問題表單、資訊蒐集對話框）設為 true；此時應讓它成為該輪次中的第一次或唯一一次呼叫。除非設定 mcpTool: true，否則會對 MCP、WebMCP 與 A2A 隱藏——外部呼叫端無法收到應用內的回答。請參閱「外部代理」。",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "供 MCP 主機與桌面應用讀取的、純粹且同步的深層連結建構函式。請參閱「其他介面」。",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "在 MCP-App 主機內內嵌真正的應用路由。請參閱「其他介面」。",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -189,6 +211,8 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
 
 架構做兩件事：它會轉換成 JSON Schema 供 Claude API 的工具定義使用，也會在 `run()` 觸發前於執行期驗證輸入。無效的輸入永遠不會傳到您的處理常式。
 
+在 `.describe()` 中說明列舉值與預設值，讓同一工具家族中的主要 id 名稱保持一致（統一用 `id`，而非 `id`/`deckId` 混用），並讓單行描述足以支撐從精簡目錄中呼叫這個工具——每個應用內建的 `actions` skill 附有這份檢查清單。
+
 ## 驗證回傳值 {#output-schema}
 
 `schema` 驗證的是*輸入*。若也想驗證一個 action **回傳**的內容，可以傳入 `outputSchema`（任何相容於 Standard Schema 的架構：Zod、Valibot、ArkType，與 `schema` 使用相同的介面）。框架會在 `run()` 執行前驗證輸入，並在 `run()` 完成後驗證結果。
@@ -217,6 +241,10 @@ export default defineAction({
 | `"fallback"` | 回傳提供的 `outputFallback` 值，取代無效的結果。                                    |
 
 當 `run()` 成功時，框架會回傳經過驗證的值，因此 `outputSchema` 上的任何預設值或強制轉換都會生效，就像對輸入所做的一樣。若您沒有傳入 `outputSchema`，回傳值則維持不變。
+
+## 結果契約 {#result-contracts}
+
+一個 create 或 update 的結果，讀它的不只是呼叫端本身。回傳 `id`（這樣 `link` 才能建構指向編輯畫面的深層連結）、一行 `message`，以及——當這次操作只是代理應繼續推進之流程中的一步時——點名下一個工具的 `nextRequiredAction`。絕不要把它寫成在等待使用者：MCP/WebMCP/A2A 呼叫端無法收到應用內的回答。即使大型結果被截斷，代理迴圈仍會在延續提示中保留 `nextRequiredAction`，MCP 呼叫端會將其視為 `Next: …`。
 
 ## HTTP 設定 {#http}
 

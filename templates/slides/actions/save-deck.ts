@@ -192,7 +192,7 @@ export default defineAction({
         throw deckHttpError(404, "Deck not found");
       }
 
-      notifyClients(deckId);
+      await notifyClients(deckId);
       return { ...deck, appUrl: getDeckUrl(deckId) };
     }),
 });
