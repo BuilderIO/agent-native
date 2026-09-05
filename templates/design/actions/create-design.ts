@@ -28,7 +28,8 @@ export default defineAction({
     "artifact by itself — author the screen HTML next and save it with " +
     "generate-design (files + canvasFrames) or create-file. When a design " +
     "system is linked, the result includes its `agentContext`; apply it " +
-    "before authoring the screen.",
+    "before authoring the screen. Pass the id selected by list-design-systems " +
+    "when the user names a system.",
   schema: z.object({
     id: z
       .string()
@@ -97,6 +98,7 @@ export default defineAction({
       id,
       title,
       projectType,
+      designSystemId: designSystemId ?? null,
       designSystem: await loadAgentDesignSystemContext(
         designSystemId,
         async (id) => getDesignSystem.run({ id }),

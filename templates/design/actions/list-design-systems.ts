@@ -16,7 +16,8 @@ function canManageRole(role: "owner" | ShareRole) {
 export default defineAction({
   description:
     "List all design systems accessible to the current user. " +
-    "Returns title, id, and whether each is the default.",
+    "Returns title, id, and whether each is the default. For a named system, " +
+    "match the exact title, then call get-design-system before authoring.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])

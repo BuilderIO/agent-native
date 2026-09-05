@@ -251,7 +251,7 @@ function buildDesignSystemAgentContext({
 
 export default defineAction({
   description:
-    "Get a design system by ID. Returns full design system data including colors, typography, spacing, assets, and a compact agentContext for generation.",
+    "Get a design system by ID. Returns full design system data including colors, typography, spacing, assets, and a compact agentContext. Treat agentContext as authoritative before creating or restyling visual content; do not use generic styling when it is available.",
   schema: z.object({
     id: z.string().describe("Design system ID"),
   }),

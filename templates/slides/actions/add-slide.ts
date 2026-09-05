@@ -112,7 +112,7 @@ export default defineAction({
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
-    "If the deck has a designSystemId, use the returned `designSystem.agentContext` from `create-deck` or `get-deck` when available; otherwise call `get-design-system` before authoring and apply its tokens/docs. Never use generic slide styling from the id alone. " +
+    "Before composing a slide for an existing deck, call `get-deck` with compact=true and use its linked `designSystem.agentContext` plus the established deck style; if the link is unavailable, call `get-design-system` before authoring. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "For a single-call bulk append, use `patch-deck` with add-slide operations. " +
     "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",

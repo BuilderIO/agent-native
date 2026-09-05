@@ -252,9 +252,11 @@ export default defineAction({
       sourceImport,
       slides.map((slide: any) => slide.id),
     );
-    const designSystem = await loadAgentDesignSystemContext(
+    const linkedDesignSystemId =
       row.designSystemId ??
-        (typeof data?.designSystemId === "string" ? data.designSystemId : null),
+      (typeof data?.designSystemId === "string" ? data.designSystemId : null);
+    const designSystem = await loadAgentDesignSystemContext(
+      linkedDesignSystemId,
       async (id) => getDesignSystem.run({ id }),
     );
 
@@ -263,7 +265,7 @@ export default defineAction({
         id: row.id,
         title: row.title || data?.title,
         visibility: row.visibility,
-        designSystemId: row.designSystemId ?? null,
+        designSystemId: linkedDesignSystemId,
         designSystem,
         generationContext: data?.generationContext ?? null,
         sourceImport: data?.sourceImport
@@ -331,7 +333,7 @@ export default defineAction({
       createdByMe:
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-      designSystemId: row.designSystemId ?? null,
+      designSystemId: linkedDesignSystemId,
       designSystem,
       sourceEditability: sourceEditabilityForDeck(sourceImport),
       sourceCoverage,
