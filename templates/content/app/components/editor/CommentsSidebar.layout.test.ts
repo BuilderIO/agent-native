@@ -190,10 +190,12 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain('aria-label={t("comments.askAi")}');
-    expect(source).toContain('aria-label={t("comments.resolve")}');
+    expect(source).toContain(
+      'thread.resolved ? "comments.reopen" : "comments.resolve"',
+    );
     expect(source).toContain('aria-label={t("comments.submit")}');
-    expect(source).toContain('aria-label={t("comments.reopen")}');
-    expect(source).toContain("group-focus-within/thread:opacity-100");
+    expect(source).toContain('t("comments.reopen")');
+    expect(source).toContain("focus-visible:ring-ring");
     expect(source).not.toContain("hidden group-hover/thread:flex");
     expect(source).toContain('presentation === "history"');
     expect(source).toContain("data-comments-history");
@@ -251,7 +253,7 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source.match(/<DropdownMenu>/g)).toHaveLength(1);
+    expect(source.match(/t\("comments.filter"\)/g)).toHaveLength(1);
     expect(source).toContain("DropdownMenuCheckboxItem");
     expect(source).not.toContain('t("comments.typeFilter")');
     expect(source).not.toContain('historyType === "suggestions"');
@@ -329,7 +331,7 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("onError: (error) => {");
     expect(source).toContain('toast.error(t("empty.genericError")');
     expect(source).toMatch(
-      /createComment\.mutate\([\s\S]*?onSuccess: \(result\) => \{[\s\S]*?setPendingText\(""\)[\s\S]*?onPendingDone\?\.\(result\.threadId\)/,
+      /createComment\.mutate\([\s\S]*?onSuccess: \(result\) => \{[\s\S]*?pendingDraft\.clearIfUnchanged\(submittedDraft\)[\s\S]*?onPendingDone\?\.\(result\.threadId\)/,
     );
   });
 
