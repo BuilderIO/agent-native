@@ -14,9 +14,11 @@ export type {
 } from "./types.js";
 
 export {
+  canChangeOrgMemberRole,
   canInviteOrgMembers,
   canManageOrg,
   canManageOrgDomain,
+  canRemoveOrgMember,
   orgRoleAtLeast,
   orgRoleRank,
 } from "./permissions.js";

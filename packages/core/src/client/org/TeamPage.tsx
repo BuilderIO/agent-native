@@ -70,7 +70,11 @@ import {
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
-import type { DomainMatchOrg } from "../../org/types.js";
+import {
+  canChangeOrgMemberRole,
+  canRemoveOrgMember,
+} from "../../org/permissions.js";
+import type { DomainMatchOrg, OrgRole } from "../../org/types.js";
 import { docsUrl } from "../../shared/docs-url.js";
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
 import {
@@ -94,7 +98,10 @@ import {
 import { useT } from "../i18n.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
-import { useShareOrgMemberSearch } from "../sharing/share-controller-helpers.js";
+import {
+  DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
+  useShareOrgMemberSearch,
+} from "../sharing/share-controller-helpers.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import {
@@ -475,7 +482,7 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
 
 interface MemberListItem {
   email: string;
-  role: string;
+  role: OrgRole;
   name?: string | null;
   image?: string | null;
 }
@@ -483,7 +490,7 @@ interface MemberListItem {
 interface PendingInviteListItem {
   id: string;
   email: string;
-  role: string;
+  role: Exclude<OrgRole, "owner">;
 }
 
 function WorkspaceGroupEditor({
@@ -806,12 +813,17 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
   const { data: org } = useOrg();
   const [memberOffset, setMemberOffset] = useState(0);
+  const [memberSearchInput, setMemberSearchInput] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
   const {
     data: membersData,
     isLoading: isLoadingMembers,
     isFetching: isFetchingMembers,
     isPlaceholderData: isPlaceholderMembers,
-  } = useOrgMembers(memberOffset);
+    error: membersError,
+    refetch: refetchMembers,
+  } = useOrgMembers(memberOffset, memberSearch);
+  const { data: organizationMembersData } = useOrgMembers(0);
   const { data: invitationsData } = useOrgInvitations();
   const switchOrg = useSwitchOrg();
   const isOwnerOrAdmin = org?.role === "owner" || org?.role === "admin";
@@ -822,8 +834,15 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   );
 
   useEffect(() => {
-    setMemberOffset(0);
-  }, [org?.orgId]);
+    const nextSearch = memberSearchInput.trim().toLowerCase();
+    if (nextSearch === memberSearch) return;
+
+    const timer = window.setTimeout(
+      () => setMemberSearch(nextSearch),
+      nextSearch ? DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS : 0,
+    );
+    return () => window.clearTimeout(timer);
+  }, [memberSearch, memberSearchInput]);
 
   useEffect(() => {
     if (
@@ -832,6 +851,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
       !isLoadingMembers &&
       !isFetchingMembers &&
       !isPlaceholderMembers &&
+      !membersError &&
       membersData.members.length === 0
     ) {
       setMemberOffset((currentOffset) =>
@@ -844,13 +864,15 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
     isPlaceholderMembers,
     memberOffset,
     membersData,
+    membersError,
   ]);
 
   if (!org?.orgId) return null;
 
   const isOwner = org.role === "owner";
   const members = membersData?.members ?? [];
-  const totalMembers = membersData?.totalCount ?? 0;
+  const totalMembers = membersData?.totalCount;
+  const totalOrganizationMembers = organizationMembersData?.totalCount;
   const pendingInvites = invitationsData?.invitations ?? [];
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
 
@@ -868,7 +890,11 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               />
             </span>
           }
-          description={`${t("org.memberCount", { count: totalMembers })} · ${t("org.youAreRole", { role: org.role })}`}
+          description={
+            totalOrganizationMembers === undefined
+              ? t("org.youAreRole", { role: org.role })
+              : `${t("org.memberCount", { count: totalOrganizationMembers })} · ${t("org.youAreRole", { role: org.role })}`
+          }
           control={
             hasMultipleOrgs ? (
               <Select
@@ -921,15 +947,23 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
         pendingInvites={pendingInvites}
         isLoadingMembers={isLoadingMembers}
         isFetchingMembers={isFetchingMembers}
+        membersError={membersError}
+        onRetryMembers={() => void refetchMembers()}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
         appRoles={appRoles}
         groups={groupsQuery.data ?? []}
         canManageGroups={isOwnerOrAdmin}
         memberOffset={memberOffset}
+        memberSearch={memberSearchInput}
+        activeMemberSearch={memberSearch}
         hasNextPage={membersData?.hasMore === true}
         nextMemberOffset={membersData?.nextOffset ?? null}
         onMemberPageChange={setMemberOffset}
+        onMemberSearchChange={(value) => {
+          setMemberSearchInput(value);
+          setMemberOffset(0);
+        }}
       />
 
       {isOwnerOrAdmin && (
@@ -987,36 +1021,46 @@ function WorkspaceAppPrivacySettingsSection({
   );
 }
 
-function MembersTableCard({
+export function MembersTableCard({
   members,
   totalMembers,
   pendingInvites,
   isLoadingMembers,
   isFetchingMembers,
+  membersError,
+  onRetryMembers,
   currentUserEmail,
   currentUserRole,
   appRoles,
   groups,
   canManageGroups,
   memberOffset,
+  memberSearch,
+  activeMemberSearch,
   hasNextPage,
   nextMemberOffset,
   onMemberPageChange,
+  onMemberSearchChange,
 }: {
   members: MemberListItem[];
-  totalMembers: number;
+  totalMembers: number | undefined;
   pendingInvites: PendingInviteListItem[];
   isLoadingMembers: boolean;
   isFetchingMembers: boolean;
+  membersError: Error | null;
+  onRetryMembers: () => void;
   currentUserEmail: string;
-  currentUserRole: string | null;
+  currentUserRole: OrgRole | null;
   appRoles?: AppRolesDescriptor;
   groups: WorkspaceUserGroup[];
   canManageGroups: boolean;
   memberOffset: number;
+  memberSearch: string;
+  activeMemberSearch: string;
   hasNextPage: boolean;
   nextMemberOffset: number | null;
   onMemberPageChange: (offset: number) => void;
+  onMemberSearchChange: (value: string) => void;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -1039,6 +1083,11 @@ function MembersTableCard({
   const allMembersSelected =
     members.length > 0 &&
     members.every((member) => selectedEmails.has(member.email));
+  const visiblePendingInvites = activeMemberSearch
+    ? pendingInvites.filter((invite) =>
+        invite.email.toLowerCase().includes(activeMemberSearch),
+      )
+    : pendingInvites;
 
   useEffect(() => {
     setSelectedEmails(new Set());
@@ -1082,25 +1131,50 @@ function MembersTableCard({
       <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-medium">{t("org.members")}</h3>
-          <p className="text-xs text-muted-foreground">
-            {t("org.memberCount", { count: totalMembers })}
-            {appRoles
-              ? ` · ${appRoles.label ?? appRoles.appId} can be assigned here`
-              : ""}
-          </p>
+          {totalMembers !== undefined && (
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              {t("org.memberCount", { count: totalMembers })}
+              {appRoles
+                ? ` · ${appRoles.label ?? appRoles.appId} can be assigned here`
+                : ""}
+            </p>
+          )}
         </div>
-        {canInvite && !showInviteForm && (
-          <Button
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            onClick={() => setShowInviteForm(true)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <form
+            role="search"
+            className="relative w-full sm:w-56"
+            onSubmit={(event) => event.preventDefault()}
           >
-            <IconUserPlus size={14} />
-            {t("org.inviteMembers")}
-          </Button>
-        )}
+            <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              value={memberSearch}
+              onChange={(event) => onMemberSearchChange(event.target.value)}
+              placeholder={t("org.searchPeople", {
+                defaultValue: "Search people",
+              })}
+              aria-label={t("org.searchPeople", {
+                defaultValue: "Search people",
+              })}
+              aria-controls="organization-member-list"
+              autoComplete="off"
+              className="h-8 w-full ps-8 text-xs"
+            />
+          </form>
+          {canInvite && !showInviteForm && (
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              onClick={() => setShowInviteForm(true)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <IconUserPlus size={14} />
+              {t("org.inviteMembers")}
+            </Button>
+          )}
+        </div>
       </div>
       {canInvite && showInviteForm && (
         <div className="rounded-lg bg-card p-4">
@@ -1198,7 +1272,31 @@ function MembersTableCard({
           <ErrorText error={updateGroupMembers.error} />
         </div>
       ) : null}
-      <div className="space-y-1 pt-1">
+      <div
+        id="organization-member-list"
+        className="space-y-1 pt-1"
+        aria-busy={isFetchingMembers}
+      >
+        {membersError && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-card px-5 py-4"
+          >
+            <p className="text-sm text-destructive">
+              {t("agentChat.share.loadPeopleFailed")}
+            </p>
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              disabled={isFetchingMembers}
+              onClick={onRetryMembers}
+              className="rounded-md border border-border px-3 py-1.5 text-xs"
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          </div>
+        )}
         {isLoadingMembers && members.length === 0 ? (
           <div role="status" aria-busy="true" aria-label="Loading members">
             {["w-44", "w-56", "w-64"].map((nameWidth) => (
@@ -1214,10 +1312,14 @@ function MembersTableCard({
               </div>
             ))}
           </div>
-        ) : members.length === 0 && pendingInvites.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-            {t("org.noMembers")}
-          </div>
+        ) : members.length === 0 && visiblePendingInvites.length === 0 ? (
+          !membersError && (
+            <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+              {activeMemberSearch
+                ? t("org.noPeopleFound", { defaultValue: "No people found" })
+                : t("org.noMembers")}
+            </div>
+          )
         ) : (
           <>
             {members.map((m) => (
@@ -1237,13 +1339,13 @@ function MembersTableCard({
                 onSelect={(checked) => toggleSelected(m.email, checked)}
               />
             ))}
-            {pendingInvites.map((inv) => (
+            {visiblePendingInvites.map((inv) => (
               <PendingInviteRow key={inv.id} invite={inv} />
             ))}
           </>
         )}
       </div>
-      {(memberOffset > 0 || hasNextPage) && (
+      {totalMembers !== undefined && (memberOffset > 0 || hasNextPage) && (
         <MemberPagination
           memberOffset={memberOffset}
           totalMembers={totalMembers}
@@ -1562,7 +1664,7 @@ function AppRoleControl({
   );
 }
 
-function MemberRow({
+export function MemberRow({
   email,
   role,
   name,
@@ -1577,11 +1679,11 @@ function MemberRow({
   onSelect,
 }: {
   email: string;
-  role: string;
+  role: OrgRole;
   name?: string | null;
   image?: string | null;
   isCurrentUser: boolean;
-  currentUserRole: string | null;
+  currentUserRole: OrgRole | null;
   appRoles?: AppRolesDescriptor;
   appRole?: string | null;
   canManageAppRoles?: boolean;
@@ -1597,14 +1699,13 @@ function MemberRow({
   const avatarUrl = image?.trim() || null;
   const displayName = name?.trim() || email;
 
-  // Owners can manage admins + members. Admins can only manage members.
-  // Owners themselves are immutable through this UI; current user can't
-  // edit their own role here.
-  const canManage =
-    role !== "owner" &&
-    !isCurrentUser &&
-    (currentUserRole === "owner" ||
-      (currentUserRole === "admin" && role === "member"));
+  // Only the owner may promote or demote members. Admins retain their valid
+  // ability to remove ordinary members without seeing a role control that the
+  // server will reject.
+  const canChangeRole =
+    !isCurrentUser && canChangeOrgMemberRole(currentUserRole, role);
+  const canRemove = !isCurrentUser && canRemoveOrgMember(currentUserRole, role);
+  const canManage = canChangeRole || canRemove;
 
   return (
     <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-3.5 sm:flex-row sm:items-center">
@@ -1648,7 +1749,7 @@ function MemberRow({
         )}
         {canManage && (
           <div className="flex shrink-0 items-center gap-1">
-            {editing ? (
+            {canChangeRole && editing ? (
               <Select
                 defaultOpen
                 value={role}
@@ -1679,11 +1780,12 @@ function MemberRow({
                   <SelectItem value="admin">{t("org.admin")}</SelectItem>
                 </SelectContent>
               </Select>
-            ) : (
+            ) : canChangeRole ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
+                    aria-label={t("org.changeRole")}
                     onClick={() => setEditing(true)}
                     className="text-muted-foreground hover:text-foreground"
                   >
@@ -1692,8 +1794,8 @@ function MemberRow({
                 </TooltipTrigger>
                 <TooltipContent>{t("org.changeRole")}</TooltipContent>
               </Tooltip>
-            )}
-            {confirmingRemove ? (
+            ) : null}
+            {canRemove && confirmingRemove ? (
               <div className="flex items-center gap-1">
                 <Button
                   type="button"
@@ -1719,13 +1821,14 @@ function MemberRow({
                   {t("org.remove")}
                 </Button>
               </div>
-            ) : (
+            ) : canRemove ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
                     intent="danger"
                     emphasis="ghost"
+                    aria-label={t("org.removeMember")}
                     disabled={removeMember.isPending}
                     onClick={() => setConfirmingRemove(true)}
                     className="text-muted-foreground hover:text-destructive disabled:opacity-50"
@@ -1735,7 +1838,7 @@ function MemberRow({
                 </TooltipTrigger>
                 <TooltipContent>{t("org.removeMember")}</TooltipContent>
               </Tooltip>
-            )}
+            ) : null}
           </div>
         )}
       </div>
@@ -2819,7 +2922,7 @@ export function TeamPage({
           {!org?.orgId ? (
             <CreateOrgCard description={createOrgDescription} />
           ) : (
-            <MembersCard appRoles={appRoles} />
+            <MembersCard key={org.orgId} appRoles={appRoles} />
           )}
         </>
       )}

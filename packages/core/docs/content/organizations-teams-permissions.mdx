@@ -139,11 +139,11 @@ must require an explicit invite or organization-creation step.
 
 Organization roles answer: **what may this person do to the team itself?**
 
-| Role     | Meaning                          | Typical capabilities                                                                                                                                                                                |
-| -------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `owner`  | Full control of the organization | Manage the organization, members, admins, domain policy, and org-level A2A settings                                                                                                                 |
-| `admin`  | Team administrator               | Invite/remove members and manage ordinary member roles; admins cannot change the owner's role, only the owner manages admin-to-admin transitions, and the shared client domain helper is owner-only |
-| `member` | Regular team member              | Use resources that the app shares with the organization; cannot manage membership                                                                                                                   |
+| Role     | Meaning                          | Typical capabilities                                                                           |
+| -------- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `owner`  | Full control of the organization | Manage the organization, members, admins, domain policy, and org-level A2A settings            |
+| `admin`  | Team administrator               | Invite and remove ordinary members. Only the owner can promote or demote organization members. |
+| `member` | Regular team member              | Use resources that the app shares with the organization; cannot manage membership              |
 
 The shared role helpers are deliberately small and composable:
 
