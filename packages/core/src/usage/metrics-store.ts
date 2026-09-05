@@ -165,7 +165,9 @@ export function usageAppScope(app: string): QueryScope {
 
 async function listOrgMembers(orgId: string): Promise<MemberRecord[]> {
   const result = await getDbExec().execute({
-    sql: `SELECT email, role FROM org_members WHERE org_id = ? ORDER BY LOWER(email) ASC`,
+    sql: `SELECT email, role FROM org_members
+          WHERE org_id = ? AND federation_removal_pending_at IS NULL
+          ORDER BY LOWER(email) ASC`,
     args: [orgId],
   });
   return (result.rows as Array<Record<string, unknown>>)
@@ -182,7 +184,10 @@ async function getOrgRole(
 ): Promise<string | null> {
   if (!orgId) return null;
   const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, ownerEmail],
   });
   const role = result.rows[0]?.role;

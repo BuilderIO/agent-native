@@ -54,6 +54,7 @@ async function seedOrgTables(
       email TEXT NOT NULL,
       role TEXT NOT NULL,
       joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER,
       UNIQUE(org_id, email)
     );
     CREATE UNIQUE INDEX org_members_org_lower_email_uidx

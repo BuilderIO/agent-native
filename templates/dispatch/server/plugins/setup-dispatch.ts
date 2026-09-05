@@ -12,6 +12,7 @@ export default setupDispatch({
       "/_agent-native/identity/availability",
       "/_agent-native/identity/authorize",
       "/_agent-native/identity/token",
+      "/_agent-native/identity/organization",
       "/_agent-native/org/apps",
     ],
   },

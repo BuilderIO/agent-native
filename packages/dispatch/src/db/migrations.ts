@@ -293,7 +293,10 @@ export const dispatchMigrations: MigrationEntry[] = [
         jti TEXT NOT NULL,
         created_at BIGINT NOT NULL,
         expires_at BIGINT NOT NULL,
-        consumed_at BIGINT
+        consumed_at BIGINT,
+        org_id TEXT,
+        org_name TEXT,
+        org_role TEXT
       );
 
       CREATE INDEX IF NOT EXISTS identity_sso_authorization_code_expires_idx
@@ -302,8 +305,12 @@ export const dispatchMigrations: MigrationEntry[] = [
   },
   {
     version: 6,
-    name: "dispatch-millisecond-timestamps-bigint",
-    sql: {},
+    name: "dispatch-millisecond-timestamps-bigint-and-identity-sso-organization-claims",
+    sql: `
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_id TEXT;
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_name TEXT;
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_role TEXT;
+    `,
     run: widenLegacyDispatchTimestamps,
   },
 ];

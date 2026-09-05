@@ -5,6 +5,7 @@ export type {
   OrgContext,
   OrgSummary,
   OrgInvitationSummary,
+  OrgPendingRemoval,
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
@@ -41,6 +42,7 @@ export type { AcceptPendingResult } from "./accept-pending.js";
 
 export { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 export type { AutoJoinDomainResult } from "./auto-join-domain.js";
+export { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 export {
   defineAppRoles,
@@ -59,6 +61,26 @@ export type {
 } from "./app-roles.js";
 
 export { ORG_MIGRATIONS } from "./migrations.js";
+
+export {
+  CROSS_APP_ORG_FEDERATION_FLAG,
+  CROSS_APP_ORG_FEDERATION_SCOPE,
+} from "./feature-flags.js";
+
+export {
+  addFederatedOrganizationMember,
+  provisionFederatedOrganization,
+  revokeFederatedOrganizationMember,
+  syncOrganizationToIdentityHub,
+  validateFederatedOrganizationMembership,
+  validateFederatedOrganizationMembershipForCurrentRequest,
+  updateFederatedOrganizationMemberRole,
+} from "./federation.js";
+export type {
+  FederatedOrganizationIdentity,
+  FederatedMembershipValidation,
+  FederatedOrganizationSyncInput,
+} from "./federation.js";
 
 export {
   getRequiredAuthProviderForEmail,
@@ -89,6 +111,7 @@ export {
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
+  retryPendingFederatedRemovalHandler,
   changeMemberRoleHandler,
   listInvitationsHandler,
   createInvitationHandler,

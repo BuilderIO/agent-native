@@ -353,14 +353,17 @@ beforeAll(async () => {
       created_by TEXT NOT NULL,
       created_at BIGINT NOT NULL,
       allowed_domain TEXT,
-      a2a_secret TEXT
+      a2a_secret TEXT,
+      identity_authority TEXT,
+      identity_id TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at BIGINT NOT NULL
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
     );
   `,
   );

@@ -18,13 +18,25 @@ export const COMMUNITY_APP_SSR_CACHE_HEADERS = {
 
 /**
  * Apply Docs' default provider cache key without weakening a query-sensitive
- * redirect that core has already marked with the full-query key.
+ * response that needs the full query key.
  */
-export function applyDocsSsrCacheKeyHeaders(headers: Headers): void {
+export function applyDocsSsrCacheKeyHeaders(
+  headers: Headers,
+  options: { varyByQuery?: boolean } = {},
+): void {
+  if (options.varyByQuery) {
+    headers.set("netlify-vary", "query");
+    return;
+  }
   if (headers.get("netlify-vary")?.trim().toLowerCase() === "query") return;
   for (const [name, value] of Object.entries(resolveSsrCacheKeyHeaders())) {
     headers.set(name, value);
   }
+}
+
+export function isCloudGettingStartedPath(url: URL): boolean {
+  const pathname = url.pathname.replace(/\.data$/, "").replace(/\/+$/, "");
+  return pathname.endsWith("/docs") && url.searchParams.get("tab") === "cloud";
 }
 
 export function isMutableCommunityAppPath(pathname: string): boolean {

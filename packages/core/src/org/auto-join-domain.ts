@@ -1,7 +1,9 @@
 import { getDbExec } from "../db/client.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 import { setActiveOrgId } from "./active-org.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
@@ -13,6 +15,8 @@ export interface AutoJoinDomainResult {
   joined: Array<{ orgId: string }>;
   activeOrgId: string | null;
 }
+
+type DomainMatch = { orgId: string; federated: boolean };
 
 /**
  * Negative cache for "no org has this email domain as its `allowed_domain`".
@@ -103,10 +107,11 @@ export async function autoJoinDomainMatchingOrgs(
 
   const db = getDbExec();
 
-  let matches: Array<{ orgId: string }> = [];
+  let matches: DomainMatch[] = [];
   try {
     const res = await db.execute({
-      sql: `SELECT o.id AS "orgId"
+      sql: `SELECT o.id AS "orgId", o.identity_authority AS "identityAuthority",
+                   o.identity_id AS "identityId"
             FROM organizations o
             WHERE LOWER(o.allowed_domain) = ?
               AND NOT EXISTS (
@@ -114,12 +119,17 @@ export async function autoJoinDomainMatchingOrgs(
                 FROM org_members m
                 WHERE m.org_id = o.id
                   AND LOWER(m.email) = ?
+                  AND m.federation_removal_pending_at IS NULL
               )
             ORDER BY o.created_at ASC`,
       args: [domain, email],
     });
     matches = res.rows.map((r: any) => ({
       orgId: String(r.orgId ?? r.org_id),
+      federated: Boolean(
+        String(r.identityAuthority ?? r.identity_authority ?? "").trim() &&
+        String(r.identityId ?? r.identity_id ?? "").trim(),
+      ),
     }));
   } catch {
     // Template without org tables (or `allowed_domain` column not yet
@@ -135,7 +145,31 @@ export async function autoJoinDomainMatchingOrgs(
   }
 
   const joined: AutoJoinDomainResult["joined"] = [];
+  let federationSkipped = false;
+  let federationUnavailable = false;
+  let localJoinAttempted = false;
   for (const m of matches) {
+    if (m.federated) {
+      try {
+        if (
+          await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
+            userEmail: email,
+            userKey: email,
+            orgId: m.orgId,
+          })
+        ) {
+          federationSkipped = true;
+          continue;
+        }
+      } catch {
+        // A linked org must not fall back to a local join when rollout state
+        // is unreadable; retry the authority-gated path on the next request.
+        federationSkipped = true;
+        federationUnavailable = true;
+        continue;
+      }
+    }
+    localJoinAttempted = true;
     try {
       await db.execute({
         sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
@@ -148,6 +182,10 @@ export async function autoJoinDomainMatchingOrgs(
       // same org milliseconds earlier). The unique constraint keeps the
       // existing membership intact; just skip this org.
     }
+  }
+
+  if (federationSkipped && !localJoinAttempted && !federationUnavailable) {
+    noDomainMatchCache.set(domain, true);
   }
 
   // Set active-org-id to the first match only if the user doesn't already have

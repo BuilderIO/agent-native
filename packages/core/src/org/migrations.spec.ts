@@ -107,4 +107,33 @@ describe("ORG_MIGRATIONS", () => {
     expect(sql).toMatch(/workspace_app_shares/i);
     expect(sql).toMatch(/visibility = 'org'/i);
   });
+
+  it("adds the nullable cross-app organization identity mapping", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1019);
+
+    expect(migration?.name).toBe("organization-identity-federation");
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS identity_authority TEXT/i,
+    );
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS identity_id TEXT/i,
+    );
+    expect(migration?.sql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx/i,
+    );
+  });
+
+  it("adds a restrictive pending-removal marker to memberships", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1020);
+    expect(migration?.sql).toMatch(
+      /ALTER TABLE org_members[\s\S]*federation_removal_pending_at/i,
+    );
+  });
+
+  it("adds the one-time federation roster bootstrap marker", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1021);
+    expect(migration?.sql).toMatch(
+      /ALTER TABLE organizations[\s\S]*federation_roster_initialized_at/i,
+    );
+  });
 });

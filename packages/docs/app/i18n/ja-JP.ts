@@ -526,12 +526,25 @@ const jaJP = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ローカルで構築しない場合は、",
-      exploreApp: "まず公開中のアプリを試す",
-      between: "か",
-      joinWaitlist: "ウェイトリストに登録して",
-      end: "ブラウザで構築してください。",
+    tabs: {
+      label: "構築方法を選択",
+      local: "ローカルで構築",
+      localDescription: "CLIを使って自分のマシンで構築します。",
+      cloud: "クラウドで構築",
+      cloudDescription: "Builder.ioを使ってブラウザで構築します。",
+    },
+    cloud: {
+      intro:
+        "何もインストールせずに同じアプリを構築できます。作りたいものを説明すると、Builderがホストするワークスペースでエージェントがコードを書いて実行します。",
+      stepOneTitle: "Builderアカウントを作成",
+      stepOneBody:
+        "Builderアカウントを使ってブラウザで構築します。APIキーを用意せず、無料で始められます。",
+      stepTwoTitle: "プロンプトを入力",
+      stepTwoBody:
+        "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
+      stepThreeTitle: "デプロイ",
+      stepThreeBody:
+        "準備ができたら、Builderでアプリをワンクリックでデプロイします。",
     },
   },
   templatesPage: {
@@ -556,7 +569,6 @@ const jaJP = {
     tryCommunityDemo: "デモを試す",
     customizeDescription: "このアプリを出発点として使えます。",
     customizeOnline: "オンライン",
-    customizeOnlineBadge: "ウェイトリストに登録",
     customizeLocally: "ローカル",
     communityNew: "新着",
     communityComingSoon: "近日公開",
@@ -613,15 +625,8 @@ const jaJP = {
     buildOnline: "オンラインで構築",
     popoverTitle: "ブラウザで構築",
     popoverBody:
-      "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
-    emailLabel: "メール",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "待機リストに参加",
-    joining: "参加中…",
-    joined:
-      "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
-    invalidEmail: "有効なメールアドレスを入力してください。",
-    submitError: "待機リストに参加できませんでした。もう一度お試しください。",
+      "Builder.io を使って、クラウドで agent-native アプリをすばやく生成できます。",
+    launchBuilder: "Builderを起動",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",

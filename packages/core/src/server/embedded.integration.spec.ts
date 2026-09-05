@@ -159,6 +159,19 @@ describe("embedded Agent-Native host fixture", () => {
     });
     await plugin(nitroApp);
 
+    await getDbExec().execute(`
+      CREATE TABLE IF NOT EXISTS organizations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        allowed_domain TEXT,
+        a2a_secret TEXT,
+        identity_authority TEXT,
+        identity_id TEXT
+      )
+    `);
+
     // This embedded host fixture doesn't run the org module's migrations, so
     // `org_members` doesn't exist yet — create it directly, the same way the
     // share rows below are seeded straight through `getDbExec()` rather than
@@ -169,7 +182,8 @@ describe("embedded Agent-Native host fixture", () => {
         org_id TEXT NOT NULL,
         email TEXT NOT NULL,
         role TEXT NOT NULL,
-        joined_at BIGINT NOT NULL
+        joined_at BIGINT NOT NULL,
+        federation_removal_pending_at INTEGER
       )
     `);
     await getDbExec().execute({

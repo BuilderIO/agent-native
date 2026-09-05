@@ -12,6 +12,7 @@ import {
 import {
   applyCommunityAppSsrCacheHeaders,
   applyDocsSsrCacheKeyHeaders,
+  isCloudGettingStartedPath,
 } from "../lib/ssr-cache";
 
 const docsNetlifyConfig = readFileSync(
@@ -39,6 +40,24 @@ describe("Docs SSR cache key wrapper", () => {
     applyDocsSsrCacheKeyHeaders(headers);
 
     expect(headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
+  it("recognizes the cloud tab URL with a trailing slash or data suffix", () => {
+    expect(
+      isCloudGettingStartedPath(
+        new URL("https://www.agent-native.com/docs/?tab=cloud"),
+      ),
+    ).toBe(true);
+    expect(
+      isCloudGettingStartedPath(
+        new URL("https://www.agent-native.com/docs.data?tab=cloud"),
+      ),
+    ).toBe(true);
+    expect(
+      isCloudGettingStartedPath(
+        new URL("https://www.agent-native.com/docs/?tab=local"),
+      ),
+    ).toBe(false);
   });
 
   it("keeps mutable community app routes in the durable cache", () => {

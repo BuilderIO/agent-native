@@ -524,12 +524,23 @@ const arSA = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ألا تريد البناء محليًا؟",
-      exploreApp: "استكشف تطبيقًا مباشرًا",
-      between: "أولًا، أو",
-      joinWaitlist: "انضم إلى قائمة الانتظار",
-      end: "للبناء في المتصفح بدلًا من ذلك.",
+    tabs: {
+      label: "اختر طريقة البناء",
+      local: "البناء محليًا",
+      localDescription: "استخدم CLI للبناء على جهازك.",
+      cloud: "البناء في السحابة",
+      cloudDescription: "ابنِ في المتصفح باستخدام Builder.io.",
+    },
+    cloud: {
+      intro:
+        "ابنِ التطبيقات نفسها من دون تثبيت أي شيء. صِف ما تريده، وسيكتب الوكيل التعليمات البرمجية ويشغّلها في مساحة عمل يستضيفها Builder لك.",
+      stepOneTitle: "أنشئ حسابًا في Builder",
+      stepOneBody:
+        "استخدم حساب Builder الخاص بك للبناء في المتصفح. ابدأ مجانًا من دون إحضار مفاتيح API.",
+      stepTwoTitle: "ابدأ بكتابة طلبك",
+      stepTwoBody: "صِف ما تريد بناءه بلغة واضحة وسيُنشئه الوكيل لك.",
+      stepThreeTitle: "النشر",
+      stepThreeBody: "عندما تكون مستعدًا، انشر تطبيقك بنقرة واحدة في Builder.",
     },
   },
   templatesPage: {
@@ -553,7 +564,6 @@ const arSA = {
     tryCommunityDemo: "تجربة العرض",
     customizeDescription: "استخدم هذا التطبيق كنقطة بداية.",
     customizeOnline: "عبر الإنترنت",
-    customizeOnlineBadge: "انضم إلى قائمة الانتظار",
     customizeLocally: "محلي",
     communityNew: "جديد",
     communityComingSoon: "قريبًا",
@@ -607,16 +617,8 @@ const arSA = {
     readDocs: "اقرأ المستندات",
     buildOnline: "ابنِ عبر الإنترنت",
     popoverTitle: "أنشئ في المتصفح",
-    popoverBody:
-      "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
-    emailLabel: "البريد الإلكتروني",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "انضم إلى قائمة الانتظار",
-    joining: "جارٍ الانضمام…",
-    joined:
-      "أنت على قائمة الانتظار. سنرسل لك بريدًا عندما يتوفر الوصول للبناء عبر الإنترنت.",
-    invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا.",
-    submitError: "تعذر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
+    popoverBody: "أنشئ تطبيقات agent-native بسرعة في السحابة مع Builder.io.",
+    launchBuilder: "شغّل Builder",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",

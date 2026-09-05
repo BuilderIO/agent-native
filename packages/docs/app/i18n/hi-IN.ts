@@ -524,12 +524,24 @@ const hiIN = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "लोकल रूप से नहीं बना रहे हैं?",
-      exploreApp: "पहले एक live ऐप देखें",
-      between: "या",
-      joinWaitlist: "waitlist में शामिल हों",
-      end: "और इसके बजाय browser में बनाएं।",
+    tabs: {
+      label: "बनाने का तरीका चुनें",
+      local: "लोकल में बनाएं",
+      localDescription: "अपने कंप्यूटर पर बनाने के लिए CLI का उपयोग करें।",
+      cloud: "क्लाउड में बनाएं",
+      cloudDescription: "Builder.io के साथ ब्राउज़र में बनाएं।",
+    },
+    cloud: {
+      intro:
+        "कुछ भी इंस्टॉल किए बिना वही ऐप बनाएं। आप जो चाहते हैं उसका वर्णन करें; एजेंट Builder द्वारा होस्ट किए गए वर्कस्पेस में कोड लिखकर चलाता है।",
+      stepOneTitle: "Builder अकाउंट बनाएं",
+      stepOneBody:
+        "ब्राउज़र में बनाने के लिए अपने Builder खाते का उपयोग करें। बिना API keys लाए मुफ्त में शुरू करें।",
+      stepTwoTitle: "प्रॉम्प्ट करें",
+      stepTwoBody:
+        "आप जो बनाना चाहते हैं उसे साधारण भाषा में बताएं और एजेंट उसे आपके लिए बना देगा।",
+      stepThreeTitle: "डिप्लॉय करें",
+      stepThreeBody: "तैयार होने पर Builder में अपनी ऐप को एक क्लिक से डिप्लॉय करें।",
     },
   },
   templatesPage: {
@@ -553,7 +565,6 @@ const hiIN = {
     tryCommunityDemo: "डेमो आज़माएँ",
     customizeDescription: "इस ऐप को शुरुआती बिंदु के रूप में उपयोग करें।",
     customizeOnline: "ऑनलाइन",
-    customizeOnlineBadge: "वेटलिस्ट में शामिल हों",
     customizeLocally: "लोकल",
     communityNew: "नया",
     communityComingSoon: "जल्द आ रहा है",
@@ -607,15 +618,8 @@ const hiIN = {
     readDocs: "डॉक्स पढ़ें",
     buildOnline: "ऑनलाइन बनाएँ",
     popoverTitle: "Browser में बनाएँ",
-    popoverBody:
-      "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
-    emailLabel: "ईमेल",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "Waitlist में शामिल हों",
-    joining: "शामिल हो रहे हैं…",
-    joined: "आप waitlist में हैं. build-online access खुलने पर हम आपको ईमेल करेंगे.",
-    invalidEmail: "एक मान्य ईमेल पता दर्ज करें.",
-    submitError: "Waitlist में शामिल नहीं हो सके. कृपया फिर से कोशिश करें.",
+    popoverBody: "Builder.io के साथ क्लाउड में agent-native ऐप तेज़ी से बनाएं.",
+    launchBuilder: "Builder लॉन्च करें",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",

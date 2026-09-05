@@ -56,7 +56,8 @@ beforeEach(async () => {
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at BIGINT NOT NULL
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
     )`,
     args: [],
   });

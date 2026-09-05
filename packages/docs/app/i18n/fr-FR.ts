@@ -527,12 +527,25 @@ const frFR = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Vous ne développez pas en local ?",
-      exploreApp: "Explorez d’abord une application en ligne",
-      between: "ou",
-      joinWaitlist: "inscrivez-vous sur la liste d’attente",
-      end: "pour développer dans le navigateur.",
+    tabs: {
+      label: "Choisissez votre mode de création",
+      local: "Développer en local",
+      localDescription: "Utilisez la CLI pour développer sur votre machine.",
+      cloud: "Développer dans le cloud",
+      cloudDescription: "Développez dans le navigateur avec Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Développez les mêmes applications sans rien installer. Décrivez ce que vous voulez et l’agent écrit et exécute le code dans un espace de travail hébergé par Builder.",
+      stepOneTitle: "Créer un compte Builder",
+      stepOneBody:
+        "Utilisez votre compte Builder pour développer dans le navigateur. Commencez gratuitement, sans fournir de clés API.",
+      stepTwoTitle: "À vous de prompter",
+      stepTwoBody:
+        "Décrivez en langage courant ce que vous voulez créer et l’agent le fera pour vous.",
+      stepThreeTitle: "Déployer",
+      stepThreeBody:
+        "Quand vous êtes prêt, déployez votre application en un clic dans Builder.",
     },
   },
   templatesPage: {
@@ -558,7 +571,6 @@ const frFR = {
     tryCommunityDemo: "Essayer la démo",
     customizeDescription: "Utilisez cette app comme point de départ.",
     customizeOnline: "En ligne",
-    customizeOnlineBadge: "Rejoindre la liste d'attente",
     customizeLocally: "Local",
     communityNew: "Nouveau",
     communityComingSoon: "Bientôt disponible",
@@ -616,15 +628,8 @@ const frFR = {
     buildOnline: "Créer en ligne",
     popoverTitle: "Créer dans le navigateur",
     popoverBody:
-      "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
-    emailLabel: "E-mail",
-    emailPlaceholder: "vous@entreprise.com",
-    joinWaitlist: "Rejoindre la liste d'attente",
-    joining: "Inscription…",
-    joined:
-      "Vous êtes sur la liste d'attente. Nous vous enverrons un e-mail quand l'accès à la création en ligne ouvrira.",
-    invalidEmail: "Saisissez une adresse e-mail valide.",
-    submitError: "Impossible de rejoindre la liste d'attente. Réessayez.",
+      "Générez rapidement des apps agent-native dans le cloud avec Builder.io.",
+    launchBuilder: "Lancer Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Collez dans votre terminal.",
