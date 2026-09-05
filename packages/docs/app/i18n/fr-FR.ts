@@ -438,19 +438,21 @@ const frFR = {
   },
   homepage: {
     hero: {
-      title: "Le framework des applications agentic",
-      bodyLine1: "Créez des agents autonomes avec des interfaces intuitives.",
-      bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",
+      title: "Le framework pour les applications agentiques.",
+      bodyLine1:
+        "Un framework TypeScript open source pour des apps avec une interface et un agent.",
+      bodyLine2:
+        "Définissez chaque action une fois et appelez-la depuis n’importe où.",
       tryAnApp: "Essayer une app",
     },
     install: {
       copyCommand: "Copier la commande d'installation",
     },
     actions: {
-      title: "Une action alimente chaque surface",
-      bodyLine1: "Les actions définissent ce que votre agent peut faire.",
+      title: "Appelez une action depuis n’importe où.",
+      bodyLine1: "Définissez une capacité avec defineAction().",
       bodyLine2:
-        "Définissez chaque capacité une fois, puis utilisez-la depuis l'agent, l'UI, HTTP API, MCP, A2A ou CLI.",
+        "Votre UI React, votre agent, vos clients HTTP et vos intégrations utilisent tous le même code.",
       diagramAlt:
         "Une action alimente l'UI, MCP, le chat de l'agent, A2A, HTTP API et CLI",
     },
@@ -497,13 +499,13 @@ const frFR = {
       },
     },
     stack: {
-      title: "Fonctionne avec votre stack",
-      body: "Apportez votre LLM, base de données, outils et infrastructure. Agent-Native est du TypeScript open source, donc tout ce que vous construisez reste à vous.",
+      title: "Apportez votre propre stack",
+      body: "Agent-Native est en TypeScript open source. Choisissez votre modèle, votre base de données et votre hébergement, puis gardez le code de l’application dans votre dépôt.",
       exploreApps: "Explorer les apps créées avec Agent-Native",
     },
     showcase: {
-      title: "Que pouvez-vous construire avec Agent-Native ?",
-      body: "Créez des agents avec des UI pour les réunions, le design, les présentations, les données et plus encore. Partez de l'une de ces apps open source ou créez la vôtre.",
+      title: "De vraies apps créées avec Agent-Native",
+      body: "Des apps Agent-Native open source que vous pouvez utiliser gratuitement ou personnaliser à l’infini.",
       browseApps: "Parcourir les apps",
       scrollLeft: "Défiler les apps vers la gauche",
       scrollRight: "Défiler les apps vers la droite",
@@ -522,7 +524,7 @@ const frFR = {
       download: "Télécharger",
       apps: "Apps",
       privacyPolicy: "Politique de confidentialité",
-      saasTerms: "Conditions du service hébergé",
+      saasTerms: "Conditions SaaS",
       legalResources: "Ressources juridiques",
     },
   },
