@@ -894,7 +894,8 @@ async function gotoCommitted(
           (requested.pathname === "/" || requested.pathname === "/home") &&
           (/(?:net::ERR_ABORTED|interrupted by another navigation)/u.test(
             message,
-          ) || /^\/chat\/chat-[^/]+$/.test(current.pathname))
+          ) ||
+            /^\/chat\/chat-[^/]+$/.test(current.pathname))
         ) {
           // The authenticated home route intentionally replaces itself with a
           // durable Chat URL during hydration. Playwright can reject the
