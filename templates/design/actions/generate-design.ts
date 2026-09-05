@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -55,6 +56,7 @@ import {
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { sendToolActivity } from "./_tool-activity.js";
 
 /**
  * Editor deep link so external agents can surface "Open design". Passing
@@ -320,7 +322,33 @@ async function resolveDesignCreativeContext(input: {
   };
 }
 
-function provenanceForSavedFiles(
+// Mirrors the same provenance recorded to the generation record below, so
+// chat never reports a different answer than what actually gets persisted.
+export function summarizeCreativeContextForChat(
+  provenance: DesignCreativeContextProvenance,
+): string {
+  if (provenance.contextMode === "off") {
+    return "Creative Context is off for this generation.";
+  }
+  const labels = Array.from(
+    new Set(
+      provenance.reuseLabels
+        .map((label) => label.label.trim())
+        .filter((label) => label.length > 0),
+    ),
+  );
+  if (labels.length === 0) {
+    return "No matching Creative Context found — generating without it.";
+  }
+  const shown = labels.slice(0, 3);
+  const remaining = labels.length - shown.length;
+  return (
+    `Found Creative Context: ${shown.join(", ")}` +
+    (remaining > 0 ? `, +${remaining} more` : "")
+  );
+}
+
+export function provenanceForSavedFiles(
   savedFiles: readonly { id: string; filename: string }[],
   generationSession: DesignGenerationSession | null,
   reuseLabels: readonly CreativeContextReuseLabel[],
@@ -329,7 +357,10 @@ function provenanceForSavedFiles(
     const frame = generationSession?.frames.find(
       (candidate) => candidate.filename === file.filename,
     );
-    const elementId = frame?.frameId ?? file.id;
+    // Key by the durable design_files.id, not the frame id: a frame id only
+    // lives as long as the current generation session, so persisting it would
+    // make this entry unrecoverable once that session is replaced.
+    const elementId = file.id;
     const labels = reuseLabels.filter(
       (label) =>
         !label.elementId ||
@@ -715,7 +746,7 @@ const generateDesignAction = defineAction({
       contextModeOverride,
       reuseLabels,
     },
-    context,
+    context?: ActionRunContext,
   ) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
@@ -727,6 +758,7 @@ const generateDesignAction = defineAction({
     ).catch(() => null)) as DesignGenerationSession | null;
     const generationSession =
       rawGenerationSession?.designId === designId ? rawGenerationSession : null;
+    sendToolActivity(context, "🔍 Checking Creative Context…");
     const creativeContextProvenance = await resolveDesignCreativeContext({
       prompt,
       generationSession,
@@ -734,6 +766,10 @@ const generateDesignAction = defineAction({
       contextModeOverride,
       reuseLabels,
     });
+    sendToolActivity(
+      context,
+      summarizeCreativeContextForChat(creativeContextProvenance),
+    );
 
     const db = getDb();
     const now = new Date().toISOString();
