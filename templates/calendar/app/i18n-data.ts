@@ -68,18 +68,6 @@ const enUS = {
     testAndConnect: "Test & Connect",
     testingConnection: "Testing connection...",
     providers: {
-      turso: {
-        description: "SQLite at the edge",
-        steps: {
-          step1: "Install CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-          step2: "Sign up / login: turso auth login (opens browser)",
-          step3: "Create a database: turso db create my-app",
-          step4:
-            "Copy the URL: turso db show my-app --url → starts with libsql://",
-          step5:
-            "Create an auth token: turso db tokens create my-app → paste below",
-        },
-      },
       neon: {
         description: "Serverless Postgres",
         steps: {
@@ -100,20 +88,6 @@ const enUS = {
           step4: "Go to Project Settings → Database → Connection string",
           step5:
             'Select "URI" tab → copy the postgres://... string (replace [YOUR-PASSWORD] with your DB password)',
-        },
-      },
-      d1: {
-        description: "SQLite on Cloudflare's edge",
-        steps: {
-          step1:
-            "Go to dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-          step2: 'Click "Create" → name your database → click Create',
-          step3: "Copy the Database ID from the database overview page",
-          step4:
-            "For the auth token: go to My Profile → API Tokens → Create Token",
-          step5:
-            'Select "Edit Cloudflare Workers" template → Create Token → copy it',
-          step6: "Paste as: d1://<database-id> with the API token below",
         },
       },
     },
@@ -6401,16 +6375,6 @@ const translatedCalendarRemainingRaw = {
       testAndConnect: "测试并连接",
       testingConnection: "正在测试连接...",
       providers: {
-        turso: {
-          description: "边缘 SQLite",
-          steps: {
-            step1: "安装 CLI：curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "注册/登录：turso auth login（打开浏览器）",
-            step3: "创建数据库：turso db create my-app",
-            step4: "复制 URL：turso db show my-app --url → 以 libsql:// 开头",
-            step5: "创建认证令牌：turso db tokens create my-app → 粘贴到下方",
-          },
-        },
         neon: {
           description: "Serverless Postgres",
           steps: {
@@ -6430,18 +6394,6 @@ const translatedCalendarRemainingRaw = {
             step4: "前往 Project Settings → Database → Connection string",
             step5:
               '选择 "URI" 标签 → 复制 postgres://... 字符串（将 [YOUR-PASSWORD] 替换为数据库密码）',
-          },
-        },
-        d1: {
-          description: "Cloudflare 边缘 SQLite",
-          steps: {
-            step1:
-              "前往 dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2: '点击 "Create" → 为数据库命名 → 点击 Create',
-            step3: "从数据库概览页复制 Database ID",
-            step4: "认证令牌：前往 My Profile → API Tokens → Create Token",
-            step5: '选择 "Edit Cloudflare Workers" 模板 → Create Token → 复制',
-            step6: "按 d1://<database-id> 填写，并在下方提供 API token",
           },
         },
       },
@@ -6556,13 +6508,11 @@ const translatedCalendarRemainingRaw = {
       testAndConnect: "Probar y conectar",
       testingConnection: "Probando conexión...",
       providers: {
-        turso: { description: "SQLite en el edge", steps: {} },
         neon: { description: "Postgres serverless", steps: {} },
         supabase: {
           description: "Alternativa open source a Firebase",
           steps: {},
         },
-        d1: { description: "SQLite en el edge de Cloudflare", steps: {} },
       },
     },
     apollo: {
@@ -6763,19 +6713,6 @@ const translatedCalendarExactCleanup = {
   "es-ES": {
     cloudUpgrade: {
       providers: {
-        turso: {
-          steps: {
-            step1:
-              "Instala la CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2:
-              "Regístrate o inicia sesión: turso auth login (abre el navegador)",
-            step3: "Crea una base de datos: turso db create my-app",
-            step4:
-              "Copia la URL: turso db show my-app --url → empieza por libsql://",
-            step5:
-              "Crea un token de autenticación: turso db tokens create my-app → pégalo abajo",
-          },
-        },
         neon: {
           steps: {
             step1: "Ve a console.neon.tech y regístrate o inicia sesión",
@@ -6798,21 +6735,6 @@ const translatedCalendarExactCleanup = {
             step4: "Ve a Project Settings → Database → Connection string",
             step5:
               'Selecciona la pestaña "URI" → copia la cadena postgres://... (sustituye [YOUR-PASSWORD] por tu contraseña)',
-          },
-        },
-        d1: {
-          steps: {
-            step1:
-              "Ve a dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2:
-              'Haz clic en "Create" → pon nombre a la base de datos → haz clic en Create',
-            step3:
-              "Copia el Database ID desde la página de resumen de la base de datos",
-            step4:
-              "Para el token de autenticación: ve a My Profile → API Tokens → Create Token",
-            step5:
-              'Selecciona la plantilla "Edit Cloudflare Workers" → Create Token → cópialo',
-            step6: "Usa d1://<database-id> y pega el API token abajo",
           },
         },
       },
@@ -6849,20 +6771,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "Tester et connecter",
       testingConnection: "Test de la connexion...",
       providers: {
-        turso: {
-          description: "SQLite en périphérie",
-          steps: {
-            step1:
-              "Installez la CLI : curl -sSfL https://get.tur.so/install.sh | bash",
-            step2:
-              "Inscrivez-vous ou connectez-vous : turso auth login (ouvre le navigateur)",
-            step3: "Créez une base de données : turso db create my-app",
-            step4:
-              "Copiez l’URL : turso db show my-app --url → commence par libsql://",
-            step5:
-              "Créez un jeton d’authentification : turso db tokens create my-app → collez-le ci-dessous",
-          },
-        },
         neon: {
           description: "Postgres sans serveur",
           steps: {
@@ -6890,23 +6798,6 @@ const translatedCalendarExactCleanup = {
             step4: "Accédez à Project Settings → Database → Connection string",
             step5:
               'Sélectionnez l’onglet "URI" → copiez la chaîne postgres://... (remplacez [YOUR-PASSWORD] par votre mot de passe)',
-          },
-        },
-        d1: {
-          description: "SQLite sur l’edge de Cloudflare",
-          steps: {
-            step1:
-              "Accédez à dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2:
-              'Cliquez sur "Create" → nommez votre base de données → cliquez sur Create',
-            step3:
-              "Copiez le Database ID depuis la page de synthèse de la base de données",
-            step4:
-              "Pour le jeton d’authentification : accédez à My Profile → API Tokens → Create Token",
-            step5:
-              'Sélectionnez le modèle "Edit Cloudflare Workers" → Create Token → copiez-le',
-            step6:
-              "Utilisez d1://<database-id> et collez le API token ci-dessous",
           },
         },
       },
@@ -7042,20 +6933,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "Testen und verbinden",
       testingConnection: "Verbindung wird getestet...",
       providers: {
-        turso: {
-          description: "SQLite am Edge",
-          steps: {
-            step1:
-              "CLI installieren: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2:
-              "Registrieren/anmelden: turso auth login (öffnet den Browser)",
-            step3: "Datenbank erstellen: turso db create my-app",
-            step4:
-              "URL kopieren: turso db show my-app --url → beginnt mit libsql://",
-            step5:
-              "Authentifizierungstoken erstellen: turso db tokens create my-app → unten einfügen",
-          },
-        },
         neon: {
           description: "Serverloses Postgres",
           steps: {
@@ -7082,23 +6959,6 @@ const translatedCalendarExactCleanup = {
             step4: "Gehe zu Project Settings → Database → Connection string",
             step5:
               'Wähle den Tab "URI" → kopiere die postgres://... Zeichenfolge (ersetze [YOUR-PASSWORD] durch dein Datenbankpasswort)',
-          },
-        },
-        d1: {
-          description: "SQLite am Edge von Cloudflare",
-          steps: {
-            step1:
-              "Gehe zu dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2:
-              'Klicke auf "Create" → benenne deine Datenbank → klicke auf Create',
-            step3:
-              "Kopiere die Database ID von der Übersichtsseite der Datenbank",
-            step4:
-              "Für das Authentifizierungstoken: gehe zu My Profile → API Tokens → Create Token",
-            step5:
-              'Wähle die Vorlage "Edit Cloudflare Workers" → Create Token → kopiere es',
-            step6:
-              "Verwende d1://<database-id> und füge unten den API token ein",
           },
         },
       },
@@ -7230,19 +7090,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "テストして接続",
       testingConnection: "接続をテストしています...",
       providers: {
-        turso: {
-          description: "エッジの SQLite",
-          steps: {
-            step1:
-              "CLI をインストール: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "登録/ログイン: turso auth login (ブラウザが開きます)",
-            step3: "データベースを作成: turso db create my-app",
-            step4:
-              "URL をコピー: turso db show my-app --url → libsql:// で始まります",
-            step5:
-              "認証トークンを作成: turso db tokens create my-app → 下に貼り付けます",
-          },
-        },
         neon: {
           description: "サーバーレス Postgres",
           steps: {
@@ -7267,21 +7114,6 @@ const translatedCalendarExactCleanup = {
               "Project Settings → Database → Connection string に移動します",
             step5:
               '"URI" タブを選択 → postgres://... 文字列をコピーします ([YOUR-PASSWORD] をデータベースパスワードに置き換えます)',
-          },
-        },
-        d1: {
-          description: "Cloudflare エッジの SQLite",
-          steps: {
-            step1:
-              "dash.cloudflare.com → Workers & Pages → D1 SQL Database に移動します",
-            step2:
-              '"Create" をクリック → データベース名を入力 → Create をクリック',
-            step3: "データベース概要ページから Database ID をコピーします",
-            step4:
-              "認証トークン: My Profile → API Tokens → Create Token に移動します",
-            step5:
-              '"Edit Cloudflare Workers" テンプレートを選択 → Create Token → コピーします',
-            step6: "d1://<database-id> を使い、下に API token を貼り付けます",
           },
         },
       },
@@ -7407,17 +7239,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "테스트 및 연결",
       testingConnection: "연결을 테스트하는 중...",
       providers: {
-        turso: {
-          description: "엣지의 SQLite",
-          steps: {
-            step1: "CLI 설치: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "가입/로그인: turso auth login (브라우저가 열림)",
-            step3: "데이터베이스 만들기: turso db create my-app",
-            step4: "URL 복사: turso db show my-app --url → libsql:// 로 시작",
-            step5:
-              "인증 토큰 만들기: turso db tokens create my-app → 아래에 붙여넣기",
-          },
-        },
         neon: {
           description: "서버리스 Postgres",
           steps: {
@@ -7439,21 +7260,6 @@ const translatedCalendarExactCleanup = {
               "Project Settings → Database → Connection string으로 이동하세요",
             step5:
               '"URI" 탭 선택 → postgres://... 문자열 복사([YOUR-PASSWORD]를 데이터베이스 비밀번호로 교체)',
-          },
-        },
-        d1: {
-          description: "Cloudflare 엣지의 SQLite",
-          steps: {
-            step1:
-              "dash.cloudflare.com → Workers & Pages → D1 SQL Database로 이동하세요",
-            step2: '"Create" 클릭 → 데이터베이스 이름 지정 → Create 클릭',
-            step3: "데이터베이스 개요 페이지에서 Database ID를 복사하세요",
-            step4:
-              "인증 토큰: My Profile → API Tokens → Create Token으로 이동하세요",
-            step5:
-              '"Edit Cloudflare Workers" 템플릿 선택 → Create Token → 복사',
-            step6:
-              "d1://<database-id>를 사용하고 아래에 API token을 붙여넣으세요",
           },
         },
       },
@@ -7579,20 +7385,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "Testar e conectar",
       testingConnection: "Testando conexão...",
       providers: {
-        turso: {
-          description: "SQLite na borda",
-          steps: {
-            step1:
-              "Instale a CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2:
-              "Cadastre-se/faça login: turso auth login (abre o navegador)",
-            step3: "Crie um banco de dados: turso db create my-app",
-            step4:
-              "Copie a URL: turso db show my-app --url → começa com libsql://",
-            step5:
-              "Crie um token de autenticação: turso db tokens create my-app → cole abaixo",
-          },
-        },
         neon: {
           description: "Postgres serverless",
           steps: {
@@ -7617,21 +7409,6 @@ const translatedCalendarExactCleanup = {
             step4: "Acesse Project Settings → Database → Connection string",
             step5:
               'Selecione a aba "URI" → copie a string postgres://... (troque [YOUR-PASSWORD] pela senha do banco)',
-          },
-        },
-        d1: {
-          description: "SQLite na borda da Cloudflare",
-          steps: {
-            step1:
-              "Acesse dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2:
-              'Clique em "Create" → dê um nome ao banco → clique em Create',
-            step3: "Copie o Database ID na página de visão geral do banco",
-            step4:
-              "Para o token de autenticação: acesse My Profile → API Tokens → Create Token",
-            step5:
-              'Selecione o modelo "Edit Cloudflare Workers" → Create Token → copie-o',
-            step6: "Use d1://<database-id> e cole o API token abaixo",
           },
         },
       },
@@ -7767,19 +7544,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "जांचें और कनेक्ट करें",
       testingConnection: "कनेक्शन जांचा जा रहा है...",
       providers: {
-        turso: {
-          description: "एज पर SQLite",
-          steps: {
-            step1:
-              "CLI इंस्टॉल करें: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "साइन अप/लॉग इन करें: turso auth login (ब्राउज़र खुलता है)",
-            step3: "डेटाबेस बनाएं: turso db create my-app",
-            step4:
-              "URL कॉपी करें: turso db show my-app --url → libsql:// से शुरू होता है",
-            step5:
-              "प्रमाणीकरण टोकन बनाएं: turso db tokens create my-app → नीचे पेस्ट करें",
-          },
-        },
         neon: {
           description: "सर्वरलेस Postgres",
           steps: {
@@ -7801,20 +7565,6 @@ const translatedCalendarExactCleanup = {
             step4: "Project Settings → Database → Connection string पर जाएं",
             step5:
               '"URI" टैब चुनें → postgres://... स्ट्रिंग कॉपी करें ([YOUR-PASSWORD] को डेटाबेस पासवर्ड से बदलें)',
-          },
-        },
-        d1: {
-          description: "Cloudflare के एज पर SQLite",
-          steps: {
-            step1:
-              "dash.cloudflare.com → Workers & Pages → D1 SQL Database पर जाएं",
-            step2: '"Create" पर क्लिक करें → डेटाबेस का नाम दें → Create पर क्लिक करें',
-            step3: "डेटाबेस अवलोकन पेज से Database ID कॉपी करें",
-            step4:
-              "प्रमाणीकरण टोकन के लिए: My Profile → API Tokens → Create Token पर जाएं",
-            step5:
-              '"Edit Cloudflare Workers" टेम्पलेट चुनें → Create Token → इसे कॉपी करें',
-            step6: "d1://<database-id> का उपयोग करें और नीचे API token पेस्ट करें",
           },
         },
       },
@@ -7941,17 +7691,6 @@ const translatedCalendarExactCleanup = {
       testAndConnect: "اختبار والاتصال",
       testingConnection: "جارٍ اختبار الاتصال...",
       providers: {
-        turso: {
-          description: "SQLite على الحافة",
-          steps: {
-            step1: "ثبّت CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-            step2: "سجّل أو ادخل: turso auth login (يفتح المتصفح)",
-            step3: "أنشئ قاعدة بيانات: turso db create my-app",
-            step4: "انسخ URL: turso db show my-app --url → يبدأ بـ libsql://",
-            step5:
-              "أنشئ رمز مصادقة: turso db tokens create my-app → الصقه أدناه",
-          },
-        },
         neon: {
           description: "Postgres بلا خادم",
           steps: {
@@ -7974,19 +7713,6 @@ const translatedCalendarExactCleanup = {
             step4: "انتقل إلى Project Settings → Database → Connection string",
             step5:
               'حدد تبويب "URI" → انسخ سلسلة postgres://... (استبدل [YOUR-PASSWORD] بكلمة مرور قاعدة البيانات)',
-          },
-        },
-        d1: {
-          description: "SQLite على حافة Cloudflare",
-          steps: {
-            step1:
-              "انتقل إلى dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-            step2: 'انقر على "Create" → سمّ قاعدة البيانات → انقر على Create',
-            step3: "انسخ Database ID من صفحة نظرة عامة على قاعدة البيانات",
-            step4:
-              "لرمز المصادقة: انتقل إلى My Profile → API Tokens → Create Token",
-            step5: 'حدد قالب "Edit Cloudflare Workers" → Create Token → انسخه',
-            step6: "استخدم d1://<database-id> والصق API token أدناه",
           },
         },
       },

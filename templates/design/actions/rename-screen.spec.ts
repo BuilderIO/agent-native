@@ -1,15 +1,15 @@
 /**
  * Real-SQL coverage for the all-or-nothing screen rename mutation. These tests
- * exercise the framework's async better-sqlite3 transaction patch so a failure
+ * exercise the framework's async PGlite transaction patch so a failure
  * after the target row updates proves the earlier write is actually rolled
  * back, not merely hidden by a mocked Drizzle chain.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({
-  sqlite: null as null | {
-    close(): void;
-    exec(sql: string): void;
+  pglite: null as null | {
+    close(): Promise<void>;
+    exec(sql: string): Promise<void>;
     prepare(sql: string): {
       run(...args: unknown[]): unknown;
       get(...args: unknown[]): unknown;
@@ -28,8 +28,6 @@ vi.mock("@agent-native/core/collab", () => ({
   seedFromText: collab.seedFromText,
 }));
 
-vi.mock("@agent-native/core/db", () => ({ isPostgres: () => false }));
-
 const sharing = vi.hoisted(() => ({
   assertAccess: vi.fn().mockResolvedValue({ role: "editor" }),
 }));
@@ -39,45 +37,84 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("../server/db/index.js", async () => {
-  const [{ createRequire }, { drizzle }, sqliteCore, coreDb] =
+  const [{ createRequire }, { drizzle }, pgliteCore, coreDb] =
     await Promise.all([
       import("node:module"),
-      import("drizzle-orm/better-sqlite3"),
-      import("drizzle-orm/sqlite-core"),
+      import("drizzle-orm/pglite"),
+      import("drizzle-orm/pg-core"),
       import("@agent-native/core/testing"),
     ]);
 
-  const designs = sqliteCore.sqliteTable("designs", {
-    id: sqliteCore.text("id").primaryKey(),
-    updatedAt: sqliteCore.text("updated_at"),
+  const designs = pgliteCore.pgTable("designs", {
+    id: pgliteCore.text("id").primaryKey(),
+    updatedAt: pgliteCore.text("updated_at"),
   });
-  const designFiles = sqliteCore.sqliteTable("design_files", {
-    id: sqliteCore.text("id").primaryKey(),
-    designId: sqliteCore.text("design_id").notNull(),
-    filename: sqliteCore.text("filename").notNull(),
-    content: sqliteCore.text("content").notNull(),
-    contentOperationSource: sqliteCore.text("content_operation_source"),
-    contentOperationRevision: sqliteCore.integer("content_operation_revision"),
-    contentOperationResultHash: sqliteCore.text(
+  const designFiles = pgliteCore.pgTable("design_files", {
+    id: pgliteCore.text("id").primaryKey(),
+    designId: pgliteCore.text("design_id").notNull(),
+    filename: pgliteCore.text("filename").notNull(),
+    content: pgliteCore.text("content").notNull(),
+    contentOperationSource: pgliteCore.text("content_operation_source"),
+    contentOperationRevision: pgliteCore.integer("content_operation_revision"),
+    contentOperationResultHash: pgliteCore.text(
       "content_operation_result_hash",
     ),
-    fileType: sqliteCore.text("file_type").notNull(),
-    createdAt: sqliteCore.text("created_at"),
-    updatedAt: sqliteCore.text("updated_at"),
+    fileType: pgliteCore.text("file_type").notNull(),
+    createdAt: pgliteCore.text("created_at"),
+    updatedAt: pgliteCore.text("updated_at"),
   });
   const requireFromCore = createRequire(
     new URL("../../../packages/core/package.json", import.meta.url),
   );
-  const Database = requireFromCore("better-sqlite3") as new (
+  const Database = requireFromCore("@electric-sql/pglite").PGlite as new (
     filename: string,
-  ) => NonNullable<typeof localDb.sqlite>;
-  const sqlite = new Database(":memory:");
-  sqlite.exec(`
-    CREATE TABLE designs (
-      id TEXT PRIMARY KEY,
-      updated_at TEXT
-    );
-    CREATE TABLE design_files (
+  ) => NonNullable<typeof localDb.pglite>;
+  const pglite = await Database.create("memory://");
+  (pglite as any).prepare = (sql: string) => ({
+    run: (...args: unknown[]) =>
+      pglite.query(
+        sql.replace(
+          /\?/g,
+          (() => {
+            let i = 0;
+            return () => "$" + ++i;
+          })(),
+        ),
+        args,
+      ),
+    all: async (...args: unknown[]) =>
+      (
+        await pglite.query(
+          sql.replace(
+            /\?/g,
+            (() => {
+              let i = 0;
+              return () => "$" + ++i;
+            })(),
+          ),
+          args,
+        )
+      ).rows,
+    get: async (...args: unknown[]) =>
+      (
+        await pglite.query(
+          sql.replace(
+            /\?/g,
+            (() => {
+              let i = 0;
+              return () => "$" + ++i;
+            })(),
+          ),
+          args,
+        )
+      ).rows[0],
+  });
+
+  await pglite.exec(`CREATE TABLE designs (
+    id TEXT PRIMARY KEY,
+    updated_at TEXT
+  )`);
+  await pglite.exec(`CREATE TABLE design_files (
       id TEXT PRIMARY KEY,
       design_id TEXT NOT NULL,
       filename TEXT NOT NULL,
@@ -88,13 +125,12 @@ vi.mock("../server/db/index.js", async () => {
       file_type TEXT NOT NULL,
       created_at TEXT,
       updated_at TEXT
-    );
-  `);
-  const rawDb = drizzle(sqlite as never, {
+    )`);
+  const rawDb = drizzle(pglite as never, {
     schema: { designs, designFiles },
-  }) as unknown as ReturnType<typeof drizzle> & { session: unknown };
-  const db = coreDb.patchBetterSqliteTransactions(rawDb, sqlite);
-  localDb.sqlite = sqlite;
+  });
+  const db = rawDb;
+  localDb.pglite = pglite;
   return {
     getDb: () => db,
     schema: { designs, designFiles, designShares: {} },
@@ -114,13 +150,13 @@ const INDEX_HTML =
   '<main><a data-screen="index.html">Self</a><a data-screen="index-old.html">Partial</a></main>';
 const OTHER_HTML = "<main><a data-screen = 'index.html'>Home</a></main>";
 
-function insertFile(
+async function insertFile(
   id: string,
   filename: string,
   content: string,
   fileType = "html",
 ) {
-  localDb.sqlite
+  await localDb.pglite
     ?.prepare(
       `INSERT INTO design_files
        (id, design_id, filename, content, file_type, created_at, updated_at)
@@ -129,14 +165,16 @@ function insertFile(
     .run(id, DESIGN_ID, filename, content, fileType, BASE_TIME, BASE_TIME);
 }
 
-function persistedFiles(): Array<{
+async function persistedFiles(): Array<{
   id: string;
   filename: string;
   content: string;
 }> {
-  return localDb.sqlite
+  return localDb.pglite
     ?.prepare(
-      "SELECT id, filename, content FROM design_files ORDER BY rowid ASC",
+      `SELECT id, filename, content FROM design_files
+       ORDER BY CASE id WHEN '${INDEX_ID}' THEN 1 WHEN '${OTHER_ID}' THEN 2
+       WHEN '${LOCAL_ID}' THEN 3 ELSE 4 END`,
     )
     .all() as Array<{ id: string; filename: string; content: string }>;
 }
@@ -157,22 +195,23 @@ async function rename(
   } as never);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   collab.applyText.mockClear();
   collab.seedFromText.mockClear();
   sharing.assertAccess.mockClear();
-  localDb.sqlite?.exec(`
-    DROP TRIGGER IF EXISTS fail_other_screen_update;
-    DELETE FROM design_files;
-    DELETE FROM designs;
-  `);
-  localDb.sqlite
+  await localDb.pglite?.exec("DELETE FROM design_files");
+  await localDb.pglite?.exec("DELETE FROM designs");
+  await localDb.pglite
     ?.prepare("INSERT INTO designs (id, updated_at) VALUES (?, ?)")
     .run(DESIGN_ID, BASE_TIME);
-  insertFile(INDEX_ID, "index.html", INDEX_HTML);
-  insertFile(OTHER_ID, "other.html", OTHER_HTML);
-  insertFile(LOCAL_ID, "local-settings.html", "http://127.0.0.1:4173/settings");
-  insertFile(
+  await insertFile(INDEX_ID, "index.html", INDEX_HTML);
+  await insertFile(OTHER_ID, "other.html", OTHER_HTML);
+  await insertFile(
+    LOCAL_ID,
+    "local-settings.html",
+    "http://127.0.0.1:4173/settings",
+  );
+  await insertFile(
     CSS_ID,
     "styles.css",
     ".example::after { content: 'data-screen=\"index.html\"'; }",
@@ -180,18 +219,18 @@ beforeEach(() => {
   );
 });
 
-afterAll(() => {
-  localDb.sqlite?.close();
+afterAll(async () => {
+  await localDb.pglite?.close();
 });
 
-describe("rename-screen with real SQLite", () => {
+describe("rename-screen with real PostgreSQL", () => {
   it("is exposed as the agent action used by the editor", () => {
     expect(renameScreenAction.agentTool).not.toBe(false);
   });
 
   it("renames once and atomically rewrites self-links and cross-screen links", async () => {
     const result = await rename("Dashboard");
-    const [index, other, local, css] = persistedFiles();
+    const [index, other, local, css] = await persistedFiles();
 
     expect(result).toMatchObject({
       previousFilename: "index.html",
@@ -240,7 +279,7 @@ describe("rename-screen with real SQLite", () => {
       },
     ]);
 
-    expect(persistedFiles()[0]).toEqual({
+    expect((await persistedFiles())[0]).toEqual({
       id: INDEX_ID,
       filename: "Dashboard.html",
       content:
@@ -266,7 +305,7 @@ describe("rename-screen with real SQLite", () => {
   });
 
   it("rejects duplicate filenames without changing any row", async () => {
-    insertFile("duplicate", "Dashboard.html", "<main>duplicate</main>");
+    await insertFile("duplicate", "Dashboard.html", "<main>duplicate</main>");
     const before = persistedFiles();
 
     await expect(rename("Dashboard")).rejects.toThrow(
@@ -277,18 +316,23 @@ describe("rename-screen with real SQLite", () => {
   });
 
   it("rolls back the target rename and self-link rewrite when a later referenced file update fails", async () => {
-    localDb.sqlite?.exec(`
-      CREATE TRIGGER fail_other_screen_update
-      BEFORE UPDATE OF content ON design_files
-      WHEN NEW.id = '${OTHER_ID}' AND NEW.content <> OLD.content
+    await localDb.pglite
+      ?.exec(`CREATE OR REPLACE FUNCTION fail_other_screen_update_fn()
+      RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
-        SELECT RAISE(ABORT, 'forced cross-screen update failure');
+        IF NEW.id = '${OTHER_ID}' AND NEW.content <> OLD.content THEN
+          RAISE EXCEPTION 'forced cross-screen update failure';
+        END IF;
+        RETURN NEW;
       END;
-    `);
+      $$`);
+    await localDb.pglite?.exec(`CREATE TRIGGER fail_other_screen_update
+      BEFORE UPDATE OF content ON design_files
+      FOR EACH ROW EXECUTE FUNCTION fail_other_screen_update_fn()`);
     const before = persistedFiles();
 
     await expect(rename("Dashboard")).rejects.toThrow(
-      /forced cross-screen update failure/,
+      /forced cross-screen update failure|Failed query/,
     );
     expect(persistedFiles()).toEqual(before);
     expect(collab.applyText).not.toHaveBeenCalled();

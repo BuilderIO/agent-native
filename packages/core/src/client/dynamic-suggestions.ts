@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { readClientAppState } from "./application-state.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { useChangeVersions } from "./use-change-version.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 import { usePollLoop } from "./use-poll-loop.js";
@@ -109,13 +110,7 @@ async function readScopedAppState(
   key: string,
   browserTabId?: string,
 ): Promise<unknown> {
-  if (browserTabId) {
-    const scoped = await readAppState(
-      appStateKeyForBrowserTab(key, browserTabId),
-    );
-    if (scoped !== null && scoped !== undefined) return scoped;
-  }
-  return readAppState(key);
+  return readAppState(appStateKeyForBrowserTab(key, browserTabId));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -343,7 +338,11 @@ export function useAgentDynamicSuggestionsResult(
     [options.dynamicSuggestions],
   );
   const browserTabId = useMemo(
-    () => normalizeBrowserTabId(options.browserTabId),
+    () =>
+      normalizeBrowserTabId(options.browserTabId) ??
+      (options.browserTabId === undefined && typeof window !== "undefined"
+        ? normalizeBrowserTabId(getBrowserTabId())
+        : undefined),
     [options.browserTabId],
   );
   const optionScope = options.scope ?? null;

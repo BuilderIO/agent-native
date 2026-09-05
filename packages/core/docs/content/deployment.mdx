@@ -1,6 +1,6 @@
 ---
 title: "Deployment"
-description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent SQL database."
+description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent PostgreSQL database."
 search: "deployment deploy app workspace hosting database Nitro Node.js Docker Vercel Netlify Cloudflare AWS Amplify AWS Lambda Deno Deploy Azure Static Web Apps Koyeb Render"
 ---
 
@@ -26,28 +26,21 @@ app communication.
 
 ## Before you deploy: choose a persistent database {#persistent-database}
 
-Every deployed app needs a persistent SQL database. Local development can use
-the SQLite file at `data/app.db`, but container, preview, and serverless
+Every deployed app needs a persistent PostgreSQL database. Local development can use
+the PGlite database at `data/pglite`, but container, preview, and serverless
 filesystems can be reset at any time.
 
 <Steps>
 
 ### Choose a provider
 
-For hosted production deployments, we recommend a Drizzle-compatible PostgreSQL
-backend, such as [Neon](/docs/neon),
-[Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](https://aws.amazon.com/rds/postgresql/),
-[Cloud SQL for PostgreSQL](https://cloud.google.com/sql/postgresql), or [Azure Database for PostgreSQL](https://learn.microsoft.com/en-us/azure/postgresql/overview).
-The framework detects the PostgreSQL dialect from the connection URL. Other SQL
-backends remain supported; see the [libSQL / Turso](/docs/turso) and
-[Cloudflare D1](/docs/cloudflare-d1) provider guides for their configuration
-details.
+Use a hosted PostgreSQL provider such as Neon, Supabase, Railway, or RDS. The
+framework configures PostgreSQL from the connection URL.
 
 ### Set the connection string
 
 Set `DATABASE_URL` in the deployment environment before the first production
-deploy. Standard PostgreSQL connection URLs begin with `postgres://` or
-`postgresql://`.
+deploy.
 
 ### Add production secrets
 

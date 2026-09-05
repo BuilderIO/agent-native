@@ -2,13 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 
@@ -19,32 +19,32 @@ interface FrameworkClient {
   }>;
 }
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let sharedClient: FrameworkClient = {
   async execute() {
     return { rows: [], rowsAffected: 0 };
   },
 };
 
-beforeAll(() => {
-  sqlite = new Database(":memory:");
+beforeAll(async () => {
+  pglite = await createTestPglite();
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = sqlite.prepare(sql);
+      const stmt = await pglite.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
 });
 
-afterAll(() => {
-  sqlite.close();
+afterAll(async () => {
+  await pglite.close();
 });
 
 describe("resourceEffectiveContext", () => {
@@ -126,7 +126,7 @@ describe("resourceEffectiveContext", () => {
       resourceListAccessible,
     } = await import("./store.js");
 
-    sqlite.exec(`
+    await pglite.exec(`
       CREATE TABLE IF NOT EXISTS workspace_resources (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL,
@@ -138,8 +138,8 @@ describe("resourceEffectiveContext", () => {
         content TEXT NOT NULL,
         scope TEXT NOT NULL,
         created_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS workspace_resource_grants (
         id TEXT PRIMARY KEY,
@@ -148,22 +148,22 @@ describe("resourceEffectiveContext", () => {
         resource_id TEXT NOT NULL,
         app_id TEXT NOT NULL,
         status TEXT NOT NULL,
-        synced_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        synced_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
     `);
     const skillContent =
       "---\nname: analytics-review\ndescription: Review analytics work\n---\n\n# Analytics Review \u{1F4CA}";
-    sqlite
+    await pglite
       .prepare("DELETE FROM workspace_resource_grants WHERE id = ?")
       .run("grant_skill_analytics");
-    sqlite
+    await pglite
       .prepare("DELETE FROM workspace_resources WHERE id = ?")
       .run("selected_skill_analytics");
 
     const skillPath = "skills/analytics-review/SKILL.md";
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO workspace_resources
           (id, owner_email, org_id, kind, name, description, path, content, scope, created_by, created_at, updated_at)
@@ -183,7 +183,7 @@ describe("resourceEffectiveContext", () => {
         1,
         2,
       );
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO workspace_resource_grants
           (id, owner_email, org_id, resource_id, app_id, status, synced_at, created_at, updated_at)
@@ -690,7 +690,7 @@ describe("resourceEffectiveContext", () => {
         "content",
         "text/plain",
       );
-      sqlite
+      await pglite
         .prepare(
           "UPDATE resources SET mime_type = ?, visibility = ?, updated_at = ? WHERE id = ?",
         )

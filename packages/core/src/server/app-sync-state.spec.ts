@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSyncState, type ChangeEvent } from "./poll.js";
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 /** Minimal DbExec-shaped mock that records the ids inserted into sync_events. */
 function makeDb(insertedIds?: string[]) {
   return {
@@ -45,11 +51,9 @@ describe("AppSyncState multi-app isolation", () => {
   it("does not leak in-memory events or versions across apps", () => {
     const a = new AppSyncState({
       getDb: () => makeDb(),
-      isPostgres: () => false,
     });
     const b = new AppSyncState({
       getDb: () => makeDb(),
-      isPostgres: () => false,
     });
 
     a.recordChange({ source: "action", type: "change", key: "a1" });
@@ -65,7 +69,6 @@ describe("AppSyncState multi-app isolation", () => {
   it("filters durable-independent per-user delivery per instance", () => {
     const a = new AppSyncState({
       getDb: () => makeDb(),
-      isPostgres: () => false,
     });
     a.recordChange({
       source: "action",
@@ -93,12 +96,10 @@ describe("AppSyncState multi-app isolation", () => {
     const idsB: string[] = [];
     const a = new AppSyncState({
       getDb: () => makeDb(idsA),
-      isPostgres: () => false,
       deterministicEventIds: true,
     });
     const b = new AppSyncState({
       getDb: () => makeDb(idsB),
-      isPostgres: () => false,
       deterministicEventIds: true,
     });
 
@@ -115,7 +116,6 @@ describe("AppSyncState multi-app isolation", () => {
     const ids: string[] = [];
     const s = new AppSyncState({
       getDb: () => makeDb(ids),
-      isPostgres: () => false,
     });
 
     await s.persistSyncEvent(baseEvent({ version: 1 }), "app-state|500");
@@ -136,7 +136,6 @@ describe("AppSyncState multi-app isolation", () => {
     );
     const s = new AppSyncState({
       getDb: () => makeDb(),
-      isPostgres: () => false,
       resolveAccess,
     });
     // Owned by someone else + resource-scoped → forces the access-aware branch.
@@ -169,7 +168,6 @@ describe("AppSyncState multi-app isolation", () => {
   it("matches owner-scoped events case-insensitively", () => {
     const s = new AppSyncState({
       getDb: () => makeDb(),
-      isPostgres: () => false,
     });
 
     expect(
@@ -185,7 +183,6 @@ describe("AppSyncState multi-app isolation", () => {
     const resolveAccess = vi.fn(async () => null);
     const s = new AppSyncState({
       getDb: () => makeDb(),
-      isPostgres: () => false,
       resolveAccess,
     });
 

@@ -3,9 +3,9 @@ import { pathToFileURL } from "node:url";
 
 /**
  * Smoke-checks a deployed site against `/_agent-native/health`: strict
- * readiness, database dialect, and schema (including Better Auth's tables).
+ * readiness, PostgreSQL, and schema (including Better Auth's tables).
  * A green Netlify deploy has shipped before while the app quietly ran on
- * local SQLite or 500'd on Better Auth's jwks route — a status-only
+ * database health or 500'd on Better Auth's jwks route — a status-only
  * `curl --fail` never saw either.
  *
  * Usage: smoke-check-health.ts --url <site url> [--canonical-host <host>] [--auth-routes]
@@ -94,7 +94,7 @@ async function checkHealth(
 
   // Prefer the most specific reason a parsed body can give — strict mode
   // already turns "not ready" into a 503, so checking the status first would
-  // hide exactly the ready/db/dialect/schema detail this script exists to
+  // hide exactly the ready/db/schema detail this script exists to
   // surface. Fall back to the raw status only when there is no body to read.
   if (!body) {
     if (response.status < 200 || response.status >= 300) {
@@ -110,13 +110,6 @@ async function checkHealth(
   if (body.db !== true)
     return { ok: false, reason: `health reports db=${body.db}` };
 
-  const dialect = body.database?.dialect;
-  if (dialect === "sqlite" || dialect === "pglite") {
-    return {
-      ok: false,
-      reason: `hosted deploy is running a local database (dialect=${dialect})`,
-    };
-  }
   // `identityMismatch` is only ever true when the database was recorded for
   // one app and a different one is now running against it — the exact
   // wrong-database incident this check exists to catch. The other identity

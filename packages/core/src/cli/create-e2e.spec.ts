@@ -1665,9 +1665,9 @@ describe("workspace scaffold defaults", () => {
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
-    expect(_shouldSkipScaffoldEntry("app.db")).toBe(true);
-    expect(_shouldSkipScaffoldEntry("app.db-shm")).toBe(true);
-    expect(_shouldSkipScaffoldEntry("app.db-wal")).toBe(true);
+    expect(
+      _shouldSkipScaffoldEntry("pglite", path.join("data", "pglite")),
+    ).toBe(true);
   });
 
   it("does not copy generated visual plan previews", () => {

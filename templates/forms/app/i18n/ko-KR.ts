@@ -322,12 +322,9 @@ const messages = {
     sharePubliclyDescription:
       "콘텐츠를 공개적으로 공유하려면 클라우드 데이터베이스를 연결하세요.",
     providerDescriptions: {
-      turso: "엣지의 SQLite",
       neon: "서버리스 Postgres",
       supabase: "Firebase의 오픈 소스 대안",
-      d1: "엣지의 SQLite",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "설정 단계",
     authToken: "인증 토큰",
     connectedReloading: "연결되었습니다. 다시 로드 중...",

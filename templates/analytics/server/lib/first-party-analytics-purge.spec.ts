@@ -65,7 +65,7 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({
         sql: expect.stringContaining(
-          "(org_id = ? OR (org_id IS NULL AND owner_email = ?))",
+          "(org_id = $1 OR (org_id IS NULL AND owner_email = $2))",
         ),
         args: ["org-1", "admin@example.com", expect.any(String)],
       }),
@@ -101,7 +101,7 @@ describe("purgeFirstPartyAnalyticsPostgresRows", () => {
       4,
       expect.objectContaining({
         sql: expect.stringMatching(
-          /WITH candidates[\s\S]*LIMIT \?[\s\S]*DELETE FROM analytics_events/,
+          /WITH candidates[\s\S]*LIMIT \$3[\s\S]*DELETE FROM analytics_events/,
         ),
         args: ["org-1", "2026-07-01T00:00:00.000Z", 10_000],
         timeoutMs: 60_000,

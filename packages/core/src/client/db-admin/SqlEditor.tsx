@@ -39,7 +39,6 @@ import {
   type ReactNode,
 } from "react";
 
-import type { DbAdminDialect } from "../../db-admin/types.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,7 +65,6 @@ import {
 import { runQuery, type DbAdminRequestConfig } from "./useDbAdmin.js";
 
 export interface SqlEditorProps {
-  dialect: DbAdminDialect;
   tableNames: string[];
   columnsByTable: Record<string, string[]>;
   requestConfig?: DbAdminRequestConfig;
@@ -264,7 +262,6 @@ const MOD = isMac ? "Cmd" : "Ctrl";
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function SqlEditor({
-  dialect,
   tableNames,
   columnsByTable,
   requestConfig,
@@ -364,7 +361,7 @@ export function SqlEditor({
 
   const extensions = useMemo(() => {
     const langExt = sql({
-      dialect: dialect === "postgres" ? PostgreSQL : undefined,
+      dialect: PostgreSQL,
       schema: columnsByTable,
       tables: tableNames.map((t) => ({ label: t })),
       upperCaseKeywords: true,
@@ -393,8 +390,8 @@ export function SqlEditor({
 
     return [runKeymap, langExt, EditorView.lineWrapping];
     // tableNames / columnsByTable identity is stable enough for our purposes;
-    // re-derive when the dialect or schema reference changes.
-  }, [dialect, columnsByTable, tableNames, runActiveStatement, runWholeBuffer]);
+    // Re-derive when the schema reference changes.
+  }, [columnsByTable, tableNames, runActiveStatement, runWholeBuffer]);
 
   // ─── Splitter drag ───────────────────────────────────────────────────────
 
@@ -501,10 +498,7 @@ export function SqlEditor({
     }
     list.push({
       label: "List tables",
-      sql:
-        dialect === "postgres"
-          ? "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;"
-          : "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;",
+      sql: "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;",
     });
     if (firstTable) {
       list.push({
@@ -513,7 +507,7 @@ export function SqlEditor({
       });
     }
     return list;
-  }, [firstTable, dialect]);
+  }, [firstTable]);
 
   const hasResults = result !== null;
   const canExport = hasResults && result!.columns.length > 0;

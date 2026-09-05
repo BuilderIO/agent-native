@@ -1,9 +1,12 @@
 import { createGetDb, getDbExec } from "@agent-native/core/db";
 import { registerShareableResource } from "@agent-native/core/sharing";
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import * as schema from "./schema.js";
 
-export const getDb = createGetDb(schema);
+type DispatchDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
+
+export const getDb = createGetDb(schema) as () => DispatchDatabase;
 
 registerShareableResource({
   type: "workspace-app",

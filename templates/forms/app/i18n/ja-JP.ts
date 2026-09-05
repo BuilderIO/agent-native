@@ -325,12 +325,9 @@ const messages = {
     sharePubliclyDescription:
       "コンテンツを公開共有するには、クラウドデータベースを接続してください。",
     providerDescriptions: {
-      turso: "エッジの SQLite",
       neon: "サーバーレス Postgres",
       supabase: "Firebase のオープンソース代替",
-      d1: "エッジの SQLite",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "設定手順",
     authToken: "認証トークン",
     connectedReloading: "接続しました。再読み込みしています...",

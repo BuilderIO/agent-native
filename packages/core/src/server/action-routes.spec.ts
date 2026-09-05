@@ -724,6 +724,7 @@ describe("mountActionRoutes", () => {
       ping: {
         run: vi.fn(async () => ({
           browserSessionId: getRequestContext()?.browserSessionId,
+          browserTabId: getRequestContext()?.run?.browserTabId,
           clientPlatform: getRequestContext()?.clientPlatform,
         })),
       } as any,
@@ -737,6 +738,7 @@ describe("mountActionRoutes", () => {
       _method: "POST",
       _headers: {
         "x-agent-native-session-id": "pinned-session-1",
+        "x-agent-native-browser-tab": "tab-a",
         "x-agent-native-client-platform": "mobile",
       },
       req: { json: async () => ({}) },
@@ -749,10 +751,12 @@ describe("mountActionRoutes", () => {
 
     expect(await mounted[0].handler(withSession)).toEqual({
       browserSessionId: "pinned-session-1",
+      browserTabId: "tab-a",
       clientPlatform: "mobile",
     });
     expect(await mounted[0].handler(withoutSession)).toEqual({
       browserSessionId: undefined,
+      browserTabId: undefined,
       clientPlatform: undefined,
     });
   });
@@ -2262,10 +2266,7 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
-  it.each([
-    "no such table: org_members",
-    'relation "org_members" does not exist',
-  ])(
+  it.each(['relation "org_members" does not exist'])(
     "suppresses the verified first-boot missing org table error: %s",
     async (message) => {
       const { mountActionRoutes } = await import("./action-routes.js");

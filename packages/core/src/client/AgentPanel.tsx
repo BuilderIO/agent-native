@@ -58,6 +58,7 @@ import {
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
 import type { AgentRun } from "../progress/types.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -3172,9 +3173,16 @@ export function AgentPanel(props: AgentPanelProps) {
     } catch {}
     setResetKey((key) => key + 1);
   }, [props.storageKey]);
+  const resolvedBrowserTabId =
+    props.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   return (
     <AgentPanelErrorBoundary onReset={resetPanel}>
-      <AgentPanelInner key={resetKey} {...props} />
+      <AgentPanelInner
+        key={resetKey}
+        {...props}
+        browserTabId={resolvedBrowserTabId}
+      />
     </AgentPanelErrorBoundary>
   );
 }
@@ -3224,12 +3232,16 @@ export function AgentChatSurface({
   ...props
 }: AgentChatSurfaceProps) {
   const pageMode = mode === "page";
+  const resolvedBrowserTabId =
+    props.browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const defaultShowPageNewChatButton =
     shouldDefaultAgentChatSurfacePageNewChatButton(mode, showTabBar);
 
   const panel = (
     <AgentPanel
       {...props}
+      browserTabId={resolvedBrowserTabId}
       defaultMode={defaultMode}
       showHeader={showHeader}
       showTabBar={showTabBar}
@@ -3251,7 +3263,7 @@ export function AgentChatSurface({
   if (!pageMode) return panel;
   return (
     <>
-      <URLSync browserTabId={props.browserTabId} />
+      <URLSync browserTabId={resolvedBrowserTabId} />
       {panel}
     </>
   );
@@ -3456,6 +3468,9 @@ export function AgentSidebar({
   thinkingDisplay,
   chatOnly = true,
 }: AgentSidebarProps) {
+  const resolvedBrowserTabId =
+    browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
   const staticHostedHarnessEnabled = isHostedHarnessConfigured(
     injectedAgentNativeConfig().harness,
   );
@@ -4313,7 +4328,7 @@ export function AgentSidebar({
             chatHistory={chatHistory}
             isolateHistoryByScope={isolateHistoryByScope}
             showScopeBadge={showScopeBadge}
-            browserTabId={browserTabId}
+            browserTabId={resolvedBrowserTabId}
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
             thinkingDisplay={thinkingDisplay}
@@ -4345,7 +4360,7 @@ export function AgentSidebar({
 
   return (
     <AgentSidebarOnboardingContext.Provider value>
-      <RealtimeVoiceModeProvider browserTabId={browserTabId}>
+      <RealtimeVoiceModeProvider browserTabId={resolvedBrowserTabId}>
         {showFirstRunOnboarding && (
           <Suspense fallback={null}>
             <FirstRunOnboarding />
@@ -4384,7 +4399,9 @@ export function AgentSidebar({
           {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
-          {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
+          {shouldMountPanel ? (
+            <URLSync browserTabId={resolvedBrowserTabId} />
+          ) : null}
           {isResizing ? (
             <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
           ) : null}

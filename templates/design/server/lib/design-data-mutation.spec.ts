@@ -1,22 +1,18 @@
 /**
  * Local-database integration coverage for design-data CAS mutations.
  *
- * Unlike the action interleaving spec, this uses a real in-memory
- * better-sqlite3 database, real Drizzle predicates, and the framework's actual
- * async transaction patch. Concurrent calls therefore exercise BEGIN
- * IMMEDIATE, commit, CAS confirmation, and post-commit reads end to end.
+ * Uses a real in-memory PGlite database and real Drizzle predicates. Concurrent
+ * calls exercise PostgreSQL transactions, CAS confirmation, and post-commit reads.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({
-  sqlite: null as null | {
-    close(): void;
-    exec(sql: string): void;
-    inTransaction: boolean;
-    prepare(sql: string): {
-      run(...args: unknown[]): unknown;
-      get(...args: unknown[]): unknown;
-    };
+  pglite: null as null | {
+    query(
+      sql: string,
+      args?: unknown[],
+    ): Promise<{ rows: Array<Record<string, unknown>> }>;
+    close(): Promise<void>;
   },
 }));
 
@@ -25,35 +21,28 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("../db/index.js", async () => {
-  const [{ createRequire }, { drizzle }, sqliteCore, coreDb] =
-    await Promise.all([
-      import("node:module"),
-      import("drizzle-orm/better-sqlite3"),
-      import("drizzle-orm/sqlite-core"),
-      import("@agent-native/core/testing"),
-    ]);
-
-  const designs = sqliteCore.sqliteTable("designs", {
-    id: sqliteCore.text("id").primaryKey(),
-    data: sqliteCore.text("data"),
-    updatedAt: sqliteCore.text("updated_at"),
-  });
-  const requireFromCore = createRequire(
+  const [{ drizzle }, pgCore, { createRequire }] = await Promise.all([
+    import("drizzle-orm/pglite"),
+    import("drizzle-orm/pg-core"),
+    import("node:module"),
+  ]);
+  const { PGlite } = createRequire(
     new URL("../../../../packages/core/package.json", import.meta.url),
-  );
-  const Database = requireFromCore("better-sqlite3") as new (
-    filename: string,
-  ) => NonNullable<typeof localDb.sqlite>;
-  const sqlite = new Database(":memory:");
-  sqlite.exec(
+  )("@electric-sql/pglite");
+  const designs = pgCore.pgTable("designs", {
+    id: pgCore.text("id").primaryKey(),
+    data: pgCore.text("data"),
+    updatedAt: pgCore.text("updated_at"),
+  });
+  const pglite = await PGlite.create("memory://");
+  await pglite.query(
     "CREATE TABLE designs (id TEXT PRIMARY KEY, data TEXT, updated_at TEXT)",
   );
-  const rawDb = drizzle(sqlite as never, {
+  localDb.pglite = pglite;
+  return {
+    getDb: () => drizzle(pglite, { schema: { designs } }),
     schema: { designs },
-  }) as unknown as ReturnType<typeof drizzle> & { session: unknown };
-  const db = coreDb.patchBetterSqliteTransactions(rawDb, sqlite);
-  localDb.sqlite = sqlite;
-  return { getDb: () => db, schema: { designs } };
+  };
 });
 
 import {
@@ -65,26 +54,29 @@ async function seed(
   data: string | null,
   updatedAt = "2026-07-09T00:00:00.000Z",
 ) {
-  localDb.sqlite
-    ?.prepare("INSERT INTO designs (id, data, updated_at) VALUES (?, ?, ?)")
-    .run("design_1", data, updatedAt);
+  await localDb.pglite?.query(
+    "INSERT INTO designs (id, data, updated_at) VALUES ($1, $2, $3)",
+    ["design_1", data, updatedAt],
+  );
 }
 
 async function persistedRow(): Promise<{
   data: string | null;
   updated_at: string;
 }> {
-  return localDb.sqlite
-    ?.prepare("SELECT data, updated_at FROM designs WHERE id = ?")
-    .get("design_1") as { data: string | null; updated_at: string };
+  const result = await localDb.pglite?.query(
+    "SELECT data, updated_at FROM designs WHERE id = $1",
+    ["design_1"],
+  );
+  return result?.rows[0] as { data: string | null; updated_at: string };
 }
 
 beforeEach(async () => {
-  localDb.sqlite?.exec("DELETE FROM designs");
+  await localDb.pglite?.query("DELETE FROM designs");
 });
 
-afterAll(() => {
-  localDb.sqlite?.close();
+afterAll(async () => {
+  await localDb.pglite?.close();
 });
 
 describe("mutateDesignData with real local SQL transactions", () => {

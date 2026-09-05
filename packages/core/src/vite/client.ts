@@ -264,7 +264,28 @@ function nitroVitePlugin(
 ) {
   installNitroFsWatchGuard();
   const plugins = require("nitro/vite").nitro(...args) as Plugin[];
-  return plugins.map(debounceNitroFullReloadHotUpdate);
+  return plugins
+    .map(debounceNitroFullReloadHotUpdate)
+    .map(skipViteChildCompiler);
+}
+
+function skipViteChildCompiler(plugin: Plugin): Plugin {
+  const originalApply = plugin.apply;
+  return {
+    ...plugin,
+    apply(config, configEnv) {
+      // React Router creates a config-file-free child compiler to inspect route
+      // exports. Nitro must only own the main server; a second environment
+      // would open the same PGlite directory and lose writes on close.
+      if ((config as UserConfig & { configFile?: false }).configFile === false)
+        return false;
+      if (!originalApply) return true;
+      if (typeof originalApply === "function") {
+        return originalApply(config, configEnv);
+      }
+      return originalApply === configEnv.command;
+    },
+  };
 }
 
 /**
@@ -1108,8 +1129,6 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/voice",
 ];
 
-const NODE_SSR_NATIVE_EXTERNALS = ["better-sqlite3", "bindings"];
-
 /**
  * Dep-prebundle sourcemaps are roughly two thirds of `node_modules/.vite/deps`
  * (65 MB of maps against 37 MB of code in a typical app), and Vite writes the
@@ -1145,7 +1164,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
           // imports. Eagerly including every leaf would rebuild the old
           // all-app prebundle under a different set of entry names.
         ] as Array<{ specifier: string; packageName?: string }>)),
-    { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
     { specifier: "@assistant-ui/react-markdown" },
@@ -1211,7 +1229,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "diff-match-patch" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
-    { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
     { specifier: "embla-carousel-react" },
     { specifier: "h3" },
     {
@@ -3479,7 +3496,8 @@ function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
   return {
     ...pluginOrPreset,
-    apply: (_config: UserConfig, configEnv: ConfigEnv) =>
+    apply: (config: UserConfig, configEnv: ConfigEnv) =>
+      (config as UserConfig & { configFile?: false }).configFile !== false &&
       configEnv.command === "serve" &&
       !(configEnv.isPreview && process.env.IS_RR_BUILD_REQUEST === "yes"),
   };
@@ -3978,7 +3996,6 @@ function createAgentNativeConfig(
             // bundle still owns and bundles the dependency, so both paths
             // share one portable module instance.
             "yjs",
-            ...NODE_SSR_NATIVE_EXTERNALS,
             ...arrayFrom((userConfig.ssr as { external?: any })?.external),
           ],
           // Pick the workspace-core's compiled `dist/` exports in prod —

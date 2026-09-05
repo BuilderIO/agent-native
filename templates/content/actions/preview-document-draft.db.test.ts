@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `preview-drafts-${process.pid}-${Date.now()}.sqlite`,
+  `preview-drafts-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
@@ -19,7 +19,7 @@ let getDraft: typeof import("./get-preview-document-draft.js").default;
 let updateDraft: typeof import("./update-preview-document-draft.js").default;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -29,8 +29,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;

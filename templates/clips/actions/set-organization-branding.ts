@@ -52,9 +52,8 @@ export default defineAction({
       ["admin"],
     );
 
-    // Ensure a settings row exists. Clips' own organization_settings table is
-    // dialect-agnostic — schema.ts declares created_at/updated_at as TEXT with
-    // an ISO default, so we use ISO strings on both PG and SQLite.
+    // Ensure a settings row exists. Clips' organization_settings table stores
+    // created_at/updated_at as ISO timestamp text.
     const db = getDb();
     const nowIso = new Date().toISOString();
     await db

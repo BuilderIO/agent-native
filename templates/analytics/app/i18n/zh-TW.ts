@@ -860,7 +860,6 @@ const messages = {
     connectionAppId: "應用程式 ID",
     connectionAppUrl: "應用程式 URL",
     connectionDatabaseUrl: "資料庫 URL",
-    connectionAuthToken: "驗證權杖（選填）",
     saveConnection: "儲存連線",
     deleteConnection: "刪除連線",
     deleteConnectionTitle: "刪除資料庫連線？",

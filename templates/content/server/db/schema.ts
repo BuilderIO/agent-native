@@ -8,6 +8,7 @@ import {
   index,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const documents = table("documents", {
   id: text("id").primaryKey(),
@@ -640,9 +641,7 @@ export const documentBlocks = table(
     kind: text("kind").notNull(),
     position: integer("position").notNull(),
     sortIndex: integer("sort_index").notNull(),
-    addressable: integer("addressable", { mode: "boolean" })
-      .notNull()
-      .default(true),
+    addressable: boolean("addressable").notNull().default(true),
     contentHash: text("content_hash").notNull(),
     markdown: text("markdown").notNull().default(""),
     state: text("state").notNull().default("live"),

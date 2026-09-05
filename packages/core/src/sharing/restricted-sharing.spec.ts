@@ -13,10 +13,10 @@
  * extension can't re-share itself to an outsider email.
  */
 
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { accessFilter, ForbiddenError, resolveAccess } from "./access.js";
@@ -29,8 +29,7 @@ import { createSharesTable, type ShareRole } from "./schema.js";
 vi.mock("../db/client.js", () => {
   return {
     getDbExec: () => sharedClient,
-    isPostgres: () => false,
-    getDialect: () => "sqlite",
+    isProductionServerlessFunctionRuntime: () => false,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });
@@ -63,12 +62,12 @@ const docs = table("restricted_docs", {
 
 const docShares = createSharesTable("restricted_doc_shares");
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: ReturnType<typeof drizzle>;
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  sqlite.exec(`
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  await pglite.exec(`
     CREATE TABLE restricted_docs (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -90,7 +89,7 @@ beforeEach(() => {
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member',
-      joined_at INTEGER NOT NULL,
+      joined_at BIGINT NOT NULL,
       federation_removal_pending_at INTEGER
     );
     CREATE TABLE org_invitations (
@@ -98,7 +97,7 @@ beforeEach(() => {
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       invited_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       role TEXT NOT NULL DEFAULT 'member'
     );
@@ -108,21 +107,21 @@ beforeEach(() => {
     INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role)
       VALUES ('i1', '${orgId}', '${invitedEmail}', '${ownerEmail}', 0, 'pending', 'member');
   `);
-  db = drizzle(sqlite);
+  db = drizzle(pglite.db);
 
-  // Point the framework `getDbExec()` mock at the same sqlite instance so
+  // Point the framework `getDbExec()` mock at the same pglite instance so
   // the share-resource org-membership lookup hits the seeded org_members /
   // org_invitations rows above.
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = sqlite.prepare(sql);
+      const stmt = await pglite.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
@@ -139,8 +138,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
 });
 
 async function insertDoc(values: {
@@ -170,9 +169,9 @@ describe("allowPublic: false", () => {
     });
 
     // The DB column should still be private — the action must not have run.
-    const rows = sqlite
+    const rows = (await pglite
       .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
-      .all("doc-1") as Array<{ visibility: string }>;
+      .all("doc-1")) as Array<{ visibility: string }>;
     expect(rows[0]?.visibility).toBe("private");
   });
 
@@ -258,7 +257,7 @@ describe("requireOrgMemberForUserShares: true", () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
-    const shares = sqlite
+    const shares = await pglite
       .prepare("SELECT * FROM restricted_doc_shares WHERE resource_id = ?")
       .all("doc-3");
     expect(shares).toEqual([]);

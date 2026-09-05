@@ -313,10 +313,9 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(migration).toContain(
       "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS created_by TEXT",
     );
-    expect(migration).toContain('sqlite: "SELECT 1"');
   });
 
-  it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {
+  it("stores BigQuery backfill progress in additive PostgreSQL shard tables", () => {
     const shardStart = dbTsSource.indexOf("version: 142,");
     const shardEnd = dbTsSource.indexOf("\n    },", shardStart);
     const shardEntry = dbTsSource.slice(shardStart, shardEnd);
@@ -325,7 +324,6 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(shardEnd).toBeGreaterThan(shardStart);
     expect(shardEntry).toContain('name: "analytics-bigquery-backfill-shards"');
     expect(shardEntry).toContain("postgres:");
-    expect(shardEntry).toContain("sqlite:");
     for (const column of [
       "shard_id",
       "job_id",

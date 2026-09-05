@@ -1082,7 +1082,6 @@ async function updateInsideTransaction(
     values: Map<string, string>;
   },
 ) {
-  await assertAccess("document", args.documentId, "editor");
   const [lockedDocument] = await tx
     .update(schema.documents)
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
@@ -1231,8 +1230,15 @@ export async function createDatabaseRow(
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1241,14 +1247,8 @@ export async function createDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       await touchContentDatabase(
@@ -1282,8 +1282,8 @@ export async function createDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }
 
@@ -1310,8 +1310,16 @@ export async function updateDatabaseRow(
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    await assertAccess("document", input.documentId, "editor");
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1320,14 +1328,8 @@ export async function updateDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       const updated = await updateInsideTransaction(
@@ -1372,8 +1374,8 @@ export async function updateDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }
 
@@ -1459,8 +1461,18 @@ export async function upsertDatabaseRow(
   if (initialClaim) {
     await assertAccess("document", initialClaim.documentId, "editor");
   }
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    if (initialClaim) {
+      await assertAccess("document", initialClaim.documentId, "editor");
+    }
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1469,14 +1481,8 @@ export async function upsertDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       if (locked.database.naturalKeyPropertyId !== keyPropertyId) {
@@ -1610,7 +1616,7 @@ export async function upsertDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }

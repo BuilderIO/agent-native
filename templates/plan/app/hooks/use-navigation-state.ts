@@ -23,6 +23,7 @@ export function useNavigationState() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const lastProcessedDedupKeyRef = useRef<string | null>(null);
+  const stateKey = (key: string) => `${key}:${TAB_ID}`;
 
   // Sync current route to application state
   useEffect(() => {
@@ -43,15 +44,20 @@ export function useNavigationState() {
       state.planId = decodeURIComponent(planMatch[1] ?? "");
     }
 
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-Source": TAB_ID,
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${stateKey("navigation")}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Source": TAB_ID,
+        },
+        body: JSON.stringify(state),
       },
-      body: JSON.stringify(state),
-    }).catch(() => {});
+    ).catch(() => {});
   }, [location.pathname, location.search]);
 
   // Listen for one-shot navigate commands from the agent. useDbSync
@@ -59,10 +65,12 @@ export function useNavigationState() {
   // app-state:navigate event, so this stays idle between real commands instead
   // of charging the host for a request every two seconds.
   const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
+    queryKey: ["navigate-command", TAB_ID],
     queryFn: async () => {
       const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
+        agentNativePath(
+          `/_agent-native/application-state/${stateKey("navigate")}`,
+        ),
       );
       if (!res.ok) return null;
       const data = await res.json();
@@ -88,17 +96,22 @@ export function useNavigationState() {
         localPlanPath: cmd.localPlanPath,
       });
     const deleteCommand = () =>
-      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-        method: "DELETE",
-        headers: {
-          "X-Agent-Native-CSRF": "1",
-          "X-Request-Source": TAB_ID,
+      fetch(
+        agentNativePath(
+          `/_agent-native/application-state/${stateKey("navigate")}`,
+        ),
+        {
+          method: "DELETE",
+          headers: {
+            "X-Agent-Native-CSRF": "1",
+            "X-Request-Source": TAB_ID,
+          },
         },
-      }).catch(() => {});
+      ).catch(() => {});
 
     if (lastProcessedDedupKeyRef.current === dedupKey) {
       deleteCommand();
-      qc.setQueryData(["navigate-command"], null);
+      qc.setQueryData(["navigate-command", TAB_ID], null);
       return;
     }
     lastProcessedDedupKeyRef.current = dedupKey;
@@ -117,7 +130,7 @@ export function useNavigationState() {
     } else {
       window.setTimeout(commitNavigation, 0);
     }
-    qc.setQueryData(["navigate-command"], null);
+    qc.setQueryData(["navigate-command", TAB_ID], null);
   }, [navCommand, navigate, qc]);
 }
 

@@ -1,1 +1,3 @@
-export const TAB_ID = `crm-${Math.random().toString(36).slice(2, 8)}`;
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+
+export const TAB_ID = getBrowserTabId();

@@ -11,7 +11,6 @@ const mockGetAppConfig = vi.hoisted(() =>
 vi.mock("./client.js", () => ({
   getRuntimeDatabaseUrl: mockRuntimeDatabaseUrl,
   getRuntimeDatabaseSource: mockRuntimeDatabaseSource,
-  getDialect: () => "postgres",
   isLocalDatabase: mockIsLocalDatabase,
   getDbExec: () => ({ execute: mockExecute }),
 }));
@@ -53,15 +52,12 @@ describe("runtime diagnostics", () => {
 
     expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
     expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL")).toBe(true);
-    expect(
-      getEffectiveDatabaseEnvStatus("DATABASE_AUTH_TOKEN"),
-    ).toBeUndefined();
   });
 
-  it("keeps a local effective URL local even when Netlify also has a URL", () => {
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+  it("keeps a local PGlite URL local even when Netlify also has a URL", () => {
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
-    mockRuntimeDatabaseUrl.mockReturnValue("file:./data/app.db");
+    mockRuntimeDatabaseUrl.mockReturnValue("pglite:./data/pglite");
     mockRuntimeDatabaseSource.mockReturnValue("DATABASE_URL");
     mockIsLocalDatabase.mockReturnValue(true);
 
@@ -162,12 +158,10 @@ describe("runtime diagnostics", () => {
       database: {
         configured: true,
         source: "DESIGN_DATABASE_URL",
-        dialect: "postgres",
         protocol: "postgresql",
         host: "ep-round-heart-pooler.us-east-1.aws.neon.tech",
         database: "neondb",
         urlHash: "cafef00d1234",
-        authTokenConfigured: false,
         netlifyDatabaseUrlConfigured: true,
         neon: {
           endpointId: "ep-round-heart",
@@ -181,6 +175,8 @@ describe("runtime diagnostics", () => {
     expect(details).toContain("db_source: DESIGN_DATABASE_URL");
     expect(details).toContain("db_url_hash: cafef00d1234");
     expect(details).toContain("db_neon_pooled: true");
+    expect(details).not.toContain("db_dialect:");
+    expect(details).not.toContain("db_auth_token_configured:");
     expect(details).not.toContain("postgresql://");
     expect(details).not.toContain("password");
   });
@@ -228,7 +224,6 @@ describe("runtime diagnostics", () => {
 
   it("reports missing tables and columns from metadata probes", async () => {
     const result = await runDatabaseSchemaHealthCheck({
-      dialect: "postgres",
       required: [
         { table: "agent_runs", columns: ["id", "worker_stage"] },
         { table: "chat_threads", columns: ["id"] },
@@ -328,9 +323,12 @@ describe("runtime diagnostics", () => {
       };
     });
 
-    // Explicit `dialect` bypasses the healthy-probe memo left by an earlier
-    // test — this checks the DEFAULT required set, not the memo mechanics.
-    const result = await runDatabaseSchemaHealthCheck({ dialect: "postgres" });
+    // Explicit probe inputs bypass the healthy-probe memo left by an earlier
+    // test — this checks the default required set, not the memo mechanics.
+    const result = await runDatabaseSchemaHealthCheck({
+      exec: { execute: mockExecute },
+      required: [...DEFAULT_REQUIRED_SCHEMA, ...BETTER_AUTH_REQUIRED_SCHEMA],
+    });
 
     expect(result.ok).toBe(false);
     expect(result.missingTables).toContain("jwks");
@@ -351,7 +349,10 @@ describe("runtime diagnostics", () => {
       };
     });
 
-    const result = await runDatabaseSchemaHealthCheck({ dialect: "postgres" });
+    const result = await runDatabaseSchemaHealthCheck({
+      exec: { execute: mockExecute },
+      required: DEFAULT_REQUIRED_SCHEMA,
+    });
 
     expect(result.ok).toBe(true);
     expect(result.missingTables).not.toContain("jwks");

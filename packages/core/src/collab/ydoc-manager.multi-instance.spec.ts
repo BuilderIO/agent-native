@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
  * in-memory Y.Doc cache over one shared database. `vi.resetModules()` between
  * imports gives each `instance` its own module state — its own cache and its
  * own db client — which is the only thing that distinguishes two Lambdas.
- * A real SQLite file is the shared truth; the rest of the collab suite mocks
+ * A real PGlite database is the shared truth; the rest of the collab suite mocks
  * SQL, and a mock cannot express "another process wrote this row".
  *
  * Without a version re-check on cache hits, half of a drag's saves were
@@ -45,7 +45,7 @@ function frame(left: number): string {
 
 beforeAll(async () => {
   databaseDirectory = mkdtempSync(path.join(tmpdir(), "an-collab-fleet-"));
-  process.env.DATABASE_URL = `file:${path.join(databaseDirectory, "fleet.db")}`;
+  process.env.DATABASE_URL = `pglite:${path.join(databaseDirectory, "fleet")}`;
 
   for (const label of ["lambda-a", "lambda-b"]) {
     vi.resetModules();

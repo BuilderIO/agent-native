@@ -174,14 +174,7 @@ const databaseStep: OnboardingStep = {
           {
             key: "DATABASE_URL",
             label: "DATABASE_URL",
-            placeholder:
-              "postgres://..., libsql://..., file:./data/app.db, pglite:./data/pglite",
-          },
-          {
-            key: "DATABASE_AUTH_TOKEN",
-            label: "DATABASE_AUTH_TOKEN (if needed)",
-            placeholder: "Token for providers such as Turso/libSQL",
-            secret: true,
+            placeholder: "postgres://..., pglite:./data/pglite",
           },
         ],
       },

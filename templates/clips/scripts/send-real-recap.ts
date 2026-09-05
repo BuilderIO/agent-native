@@ -1,7 +1,7 @@
 /**
  * Send the monthly recap for a real account using live Clips data.
  *
- * Talks to the database directly with a read-only driver instead of booting
+ * Talks to the Postgres database directly with a read-only connection instead of booting
  * the app, so it cannot run a migration against a shared database. Copy is
  * composed exactly as the worker composes it, so this sends the real thing.
  *

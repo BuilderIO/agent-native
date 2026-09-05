@@ -12,6 +12,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const workflows = table("workflows", {
   id: text("id").primaryKey(),
@@ -27,7 +28,7 @@ export const workflows = table("workflows", {
     ],
   }).notNull(),
   teamId: text("team_id"),
-  disabled: integer("disabled", { mode: "boolean" }).notNull().default(false),
+  disabled: boolean("disabled").notNull().default(false),
   /** JSON array of eventTypeIds this workflow runs on. Empty = none. */
   activeOnEventTypeIds: text("active_on_event_type_ids")
     .notNull()
@@ -78,9 +79,9 @@ export const scheduledReminders = table("scheduled_reminders", {
     enum: ["email", "sms", "webhook"],
   }).notNull(),
   scheduledFor: text("scheduled_for").notNull(),
-  sent: integer("sent", { mode: "boolean" }).notNull().default(false),
+  sent: boolean("sent").notNull().default(false),
   sentAt: text("sent_at"),
-  failed: integer("failed", { mode: "boolean" }).notNull().default(false),
+  failed: boolean("failed").notNull().default(false),
   failureReason: text("failure_reason"),
   attempts: integer("attempts").notNull().default(0),
   createdAt: text("created_at").notNull(),
@@ -92,7 +93,7 @@ export const webhooks = table("webhooks", {
   name: text("name"),
   subscriberUrl: text("subscriber_url").notNull(),
   secret: text("secret"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: boolean("active").notNull().default(true),
   /** JSON array of trigger keys */
   eventTriggers: text("event_triggers").notNull().default("[]"),
   teamId: text("team_id"),
@@ -109,7 +110,7 @@ export const webhookDeliveries = table("webhook_deliveries", {
   payload: text("payload").notNull(),
   responseStatus: integer("response_status"),
   responseBody: text("response_body"),
-  success: integer("success", { mode: "boolean" }).notNull().default(false),
+  success: boolean("success").notNull().default(false),
   attempts: integer("attempts").notNull().default(0),
 });
 

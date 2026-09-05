@@ -42,7 +42,7 @@ async function listAssetsServers(orgId: string) {
 
 async function assertCanManageOrgMcp(orgId: string, userEmail: string) {
   const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`,
     args: [orgId, userEmail.toLowerCase()],
   });
   const role = String(

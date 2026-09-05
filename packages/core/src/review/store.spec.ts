@@ -1,27 +1,28 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const {
@@ -37,14 +38,14 @@ const {
 } = await import("./store.js");
 
 beforeEach(async () => {
-  sqlite = new Database(":memory:");
+  pglite = await createTestPglite();
   rawClient.execute.mockClear();
   __resetReviewInitForTests();
   await ensureReviewTables();
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.clearAllMocks();
 });
 

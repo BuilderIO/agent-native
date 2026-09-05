@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-spaces-${process.pid}-${Date.now()}.sqlite`,
+  `content-spaces-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -43,7 +43,7 @@ const WORKSPACE_OWNER = "workspace-owner@example.com";
 const LARGE_DATABASE_OWNER = "large-database-owner@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -91,13 +91,12 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function addOrganization(id: string, name: string, owner = OWNER) {
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
     args: [id, name, owner, Date.now()],
   });
 }
@@ -109,7 +108,7 @@ async function addMember(
   role = "member",
 ) {
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: [id, orgId, email, role, Date.now()],
   });
 }
@@ -724,7 +723,7 @@ describe("Content space provisioning", () => {
     );
 
     await getDbExec().execute({
-      sql: "UPDATE organizations SET name = ? WHERE id = ?",
+      sql: "UPDATE organizations SET name = $1 WHERE id = $2",
       args: ["After rename", orgId],
     });
     const rerun = await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -839,7 +838,7 @@ describe("Content space provisioning", () => {
     );
     const spaceId = organizationContentSpaceId("org-shared");
     await getDbExec().execute({
-      sql: "DELETE FROM org_members WHERE id = ?",
+      sql: "DELETE FROM org_members WHERE id = $1",
       args: ["member-shared"],
     });
     await runWithRequestContext({ userEmail: MEMBER }, async () => {

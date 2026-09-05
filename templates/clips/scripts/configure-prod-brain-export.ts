@@ -16,15 +16,15 @@ const db = getDbExec();
 const { rows } = await db.execute({
   sql: `SELECT id, owner_email, org_id, created_at
     FROM recordings
-    WHERE status = ? AND trashed_at IS NULL AND created_at >= ?
+    WHERE status = $1 AND trashed_at IS NULL AND created_at >= $2
       AND EXISTS (
         SELECT 1 FROM recording_transcripts
         WHERE recording_transcripts.recording_id = recordings.id
-          AND recording_transcripts.status = ?
+          AND recording_transcripts.status = $3
           AND LENGTH(TRIM(COALESCE(recording_transcripts.full_text, ''))) > 0
       )
     ORDER BY created_at DESC
-    LIMIT ?`,
+    LIMIT $4`,
   args: [
     "ready",
     new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),

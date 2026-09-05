@@ -1,36 +1,28 @@
-import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { BETTER_AUTH_MIGRATIONS } from "./better-auth-migrations.js";
 
+function postgresSql(name: string): string {
+  const migration = BETTER_AUTH_MIGRATIONS.find((entry) => entry.name === name);
+  expect(migration).toBeDefined();
+  return typeof migration?.sql === "string"
+    ? migration.sql
+    : (migration?.sql.postgres ?? "");
+}
+
 describe("Better Auth migrations", () => {
-  it("repairs a legacy user table without replacing its rows", () => {
-    const db = new Database(":memory:");
-    db.exec(
-      `CREATE TABLE user (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE);
-       INSERT INTO user (id, email) VALUES ('user-1', 'user@example.com');`,
-    );
-
-    const repair = BETTER_AUTH_MIGRATIONS.find(
-      (migration) => migration.name === "better-auth-repair-user-columns",
-    );
-    expect(repair).toBeDefined();
-    const sqliteSql = repair?.sql;
-    expect(typeof sqliteSql).toBe("object");
-    if (!sqliteSql || typeof sqliteSql === "string") return;
-
-    const statements = sqliteSql.sqlite
-      .split(";")
-      .map((statement) =>
-        statement.replace(/ADD COLUMN IF NOT EXISTS/gi, "ADD COLUMN").trim(),
+  it("repairs a legacy user table without replacing its rows", async () => {
+    const db = await createTestPglite();
+    await db.exec(`CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE);
+      INSERT INTO "user" (id, email) VALUES ('user-1', 'user@example.com')`);
+    await db.exec(postgresSql("better-auth-repair-user-columns"));
+    const columns = await db
+      .prepare(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'user' ORDER BY ordinal_position",
       )
-      .filter(Boolean);
-    for (const statement of statements) db.exec(statement);
-
-    const columns = db.prepare("PRAGMA table_info(user)").all() as Array<{
-      name: string;
-    }>;
-    expect(columns.map((column) => column.name)).toEqual([
+      .all();
+    expect(columns.map((column) => column.column_name)).toEqual([
       "id",
       "email",
       "name",
@@ -39,54 +31,32 @@ describe("Better Auth migrations", () => {
       "created_at",
       "updated_at",
     ]);
-    expect(
+    await expect(
       db
         .prepare(
           'SELECT id, name, email, email_verified, image, created_at, updated_at FROM "user" WHERE email = ?',
         )
         .get("user@example.com"),
-    ).toMatchObject({
+    ).resolves.toMatchObject({
       id: "user-1",
       email: "user@example.com",
       name: "",
-      email_verified: 0,
+      email_verified: false,
     });
-
-    // The migration runner strips IF NOT EXISTS for SQLite and swallows the
-    // duplicate-column error, so a second release run is safe.
-    for (const statement of statements) {
-      try {
-        db.exec(statement);
-      } catch (error) {
-        expect(String(error)).toMatch(/duplicate column name/i);
-      }
-    }
-
-    db.close();
+    await db.exec(postgresSql("better-auth-repair-user-columns"));
+    await db.close();
   });
 
-  it("uses dialect-appropriate defaults for the repair", () => {
-    const repair = BETTER_AUTH_MIGRATIONS.find(
-      (migration) => migration.name === "better-auth-repair-user-columns",
+  it("uses PostgreSQL defaults for the repair", () => {
+    expect(postgresSql("better-auth-repair-user-columns")).toContain(
+      '"created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP',
     );
-    expect(repair?.version).toBe(2);
-    expect(repair?.sql).toMatchObject({
-      postgres: expect.stringContaining(
-        '"created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP',
-      ),
-      sqlite: expect.stringContaining("created_at INTEGER NOT NULL DEFAULT 0"),
-    });
   });
 
   it("provisions the legacy sessions table for release-time OAuth flows", () => {
-    const sessions = BETTER_AUTH_MIGRATIONS.find(
-      (migration) => migration.name === "legacy-auth-sessions-table",
+    expect(postgresSql("legacy-auth-sessions-table")).toContain(
+      "created_at BIGINT NOT NULL",
     );
-    expect(sessions?.version).toBe(3);
-    expect(sessions?.sql).toMatchObject({
-      postgres: expect.stringContaining("created_at BIGINT NOT NULL"),
-      sqlite: expect.stringContaining("created_at INTEGER NOT NULL"),
-    });
   });
 
   it("rotates persisted JWKS keys after an auth-secret change", () => {
@@ -100,26 +70,14 @@ describe("Better Auth migrations", () => {
   });
 
   it("adds the nullable onboarding role column for Better Auth users", () => {
-    const onboardingRole = BETTER_AUTH_MIGRATIONS.find(
-      (migration) => migration.name === "better-auth-add-onboarding-role",
+    expect(postgresSql("better-auth-add-onboarding-role")).toContain(
+      'ADD COLUMN IF NOT EXISTS "onboarding_role" TEXT',
     );
-    expect(onboardingRole?.version).toBe(5);
-    expect(onboardingRole?.sql).toMatchObject({
-      postgres: expect.stringContaining('"onboarding_role" TEXT'),
-      sqlite: expect.stringContaining(
-        "ADD COLUMN IF NOT EXISTS onboarding_role TEXT",
-      ),
-    });
   });
 
   it("indexes case-insensitive legacy session verification lookups", () => {
-    const index = BETTER_AUTH_MIGRATIONS.find(
-      (migration) => migration.name === "better-auth-user-lower-email-index",
+    expect(postgresSql("better-auth-user-lower-email-index")).toContain(
+      'ON "user" (LOWER(email))',
     );
-    expect(index?.version).toBe(5);
-    expect(index?.sql).toMatchObject({
-      postgres: expect.stringContaining('ON "user" (LOWER(email))'),
-      sqlite: expect.stringContaining("ON user (LOWER(email))"),
-    });
   });
 });
