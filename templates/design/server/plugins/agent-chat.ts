@@ -203,6 +203,10 @@ export default createAgentChatPlugin({
     loadActionsFromStaticRegistry(actionsRegistry),
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
+  mcp: {
+    instructions:
+      "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-html / export-zip / export-coding-handoff / export-design-as-figma-svg. Persist early: create or update the design and its files as soon as a coherent candidate exists.",
+  },
   finalResponseGuard: designFinalResponseGuard,
   // Enable sandboxed JavaScript execution so Design agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us

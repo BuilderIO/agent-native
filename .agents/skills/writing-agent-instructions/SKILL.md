@@ -77,10 +77,10 @@ data and the same actions.
 
 ## Actions
 
-| Action           | Purpose                     |
-| ---------------- | --------------------------- |
-| `list-projects`  | List accessible projects    |
-| `create-project` | Create a project            |
+| Action | Purpose |
+| --- | --- |
+| `list-projects` | List accessible projects |
+| `create-project` | Create a project |
 | `update-project` | Rename or archive a project |
 
 ## Skills
@@ -116,6 +116,9 @@ contract:
   assets.
 - Do not create pass-through routes whose main job is to call, repackage, or
   re-export an action.
+- For external MCP/WebMCP callers, point at the author rule and result
+  contract in the `external-agents` skill (Rule section); do not paraphrase
+  them per app.
 
 Rules that must influence app generation or the runtime agent cannot live only
 in `scope: dev` skills. Put the short invariant in the generated `AGENTS.md`
@@ -138,7 +141,10 @@ needs it.
 
 - Set `initialToolNames` to the small set of actions used in the app's primary
   workflows. Keep `tool-search` available so every other registered action and
-  connected MCP tool remains discoverable on demand.
+  connected MCP tool remains discoverable on demand. This list is also what
+  MCP `instructions` and the WebMCP manifest advertise as the app's key tools,
+  so keep it equal to the `AGENTS.md` action table — see the `actions` skill,
+  Key Actions.
 - Keep essential, always-applicable rules in `AGENTS.md`. Put workflow detail
   in skills and long reference material in `references/` or workspace
   resources that the agent can read when relevant.

@@ -2697,8 +2697,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       );
     };
 
-    async function poll() {
-      if (stopped || isIdleHidden()) return;
+    async function poll(force = false) {
+      if (stopped || (!force && isIdleHidden())) return;
       const now = Date.now();
       const currentOpenId = readOpenDeckId();
 
@@ -2737,6 +2737,21 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       void poll();
     };
 
+    // A write announced through `agentNative:refresh-data` — the event the
+    // WebMCP bridge raises after every mutating page-local call, and the host
+    // bridge's refreshData command — read the deck back now. Without this the
+    // tab that made the write is the last to see it: it waits out the fallback
+    // interval, a full minute while SSE is connected, and depends on the change
+    // event surviving the sync fan-out. It also skips the idle gate, because a
+    // write the page itself just issued proves someone is driving it.
+    const refreshNow = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      void poll(true);
+    };
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible" || !isIdleHidden()) {
         pollNow();
@@ -2749,6 +2764,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     void poll();
     pollNowRef.current = pollNow;
     window.addEventListener("focus", pollNow);
+    window.addEventListener("agentNative:refresh-data", refreshNow);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
@@ -2756,6 +2772,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (timer) clearTimeout(timer);
       if (pollNowRef.current === pollNow) pollNowRef.current = () => {};
       window.removeEventListener("focus", pollNow);
+      window.removeEventListener("agentNative:refresh-data", refreshNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged, loading]);

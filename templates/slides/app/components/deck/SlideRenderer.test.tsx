@@ -7,6 +7,7 @@ import {
   computeSlideFitTransform,
   prepareImportedFonts,
   resolveImportedFont,
+  slideDeclaresTextColor,
   SlideInner,
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
@@ -434,6 +435,80 @@ describe("SlideInner autofit", () => {
     );
     expect(canvas?.className).toContain("px-16");
     expect(canvas?.querySelectorAll(".slide-content")).toHaveLength(2);
+  });
+
+  it.each([
+    ['<div style="color:#292524">x</div>', true],
+    ["<div style='COLOR: red'>x</div>", true],
+    ['# Title\n\n<p style="margin:0; color: rgb(1,2,3)">x</p>', true],
+    ['<div style="background-color:#fdf6ec">x</div>', false],
+    ['<div style="border-color: red">x</div>', false],
+    ['<div style="--brand-color: red">x</div>', false],
+    ["Prose that mentions color: red without markup", false],
+    ["# Title\n\nPlain body", false],
+  ])("slideDeclaresTextColor(%j) === %s", (html, expected) => {
+    expect(slideDeclaresTextColor(html as string)).toBe(expected);
+  });
+
+  // The `.slide-content <tag>` palette in global.css is a per-element
+  // declaration, so it beats any color a slide inherits from its own wrapper.
+  // `data-slide-content-scope` turns it off. It reached only the raw-HTML
+  // container, so an agent-recolored slide that renders through a markdown
+  // layout (rehype-raw carries the same HTML) stayed white-on-cream.
+  it("turns the palette off for a markdown layout whose slide declares colors", () => {
+    const slide: Slide = {
+      id: "markdown-authored-colors",
+      layout: "content",
+      notes: "",
+      content:
+        '# Onboarding New Customers\n\n<div style="background: #fdf6ec; color: #292524">Body copy</div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const pane = document.querySelector<HTMLElement>(
+      `[data-slide-canvas="${slide.id}"] .slide-content`,
+    );
+    expect(pane?.getAttribute("data-slide-content-scope")).toBe(
+      "authored-colors",
+    );
+  });
+
+  it("keeps the palette on for a markdown slide that declares no colors", () => {
+    const slide: Slide = {
+      id: "markdown-plain",
+      layout: "content",
+      notes: "",
+      content: "# Title\n\nBody copy with a **bold** word.",
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const pane = document.querySelector<HTMLElement>(
+      `[data-slide-canvas="${slide.id}"] .slide-content`,
+    );
+    expect(pane?.hasAttribute("data-slide-content-scope")).toBe(false);
+  });
+
+  it("turns the palette off per column for an authored-color two-column slide", () => {
+    const slide: Slide = {
+      id: "two-column-authored-colors",
+      layout: "two-column",
+      notes: "",
+      content:
+        'Plain left column\n\n---\n\n<div style="color: #292524">Recolored right column</div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const panes = document.querySelectorAll<HTMLElement>(
+      `[data-slide-canvas="${slide.id}"] .slide-content`,
+    );
+    expect(panes).toHaveLength(2);
+    expect(panes[0].hasAttribute("data-slide-content-scope")).toBe(false);
+    expect(panes[1].getAttribute("data-slide-content-scope")).toBe(
+      "authored-colors",
+    );
   });
 
   it("keeps the current fit transform stable while a raw slide text block is edited", async () => {
