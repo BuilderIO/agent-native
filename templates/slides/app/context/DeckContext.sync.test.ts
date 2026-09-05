@@ -275,6 +275,9 @@ describe("DeckContext fallback polling", () => {
   });
 
   afterEach(() => {
+    // Unmount before restoring timers: a provider left mounted keeps its poll
+    // loop running and inflates the request counts a later test asserts on.
+    cleanup();
     restoreVisibility?.();
     restoreVisibility = null;
     _resetSyncTransportRegistryForTests();
@@ -419,6 +422,70 @@ describe("DeckContext fallback polling", () => {
     });
 
     expect(deckCallCount(api.fetchMock)).toBeGreaterThan(deckBefore);
+  });
+
+  it("adopts the agent-added slide's own content, not a sibling's", async () => {
+    // beta.slides: an external agent called add-slide through
+    // `window.__agentNativeWebMcp` in a hidden tab. The refetch fired and the
+    // sidebar gained a second thumbnail, but slide 2 rendered slide 1's body
+    // — a wrong slide, not a slow one.
+    const deck: Deck = {
+      id: "open-deck",
+      title: "Open Deck",
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide">Final check</div>',
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    window.history.pushState({}, "", "/deck/open-deck");
+    const api = setupFetch();
+    api.setServerDecks([deck]);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const source = await lastEventSource();
+    act(() => {
+      source.simulateOpen();
+    });
+    hideDocument();
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    api.setServerDecks([
+      {
+        ...deck,
+        updatedAt: "2026-07-25T00:01:00.000Z",
+        slides: [
+          deck.slides[0]!,
+          {
+            id: "slide-2",
+            content: '<div class="fmd-slide">Hidden tab slide ZQX</div>',
+            notes: "",
+            layout: "content",
+          },
+        ],
+      },
+    ]);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("open-deck")?.slides).toHaveLength(2),
+    );
+    const slides = result.current.getDeck("open-deck")!.slides;
+    expect(slides[1]!.id).toBe("slide-2");
+    expect(slides[1]!.content).toContain("Hidden tab slide ZQX");
+    expect(slides[0]!.content).toContain("Final check");
   });
 
   it("stops polling a hidden tab that has no deck open", async () => {
