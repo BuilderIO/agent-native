@@ -46,6 +46,27 @@ describe("pickRepresentativeSlide", () => {
     expect(pickRepresentativeSlide([slides[0]!], 0)).toBeNull();
   });
 
+  it("keeps the layout preference when no color is shared by two slides", () => {
+    const slides = [
+      {
+        id: "current",
+        layout: "content",
+        content: `<div style="background: #ffffff; color: #111111">a</div>`,
+      },
+      {
+        id: "sorts-first",
+        layout: "image",
+        content: `<div style="background: #000000; color: #222222">b</div>`,
+      },
+      {
+        id: "same-layout",
+        layout: "content",
+        content: `<div style="background: #cccccc; color: #333333">c</div>`,
+      },
+    ];
+    expect(pickRepresentativeSlide(slides, 0)).toBe(2);
+  });
+
   it("folds in an explicit background but not the renderer's default", () => {
     expect(slideStyleFragment({ id: "a", content: "<p>a</p>" })).toBe(
       "<p>a</p>",

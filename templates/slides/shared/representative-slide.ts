@@ -40,8 +40,12 @@ export function pickRepresentativeSlide(
     html: slideStyleFragment(slide),
   }));
   const deck = summarizeHtmlStyles(fragments);
-  const majorityBackground = deck.backgrounds[0]?.value;
-  const majorityText = deck.textColors[0]?.value;
+  // Ties rank alphabetically, so a top value used by one slide is not a
+  // shared palette; it would just pin the pick to whichever color sorts first.
+  const shared = (values: { value: string; fragments: number }[]) =>
+    values[0] && values[0].fragments > 1 ? values[0].value : undefined;
+  const majorityBackground = shared(deck.backgrounds);
+  const majorityText = shared(deck.textColors);
   const carriesMajority = (index: number): boolean => {
     const own = summarizeHtmlStyles([fragments[index]!]);
     return (
