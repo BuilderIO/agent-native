@@ -2858,7 +2858,7 @@ export default function RecordRoute() {
                 : t("recordRoute.recordingScreen")}
             </div>
             {!isPaused && (
-              <div className="text-[11px] text-white/50">
+              <div className="text-[11px] text-background/50">
                 Press{" "}
                 {/* guard:allow-raw-color - This keyboard hint sits on the intentionally dark recording overlay. */}
                 <Kbd className="h-auto min-w-0 rounded bg-white/10 px-1.5 py-0.5 text-white">
