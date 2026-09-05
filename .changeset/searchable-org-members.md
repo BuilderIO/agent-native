@@ -10,3 +10,6 @@ remove ordinary members but cannot remove other admins.
 
 Show an error with a retry action when members cannot be loaded, instead of
 presenting failed searches as empty results.
+
+Keep a debounced member search on its first page when pagination is used while
+the new query is pending.

@@ -838,7 +838,10 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
     if (nextSearch === memberSearch) return;
 
     const timer = window.setTimeout(
-      () => setMemberSearch(nextSearch),
+      () => {
+        setMemberSearch(nextSearch);
+        setMemberOffset(0);
+      },
       nextSearch ? DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS : 0,
     );
     return () => window.clearTimeout(timer);
@@ -960,10 +963,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
         hasNextPage={membersData?.hasMore === true}
         nextMemberOffset={membersData?.nextOffset ?? null}
         onMemberPageChange={setMemberOffset}
-        onMemberSearchChange={(value) => {
-          setMemberSearchInput(value);
-          setMemberOffset(0);
-        }}
+        onMemberSearchChange={setMemberSearchInput}
       />
 
       {isOwnerOrAdmin && (

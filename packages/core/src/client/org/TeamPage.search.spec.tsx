@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OrgInfo } from "../../org/types.js";
+import { DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS } from "../sharing/share-controller-helpers.js";
 
 const mocks = vi.hoisted(() => ({
   action: { error: null, isPending: false, mutate: vi.fn() },
@@ -64,6 +65,7 @@ describe("TeamPage member search recovery", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     act(() => root.unmount());
     queryClient.clear();
     container.remove();
@@ -86,7 +88,10 @@ describe("TeamPage member search recovery", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(String(input), "http://localhost");
+        const url = new URL(
+          input instanceof Request ? input.url : input,
+          "http://localhost",
+        );
         if (url.pathname.endsWith("/invitations")) {
           return Response.json({ invitations: [] });
         }
@@ -166,5 +171,115 @@ describe("TeamPage member search recovery", () => {
     expect(search!.value).toBe("  Morgan  ");
     expect(container.textContent).not.toContain("No people found");
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("starts a new member search from its first page after paging during the debounce", async () => {
+    const searchRequests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(
+          input instanceof Request ? input.url : input,
+          "http://localhost",
+        );
+        if (url.pathname.endsWith("/invitations")) {
+          return Response.json({ invitations: [] });
+        }
+        if (url.pathname.endsWith("/members")) {
+          const search = url.searchParams.get("search");
+          const offset = Number(url.searchParams.get("offset"));
+          if (search === "morgan") {
+            searchRequests.push(url.search);
+            return Response.json({
+              members: [
+                {
+                  email:
+                    offset === 0
+                      ? "morgan-first@example.test"
+                      : "morgan-page-two@example.test",
+                  role: "member",
+                  joinedAt: 0,
+                },
+              ],
+              totalCount: 50,
+              hasMore: false,
+              nextOffset: null,
+            });
+          }
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`);
+      }),
+    );
+    queryClient.setQueryData(["org-members", org.orgId, 0, ""], {
+      members: [
+        { email: "page-one@example.test", role: "member", joinedAt: 0 },
+      ],
+      totalCount: 75,
+      hasMore: true,
+      nextOffset: 25,
+    });
+    queryClient.setQueryData(["org-members", org.orgId, 25, ""], {
+      members: [
+        { email: "page-two@example.test", role: "member", joinedAt: 0 },
+      ],
+      totalCount: 75,
+      hasMore: true,
+      nextOffset: 50,
+    });
+    queryClient.setQueryData(["org-members", org.orgId, 50, ""], {
+      members: [
+        { email: "page-three@example.test", role: "member", joinedAt: 0 },
+      ],
+      totalCount: 75,
+      hasMore: false,
+      nextOffset: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TeamPage showTitle={false} />
+        </QueryClientProvider>,
+      );
+    });
+    await waitForUI(() => {
+      expect(container.textContent).toContain("page-one@example.test");
+    });
+
+    const nextPage = container.querySelector<HTMLAnchorElement>(
+      '[aria-label="org.nextMemberPage"]',
+    );
+    expect(nextPage).not.toBeNull();
+    act(() => nextPage!.click());
+    await waitForUI(() => {
+      expect(container.textContent).toContain("page-two@example.test");
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search people"]',
+    );
+    expect(search).not.toBeNull();
+    vi.useFakeTimers();
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(search, "Morgan");
+      search!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => nextPage!.click());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS);
+    });
+    expect(searchRequests).toEqual(["?limit=25&offset=0&search=morgan"]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    vi.useRealTimers();
+    await waitForUI(() => {
+      expect(container.textContent).toContain("morgan-first@example.test");
+    });
   });
 });

@@ -9,14 +9,14 @@ import type { OrgInfo } from "../../org/types.js";
 import { useOrgMembers } from "./hooks.js";
 
 const org: OrgInfo = {
-  email: "admin@builder.io",
+  email: "admin@example.test",
   orgId: "org-1",
-  orgName: "Builder.io",
+  orgName: "Example team",
   role: "admin",
   orgs: [],
   pendingInvitations: [],
   domainMatches: [],
-  allowedDomain: "builder.io",
+  allowedDomain: "example.test",
   workspaceUrl: null,
   requiredAuthProvider: "google",
 };
@@ -59,7 +59,7 @@ describe("useOrgMembers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     function Probe() {
-      useOrgMembers(25, "  LiAm@Builder.IO ");
+      useOrgMembers(25, "  MoRgAn@Example.Test ");
       return null;
     }
 
@@ -75,7 +75,7 @@ describe("useOrgMembers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(String(url)).toBe(
-      "/_agent-native/org/members?limit=25&offset=25&search=liam%40builder.io",
+      "/_agent-native/org/members?limit=25&offset=25&search=morgan%40example.test",
     );
     expect(init).toMatchObject({ credentials: "include" });
     expect(init?.signal).toBeInstanceOf(AbortSignal);
@@ -84,7 +84,7 @@ describe("useOrgMembers", () => {
         "org-members",
         "org-1",
         25,
-        "liam@builder.io",
+        "morgan@example.test",
       ]),
     ).toBeDefined();
   });

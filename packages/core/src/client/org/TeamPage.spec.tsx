@@ -65,7 +65,7 @@ describe("MemberRow organization controls", () => {
       root.render(
         <TooltipProvider>
           <MemberRow
-            email="liam@builder.io"
+            email="morgan@example.test"
             role={role}
             isCurrentUser={false}
             currentUserRole={currentUserRole}
@@ -107,7 +107,7 @@ describe("MemberRow organization controls", () => {
       root.render(
         <TooltipProvider>
           <MemberRow
-            email="owner@builder.io"
+            email="owner@example.test"
             role="owner"
             isCurrentUser
             currentUserRole="owner"
@@ -134,7 +134,7 @@ describe("MemberRow organization controls", () => {
             isFetchingMembers={false}
             membersError={null}
             onRetryMembers={vi.fn()}
-            currentUserEmail="admin@builder.io"
+            currentUserEmail="admin@example.test"
             currentUserRole="admin"
             groups={[]}
             canManageGroups={false}
@@ -161,11 +161,11 @@ describe("MemberRow organization controls", () => {
         HTMLInputElement.prototype,
         "value",
       )?.set;
-      valueSetter?.call(search, "liam");
+      valueSetter?.call(search, "morgan");
       search!.dispatchEvent(new Event("input", { bubbles: true }));
       search!.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    expect(onMemberSearchChange).toHaveBeenCalledWith("liam");
+    expect(onMemberSearchChange).toHaveBeenCalledWith("morgan");
   });
 
   it("uses a search-specific empty state", () => {
@@ -180,7 +180,7 @@ describe("MemberRow organization controls", () => {
             isFetchingMembers={false}
             membersError={null}
             onRetryMembers={vi.fn()}
-            currentUserEmail="member@builder.io"
+            currentUserEmail="member@example.test"
             currentUserRole="member"
             groups={[]}
             canManageGroups={false}
