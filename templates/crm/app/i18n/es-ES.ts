@@ -61,7 +61,7 @@ const messages = {
   settings: {
     title: "Ajustes de CRM",
     description:
-      "Native SQL mantiene los registros propios de CRM locales y portables. HubSpot y Salesforce usan conexiones del espacio de trabajo; sus espejos solo guardan campos permitidos, metadatos con alcance limitado y referencias acotadas a la evidencia.",
+      "Native SQL mantiene los registros propios de CRM en Postgres. HubSpot y Salesforce usan conexiones del espacio de trabajo; sus espejos solo guardan campos permitidos, metadatos con alcance limitado y referencias acotadas a la evidencia.",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",

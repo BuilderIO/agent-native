@@ -71,7 +71,6 @@ const SKIP_DIRS = new Set([
 const ALLOWLIST_EXACT = new Set([
   // Database
   "DATABASE_URL",
-  "DATABASE_AUTH_TOKEN",
   // Node / CI runtime
   "NODE_ENV",
   "CI",

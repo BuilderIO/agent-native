@@ -43,8 +43,8 @@ export const runAssetsMigrations = runMigrations(
     settings TEXT NOT NULL DEFAULT '{}',
     canonical_logo_asset_id TEXT,
     cover_asset_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -59,7 +59,7 @@ export const runAssetsMigrations = runMigrations(
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -75,8 +75,8 @@ export const runAssetsMigrations = runMigrations(
     default_aspect_ratio TEXT NOT NULL DEFAULT '16:9',
     default_image_size TEXT NOT NULL DEFAULT '2K',
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -102,8 +102,8 @@ export const runAssetsMigrations = runMigrations(
     source_url TEXT,
     generation_run_id TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -122,7 +122,7 @@ export const runAssetsMigrations = runMigrations(
     status TEXT NOT NULL DEFAULT 'pending',
     error TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
     completed_at TEXT
   )`,
     },
@@ -181,8 +181,8 @@ export const runAssetsMigrations = runMigrations(
     title TEXT NOT NULL,
     description TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -253,8 +253,8 @@ export const runAssetsMigrations = runMigrations(
     reference_policy TEXT NOT NULL DEFAULT 'auto',
     settings TEXT NOT NULL DEFAULT '{}',
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -271,8 +271,8 @@ export const runAssetsMigrations = runMigrations(
     feedback_summary TEXT NOT NULL DEFAULT '',
     metadata TEXT NOT NULL DEFAULT '{}',
     created_by TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -285,7 +285,7 @@ export const runAssetsMigrations = runMigrations(
     role TEXT NOT NULL DEFAULT 'candidate',
     note TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
     },
     {
@@ -320,7 +320,7 @@ export const runAssetsMigrations = runMigrations(
     //   `accessFilter` and orders by `updated_at`; the matching composite
     //   index avoids a full table scan + sort on large accounts.
     // Plain `CREATE INDEX IF NOT EXISTS` (no DESC/partial/PG-only syntax) so it
-    // runs on both Postgres and SQLite and is safe to re-run.
+    // is safe to re-run.
     {
       version: 33,
       sql: `CREATE INDEX IF NOT EXISTS image_library_shares_resource_principal_idx
@@ -352,8 +352,8 @@ export const runAssetsMigrations = runMigrations(
     reference_policy TEXT NOT NULL DEFAULT 'auto',
     settings TEXT NOT NULL DEFAULT '{}',
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -369,7 +369,7 @@ export const runAssetsMigrations = runMigrations(
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
   CREATE INDEX IF NOT EXISTS asset_template_shares_resource_principal_idx
     ON asset_template_shares (resource_id, principal_type, principal_id)`,

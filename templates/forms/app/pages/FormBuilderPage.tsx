@@ -54,7 +54,6 @@ import { toast } from "sonner";
 
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { CommunityPromotionCell } from "@/components/CommunityPromotionCell";
 import { ResponseValue } from "@/components/ResponseValue";
 import { Badge } from "@/components/ui/badge";
@@ -89,7 +88,6 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
-import { useDbStatus } from "@/hooks/use-db-status";
 import {
   useForm,
   useUpdateForm,
@@ -195,8 +193,6 @@ export function FormBuilderPage() {
   const [pendingStatus, setPendingStatus] = useState<
     "published" | "draft" | null
   >(null);
-  const { isLocal } = useDbStatus();
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const publishedFormUrl =
     form && typeof window !== "undefined"
       ? getPublishedFormUrl(form, window.location.origin)
@@ -548,10 +544,6 @@ export function FormBuilderPage() {
 
   function handleTogglePublish() {
     const newStatus = loadedForm.status === "published" ? "draft" : "published";
-    if (newStatus === "published" && isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
     setPendingStatus(newStatus);
     updateForm.mutate(
       { id: loadedForm.id, status: newStatus },
@@ -949,14 +941,6 @@ export function FormBuilderPage() {
             />
           </div>
         </div>
-      )}
-
-      {showCloudUpgrade && (
-        <CloudUpgrade
-          title={t("forms.publishCloudTitle")}
-          description={t("forms.publishCloudDescription")}
-          onClose={() => setShowCloudUpgrade(false)}
-        />
       )}
     </div>
   );

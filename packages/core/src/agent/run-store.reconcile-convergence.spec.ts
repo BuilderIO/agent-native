@@ -1,5 +1,6 @@
-import Database from "better-sqlite3";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 /**
  * A run row that already carries its reconciled terminal values is converged,
@@ -15,28 +16,31 @@ import { describe, expect, it, vi } from "vitest";
  * for every request, not just chat.
  */
 
-const sqlite = new Database(":memory:");
+const pglite = await createTestPglite();
+
+afterAll(async () => {
+  await pglite.close();
+});
 
 const client = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [] as unknown[], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => client,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
@@ -56,20 +60,20 @@ async function seedStaleRun(name: string) {
   return { runId, threadId };
 }
 
-function markReapedStale(runId: string) {
-  sqlite
-    .prepare(
+async function markReapedStale(runId: string) {
+  await (
+    await pglite.prepare(
       `UPDATE agent_runs
        SET status = 'errored', error_code = ?, error_detail = ?,
            terminal_reason = 'stale_run', completed_at = ?
        WHERE id = ?`,
     )
-    .run(
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      Date.now(),
-      runId,
-    );
+  ).run(
+    STALE_RUN_ERROR_EVENT.errorCode,
+    STALE_RUN_ERROR_EVENT.details,
+    Date.now(),
+    runId,
+  );
 }
 
 describe("reconcileTerminalRunFromEvents convergence", () => {
@@ -78,16 +82,18 @@ describe("reconcileTerminalRunFromEvents convergence", () => {
 
     await expect(reconcileTerminalRunFromEvents(runId)).resolves.toBe(true);
 
-    const row = sqlite
-      .prepare(`SELECT status, error_code FROM agent_runs WHERE id = ?`)
-      .get(runId) as { status: string; error_code: string };
+    const row = (await (
+      await pglite.prepare(
+        `SELECT status, error_code FROM agent_runs WHERE id = ?`,
+      )
+    ).get(runId)) as { status: string; error_code: string };
     expect(row.status).toBe("errored");
     expect(row.error_code).toBe(STALE_RUN_ERROR_EVENT.errorCode);
   });
 
   it("reaches a fixed point instead of reporting a repair forever", async () => {
     const { runId } = await seedStaleRun("converged");
-    markReapedStale(runId);
+    await markReapedStale(runId);
 
     // The reaper's own terminal_reason can differ from the one derived from
     // the event, so the first pass may legitimately repair it. What must not
@@ -100,7 +106,7 @@ describe("reconcileTerminalRunFromEvents convergence", () => {
 
   it("terminates getRunByThread for a settled errored/stale_run row", async () => {
     const { runId, threadId } = await seedStaleRun("lookup");
-    markReapedStale(runId);
+    await markReapedStale(runId);
 
     const before = client.execute.mock.calls.length;
     const run = await getRunByThread(threadId, { includeTerminal: true });

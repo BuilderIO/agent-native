@@ -153,7 +153,7 @@ Every example app includes:
 
 - **A working agent** — wired into the app, able to take actions on your data, and aware of what you're looking at. See [Messaging the agent](/docs/messaging).
 - **Auth** — sign-in, sessions, organizations, and multi-tenant isolation.
-- **A database** — schema, queries, and migrations, ready to use. Bring your own SQL database (Postgres, SQLite, Turso, D1); the framework adapts.
+- **A database** — schema, queries, and migrations, ready to use. Bring your own hosted Postgres database, or use local PGlite during development.
 - **A real-time UI** — the screen stays in sync with the agent. For example, drafting an email in chat updates the inbox immediately.
 - **Deploy-ready** — deploy to Netlify, Vercel, Cloudflare, AWS, or any host that runs Node.
 - **Branding hooks** — change the name, colors, logo, and copy.
@@ -306,6 +306,6 @@ automation instead of an app UI, use
 
 Fill in `.env` (`ANTHROPIC_API_KEY` and `DATABASE_URL`), then run `pnpm install` and `pnpm dev`. There's no login to implement and no placeholder routes.
 
-Deploy targets: any Nitro-compatible host (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) and any Drizzle-compatible SQL database (SQLite, Postgres, Turso, D1, Supabase, Neon). For workspaces, `npx @agent-native/core@latest deploy` builds every app at once and ships them behind a single origin. See [Deployment](/docs/deployment).
+Deploy targets: any supported Nitro-compatible host and a hosted PostgreSQL database. For workspaces, `npx @agent-native/core@latest deploy` builds every app at once and ships them behind a single origin. See [Deployment](/docs/deployment).
 
 To author and publish your own app template, see [Creating Templates](/docs/creating-templates).

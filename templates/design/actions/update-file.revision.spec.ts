@@ -2,16 +2,16 @@
  * Real-SQL regression coverage for browser content-save ordering.
  *
  * A pagehide keepalive may reach the server before an older ordinary fetch.
- * These tests use a real in-memory better-sqlite3 database and the production
+ * These tests use a real in-memory PGlite database and the production
  * per-file write lock to prove request arrival order cannot regress content,
  * while a genuinely different writer still trips the hash conflict guard.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({
-  sqlite: null as null | {
-    close(): void;
-    exec(sql: string): void;
+  pglite: null as null | {
+    close(): Promise<void>;
+    exec(sql: string): Promise<void>;
     prepare(sql: string): {
       run(...args: unknown[]): unknown;
       get(...args: unknown[]): unknown;
@@ -64,10 +64,6 @@ vi.mock("@agent-native/core/collab", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
-}));
-
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => undefined,
   assertAccess: vi.fn().mockResolvedValue({ role: "editor" }),
@@ -88,37 +84,77 @@ vi.mock("../server/source-workspace.js", () => ({
 }));
 
 vi.mock("../server/db/index.js", async () => {
-  const [{ createRequire }, { drizzle }, sqliteCore] = await Promise.all([
+  const [{ createRequire }, { drizzle }, pgliteCore] = await Promise.all([
     import("node:module"),
-    import("drizzle-orm/better-sqlite3"),
-    import("drizzle-orm/sqlite-core"),
+    import("drizzle-orm/pglite"),
+    import("drizzle-orm/pg-core"),
   ]);
-  const designs = sqliteCore.sqliteTable("designs", {
-    id: sqliteCore.text("id").primaryKey(),
-    updatedAt: sqliteCore.text("updated_at"),
+  const designs = pgliteCore.pgTable("designs", {
+    id: pgliteCore.text("id").primaryKey(),
+    updatedAt: pgliteCore.text("updated_at"),
   });
-  const designFiles = sqliteCore.sqliteTable("design_files", {
-    id: sqliteCore.text("id").primaryKey(),
-    designId: sqliteCore.text("design_id").notNull(),
-    filename: sqliteCore.text("filename").notNull(),
-    content: sqliteCore.text("content").notNull(),
-    contentOperationSource: sqliteCore.text("content_operation_source"),
-    contentOperationRevision: sqliteCore.integer("content_operation_revision"),
-    contentOperationResultHash: sqliteCore.text(
+  const designFiles = pgliteCore.pgTable("design_files", {
+    id: pgliteCore.text("id").primaryKey(),
+    designId: pgliteCore.text("design_id").notNull(),
+    filename: pgliteCore.text("filename").notNull(),
+    content: pgliteCore.text("content").notNull(),
+    contentOperationSource: pgliteCore.text("content_operation_source"),
+    contentOperationRevision: pgliteCore.integer("content_operation_revision"),
+    contentOperationResultHash: pgliteCore.text(
       "content_operation_result_hash",
     ),
-    fileType: sqliteCore.text("file_type").notNull(),
-    createdAt: sqliteCore.text("created_at"),
-    updatedAt: sqliteCore.text("updated_at"),
+    fileType: pgliteCore.text("file_type").notNull(),
+    createdAt: pgliteCore.text("created_at"),
+    updatedAt: pgliteCore.text("updated_at"),
   });
   const requireFromCore = createRequire(
     new URL("../../../packages/core/package.json", import.meta.url),
   );
-  const Database = requireFromCore("better-sqlite3") as new (
+  const Database = requireFromCore("@electric-sql/pglite").PGlite as new (
     filename: string,
-  ) => NonNullable<typeof localDb.sqlite>;
-  const sqlite = new Database(":memory:");
-  sqlite.exec(`
+  ) => NonNullable<typeof localDb.pglite>;
+  const pglite = await Database.create("memory://");
+  (pglite as any).prepare = (sql: string) => ({
+    run: (...args: unknown[]) =>
+      pglite.query(
+        sql.replace(
+          /\?/g,
+          (() => {
+            let i = 0;
+            return () => "$" + ++i;
+          })(),
+        ),
+        args,
+      ),
+    all: async (...args: unknown[]) =>
+      (
+        await pglite.query(
+          sql.replace(
+            /\?/g,
+            (() => {
+              let i = 0;
+              return () => "$" + ++i;
+            })(),
+          ),
+          args,
+        )
+      ).rows,
+    get: async (...args: unknown[]) =>
+      (
+        await pglite.query(
+          sql.replace(
+            /\?/g,
+            (() => {
+              let i = 0;
+              return () => "$" + ++i;
+            })(),
+          ),
+          args,
+        )
+      ).rows[0],
+  });
+
+  await pglite.exec(`
     CREATE TABLE designs (
       id TEXT PRIMARY KEY,
       updated_at TEXT
@@ -136,9 +172,9 @@ vi.mock("../server/db/index.js", async () => {
       updated_at TEXT
     );
   `);
-  localDb.sqlite = sqlite;
+  localDb.pglite = pglite;
   return {
-    getDb: () => drizzle(sqlite as never),
+    getDb: () => drizzle(pglite as never),
     schema: { designs, designFiles, designShares: {} },
   };
 });
@@ -157,8 +193,8 @@ interface PersistedFile {
   content_operation_result_hash: string | null;
 }
 
-function persistedFile(): PersistedFile {
-  return localDb.sqlite
+async function persistedFile(): Promise<PersistedFile> {
+  return localDb.pglite
     ?.prepare(
       `SELECT content, content_operation_source,
               content_operation_revision, content_operation_result_hash
@@ -182,17 +218,17 @@ async function save(args: {
   } as never);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   collabReadBarrier.remaining = 0;
   collabReadBarrier.waiters = [];
   collabState.exists = false;
   collabState.content = "";
   collabState.failApplyCount = 0;
-  localDb.sqlite?.exec("DELETE FROM design_files; DELETE FROM designs;");
-  localDb.sqlite
+  await localDb.pglite?.exec("DELETE FROM design_files; DELETE FROM designs;");
+  await localDb.pglite
     ?.prepare("INSERT INTO designs (id, updated_at) VALUES (?, ?)")
     .run(DESIGN_ID, "2026-07-09T00:00:00.000Z");
-  localDb.sqlite
+  await localDb.pglite
     ?.prepare(
       `INSERT INTO design_files
        (id, design_id, filename, content, file_type, created_at, updated_at)
@@ -209,11 +245,11 @@ beforeEach(() => {
     );
 });
 
-afterAll(() => {
-  localDb.sqlite?.close();
+afterAll(async () => {
+  await localDb.pglite?.close();
 });
 
-describe("update-file browser operation ordering with real SQLite", () => {
+describe("update-file browser operation ordering with real PostgreSQL", () => {
   it("keeps the newer keepalive result when the older request arrives afterward", async () => {
     const baseHash = sourceContentHash(BASE);
     const newest = "<main>newest unload snapshot</main>";
@@ -247,7 +283,7 @@ describe("update-file browser operation ordering with real SQLite", () => {
     expect(olderResult).toMatchObject({
       updated: true,
     });
-    expect(persistedFile()).toMatchObject({
+    expect(await persistedFile()).toMatchObject({
       content: newest,
       content_operation_source: "tab-a",
       content_operation_revision: 2,
@@ -277,7 +313,7 @@ describe("update-file browser operation ordering with real SQLite", () => {
     });
     await Promise.all([firstRequest, secondRequest]);
 
-    expect(persistedFile()).toMatchObject({
+    expect(await persistedFile()).toMatchObject({
       content: second,
       content_operation_source: "tab-a",
       content_operation_revision: 2,
@@ -311,7 +347,7 @@ describe("update-file browser operation ordering with real SQLite", () => {
         operationRevision: 2,
       }),
     ).rejects.toThrow(/changed since it was read/);
-    expect(persistedFile()).toMatchObject({
+    expect(await persistedFile()).toMatchObject({
       content: otherWriter,
       content_operation_source: "tab-b",
       content_operation_revision: 1,
@@ -328,7 +364,7 @@ describe("update-file browser operation ordering with real SQLite", () => {
 
     await save({ content: "<main>agent edit</main>" });
 
-    expect(persistedFile()).toMatchObject({
+    expect(await persistedFile()).toMatchObject({
       content: "<main>agent edit</main>",
       content_operation_source: null,
       content_operation_revision: null,
@@ -357,7 +393,7 @@ describe("update-file browser operation ordering with real SQLite", () => {
       updated: true,
       versionHash: sourceContentHash(remountedContent),
     });
-    expect(persistedFile()).toMatchObject({
+    expect(await persistedFile()).toMatchObject({
       content: remountedContent,
       content_operation_source: "tab-a:save:editor-2",
       content_operation_revision: 1,
@@ -380,7 +416,7 @@ describe("update-file browser operation ordering with real SQLite", () => {
     await expect(save(firstRequest)).rejects.toThrow(
       /simulated collab apply failure/,
     );
-    expect(persistedFile()).toMatchObject({
+    expect(await persistedFile()).toMatchObject({
       content: firstContent,
       content_operation_revision: 1,
     });
@@ -408,7 +444,7 @@ describe("update-file browser operation ordering with real SQLite", () => {
       skippedStaleOperation: true,
       versionHash: sourceContentHash(latestContent),
     });
-    expect(persistedFile().content).toBe(latestContent);
+    expect((await persistedFile()).content).toBe(latestContent);
     expect(collabState.content).toBe(latestContent);
   });
 });

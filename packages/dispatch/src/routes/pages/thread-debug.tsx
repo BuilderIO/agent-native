@@ -52,7 +52,6 @@ interface ThreadDebugSource {
   current: boolean;
   connected: boolean;
   databaseUrlEnv: string | null;
-  databaseAuthTokenEnv: string | null;
   canInspectAll: boolean;
 }
 

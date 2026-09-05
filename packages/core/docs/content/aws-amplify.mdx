@@ -110,18 +110,16 @@ change so Nitro can include the declared runtime values.
 
 ## Configure the app
 
-Amplify Hosting compute is serverless. Configure a persistent SQL database and
+Amplify Hosting compute is serverless. Configure a persistent PostgreSQL database and
 the production secrets in the Amplify environment variables:
 
-- `DATABASE_URL` for Postgres, Neon, Supabase, RDS, Turso, or another supported
-  SQL provider.
+- `DATABASE_URL` for a hosted PostgreSQL database such as Neon, Supabase, or RDS.
 - `BETTER_AUTH_SECRET` as a stable 32+ character secret.
-- `DATABASE_AUTH_TOKEN` when the database provider needs a separate token.
 - Any provider credentials required by the app.
 
 Enable SSR app logs in Amplify after connecting the repository. Run schema
 migrations in the release pipeline or as a separate controlled task. Do not
-use the local SQLite file as production storage.
+use local PGlite as production storage.
 
 ## CloudFront caching
 

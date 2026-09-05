@@ -8,10 +8,7 @@ describe("ORG_MIGRATIONS", () => {
     // `WHERE LOWER(m.email) = ?`. This migration must create a supporting
     // index so the lookup is an index seek rather than a full-table scan.
     const indexMigration = ORG_MIGRATIONS.find((m) => {
-      const sql =
-        typeof m.sql === "string"
-          ? m.sql
-          : (m.sql.postgres ?? m.sql.sqlite ?? "");
+      const sql = typeof m.sql === "string" ? m.sql : (m.sql.postgres ?? "");
       return /CREATE INDEX.*org_members.*LOWER\(email\)/i.test(sql);
     });
     expect(indexMigration).toBeDefined();
@@ -20,10 +17,7 @@ describe("ORG_MIGRATIONS", () => {
 
   it("includes a LOWER(allowed_domain) expression index on organizations", () => {
     const indexMigration = ORG_MIGRATIONS.find((m) => {
-      const sql =
-        typeof m.sql === "string"
-          ? m.sql
-          : (m.sql.postgres ?? m.sql.sqlite ?? "");
+      const sql = typeof m.sql === "string" ? m.sql : (m.sql.postgres ?? "");
       return /CREATE INDEX.*organizations.*LOWER\(allowed_domain\)/i.test(sql);
     });
     expect(indexMigration).toBeDefined();

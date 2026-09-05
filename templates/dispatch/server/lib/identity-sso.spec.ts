@@ -72,7 +72,6 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: exec }),
-  intType: () => "INTEGER",
   isProductionServerlessFunctionRuntime: () => productionServerlessMock(),
 }));
 

@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import {
@@ -217,7 +217,7 @@ export async function hasActiveFeatureFlagRollout(
     return true;
   }
 
-  const table = isPostgres() ? "public.settings" : "settings";
+  const table = "public.settings";
   const { rows } = await getDbExec().execute({
     sql: `SELECT key, value FROM ${table} WHERE key LIKE ?`,
     args: [`o:%:${settingKey(key)}`],

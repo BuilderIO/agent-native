@@ -521,15 +521,123 @@ function sqlLiteral(value: string | null): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function bindSqlArguments(sql: string, args: Array<string | null>): string {
-  let index = 0;
-  return sql.replace(/\?/g, () => {
-    const value = args[index++];
-    if (value === undefined) {
-      throw new Error("First-party BigQuery query has too few bind arguments");
+function readSqlDollarQuoteDelimiter(
+  sql: string,
+  start: number,
+): string | null {
+  if (sql[start] !== "$") return null;
+  const firstTagCharacter = sql[start + 1];
+  if (firstTagCharacter === "$") return "$$";
+  if (!firstTagCharacter || !/[A-Za-z_]/.test(firstTagCharacter)) return null;
+
+  let end = start + 2;
+  while (end < sql.length && /[A-Za-z0-9_]/.test(sql[end] ?? "")) end++;
+  return sql[end] === "$" ? sql.slice(start, end + 1) : null;
+}
+
+function readSqlQuotedEnd(
+  sql: string,
+  start: number,
+  quote: "'" | '"' | "`",
+  allowBackslashEscapes = false,
+): number {
+  let index = start + 1;
+  while (index < sql.length) {
+    const character = sql[index];
+    if (allowBackslashEscapes && character === "\\") {
+      index += 2;
+      continue;
     }
-    return sqlLiteral(value);
-  });
+    if (character === quote) {
+      if (sql[index + 1] === quote) {
+        index += 2;
+        continue;
+      }
+      return index + 1;
+    }
+    index++;
+  }
+  return sql.length;
+}
+
+function bindSqlArguments(sql: string, args: Array<string | null>): string {
+  let nextPositionalIndex = 0;
+  let index = 0;
+  let result = "";
+
+  while (index < sql.length) {
+    const character = sql[index];
+    const nextCharacter = sql[index + 1];
+
+    if (character === "'" || character === '"' || character === "`") {
+      const isEscapeString =
+        character === "'" &&
+        /[eE]/.test(sql[index - 1] ?? "") &&
+        !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
+      const end = readSqlQuotedEnd(sql, index, character, isEscapeString);
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    if (character === "-" && nextCharacter === "-") {
+      const lineEnd = sql.indexOf("\n", index + 2);
+      const end = lineEnd === -1 ? sql.length : lineEnd;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    if (character === "/" && nextCharacter === "*") {
+      const commentEnd = sql.indexOf("*/", index + 2);
+      const end = commentEnd === -1 ? sql.length : commentEnd + 2;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    const dollarQuoteDelimiter = readSqlDollarQuoteDelimiter(sql, index);
+    if (dollarQuoteDelimiter) {
+      const bodyEnd = sql.indexOf(
+        dollarQuoteDelimiter,
+        index + dollarQuoteDelimiter.length,
+      );
+      const end =
+        bodyEnd === -1 ? sql.length : bodyEnd + dollarQuoteDelimiter.length;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    const explicitBind =
+      character === "$" ? /^\$(\d+)/.exec(sql.slice(index)) : null;
+    if (explicitBind || character === "?") {
+      const placeholder = explicitBind?.[0] ?? "?";
+      const explicitIndex = explicitBind?.[1];
+      const bindIndex = explicitIndex
+        ? Number(explicitIndex) - 1
+        : nextPositionalIndex++;
+      if (!Number.isInteger(bindIndex) || bindIndex < 0) {
+        throw new Error(
+          `First-party BigQuery query has an invalid bind ${placeholder}`,
+        );
+      }
+      const value = args[bindIndex];
+      if (value === undefined) {
+        throw new Error(
+          "First-party BigQuery query has too few bind arguments",
+        );
+      }
+      result += sqlLiteral(value);
+      index += placeholder.length;
+      continue;
+    }
+
+    result += character;
+    index++;
+  }
+
+  return result;
 }
 
 function maskSqlLiterals(sql: string): string {
@@ -1093,12 +1201,12 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   args: Array<string | null>,
   table: BigQueryTableRef,
 ): string {
-  // The Postgres/SQLite scope builder uses a text fallback for nullable event
+  // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
   // because the sink normalizes it before insert.
   const normalizedScopeSql = scopedSql.replace(
-    /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?\)/g,
-    "(event_date <= ?)",
+    /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= (\$\d+|\?)\)/g,
+    (_match, placeholder: string) => `(event_date <= ${placeholder})`,
   );
   const translated =
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
@@ -1392,12 +1500,29 @@ function backfillBranchSql(
   args: unknown[];
 } {
   const lowerCursor = cursor.receivedAt ? cursor : rangeStart;
-  const cursorSql = lowerCursor ? "(received_at, id) > (?, ?)" : "";
+  let nextParameter = predicateArgs.length + 1;
+  const lookbackParameter = `$${nextParameter++}`;
+  const defaultSkipEvents =
+    skipEventNames.length === DEFAULT_BACKFILL_SKIP_EVENTS.length &&
+    skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0];
+  const skipParameters = defaultSkipEvents
+    ? []
+    : skipEventNames.map(() => `$${nextParameter++}`);
+  const rangeEndParameters = rangeEnd
+    ? [`$${nextParameter++}`, `$${nextParameter++}`]
+    : [];
+  const cursorParameters = lowerCursor
+    ? [`$${nextParameter++}`, `$${nextParameter++}`]
+    : [];
+  const limitParameter = `$${nextParameter++}`;
+  const cursorSql = lowerCursor
+    ? `(received_at, id) > (${cursorParameters[0]}, ${cursorParameters[1]})`
+    : "";
   const cursorArgs = lowerCursor
     ? [lowerCursor.receivedAt, lowerCursor.id]
     : [];
   const rangeEndSql = rangeEnd
-    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (?, ?)`
+    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (${rangeEndParameters[0]}, ${rangeEndParameters[1]})`
     : "";
   const rangeEndArgs = rangeEnd ? [rangeEnd.receivedAt, rangeEnd.id] : [];
   const skipSql =
@@ -1405,15 +1530,19 @@ function backfillBranchSql(
     skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0]
       ? "event_name IS DISTINCT FROM 'http.response'"
       : skipEventNames.length
-        ? `(event_name IS NULL OR event_name NOT IN (${skipEventNames.map(() => "?").join(", ")}))`
+        ? `(event_name IS NULL OR event_name NOT IN (${skipParameters.join(", ")}))`
         : "";
-  const filters = ["received_at >= ?", skipSql, rangeEndSql].filter(Boolean);
+  const filters = [
+    `received_at >= ${lookbackParameter}`,
+    skipSql,
+    rangeEndSql,
+  ].filter(Boolean);
   return {
     sql: `SELECT id, received_at
       FROM analytics_events
       WHERE ${predicate}
         AND ${filters.join("\n        AND ")}${cursorSql ? `\n        AND ${cursorSql}` : ""}
-      ORDER BY received_at ${order}, id ${order} LIMIT ?`,
+      ORDER BY received_at ${order}, id ${order} LIMIT ${limitParameter}`,
     args: [
       ...predicateArgs,
       lookbackStart,
@@ -1442,15 +1571,15 @@ export async function getFirstPartyAnalyticsBackfillHighWaterMark(
   const skipEventNames = configuredSkipEventNames(options?.skipEventNames);
   const branches = scope.orgId
     ? [
-        { predicate: "org_id = ?", args: [scope.orgId] },
+        { predicate: "org_id = $1", args: [scope.orgId] },
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ]
     : [
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ];
@@ -1486,12 +1615,12 @@ function backfillRowsByIdsSql(ids: string[]): {
   return {
     sql: `SELECT ${FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS.join(", ")}
       FROM analytics_events
-      WHERE id IN (${ids.map(() => "?").join(", ")})`,
+      WHERE id IN (${ids.map((_, index) => `$${index + 1}`).join(", ")})`,
     args: ids,
   };
 }
 
-const MAX_SQLITE_BIND_VARIABLES = 900;
+const MAX_BIND_VARIABLES = 900;
 
 function backfillRowCursor(
   row: Record<string, unknown>,
@@ -1545,15 +1674,15 @@ export async function backfillFirstPartyAnalyticsBatch(
   const rangeEndInclusive = options?.rangeEndInclusive === true;
   const branches = scope.orgId
     ? [
-        { predicate: "org_id = ?", args: [scope.orgId] },
+        { predicate: "org_id = $1", args: [scope.orgId] },
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ]
     : [
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ];
@@ -1596,10 +1725,10 @@ export async function backfillFirstPartyAnalyticsBatch(
   for (
     let offset = 0;
     offset < selectedIds.length;
-    offset += MAX_SQLITE_BIND_VARIABLES
+    offset += MAX_BIND_VARIABLES
   ) {
     const hydratedQuery = backfillRowsByIdsSql(
-      selectedIds.slice(offset, offset + MAX_SQLITE_BIND_VARIABLES),
+      selectedIds.slice(offset, offset + MAX_BIND_VARIABLES),
     );
     const hydratedResult = await db.execute({
       sql: hydratedQuery.sql,

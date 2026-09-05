@@ -11,7 +11,7 @@ import { serializeContentSourceDocument } from "../shared/content-source.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `import-content-source-test-${process.pid}-${Date.now()}.sqlite`,
+  `import-content-source-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -26,7 +26,7 @@ const VIEWER = "import-viewer@example.com";
 const ORG_ID = "import-viewer-org";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -47,9 +47,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 function sourceWithDescription(description: string) {
@@ -229,15 +227,15 @@ describe("import-content-source descriptions", () => {
 
   it("requires editor access before importing into an organization space", async () => {
     await getDbExec().execute({
-      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
       args: [ORG_ID, "Import viewer org", OWNER, Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["import-viewer-membership", ORG_ID, VIEWER, "member", Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["import-owner-membership", ORG_ID, OWNER, "owner", Date.now()],
     });
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG_ID }, () =>

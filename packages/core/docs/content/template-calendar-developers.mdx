@@ -473,7 +473,7 @@ Every part of the app is editable source. Start here:
 
 - `templates/calendar/actions/` — add a new file with `defineAction` to expose new capability to both the agent and the frontend.
 - `templates/calendar/app/routes/` — the UI, listed above.
-- `templates/calendar/server/db/schema.ts` — add columns or tables with Drizzle. Keep the code dialect-agnostic so the template runs on SQLite, Postgres, Turso, D1, and Neon.
+- `templates/calendar/server/db/schema.ts` — add columns or tables with Drizzle. Keep the schema PostgreSQL-compatible so the template runs with local PGlite and hosted Postgres.
 - `templates/calendar/server/lib/` — provider integrations: `google-calendar.ts`, `zoom.ts`, `people-search.ts`, `ical-fetcher.ts`, `find-time.ts`, `provider-api.ts`.
 - `templates/calendar/AGENTS.md` — agent instructions. Update this when you teach the agent new capabilities or conventions.
 - `templates/calendar/.agents/skills/` — detailed patterns the agent follows. Relevant skills: `event-management`, `availability-booking`, `real-time-sync`, `storing-data`, `delegate-to-agent`, `frontend-design`.

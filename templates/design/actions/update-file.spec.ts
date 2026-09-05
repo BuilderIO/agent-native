@@ -86,12 +86,6 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
-// update-file.ts imports isPostgres via the public "@agent-native/core/db"
-// specifier: force the SQLite branch (no LOCK TABLE path) for these tests.
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
-}));
-
 // ---------------------------------------------------------------------------
 // Minimal fake Drizzle app-DB layer: one `design_files` table backing store,
 // same query shapes as apply-source-edit.interleave.spec.ts.
@@ -164,6 +158,9 @@ vi.mock("../server/db/index.js", () => {
     });
   };
   const db = {
+    execute: async () => ({ rows: [], rowsAffected: 1 }),
+    transaction: async (callback: (tx: typeof db) => Promise<unknown>) =>
+      callback(db),
     select: (_projection: unknown) => ({
       from: (table: unknown) => ({
         where: (predicate: Predicate) => {

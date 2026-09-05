@@ -65,8 +65,8 @@ describe("chart resize animation policy", () => {
   });
 });
 
-// Postgres/Neon returns numeric & bigint columns as STRINGS (SQLite returns JS
-// numbers). The metric renderer used to only format `typeof raw === "number"`,
+// Postgres/Neon returns numeric and bigint columns as strings. The metric
+// renderer used to only format `typeof raw === "number"`,
 // so a Postgres rate like "0.00000000000000000000" was dumped verbatim instead
 // of being shown as "0.00%". formatMetricValue coerces numeric strings first.
 describe("formatMetricValue", () => {
@@ -87,7 +87,7 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue("2", "number")).toBe("2");
   });
 
-  it("still formats plain JS numbers (SQLite path) unchanged", () => {
+  it("still formats plain JS numbers unchanged", () => {
     expect(formatMetricValue(0, "percent")).toBe("0.00%");
     expect(formatMetricValue(42, "number")).toBe("42");
   });

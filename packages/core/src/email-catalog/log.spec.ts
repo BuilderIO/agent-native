@@ -4,13 +4,12 @@ const execute = vi.fn(async () => ({ rows: [] }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
-  getDialect: () => "sqlite",
-  isPostgres: () => false,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn(async () => undefined),
   ensureIndexExists: vi.fn(async () => undefined),
+  ensureColumnExists: vi.fn(async () => undefined),
 }));
 
 import { getEmailSendStats, listEmailLog, recordEmailSend } from "./log.js";

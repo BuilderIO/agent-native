@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
@@ -16,6 +17,15 @@ import {
 vi.mock("../db/index.js", () => ({
   getDb: () => testDb,
 }));
+
+vi.mock("../db/bulk-write.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../db/bulk-write.js")>();
+  return {
+    ...original,
+    caseById: (id: any, entries: any[]) =>
+      sql`(${original.caseById(id, entries)})::double precision`,
+  };
+});
 
 type TestDb = Awaited<ReturnType<typeof createInMemoryTasksDb>>;
 

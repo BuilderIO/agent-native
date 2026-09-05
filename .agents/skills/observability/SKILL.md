@@ -241,7 +241,7 @@ All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 - `agent_experiment_assignments` — user → variant assignments
 - `agent_experiment_results` — computed metric results
 
-All tables are dialect-agnostic (SQLite + Postgres) and strictly additive.
+All tables are PostgreSQL-compatible and strictly additive.
 
 ## Key Files
 

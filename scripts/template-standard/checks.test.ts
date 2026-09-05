@@ -34,7 +34,7 @@ describe("packageScriptViolationMessage", () => {
       packageScriptViolationMessage(
         "analytics",
         "dev",
-        "DATABASE_URL=${ANALYTICS_DATABASE_URL:-file:./data/app.db} agent-native dev",
+        "DATABASE_URL=${ANALYTICS_DATABASE_URL:-pglite:./data/pglite} agent-native dev",
       ),
       null,
     );

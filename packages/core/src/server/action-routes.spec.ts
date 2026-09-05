@@ -2266,10 +2266,7 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
-  it.each([
-    "no such table: org_members",
-    'relation "org_members" does not exist',
-  ])(
+  it.each(['relation "org_members" does not exist'])(
     "suppresses the verified first-boot missing org table error: %s",
     async (message) => {
       const { mountActionRoutes } = await import("./action-routes.js");

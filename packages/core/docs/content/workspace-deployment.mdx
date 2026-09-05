@@ -335,8 +335,8 @@ agents.example.com {
   credentials, and cross-app A2A.
 - Set `BETTER_AUTH_URL` to the public URL for that app path. OAuth callback URLs
   should use the same public URL.
-- Do not rely on the container filesystem for production data. Use Postgres (or
-  another persistent SQL backend) for `DATABASE_URL`.
+- Do not rely on the container filesystem for production data. Use Postgres for
+  `DATABASE_URL`.
 - If Cloudflare terminates TLS in front of the VPS, configure Cloudflare to send
   normal `X-Forwarded-Proto` / `X-Forwarded-Host` headers and route the public
   host to the proxy container.

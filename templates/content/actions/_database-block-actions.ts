@@ -176,7 +176,6 @@ function isUniqueConstraintError(error: unknown): boolean {
       : (JSON.stringify(candidate?.message) ?? "");
   return (
     code === "23505" ||
-    code.includes("SQLITE_CONSTRAINT") ||
     /unique constraint|primary key constraint|duplicate key/i.test(message)
   );
 }

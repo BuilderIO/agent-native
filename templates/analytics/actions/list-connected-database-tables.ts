@@ -27,7 +27,6 @@ export default defineAction({
         name: z.string(),
         appId: z.string().nullable(),
         appUrl: z.string().nullable(),
-        dialect: z.string(),
         tables: z.array(
           z.object({
             name: z.string(),
@@ -81,7 +80,6 @@ export default defineAction({
                 name: connection.name,
                 appId: connection.appId,
                 appUrl: connection.appUrl,
-                dialect: overview.dialect,
                 tables: overview.tables,
               };
             },

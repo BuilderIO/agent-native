@@ -57,7 +57,7 @@ vi.mock("../db/client.js", () => ({
         return { rows: [], rowsAffected: 1 };
       }
 
-      if (/^\s*INSERT (OR IGNORE )?INTO _collab_docs/i.test(sql)) {
+      if (/^\s*INSERT INTO _collab_docs/i.test(sql)) {
         const docId = String(args[0]);
         if (rows.has(docId)) return { rows: [], rowsAffected: 0 };
         rows.set(docId, {
@@ -71,7 +71,11 @@ vi.mock("../db/client.js", () => ({
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   }),
-  isPostgres: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("collab storage optimistic saves", () => {

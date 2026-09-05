@@ -2,7 +2,25 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
+import {
+  createPostgresScriptClient,
+  type PostgresScriptClient,
+} from "./postgres-client.js";
+
+type Client = PostgresScriptClient;
+
+async function createClient({ url }: { url: string }) {
+  const client = await createPostgresScriptClient(url);
+  return {
+    async execute(input: string | { sql: string; args?: unknown[] }) {
+      return client.unsafe(
+        typeof input === "string" ? input : input.sql,
+        typeof input === "string" ? undefined : input.args,
+      );
+    },
+    close: () => client.end(),
+  };
+}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -11,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * are denied to the raw db-* tools, so the detection logic here is what keeps
  * a forgotten ownership column from becoming a cross-tenant hole. The `validate`
  * helper isn't exported, so we drive the real default export against a temp-file
- * SQLite database and assert on the JSON output and the process exit code.
+ * PostgreSQL database and assert on the JSON output and the process exit code.
  */
 describe("db-check-scoping", () => {
   let dir: string;
@@ -19,7 +37,7 @@ describe("db-check-scoping", () => {
   let prevExitCode: typeof process.exitCode;
 
   async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
-    const c = createClient({ url: "file:" + dbFile });
+    const c = await createClient({ url: "pglite:" + dbFile });
     try {
       return await fn(c);
     } finally {
@@ -29,7 +47,7 @@ describe("db-check-scoping", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), "db-check-"));
-    dbFile = path.join(dir, "app.db");
+    dbFile = path.join(dir, "app");
     prevExitCode = process.exitCode;
     process.exitCode = undefined;
   });
@@ -91,7 +109,7 @@ describe("db-check-scoping", () => {
     // The human-readable path fails closed: a missing scoping column must
     // surface as exit code 1 (so CI guards catch it).
     const logs = await runCheck([]);
-    expect(logs.join("\n")).toContain("Tables denied to raw DB tools:");
+    expect(logs.join("\n")).toContain("Tables denied to raw database tools:");
     expect(process.exitCode).toBe(1);
   });
 
@@ -138,7 +156,7 @@ describe("db-check-scoping", () => {
     });
     const logs = await runCheck([]);
     expect(logs.join("\n")).toContain(
-      "All template tables have proper scoping columns.",
+      "All application tables have proper scoping columns.",
     );
     expect(process.exitCode).not.toBe(1);
   });

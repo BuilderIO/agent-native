@@ -88,9 +88,9 @@ jobs:
             esac
           done <<< "$files"
 
-      # Core is still pre-beta and its release train is patch-only. Other
-      # packages may not promote a major version unattended either.
-      - name: Refuse unattended non-patch promotions
+      # Major promotions remain human-only. Minor promotions are valid for
+      # intentional breaking changes in 0.x packages.
+      - name: Refuse unattended major promotions
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -146,21 +146,16 @@ jobs:
             const beforeParts = versionParts(before);
             const afterParts = versionParts(after);
             const majorPromotion = afterParts[0] > beforeParts[0];
-            const coreNonPatchPromotion =
-              file === "packages/core/package.json" &&
-              (afterParts[0] !== 0 ||
-                afterParts[0] !== beforeParts[0] ||
-                afterParts[1] !== beforeParts[1]);
-            if (majorPromotion || coreNonPatchPromotion) {
+            if (majorPromotion) {
               promotions.push(`${file}: ${before} -> ${after}`);
             }
           }
 
           if (promotions.length > 0) {
             console.error(
-              "::error::This release PR contains a forbidden non-patch promotion:\n" +
+              "::error::This release PR contains a forbidden major promotion:\n" +
                 promotions.map((line) => `  ${line}`).join("\n") +
-                "\n@agent-native/core is patch-only. Leaving the PR open; edit its changeset down to `patch`, or have a human handle any deliberate promotion.",
+                "\nMajor promotions remain human-only. Leaving the PR open for deliberate release handling.",
             );
             process.exit(1);
           }

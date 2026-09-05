@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createClient } from "@libsql/client";
+import { createDbExec } from "@agent-native/core/db";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
@@ -26,7 +26,7 @@ const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
-  `file:${path.join(import.meta.dirname, "..", "data", "e2e.db")}`;
+  `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
 
 /**
  * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
@@ -115,7 +115,7 @@ function componentIndexId(designId: string, name: string): string {
 export async function seedComponentVariantMetadata(
   designId: string,
 ): Promise<void> {
-  const client = createClient({ url: E2E_DATABASE_URL });
+  const client = await createDbExec({ url: E2E_DATABASE_URL });
   const name = "E2EButton";
   const now = new Date().toISOString();
   const variants = JSON.stringify({
@@ -161,7 +161,7 @@ export async function seedComponentVariantMetadata(
       ],
     });
   } finally {
-    client.close();
+    await client.close?.();
   }
 }
 
@@ -234,7 +234,6 @@ export default async function globalSetup(config: FullConfig) {
     await postAction(context.request, baseURL, "index-components", {
       designId,
     });
-    await seedComponentVariantMetadata(designId);
 
     await writeFile(SEED_PATH, JSON.stringify({ designId }, null, 2));
     // eslint-disable-next-line no-console

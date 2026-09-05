@@ -190,7 +190,6 @@ vi.mock("@agent-native/core/db", () => ({
         fn({ execute }),
     };
   },
-  intType: () => "INTEGER",
   isProductionServerlessFunctionRuntime: () => false,
 }));
 vi.mock("h3", () => ({

@@ -359,8 +359,6 @@ describe("createGetDb — lazy proxy before init resolves", () => {
       const actual = await importOriginal<typeof import("./client.js")>();
       return {
         ...actual,
-        getDialect: vi.fn(() => "sqlite" as const),
-        getCloudflareD1Binding: vi.fn(() => undefined),
         // Route init through the pglite branch and never resolve it, so
         // `getDb()` is guaranteed to return the lazy proxy, not the real db.
         isPgliteUrl: vi.fn(() => true),

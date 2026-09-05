@@ -122,7 +122,7 @@ describe("isMergeExcluded", () => {
       "learnings.md",
       "changelog/pending-thing.md",
       "dist/index.js",
-      "data/app.db",
+      "data/pglite",
       ".git/config",
       ".agent-native/template-baseline/x.tar.gz",
     ]) {

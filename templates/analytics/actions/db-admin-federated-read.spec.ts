@@ -22,10 +22,7 @@ describe("db-admin-federated-read", () => {
     mocks.withDbAdminConnectionRuntime.mockReset();
     mocks.withDbAdminConnectionRuntime.mockImplementation(
       async (_ctx, connectionId, fn) =>
-        fn(
-          { dialect: "sqlite", db: undefined } as any,
-          { id: connectionId } as any,
-        ),
+        fn({ db: undefined } as any, { id: connectionId } as any),
     );
     mocks.runSql.mockImplementation(async (sql: string) => {
       if (sql.includes("FROM users")) {
@@ -136,10 +133,7 @@ describe("db-admin-federated-read", () => {
     const transaction = vi.fn(async (callback) => callback({ execute } as any));
     mocks.withDbAdminConnectionRuntime.mockImplementation(
       async (_ctx, connectionId, fn) =>
-        fn(
-          { dialect: "postgres", db: { transaction } } as any,
-          { id: connectionId } as any,
-        ),
+        fn({ db: { transaction } } as any, { id: connectionId } as any),
     );
 
     await runDbAdminFederatedRead(

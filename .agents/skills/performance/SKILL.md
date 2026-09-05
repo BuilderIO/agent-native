@@ -21,8 +21,8 @@ things dominate it: **how much data crosses the wire**, and **how many
 round-trips and table scans it takes**. On a hosted/serverless SQL backend each
 query is a network round-trip, and an unindexed filter scans the whole — often
 shared and growing — table. So default to **projected columns**, **indexed
-hot-path queries**, and **parallel/batched** fetches. These rules are
-provider-agnostic: they hold on SQLite, Postgres, or any managed SQL backend.
+hot-path queries**, and **parallel/batched** fetches. These rules hold on local
+PGlite or hosted Postgres.
 
 This skill is about the data and load path. See the `storing-data` skill for the schema
 and migration mechanics it references, and the `real-time-sync` skill for how updates
@@ -47,7 +47,6 @@ A list/index query should select only the columns the list actually renders.
       id: docs.id,
       title: docs.title,
       updatedAt: docs.updatedAt,
-      // substr/length work on both SQLite and Postgres
       preview: sql<string>`substr(${docs.content}, 1, 400)`,
     })
     .from(docs)
@@ -114,14 +113,14 @@ on. The recurring ones:
 - **Status-filtered lists** → match the real `WHERE`, e.g. `(owner_email, status)`
   or `(status, <sort>)`.
 
-Keep index DDL **dialect-agnostic and idempotent**:
+Keep index DDL **PostgreSQL-compatible and idempotent**:
 
 ```sql
 CREATE INDEX IF NOT EXISTS forms_owner_org_updated_idx ON forms (owner_email, org_id, updated_at)
 ```
 
-No `DESC`, no partial `WHERE`, no provider-specific syntax — it then runs on
-SQLite and Postgres alike, is safe to re-run, and applies on next startup.
+No `DESC` or partial `WHERE`; keep the index DDL idempotent and apply it through
+the migration path.
 Indexes mostly bite **as data grows** and on **unbounded child tables** (a
 seq-scan of 10 rows is instant; of a shared, ever-growing log it is not), so
 index the growing tables first.

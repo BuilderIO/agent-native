@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-roadmap-projection-${process.pid}-${Date.now()}.sqlite`,
+  `content-roadmap-projection-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "roadmap-projection-owner@example.com";
 const OUTSIDER = "roadmap-projection-outsider@example.com";
@@ -68,7 +68,7 @@ function loadCapabilities(): Capability[] {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -84,8 +84,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("private roadmap capability projection", () => {

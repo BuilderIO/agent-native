@@ -28,7 +28,6 @@
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/poppins": "^5.2.7",
     "@google/genai": "^1.42.0",
-    "@libsql/client": "^0.15.0",
     "@tabler/icons-react": "catalog:",
     "@tiptap/core": "catalog:",
     "@tiptap/extension-collaboration": "catalog:",
