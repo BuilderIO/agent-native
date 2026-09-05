@@ -3,6 +3,7 @@ import {
   IconChevronDown,
   IconMicrophone,
   IconRefresh,
+  IconVolume2,
 } from "@tabler/icons-react";
 import { useMemo } from "react";
 
@@ -170,21 +171,6 @@ export function MediaDeviceRow({
                   <IconRefresh size={16} stroke={1.75} aria-hidden />
                   {devices.length === 0 ? accessLabel : refreshLabel}
                 </DropdownMenuItem>
-                {kind === "mic" && onSystemAudioToggle ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <div className="row-menu-setting" role="none">
-                      <span className="row-menu-setting-label">
-                        Record system audio
-                      </span>
-                      <Switch
-                        on={!!systemAudio}
-                        onChange={onSystemAudioToggle}
-                        label="Record system audio"
-                      />
-                    </div>
-                  </>
-                ) : null}
               </DropdownMenuContent>
             ) : null}
           </DropdownMenu>
@@ -204,6 +190,28 @@ export function MediaDeviceRow({
           </Tooltip>
         </div>
       </div>
+      {kind === "mic" && onSystemAudioToggle ? (
+        <div className="system-audio-row">
+          <span className="row-icon" aria-hidden>
+            <IconVolume2 size={20} stroke={1.75} />
+          </span>
+          <span className="system-audio-label">Record system audio</span>
+          <div className="row-trailing-control">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Switch
+                  on={!!systemAudio}
+                  onChange={onSystemAudioToggle}
+                  label="Record system audio"
+                />
+              </TooltipTrigger>
+              <TooltipContent side="left">{`${
+                systemAudio ? "Turn off" : "Turn on"
+              } system audio`}</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

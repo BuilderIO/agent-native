@@ -11,6 +11,7 @@ type VisualizerStatusCallback = (
 
 const visualizerCallbacks = vi.hoisted(() => ({
   micStatusChange: null as VisualizerStatusCallback | null,
+  cameraStatusChange: null as VisualizerStatusCallback | null,
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -35,6 +36,13 @@ vi.mock("./microphone-visualizer", () => ({
   }) => {
     visualizerCallbacks.micStatusChange = props.onStatusChange;
     return <span data-testid="microphone-waveform" />;
+  },
+}));
+
+vi.mock("./camera-visualizer", () => ({
+  CameraVisualizer: (props: { onStatusChange: VisualizerStatusCallback }) => {
+    visualizerCallbacks.cameraStatusChange = props.onStatusChange;
+    return <span data-testid="camera-test" />;
   },
 }));
 
@@ -98,6 +106,7 @@ describe("PreRecordPanel desktop-aligned setup", () => {
       value: 720,
     });
     visualizerCallbacks.micStatusChange = null;
+    visualizerCallbacks.cameraStatusChange = null;
     storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -214,7 +223,9 @@ describe("PreRecordPanel desktop-aligned setup", () => {
       container.querySelectorAll('[data-testid="microphone-waveform"]'),
     ).toHaveLength(1);
     expect(microphoneTrigger?.contains(waveform)).toBe(true);
-    expect(container.querySelector('[data-testid="camera-test"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="camera-test"]'),
+    ).not.toBeNull();
     expect(container.querySelector('input[type="file"]')).toBeNull();
     expect(container.textContent).not.toContain("preRecord.import");
     expect(container.textContent).not.toContain("preRecord.uploadVideo");

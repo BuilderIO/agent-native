@@ -180,6 +180,53 @@ function stopMediaStream(stream: MediaStream | null | undefined): void {
   });
 }
 
+function startBrowserMicLevelEmitter(stream: MediaStream): () => void {
+  const AudioContextCtor =
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
+  if (!AudioContextCtor) return () => {};
+
+  let context: AudioContext;
+  try {
+    context = new AudioContextCtor();
+  } catch {
+    return () => {};
+  }
+  const source = context.createMediaStreamSource(stream);
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 256;
+  const data = new Uint8Array(analyser.fftSize);
+  source.connect(analyser);
+  void context.resume().catch(() => {});
+
+  let stopped = false;
+  let frame = 0;
+  const tick = () => {
+    if (stopped) return;
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (const sample of data) {
+      const centered = (sample - 128) / 128;
+      sum += centered * centered;
+    }
+    emit("voice:audio-level", {
+      level: Math.min(1, Math.sqrt(sum / data.length) * 2),
+      source: "mic",
+    }).catch(() => {});
+    frame = window.requestAnimationFrame(tick);
+  };
+  frame = window.requestAnimationFrame(tick);
+
+  return () => {
+    stopped = true;
+    window.cancelAnimationFrame(frame);
+    source.disconnect();
+    analyser.disconnect();
+    void context.close().catch(() => {});
+  };
+}
+
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
   const platform =
@@ -3293,11 +3340,7 @@ async function startNativeFullscreenRecording(
   // clock and the toolbar-enable behind the real recording start.
   let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
-  const wantsSystemAudio = shouldRequestSystemAudio(
-    true,
-    params.micOn,
-    params.systemAudioOn,
-  );
+  const wantsSystemAudio = shouldRequestSystemAudio(true, params.systemAudioOn);
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const canTranscribeLocally =
     shouldStartLocalRecordingTranscription(wantsAudio);
@@ -4340,7 +4383,6 @@ async function startRecordingInner(
   const restartHandoff = resolveRestartHandoff(params, wantsScreen, wantsAudio);
   const wantsSystemAudio = shouldRequestSystemAudio(
     wantsScreen,
-    params.micOn,
     params.systemAudioOn,
   );
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
@@ -4683,6 +4725,9 @@ async function startRecordingInner(
           readyState: t.readyState,
         })),
       );
+    }
+    if (audioStream && wantsAudio) {
+      streamCleanups.push(startBrowserMicLevelEmitter(audioStream));
     }
 
     await invoke("park_popover_offscreen").catch(() => {});

@@ -69,6 +69,7 @@ import {
 } from "@/lib/recorder-preferences";
 import { cn } from "@/lib/utils";
 
+import { CameraVisualizer, type CameraTestStatus } from "./camera-visualizer";
 import {
   MicrophoneVisualizer,
   friendlyMicError,
@@ -101,6 +102,12 @@ type MicTestState = {
   status: MicrophoneTestStatus;
   error: string | null;
   hasSignal: boolean;
+};
+
+type CameraTestState = {
+  status: CameraTestStatus;
+  error: string | null;
+  hasPreview: boolean;
 };
 
 type DeviceAccessStatus = "idle" | "requesting" | "granted" | "error";
@@ -393,6 +400,11 @@ export function PreRecordPanel({
     status: "idle",
     error: null,
     hasSignal: false,
+  });
+  const [cameraTest, setCameraTest] = useState<CameraTestState>({
+    status: "idle",
+    error: null,
+    hasPreview: false,
   });
   const queueRecordingSetupStateWrite = useCallback((value: unknown) => {
     recordingSetupWriteQueueRef.current = recordingSetupWriteQueueRef.current
@@ -804,9 +816,30 @@ export function PreRecordPanel({
   const handleMicSignalChange = useCallback((hasSignal: boolean) => {
     setMicTest((prev) => ({ ...prev, hasSignal }));
   }, []);
+
+  const handleCameraStatusChange = useCallback(
+    (status: CameraTestStatus, detail?: { error?: string | null }) => {
+      setCameraTest({
+        status,
+        error: detail?.error ?? null,
+        hasPreview: false,
+      });
+      if (status === "live") enumerateDevices().catch(() => {});
+    },
+    [enumerateDevices],
+  );
+
+  const handleCameraPreviewChange = useCallback((hasPreview: boolean) => {
+    setCameraTest((prev) => ({ ...prev, hasPreview }));
+  }, []);
+
   useEffect(() => {
     setMicTest({ status: "idle", error: null, hasSignal: false });
   }, [micId]);
+
+  useEffect(() => {
+    setCameraTest({ status: "idle", error: null, hasPreview: false });
+  }, [cameraId, needsCamera]);
 
   useEffect(() => {
     queueRecordingSetupStateWrite({
@@ -837,11 +870,17 @@ export function PreRecordPanel({
             : "specific"
           : "none",
         label: selectedCameraLabel,
+        testStatus: cameraTest.status,
+        testHasPreview: cameraTest.hasPreview,
+        testError: cameraTest.error,
       },
       updatedAt: new Date().toISOString(),
     });
   }, [
     cameraId,
+    cameraTest.error,
+    cameraTest.hasPreview,
+    cameraTest.status,
     audioEnabled,
     micId,
     micAccessError,
@@ -861,8 +900,9 @@ export function PreRecordPanel({
   const startDisabled = useMemo(() => {
     if (busy) return true;
     if (audioEnabled && micTest.status === "error") return true;
+    if (needsCamera && cameraTest.status === "error") return true;
     return false;
-  }, [audioEnabled, busy, micTest.status]);
+  }, [audioEnabled, busy, cameraTest.status, micTest.status, needsCamera]);
   const microphoneError = audioEnabled
     ? (micTest.error ?? micAccessError)
     : null;
@@ -1061,6 +1101,17 @@ export function PreRecordPanel({
               </TooltipContent>
             </Tooltip>
           </div>
+
+          {needsCamera ? (
+            <CameraVisualizer
+              deviceId={cameraId === "default" ? null : cameraId}
+              disabled={busy}
+              size="sm"
+              className="px-2"
+              onStatusChange={handleCameraStatusChange}
+              onPreviewChange={handleCameraPreviewChange}
+            />
+          ) : null}
 
           <div
             className={cn(

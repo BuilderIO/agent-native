@@ -63,15 +63,23 @@ fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
 /// before handing it to AppKit.
 fn template_tray_icon() -> Result<tauri::image::Image<'static>, Box<dyn std::error::Error>> {
     let base = tauri::image::Image::from_bytes(TRAY_PNG)?;
-    let mut rgba = base.rgba().to_vec();
-    for pixel in rgba.chunks_exact_mut(4) {
-        pixel[..3].fill(0);
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Ok(base);
     }
-    Ok(tauri::image::Image::new_owned(
-        rgba,
-        base.width(),
-        base.height(),
-    ))
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut rgba = base.rgba().to_vec();
+        for pixel in rgba.chunks_exact_mut(4) {
+            pixel[..3].fill(0);
+        }
+        Ok(tauri::image::Image::new_owned(
+            rgba,
+            base.width(),
+            base.height(),
+        ))
+    }
 }
 
 /// Whether the status item is in recording mode (stop square + timer).
@@ -140,6 +148,7 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
             // like the mode is already on screen.
             match tray.set_icon(Some(icon)) {
                 Ok(()) => {
+                    #[cfg(target_os = "macos")]
                     let _ = tray.set_icon_as_template(true);
                     TRAY_ICON_MODE.store(i8::from(active), std::sync::atomic::Ordering::SeqCst);
                 }
@@ -393,7 +402,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .tooltip("Clips")
         .menu(&menu)
         .icon(tray_icon)
-        .icon_as_template(true)
+        .icon_as_template(cfg!(target_os = "macos"))
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             let id_ref = event.id.as_ref();

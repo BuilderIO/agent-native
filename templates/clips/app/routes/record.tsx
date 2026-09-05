@@ -73,6 +73,7 @@ import {
   createCountdownAudioCue,
   type CountdownAudioCue,
 } from "@/lib/countdown-audio-cue";
+import { takePendingUploadFile } from "@/lib/pending-upload-file";
 import {
   loadRecorderPreferences,
   saveRecorderPreferences,
@@ -854,8 +855,6 @@ export default function RecordRoute() {
     [t],
   );
   const [uiState, setUiState] = useState<UiState>("idle");
-  const autoUploadInputRef = useRef<HTMLInputElement>(null);
-  const autoOpenUploadTriggeredRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
@@ -909,10 +908,6 @@ export default function RecordRoute() {
   const folderIdFromUrl = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get("folderId") || null;
-  }, [location.search]);
-  const autoOpenUploadFromUrl = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    return params.get("autoUpload") === "1";
   }, [location.search]);
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
@@ -1914,17 +1909,10 @@ export default function RecordRoute() {
   );
 
   useEffect(() => {
-    if (
-      !autoOpenUploadFromUrl ||
-      autoOpenUploadTriggeredRef.current ||
-      storageConfigured !== true ||
-      uiState !== "idle"
-    ) {
-      return;
-    }
-    autoOpenUploadTriggeredRef.current = true;
-    autoUploadInputRef.current?.click();
-  }, [autoOpenUploadFromUrl, storageConfigured, uiState]);
+    if (storageConfigured !== true || uiState !== "idle") return;
+    const file = takePendingUploadFile();
+    if (file) void uploadFile(file);
+  }, [storageConfigured, uiState, uploadFile]);
 
   const saveBrowserDiagnostics = useCallback(
     async (recordingId: string) => {
@@ -2708,20 +2696,6 @@ export default function RecordRoute() {
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip bg-background text-foreground">
-      {autoOpenUploadFromUrl ? (
-        <input
-          ref={autoUploadInputRef}
-          data-auto-upload-bridge="true"
-          type="file"
-          accept="video/mp4,video/webm,video/quicktime,video/*"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) void uploadFile(file);
-            event.currentTarget.value = "";
-          }}
-        />
-      ) : null}
       {showBackButton && (
         <TooltipProvider delayDuration={300}>
           <Tooltip>

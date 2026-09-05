@@ -52,7 +52,7 @@ describe("recorder popover failure states", () => {
     expect(html).toContain('aria-label="Camera"');
   });
 
-  it("removes mic-only affordances and the live meter when the mic is off", () => {
+  it("keeps system audio available when the mic is off", () => {
     const html = renderToStaticMarkup(
       <MediaDeviceRow
         {...commonDeviceProps}
@@ -69,7 +69,8 @@ describe("recorder popover failure states", () => {
     expect(html).toContain("Microphone");
     expect(html).not.toContain('aria-haspopup="menu"');
     expect(html).not.toContain("mic-wave");
-    expect(html).not.toContain("Record system audio");
+    expect(html).toContain("Record system audio");
+    expect(html).toContain('aria-label="Record system audio"');
   });
 
   it("keeps source selection keyboard-addressable when the source is active", () => {

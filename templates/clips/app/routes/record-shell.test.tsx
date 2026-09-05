@@ -163,16 +163,17 @@ describe("record route lifecycle shell", () => {
     );
   });
 
-  it("keeps auto-upload as a hidden route bridge instead of panel chrome", () => {
+  it("keeps upload handoff outside the recorder panel", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/routes/record.tsx"),
       "utf8",
     );
 
-    expect(source).toContain('params.get("autoUpload") === "1"');
-    expect(source).toContain('data-auto-upload-bridge="true"');
-    expect(source).toContain("autoUploadInputRef.current?.click()");
+    expect(source).toContain("takePendingUploadFile");
     expect(source).toContain("if (file) void uploadFile(file)");
+    expect(source).not.toContain('params.get("autoUpload") === "1"');
+    expect(source).not.toContain("autoUploadInputRef");
+    expect(source).not.toContain("data-auto-upload-bridge");
     expect(source).not.toContain("onUpload={uploadFile}");
     expect(source).not.toContain("importLoomHref=");
     expect(source).not.toContain("autoOpenUpload=");
