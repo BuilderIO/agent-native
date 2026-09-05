@@ -21,6 +21,25 @@ export function canManageOrg(role: OrgRole | null | undefined): boolean {
   return orgRoleAtLeast(role, "admin");
 }
 
+export function canChangeOrgMemberRole(
+  actorRole: OrgRole | null | undefined,
+  memberRole: OrgRole | null | undefined,
+): boolean {
+  return (
+    actorRole === "owner" && (memberRole === "admin" || memberRole === "member")
+  );
+}
+
+export function canRemoveOrgMember(
+  actorRole: OrgRole | null | undefined,
+  memberRole: OrgRole | null | undefined,
+): boolean {
+  if (memberRole !== "admin" && memberRole !== "member") return false;
+  return (
+    actorRole === "owner" || (actorRole === "admin" && memberRole === "member")
+  );
+}
+
 export function canInviteOrgMembers(role: OrgRole | null | undefined): boolean {
   return orgRoleAtLeast(role, "admin");
 }

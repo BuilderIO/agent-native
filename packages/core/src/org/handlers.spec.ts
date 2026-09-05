@@ -3,7 +3,42 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockExecute = vi.fn();
 const mockTransaction = vi.fn(
   async (fn: (tx: { execute: typeof mockExecute }) => unknown) =>
-    fn({ execute: mockExecute }),
+    fn({
+      execute: async (input: { sql: string; args?: unknown[] }) => {
+        if (!input.sql.includes("ORDER BY id FOR UPDATE")) {
+          return mockExecute(input);
+        }
+        const result = await mockExecute(input);
+        const contextResult =
+          mockGetOrgContext.mock.results[
+            mockGetOrgContext.mock.results.length - 1
+          ]?.value;
+        const context = await contextResult;
+        const emails = (input.args ?? []).slice(1).map(String);
+        const targetEmail = emails[emails.length - 1];
+        const actorEmail = String(context?.email ?? "owner@example.test");
+        const actorRow = {
+          id: "actor-1",
+          email: actorEmail,
+          role: context?.role ?? "owner",
+          federationRemovalPendingAt: null,
+        };
+        const targetRows = (result.rows ?? []).map(
+          (row: any, index: number) => ({
+            id: row.id ?? `target-${index}`,
+            email: row.email ?? targetEmail,
+            ...row,
+          }),
+        );
+        return {
+          ...result,
+          rows:
+            actorEmail.toLowerCase() === targetEmail?.toLowerCase()
+              ? targetRows
+              : [actorRow, ...targetRows],
+        };
+      },
+    }),
 );
 const mockGetOrgContext = vi.fn();
 const mockGetSession = vi.hoisted(() => vi.fn());
@@ -11,6 +46,14 @@ const mockAddFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockRevokeFederatedOrganizationMember = vi.hoisted(() => vi.fn());
 const mockUpdateFederatedOrganizationMemberRole = vi.hoisted(() => vi.fn());
 const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
+const MockFederatedMemberOperationError = vi.hoisted(
+  () =>
+    class FederatedMemberOperationError extends Error {
+      constructor(readonly statusCode: number) {
+        super(`Identity authority member operation failed (${statusCode}).`);
+      }
+    },
+);
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -39,6 +82,7 @@ vi.mock("./federation.js", () => ({
     mockAddFederatedOrganizationMember(...args),
   revokeFederatedOrganizationMember: (...args: any[]) =>
     mockRevokeFederatedOrganizationMember(...args),
+  FederatedMemberOperationError: MockFederatedMemberOperationError,
   syncOrganizationToIdentityHub: vi.fn(async () => false),
   updateFederatedOrganizationMemberRole: (...args: any[]) =>
     mockUpdateFederatedOrganizationMemberRole(...args),
@@ -112,11 +156,100 @@ describe("org handlers", () => {
     mockEvaluateFeatureFlagStrict.mockResolvedValue(false);
   });
 
+  it("rejects an admin removing another admin before changing either roster", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "admin@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "admin",
+    });
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ role: "admin", federation_removal_pending_at: null }],
+      rowsAffected: 0,
+    });
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/another-admin@example.test"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, string[]]>([
+    ["admin", ["member", "admin"]],
+    ["admin", ["owner"]],
+    ["owner", ["owner"]],
+  ])(
+    "rejects %s removing protected target rows %j",
+    async (actorRole, roles) => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "actor@example.test",
+        orgId: "org-1",
+        orgName: "Example",
+        role: actorRole,
+      });
+      mockExecute.mockResolvedValueOnce({
+        rows: roles.map((role) => ({
+          role,
+          federation_removal_pending_at: null,
+        })),
+        rowsAffected: 0,
+      });
+
+      await expect(
+        removeMemberHandler(
+          makeEvent("/_agent-native/org/members/Target%40example.test"),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["admin", "member"],
+    ["owner", "admin"],
+    ["owner", "member"],
+  ])("allows %s to remove a %s", async (actorRole, targetRole) => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "actor@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: actorRole,
+    });
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ role: targetRole, federation_removal_pending_at: null }],
+      rowsAffected: 0,
+    });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/target@example.test"),
+      ),
+    ).resolves.toEqual({ success: true });
+    expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        actorRole,
+        memberEmail: "target@example.test",
+      }),
+    );
+    expect(mockExecute.mock.calls[2][0].sql).toContain(
+      "DELETE FROM org_members",
+    );
+  });
+
   it("keeps a federated removal atomic across the local and identity rosters", async () => {
     mockExecute.mockResolvedValueOnce({
       rows: [{ role: "member", federation_removal_pending_at: null }],
       rowsAffected: 0,
     });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
     mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
 
     await expect(
@@ -136,7 +269,7 @@ describe("org handlers", () => {
     );
     expect(mockExecute).toHaveBeenCalledTimes(3);
     expect(mockExecute.mock.calls[2][0].sql).toContain(
-      "DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?",
+      "DELETE FROM org_members",
     );
   });
 
@@ -145,6 +278,7 @@ describe("org handlers", () => {
       rows: [{ role: "member", federation_removal_pending_at: null }],
       rowsAffected: 0,
     });
+    mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
     mockRevokeFederatedOrganizationMember.mockRejectedValue(
       new Error("identity authority unavailable"),
     );
@@ -158,6 +292,59 @@ describe("org handlers", () => {
     expect(mockExecute.mock.calls[1][0].sql).toContain(
       "SET federation_removal_pending_at = ?",
     );
+  });
+
+  it("does not revoke remotely when the target is promoted before removal is claimed", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "admin@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "admin",
+    });
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [{ role: "member", federation_removal_pending_at: null }],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/member@example.test"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("DELETE FROM org_members"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not revoke remotely when only some case-insensitive matches are marked", async () => {
+    mockExecute
+      .mockResolvedValueOnce({
+        rows: [
+          { role: "member", federation_removal_pending_at: null },
+          { role: "member", federation_removal_pending_at: null },
+        ],
+        rowsAffected: 0,
+      })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/member@example.test"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        input.sql.includes("DELETE FROM org_members"),
+      ),
+    ).toBe(false);
   });
 
   it("does not grant a domain join to a linked organization", async () => {
@@ -552,7 +739,10 @@ describe("org handlers", () => {
       await prime();
       expect(load).toHaveBeenCalledTimes(1);
 
-      mockExecute.mockResolvedValue({ rows: [{ role: "admin" }] });
+      mockExecute
+        .mockResolvedValueOnce({ rows: [{ role: "admin" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [{ role: "admin" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
       await changeMemberRoleHandler(
         makeEvent("/_agent-native/org/members/member@example.test/role", {
           role: "member",
@@ -564,7 +754,10 @@ describe("org handlers", () => {
     });
 
     it("propagates a role change before updating the local roster", async () => {
-      mockExecute.mockResolvedValue({ rows: [{ role: "member" }] });
+      mockExecute
+        .mockResolvedValueOnce({ rows: [{ role: "member" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [{ role: "member" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
       mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(true);
 
       await changeMemberRoleHandler(
@@ -581,6 +774,7 @@ describe("org handlers", () => {
           actorRole: "owner",
           memberEmail: "member@example.test",
           memberRole: "admin",
+          expectedMemberRole: "member",
         },
       );
     });
