@@ -492,6 +492,35 @@ describe("route-state client helpers", () => {
     });
   });
 
+  it("places the browser tab before the command key in the default cache key", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    let commandQueryKey: readonly unknown[] | undefined;
+
+    function Harness() {
+      commandQueryKey = useAgentRouteState({
+        browserTabId: "tab-1",
+        refetchInterval: false,
+        getNavigationState: () => ({ view: "home" }),
+        getCommandPath: () => null,
+      }).commandQueryKey;
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+
+    expect(commandQueryKey).toEqual(["navigate-command", "tab-1", "navigate"]);
+  });
+
   it("uses the workspace gateway when a command targets a sibling app", async () => {
     const { fetchMock } = makeAppStateFetch({
       "navigate:tab-1": {

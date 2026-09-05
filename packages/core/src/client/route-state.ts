@@ -489,8 +489,8 @@ export function useAgentRouteState<
     () =>
       options.commandQueryKey ?? [
         "navigate-command",
-        commandKey,
         browserTabId ?? "global",
+        commandKey,
       ],
     [browserTabId, commandKey, options.commandQueryKey],
   );
