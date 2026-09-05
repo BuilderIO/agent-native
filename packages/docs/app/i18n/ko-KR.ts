@@ -437,19 +437,20 @@ const koKR = {
   },
   homepage: {
     hero: {
-      title: "에이전틱 애플리케이션 프레임워크",
-      bodyLine1: "직관적인 UI를 갖춘 자율형 에이전트를 구축하세요.",
-      bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
+      title: "에이전틱 앱을 위한 프레임워크.",
+      bodyLine1:
+        "UI와 에이전트를 갖춘 앱을 위한 오픈 소스 TypeScript 프레임워크입니다.",
+      bodyLine2: "각 Action을 한 번만 정의하고 어디서든 호출하세요.",
       tryAnApp: "앱 사용해 보기",
     },
     install: {
       copyCommand: "설치 명령 복사",
     },
     actions: {
-      title: "하나의 Action이 모든 표면을 구동합니다",
-      bodyLine1: "Action은 에이전트가 할 수 있는 일을 정의합니다.",
+      title: "어디서든 하나의 Action을 호출하세요.",
+      bodyLine1: "defineAction()으로 기능을 정의하세요.",
       bodyLine2:
-        "각 기능을 한 번만 정의하고 에이전트, UI, HTTP API, MCP, A2A, CLI에서 그대로 사용하세요.",
+        "React UI, 에이전트, HTTP 클라이언트와 통합 기능이 모두 같은 코드를 호출합니다.",
       diagramAlt:
         "하나의 Action이 UI, MCP, 에이전트 채팅, A2A, HTTP API, CLI를 구동합니다",
     },
@@ -496,13 +497,13 @@ const koKR = {
       },
     },
     stack: {
-      title: "기존 스택과 함께 작동",
-      body: "LLM, 데이터베이스, 도구, 인프라를 그대로 사용하세요. Agent-Native는 오픈 소스 TypeScript이므로 구축한 모든 것은 여러분의 것입니다.",
+      title: "나만의 스택을 가져오세요",
+      body: "Agent-Native는 오픈 소스 TypeScript입니다. 모델, 데이터베이스, 호스팅을 선택하고 애플리케이션 코드를 자신의 저장소에 보관하세요.",
       exploreApps: "Agent-Native로 만든 앱 살펴보기",
     },
     showcase: {
-      title: "Agent-Native로 무엇을 만들 수 있나요?",
-      body: "회의, 디자인, 프레젠테이션, 데이터 등을 위한 UI가 있는 에이전트를 구축하세요. 이 오픈 소스 앱 중 하나로 시작하거나 직접 구축할 수 있습니다.",
+      title: "Agent-Native로 만든 실제 앱",
+      body: "무료로 사용하거나 무한히 커스터마이즈할 수 있는 Agent-Native 오픈 소스 앱입니다.",
       browseApps: "앱 살펴보기",
       scrollLeft: "앱 왼쪽으로 스크롤",
       scrollRight: "앱 오른쪽으로 스크롤",
@@ -521,7 +522,7 @@ const koKR = {
       download: "다운로드",
       apps: "앱",
       privacyPolicy: "개인정보 처리방침",
-      saasTerms: "호스팅 서비스 약관",
+      saasTerms: "SaaS 약관",
       legalResources: "법률 리소스",
     },
   },

@@ -412,7 +412,7 @@ function buildGraph(
     ),
     output: simulationTargets[spec.output],
   }));
-  const displacement = ifft.at(-1)!.output;
+  const displacement = ifft[ifft.length - 1]!.output;
   const normals = configuredEffect(
     gpu,
     normalFoamWgsl,

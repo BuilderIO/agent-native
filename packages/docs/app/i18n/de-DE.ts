@@ -438,20 +438,20 @@ const deDE = {
   },
   homepage: {
     hero: {
-      title: "Das Framework für agentische Anwendungen",
+      title: "Das Framework für agentische Apps.",
       bodyLine1:
-        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
-      bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
+        "Ein Open-Source-TypeScript-Framework für Apps mit einer UI und einem Agenten.",
+      bodyLine2: "Definiere jede Action einmal und rufe sie überall auf.",
       tryAnApp: "App ausprobieren",
     },
     install: {
       copyCommand: "Installationsbefehl kopieren",
     },
     actions: {
-      title: "Eine Action treibt jede Oberfläche an",
-      bodyLine1: "Actions bestimmen, was dein Agent tun kann.",
+      title: "Eine Action von überall aufrufen.",
+      bodyLine1: "Definiere eine Fähigkeit mit defineAction().",
       bodyLine2:
-        "Definiere jede Fähigkeit einmal und nutze sie dann über den Agenten, die UI, HTTP API, MCP, A2A oder CLI.",
+        "Deine React-UI, dein Agent, HTTP-Clients und Integrationen verwenden denselben Code.",
       diagramAlt:
         "Eine Action treibt UI, MCP, Agent-Chat, A2A, HTTP API und CLI an",
     },
@@ -498,13 +498,13 @@ const deDE = {
       },
     },
     stack: {
-      title: "Funktioniert mit deinem Stack",
-      body: "Bring dein LLM, deine Datenbank, Tools und Infrastruktur mit. Agent-Native ist quelloffenes TypeScript, sodass alles, was du baust, dir gehört.",
+      title: "Bring deinen eigenen Stack mit",
+      body: "Agent-Native ist Open-Source-TypeScript. Wähle dein Modell, deine Datenbank und dein Hosting und behalte den Anwendungscode in deinem Repository.",
       exploreApps: "Mit Agent-Native gebaute Apps entdecken",
     },
     showcase: {
-      title: "Was kannst du mit Agent-Native bauen?",
-      body: "Baue Agenten mit UIs für Meetings, Design, Präsentationen, Daten und mehr. Starte mit einer dieser Open-Source-Apps oder baue deinen eigenen.",
+      title: "Echte Apps mit Agent-Native",
+      body: "Open-Source-Agent-Native-Apps, die du kostenlos nutzen oder grenzenlos anpassen kannst.",
       browseApps: "Apps durchsuchen",
       scrollLeft: "Apps nach links scrollen",
       scrollRight: "Apps nach rechts scrollen",
@@ -523,7 +523,7 @@ const deDE = {
       download: "Herunterladen",
       apps: "Apps",
       privacyPolicy: "Datenschutzerklärung",
-      saasTerms: "Bedingungen für den gehosteten Dienst",
+      saasTerms: "SaaS-Bedingungen",
       legalResources: "Rechtliche Ressourcen",
     },
   },

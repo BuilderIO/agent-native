@@ -436,19 +436,20 @@ const enUS = {
   },
   homepage: {
     hero: {
-      title: "The agentic application framework",
-      bodyLine1: "Build autonomous agents with intuitive UIs.",
-      bodyLine2: "Bring your own LLM. Deploy anywhere.",
+      title: "The framework for agent-native apps.",
+      bodyLine1:
+        "An open-source TypeScript framework for apps with a UI and an agent.",
+      bodyLine2: "Define each action once and call it from anywhere.",
       tryAnApp: "Try an app",
     },
     install: {
       copyCommand: "Copy install command",
     },
     actions: {
-      title: "One Action powers every surface",
-      bodyLine1: "Actions define what your agent can do.",
+      title: "Call one action from anywhere.",
+      bodyLine1: "Define a capability with defineAction().",
       bodyLine2:
-        "Define each capability once, then use it from the agent, UI, HTTP API, MCP, A2A, or CLI.",
+        "Your React UI, agent, HTTP clients, and integrations all call the same code.",
       diagramAlt:
         "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
     },
@@ -495,13 +496,13 @@ const enUS = {
       },
     },
     stack: {
-      title: "Works with your stack",
-      body: "Bring your LLM, database, tools, and infrastructure. Agent-Native is open-source TypeScript, so everything you build stays yours.",
+      title: "Bring your own stack",
+      body: "Agent-Native is open-source TypeScript. Choose your model, database, and host, then keep the application code in your repository.",
       exploreApps: "Explore apps built with Agent-Native",
     },
     showcase: {
-      title: "What can you build with Agent-Native?",
-      body: "Build agents with UIs for meetings, design, presentations, data, and more. Start from one of these open-source apps or build your own.",
+      title: "Real apps built with Agent-Native",
+      body: "Open-source Agent-Native apps you can use for free or infinitely customize",
       browseApps: "Browse apps",
       scrollLeft: "Scroll apps left",
       scrollRight: "Scroll apps right",
@@ -520,7 +521,7 @@ const enUS = {
       download: "Download",
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
-      saasTerms: "Hosted Terms",
+      saasTerms: "SaaS Terms",
       // i18n-copy-ignore: English-only capitalization fix; translations unchanged
       legalResources: "Legal Resources",
     },
