@@ -22,9 +22,7 @@ metadata:
 - **Artifacts fit in one call.** Up to 500,000 characters; return a `storing-data` handle.
 - **One tab, one id.** WebMCP sends `X-Agent-Native-Browser-Tab`; state resolves to the driving tab (`context-awareness`).
 
-An agent-native app is reachable by any MCP-compatible host (Claude, Claude
-Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Cowork, VS Code
-GitHub Copilot, Goose, Postman, MCPJam, and future standard clients). Keep
+An agent-native app is reachable by any MCP-compatible host. Keep
 setup simple: for workspace or cross-app access, add one remote MCP connector:
 `https://dispatch.agent-native.com/mcp`. Dispatch's Agents page
 controls whether that single connector reaches all apps or only selected apps,
@@ -37,14 +35,11 @@ In-app, the Agent page's **Access** tab (`/agent#access`) is the home for this:
 it shows MCP/A2A URLs, client setup steps, and the full `/mcp/connect` page.
 Point users there instead of dictating URLs in chat.
 
-OAuth-capable hosts should use the standard remote MCP OAuth flow. Claude
-connectors and Claude Code `/mcp` authentication discover the protected
-resource, open the Agent-Native authorization page, and store their own tokens.
-ChatGPT custom MCP connectors use the same URL: choose OAuth, scan/discover
-tools, sign in, and approve the scopes. Local stdio proxying and older clients
-can still use `npx @agent-native/core connect <url>`, which mints a per-user,
-scoped, revocable token from a logged-in browser session; no shared secret is
-copied.
+OAuth-capable hosts use the standard remote MCP OAuth flow — Claude, Claude
+Code, and ChatGPT discover the protected resource and store their own tokens;
+per-host steps are below. Local stdio proxying and older clients can still use
+`npx @agent-native/core connect <url>`, which mints a per-user, scoped,
+revocable token from a logged-in browser session; no shared secret is copied.
 
 The framework serves MCP `2026-07-28` natively over stateless, per-request HTTP
 and keeps the established stateless path for 2025-era clients. New MCP client
@@ -508,6 +503,10 @@ before telling the user they are unauthenticated.
   and read live (Yjs) state, not the stale DB column.
 - Do let the open route resolve the browser session; pass record ids as deep-
   link params and let the UI focus them via the polled `navigate` command.
+- Do return `designSystem` on reads in visual apps (see the actions skill) and
+  put `get-design-system` and `list-design-systems` in both `connectorCatalog`
+  and `initialToolNames`; a description that points at a tool the connector
+  cannot see is a dead end.
 
 ## Don't
 

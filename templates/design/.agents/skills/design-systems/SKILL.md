@@ -496,6 +496,8 @@ human approval.
 
 When generating a design that has a linked design system, replace all default CSS custom properties with the design system tokens.
 
+`get-design` / `view-screen` return `designSystem` as a bounded summary; call `get-design-system` once for the full context before the first screen you author, and use `index-design-tokens` to inspect an existing design's applied tokens.
+
 ### Before (defaults):
 
 ```css

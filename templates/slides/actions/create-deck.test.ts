@@ -39,6 +39,7 @@ let existingDeckRow:
   | { id: string; data: string; updatedAt: string }
   | undefined = undefined;
 let defaultDesignSystemId: string | undefined = undefined;
+let titleQueryRows: Array<{ id: string }> = [];
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
@@ -47,12 +48,25 @@ const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
 const defaultDesignSystemLimitFn = vi.fn(async () =>
   defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
 );
-const whereSelectFn = vi.fn((_condition: unknown, table?: unknown) => ({
-  limit:
-    table === mockTables.designSystemsTable
-      ? defaultDesignSystemLimitFn
-      : limitFn,
-}));
+// resolveDesignSystemIdByTitle has no `.limit()` — it awaits `.where(...)`
+// directly, so its clause is distinguished by the accessFilter sentinel that
+// leads its `and(...)` conditions rather than by a subsequent chained call.
+const titleWhereFn = vi.fn(async () => titleQueryRows);
+const whereSelectFn = vi.fn((condition: unknown, table?: unknown) => {
+  const clauses = (condition as { and?: unknown[] } | undefined)?.and;
+  const isTitleQuery =
+    table === mockTables.designSystemsTable &&
+    Array.isArray(clauses) &&
+    (clauses[0] as { __accessFilter?: boolean } | undefined)?.__accessFilter ===
+      true;
+  if (isTitleQuery) return titleWhereFn();
+  return {
+    limit:
+      table === mockTables.designSystemsTable
+        ? defaultDesignSystemLimitFn
+        : limitFn,
+  };
+});
 const fromFn = vi.fn((table: unknown) => ({
   where: (condition: unknown) => whereSelectFn(condition, table),
 }));
@@ -89,6 +103,7 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+  accessFilter: () => ({ __accessFilter: true }),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -123,13 +138,15 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
+const mockGetDesignSystemRun = vi.fn(async ({ id }: { id: string }) => ({
+  id,
+  title: "Acme",
+  agentContext: "Use --brand-accent: #123456.",
+}));
+
 vi.mock("./get-design-system.js", () => ({
   default: {
-    run: vi.fn(async ({ id }: { id: string }) => ({
-      id,
-      title: "Acme",
-      agentContext: "Use --brand-accent: #123456.",
-    })),
+    run: (...args: [{ id: string }]) => mockGetDesignSystemRun(...args),
   },
 }));
 
@@ -140,6 +157,7 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   existingDeckRow = undefined;
   defaultDesignSystemId = undefined;
+  titleQueryRows = [];
   insertedRow = undefined;
   updatedFields = undefined;
   mockGetUserEmail.mockReturnValue("owner@example.com");
@@ -218,8 +236,68 @@ describe("create-deck — aspectRatio", () => {
       id: "ds-explicit",
       agentContext: "Use --brand-accent: #123456.",
     });
+    expect(mockGetDesignSystemRun).toHaveBeenCalledWith(
+      expect.objectContaining({ compact: "false" }),
+    );
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.designSystemId).toBe("ds-explicit");
+  });
+
+  it("resolves designSystem by exact title, case-insensitively, when no id is given", async () => {
+    titleQueryRows = [{ id: "ds-acme" }];
+
+    const result = await action.run({
+      title: "T",
+      slides: [],
+      designSystem: "acme",
+    });
+
+    expect(insertedRow!.designSystemId).toBe("ds-acme");
+    expect(result.designSystemId).toBe("ds-acme");
+  });
+
+  it("fails with design_system_not_found for an unknown designSystem title", async () => {
+    titleQueryRows = [];
+
+    await expect(
+      action.run({ title: "T", slides: [], designSystem: "Nonexistent" }),
+    ).rejects.toMatchObject({
+      errorCode: "design_system_not_found",
+      statusCode: 404,
+    });
+    expect(insertedRow).toBeUndefined();
+  });
+
+  it("fails with design_system_ambiguous when two rows share a title", async () => {
+    titleQueryRows = [{ id: "ds-a" }, { id: "ds-b" }];
+
+    await expect(
+      action.run({ title: "T", slides: [], designSystem: "Acme" }),
+    ).rejects.toMatchObject({
+      errorCode: "design_system_ambiguous",
+      statusCode: 409,
+    });
+    expect(insertedRow).toBeUndefined();
+  });
+
+  it("prefers an explicit designSystemId over a designSystem title", async () => {
+    titleQueryRows = [{ id: "ds-by-title" }];
+
+    const result = await action.run({
+      title: "T",
+      slides: [],
+      designSystemId: "ds-explicit",
+      designSystem: "Acme",
+    });
+
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "design-system",
+      "ds-explicit",
+      "viewer",
+    );
+    expect(titleWhereFn).not.toHaveBeenCalled();
+    expect(insertedRow!.designSystemId).toBe("ds-explicit");
+    expect(result.designSystemId).toBe("ds-explicit");
   });
 
   it("returns a workspace-scoped deck URL when the app is mounted under a base path", async () => {
@@ -247,6 +325,45 @@ describe("create-deck — aspectRatio", () => {
     expect(updatedFields).toBeDefined();
     const data = JSON.parse(updatedFields!.data as string);
     expect(data.aspectRatio).toBe("1:1");
+  });
+
+  it("honors a designSystem title when replacing an existing deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+    titleQueryRows = [{ id: "ds-acme" }];
+    const result = await action.run({
+      title: "T2",
+      slides: [],
+      deckId: "deck-1",
+      designSystem: "Acme",
+    });
+    expect(updatedFields!.designSystemId).toBe("ds-acme");
+    expect(JSON.parse(updatedFields!.data as string).designSystemId).toBe(
+      "ds-acme",
+    );
+    expect(result.designSystemId).toBe("ds-acme");
+  });
+
+  it("keeps a legacy JSON design-system link when replacing a deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        designSystemId: "ds-legacy",
+      }),
+    };
+    const result = await action.run({
+      title: "T2",
+      slides: [],
+      deckId: "deck-1",
+    });
+    expect(updatedFields!.designSystemId).toBe("ds-legacy");
+    expect(result.designSystemId).toBe("ds-legacy");
   });
 
   it("scopes existing-deck navigation to the invoking browser tab", async () => {

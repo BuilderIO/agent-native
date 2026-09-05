@@ -14,7 +14,9 @@ import {
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
+import { summarizeDeckStyle } from "../shared/representative-slide.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
 import {
   ensureUniqueSlideIds,
@@ -168,7 +170,7 @@ function sourceEditabilityForDeck(
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits.",
+    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
   timeoutMs: 60_000,
   schema: z.object({
     id: z
@@ -252,12 +254,14 @@ export default defineAction({
       sourceImport,
       slides.map((slide: any) => slide.id),
     );
-    const linkedDesignSystemId =
-      row.designSystemId ??
-      (typeof data?.designSystemId === "string" ? data.designSystemId : null);
+    const linkedDesignSystemId = resolveDeckDesignSystemId(row, data);
     const designSystem = await loadAgentDesignSystemContext(
       linkedDesignSystemId,
-      async (id) => getDesignSystem.run({ id }),
+      getDesignSystem,
+    );
+    const { deckStyle, representativeSlideId } = summarizeDeckStyle(
+      slides as any,
+      selectedSlideIndex,
     );
 
     if (compact) {
@@ -267,6 +271,7 @@ export default defineAction({
         visibility: row.visibility,
         designSystemId: linkedDesignSystemId,
         designSystem,
+        ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
         generationContext: data?.generationContext ?? null,
         sourceImport: data?.sourceImport
           ? {
@@ -335,6 +340,7 @@ export default defineAction({
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
       designSystemId: linkedDesignSystemId,
       designSystem,
+      ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
       sourceEditability: sourceEditabilityForDeck(sourceImport),
       sourceCoverage,
       slideCount: slides.length,

@@ -47,7 +47,7 @@ export default defineAction({
       .orderBy(asc(schema.designFiles.createdAt), asc(schema.designFiles.id));
     const designSystem = await loadAgentDesignSystemContext(
       typeof row.designSystemId === "string" ? row.designSystemId : null,
-      async (designSystemId) => getDesignSystem.run({ id: designSystemId }),
+      getDesignSystem,
     );
 
     return {

@@ -19,8 +19,12 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
+import {
+  resolveDefaultDesignSystemId,
+  resolveDesignSystemIdByTitle,
+} from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -140,7 +144,15 @@ export default defineAction({
     designSystemId: z
       .string()
       .optional()
-      .describe("Optional design system ID to link to the deck"),
+      .describe(
+        "Optional design system ID to link to the deck; omit to use your default, or pass its exact title as `designSystem` instead.",
+      ),
+    designSystem: z
+      .string()
+      .optional()
+      .describe(
+        "Exact title of an accessible design system to link (case-insensitive, whitespace-trimmed); resolved server-side. Use designSystemId when you already have the id; the id wins if both are given.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -173,7 +185,8 @@ export default defineAction({
     slides: rawSlides,
     deckId,
     aspectRatio,
-    designSystemId,
+    designSystemId: explicitDesignSystemId,
+    designSystem,
     contextPackId,
     contextModeOverride,
     reuseLabels,
@@ -252,6 +265,14 @@ export default defineAction({
     const resolvedTitle =
       repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
 
+    // Resolve the title form before the branches split so replacing a deck
+    // honors it the same way creating one does.
+    const designSystemId =
+      explicitDesignSystemId ??
+      (designSystem
+        ? await resolveDesignSystemIdByTitle(designSystem)
+        : undefined);
+
     if (deckId) {
       if (designSystemId) {
         await assertAccess("design-system", designSystemId, "viewer");
@@ -272,6 +293,10 @@ export default defineAction({
       assertHumanReadableDeckTitle(existingDeckTitle);
       const writeNow = nextDeckRevision(existing[0].updatedAt);
       const prevData = JSON.parse(existing[0].data);
+      const previousDesignSystemId = resolveDeckDesignSystemId(
+        existing[0],
+        prevData,
+      );
       const data = {
         ...prevData,
         title: existingDeckTitle,
@@ -296,8 +321,7 @@ export default defineAction({
           .set({
             title: existingDeckTitle,
             data: JSON.stringify(data),
-            designSystemId:
-              designSystemId ?? existing[0].designSystemId ?? null,
+            designSystemId: designSystemId ?? previousDesignSystemId,
             updatedAt: writeNow,
           })
           .where(
@@ -327,10 +351,11 @@ export default defineAction({
         id: deckId,
         title: existingDeckTitle,
         slideCount: slides.length,
-        designSystemId: designSystemId ?? existing[0].designSystemId ?? null,
+        designSystemId: designSystemId ?? previousDesignSystemId,
         designSystem: await loadAgentDesignSystemContext(
-          designSystemId ?? existing[0].designSystemId ?? null,
-          async (id) => getDesignSystem.run({ id }),
+          designSystemId ?? previousDesignSystemId,
+          getDesignSystem,
+          { full: true },
         ),
         url: getDeckUrl(deckId),
         appUrl: getDeckUrl(deckId),
@@ -390,7 +415,8 @@ export default defineAction({
       designSystemId: resolvedDesignSystemId ?? null,
       designSystem: await loadAgentDesignSystemContext(
         resolvedDesignSystemId,
-        async (id) => getDesignSystem.run({ id }),
+        getDesignSystem,
+        { full: true },
       ),
       url: getDeckUrl(id),
       appUrl: getDeckUrl(id),
