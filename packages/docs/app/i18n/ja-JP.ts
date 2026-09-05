@@ -437,19 +437,20 @@ const jaJP = {
   },
   homepage: {
     hero: {
-      title: "agentic アプリケーションのための framework",
-      bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
-      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      title: "agentic アプリのためのフレームワーク。",
+      bodyLine1:
+        "UI とエージェントを備えたアプリのためのオープンソース TypeScript フレームワークです。",
+      bodyLine2: "各 Action を一度定義すれば、どこからでも呼び出せます。",
       tryAnApp: "アプリを試す",
     },
     install: {
       copyCommand: "インストールコマンドをコピー",
     },
     actions: {
-      title: "1 つの Action があらゆる面を動かす",
-      bodyLine1: "Action はエージェントができることを定義します。",
+      title: "どこからでも 1 つの Action を呼び出せます。",
+      bodyLine1: "defineAction() で機能を定義します。",
       bodyLine2:
-        "各機能を一度定義すれば、エージェント、UI、HTTP API、MCP、A2A、CLI から利用できます。",
+        "React UI、エージェント、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
       diagramAlt:
         "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
     },
@@ -496,13 +497,13 @@ const jaJP = {
       },
     },
     stack: {
-      title: "お使いのスタックで動作",
-      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、構築したものはすべてあなたのものです。",
+      title: "独自のスタックを持ち込む",
+      body: "Agent-Native はオープンソース TypeScript です。モデル、データベース、ホスティングを選び、アプリケーションコードを自分のリポジトリに保持できます。",
       exploreApps: "Agent-Native で作られたアプリを見る",
     },
     showcase: {
-      title: "Agent-Native で何を作れるか",
-      body: "会議、デザイン、プレゼンテーション、データなどの仕事に対応する UI 付きエージェントを構築できます。これらのオープンソースアプリから始めることも、独自に構築することもできます。",
+      title: "Agent-Native で作られた実際のアプリ",
+      body: "無料で使うことも、無限にカスタマイズすることもできる Agent-Native のオープンソースアプリ。",
       browseApps: "アプリを見る",
       scrollLeft: "アプリを左へスクロール",
       scrollRight: "アプリを右へスクロール",
@@ -521,7 +522,7 @@ const jaJP = {
       download: "ダウンロード",
       apps: "アプリ",
       privacyPolicy: "プライバシーポリシー",
-      saasTerms: "ホスト型サービス利用規約",
+      saasTerms: "SaaS 利用規約",
       legalResources: "法務リソース",
     },
   },
