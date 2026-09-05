@@ -41,6 +41,16 @@ vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, run: () => Promise<unknown>) => run(),
 }));
 
+vi.mock("./get-design-system.js", () => ({
+  default: {
+    run: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
+  },
+}));
+
 import action from "./get-deck";
 
 beforeEach(() => {
@@ -105,6 +115,22 @@ describe("get-deck", () => {
 
     expect(result.id).toBe("deck-1");
     expect(result.slides[0]).toMatchObject({ id: "slide-a" });
+  });
+
+  it("includes readable linked design-system context", async () => {
+    currentResource!.designSystemId = "ds-1";
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.designSystem).toEqual({
+      status: "available",
+      id: "ds-1",
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    });
   });
 
   it("bounds a full-deck read so a stalled lookup can return a tool error", () => {

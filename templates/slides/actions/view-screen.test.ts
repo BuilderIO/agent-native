@@ -54,6 +54,16 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings: unknown, ...values: unknown[]) => ({ strings, values })),
 }));
 
+vi.mock("./get-design-system.js", () => ({
+  default: {
+    run: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
+  },
+}));
+
 import action from "./view-screen";
 
 beforeEach(() => {
@@ -117,6 +127,26 @@ describe("view-screen", () => {
       `currentSlideContentHash: ${hashSlideContent("<h1>Opening</h1>")}`,
     );
     expect(result).toContain("<h1>Opening</h1>");
+  });
+
+  it("includes the linked design-system context in the current deck read", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        designSystemId: "ds-1",
+        data: JSON.stringify({
+          title: "Quarterly Review",
+          slides: [{ id: "slide-a", content: "<h1>Opening</h1>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### Linked design system (authoritative)");
+    expect(result).toContain("Use --brand-accent: #123456.");
   });
 
   it("surfaces stable freeform object identity alongside the runtime selector", async () => {

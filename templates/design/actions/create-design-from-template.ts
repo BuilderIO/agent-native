@@ -4,6 +4,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, ne } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -21,6 +22,7 @@ import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
+import getDesignSystem from "./get-design-system.js";
 
 interface TemplateFile {
   id: string;
@@ -32,7 +34,8 @@ interface TemplateFile {
 export default defineAction({
   description:
     "Create an editable design from a reusable template. The action copies the template files, exact dimensions, defaults, and locked layers. " +
-    "When a prompt is supplied, refine the copied files with get-design-snapshot and edit-design; do not replace the template with generate-design.",
+    "When a prompt is supplied, refine the copied files with get-design-snapshot and edit-design; do not replace the template with generate-design. " +
+    "Returns linked `designSystem.agentContext` when readable; apply it to refinements.",
   schema: z.object({
     templateId: z.string().min(1).describe("Saved or built-in template ID"),
     title: z.string().trim().min(1).max(120).optional(),
@@ -290,6 +293,10 @@ export default defineAction({
       templateId,
       templateTitle,
       designSystemId: linkedDesignSystemId,
+      designSystem: await loadAgentDesignSystemContext(
+        linkedDesignSystemId,
+        async (id) => getDesignSystem.run({ id }),
+      ),
       designSystemOverridden,
       fileCount: files.length,
       lockedLayerCount: countLockedLayersAcrossFiles(persistedFiles),

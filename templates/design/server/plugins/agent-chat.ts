@@ -24,8 +24,10 @@ const INITIAL_TOOL_NAMES = [
   "consume-review-feedback",
   "set-review-status",
   "list-designs",
+  "list-design-systems",
   "list-design-templates",
   "get-design",
+  "get-design-system",
   "get-design-snapshot",
   "create-design",
   "create-design-from-template",
@@ -210,6 +212,10 @@ export default createAgentChatPlugin({
   runSoftTimeoutMs: DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   runNoProgressTimeoutMs: DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  mcp: {
+    instructions:
+      "For visual authoring, resolve design-system context before writing. When a read result includes `designSystem` or `designSystemContext` with `agentContext`, use it as authoritative; do not invent a generic palette. For an existing design, call view-screen or get-design-snapshot first. For a new design where the user names a system, call list-design-systems, choose the matching system or its `isDefault` system, then call get-design-system before create-design or generate-design. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions.",
+  },
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
 
 Final responses should be concise and operational. Lead with what changed or what is needed. For ordinary design actions, use 1-3 short sentences or at most 3 flat bullets. Do not narrate your process, repeat the user's request, paste HTML or tool results, or write an essay. Mention screenshots and audits only as brief completion evidence. Expand only when the user explicitly asks for an explanation or detailed critique.

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -6,10 +7,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import getDesignSystem from "./get-design-system.js";
 
 export default defineAction({
   description:
-    "Get a design project by ID. Returns the full design data including all associated files.",
+    "Get a design project by ID. Returns the full design data including all associated files and linked `designSystem.agentContext` when readable. Treat that context as authoritative before authoring or restyling.",
   schema: z.object({
     id: z.string().describe("Design ID"),
   }),
@@ -43,6 +45,10 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id))
       .orderBy(asc(schema.designFiles.createdAt), asc(schema.designFiles.id));
+    const designSystem = await loadAgentDesignSystemContext(
+      typeof row.designSystemId === "string" ? row.designSystemId : null,
+      async (designSystemId) => getDesignSystem.run({ id: designSystemId }),
+    );
 
     return {
       id: row.id,
@@ -50,6 +56,7 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
+      designSystem,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
       createdAt: row.createdAt,

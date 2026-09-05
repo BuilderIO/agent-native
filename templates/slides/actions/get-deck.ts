@@ -1,6 +1,7 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -20,6 +21,7 @@ import {
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
+import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
@@ -166,7 +168,7 @@ function sourceEditabilityForDeck(
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits.",
+    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. An element text preview is not an exact range and needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits.",
   timeoutMs: 60_000,
   schema: z.object({
     id: z
@@ -250,6 +252,11 @@ export default defineAction({
       sourceImport,
       slides.map((slide: any) => slide.id),
     );
+    const designSystem = await loadAgentDesignSystemContext(
+      row.designSystemId ??
+        (typeof data?.designSystemId === "string" ? data.designSystemId : null),
+      async (id) => getDesignSystem.run({ id }),
+    );
 
     if (compact) {
       return {
@@ -257,6 +264,7 @@ export default defineAction({
         title: row.title || data?.title,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,
+        designSystem,
         generationContext: data?.generationContext ?? null,
         sourceImport: data?.sourceImport
           ? {
@@ -324,6 +332,7 @@ export default defineAction({
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
       designSystemId: row.designSystemId ?? null,
+      designSystem,
       sourceEditability: sourceEditabilityForDeck(sourceImport),
       sourceCoverage,
       slideCount: slides.length,

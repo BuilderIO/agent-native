@@ -83,6 +83,16 @@ vi.mock("../shared/canvas-frames.js", () => ({
   parseCanvasFrameGeometryById: mocks.parseCanvasFrameGeometryById,
 }));
 
+vi.mock("./get-design-system.js", () => ({
+  default: {
+    run: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
+  },
+}));
+
 import action from "./view-screen.js";
 
 describe("view-screen", () => {
@@ -146,6 +156,11 @@ describe("view-screen", () => {
     const result = JSON.parse(await action.run({}));
 
     expect(result.design?.designSystemId).toBe("system-7");
+    expect(result.design?.designSystem).toMatchObject({
+      status: "available",
+      id: "system-7",
+      agentContext: "Use --brand-accent: #123456.",
+    });
   });
 
   it("reports no linked design system rather than guessing one", async () => {

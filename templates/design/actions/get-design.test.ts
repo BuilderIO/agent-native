@@ -42,6 +42,16 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("./get-design-system.js", () => ({
+  default: {
+    run: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
+  },
+}));
+
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import action from "./get-design.js";
 
@@ -114,6 +124,31 @@ describe("get-design", () => {
     expect(result.data).not.toContain("bridgeToken");
     expect(result.data).not.toContain("previewToken");
     expect(result.data).not.toContain("example-private-bridge-token");
+  });
+
+  it("includes readable linked design-system context", async () => {
+    mocks.resolveAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: {
+        id: "design_123",
+        title: "Public checkout",
+        description: "Shared preview",
+        projectType: "prototype",
+        designSystemId: "system-7",
+        data: JSON.stringify({ canvasFrames: [] }),
+        visibility: "public",
+        createdAt: "2026-06-29T00:00:00.000Z",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    });
+
+    const result = await action.run({ id: "design_123" });
+
+    expect(result.designSystem).toMatchObject({
+      status: "available",
+      id: "system-7",
+      agentContext: "Use --brand-accent: #123456.",
+    });
   });
 
   it("returns files in a stable order so a design lays itself out the same way twice", async () => {

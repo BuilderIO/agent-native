@@ -257,6 +257,7 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpApp: { compactCatalog: true },
   run: async ({ id }) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
