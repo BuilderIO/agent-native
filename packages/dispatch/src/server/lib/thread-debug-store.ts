@@ -461,7 +461,10 @@ async function viewerOrgRole(
 ): Promise<string | null> {
   if (!orgId) return null;
   const rows = await currentDbRows<{ role?: string }>(
-    `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    `SELECT role FROM org_members
+     WHERE org_id = ? AND LOWER(email) = ?
+       AND federation_removal_pending_at IS NULL
+     LIMIT 1`,
     [orgId, viewerEmail.toLowerCase()],
   );
   return typeof rows[0]?.role === "string" ? rows[0].role : null;
@@ -470,7 +473,8 @@ async function viewerOrgRole(
 async function currentOrgMembers(orgId: string | null): Promise<string[]> {
   if (!orgId) return [];
   const rows = await currentDbRows<{ email?: string }>(
-    `SELECT email FROM org_members WHERE org_id = ?`,
+    `SELECT email FROM org_members
+     WHERE org_id = ? AND federation_removal_pending_at IS NULL`,
     [orgId],
   );
   return rows.map((row) => String(row.email ?? "").trim()).filter(Boolean);

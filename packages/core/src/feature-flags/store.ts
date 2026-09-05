@@ -311,6 +311,19 @@ export async function evaluateFeatureFlag(
   }
 }
 
+/** Evaluate a security-sensitive flag without converting store failures to off. */
+export async function evaluateFeatureFlagStrict(
+  key: string,
+  scope: FeatureFlagScope = {},
+): Promise<boolean> {
+  if (!getFeatureFlagDefinition(key)) return false;
+  return evaluateFeatureFlagRules(
+    key,
+    await getFeatureFlagRules(key, scope),
+    scope,
+  );
+}
+
 /** Ergonomic app-action guard. Accepts either a registered definition or its key. */
 export async function isFeatureFlagEnabled(
   flag: string | FeatureFlagDefinition,

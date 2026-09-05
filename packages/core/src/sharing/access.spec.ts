@@ -109,14 +109,17 @@ beforeEach(() => {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       created_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      identity_authority TEXT,
+      identity_id TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL
+      joined_at INTEGER NOT NULL,
+      federation_removal_pending_at INTEGER
     );
     CREATE TABLE workspace_user_groups (
       id TEXT PRIMARY KEY,

@@ -241,11 +241,23 @@ export const dispatchMigrations: MigrationEntry[] = [
         jti TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL,
-        consumed_at INTEGER
+        consumed_at INTEGER,
+        org_id TEXT,
+        org_name TEXT,
+        org_role TEXT
       );
 
       CREATE INDEX IF NOT EXISTS identity_sso_authorization_code_expires_idx
         ON identity_sso_authorization_code (expires_at);
+    `,
+  },
+  {
+    version: 6,
+    name: "identity-sso-organization-claims",
+    sql: `
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_id TEXT;
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_name TEXT;
+      ALTER TABLE identity_sso_authorization_code ADD COLUMN IF NOT EXISTS org_role TEXT;
     `,
   },
 ];
