@@ -597,7 +597,7 @@ describe("route chunk recovery", () => {
     expect(preventDefault).not.toHaveBeenCalled();
   });
 
-  it("does not duplicate React Router's Vite dev route reload", () => {
+  it("bounds React Router's Vite dev route reload", () => {
     const { fakeWindow, fakeLocation, originalReload } = createFakeWindow(
       "https://example.com/dispatch/apps",
       { viteDevRecovery: true },
@@ -609,9 +609,13 @@ describe("route chunk recovery", () => {
       "Error loading route module `/dispatch/assets/apps-stale.js`, reloading page...",
     );
     fakeLocation.reload();
+    fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/apps-stale.js`, reloading page...",
+    );
+    fakeLocation.reload();
 
-    expect(fakeLocation.assign).not.toHaveBeenCalled();
-    expect(originalReload).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+    expect(originalReload).not.toHaveBeenCalled();
   });
 
   it("recoverFromStaleChunkError only recovers dynamic import failures", () => {
