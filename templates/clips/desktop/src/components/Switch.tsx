@@ -1,7 +1,7 @@
 import * as React from "react";
 
-import { Switch as UiSwitch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { cn } from "../lib/utils";
+import { Switch as UiSwitch } from "./ui/switch";
 
 interface SwitchProps extends Omit<
   React.ComponentPropsWithoutRef<typeof UiSwitch>,

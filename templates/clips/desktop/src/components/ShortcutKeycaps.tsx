@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { Kbd, KbdGroup } from "./ui/kbd";
 
 export function ShortcutKeycaps({ shortcut }: { shortcut: string }) {
   const combos = shortcut.split(" / ");
