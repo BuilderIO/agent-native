@@ -24,6 +24,7 @@ import {
   resolveDesignSystemIdByTitle,
 } from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -292,6 +293,10 @@ export default defineAction({
       assertHumanReadableDeckTitle(existingDeckTitle);
       const writeNow = nextDeckRevision(existing[0].updatedAt);
       const prevData = JSON.parse(existing[0].data);
+      const previousDesignSystemId = resolveDeckDesignSystemId(
+        existing[0],
+        prevData,
+      );
       const data = {
         ...prevData,
         title: existingDeckTitle,
@@ -316,8 +321,7 @@ export default defineAction({
           .set({
             title: existingDeckTitle,
             data: JSON.stringify(data),
-            designSystemId:
-              designSystemId ?? existing[0].designSystemId ?? null,
+            designSystemId: designSystemId ?? previousDesignSystemId,
             updatedAt: writeNow,
           })
           .where(
@@ -347,9 +351,9 @@ export default defineAction({
         id: deckId,
         title: existingDeckTitle,
         slideCount: slides.length,
-        designSystemId: designSystemId ?? existing[0].designSystemId ?? null,
+        designSystemId: designSystemId ?? previousDesignSystemId,
         designSystem: await loadAgentDesignSystemContext(
-          designSystemId ?? existing[0].designSystemId ?? null,
+          designSystemId ?? previousDesignSystemId,
           getDesignSystem,
           { full: true },
         ),

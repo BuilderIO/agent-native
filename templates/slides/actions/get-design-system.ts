@@ -16,6 +16,7 @@ const MAX_TOKEN_VALUES = 48;
 const MAX_SUMMARY_CONTEXT_CHARS = 1_500;
 const MAX_SUMMARY_TOKEN_VALUES = 16;
 const MAX_SUMMARY_INSTRUCTIONS_CHARS = 600;
+const MAX_SUMMARY_DESCRIPTION_CHARS = 600;
 
 interface BuilderGenerationContext {
   builderDesignSystemId: string;
@@ -259,7 +260,9 @@ export default defineAction({
       return {
         id: row.id,
         title: row.title,
-        description: row.description,
+        description: row.description
+          ? truncate(row.description, MAX_SUMMARY_DESCRIPTION_CHARS)
+          : row.description,
         builderDesignSystemId: builderReference?.builderDesignSystemId ?? null,
         agentContext: buildCompactDesignSystemAgentContext({
           id: row.id,

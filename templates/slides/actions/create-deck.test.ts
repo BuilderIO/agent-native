@@ -347,6 +347,25 @@ describe("create-deck — aspectRatio", () => {
     expect(result.designSystemId).toBe("ds-acme");
   });
 
+  it("keeps a legacy JSON design-system link when replacing a deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        designSystemId: "ds-legacy",
+      }),
+    };
+    const result = await action.run({
+      title: "T2",
+      slides: [],
+      deckId: "deck-1",
+    });
+    expect(updatedFields!.designSystemId).toBe("ds-legacy");
+    expect(result.designSystemId).toBe("ds-legacy");
+  });
+
   it("scopes existing-deck navigation to the invoking browser tab", async () => {
     existingDeckRow = {
       id: "deck-1",
