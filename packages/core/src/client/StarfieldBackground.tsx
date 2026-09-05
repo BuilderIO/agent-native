@@ -357,7 +357,12 @@ export function StarfieldBackground({
       }
     }
 
-    draw(reducedMotion ? reducedMotionStaticTime : 0, !reducedMotion);
+    draw(
+      reducedMotion
+        ? reducedMotionStaticTime
+        : (performance.now() - startTime) * 0.001,
+      !reducedMotion,
+    );
     if (reducedMotionQuery) {
       reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
     }
