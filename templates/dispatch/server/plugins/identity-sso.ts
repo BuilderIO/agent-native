@@ -977,7 +977,7 @@ export const organizationFederationHandler = defineEventHandler(
           federation_removal_pending_at?: unknown;
         }>;
         if (targetRows.length === 0) {
-          return isSelfRemoval ? "already-removed" : "not-found";
+          return "already-removed";
         }
 
         const hasPendingRemoval = targetRows.some(
@@ -1023,9 +1023,6 @@ export const organizationFederationHandler = defineEventHandler(
         }
         return "removed";
       });
-      if (removal === "not-found") {
-        return jsonResponse({ error: "Member not found" }, 404);
-      }
       if (removal === "forbidden") {
         return jsonResponse(
           { error: "You do not have permission to remove this member" },

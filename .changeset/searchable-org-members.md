@@ -17,3 +17,7 @@ the new query is pending.
 Make federated member removals and role changes fail closed when concurrent
 membership state changes, and retain millisecond removal markers safely in
 PostgreSQL.
+
+Allow still-authorized owners and admins to retry a pending federated member
+removal through the original DELETE after identity-authority success leaves
+local cleanup incomplete.

@@ -948,14 +948,19 @@ export const removeMemberHandler = defineEventHandler(
           message: "You do not have permission to remove this member",
         });
       }
-      if (
-        targetRows.rows.some(
-          (row: any) => row.federation_removal_pending_at != null,
-        )
-      ) {
+      const pendingRowCount = targetRows.rows.filter(
+        (row: any) => row.federation_removal_pending_at != null,
+      ).length;
+      if (pendingRowCount === targetRows.rows.length) {
+        // A prior authority success can be followed by a failed local delete.
+        // The marker is restrictive state, not a grant: the checks above run
+        // again on every retry, but preserve the original claim for cleanup.
+        return targetRows.rows.length;
+      }
+      if (pendingRowCount !== 0) {
         throw createError({
-          statusCode: 503,
-          message: "This membership is pending identity-authority cleanup.",
+          statusCode: 409,
+          message: "Member changed while removal was being prepared",
         });
       }
 

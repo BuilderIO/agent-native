@@ -4,7 +4,11 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 
 type Pglite = Awaited<ReturnType<typeof createTestPglite>>;
 
-function createPgliteExec(pglite: Pglite, reportPartialMarker = false) {
+function createPgliteExec(
+  pglite: Pglite,
+  reportPartialMarker = false,
+  shouldFailLocalCleanup?: () => boolean,
+) {
   const execute = async (
     client: Pick<Pglite, "prepare">,
     input: string | { sql: string; args?: unknown[] },
@@ -16,6 +20,13 @@ function createPgliteExec(pglite: Pglite, reportPartialMarker = false) {
         rows: await client.prepare(sql).all(...(args as any[])),
         rowsAffected: 0,
       };
+    }
+    if (
+      sql.includes("DELETE FROM org_members") &&
+      sql.includes("federation_removal_pending_at IS NOT NULL") &&
+      shouldFailLocalCleanup?.()
+    ) {
+      throw new Error("simulated local cleanup failure");
     }
     const result = await client.prepare(sql).run(...(args as any[]));
     return {
@@ -64,12 +75,14 @@ async function loadHandlers(
   options: {
     actorRole: "owner" | "admin";
     reportPartialMarker?: boolean;
+    failLocalCleanupOnce?: boolean;
     revoke?: () => Promise<boolean>;
     updateRole?: () => Promise<boolean>;
   },
 ) {
   const revoke = vi.fn(options.revoke ?? (async () => true));
   const updateRole = vi.fn(options.updateRole ?? (async () => true));
+  let failLocalCleanup = options.failLocalCleanupOnce ?? false;
   vi.doMock("h3", () => ({
     createError: ({
       statusCode,
@@ -83,7 +96,12 @@ async function loadHandlers(
     getRouterParam: () => undefined,
   }));
   vi.doMock("../db/client.js", () => ({
-    getDbExec: () => createPgliteExec(pglite, options.reportPartialMarker),
+    getDbExec: () =>
+      createPgliteExec(pglite, options.reportPartialMarker, () => {
+        if (!failLocalCleanup) return false;
+        failLocalCleanup = false;
+        return true;
+      }),
   }));
   vi.doMock("./context.js", () => ({
     createOrganization: vi.fn(),
@@ -247,6 +265,204 @@ describe("member mutation guards (real pglite)", () => {
           event("/_agent-native/org/members/member@example.test"),
         ),
       ).resolves.toEqual({ success: true });
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it.each(["owner", "admin"] as const)(
+    "retries pending local cleanup through the original %s DELETE",
+    async (actorRole) => {
+      const pglite = await createTestPglite();
+      await seedMembers(pglite);
+      await pglite
+        .prepare(
+          `INSERT INTO org_members (id, org_id, email, role, joined_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run("member-1", "org-1", "member@example.test", "member", 1);
+
+      try {
+        let authorityMarker: number | undefined;
+        const { removeMemberHandler, revoke } = await loadHandlers(pglite, {
+          actorRole,
+          failLocalCleanupOnce: true,
+          revoke: async () => {
+            const row = await pglite
+              .prepare(
+                `SELECT federation_removal_pending_at FROM org_members
+               WHERE org_id = ? AND LOWER(email) = ?`,
+              )
+              .get("org-1", "member@example.test");
+            const marker = Number(
+              (row as { federation_removal_pending_at: number })
+                .federation_removal_pending_at,
+            );
+            if (authorityMarker === undefined) authorityMarker = marker;
+            else expect(marker).toBe(authorityMarker);
+            return true;
+          },
+        });
+        const memberPath = "/_agent-native/org/members/member@example.test";
+
+        await expect(
+          removeMemberHandler(event(memberPath)),
+        ).rejects.toMatchObject({
+          statusCode: 503,
+        });
+        const pending = await pglite
+          .prepare(
+            `SELECT federation_removal_pending_at FROM org_members
+           WHERE org_id = ? AND LOWER(email) = ?`,
+          )
+          .get("org-1", "member@example.test");
+        expect(pending).toMatchObject({
+          federation_removal_pending_at: expect.any(Number),
+        });
+
+        await expect(removeMemberHandler(event(memberPath))).resolves.toEqual({
+          success: true,
+        });
+        expect(revoke).toHaveBeenCalledTimes(2);
+        expect(await pglite.prepare(`SELECT * FROM org_members`).all()).toEqual(
+          [],
+        );
+      } finally {
+        await pglite.close();
+      }
+    },
+  );
+
+  it("retries after the authority revokes the member but loses its response", async () => {
+    const pglite = await createTestPglite();
+    await seedMembers(pglite);
+    await pglite
+      .prepare(
+        `INSERT INTO org_members (id, org_id, email, role, joined_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run("member-1", "org-1", "member@example.test", "member", 1);
+
+    try {
+      let authorityHasMember = true;
+      const { removeMemberHandler, revoke } = await loadHandlers(pglite, {
+        actorRole: "owner",
+        revoke: async () => {
+          if (authorityHasMember) {
+            authorityHasMember = false;
+            throw new Error("lost authority response after revocation");
+          }
+          return true;
+        },
+      });
+      const memberPath = "/_agent-native/org/members/member@example.test";
+
+      await expect(
+        removeMemberHandler(event(memberPath)),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+      });
+      expect(authorityHasMember).toBe(false);
+      expect(
+        await pglite
+          .prepare(
+            `SELECT federation_removal_pending_at FROM org_members WHERE id = ?`,
+          )
+          .get("member-1"),
+      ).toMatchObject({ federation_removal_pending_at: expect.any(Number) });
+
+      await expect(removeMemberHandler(event(memberPath))).resolves.toEqual({
+        success: true,
+      });
+      expect(revoke).toHaveBeenCalledTimes(2);
+      expect(await pglite.prepare(`SELECT * FROM org_members`).all()).toEqual(
+        [],
+      );
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("reauthorizes a pending target before retrying local cleanup", async () => {
+    const pglite = await createTestPglite();
+    await seedMembers(pglite);
+    await pglite
+      .prepare(
+        `INSERT INTO org_members
+          (id, org_id, email, role, joined_at, federation_removal_pending_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run("admin-1", "org-1", "admin@example.test", "admin", 1, 1);
+
+    try {
+      const { removeMemberHandler, revoke } = await loadHandlers(pglite, {
+        actorRole: "admin",
+      });
+
+      await expect(
+        removeMemberHandler(
+          event("/_agent-native/org/members/admin@example.test"),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(revoke).not.toHaveBeenCalled();
+      expect(
+        await pglite
+          .prepare(
+            `SELECT federation_removal_pending_at FROM org_members WHERE id = ?`,
+          )
+          .get("admin-1"),
+      ).toEqual({ federation_removal_pending_at: 1 });
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("fails closed when duplicate target rows disagree on pending state", async () => {
+    const pglite = await createTestPglite();
+    await seedMembers(pglite);
+    await pglite
+      .prepare(
+        `INSERT INTO org_members
+          (id, org_id, email, role, joined_at, federation_removal_pending_at)
+         VALUES (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "member-1",
+        "org-1",
+        "Member@Example.test",
+        "member",
+        1,
+        1,
+        "member-2",
+        "org-1",
+        "member@example.test",
+        "member",
+        2,
+        null,
+      );
+
+    try {
+      const { removeMemberHandler, revoke } = await loadHandlers(pglite, {
+        actorRole: "owner",
+      });
+
+      await expect(
+        removeMemberHandler(
+          event("/_agent-native/org/members/member@example.test"),
+        ),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(revoke).not.toHaveBeenCalled();
+      expect(
+        await pglite
+          .prepare(
+            `SELECT federation_removal_pending_at FROM org_members
+             WHERE org_id = ? ORDER BY id`,
+          )
+          .all("org-1"),
+      ).toEqual([
+        { federation_removal_pending_at: 1 },
+        { federation_removal_pending_at: null },
+      ]);
     } finally {
       await pglite.close();
     }

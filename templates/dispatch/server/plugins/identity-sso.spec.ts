@@ -970,6 +970,109 @@ describe("organization federation endpoint", () => {
     expect(centralMemberRole).toBeNull();
   });
 
+  it("makes an authorized admin removal retry idempotent after deleting the target", async () => {
+    centralMemberRole = "member";
+    configureMemberOperation("remove-member", { actorRole: "admin" });
+
+    const firstResponse = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer admin-removal-assertion" },
+      }),
+    );
+    const replayResponse = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer admin-removal-assertion" },
+      }),
+    );
+
+    expect(firstResponse.status).toBe(200);
+    expect(centralMemberRole).toBeNull();
+    expect(replayResponse.status).toBe(200);
+    expect(await replayResponse.json()).toMatchObject({
+      removedMember: "member@example.test",
+    });
+  });
+
+  it("accepts an authorized owner removal retry for an absent target", async () => {
+    configureMemberOperation("remove-member", { actorRole: "owner" });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer owner-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      removedMember: "member@example.test",
+    });
+  });
+
+  it("rejects an absent-target retry from an actor removed from the central roster", async () => {
+    configureMemberOperation("remove-member", { actorRole: "admin" });
+    centralActorRole = null;
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer removed-admin-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it("keeps federation-disabled removals unavailable", async () => {
+    configureMemberOperation("remove-member", { actorRole: "admin" });
+    featureFlagMocks.isEnabled.mockResolvedValue(false);
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer disabled-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  it("keeps unlinked organizations in identity-conflict state", async () => {
+    configureMemberOperation("remove-member", { actorRole: "admin" });
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+    };
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer unlinked-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(409);
+  });
+
+  it("does not let an owner remove themselves", async () => {
+    configureMemberOperation("remove-member", {
+      actorRole: "owner",
+      actorEmail: "owner@example.test",
+      memberEmail: "owner@example.test",
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer owner-self-removal-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+  });
+
   it("finishes an authorized removal already marked pending by a loopback caller", async () => {
     centralMemberRole = "member";
     centralMemberPending = true;
