@@ -66,6 +66,7 @@ vi.mock("../org/context.js", () => ({
     mockResolveOrgIdForEmail(...args),
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
   resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
+  isFederationMembershipValidatedForEvent: () => false,
 }));
 
 vi.mock("./auth.js", () => ({

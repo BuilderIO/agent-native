@@ -17,6 +17,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { ForbiddenError } from "../sharing/access.js";
+import { isMissingOrganizationTableError } from "./membership.js";
 
 /**
  * The serializable half of an app-role declaration. Kept free of database
@@ -249,21 +250,62 @@ export async function resolveAppRole<R extends string>(
   if (!email) return { status: "no-identity" };
   if (!orgId) return { status: "no-org" };
 
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT r.role AS "appRole"
-          FROM org_members m
-          LEFT JOIN app_member_roles r
-            ON r.org_id = m.org_id
-           AND r.app_id = ?
-           AND LOWER(r.email) = LOWER(m.email)
-          WHERE m.org_id = ? AND LOWER(m.email) = ?
-            AND m.federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [descriptor.appId, orgId, normalizeEmail(email)],
-  });
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = (
+      await getDbExec().execute({
+        sql: `SELECT r.role AS "appRole",
+                     o.identity_authority AS "identityAuthority",
+                     o.identity_id AS "identityId"
+              FROM org_members m
+              LEFT JOIN organizations o ON o.id = m.org_id
+              LEFT JOIN app_member_roles r
+                ON r.org_id = m.org_id
+               AND r.app_id = ?
+               AND LOWER(r.email) = LOWER(m.email)
+              WHERE m.org_id = ? AND LOWER(m.email) = ?
+                AND m.federation_removal_pending_at IS NULL
+              LIMIT 1`,
+        args: [descriptor.appId, orgId, normalizeEmail(email)],
+      })
+    ).rows as Array<Record<string, unknown>>;
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) throw error;
+    rows = (
+      await getDbExec().execute({
+        sql: `SELECT r.role AS "appRole"
+              FROM org_members m
+              LEFT JOIN app_member_roles r
+                ON r.org_id = m.org_id
+               AND r.app_id = ?
+               AND LOWER(r.email) = LOWER(m.email)
+              WHERE m.org_id = ? AND LOWER(m.email) = ?
+                AND m.federation_removal_pending_at IS NULL
+              LIMIT 1`,
+        args: [descriptor.appId, orgId, normalizeEmail(email)],
+      })
+    ).rows as Array<Record<string, unknown>>;
+  }
 
   const row = rows[0] as { appRole?: unknown; approle?: unknown } | undefined;
   if (!row) return { status: "not-a-member", orgId };
+
+  const identityAuthority = String(
+    (row as any).identityAuthority ?? (row as any).identity_authority ?? "",
+  ).trim();
+  const identityId = String(
+    (row as any).identityId ?? (row as any).identity_id ?? "",
+  ).trim();
+  if (identityAuthority || identityId) {
+    const { validateFederatedOrganizationMembershipForCurrentRequest } =
+      await import("./federation.js");
+    const membership =
+      await validateFederatedOrganizationMembershipForCurrentRequest({
+        orgId,
+        email,
+      });
+    if (!membership.active) return { status: "not-a-member", orgId };
+  }
 
   const raw = row.appRole ?? row.approle;
   if (raw === null || raw === undefined) return { status: "unassigned", orgId };

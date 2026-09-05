@@ -3,6 +3,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { getOrgA2ASecret, getOrgDomain } from "./context.js";
+import { isMissingOrganizationTableError } from "./membership.js";
 
 const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
 const WORKSPACE_APP_ACCESS_TIMEOUT_MS = 2_500;
@@ -168,14 +169,51 @@ export async function isWorkspaceAppAccessAllowed(
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
     if (!sameOrg || !orgId) return false;
 
-    const memberResult = await db.execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email],
-    });
+    let memberResult;
+    try {
+      memberResult = await db.execute({
+        sql: `SELECT m.role,
+                     o.identity_authority AS "identityAuthority",
+                     o.identity_id AS "identityId"
+              FROM org_members m
+              LEFT JOIN organizations o ON o.id = m.org_id
+              WHERE m.org_id = ? AND LOWER(m.email) = ?
+                AND m.federation_removal_pending_at IS NULL
+              LIMIT 1`,
+        args: [orgId, email],
+      });
+    } catch (error) {
+      if (!isMissingOrganizationTableError(error)) throw error;
+      memberResult = await db.execute({
+        sql: `SELECT role FROM org_members
+              WHERE org_id = ? AND LOWER(email) = ?
+                AND federation_removal_pending_at IS NULL
+              LIMIT 1`,
+        args: [orgId, email],
+      });
+    }
     if (memberResult.rows.length === 0) return false;
+    const linked =
+      String(
+        memberResult.rows[0]?.identityAuthority ??
+          memberResult.rows[0]?.identity_authority ??
+          "",
+      ).trim() ||
+      String(
+        memberResult.rows[0]?.identityId ??
+          memberResult.rows[0]?.identity_id ??
+          "",
+      ).trim();
+    if (linked) {
+      const { validateFederatedOrganizationMembershipForCurrentRequest } =
+        await import("./federation.js");
+      const membership =
+        await validateFederatedOrganizationMembershipForCurrentRequest({
+          orgId,
+          email,
+        });
+      if (!membership.active) return false;
+    }
     const memberRole = String(memberResult.rows[0]?.role ?? "");
     if (memberRole === "owner" || memberRole === "admin") return true;
 

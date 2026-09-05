@@ -23,6 +23,7 @@ import { orgMembers } from "../org/schema.js";
 import { organizations } from "../org/schema.js";
 import {
   getRequestAuthCapability,
+  getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
 } from "../server/request-context.js";
@@ -66,6 +67,7 @@ export interface AccessContext {
   userEmail?: string;
   orgId?: string;
   authCapability?: string;
+  federationMembershipValidated?: boolean;
 }
 
 /** Current request's access context. Pulls from request-context ALS. */
@@ -74,6 +76,8 @@ export function currentAccess(): AccessContext {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId(),
     authCapability: getRequestAuthCapability(),
+    federationMembershipValidated:
+      getRequestContext()?.federationMembershipValidated,
   };
 }
 
@@ -84,8 +88,21 @@ export function resolveRegisteredAccessContext(
   if (!reg?.resolveAccessContext) return ctx;
   const resolved = reg.resolveAccessContext(ctx);
   return ctx.authCapability
-    ? { ...resolved, authCapability: ctx.authCapability }
-    : resolved;
+    ? {
+        ...resolved,
+        authCapability: ctx.authCapability,
+        ...(ctx.federationMembershipValidated === undefined
+          ? {}
+          : {
+              federationMembershipValidated: ctx.federationMembershipValidated,
+            }),
+      }
+    : ctx.federationMembershipValidated === undefined
+      ? resolved
+      : {
+          ...resolved,
+          federationMembershipValidated: ctx.federationMembershipValidated,
+        };
 }
 
 function normalizeEmailForAccess(email: string | undefined): string | null {
@@ -252,6 +269,17 @@ export function accessFilter(
 
   if (reg?.supportsGroupShares && normalizedUserEmail && orgId) {
     const groupTable = sql.raw(workspaceUserGroupsTable());
+    const federationGuard =
+      ctx.federationMembershipValidated === true
+        ? sql`1=1`
+        : sql`not exists (
+            select 1 from organizations as federation_org
+            where federation_org.id = ${resourceTable.orgId}
+              and (
+                federation_org.identity_authority is not null
+                or federation_org.identity_id is not null
+              )
+          )`;
     const groupMemberPredicate = isPostgres()
       ? sql`exists (
           select 1
@@ -275,6 +303,7 @@ export function accessFilter(
                       where workspace_group.id = ${sharesTable.principalId}
                         and workspace_group.org_id = ${resourceTable.orgId}
                         and workspace_group.org_id = ${orgId}
+                        and ${federationGuard}
                         and exists (
                           select 1 from ${orgMembers} as workspace_member
                           where workspace_member.org_id = workspace_group.org_id
@@ -669,31 +698,33 @@ async function highestShareRole(
   let best: ShareRole | null = null;
 
   if (reg.supportsGroupShares && normalizedUserEmail && resource.orgId) {
-    const groupRows = await db
-      .select({
-        principalId: reg.sharesTable.principalId,
-        role: reg.sharesTable.role,
-      })
-      .from(reg.sharesTable)
-      .where(
-        and(
-          eq(reg.sharesTable.resourceId, resourceId),
-          eq(reg.sharesTable.principalType, "group"),
-        ),
-      );
-    for (const row of groupRows as Array<{
-      principalId: string;
-      role: ShareRole;
-    }>) {
-      if (
-        await workspaceUserGroupsIncludeUser(
-          resource.orgId,
-          [row.principalId],
-          normalizedUserEmail,
-        )
-      ) {
-        if (!best || ROLE_RANK[row.role] > ROLE_RANK[best]) {
-          best = row.role;
+    if (await isOrgMember(reg, resource.orgId, normalizedUserEmail)) {
+      const groupRows = await db
+        .select({
+          principalId: reg.sharesTable.principalId,
+          role: reg.sharesTable.role,
+        })
+        .from(reg.sharesTable)
+        .where(
+          and(
+            eq(reg.sharesTable.resourceId, resourceId),
+            eq(reg.sharesTable.principalType, "group"),
+          ),
+        );
+      for (const row of groupRows as Array<{
+        principalId: string;
+        role: ShareRole;
+      }>) {
+        if (
+          await workspaceUserGroupsIncludeUser(
+            resource.orgId,
+            [row.principalId],
+            normalizedUserEmail,
+          )
+        ) {
+          if (!best || ROLE_RANK[row.role] > ROLE_RANK[best]) {
+            best = row.role;
+          }
         }
       }
     }

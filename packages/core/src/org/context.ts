@@ -167,6 +167,33 @@ async function refreshFederatedMemberships(
 
 const MEMBERSHIPS_CACHE_KEY = "__anOrgMembershipsCache";
 const ACTIVE_ORG_SETTING_CACHE_KEY = "__anActiveOrgSettingCache";
+const FEDERATION_MEMBERSHIP_VALIDATED_KEY = "__anFederationMembershipValidated";
+
+export function isFederationMembershipValidatedForEvent(
+  event: H3Event,
+  email: string | undefined,
+  orgId: string | undefined,
+): boolean {
+  const marker = (event.context as Record<string, unknown>)[
+    FEDERATION_MEMBERSHIP_VALIDATED_KEY
+  ] as { email?: unknown; orgId?: unknown } | undefined;
+  return (
+    typeof email === "string" &&
+    typeof orgId === "string" &&
+    marker?.email === email.trim().toLowerCase() &&
+    marker?.orgId === orgId
+  );
+}
+
+function markFederationMembershipValidated(
+  event: H3Event,
+  email: string,
+  orgId: string,
+): void {
+  (event.context as Record<string, unknown>)[
+    FEDERATION_MEMBERSHIP_VALIDATED_KEY
+  ] = { email: email.trim().toLowerCase(), orgId };
+}
 
 type ActiveOrgSetting = { orgId: string | null } | null;
 
@@ -317,6 +344,9 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     !memberships.some((membership) => membership.orgId === selectedOrgId)
   ) {
     return { email, orgId: null, orgName: null, role: null };
+  }
+  if (selectedOrgId && memberships.some((m) => m.orgId === selectedOrgId)) {
+    markFederationMembershipValidated(event, email, selectedOrgId);
   }
 
   const emailDomain = emailDomainOf(email);
