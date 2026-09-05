@@ -153,6 +153,7 @@ export function HeroOceanBackground({
   const mask =
     bottomFadeStartPercent >= 100
       ? undefined
+      // guard:allow-raw-color - The mask channel requires opaque black, not a theme color.
       : `linear-gradient(to bottom, #000 ${bottomFadeStartPercent}%, transparent 100%)`;
 
   return (

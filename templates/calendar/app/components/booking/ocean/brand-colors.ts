@@ -1,6 +1,8 @@
 import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors";
 
+// guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.
 const DARK_COLORS = { fg: "#aeadac", bg: "#0a0a0a" };
+// guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.
 const LIGHT_COLORS = { fg: "#00677f", bg: "#faf9f5" };
 
 /**

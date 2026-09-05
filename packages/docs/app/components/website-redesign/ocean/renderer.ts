@@ -206,8 +206,21 @@ export function createRenderer({
 
     gpu = nextGpu;
     output = surface(gpu, canvas, { dpr: [1, 1.6] });
-    graph = await createGraph(gpu, output, "fft-ocean-live", currentColors);
-    if (disposed) return;
+    const nextGraph = await createGraph(
+      gpu,
+      output,
+      "fft-ocean-live",
+      currentColors,
+    );
+    if (disposed) {
+      try {
+        destroyGraph(nextGraph);
+      } catch {
+        // Best-effort cleanup after the device was already disposed.
+      }
+      return;
+    }
+    graph = nextGraph;
 
     unsubscribeResize = output.onResize(scheduleResize);
 
