@@ -54,6 +54,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { isStandalonePublicPath } from "@/lib/public-ssr-paths";
 import { SEARCH_FOCUS_PATH } from "@/lib/search-focus";
 
 import changelog from "../CHANGELOG.md?raw";
@@ -327,26 +328,6 @@ function ClipsExtensionAuthBridge() {
   );
 }
 
-/**
- * Paths that are fully public-facing and must SSR real content rather than
- * routing through the authenticated app shell. Kept in one place so both the
- * ClientOnly bypass in Root and the DbSync/CommandMenu skip in AppContent stay
- * in sync.
- */
-function isStandalonePublicPath(pathname: string): boolean {
-  const path = pathname.replace(/\/+$/, "") || "/";
-  return (
-    path === "/download" ||
-    path === "/bug-report" ||
-    path.startsWith("/bug-report/") ||
-    path === "/r" ||
-    path.startsWith("/r/") ||
-    path.startsWith("/share/") ||
-    path.startsWith("/embed/") ||
-    path.startsWith("/invite/")
-  );
-}
-
 function AppContent() {
   const location = useLocation();
   if (location.pathname === "/") return <Outlet />;
@@ -411,12 +392,22 @@ export default function Root() {
   const isMarketingHome = location.pathname === "/";
   const isPublicPath =
     isMarketingHome || isStandalonePublicPath(location.pathname);
+  const publicSharePath = location.pathname.startsWith("/share/");
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
-        toaster={<Toaster richColors position="bottom-left" />}
+        showEnvironmentBadge={isPublicPath && !publicSharePath}
+        toaster={
+          <Toaster
+            richColors
+            closeButton
+            position="top-center"
+            offset={{ top: 16 }}
+            mobileOffset={{ top: 12 }}
+          />
+        }
         i18n={{
           catalog: i18nCatalog,
           initialLocale: loaderData.locale,

@@ -10,12 +10,15 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  queueAiRequest,
+  withAiRequestStatusInstructions,
+} from "./lib/ai-request-status.js";
 
 export default defineAction({
   description:
@@ -45,31 +48,33 @@ export default defineAction({
       );
     }
 
+    const requestedAt = new Date().toISOString();
+    const message =
+      `Find silences longer than ${args.thresholdMs}ms in recording ${args.recordingId} ` +
+      `by analyzing the transcript segments (gaps between segment.endMs and the next segment.startMs). ` +
+      `For each gap > ${args.thresholdMs}ms, add a trim range covering the silence minus a 200ms ` +
+      `buffer on each side so speech isn't clipped. Then call ` +
+      `\`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each silence.`;
     const request = {
       kind: "remove-silences" as const,
       recordingId: args.recordingId,
-      requestedAt: new Date().toISOString(),
+      requestedAt,
       thresholdMs: args.thresholdMs,
       segmentsJson: transcript.segmentsJson,
-      message:
-        `Find silences longer than ${args.thresholdMs}ms in recording ${args.recordingId} ` +
-        `by analyzing the transcript segments (gaps between segment.endMs and the next segment.startMs). ` +
-        `For each gap > ${args.thresholdMs}ms, add a trim range covering the silence minus a 200ms ` +
-        `buffer on each side so speech isn't clipped. Then call ` +
-        `\`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each silence. ` +
-        `First call \`update-ai-request-status --recordingId=${args.recordingId} --kind=remove-silences --status=working\`. ` +
-        `After all trim calls finish, call the same action with --status=completed and a short result message. ` +
-        `If the work cannot finish, call it with --status=failed and explain why.`,
+      message: withAiRequestStatusInstructions({
+        message,
+        recordingId: args.recordingId,
+        kind: "remove-silences",
+        requestedAt,
+      }),
     };
 
-    await writeAppState(`clips-ai-request-status-${args.recordingId}`, {
+    await queueAiRequest({
+      recordingId: args.recordingId,
       kind: "remove-silences",
-      status: "queued",
-      message: null,
-      updatedAt: new Date().toISOString(),
+      requestedAt,
+      request,
     });
-    await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
-    await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(`Delegation queued: remove-silences for ${args.recordingId}`);
     return { queued: true, recordingId: args.recordingId };

@@ -29,12 +29,14 @@ export default createAuthPlugin({
   },
   publicPaths: [
     "/share",
-    "/r",
     "/embed",
     // Prerendered to static HTML, so the CDN answers without ever reaching this
     // middleware. Sharing the constant keeps "prerendered" a strict subset of
     // "public" instead of two lists that can drift into an auth bypass.
     ...PRERENDERED_PUBLIC_PAGE_PATHS,
+    // Legacy recording links are auth-aware: the route keeps the owner shell
+    // for signed-in viewers and redirects anonymous viewers to /share/:id.
+    "/r",
     "/bug-report",
     // React Router's lazy route-discovery endpoint. If this is gated by
     // auth it returns an HTML login page; the client tries to parse it

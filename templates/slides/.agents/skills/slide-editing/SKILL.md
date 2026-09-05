@@ -91,6 +91,10 @@ To edit a slide's content:
    line breaks. Use `fullContent` only for an intentional full rewrite - do not
    regenerate a slide to make a small change. Do not write deck rows directly
    or add raw full-deck writes; use `patch-deck` for browser/editor changes.
+   Read a write back with `get-deck` (or a thumbnail's `.slide-content`
+   `textContent`), never `document.body.innerText`: sidebar thumbnails use
+   `content-visibility: auto`, so `innerText` is empty for them in a hidden
+   tab, and the canvas only ever shows the selected slide.
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 

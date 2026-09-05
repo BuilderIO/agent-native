@@ -39,6 +39,26 @@ describe("library recording cards", () => {
     expect(source).toContain("setTimeout(() => onCreateFolder?.(), 0)");
   });
 
+  it("uses a contextual menu with recording actions", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("<ContextMenu>");
+    expect(source).toContain("<ContextMenuTrigger asChild>");
+    expect(source).toContain("<ContextMenuContent>");
+    expect(source).toContain('t("clipsFinalRaw.view")');
+    expect(source).toContain("<ContextMenuSub>");
+    expect(source).toContain("<ContextMenuSubContent");
+    expect(source).toContain('t("clipsFinalRaw.moveToFolder")');
+    expect(source).toContain('t("navigation.trash")');
+  });
+
+  it("uses the shared vertical overflow affordance", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("IconDotsVertical");
+    expect(source).not.toContain("IconDots,");
+  });
+
   it("opens the desktop app for locally saved native uploads", () => {
     const source = readSource("./recording-card.tsx");
 

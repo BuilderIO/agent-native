@@ -43,6 +43,7 @@ export {
   isBuilderIoEmployee,
   resolveEnvironmentChannel,
   resolveEnvironmentTargets,
+  type EnvironmentBadgePlacement,
   type EnvironmentBadgeTargets,
 } from "../EnvironmentBadge.js";
 export {

@@ -71,6 +71,15 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "border border-transparent on trigger for layout stability",
   ],
 
+  // tabs.tsx — Clips uses the shadcn line variant so viewer and library tabs
+  // communicate the active surface with an underline instead of a filled
+  // button treatment.
+  [
+    "tabs.tsx",
+    "clips",
+    "line-variant tabs with underline active state for Clips surfaces",
+  ],
+
   // textarea.tsx — two intentional variants beyond the canonical version:
   //   • assets: adds autoGrow behavior for asset prompt/editing forms
   //   • macros: adds transition-all hover:border-ring/50 custom visual polish
@@ -126,6 +135,11 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "plan",
     "tabs.tsx",
     "adds a transparent border to preserve Plan trigger layout",
+  ],
+  [
+    "clips",
+    "tabs.tsx",
+    "uses the shadcn line variant with an underline active state",
   ],
 ];
 

@@ -25,6 +25,10 @@ import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
+import {
+  queueAiRequest,
+  withAiRequestStatusInstructions,
+} from "./lib/ai-request-status.js";
 import { clearBuilderCreditsExhausted } from "./lib/builder-credits-state.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 import {
@@ -103,12 +107,14 @@ export async function queueTitleRegenerationRequest({
     `\`update-recording --id=${recordingId} --title="..."\`${summaryInstruction} ` +
     `Current title: "${currentTitle ?? ""}". Current description: "${currentDescription ?? ""}". ` +
     "Do not prompt the user.";
+  const kind = includeSummary
+    ? ("generate-metadata" as const)
+    : ("regenerate-title" as const);
+  const requestedAt = new Date().toISOString();
   const request = {
-    kind: includeSummary
-      ? ("generate-metadata" as const)
-      : ("regenerate-title" as const),
+    kind,
     recordingId,
-    requestedAt: new Date().toISOString(),
+    requestedAt,
     currentTitle: currentTitle ?? "",
     currentDescription: currentDescription ?? "",
     transcriptStatus,
@@ -117,11 +123,20 @@ export async function queueTitleRegenerationRequest({
     agentsContext,
     includeFullVideoInAi: useVideo,
     includeSummary,
-    message: withFullVideoAiInstructions(baseMessage, recordingId, useVideo),
+    message: withAiRequestStatusInstructions({
+      message: withFullVideoAiInstructions(baseMessage, recordingId, useVideo),
+      recordingId,
+      kind,
+      requestedAt,
+    }),
   };
 
-  await writeAppState(`clips-ai-request-${recordingId}`, request as any);
-  await writeAppState("refresh-signal", { ts: Date.now() });
+  await queueAiRequest({
+    recordingId,
+    kind,
+    requestedAt,
+    request,
+  });
   return request;
 }
 

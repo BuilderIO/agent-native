@@ -110,6 +110,8 @@ const recording: RecordingSummary = {
   effectiveDurationMs: 1_000,
   status: "ready",
   visibility: "private",
+  hasPassword: false,
+  expiresAt: null,
   ownerEmail: "owner@example.com",
   folderId: null,
   spaceIds: [],
@@ -292,7 +294,7 @@ describe("RecordingCard behavior", () => {
 
     const deleteItem = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("folderTree.delete"));
+    ).find((item) => item.textContent?.includes("navigation.trash"));
     expect(deleteItem).not.toBeUndefined();
 
     act(() => deleteItem?.click());

@@ -9,13 +9,16 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import {
+  queueAiRequest,
+  withAiRequestStatusInstructions,
+} from "./lib/ai-request-status.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 export default defineAction({
@@ -54,25 +57,35 @@ export default defineAction({
       `and call \`set-chapters --recordingId=${args.recordingId} --chapters='[{ "startMs": 0, "title": "Intro" }, ...]'\`. ` +
       `Aim for 3–8 chapters. Each chapter title should be 3–6 words and capture the essence of that section.`;
 
+    const requestedAt = new Date().toISOString();
     const request = {
       kind: "regenerate-chapters" as const,
       recordingId: args.recordingId,
-      requestedAt: new Date().toISOString(),
+      requestedAt,
       durationMs: rec.durationMs,
       transcriptStatus: transcript?.status ?? "pending",
       segmentsJson: transcript?.segmentsJson ?? "[]",
       transcriptText: transcript?.fullText ?? "",
       includeFullVideoInAi,
       openInChat: args.openInChat === true,
-      message: withFullVideoAiInstructions(
-        baseMessage,
-        args.recordingId,
-        includeFullVideoInAi,
-      ),
+      message: withAiRequestStatusInstructions({
+        message: withFullVideoAiInstructions(
+          baseMessage,
+          args.recordingId,
+          includeFullVideoInAi,
+        ),
+        recordingId: args.recordingId,
+        kind: "regenerate-chapters",
+        requestedAt,
+      }),
     };
 
-    await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    await queueAiRequest({
+      recordingId: args.recordingId,
+      kind: "regenerate-chapters",
+      requestedAt,
+      request,
+    });
 
     console.log(
       `Delegation queued: regenerate-chapters for ${args.recordingId}`,
