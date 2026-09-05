@@ -212,7 +212,10 @@ export function StarfieldBackground({
     let targetStrength = 0;
 
     function readDarkMode() {
-      return document.documentElement.classList.contains("dark");
+      const root = document.documentElement;
+      if (root.classList.contains("dark")) return true;
+      if (root.classList.contains("light")) return false;
+      return root.getAttribute("data-theme") === "dark";
     }
 
     function readTheme() {
