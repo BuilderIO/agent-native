@@ -2675,11 +2675,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       return deckIdFromPathname(window.location.pathname);
     };
 
-    const isHidden = () =>
-      typeof document !== "undefined" && document.visibilityState === "hidden";
+    // A backgrounded tab still reconciles an OPEN deck. "Nobody is looking" is
+    // not "nothing can change": an external agent (MCP / WebMCP / CDP) edits a
+    // deck in a tab that is never focused, and skipping the poll there left an
+    // add-slide unseen for 33s on beta — the write had landed, the editor just
+    // never asked. Only a hidden tab with no open deck (the deck list) still
+    // idles completely.
+    const isIdleHidden = () =>
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden" &&
+      !readOpenDeckId();
 
     const schedule = () => {
-      if (stopped || isHidden()) return;
+      if (stopped || isIdleHidden()) return;
       timer = setTimeout(
         poll,
         fallbackPollIntervalMs({
@@ -2689,8 +2697,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       );
     };
 
-    async function poll() {
-      if (stopped || isHidden()) return;
+    async function poll(force = false) {
+      if (stopped || (!force && isIdleHidden())) return;
       const now = Date.now();
       const currentOpenId = readOpenDeckId();
 
@@ -2721,7 +2729,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     }
 
     const pollNow = () => {
-      if (isHidden()) return;
+      if (isIdleHidden()) return;
       if (timer) {
         clearTimeout(timer);
         timer = null;
@@ -2729,8 +2737,23 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       void poll();
     };
 
+    // A write announced through `agentNative:refresh-data` — the event the
+    // WebMCP bridge raises after every mutating page-local call, and the host
+    // bridge's refreshData command — read the deck back now. Without this the
+    // tab that made the write is the last to see it: it waits out the fallback
+    // interval, a full minute while SSE is connected, and depends on the change
+    // event surviving the sync fan-out. It also skips the idle gate, because a
+    // write the page itself just issued proves someone is driving it.
+    const refreshNow = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      void poll(true);
+    };
+
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" || !isIdleHidden()) {
         pollNow();
       } else if (timer) {
         clearTimeout(timer);
@@ -2741,6 +2764,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     void poll();
     pollNowRef.current = pollNow;
     window.addEventListener("focus", pollNow);
+    window.addEventListener("agentNative:refresh-data", refreshNow);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
@@ -2748,6 +2772,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (timer) clearTimeout(timer);
       if (pollNowRef.current === pollNow) pollNowRef.current = () => {};
       window.removeEventListener("focus", pollNow);
+      window.removeEventListener("agentNative:refresh-data", refreshNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged, loading]);

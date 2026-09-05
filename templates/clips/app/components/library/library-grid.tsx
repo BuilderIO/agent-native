@@ -82,7 +82,6 @@ function NewRecordingTile({
     const params = new URLSearchParams();
     if (spaceId) params.set("spaceId", spaceId);
     if (folderId) params.set("folderId", folderId);
-    params.set("autoUpload", "1");
     return `/record?${params.toString()}`;
   }, [spaceId, folderId]);
   const importHref = useMemo(() => {

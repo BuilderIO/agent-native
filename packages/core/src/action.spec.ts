@@ -255,6 +255,17 @@ describe("defineAction", () => {
       isActionExposedToExternalAgents({ agentTool: true, mcpTool: false }),
     ).toBe(false);
 
+    // A turn-ending action (e.g. an in-app question form) is in-app only by
+    // default — the user's answer flows back through the in-app chat that
+    // an external caller is not on — unless `mcpTool: true` is explicit.
+    expect(isActionExposedToExternalAgents({ endsTurn: true })).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, agentTool: true }),
+    ).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, mcpTool: true }),
+    ).toBe(true);
+
     // The runtime backstop refuses only what no surface may run, so an
     // MCP-only action stays callable through the external registries.
     expect(isActionHiddenFromEveryAgentSurface({ agentTool: false })).toBe(

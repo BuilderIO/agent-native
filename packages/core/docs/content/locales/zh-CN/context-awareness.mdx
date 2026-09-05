@@ -401,6 +401,8 @@ export function useNavigationState() {
 }
 ```
 
+从 `app/lib/tab-id.ts` 导入的 `TAB_ID` 就是框架的 `getBrowserTabId()` 值。页面本地的 WebMCP 调用也会在 `X-Agent-Native-Browser-Tab` 中发送同一个 id,因此服务器会把按标签页划分的 `navigation`/`selection` 状态精确解析到代理或用户实际正在操作的那个标签页——不存在需要另外保持同步的第二套标签页方案。
+
 | 你写                                            | 框架句柄                                     |
 | ----------------------------------------------- | -------------------------------------------- |
 | `getNavigationState` — 将 URL 映射到语义状态    | `navigation` 写入，制表符范围加上全局后备键  |

@@ -514,6 +514,8 @@ ChatGPT/Claude スタイルの OAuth アプリ ホストの場合、検出サー
 
 実際には、すべてのエージェント ネイティブ アプリは、対応ホストでのインライン レビュー/編集用の MCP アプリと、完全なアプリへのユニバーサル ラウンドトリップ用の `link` の両方を使用して作成する必要があります。 iframe をレンダリングしない CLI/コードエディター クライアントは、ディープ リンクにフォールバックします。人間による選択ツールは、そのフォールバックにペーストバック ステップを追加できます。たとえば、アセット ピッカーがフォールバック リンクから開き、ユーザーがブラウザでメディアを選択できるようにして、ユーザーがチャットに貼り付けるハンドオフの概要をコピーします。
 
+外部エージェントはアプリの実際の作成・更新ツール ― アプリ内エージェントが呼び出すのと同じ名前付きアクション ― を利用できます。そのため、ユーザーが新しいコンテンツ(デザイン、デッキ、フォーム、ドキュメントなど)を求めた場合は、`ask_app` に作業を委任するのではなく、直接それを作成し、それらのツールで保存してください。`endsTurn: true` が付いたアクション ― そのアプリ自身のチャットでユーザーの回答を待つアプリ内質問フォームなど ― は、`mcpTool: true` でない限り MCP、WebMCP、A2A から隠されます ― 「[アクションの定義における endsTurn](/docs/actions-defining)」を参照してください。ツールの入力と結果は WebMCP 上で最大 500,000 文字まで扱えるため、画面、デッキ、ドキュメント全体を一度の書き込みに収めることができます ― 「[WebMCP](/docs/webmcp)」を参照してください。ページローカルの WebMCP 呼び出しはブラウザのタブ ID(UI が使うのと同じ `getBrowserTabId()` の値 ― 「[コンテキスト認識](/docs/context-awareness)」を参照)も伝えるため、タブごとのナビゲーションや選択状態は、非表示であってもエージェントが操作しているタブに解決されます。
+
 ### ファーストクラス MCP アプリ ブリッジ {#mcp-app-bridge}
 
 `embedApp()` は、アクションの `link` ターゲットから開始され、短期間の埋め込みセッションを作成し、署名されたアプリ ルートを起動します。 Claude Web は単一フレーム移植パスを使用します。 ChatGPT は、`window.openai` ホスト API で制御されたルート iframe を取得します。すべてのパスは通常の React ルートをレンダリングします。直接ハイドレートされたルートは、ホスト ブリッジを通じて `ui/update-model-context`、`ui/message`、`ui/open-link`、および `ui/request-display-mode` を呼び出します。 ChatGPT パスは、`agentNative.mcpHost.*` postMessage 経由で同じリクエストを中継します。 `embedApp({ height })` のデフォルトは `560px` で、`320-900px` に固定されます。
@@ -824,6 +826,7 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 ## 関連 {#related}
 
 - [MCP Apps](/docs/mcp-apps) — MCP アプリ UI、埋め込みブリッジ、およびホスト ブリッジ API をオーサリングします。
+- [WebMCP](/docs/webmcp) ― ページローカル ツール、入力・結果の 500,000 文字制限、およびブラウザ タブ ID ヘッダー。
 - [MCP Protocol](/docs/mcp-protocol) — 自動マウントされる MCP サーバーと `ask-agent` メタツール。
 - [MCP Clients](/docs/mcp-clients) — 対称方向: アプリはローカル/リモート MCP サーバーを消費します。
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` メタツールおよび JSON-RPC ピア呼び出し。

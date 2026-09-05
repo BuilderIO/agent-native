@@ -1,7 +1,20 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  IconAlertTriangle,
+  IconCamera,
+  IconCameraOff,
+  IconLoader2,
+} from "@tabler/icons-react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   createBackgroundBlurStream,
   DEFAULT_BLUR_PX,
@@ -42,7 +55,47 @@ const CAMERA_SIZE_OPTIONS: Array<{ value: CameraBubbleSize; label: string }> = [
   { value: "lg", label: "L" },
 ];
 
+const CAMERA_FRAME_TIMEOUT_MS = 5_000;
+
 type CameraPermissionState = PermissionState | "unknown";
+type PreviewAttachResult = "ready" | "pending" | "superseded" | "error";
+type Translate = ReturnType<typeof useT>;
+type CameraErrorKind =
+  | "unsupported"
+  | "policyBlocked"
+  | "secureContextRequired"
+  | "permissionBlocked"
+  | "permissionDenied"
+  | "notFound"
+  | "inUse"
+  | "startFailed"
+  | "disconnected"
+  | "noVideo";
+
+function cameraErrorMessage(t: Translate, kind: CameraErrorKind): string {
+  switch (kind) {
+    case "unsupported":
+      return t("cameraVisualizer.unsupported");
+    case "policyBlocked":
+      return t("cameraVisualizer.policyBlocked");
+    case "secureContextRequired":
+      return t("cameraVisualizer.secureContextRequired");
+    case "permissionBlocked":
+      return t("cameraVisualizer.permissionBlocked");
+    case "permissionDenied":
+      return t("cameraVisualizer.permissionDenied");
+    case "notFound":
+      return t("cameraVisualizer.notFound");
+    case "inUse":
+      return t("cameraVisualizer.inUse");
+    case "disconnected":
+      return t("cameraVisualizer.disconnected");
+    case "noVideo":
+      return t("cameraVisualizer.noVideo");
+    case "startFailed":
+      return t("cameraVisualizer.startFailed");
+  }
+}
 
 function stopStream(stream: MediaStream | null): void {
   if (!stream) return;
@@ -88,7 +141,10 @@ async function getCameraPermissionState(): Promise<CameraPermissionState> {
   }
 }
 
-async function friendlyCameraError(err: unknown): Promise<string> {
+async function friendlyCameraError(
+  err: unknown,
+  t: Translate,
+): Promise<string> {
   const name = (err as { name?: string } | null)?.name ?? "";
   const message =
     err instanceof Error ? err.message : typeof err === "string" ? err : "";
@@ -105,26 +161,26 @@ async function friendlyCameraError(err: unknown): Promise<string> {
   });
 
   if (blockedByPolicy) {
-    return "This page is blocking camera access via Permissions-Policy. Restart the dev server, reload /record, then try again.";
+    return cameraErrorMessage(t, "policyBlocked");
   }
   if (!window.isSecureContext) {
-    return "Camera prompts require HTTPS or localhost. Open this app on localhost or an HTTPS URL, then try again.";
+    return cameraErrorMessage(t, "secureContextRequired");
   }
   if (permissionState === "denied") {
-    return "Brave already has Camera set to Block for this site, so it will not show the popup. Click the lock/tune icon in the address bar → Site settings → Camera → Allow, then reload.";
+    return cameraErrorMessage(t, "permissionBlocked");
   }
   if (/NotAllowedError|Permission denied|denied|blocked/i.test(combined)) {
-    return "The browser or macOS denied camera access. If no popup appeared, check Brave site settings and macOS System Settings → Privacy & Security → Camera for Brave, then reload.";
+    return cameraErrorMessage(t, "permissionDenied");
   }
   if (
     /NotFoundError|DevicesNotFoundError|no device|not found/i.test(combined)
   ) {
-    return "No camera was found. Plug one in or choose a different camera.";
+    return cameraErrorMessage(t, "notFound");
   }
   if (/NotReadableError|TrackStartError|in use/i.test(combined)) {
-    return "That camera is busy in another app. Close the other app or choose a different camera.";
+    return cameraErrorMessage(t, "inUse");
   }
-  return message || "Could not start the camera check.";
+  return cameraErrorMessage(t, "startFailed");
 }
 
 export function CameraVisualizer({
@@ -147,6 +203,8 @@ export function CameraVisualizer({
   const attachGenRef = useRef(0);
   const blurRadiusRef = useRef(blurRadius);
   const runIdRef = useRef(0);
+  const frameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasFrameRef = useRef(false);
   const previousDeviceIdRef = useRef(deviceId);
   const previousBlurRef = useRef(blur);
 
@@ -154,15 +212,23 @@ export function CameraVisualizer({
   const [error, setError] = useState<string | null>(null);
   const [hasFrame, setHasFrame] = useState(false);
 
+  const clearFrameTimeout = useCallback(() => {
+    if (frameTimeoutRef.current === null) return;
+    clearTimeout(frameTimeoutRef.current);
+    frameTimeoutRef.current = null;
+  }, []);
+
   const clearVideo = useCallback(() => {
+    clearFrameTimeout();
     const video = videoRef.current;
     if (video) {
       video.pause();
       video.srcObject = null;
     }
+    hasFrameRef.current = false;
     setHasFrame(false);
     onPreviewChange?.(false);
-  }, [onPreviewChange]);
+  }, [clearFrameTimeout, onPreviewChange]);
 
   const stopCurrent = useCallback(() => {
     blurHandleRef.current?.cleanup();
@@ -172,14 +238,38 @@ export function CameraVisualizer({
     clearVideo();
   }, [clearVideo]);
 
+  const failPreview = useCallback(
+    (runId: number, kind: "disconnected" | "noVideo") => {
+      if (runIdRef.current !== runId) return;
+      runIdRef.current += 1;
+      stopCurrent();
+      const message = cameraErrorMessage(t, kind);
+      setError(message);
+      setStatus("error");
+      onStatusChange?.("error", { error: message });
+    },
+    [onStatusChange, stopCurrent, t],
+  );
+
+  const armFrameTimeout = useCallback(
+    (runId: number) => {
+      clearFrameTimeout();
+      frameTimeoutRef.current = setTimeout(() => {
+        if (hasFrameRef.current) return;
+        failPreview(runId, "noVideo");
+      }, CAMERA_FRAME_TIMEOUT_MS);
+    },
+    [clearFrameTimeout, failPreview],
+  );
+
   // Bind the raw camera or its blurred derivative to the <video> per the current
   // `blur` setting, so the preview matches what recording bakes in. Each call
   // claims a generation and bails if a newer attach superseded it during an await.
-  const attachPreview = useCallback(async () => {
+  const attachPreview = useCallback(async (): Promise<PreviewAttachResult> => {
     const gen = ++attachGenRef.current;
     const raw = streamRef.current;
     const video = videoRef.current;
-    if (!raw || !video) return;
+    if (!raw || !video) return "pending";
 
     let display: MediaStream = raw;
     if (blur) {
@@ -190,7 +280,7 @@ export function CameraVisualizer({
       });
       if (gen !== attachGenRef.current || streamRef.current !== raw) {
         handle.cleanup();
-        return;
+        return "superseded";
       }
       blurHandleRef.current = handle;
       display = handle.stream;
@@ -199,9 +289,14 @@ export function CameraVisualizer({
       blurHandleRef.current = null;
     }
 
-    if (gen !== attachGenRef.current) return;
+    if (gen !== attachGenRef.current) return "superseded";
     if (video.srcObject !== display) video.srcObject = display;
-    await video.play().catch(() => {});
+    try {
+      await video.play();
+      return "ready";
+    } catch {
+      return gen === attachGenRef.current ? "error" : "superseded";
+    }
   }, [blur]);
 
   const stopTest = useCallback(() => {
@@ -215,24 +310,21 @@ export function CameraVisualizer({
   const startTest = useCallback(async () => {
     if (disabled) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      const message =
-        "Your browser doesn't support live camera checks. Try a recent Brave, Chrome, Edge, Safari, or Firefox.";
+      const message = cameraErrorMessage(t, "unsupported");
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
       return;
     }
     if (isCameraBlockedByPolicy()) {
-      const message =
-        "This page is blocking camera access via Permissions-Policy. Restart the dev server, reload /record, then try again.";
+      const message = cameraErrorMessage(t, "policyBlocked");
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
       return;
     }
     if (!window.isSecureContext) {
-      const message =
-        "Camera prompts require HTTPS or localhost. Open this app on localhost or an HTTPS URL, then try again.";
+      const message = cameraErrorMessage(t, "secureContextRequired");
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
@@ -246,8 +338,7 @@ export function CameraVisualizer({
     const permissionState = await getCameraPermissionState();
     if (runIdRef.current !== runId) return;
     if (permissionState === "denied") {
-      const message =
-        "Brave already has Camera set to Block for this site, so it will not show the popup. Click the lock/tune icon in the address bar → Site settings → Camera → Allow, then reload.";
+      const message = cameraErrorMessage(t, "permissionBlocked");
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
@@ -275,13 +366,20 @@ export function CameraVisualizer({
       // don't keep running frozen. runId guard skips our own stop().
       for (const track of stream.getVideoTracks()) {
         track.addEventListener("ended", () => {
-          if (runIdRef.current === runId) stopTest();
+          failPreview(runId, "disconnected");
         });
       }
-      await attachPreview();
+      // Arm the no-frame deadline before play(): some browsers leave its
+      // promise pending when media cannot start.
+      armFrameTimeout(runId);
+      const attachResult = await attachPreview();
       // Re-check after the async attach so a newer startTest can't be clobbered.
       if (runIdRef.current !== runId) {
         stopCurrent();
+        return;
+      }
+      if (attachResult === "error") {
+        failPreview(runId, "noVideo");
         return;
       }
       setStatus("live");
@@ -289,7 +387,7 @@ export function CameraVisualizer({
     } catch (err) {
       stopStream(stream);
       if (runIdRef.current !== runId) return;
-      const message = await friendlyCameraError(err);
+      const message = await friendlyCameraError(err, t);
       // friendlyCameraError awaits the Permissions API, so re-check after.
       if (runIdRef.current !== runId) return;
       setError(message);
@@ -299,18 +397,22 @@ export function CameraVisualizer({
     }
   }, [
     attachPreview,
+    armFrameTimeout,
+    clearFrameTimeout,
     clearVideo,
     deviceId,
     disabled,
+    failPreview,
     onStatusChange,
     stopCurrent,
     stopTest,
+    t,
   ]);
 
   useEffect(() => {
     if (disabled) {
       previousDeviceIdRef.current = deviceId;
-      if (status === "live" || status === "starting") {
+      if (status !== "idle") {
         stopTest();
       } else {
         clearVideo();
@@ -341,15 +443,16 @@ export function CameraVisualizer({
     if (video.srcObject !== display) {
       video.srcObject = display;
     }
+    const runId = runIdRef.current;
     const tryPlay = () => {
-      video.play().catch(() => undefined);
+      void video.play().catch(() => failPreview(runId, "noVideo"));
     };
     tryPlay();
     video.addEventListener("loadedmetadata", tryPlay, { once: true });
     return () => {
       video.removeEventListener("loadedmetadata", tryPlay);
     };
-  }, [status]);
+  }, [failPreview, status]);
 
   // Toggle blur while live: swap the preview source in place (startTest already
   // binds the initial value, so skip mount).
@@ -358,8 +461,11 @@ export function CameraVisualizer({
     previousBlurRef.current = blur;
     if (status !== "live" && status !== "starting") return;
     if (!streamRef.current) return;
-    void attachPreview();
-  }, [blur, status, attachPreview]);
+    const runId = runIdRef.current;
+    void attachPreview().then((result) => {
+      if (result === "error") failPreview(runId, "noVideo");
+    });
+  }, [attachPreview, blur, failPreview, status]);
 
   // Slider drags adjust the live pipeline without rebuilding the segmenter.
   useEffect(() => {
@@ -371,64 +477,106 @@ export function CameraVisualizer({
   const starting = status === "starting";
   const showBubble = live || starting;
   const sizePx = CAMERA_BUBBLE_SIZE_PX[size];
+  const statusLabel = disabled
+    ? t("preRecord.cameraOff")
+    : error
+      ? t("cameraVisualizer.needsAttention")
+      : starting
+        ? t("cameraVisualizer.opening")
+        : live
+          ? hasFrame
+            ? t("cameraVisualizer.live")
+            : t("cameraVisualizer.waiting")
+          : t("cameraVisualizer.bubble");
   return (
-    <div className={cn("space-y-2", disabled && "opacity-70", className)}>
+    <div className={cn("grid gap-2", className)}>
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-muted/20 py-0.5 ps-2 pe-0.5">
-          <span className="text-[11px] text-muted-foreground">
-            {t("cameraVisualizer.bubble")}
-          </span>
-          {live || starting ? (
-            <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
-              {live
-                ? hasFrame
-                  ? t("cameraVisualizer.live")
-                  : t("cameraVisualizer.waiting")
-                : t("cameraVisualizer.opening")}
-            </span>
-          ) : null}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={cn(
+            "flex h-7 min-w-0 flex-1 items-center gap-1 rounded-full border border-border bg-muted/20 px-1.5 text-[10px] font-medium text-muted-foreground",
+            error && "border-destructive/40 bg-destructive/10 text-destructive",
+          )}
+        >
+          {disabled ? (
+            <IconCameraOff
+              className="size-3.5 shrink-0"
+              stroke={2}
+              aria-hidden="true"
+            />
+          ) : error ? (
+            <IconAlertTriangle
+              className="size-3.5 shrink-0"
+              stroke={2}
+              aria-hidden="true"
+            />
+          ) : starting ? (
+            <IconLoader2
+              className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+              stroke={2}
+              aria-hidden="true"
+            />
+          ) : (
+            <IconCamera
+              className="size-3.5 shrink-0"
+              stroke={2}
+              aria-hidden="true"
+            />
+          )}
+          <span className="truncate">{statusLabel}</span>
         </div>
-        <div className="flex rounded-md bg-muted p-0.5">
+        <ToggleGroup
+          type="single"
+          value={size}
+          onValueChange={(value) => {
+            if (value) onSizeChange?.(value as CameraBubbleSize);
+          }}
+          variant="outline"
+          aria-label={t("cameraVisualizer.bubble")}
+          className="grid shrink-0 grid-cols-3 gap-0.5 rounded-md bg-muted p-0.5"
+        >
           {CAMERA_SIZE_OPTIONS.map((option) => (
-            <button
+            <ToggleGroupItem
               key={option.value}
-              type="button"
+              value={option.value}
               disabled={disabled}
-              aria-pressed={size === option.value}
-              onClick={() => onSizeChange?.(option.value)}
-              className={cn(
-                "h-6 min-w-6 rounded px-2 text-[11px] font-medium text-muted-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                size === option.value &&
-                  "bg-background text-foreground shadow-sm",
-              )}
+              aria-label={t("cameraVisualizer.setBubbleSize", {
+                size: option.label,
+              })}
+              className="h-6 min-w-6 rounded border-0 px-1.5 text-[11px] text-muted-foreground shadow-none data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
             >
               {option.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <Button
           type="button"
           variant={live ? "outline" : "secondary"}
           size="sm"
           disabled={disabled || starting}
           onClick={live ? stopTest : startTest}
-          className="ms-auto h-7 shrink-0 px-2.5 text-xs"
+          className="h-7 w-16 shrink-0 px-2 text-xs"
         >
           {live
             ? t("cameraVisualizer.stop")
             : starting
-              ? t("cameraVisualizer.openingEllipsis")
+              ? t("cameraVisualizer.opening")
               : t("cameraVisualizer.test")}
         </Button>
       </div>
       {showBubble && (
-        <div className="fixed bottom-4 left-4 z-40 flex flex-col items-start gap-2">
+        <div
+          data-testid="camera-preview-container"
+          className="relative mx-auto flex w-full max-w-[var(--camera-preview-size)] flex-col items-center gap-2 min-[900px]:fixed min-[900px]:bottom-4 min-[900px]:start-4 min-[900px]:z-40 min-[900px]:mx-0"
+          style={{ "--camera-preview-size": `${sizePx}px` } as CSSProperties}
+        >
           <div
             className={cn(
-              "relative overflow-hidden rounded-full border-4 border-white/80 bg-black shadow-2xl ring-1",
-              live && hasFrame ? "ring-black/25" : "ring-border",
+              "relative aspect-square w-full overflow-hidden rounded-full border-4 border-background/80 bg-foreground shadow-2xl ring-1",
+              live && hasFrame ? "ring-foreground/25" : "ring-border",
             )}
-            style={{ width: sizePx, height: sizePx }}
           >
             <video
               ref={videoRef}
@@ -436,8 +584,15 @@ export function CameraVisualizer({
               muted
               playsInline
               onLoadedData={() => {
+                clearFrameTimeout();
+                hasFrameRef.current = true;
                 setHasFrame(true);
                 onPreviewChange?.(true);
+              }}
+              onError={() => {
+                if (status === "live" || status === "starting") {
+                  failPreview(runIdRef.current, "noVideo");
+                }
               }}
               aria-label={t("cameraVisualizer.selectedPreview")}
               className={cn(
@@ -450,39 +605,21 @@ export function CameraVisualizer({
                 {t("cameraVisualizer.preview")}
               </div>
             )}
-            {live && (
-              <div
-                className={cn(
-                  "pointer-events-none absolute bottom-[12%] right-[18%] h-2.5 w-2.5 rounded-full ring-2 ring-white",
-                  hasFrame ? "bg-foreground" : "bg-muted-foreground/40",
-                )}
-              />
-            )}
-          </div>
-          <div className="rounded-full border border-border bg-background/95 p-1 shadow-lg backdrop-blur">
-            {CAMERA_SIZE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-label={t("cameraVisualizer.setBubbleSize", {
-                  size: option.label,
-                })}
-                aria-pressed={size === option.value}
-                onClick={() => onSizeChange?.(option.value)}
-                className={cn(
-                  "h-7 min-w-7 rounded-full px-2 text-[11px] font-medium text-muted-foreground transition-colors",
-                  size === option.value &&
-                    "bg-foreground text-background shadow-sm",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
           </div>
         </div>
       )}
       {error ? (
-        <p className="text-[11px] leading-snug text-foreground">{error}</p>
+        <div
+          role="alert"
+          className="flex min-w-0 items-start gap-1.5 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] leading-snug text-destructive"
+        >
+          <IconAlertTriangle
+            className="mt-px size-3.5 shrink-0"
+            stroke={2}
+            aria-hidden="true"
+          />
+          <span className="min-w-0">{error}</span>
+        </div>
       ) : null}
     </div>
   );

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "forms",
+  "displayName": "Forms",
+  "description": "Build, publish, and analyze forms and their responses through the Forms app.",
+  "hosted": {
+    "url": "https://forms.agent-native.com",
+    "mcpUrl": "https://forms.agent-native.com/mcp"
+  },
+  "mcp": {
+    "serverName": "agent-native-forms"
+  },
+  "local": {
+    "template": "forms",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8084",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Use the Forms actions if they are already available. Otherwise add https://forms.agent-native.com/mcp as a remote MCP connector in OAuth-capable hosts, then complete the host-owned OAuth sign-in. Codex and Claude Cowork use the browser-authorized device-code flow at https://forms.agent-native.com/mcp/connect or npx @agent-native/core@latest connect https://forms.agent-native.com. Never ask the user to paste a token into chat."
+  },
+  "surfaces": [
+    {
+      "id": "form-builder",
+      "action": "create-form",
+      "path": "/forms"
+    }
+  ],
+  "skills": [
+    {
+      "path": ".agents/skills/form-building",
+      "visibility": "both",
+      "exportAs": "form-building"
+    },
+    {
+      "path": ".agents/skills/form-publishing",
+      "visibility": "both",
+      "exportAs": "form-publishing"
+    },
+    {
+      "path": ".agents/skills/form-responses",
+      "visibility": "both",
+      "exportAs": "form-responses"
+    }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ]
+}

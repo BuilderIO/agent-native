@@ -127,7 +127,12 @@ const TAB_SCOPED_AMBIENT_KEYS = new Set([
   "__set_url__",
 ]);
 
-function normalizeBrowserTabId(value: unknown): string | null {
+/**
+ * Exported so server code that reads a browser-tab id off a request header
+ * (e.g. action-routes.ts) shares this exact validation instead of a copy —
+ * only a tab-id-shaped value is ever trusted to scope app state.
+ */
+export function normalizeBrowserTabId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return SAFE_TAB_ID_RE.test(trimmed) ? trimmed : null;

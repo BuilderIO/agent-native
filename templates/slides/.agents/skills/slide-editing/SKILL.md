@@ -76,14 +76,16 @@ To edit a slide's content:
    approved native template or component when it already fits; generate
    net-new structure only when the relevant corpus is empty.
 4. **Update the slide** with `update-slide` using `deckId`, `slideId`, and
-   ordered `edits`. For a focused selected-text replacement, send one literal
-   replace with the selected text as `find` and `expectedMatches: 1`; do not
-   fetch the full deck, use `fullContent`, or wait for layout-fit. If the text
-   is truncated, ambiguous, contains markup that prevents a literal match, or
-   the edit is structural, read only this slide with `get-deck` first and use
-   its `contentHash` as `baseContentHash` when appropriate. For code-style
-   work, request `compact=false` and `format=true`. Use exact replace, insert
-   before/after, replace between markers, or regex replace. All edits are
+   ordered `edits`. When `view-screen` returns an exact `selectedText` range,
+   edit immediately: send one literal replace with the selected text as
+   `find`, `expectedMatches: 1`, and `currentSlideContentHash` as
+   `baseContentHash`; do not load the full deck, use `fullContent`, or wait
+   for layout-fit. If the text is truncated, ambiguous, contains markup that
+   prevents a literal match, or the edit is structural, use targeted
+   `get-deck` first, use its `contentHash` as `baseContentHash`, then read
+   back. For code-style work, request `compact=false` and `format=true`. Use
+   exact replace, insert before/after, replace between markers, or regex
+   replace. All edits are
    applied in memory under the deck lock; if one required edit fails, nothing is
    written. Set `format=true` on `update-slide` to persist readable Prettier
    line breaks. Use `fullContent` only for an intentional full rewrite - do not

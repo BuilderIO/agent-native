@@ -1234,6 +1234,50 @@ const messages = {
     selectedPreview: "選択したカメラのプレビュー",
     preview: "カメラプレビュー",
     setBubbleSize: "カメラバブルサイズ {{size}} を設定",
+    needsAttention: "カメラを確認",
+    unsupported: "このブラウザはカメラのライブテストに対応していません。",
+    policyBlocked:
+      "このページでカメラへのアクセスがブロックされています。Clips を直接開いて、もう一度お試しください。",
+    secureContextRequired:
+      "カメラのテストには HTTPS または localhost が必要です。",
+    permissionBlocked:
+      "カメラへのアクセスがブロックされています。このサイトの設定で許可してから、ページを再読み込みしてください。",
+    permissionDenied:
+      "カメラへのアクセスが拒否されました。サイトのカメラ設定とシステムのプライバシー設定を確認してから、ページを再読み込みしてください。",
+    notFound:
+      "カメラが見つかりません。カメラを接続するか、別のカメラを選択してください。",
+    inUse:
+      "カメラは別のアプリで使用中です。そのアプリを閉じるか、別のカメラを選択してください。",
+    startFailed: "カメラのテストを開始できませんでした。",
+    disconnected: "カメラが切断されました。",
+    noVideo: "カメラ映像を検出できませんでした。",
+  },
+  microphoneVisualizer: {
+    off: "オフ",
+    needsAttention: "マイクを確認",
+    signal: "入力あり",
+    listening: "待機中",
+    opening: "開いています",
+    openingEllipsis: "開いています...",
+    stop: "停止",
+    test: "マイクをテスト",
+    unsupported: "このブラウザはマイクのライブテストに対応していません。",
+    policyBlocked:
+      "このページでマイクへのアクセスがブロックされています。Clips を直接開いて、もう一度お試しください。",
+    secureContextRequired:
+      "マイクのテストには HTTPS または localhost が必要です。",
+    permissionBlockedBrowser:
+      "マイクへのアクセスがブロックされています。このサイトの設定で許可してから、ページを再読み込みしてください。",
+    permissionBlockedDesktop:
+      "マイクへのアクセスがブロックされています。システムのプライバシー設定で許可してから、レコーダーを開き直してください。",
+    permissionDenied:
+      "マイクへのアクセスが拒否されました。サイトのマイク設定とシステムのプライバシー設定を確認してから、ページを再読み込みしてください。",
+    notFound:
+      "マイクが見つかりません。マイクを接続するか、別の入力を選択してください。",
+    inUse:
+      "マイクは別のアプリで使用中です。そのアプリを閉じるか、別の入力を選択してください。",
+    startFailed: "マイクのテストを開始できませんでした。",
+    disconnected: "マイクが切断されました。",
   },
   storageSetup: {
     builderTimeout:
@@ -1353,6 +1397,11 @@ const messages = {
     shortMicLabel: "Mic {{id}} (ローカライズ済み)",
     defaultCamera: "Default camera (ローカライズ済み)",
     shortCameraLabel: "Camera {{id}} (ローカライズ済み)",
+    moreCameras: "その他のカメラ…",
+    cameraPickerTitle: "カメラを選択",
+    moreMicrophones: "その他のマイク…",
+    microphonePickerTitle: "マイクを選択",
+    closeDevicePicker: "デバイス選択を閉じる",
     noAudio: "No audio (ローカライズ済み)",
     noCamera: "No camera (ローカライズ済み)",
     loomImportFailed: "Could not import that Loom. (ローカライズ済み)",
@@ -1375,10 +1424,11 @@ const messages = {
     cameraOff: "Camera off (ローカライズ済み)",
     includeCameraAria: "Include camera in this recording (ローカライズ済み)",
     startRecording: "Start recording (ローカライズ済み)",
+    startCameraRecording: "カメラ録画を開始",
     micOffConfirmTitle: "マイクがミュートされています",
     micOffConfirmDescription:
       "動画に音声を入れるには、マイクのミュートを解除してください。",
-    startWithoutMic: "続ける",
+    startWithoutMic: "音声なしで録画",
     unmuteMicrophone: "ミュートを解除",
     uploadVideo: "Upload video (ローカライズ済み)",
     importLoom: "Import Loom (ローカライズ済み)",
@@ -1447,6 +1497,7 @@ const messages = {
       "Recording your screen — switch to the window you want to capture (ローカライズ済み)",
     largeClipsNeedReencode:
       "Large clips need a quick re-encode before upload. (ローカライズ済み)",
+    compressingRecording: "録画を圧縮しています…",
     savingRecording: "Saving your recording… (ローカライズ済み)",
     sessionExpired: "Session expired (ローカライズ済み)",
     sessionExpiredDescription:
@@ -1460,6 +1511,10 @@ const messages = {
     whatToCheck: "What to check (ローカライズ済み)",
     downloadRecording: "Download (ローカライズ済み)",
     openRecorderInTab: "Open recorder in tab (ローカライズ済み)",
+    retryUpload: "アップロードを再試行",
+    tryAgain: "もう一度試す",
+    storageConnectedReopeningRecorder:
+      "ストレージに接続しました。レコーダーを再度開いています...",
     connectStorageToFinish:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:

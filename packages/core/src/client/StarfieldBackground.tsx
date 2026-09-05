@@ -7,192 +7,112 @@ void main() {
 }
 `;
 
-// Adapted from "The Universe Within" by BigWings (Martijn Steinrucken)
-// https://www.shadertoy.com/view/lscczl
-// License: CC BY-NC-SA 3.0
+// Gentle travelling waves of light, domain-warped with hash noise, attenuated
+// by a radial falloff around the focus point and resolved through a Ben-Day
+// halftone dot grid. Keep this in the shared component so public app pages can
+// use the same WebGL field as the docs homepage.
 const fragmentShader = `
 precision highp float;
 
 uniform float iTime;
 uniform vec2 iResolution;
-uniform float uDark;
 uniform vec3 uPointer;
+uniform vec3 uFgColor;
+uniform vec3 uBgColor;
+uniform float uBrightness;
 
 #define S(a, b, t) smoothstep(a, b, t)
-#define NUM_LAYERS 4.
+
+const float WAVE_COUNT = 5.;
+const float WAVE_SCALE = 5.5;
+const float FLOW_ANGLE = 119.;
+const float WARP = 0.35;
+const float SPEED = 0.65;
+const float FOCUS_FOLLOW = 0.65;
+const vec2 FOCUS = vec2(0., -0.05);
+const float SPREAD = 1.2;
+const float DOT_DENSITY = 131.;
+const float DOT_SCALE = 1.35;
+const float GLOW = 1.;
+const float SEED = 56.;
+const float VIGNETTE = 1.7;
+const float TONE_GAMMA = 2.6;
+const float FADE_IN_SECONDS = 0.7;
 
 float N21(vec2 p) {
+  p += SEED;
   vec3 a = fract(vec3(p.xyx) * vec3(213.897, 653.453, 253.098));
   a += dot(a, a.yzx + 79.76);
   return fract((a.x + a.y) * a.z);
 }
 
-vec2 GetPos(vec2 id, vec2 offs, float t) {
-  float n = N21(id + offs);
-  float n1 = fract(n * 10.);
-  float n2 = fract(n * 100.);
-  float a = t + n;
-  return offs + vec2(sin(a * n1), cos(a * n2)) * .4;
+float valueNoise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 f = fract(p);
+  float a = N21(cell);
+  float b = N21(cell + vec2(1., 0.));
+  float c = N21(cell + vec2(0., 1.));
+  float d = N21(cell + vec2(1., 1.));
+  vec2 u = f * f * (3. - 2. * f);
+  return mix(a, b, u.x) + (c - a) * u.y * (1. - u.x) + (d - b) * u.x * u.y;
 }
 
-vec2 Attract(vec2 p, vec2 cursor, float strength) {
-  vec2 delta = cursor - p;
-  float d = length(delta);
-  float pull = 1. - smoothstep(.08, 1.9, d);
-  pull = pull * pull * (3. - 2. * pull);
-  return p + delta * pull * .095 * strength;
-}
-
-float df_line(in vec2 a, in vec2 b, in vec2 p) {
-  vec2 pa = p - a, ba = b - a;
-  float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.);
-  return length(pa - ba * h);
-}
-
-float line(vec2 a, vec2 b, vec2 uv) {
-  float r1 = .025;
-  float r2 = .006;
-  float d = df_line(a, b, uv);
-  float d2 = length(a - b);
-  float fade = S(1.5, .5, d2);
-  fade += S(.05, .02, abs(d2 - .75));
-  return S(r1, r2, d) * fade;
-}
-
-// Unrolled for WebGL1 compatibility (no dynamic array indexing)
-float NetLayer(vec2 st, float n, float t, vec2 pointer, float pointerStrength) {
-  vec2 cell = floor(st);
-  vec2 id = cell + n;
-  vec2 cursor = pointer - cell;
-  st = fract(st) - .5;
-
-  vec2 p0 = Attract(GetPos(id, vec2(-1,-1), t), cursor, pointerStrength);
-  vec2 p1 = Attract(GetPos(id, vec2( 0,-1), t), cursor, pointerStrength);
-  vec2 p2 = Attract(GetPos(id, vec2( 1,-1), t), cursor, pointerStrength);
-  vec2 p3 = Attract(GetPos(id, vec2(-1, 0), t), cursor, pointerStrength);
-  vec2 p4 = Attract(GetPos(id, vec2( 0, 0), t), cursor, pointerStrength);
-  vec2 p5 = Attract(GetPos(id, vec2( 1, 0), t), cursor, pointerStrength);
-  vec2 p6 = Attract(GetPos(id, vec2(-1, 1), t), cursor, pointerStrength);
-  vec2 p7 = Attract(GetPos(id, vec2( 0, 1), t), cursor, pointerStrength);
-  vec2 p8 = Attract(GetPos(id, vec2( 1, 1), t), cursor, pointerStrength);
-
-  float m = 0.;
-  float sparkle = 0.;
-  float d; float s; float pulse;
-
-  m += line(p4, p0, st);
-  d = length(st-p0); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p0.x)+fract(p0.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p4, p1, st);
-  d = length(st-p1); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p1.x)+fract(p1.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p4, p2, st);
-  d = length(st-p2); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p2.x)+fract(p2.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p4, p3, st);
-  d = length(st-p3); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p3.x)+fract(p3.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p4, p4, st);
-  d = length(st-p4); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p4.x)+fract(p4.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p4, p5, st);
-  d = length(st-p5); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p5.x)+fract(p5.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p4, p6, st);
-  d = length(st-p6); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p6.x)+fract(p6.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p4, p7, st);
-  d = length(st-p7); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p7.x)+fract(p7.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p4, p8, st);
-  d = length(st-p8); s = (.005/(d*d)); s *= S(1.,.7,d);
-  pulse = sin((fract(p8.x)+fract(p8.y)+t)*5.)*.4+.6; pulse = pow(pulse, 20.);
-  sparkle += s * pulse;
-
-  m += line(p1, p3, st);
-  m += line(p1, p5, st);
-  m += line(p7, p5, st);
-  m += line(p7, p3, st);
-
-  float sPhase = (sin(t + n) + sin(t * .1)) * .25 + .5;
-  sPhase += pow(sin(t * .1) * .5 + .5, 50.) * 5.;
-  m += sparkle * sPhase;
-
-  return m;
+float waveField(vec2 p, float t) {
+  float angle = radians(FLOW_ANGLE);
+  vec2 dir = vec2(cos(angle), sin(angle));
+  vec2 perp = vec2(-dir.y, dir.x);
+  vec2 warpUv = p * 1.1 + vec2(t * 0.14, t * 0.1);
+  float n1 = valueNoise(warpUv);
+  float n2 = valueNoise(warpUv + 5.2);
+  vec2 warped = p + (vec2(n1, n2) - 0.5) * WARP;
+  float along = dot(warped, dir);
+  float across = dot(warped, perp);
+  float field = 0.;
+  float weight = 0.;
+  for (float i = 0.; i < WAVE_COUNT; i += 1.) {
+    float amp = 1. / (1. + i * 0.8);
+    float freq = WAVE_SCALE * (1. + i * 0.55);
+    float drift = t * (1. + i * 0.23) + i * 2.399963;
+    float cross = sin(across * freq * 0.45 - drift * 0.7);
+    field += amp * sin(along * freq + drift + cross * 1.3);
+    weight += amp;
+  }
+  return clamp(field / max(weight, 0.001) * 0.5 + 0.5, 0., 1.);
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec2 uv = (fragCoord - iResolution.xy * .5) / iResolution.y;
-
-  float t = iTime * .03;
-
-  float s = sin(t);
-  float c = cos(t);
-  mat2 rot = mat2(c, -s, s, c);
-  vec2 st = uv * rot;
   vec2 pointerUv = (uPointer.xy - iResolution.xy * .5) / iResolution.y;
-
-  float m = 0.;
-  for (float i = 0.; i < 1.; i += 1. / NUM_LAYERS) {
-    float z = fract(t + i);
-    float size = mix(15., 1., z);
-    float fade = S(0., .6, z) * S(1., .8, z);
-    vec2 pointerSt = pointerUv * rot * size;
-    vec2 layerSt = st * size;
-    float warp = 1. - smoothstep(.15, 2.7, length(layerSt - pointerSt));
-    warp = warp * warp * (3. - 2. * warp) * uPointer.z;
-    layerSt -= (pointerSt - layerSt) * warp * .035;
-    m += fade * NetLayer(layerSt, i, iTime * 0.3, pointerSt, uPointer.z);
-  }
-
-  float cursorLift = 1. - smoothstep(.04, .48, length(uv - pointerUv));
-  cursorLift = cursorLift * cursorLift * (3. - 2. * cursorLift) * uPointer.z;
-  m *= 1. + cursorLift * 1.6;
-
-  // Gray instead of rainbow
-  vec3 baseCol = vec3(0.35) * uDark + vec3(0.12) * (1.0 - uDark);
-  vec3 col = baseCol * m;
-
-  // Vignette from original
-  col *= 1. - dot(uv, uv);
-
-  // Fade in then cap at the subtle sparkle state
-  float tt = min(iTime, 5.0);
-  col *= S(0., 20., tt);
-
-  // Background
-  vec3 bg = mix(vec3(1.0), vec3(0.0), uDark);
-
-  if (uDark < 0.5) {
-    col = bg - col * 1.2;
-  } else {
-    col = bg + col;
-  }
-
-  col = clamp(col, 0., 1.);
-  fragColor = vec4(col, 1.);
+  float t = iTime * SPEED;
+  float cellSize = 1. / DOT_DENSITY;
+  vec2 cell = floor(uv / cellSize);
+  vec2 cellCenter = (cell + 0.5) * cellSize;
+  vec2 cellUv = (uv - cellCenter) / cellSize;
+  float tone = waveField(cellCenter, t);
+  vec2 focus = FOCUS + (pointerUv - FOCUS) * FOCUS_FOLLOW * uPointer.z;
+  float distFromFocus = length(cellCenter - focus) / SPREAD;
+  tone *= exp(-1.6 * distFromFocus * distFromFocus);
+  tone = pow(clamp(tone, 0., 1.), TONE_GAMMA);
+  float radius = sqrt(tone) * 0.5 * DOT_SCALE;
+  float px = (1. / iResolution.y) / cellSize;
+  float edge = max(px * 1.2, 0.004);
+  float dist = length(cellUv);
+  float dotMask = step(0.0001, tone) * (1. - S(radius - edge, radius + edge, dist));
+  float glowTerm = (1. - S(radius, radius + GLOW * 0.9, dist)) * GLOW * tone;
+  float value = clamp(dotMask + glowTerm * 0.6, 0., 1.);
+  value *= clamp(1. - dot(uv, uv) * VIGNETTE, 0., 1.);
+  value *= S(0., FADE_IN_SECONDS, iTime);
+  vec3 lit = mix(uBgColor, uFgColor, value);
+  lit += (uFgColor - uBgColor) * value * tone * (uBrightness - 1.);
+  fragColor = vec4(clamp(lit, 0., 1.), 1.);
 }
 
 void main() {
   mainImage(gl_FragColor, gl_FragCoord.xy);
 }
 `;
+
+let shaderEpoch = 0;
 
 export interface StarfieldBackgroundProps {
   className?: string;
@@ -274,8 +194,10 @@ export function StarfieldBackground({
 
     const uTime = gl.getUniformLocation(program, "iTime");
     const uRes = gl.getUniformLocation(program, "iResolution");
-    const uDark = gl.getUniformLocation(program, "uDark");
     const uPointer = gl.getUniformLocation(program, "uPointer");
+    const uFgColor = gl.getUniformLocation(program, "uFgColor");
+    const uBgColor = gl.getUniformLocation(program, "uBgColor");
+    const uBrightness = gl.getUniformLocation(program, "uBrightness");
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
         ? window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -292,22 +214,37 @@ export function StarfieldBackground({
     let targetStrength = 0;
 
     function readDarkMode() {
-      return (
-        document.documentElement.classList.contains("dark") ||
-        document.documentElement.getAttribute("data-theme") === "dark"
-      );
+      const root = document.documentElement;
+      if (root.classList.contains("dark")) return true;
+      if (root.classList.contains("light")) return false;
+      return root.getAttribute("data-theme") === "dark";
     }
 
-    let dark = readDarkMode();
+    function readTheme() {
+      const dark = readDarkMode();
+      return dark
+        ? {
+            bg: [10 / 255, 10 / 255, 10 / 255] as [number, number, number],
+            fg: [174 / 255, 173 / 255, 172 / 255] as [number, number, number],
+            brightness: 3,
+          }
+        : {
+            bg: [250 / 255, 249 / 255, 245 / 255] as [number, number, number],
+            fg: [0, 103 / 255, 127 / 255] as [number, number, number],
+            brightness: 1.15,
+          };
+    }
+
+    let theme = readTheme();
 
     function easePointer(allowPointer: boolean) {
       if (!allowPointer) {
         pointerStrength = 0;
         return;
       }
-      pointerX += (targetX - pointerX) * 0.22;
-      pointerY += (targetY - pointerY) * 0.22;
-      pointerStrength += (targetStrength - pointerStrength) * 0.14;
+      pointerX += (targetX - pointerX) * 0.12;
+      pointerY += (targetY - pointerY) * 0.12;
+      pointerStrength += (targetStrength - pointerStrength) * 0.08;
       if (pointerStrength < 0.001 && targetStrength === 0) {
         pointerStrength = 0;
       }
@@ -317,8 +254,10 @@ export function StarfieldBackground({
       easePointer(allowPointer);
       gl.uniform1f(uTime, timeSeconds);
       gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform1f(uDark, dark ? 1.0 : 0.0);
       gl.uniform3f(uPointer, pointerX, pointerY, pointerStrength);
+      gl.uniform3f(uFgColor, theme.fg[0], theme.fg[1], theme.fg[2]);
+      gl.uniform3f(uBgColor, theme.bg[0], theme.bg[1], theme.bg[2]);
+      gl.uniform1f(uBrightness, theme.brightness);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -369,7 +308,7 @@ export function StarfieldBackground({
     window.addEventListener("blur", fadePointer);
 
     const observer = new MutationObserver(() => {
-      dark = readDarkMode();
+      theme = readTheme();
       if (reducedMotion) draw(20, false);
     });
     observer.observe(document.documentElement, {
@@ -377,7 +316,8 @@ export function StarfieldBackground({
       attributeFilter: ["class", "data-theme"],
     });
 
-    const startTime = performance.now();
+    if (!shaderEpoch) shaderEpoch = performance.now();
+    const startTime = shaderEpoch;
     let lastFrame = 0;
     const frameBudget = 1000 / Math.max(1, frameRate);
     const reducedMotionStaticTime = 20;
@@ -422,7 +362,12 @@ export function StarfieldBackground({
       }
     }
 
-    draw(reducedMotion ? reducedMotionStaticTime : 0, !reducedMotion);
+    draw(
+      reducedMotion
+        ? reducedMotionStaticTime
+        : (performance.now() - startTime) * 0.001,
+      !reducedMotion,
+    );
     if (reducedMotionQuery) {
       reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
     }

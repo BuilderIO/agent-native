@@ -48,7 +48,7 @@ export default defineAction({
 });
 ```
 
-`schema` (Zod or Standard Schema-compatible) gives runtime validation, TS inference for `run()` args, and an auto-generated JSON Schema for the tool. `.describe()` each param, `.optional()` for optional ones, `z.enum([...])` for constrained values, `z.coerce.number()` for numeric HTTP params — but write an explicit boolean parser instead of `z.coerce.boolean()`, which treats `"false"` as truthy.
+`schema` (Zod or Standard Schema-compatible) gives runtime validation, TS inference for `run()` args, and an auto-generated JSON Schema for the tool. Write it so an agent can call the tool correctly on the first try: `.describe()` every param and state enum values and the default in that text (`z.enum(["open","closed"]).default("open").describe('Filter status: "open" or "closed"; defaults to "open"')`); mark a field `.optional()` only when the action truly tolerates its absence — a silent default the caller cannot see is a required field in disguise; name the primary id the same way across a family (`create-/get-/update-/delete-<thing>` all take `id`, not a mix of `id` and `<thing>Id`), and if one action must differ, accept both with `.or()`; give nested objects a real schema, never a prose description; keep the one-line `description` complete enough to call the tool without a second lookup, because compact catalogs and `tool-search` show only that line. Use `z.coerce.number()` for numeric HTTP params, but write an explicit boolean parser instead of `z.coerce.boolean()`, which treats `"false"` as truthy.
 
 Use Drizzle's PostgreSQL query builder, not raw SQL/`getDbExec()` or direct driver imports, unless Drizzle can't express the query. Never hardcode API keys/tokens/secrets - read via `readAppSecret` / `resolveCredential` / OAuth helpers; `process.env` is deploy-level config only.
 
@@ -62,6 +62,10 @@ Every agent-exposed action is a tool in the model's context window; more tools d
 - **Reach for a generic escape hatch before minting a new read action** — the `provider-api-catalog`/`docs`/`request` trio for provider data (`references/provider-apis.md`), `db-query` for ad hoc app-data reads in dev.
 - **`agentTool: false`** hides a UI-only/programmatic action from the model while keeping it frontend/HTTP-callable — not `toolCallable: false`, which only blocks the sandboxed extension bridge and leaves the action visible everywhere else; reserve that one for high-blast-radius operations.
 - **Delete or hide stale actions** once the UI stops using them; `pnpm actions:audit` advisory-flags likely-dead/redundant ones (`references/examples.md`).
+
+## Key Actions — One Index, Every Surface
+
+Name the app's key actions for common intents (create X, edit the selection, add an item, restyle, share/export) exactly once. The MCP/WebMCP "Key tools" line is generated from `mcp.keyToolNames ?? initialToolNames`, filtered to the tools that surface serves — the action table in `AGENTS.md` may list more of the app's agent-facing actions than that generated subset, but every name in either place must be a real action, and the two must not disagree about what the key ones are. Do not hand-write a second tool list in `mcp.instructions`, a skill, or an external SKILL.md — describe *when* to use them there, not *which* they are.
 
 ## The `http` Option
 
@@ -85,6 +89,14 @@ Return **structured data** (objects, arrays), never `JSON.stringify()` — the f
 run: async (args) => await fetchEvents(args.from, args.to); // good
 run: async (args) => JSON.stringify(await fetchEvents(...)); // bad
 ```
+
+A create/update result is read by more than the caller. Three keys are well-known and survive result truncation:
+
+- `id` — the created or updated record. Pair it with a pure, synchronous `link` builder on the action (`link: (result) => ({ url: buildDeepLink({ app, view, params: { id: result.id } }), label })`) so MCP hosts and the desktop app surface an "Open …" deep link that lands in the editing view focused on the record; returning `url`/`urlPath` in the result works too.
+- `nextRequiredAction` — the name of the next **tool** to call when the operation is one step of a flow the agent should keep driving (`nextRequiredAction: "update-slide"`). Never phrase it as waiting for the user: an MCP/WebMCP/A2A caller cannot receive an in-app answer. The agent loop keeps this field in continuation prompts even when the rest of a large result is dropped, and MCP callers see it as `Next: …`.
+- `message`/`summary` — the one-line status external callers read; everything else stays in the structured result.
+
+An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. The full external contract (link builders, `mcpApp`, `publicAgent`, payload limits, the author rule) is the `external-agents` skill.
 
 Reach for `outputSchema` (validate the return), `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
 

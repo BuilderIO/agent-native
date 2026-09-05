@@ -1,4 +1,19 @@
-import { CheckIcon, ChevronDown, MonitorIcon } from "./Icons";
+import {
+  IconChevronDown,
+  IconDeviceDesktop,
+  IconWindow,
+} from "@tabler/icons-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { useRowMenu } from "./useRowMenu";
 
 export type CaptureSource = "full-screen" | "window" | "region";
@@ -9,64 +24,106 @@ const LABELS: Record<CaptureSource, string> = {
   region: "Region",
 };
 
+export interface RecentCaptureWindow {
+  id: string;
+  label: string;
+}
+
+export function hasRecentCaptureWindows(
+  recentWindows: RecentCaptureWindow[],
+): boolean {
+  return recentWindows.length > 0;
+}
+
 export function SourceRow({
   value,
   onChange,
   includeRegion = false,
+  recentWindows = [],
+  onChooseWindow,
 }: {
   value: CaptureSource;
   onChange: (v: CaptureSource) => void;
   includeRegion?: boolean;
+  recentWindows?: RecentCaptureWindow[];
+  onChooseWindow?: () => void;
 }) {
-  const { open, setOpen, rowRef } = useRowMenu();
-  const options = (
-    includeRegion
-      ? Object.keys(LABELS)
-      : Object.keys(LABELS).filter((key) => key !== "region")
-  ) as CaptureSource[];
+  const { open, onOpenChange } = useRowMenu();
+  const currentWindowLabel =
+    recentWindows.find((window) => window.id === value)?.label ?? LABELS[value];
 
   return (
-    <div className="row row-on" ref={rowRef}>
-      <span className="row-icon">
-        <MonitorIcon />
+    <div className="row row-on">
+      <span className="row-icon" aria-hidden>
+        <IconDeviceDesktop size={20} stroke={1.75} />
       </span>
-      <button
-        type="button"
-        className="row-button"
-        onClick={() => setOpen((v) => !v)}
-        title={LABELS[value]}
-      >
-        <span className="row-label">{LABELS[value]}</span>
-        <span className="row-flex" aria-hidden />
-        <span className="row-chev" aria-hidden>
-          <ChevronDown />
-        </span>
-      </button>
-      {open ? (
-        <div className="row-menu" role="menu">
-          {options.map((key) => {
-            const isSelected = key === value;
-            return (
-              <button
-                key={key}
-                type="button"
-                className={`row-menu-item ${isSelected ? "selected" : ""}`}
-                role="menuitemradio"
-                aria-checked={isSelected}
-                onClick={() => {
-                  onChange(key);
-                  setOpen(false);
-                }}
-              >
-                <span className="row-menu-check" aria-hidden>
-                  {isSelected ? <CheckIcon /> : null}
-                </span>
-                <span className="row-menu-label">{LABELS[key]}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      <DropdownMenu open={open} onOpenChange={onOpenChange}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="row-button"
+            aria-label={`Choose capture source: ${currentWindowLabel}`}
+          >
+            <span className="row-label">{currentWindowLabel}</span>
+            <span className="row-flex" aria-hidden />
+            <IconChevronDown
+              className="row-chev"
+              size={16}
+              stroke={1.75}
+              aria-hidden
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          sideOffset={6}
+          data-popover-resize-overlay="true"
+          className="recorder-menu w-[216px] rounded-[10px]"
+        >
+          <DropdownMenuRadioGroup
+            value={value}
+            onValueChange={(nextValue) => {
+              onChange(
+                nextValue === "full-screen" || nextValue === "region"
+                  ? nextValue
+                  : "window",
+              );
+            }}
+          >
+            <DropdownMenuRadioItem value="full-screen">
+              Full screen
+            </DropdownMenuRadioItem>
+            {includeRegion ? (
+              <DropdownMenuRadioItem value="region">
+                Region
+              </DropdownMenuRadioItem>
+            ) : null}
+            {hasRecentCaptureWindows(recentWindows) ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Windows</DropdownMenuLabel>
+                {recentWindows.map((window) => (
+                  <DropdownMenuRadioItem key={window.id} value={window.id}>
+                    <span className="inline-flex min-w-0 items-center gap-2">
+                      <IconWindow size={14} stroke={1.75} aria-hidden />
+                      <span className="truncate">{window.label}</span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </>
+            ) : null}
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => {
+              onChange("window");
+              onChooseWindow?.();
+            }}
+          >
+            Choose window…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
