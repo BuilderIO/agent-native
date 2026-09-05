@@ -63,11 +63,10 @@ vi.mock("@agent-native/core/a2a", () => ({
   verifyA2AToken: verifyA2ATokenMock,
 }));
 vi.mock("@agent-native/core/org", async () => {
-  const actual = await vi.importActual<typeof import("@agent-native/core/org")>(
-    "@agent-native/core/org",
-  );
+  const { lockOrgMembersForMutation } = await vi.importActual<{
+    lockOrgMembersForMutation: unknown;
+  }>("../../../../packages/core/src/org/member-mutation-locks.ts");
   return {
-    ...actual,
     CROSS_APP_ORG_FEDERATION_FLAG: {
       key: "organization.cross-app-federation",
     },
@@ -82,6 +81,7 @@ vi.mock("@agent-native/core/org", async () => {
     getOrgContext: getOrgContextMock,
     getOrgDomain: getOrgDomainMock,
     invalidateMemberOrgCaches: invalidateMemberOrgCachesMock,
+    lockOrgMembersForMutation,
   };
 });
 vi.mock("@agent-native/core/server", () => ({
@@ -1255,6 +1255,102 @@ describe("organization federation endpoint", () => {
     expect(firstResponse.status).toBe(200);
     expect(staleResponse.status).toBe(409);
     expect(centralMemberRole).toBe("admin");
+  });
+
+  it.each([
+    ["member", "admin"],
+    ["admin", "member"],
+  ] as const)(
+    "replays a completed %s-to-%s role update without another write",
+    async (expectedMemberRole, memberRole) => {
+      centralMemberRole = expectedMemberRole;
+      configureMemberOperation("update-member-role", {
+        actorRole: "owner",
+        memberRole,
+        expectedMemberRole,
+      });
+      const firstResponse = await organizationFederationHandler(
+        event("/_agent-native/identity/organization", {
+          method: "POST",
+          headers: { authorization: "Bearer role-update-assertion" },
+        }),
+      );
+
+      roleUpdateAttempted = false;
+      const replayResponse = await organizationFederationHandler(
+        event("/_agent-native/identity/organization", {
+          method: "POST",
+          headers: { authorization: "Bearer role-update-replay-assertion" },
+        }),
+      );
+
+      expect(firstResponse.status).toBe(200);
+      expect(replayResponse.status).toBe(200);
+      expect(centralMemberRole).toBe(memberRole);
+      expect(roleUpdateAttempted).toBe(false);
+    },
+  );
+
+  it("does not accept a matching role replay from a revoked actor", async () => {
+    centralMemberRole = "admin";
+    configureMemberOperation("update-member-role", {
+      actorRole: "owner",
+      memberRole: "admin",
+      expectedMemberRole: "member",
+    });
+    centralActorRole = null;
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer revoked-role-replay-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(centralMemberRole).toBe("admin");
+    expect(roleUpdateAttempted).toBe(false);
+  });
+
+  it("does not accept a matching role replay for a pending target", async () => {
+    centralMemberRole = "admin";
+    centralMemberPending = true;
+    configureMemberOperation("update-member-role", {
+      actorRole: "owner",
+      memberRole: "admin",
+      expectedMemberRole: "member",
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer pending-role-replay-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(centralMemberRole).toBe("admin");
+    expect(roleUpdateAttempted).toBe(false);
+  });
+
+  it("does not let an admin replay an active admin target role", async () => {
+    centralMemberRole = "admin";
+    configureMemberOperation("update-member-role", {
+      actorRole: "admin",
+      memberRole: "admin",
+      expectedMemberRole: "admin",
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer admin-role-replay-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(centralMemberRole).toBe("admin");
+    expect(roleUpdateAttempted).toBe(false);
   });
 
   it("fails closed for legacy role updates missing the signed expected role", async () => {

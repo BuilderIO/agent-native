@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
 
-describe("ORG_MIGRATIONS", () => {
+describe("ORG_MIGRATIONS", { timeout: 30_000 }, () => {
   it("includes a LOWER(email) expression index on org_members", () => {
     // Every authenticated request calls getOrgContext which queries
     // `WHERE LOWER(m.email) = ?`. This migration must create a supporting

@@ -931,8 +931,7 @@ export const organizationFederationHandler = defineEventHandler(
           const lockedExpectedRole = target.role;
           if (
             !validOrganizationRole(lockedExpectedRole) ||
-            target.federationRemovalPendingAt != null ||
-            lockedExpectedRole !== federationExpectedMemberRole
+            target.federationRemovalPendingAt != null
           ) {
             return "conflict";
           }
@@ -942,6 +941,10 @@ export const organizationFederationHandler = defineEventHandler(
             (lockedExpectedRole === "admin" || memberRole === "admin")
           ) {
             return "forbidden";
+          }
+          if (lockedExpectedRole === memberRole) return "already-updated";
+          if (lockedExpectedRole !== federationExpectedMemberRole) {
+            return "conflict";
           }
           const updated = await tx.execute({
             sql: `UPDATE org_members SET role = ?
