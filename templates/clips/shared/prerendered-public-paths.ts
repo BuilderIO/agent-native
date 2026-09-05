@@ -16,6 +16,7 @@
  * - it renders nothing derived from the URL's query string (`/bug-report` and
  *   `/bug-report/done` prefill from search params, so they stay dynamic);
  * - it reads no per-viewer data on the server (`/share/:id` and `/embed/:id`
- *   are public but database-backed; `/r/:id` is authenticated).
+ *   are public but database-backed; `/r/:id` is auth-aware and therefore
+ *   remains dynamic).
  */
 export const PRERENDERED_PUBLIC_PAGE_PATHS = ["/download"] as const;

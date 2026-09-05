@@ -517,6 +517,7 @@ export default function RecordingPage() {
   const startMs = parseTimeParam(
     searchParams.get("at") ?? searchParams.get("t"),
   );
+  const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
   const panelParam = searchParams.get("panel");
   const { session, isLoading: sessionLoading } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
@@ -526,6 +527,10 @@ export default function RecordingPage() {
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(startMs);
+  const requestedPlaybackRef = useRef<{
+    recordingId: string;
+    startMs: number;
+  } | null>(null);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
   const [commentDraft, setCommentDraft] = useState("");
@@ -760,6 +765,23 @@ export default function RecordingPage() {
     );
   }, [hierarchySpaces?.spaces, recording?.spaceIds, recordingFolder?.spaceId]);
   const playbackMs = resolveStartMs(currentMs, recording?.durationMs);
+  useEffect(() => {
+    if (!recording?.id || routePlaybackParam === null) return;
+    const requestedStartMs = resolveStartMs(startMs, recording.durationMs);
+    const previous = requestedPlaybackRef.current;
+    if (
+      previous?.recordingId === recording.id &&
+      previous.startMs === requestedStartMs
+    ) {
+      return;
+    }
+    requestedPlaybackRef.current = {
+      recordingId: recording.id,
+      startMs: requestedStartMs,
+    };
+    playerRef.current?.seek(requestedStartMs);
+    setCurrentMs(requestedStartMs);
+  }, [recording?.durationMs, recording?.id, routePlaybackParam, startMs]);
   // Resolve the playback position for reactions/comments. Native <video> exposes
   // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
   // live time bridge, so we fall back to the last position the player reported

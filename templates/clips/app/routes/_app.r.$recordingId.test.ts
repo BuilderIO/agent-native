@@ -12,6 +12,8 @@ describe("direct recording route shell cue", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
     expect(route).toContain('searchParams.get("at") ?? searchParams.get("t")');
+    expect(route).toContain("requestedPlaybackRef.current");
+    expect(route).toContain("playerRef.current?.seek(requestedStartMs)");
   });
 
   it("clamps route playback state before exposing it", () => {
