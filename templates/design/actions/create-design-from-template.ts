@@ -295,7 +295,8 @@ export default defineAction({
       designSystemId: linkedDesignSystemId,
       designSystem: await loadAgentDesignSystemContext(
         linkedDesignSystemId,
-        async (id) => getDesignSystem.run({ id }),
+        getDesignSystem,
+        { full: true },
       ),
       designSystemOverridden,
       fileCount: files.length,

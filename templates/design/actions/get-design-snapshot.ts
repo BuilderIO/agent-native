@@ -73,7 +73,7 @@ export default defineAction({
     const design = access.resource as typeof schema.designs.$inferSelect;
     const designSystem = await loadAgentDesignSystemContext(
       design.designSystemId ?? null,
-      async (id) => getDesignSystem.run({ id }),
+      getDesignSystem,
     );
 
     const snapshot = await buildDesignSnapshot(designId, design.data);

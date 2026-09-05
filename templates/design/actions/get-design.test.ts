@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => {
     })),
     resolveAccess: vi.fn(),
     selectChain,
+    getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
   };
 });
 
@@ -43,13 +48,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("./get-design-system.js", () => ({
-  default: {
-    run: vi.fn(async ({ id }: { id: string }) => ({
-      id,
-      title: "Acme",
-      agentContext: "Use --brand-accent: #123456.",
-    })),
-  },
+  default: { run: mocks.getDesignSystemRun },
 }));
 
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
@@ -144,10 +143,15 @@ describe("get-design", () => {
 
     const result = await action.run({ id: "design_123" });
 
+    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith(
+      expect.objectContaining({ compact: "true" }),
+    );
     expect(result.designSystem).toMatchObject({
       status: "available",
+      scope: "summary",
       id: "system-7",
       agentContext: "Use --brand-accent: #123456.",
+      next: expect.any(String),
     });
   });
 

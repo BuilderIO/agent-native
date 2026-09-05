@@ -18,6 +18,13 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("nanoid", () => ({ nanoid: () => "generated_design_id" }));
 
+vi.mock("../server/lib/design-system-defaults.js", () => ({
+  resolveDefaultDesignSystemId: async () => null,
+  resolveDesignSystemIdByTitle: async () => {
+    throw new Error("not mocked");
+  },
+}));
+
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     insert: () => ({

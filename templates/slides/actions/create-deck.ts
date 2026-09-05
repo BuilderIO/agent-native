@@ -19,7 +19,10 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
+import {
+  resolveDefaultDesignSystemId,
+  resolveDesignSystemIdByTitle,
+} from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import {
   assertHumanReadableDeckTitle,
@@ -140,7 +143,15 @@ export default defineAction({
     designSystemId: z
       .string()
       .optional()
-      .describe("Optional design system ID to link to the deck"),
+      .describe(
+        "Optional design system ID to link to the deck; omit to use your default, or pass its exact title as `designSystem` instead.",
+      ),
+    designSystem: z
+      .string()
+      .optional()
+      .describe(
+        "Exact title of an accessible design system to link (case-insensitive, whitespace-trimmed); resolved server-side. Use designSystemId when you already have the id; the id wins if both are given.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -174,6 +185,7 @@ export default defineAction({
     deckId,
     aspectRatio,
     designSystemId,
+    designSystem,
     contextPackId,
     contextModeOverride,
     reuseLabels,
@@ -330,7 +342,8 @@ export default defineAction({
         designSystemId: designSystemId ?? existing[0].designSystemId ?? null,
         designSystem: await loadAgentDesignSystemContext(
           designSystemId ?? existing[0].designSystemId ?? null,
-          async (id) => getDesignSystem.run({ id }),
+          getDesignSystem,
+          { full: true },
         ),
         url: getDeckUrl(deckId),
         appUrl: getDeckUrl(deckId),
@@ -349,7 +362,11 @@ export default defineAction({
       await assertAccess("design-system", resolvedDesignSystemId, "viewer");
     } else {
       resolvedDesignSystemId =
-        (await resolveDefaultDesignSystemId(ownerEmail)) ?? undefined;
+        (designSystem
+          ? await resolveDesignSystemIdByTitle(designSystem)
+          : undefined) ??
+        (await resolveDefaultDesignSystemId(ownerEmail)) ??
+        undefined;
     }
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -390,7 +407,8 @@ export default defineAction({
       designSystemId: resolvedDesignSystemId ?? null,
       designSystem: await loadAgentDesignSystemContext(
         resolvedDesignSystemId,
-        async (id) => getDesignSystem.run({ id }),
+        getDesignSystem,
+        { full: true },
       ),
       url: getDeckUrl(id),
       appUrl: getDeckUrl(id),
