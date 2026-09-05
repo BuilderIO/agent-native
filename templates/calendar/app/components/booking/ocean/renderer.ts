@@ -129,7 +129,9 @@ export function createRenderer({
       // The original failure is rethrown or handed to onError immediately
       // below; a teardown error raised here would replace that real cause.
       // coercion-ok: the caller still receives the failure that started this.
-    } catch {}
+    } catch {
+      // coercion-ok: teardown errors must not replace the original renderer failure.
+    }
     // Never resolves after a failure: fulfilling it would let a caller fade in
     // a dead canvas at the same moment onError demotes to the fallback.
     if (first) signalFirstFrameFailed(error);
