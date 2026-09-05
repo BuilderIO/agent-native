@@ -4,7 +4,7 @@ export const STALE_RECORDING_UPLOAD_MS = 30 * 60 * 1000;
  * Earlier, non-alarming signal that an upload has gone quiet, shown before
  * the 30-minute stale threshold above (and well before the server's 60-minute
  * lease expires and the reaper marks the row failed). Mirrors the thresholds
- * `r.$recordingId.tsx` and `share.$shareId.tsx` already use to flag a stuck
+ * `_app.r.$recordingId.tsx` and `share.$shareId.tsx` already use to flag a stuck
  * single-recording view, so the library card and the recording page agree on
  * when to stop looking "confidently uploading".
  */

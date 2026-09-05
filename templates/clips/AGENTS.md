@@ -41,8 +41,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 - Use `import-loom-recording` for Loom or direct MP4/WebM URLs. Loom media and
   public transcripts import in the background; direct videos need
   `request-transcript` afterward.
-- Internal transactional-email actions claim two-Clip summary work and finish
-  with one plain-text sentence after reviewing both packets.
+- Transactional email claims two-Clip summary work and ends with one sentence.
 - The `view-screen` transcript is a bounded preview: when `previewTruncated` is
   true it may end mid-sentence with no signal of where transcription ended.
   Call `get-recording-player-data` before judging completeness or quoting.
@@ -63,8 +62,8 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 ## Application State
 
 - `navigation` — library, shared-with-me, recording, share, meeting, dictation,
-  settings, and transcript context. `navigate` opens those surfaces,
-  `--view=shared` for shared-with-me.
+  settings, and transcript context. A recording includes its focused `panel`
+  and requested `atMs`; `navigate` can open that exact viewer context.
 - `selection` — selected library recording ids while in selection mode.
 - `recording-setup.import` — Loom import UI state while `/record` is open, never
   the pasted URL.

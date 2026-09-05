@@ -93,7 +93,11 @@ describe("generate-workflow action", () => {
       });
     });
 
-    const first = action.run({ recordingId: "rec_1", kind: "pr" });
+    const first = action.run({
+      recordingId: "rec_1",
+      kind: "pr",
+      openInChat: true,
+    });
     await readStarted;
 
     await expect(
@@ -119,6 +123,7 @@ describe("generate-workflow action", () => {
       ([key]) => key === "clips-ai-request-rec_1",
     )?.[1];
     expect(queuedRequest.requestedAt).toBe(workflowState.requestedAt);
+    expect(queuedRequest.openInChat).toBe(true);
   });
 
   it("does not enqueue when workflow state cannot be read", async () => {

@@ -33,6 +33,12 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { TranscriptBubbles } from "@/components/meetings/transcript-bubbles";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import enMessages from "@/i18n/en-US";
 import {
   fetchPublicMeeting,
@@ -429,9 +435,16 @@ export default function ShareMeetingRoute() {
         </div>
 
         {!hasNotes ? (
-          <p className="text-sm italic text-muted-foreground">
-            {t("shareMeeting.noAiNotes")}
-          </p>
+          <Empty className="border py-12">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconNotes />
+              </EmptyMedia>
+              <EmptyTitle className="text-base">
+                {t("shareMeeting.noAiNotes")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="space-y-8">
             {meeting.summaryMd && (

@@ -170,8 +170,14 @@ function consumeBetaOptOutQueryParam(
   return active;
 }
 
-const environmentBadgePlacementClasses =
-  "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm";
+export type EnvironmentBadgePlacement = "fixed" | "inline";
+
+const environmentBadgePlacementClasses = {
+  fixed:
+    "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm",
+  inline:
+    "relative z-0 inline-flex h-5 min-w-0 shrink-0 rounded-md px-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm",
+} satisfies Record<EnvironmentBadgePlacement, string>;
 
 function EnvironmentLink({ label, href }: { label: string; href: string }) {
   return (
@@ -188,9 +194,11 @@ function EnvironmentLink({ label, href }: { label: string; href: string }) {
 
 function EnvironmentBadgeContent({
   environment,
+  placement,
   targets,
 }: {
   environment: "beta" | "production";
+  placement: EnvironmentBadgePlacement;
   targets: EnvironmentBadgeTargets;
 }) {
   const [isHidden, setIsHidden] = useState(false);
@@ -218,7 +226,7 @@ function EnvironmentBadgeContent({
         <Button
           aria-label={`Open ${title.toLowerCase()} switcher`}
           className={cn(
-            environmentBadgePlacementClasses,
+            environmentBadgePlacementClasses[placement],
             environment === "beta"
               ? "border-primary/80"
               : "border-border/80 bg-background/95 text-foreground",
@@ -232,7 +240,7 @@ function EnvironmentBadgeContent({
       <PopoverContent
         align="start"
         className="w-[280px] p-5"
-        side="top"
+        side={placement === "inline" ? "bottom" : "top"}
         sideOffset={8}
       >
         <div className="mb-1 text-sm font-semibold leading-5">{title}</div>
@@ -263,9 +271,30 @@ function EnvironmentBadgeContent({
   );
 }
 
+function LocalEnvironmentBadge({
+  placement,
+}: {
+  placement: EnvironmentBadgePlacement;
+}) {
+  return (
+    <div
+      aria-label="Local development environment"
+      className={cn(
+        environmentBadgePlacementClasses[placement],
+        "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
+      )}
+      role="status"
+    >
+      dev
+    </div>
+  );
+}
+
 function ProductionEnvironmentBadge({
+  placement,
   targets,
 }: {
+  placement: EnvironmentBadgePlacement;
   targets: EnvironmentBadgeTargets;
 }) {
   const { session, status } = useSession();
@@ -307,7 +336,13 @@ function ProductionEnvironmentBadge({
   }, [isEligible, session?.email, status, targets.betaHost]);
 
   if (!isEligible) return null;
-  return <EnvironmentBadgeContent environment="production" targets={targets} />;
+  return (
+    <EnvironmentBadgeContent
+      environment="production"
+      placement={placement}
+      targets={targets}
+    />
+  );
 }
 
 /**
@@ -317,8 +352,10 @@ function ProductionEnvironmentBadge({
  * lane for authenticated staff.
  */
 export function EnvironmentBadge({
+  placement = "fixed",
   showProduction = true,
 }: {
+  placement?: EnvironmentBadgePlacement;
   showProduction?: boolean;
 } = {}) {
   const [hydrated, setHydrated] = useState(false);
@@ -341,14 +378,22 @@ export function EnvironmentBadge({
     return null;
   }
 
-  if (environment === "local") return null;
+  if (environment === "local") {
+    return <LocalEnvironmentBadge placement={placement} />;
+  }
 
   if (!targets) return null;
 
   if (environment === "beta") {
-    return <EnvironmentBadgeContent environment="beta" targets={targets} />;
+    return (
+      <EnvironmentBadgeContent
+        environment="beta"
+        placement={placement}
+        targets={targets}
+      />
+    );
   }
 
   if (!showProduction) return null;
-  return <ProductionEnvironmentBadge targets={targets} />;
+  return <ProductionEnvironmentBadge placement={placement} targets={targets} />;
 }
