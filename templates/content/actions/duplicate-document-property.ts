@@ -13,6 +13,7 @@ import {
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
+  nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
@@ -112,7 +113,7 @@ export default defineAction({
 
           const [maxPos] = await tx
             .select({
-              max: sql<number>`COALESCE(MAX(position), -1)`,
+              max: sql<unknown>`COALESCE(MAX(position), -1)`,
             })
             .from(schema.documentPropertyDefinitions)
             .where(
@@ -134,7 +135,7 @@ export default defineAction({
             type: lockedDefinition.type,
             visibility: lockedDefinition.visibility,
             optionsJson,
-            position: (maxPos?.max ?? -1) + 1,
+            position: nextAppendPosition(maxPos?.max),
             createdAt: now,
             updatedAt: now,
           });

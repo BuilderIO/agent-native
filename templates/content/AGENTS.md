@@ -75,6 +75,7 @@ Read the relevant skill before deeper work:
 | `search-documents` | Title and content search with snippets |
 | `get-document` | One document with full content |
 | `pull-document` | Flush live collab state, then read (external edits) |
+| `get-blocks-field-word-count` | Count one exact Blocks field; omit `propertyId` for the primary Content body |
 | `create-document` | Create a page, optionally under a parent |
 | `resolve-content-landing` | Restore the caller's last authorized page or ensure their private Personal welcome page |
 | `edit-document` | Find/replace edit — preferred for small changes |
@@ -89,13 +90,11 @@ Every action carries its own schema, and the rest of the app-specific surface
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
 
-Sidebar ordering has two deliberately different meanings. Reordering Pinned or
-workspace roots moves the exact database membership identified by both
-`databaseId` and `itemId`; it never reparents or moves the referenced document.
-Files sidebar Custom order is a per-user database-view preference written with
-`update-content-database-personal-view`, so it must not change shared Files
-membership positions. Ordinary unconstrained database row reordering remains a
-shared database mutation through `move-database-item`.
+Sidebar ordering has two meanings. Reordering Pinned or workspace roots moves
+the exact `databaseId` + `itemId` membership, never the document. Files Custom
+order is a per-user view preference written with
+`update-content-database-personal-view`; shared row ordering still uses
+`move-database-item`.
 
 ## Source Changes
 

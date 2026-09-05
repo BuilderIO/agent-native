@@ -490,6 +490,11 @@ export const meetings = table("clips_meetings", {
   // ISO timestamps for actual recording span
   actualStart: text("actual_start"),
   actualEnd: text("actual_end"),
+  // Why the recording stopped: manual, a native detector name, or a sweeper
+  // predicate tag. NULL until actualEnd is stamped, and left NULL when the
+  // stamping caller passed no reason rather than guessed. No quotes in this
+  // comment: guard-no-unscoped-queries parses table bodies literally.
+  endReason: text("end_reason"),
   // Conferencing platform — adhoc means the user just hit record outside any
   // scheduled meeting (e.g. an in-person huddle).
   platform: text("platform", {

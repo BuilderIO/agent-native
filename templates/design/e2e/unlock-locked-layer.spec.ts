@@ -5,7 +5,8 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { enterDirectMode, gotoEditor } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { enterDirectMode, expandAllLayers, gotoEditor } from "./helpers";
 
 const LOCKED_HTML = `<!doctype html>
 <html lang="en">
@@ -24,10 +25,7 @@ const LOCKED_HTML = `<!doctype html>
 </html>`;
 
 function baseUrl(): string {
-  return (process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333").replace(
-    /\/$/,
-    "",
-  );
+  return e2eBaseURL().replace(/\/$/, "");
 }
 
 async function callAction(
@@ -77,24 +75,6 @@ function lockedNodeIds(html: string): string[] {
     ),
     (match) => match[1]!,
   );
-}
-
-async function expandAllLayers(page: Page) {
-  const tree = page.getByRole("tree", { name: "Layers" });
-  await expect(tree.getByRole("treeitem").first()).toBeVisible({
-    timeout: 30_000,
-  });
-  for (let depth = 0; depth < 4; depth += 1) {
-    const expanders = tree.getByRole("button", { name: "Expand layer" });
-    const count = await expanders.count();
-    if (count === 0) break;
-    for (let index = count - 1; index >= 0; index -= 1) {
-      await expanders
-        .nth(index)
-        .click()
-        .catch(() => {});
-    }
-  }
 }
 
 async function unlockLayer(page: Page, name: RegExp) {

@@ -11,6 +11,7 @@ import type {
   UserSettings,
 } from "@shared/types";
 import {
+  type QueryClient,
   useQuery,
   useInfiniteQuery,
   useMutation,
@@ -32,6 +33,7 @@ import {
 import { bodyToHtml } from "@/lib/utils";
 
 const EMAIL_PAGE_SIZE = 25;
+const EMAIL_PREFETCH_TIMEOUT_MS = 15_000;
 
 function isAuthFailure(error: unknown): boolean {
   return (
@@ -504,14 +506,15 @@ interface EmailsPage {
   totalEstimate?: number;
 }
 
-export function useEmails(
-  view: string = "inbox",
+function emailQueryOptions(
+  view: string,
   search?: string,
   label?: string,
-  options?: { enabled?: boolean },
+  prefetchTimeoutMs?: number,
 ) {
-  const q = useInfiniteQuery({
-    queryKey: ["emails", view, search, label],
+  const queryKey = ["emails", view, search, label] as const;
+  return {
+    queryKey,
     queryFn: ({
       pageParam,
       signal,
@@ -532,17 +535,63 @@ export function useEmails(
       if (forceRefreshAt) {
         params.set("forceRefresh", String(forceRefreshAt));
       }
-      return apiFetch<EmailsPage>(`/api/emails?${params}`, { signal });
+      const requestSignal = prefetchTimeoutMs
+        ? AbortSignal.any([signal, AbortSignal.timeout(prefetchTimeoutMs)])
+        : signal;
+      return apiFetch<EmailsPage>(`/api/emails?${params}`, {
+        signal: requestSignal,
+      });
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
+    staleTime: search ? 30_000 : 60_000,
+    retry: false,
+  };
+}
+
+export function prefetchEmails(
+  queryClient: QueryClient,
+  view: string,
+  search?: string,
+  label?: string,
+) {
+  const queryKey = ["emails", view, search, label] as const;
+  const prefetchKey = ["email-prefetch", view, search, label] as const;
+  // Keep timeout/cancellation-only prefetch requests off the foreground cache
+  // key so a tab opened mid-prefetch always uses the normal query function.
+  return queryClient
+    .prefetchInfiniteQuery({
+      ...emailQueryOptions(view, search, label, EMAIL_PREFETCH_TIMEOUT_MS),
+      queryKey: prefetchKey,
+    })
+    .then(() => {
+      const data = queryClient.getQueryData(prefetchKey);
+      if (data && queryClient.getQueryData(queryKey) === undefined) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    })
+    .finally(() => {
+      queryClient.removeQueries({ queryKey: prefetchKey, exact: true });
+    });
+}
+
+export function useEmails(
+  view: string = "inbox",
+  search?: string,
+  label?: string,
+  options?: { enabled?: boolean },
+) {
+  const q = useInfiniteQuery({
+    ...emailQueryOptions(view, search, label),
+    // Keep the current list rendered while a search or tab query loads. Mail
+    // navigation is client-side, so a new query must not look like a reload.
+    placeholderData: (previousData) => previousData,
     // Gmail's per-user quota is tight. Keep pages modest and refetches
     // conservative; thread list hydration is quota-expensive even when batched.
     // Search queries get a short cache window so repeated renders/back
     // navigation do not re-hydrate the same expensive Gmail search immediately.
     // refetchOnWindowFocus stays off: with useInfiniteQuery it replays every
     // cached page (50+ Gmail calls each) on tab focus and trips the quota.
-    staleTime: search ? 30_000 : 60_000,
     // On error, back off (don't disable polling entirely). One transient
     // 429 / network blip used to stop auto-refresh forever — now we stretch
     // the interval based on consecutive failures, capped at 5 minutes, so the
@@ -559,7 +608,6 @@ export function useEmails(
       return base;
     },
     refetchOnWindowFocus: false,
-    retry: false,
     enabled: options?.enabled ?? true,
   });
 
@@ -570,6 +618,11 @@ export function useEmails(
     return applyRecentSentEmails(visible, view, search, label);
   }, [q.data, view, search, label]);
 
+  // Placeholder InfiniteData includes the previous query's page token. Keep
+  // pagination disabled until the new query owns the pages.
+  const canPaginate = !q.isPlaceholderData;
+  const hasCurrentQueryData = Boolean(q.data) && !q.isPlaceholderData;
+
   return {
     data,
     isLoading: q.isLoading,
@@ -578,14 +631,14 @@ export function useEmails(
     // Keep stale data visible when a background refetch fails (usually Gmail
     // quota cooldown). Showing the full error state while data exists makes
     // the inbox appear to flash/reload even though the old page is usable.
-    isError: q.isError && !q.data,
-    error: q.isError && !q.data ? toError(q.error) : null,
+    isError: q.isError && !hasCurrentQueryData,
+    error: q.isError && !hasCurrentQueryData ? toError(q.error) : null,
     totalEstimate: q.data?.pages[0]?.totalEstimate,
     refetch: q.refetch,
-    hasNextPage: q.hasNextPage,
+    hasNextPage: canPaginate && q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
-    isFetchingNextPage: q.isFetchingNextPage,
-    isFetchNextPageError: q.isFetchNextPageError,
+    isFetchingNextPage: canPaginate && q.isFetchingNextPage,
+    isFetchNextPageError: canPaginate && q.isFetchNextPageError,
   };
 }
 

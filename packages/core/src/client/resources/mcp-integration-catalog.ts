@@ -178,6 +178,42 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     ],
   },
   {
+    id: "sigma",
+    name: "Sigma",
+    provider: "sigma",
+    description: "Search, explore, and analyze Sigma workbooks and dashboards.",
+    descriptionKey: "mcpIntegrations.catalog.sigma.description",
+    useCase:
+      "analytics, dashboards, workbooks, data exploration, business intelligence",
+    useCaseKey: "mcpIntegrations.catalog.sigma.useCase",
+    url: "",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("sigma"),
+    docsUrl: "https://help.sigmacomputing.com/docs/use-sigma-mcp-server",
+    setupNoteKey: "mcpIntegrations.catalog.sigma.setupNote",
+    keywords: [
+      "analytics",
+      "business intelligence",
+      "dashboards",
+      "data",
+      "exploration",
+      "workbooks",
+    ],
+    // "Sigma" is also a math term, so only suggest the connection for a
+    // qualified provider or dashboard/workbook request.
+    promptAliases: [
+      "Connect Sigma",
+      "Sigma Computing",
+      "Sigma dashboard",
+      "Sigma dashboards",
+      "Sigma workbook",
+      "Sigma workbooks",
+    ],
+  },
+  {
     id: "notion",
     name: "Notion",
     provider: "notion",
@@ -1029,6 +1065,7 @@ const MCP_LINK_HOSTS: Record<string, string[]> = {
   gong: ["gong.io"],
   grafana: ["grafana.com", "grafana.net"],
   "builder-cms": ["builder.io"],
+  sigma: ["sigmacomputing.com"],
   notion: ["notion.so", "notion.site"],
   granola: ["granola.ai"],
   semgrep: ["semgrep.dev", "semgrep.com"],
@@ -1060,6 +1097,35 @@ function hostMatches(hostname: string, domain: string): boolean {
   return hostname === domain || hostname.endsWith(`.${domain}`);
 }
 
+function normalizeMcpUrl(value: string): string {
+  try {
+    const url = new URL(value.trim());
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return value.trim().replace(/\/+$/, "");
+  }
+}
+
+export function isMcpIntegrationUrl(
+  integration: DefaultMcpIntegration,
+  serverUrl: string,
+): boolean {
+  if (integration.url.trim()) {
+    return normalizeMcpUrl(integration.url) === normalizeMcpUrl(serverUrl);
+  }
+
+  try {
+    const hostname = new URL(serverUrl.trim()).hostname.toLowerCase();
+    return (MCP_LINK_HOSTS[integration.id] ?? []).some((domain) =>
+      hostMatches(hostname, domain),
+    );
+    // coercion-ok: a malformed saved server URL cannot match a provider host.
+  } catch {
+    return false;
+  }
+}
+
 function findUrlForText(text: string): URL | null {
   const candidates = text.match(/https?:\/\/[^\s<>()[\]{}]+/gi) ?? [];
   for (const candidate of candidates) {
@@ -1073,7 +1139,7 @@ function findUrlForText(text: string): URL | null {
 }
 
 const MCP_RESOURCE_INTENT_PATTERN =
-  /\b(?:action|add|access|board|check|connect|connected|connection|create|decision|design|document|doc|do|extract|fetch|file|find|follow[- ]?ups?|get|import|integration|integrate|issue|link|list|meeting|message|notes?|open|page|populate|project|pull|read|recordings?|review|search|see|summary|summarize|sync|task|ticket|todo|transcripts?|turn|use|workspace)\b/i;
+  /\b(?:action|add|access|analyze|analysis|board|check|connect|connected|connection|create|dashboard|dashboards|decision|design|document|doc|do|explore|exploration|extract|fetch|file|find|follow[- ]?ups?|get|import|integration|integrate|issue|link|list|meeting|message|notes?|open|page|populate|project|pull|read|recordings?|review|search|see|summary|summarize|sync|task|ticket|todo|transcripts?|turn|use|workbook|workbooks|workspace)\b/i;
 
 function textContainsTerm(text: string, term: string): boolean {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

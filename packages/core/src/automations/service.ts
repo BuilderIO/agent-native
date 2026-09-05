@@ -171,7 +171,10 @@ async function readOrganizationMembership(
   email: string,
 ): Promise<OrganizationMembership | null> {
   const result = await getDbExec().execute({
-    sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [orgId, email.toLowerCase()],
   });
   if (!result.rows.length) return null;

@@ -17,6 +17,7 @@
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
     "e2e:ui": "playwright test --ui",
+    "e2e:no-panels": "E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS=0 playwright test",
     "figma-fidelity:export": "tsx scripts/figma-fidelity/run-export.ts",
     "figma-fidelity:sheet": "tsx scripts/figma-fidelity/make-sheet.ts",
     "figma-fidelity:import": "tsx scripts/figma-fidelity/run-import.ts",

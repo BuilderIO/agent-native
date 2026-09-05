@@ -97,6 +97,7 @@ import {
 } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
+import { flushBlockFieldSaveController } from "./blockFieldSaveRegistry";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
@@ -324,6 +325,25 @@ export function shouldAwaitAuthoritativeDocument({
   isFetchedAfterMount: boolean;
 }) {
   return isFetching && !isFetchedAfterMount;
+}
+
+export function updateAdditionalBlockContents(args: {
+  current: Record<string, string>;
+  activeDocumentId: string;
+  sourceDocumentId: string;
+  propertyId: string;
+  content: string | null;
+}): Record<string, string> {
+  if (args.sourceDocumentId !== args.activeDocumentId) return args.current;
+  if (args.content === null) {
+    if (!(args.propertyId in args.current)) return args.current;
+    const next = { ...args.current };
+    delete next[args.propertyId];
+    return next;
+  }
+  return args.current[args.propertyId] === args.content
+    ? args.current
+    : { ...args.current, [args.propertyId]: args.content };
 }
 
 export function visualEditorInstanceKey(args: {
@@ -715,6 +735,29 @@ function DocumentEditorBody({
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+  const [additionalBlockContents, setAdditionalBlockContents] = useState<
+    Record<string, string>
+  >({});
+  const activeDocumentIdRef = useRef(documentId);
+  activeDocumentIdRef.current = documentId;
+  const handleAdditionalBlockContentChange = useCallback(
+    (sourceDocumentId: string, propertyId: string, content: string | null) => {
+      setAdditionalBlockContents((current) =>
+        updateAdditionalBlockContents({
+          current,
+          activeDocumentId: activeDocumentIdRef.current,
+          sourceDocumentId,
+          propertyId,
+          content,
+        }),
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setAdditionalBlockContents({});
+  }, [documentId]);
 
   useEffect(() => {
     const nextTitle = `${normalizeDocumentTitle(
@@ -1802,6 +1845,7 @@ function DocumentEditorBody({
   // The shared sync transport wakes this reader for the exact app-state key;
   // the first run covers a request that was already pending when the editor
   // mounted.
+  const flushRequestInFlightRef = useRef(new Set<string>());
   useEffect(() => {
     if (!editorCanEdit || isLocalFileDocument) return;
     let active = true;
@@ -1817,6 +1861,7 @@ function DocumentEditorBody({
             id?: string;
             ts?: number;
             requestId?: string;
+            propertyId?: string;
             status?: "pending" | "success" | "error";
             error?: string;
           } | null;
@@ -1827,6 +1872,11 @@ function DocumentEditorBody({
             if (pending.status === "error" || pending.status === "success") {
               return;
             }
+            const requestIdentity =
+              pending.requestId ??
+              `${pending.id ?? documentId}:${pending.ts ?? 0}`;
+            if (flushRequestInFlightRef.current.has(requestIdentity)) return;
+            flushRequestInFlightRef.current.add(requestIdentity);
             const title = localTitleRef.current;
             const content = localContentRef.current;
             const updates: Record<string, string> = {};
@@ -1836,7 +1886,12 @@ function DocumentEditorBody({
               updates.content = content;
             }
             try {
-              if (Object.keys(updates).length > 0) {
+              if (pending.propertyId) {
+                await flushBlockFieldSaveController(
+                  documentId,
+                  pending.propertyId,
+                );
+              } else if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdatesRef.current(updates);
                 if (isDocumentUpdateConflict(saved)) {
                   // Do not acknowledge a CAS loss as a successful flush. The
@@ -1860,16 +1915,19 @@ function DocumentEditorBody({
               // editor state is confirmed in SQL (or nothing needed saving).
               // A delete is ambiguous with a transient app-state read failure.
               await fetch(flushPath, {
-                method: "PUT",
+                method: "PATCH",
                 headers: {
                   "Content-Type": "application/json",
                   "X-Agent-Native-CSRF": "1",
                 },
                 body: JSON.stringify({
-                  id: pending.id ?? documentId,
-                  ts: pending.ts ?? Date.now(),
-                  requestId: pending.requestId,
-                  status: "success",
+                  expected: pending,
+                  next: {
+                    id: pending.id ?? documentId,
+                    ts: pending.ts ?? Date.now(),
+                    requestId: pending.requestId,
+                    status: "success",
+                  },
                 }),
               }).catch(() => {});
             } catch (error) {
@@ -1877,22 +1935,27 @@ function DocumentEditorBody({
               // Notion action can fail closed instead of timing out and using a
               // stale documents row. The server clears this after reading it.
               await fetch(flushPath, {
-                method: "PUT",
+                method: "PATCH",
                 headers: {
                   "Content-Type": "application/json",
                   "X-Agent-Native-CSRF": "1",
                 },
                 body: JSON.stringify({
-                  id: pending.id ?? documentId,
-                  ts: pending.ts ?? Date.now(),
-                  requestId: pending.requestId,
-                  status: "error",
-                  error:
-                    error instanceof Error
-                      ? error.message
-                      : t("editor.liveDocumentSaveBeforeSyncFailed"),
+                  expected: pending,
+                  next: {
+                    id: pending.id ?? documentId,
+                    ts: pending.ts ?? Date.now(),
+                    requestId: pending.requestId,
+                    status: "error",
+                    error:
+                      error instanceof Error
+                        ? error.message
+                        : t("editor.liveDocumentSaveBeforeSyncFailed"),
+                  },
                 }),
               }).catch(() => {});
+            } finally {
+              flushRequestInFlightRef.current.delete(requestIdentity);
             }
           }
         }
@@ -2464,6 +2527,8 @@ function DocumentEditorBody({
         {panel === "info" ? (
           <DocumentInfoPanel
             document={document}
+            documentContent={exportContent}
+            additionalBlockContents={additionalBlockContents}
             databaseId={databaseId}
             databaseDocumentId={databaseDocumentId}
             canEdit={editorCanEdit}
@@ -2983,6 +3048,9 @@ function DocumentEditorBody({
                             }
                             canEdit={editorCanEdit}
                             primaryEditor={primaryEditor}
+                            onAdditionalContentChange={
+                              handleAdditionalBlockContentChange
+                            }
                           />
                         );
                       }

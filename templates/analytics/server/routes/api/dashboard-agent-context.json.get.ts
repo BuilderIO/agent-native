@@ -10,6 +10,7 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { normalizeDashboardConfig } from "../../../shared/dashboard-config-normalization";
 import { ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND } from "../../../shared/resource-agent-access.js";
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -43,11 +44,12 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
 }
 
 function rowToDashboard(row: any): DashboardRecord {
+  const config = parseJsonObject(row.config);
   return {
     id: row.id,
     kind: row.kind,
     title: row.title,
-    config: parseJsonObject(row.config),
+    config: row.kind === "sql" ? normalizeDashboardConfig(config) : config,
     ownerEmail: row.ownerEmail,
     orgId: row.orgId ?? null,
     visibility: row.visibility,

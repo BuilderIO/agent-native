@@ -16,6 +16,8 @@ MCP 임베드 경로와 같은 인증된 `sessionBypass` 표면에서도 백엔�
 
 브라우저가 사용 가능한 네이티브 WebMCP 표면을 제공하지 않으면 Agent-Native 코어가 `@mcp-b/webmcp-polyfill`을 초기화합니다. 이 polyfill은 페이지에만 적용되며 네트워크 MCP 연결을 만들지 않습니다.
 
+인증된 페이지는 브라우저 에이전트를 위해 `window.__agentNativeWebMcp`도 제공하며, `ready()`, `tools()`, `describe()`, `call()`, `result(id)`를 포함합니다. `call()`은 활성 호스트의 입력 계약, 최신 도구 디스크립터, 재시도, 짧은 평가기보다 오래 걸리는 호출을 처리합니다. 자세한 내용은 영문 가이드를 참조하세요.
+
 ## HTTP 검색과 fetch 대체 경로
 
 브라우저를 실행하지 않는 에이전트를 위해 Agent-Native는

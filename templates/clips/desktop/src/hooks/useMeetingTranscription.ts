@@ -224,6 +224,7 @@ export function useMeetingTranscription({
           stopRecording: async () => {
             await callClipsAction("stop-meeting-recording", {
               meetingId: session.meetingId,
+              reason,
             }).catch((err) => {
               console.warn("[clips-popover] stop meeting action failed:", err);
             });
@@ -803,6 +804,7 @@ export function useMeetingTranscription({
           if (session.recordingId) {
             await callClipsAction("stop-meeting-recording", {
               meetingId: session.meetingId,
+              reason: "superseded",
             }).catch((err) => {
               console.warn(
                 "[clips-popover] could not close a superseded meeting row:",
@@ -954,6 +956,7 @@ export function useMeetingTranscription({
           if (failedSession?.meetingId) {
             await callClipsAction("stop-meeting-recording", {
               meetingId: failedSession.meetingId,
+              reason: "start-failed",
             }).catch(() => {});
           }
           pendingPillInitRef.current = null;
@@ -967,6 +970,7 @@ export function useMeetingTranscription({
           // belong to the newer one.
           await callClipsAction("stop-meeting-recording", {
             meetingId: startedSession.meetingId,
+            reason: "superseded",
           }).catch(() => {});
         }
         if (err !== MEETING_START_CANCELLED) {

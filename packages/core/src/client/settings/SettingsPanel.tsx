@@ -2903,6 +2903,7 @@ function SettingsPanelContent({
   const envManaged = !!builder?.envManaged;
   const credentialSource = builder?.credentialSource;
   const builderBranchesAvailable = !!builder?.builderEnabled;
+  const showWorkspaceBuilderConnect = builderStatusAvailable && !connected;
   const builderFlow = useBuilderConnectFlow({
     enabled: !builderConnectionOwnedExternally,
     popupUrl: connectUrl,
@@ -3062,17 +3063,19 @@ function SettingsPanelContent({
                     label="Background agent"
                     description="Make code changes from production mode via Builder."
                     control={
-                      <UseBuilderCard
-                        builderFlow={builderFlow}
-                        connectUrl={connectUrl}
-                        connected={connected}
-                        orgName={orgName}
-                        envManaged={envManaged}
-                        credentialSource={credentialSource}
-                        trackingSource="background_agent_settings"
-                        trackingFlow="background_agent"
-                        compact
-                      />
+                      builderStatusAvailable ? (
+                        <UseBuilderCard
+                          builderFlow={builderFlow}
+                          connectUrl={connectUrl}
+                          connected={connected}
+                          orgName={orgName}
+                          envManaged={envManaged}
+                          credentialSource={credentialSource}
+                          trackingSource="background_agent_settings"
+                          trackingFlow="background_agent"
+                          compact
+                        />
+                      ) : null
                     }
                   />
                 </SettingsSection>
@@ -3097,7 +3100,7 @@ function SettingsPanelContent({
                 description="Deploy the app to the cloud."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3147,7 +3150,7 @@ function SettingsPanelContent({
                 description="Connect persistent app storage."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3197,7 +3200,7 @@ function SettingsPanelContent({
                 description="Store avatars and chat attachments."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3249,7 +3252,7 @@ function SettingsPanelContent({
                 description="Set up sign-in and access control."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    {!connected && (
+                    {showWorkspaceBuilderConnect && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3573,16 +3576,18 @@ function SettingsPanelContent({
               open={openSection === "background"}
               onToggle={() => toggle("background")}
             >
-              <UseBuilderCard
-                builderFlow={builderFlow}
-                connectUrl={connectUrl}
-                connected={connected}
-                orgName={orgName}
-                envManaged={envManaged}
-                credentialSource={credentialSource}
-                trackingSource="background_agent_settings"
-                trackingFlow="background_agent"
-              />
+              {builderStatusAvailable ? (
+                <UseBuilderCard
+                  builderFlow={builderFlow}
+                  connectUrl={connectUrl}
+                  connected={connected}
+                  orgName={orgName}
+                  envManaged={envManaged}
+                  credentialSource={credentialSource}
+                  trackingSource="background_agent_settings"
+                  trackingFlow="background_agent"
+                />
+              ) : null}
             </SettingsSection>
           )}
 

@@ -18,6 +18,8 @@ où l'utilisateur n'est pas connecté ne les enregistrent pas.
 
 Le cœur Agent-Native initialise `@mcp-b/webmcp-polyfill` lorsque le navigateur ne fournit pas de surface WebMCP native utilisable. Le polyfill reste limité à la page et ne crée pas de connexion MCP réseau.
 
+Les pages authentifiées exposent aussi `window.__agentNativeWebMcp` aux agents du navigateur, avec `ready()`, `tools()`, `describe()`, `call()` et `result(id)`. `call()` gère le contrat d'entrée de l'hôte actif, les descripteurs en direct, les nouvelles tentatives et les appels qui dépassent la durée d'un évaluateur court ; consultez le guide en anglais pour plus de détails.
+
 ## Découverte HTTP et solution de repli avec fetch
 
 Pour les agents qui n'exécutent pas de navigateur, Agent-Native publie aussi un

@@ -1,5 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
+import { expandAllLayers } from "./helpers";
+
 /**
  * Constraints assert Figma parity (doc-quoted). Breakpoints assert Design's
  * OWN Framer-model contract from .agents/skills/responsive-breakpoints — they
@@ -110,15 +113,9 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  for (let i = 0; i < 5; i += 1) {
-    await page
-      .getByRole("button", { name: "Expand layer" })
-      .first()
-      .click()
-      .catch(() => {});
-    await page.waitForTimeout(250);
-  }
+  // No blind settle: expandAllLayers waits for the first layer row, which
+  // the editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
 
@@ -155,7 +152,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
 });
 
 test.describe("constraints (Figma parity)", () => {
@@ -227,11 +224,12 @@ test.describe("constraints (Figma parity)", () => {
     const opened = await openConstraints(page);
     test.skip(!opened, "no Constraints control to set Scale with");
 
-    const scaleOption = page
-      .getByRole("option", { name: /Scale/i })
-      .or(page.getByRole("menuitem", { name: /Scale/i }));
-    const hasScale = await scaleOption.count();
-    test.skip(hasScale === 0, "no Scale constraint option exposed");
+    // Scale lives inside the Horizontal axis Select, not on the widget itself:
+    // its options are not in the DOM until that trigger is opened, so the old
+    // `count() === 0` check skipped this test on every run.
+    await page.getByRole("combobox", { name: "Horizontal" }).first().click();
+    const scaleOption = page.getByRole("option", { name: /Scale/i });
+    await expect(scaleOption.first()).toBeVisible({ timeout: 10_000 });
     await scaleOption.first().click();
     await page.waitForTimeout(1500);
 

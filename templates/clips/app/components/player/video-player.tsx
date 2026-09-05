@@ -351,6 +351,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const suppressNextClickRef = useRef(false);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    const autoPlayAttemptedSourceRef = useRef("");
     const playAttemptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
@@ -404,7 +405,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
     const [, setCanPlay] = useState(false);
-    const [isPlayPending, setIsPlayPending] = useState(false);
+    // Native autoplay has its own async play attempt; keep the loading overlay
+    // visible until media starts or a pause/error makes click-to-play available.
+    const [isPlayPending, setIsPlayPending] = useState(() => !!autoPlay);
     const [isBuffering, setIsBuffering] = useState(false);
     const [playError, setPlayError] = useState<string | null>(null);
     const clearPlayAttemptWatchdog = useCallback(() => {
@@ -1339,12 +1342,34 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setLoomStartMs(null);
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
+      autoPlayAttemptedSourceRef.current = "";
       clearPlayAttemptWatchdog();
       setCanPlay(false);
-      setIsPlayPending(false);
+      setIsPlayPending(!!autoPlay);
       setIsBuffering(false);
       setPlayError(null);
-    }, [activeVideoSourceIdentity, clearPlayAttemptWatchdog, recordingId]);
+    }, [
+      activeVideoSourceIdentity,
+      autoPlay,
+      clearPlayAttemptWatchdog,
+      recordingId,
+    ]);
+
+    useEffect(() => {
+      if (!autoPlay || !domVideoSrc || !activeVideoSrc || isLoomEmbed) return;
+      if (autoPlayAttemptedSourceRef.current === activeVideoSrc) return;
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      autoPlayAttemptedSourceRef.current = activeVideoSrc;
+      if (!v.paused && !v.ended) return;
+
+      // Native autoplay can reject without dispatching a media event. Route a
+      // tracked attempt through the same promise and watchdog as click-to-play
+      // so blocked embeds immediately regain an actionable play control.
+      requestPlay();
+    }, [activeVideoSrc, autoPlay, domVideoSrc, isLoomEmbed, requestPlay]);
 
     useEffect(() => {
       setThumbnailLoadFailed(false);
@@ -1656,7 +1681,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           : "ready"
         : null;
     const centerOverlayLabel =
-      isPlayPending && !hasPlaybackStarted
+      isPlayPending && !hasPlaybackStarted && !autoPlay
         ? "Starting playback"
         : isPlayPending || isBuffering
           ? "Buffering"

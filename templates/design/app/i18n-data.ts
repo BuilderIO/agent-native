@@ -306,6 +306,14 @@ const enUS = {
       right: "Right",
       justify: "Justify",
     },
+    positionAligns: {
+      left: "Align left",
+      centerHorizontal: "Align horizontal centers",
+      right: "Align right",
+      top: "Align top",
+      centerVertical: "Align vertical centers",
+      bottom: "Align bottom",
+    },
     textDecorations: {
       underline: "Underline",
       strikethrough: "Strikethrough",
@@ -1868,6 +1876,14 @@ const designLocaleOverrides = {
         right: "正确的",
         justify: "证明合法",
       },
+      positionAligns: {
+        left: "左对齐",
+        centerHorizontal: "水平居中对齐",
+        right: "右对齐",
+        top: "顶部对齐",
+        centerVertical: "垂直居中对齐",
+        bottom: "底部对齐",
+      },
       textDecorations: {
         underline: "下划线",
         strikethrough: "删除线",
@@ -2296,6 +2312,14 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Bien",
         justify: "Justificar",
+      },
+      positionAligns: {
+        left: "Alinear a la izquierda",
+        centerHorizontal: "Centrar horizontalmente",
+        right: "Alinear a la derecha",
+        top: "Alinear arriba",
+        centerVertical: "Centrar verticalmente",
+        bottom: "Alinear abajo",
       },
       textDecorations: {
         underline: "Subrayado",
@@ -2751,6 +2775,14 @@ const designLocaleOverrides = {
         center: "Centre",
         right: "Droite",
         justify: "Justifier",
+      },
+      positionAligns: {
+        left: "Aligner à gauche",
+        centerHorizontal: "Centrer horizontalement",
+        right: "Aligner à droite",
+        top: "Aligner en haut",
+        centerVertical: "Centrer verticalement",
+        bottom: "Aligner en bas",
       },
       textDecorations: {
         underline: "Souligné",
@@ -3211,6 +3243,14 @@ const designLocaleOverrides = {
         right: "Rechts",
         justify: "Rechtfertigen",
       },
+      positionAligns: {
+        left: "Links ausrichten",
+        centerHorizontal: "Horizontal zentrieren",
+        right: "Rechts ausrichten",
+        top: "Oben ausrichten",
+        centerVertical: "Vertikal zentrieren",
+        bottom: "Unten ausrichten",
+      },
       textDecorations: {
         underline: "Unterstrichen",
         strikethrough: "Durchgestrichen",
@@ -3670,6 +3710,14 @@ const designLocaleOverrides = {
         right: "右",
         justify: "正当化する",
       },
+      positionAligns: {
+        left: "左揃え",
+        centerHorizontal: "左右中央揃え",
+        right: "右揃え",
+        top: "上揃え",
+        centerVertical: "上下中央揃え",
+        bottom: "下揃え",
+      },
       textDecorations: {
         underline: "下線",
         strikethrough: "取り消し線",
@@ -4124,6 +4172,14 @@ const designLocaleOverrides = {
         right: "오른쪽",
         justify: "신이 옳다고 하다",
       },
+      positionAligns: {
+        left: "왼쪽 정렬",
+        centerHorizontal: "가로 가운데 정렬",
+        right: "오른쪽 정렬",
+        top: "위쪽 정렬",
+        centerVertical: "세로 가운데 정렬",
+        bottom: "아래쪽 정렬",
+      },
       textDecorations: {
         underline: "밑줄",
         strikethrough: "취소선",
@@ -4569,6 +4625,14 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Certo",
         justify: "Justificar",
+      },
+      positionAligns: {
+        left: "Alinhar à esquerda",
+        centerHorizontal: "Centralizar horizontalmente",
+        right: "Alinhar à direita",
+        top: "Alinhar acima",
+        centerVertical: "Centralizar verticalmente",
+        bottom: "Alinhar abaixo",
       },
       textDecorations: {
         underline: "Sublinhado",
@@ -5024,6 +5088,14 @@ const designLocaleOverrides = {
         right: "सही",
         justify: "औचित्य",
       },
+      positionAligns: {
+        left: "बाएँ संरेखित करें",
+        centerHorizontal: "क्षैतिज रूप से मध्य में संरेखित करें",
+        right: "दाएँ संरेखित करें",
+        top: "ऊपर संरेखित करें",
+        centerVertical: "लंबवत रूप से मध्य में संरेखित करें",
+        bottom: "नीचे संरेखित करें",
+      },
       textDecorations: {
         underline: "रेखांकित",
         strikethrough: "स्ट्राइकथ्रू",
@@ -5465,6 +5537,14 @@ const designLocaleOverrides = {
         center: "مركز",
         right: "يمين",
         justify: "يبرر",
+      },
+      positionAligns: {
+        left: "محاذاة إلى اليسار",
+        centerHorizontal: "توسيط أفقي",
+        right: "محاذاة إلى اليمين",
+        top: "محاذاة إلى الأعلى",
+        centerVertical: "توسيط رأسي",
+        bottom: "محاذاة إلى الأسفل",
       },
       textDecorations: {
         underline: "تسطير",

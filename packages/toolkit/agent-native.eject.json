@@ -408,6 +408,7 @@
         "highlight.js",
         "lowlight",
         "react",
+        "react-dom",
         "tailwind-merge",
         "tiptap-markdown",
         "y-protocols",

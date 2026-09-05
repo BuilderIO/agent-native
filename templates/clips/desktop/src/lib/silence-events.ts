@@ -6,8 +6,10 @@
  *  - `meetings:silence-stop` — both mic + system audio have been silent for N
  *    minutes (default 15).
  *  - `meetings:sleep-stop`   — the machine slept (clock-jump heuristic).
- *  - `meetings:call-ended`   — the conferencing app released its microphone
- *    with quiet system audio, or the scheduled meeting end was reached.
+ *  - `meetings:call-ended`   — every watched conferencing app released the
+ *    microphone (CoreAudio per-process input, or macOS Control Center mic
+ *    attribution) and stayed released for 15s, or the scheduled meeting end
+ *    was reached with quiet audio.
  *
  * Renderer wires `startSilenceDetector` when a meeting becomes live and
  * `stopSilenceDetector` when it ends. `subscribeAutoStop` returns an

@@ -10,6 +10,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getCredentialContext: vi.fn(() => null),
   getRequestUserEmail: getRequestUserEmailMock,
 }));
 
@@ -91,6 +92,7 @@ describe("view-screen calendar context", () => {
 
     expect(listCalendarEventsMock).toHaveBeenCalledWith(
       {
+        calendarSourceKeys: [],
         from: "2026-08-10T07:00:00.000Z",
         to: "2026-08-17T07:00:00.000Z",
       },
@@ -122,6 +124,7 @@ describe("view-screen calendar context", () => {
 
     expect(listCalendarEventsMock).toHaveBeenCalledWith(
       {
+        calendarSourceKeys: [],
         from: "2026-08-13T07:00:00.000Z",
         to: "2026-08-14T07:00:00.000Z",
       },

@@ -372,6 +372,7 @@ export function resolveAnalyticsEventDimensions({
   hostname: string | null;
 }): { app: string | null; template: string | null } {
   const app =
+    asString(properties.app_name) ||
     asString(properties.app) ||
     asString((properties as any).agent_native_app) ||
     asString((properties as any).agentNativeApp) ||
@@ -380,6 +381,7 @@ export function resolveAnalyticsEventDimensions({
     asString((context as any).agentNativeApp) ||
     (hostname ? hostname.split(".")[0] : null);
   const template =
+    asString(properties.template_name) ||
     asString(properties.template) ||
     asString((properties as any).templateId) ||
     asString((properties as any).agent_native_template) ||
@@ -517,7 +519,10 @@ export async function recordAnalyticsEvents(
       asString((properties as any).signedIn) ||
       asString((context as any).signed_in) ||
       asString((context as any).signedIn);
-    const userId = event.userId ?? asString((properties as any).userId);
+    const userId =
+      event.userId ??
+      asString((properties as any).user_id) ??
+      asString((properties as any).userId);
     const anonymousId =
       event.anonymousId ??
       asString((properties as any).anonymousId) ??
@@ -525,7 +530,9 @@ export async function recordAnalyticsEvents(
     const userKey = userId || anonymousId;
     const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
     const sessionId =
-      event.sessionId ?? asString((properties as any).sessionId);
+      event.sessionId ??
+      asString((properties as any).session_id) ??
+      asString((properties as any).sessionId);
     const signedIn = isMarketingWebsiteSessionEvent({
       eventName: event.event,
       hostname,

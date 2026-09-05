@@ -1,13 +1,12 @@
 # Factory
 
-Factory is the visual workspace for building agent factories from incoming work
-to governed delivery. The map is the source of truth; Dispatch owns the shared
-inbox and routing, while Factory owns graph versions, queue state, rules,
-decisions, feedback, agent runs, and provider audit records.
+Factory is a workspace of named factories: Inbox, automations, and a reviewable
+map. Dispatch owns shared inbox routing. Factory owns queue state, rules, jobs,
+and graph versions.
 
 ## Skills
 
-- `factory-graphs` — read before graph, version, queue, rule, or decision work.
+- `factory-graphs` — read before Map, node, route, or graph-version work.
 - `capture-learnings` — record a user preference or correction so it outlives
   the thread.
 - `turn-into-app`, `turn-into-skill` — promote a proven workflow into its own
@@ -39,10 +38,9 @@ decisions, feedback, agent runs, and provider audit records.
 
 ## Application state
 
-- `navigation.view` is `factory` or `agents`. Runtime data is scoped by
-  `factoryId`; reusable agents stay workspace-wide. Opening a factory
-  defaults to Inbox. Read `view-screen` and `factory-graphs` for tab and
-  selection keys.
+- `navigation.view` is `factory` or `agents`. No `factoryId` means the factory
+  list. Opening a factory defaults to Inbox. `view-screen` matches the visible
+  tab; read `factory-graphs` only for Map edits.
 
 ## Action contract
 
@@ -66,8 +64,8 @@ decisions, feedback, agent runs, and provider audit records.
 | `suggest-factory-rules` | Mine feedback into proposals. |
 | `reconcile-triage-run` | Persist PR-monitor observations; no GitHub write. |
 | `list-factories` / `get-factory-graph` / `delete-factory` | Inspect Factory definitions, versions, and metrics, or permanently delete a user-created Factory after exact-name confirmation. Delete also removes jobs, run history, and poll cursors. Unconfirmed cleanup returns `verified:false`. |
-| `create-factory` | Create a factory from `/new-factory`. Automations start empty. |
-| `save-factory-graph` | Create/version a graph with inspected `expectedGraphVersion`; never starts provider work. |
+| `create-factory` | Create a named empty factory and open its Inbox. |
+| `save-factory-graph` | Version the Map of an existing factory. Do not use this to create one. |
 | graph history actions | Factory graph version history. |
 | `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Use connected provider APIs with shared credentials; never request raw keys. |
@@ -80,9 +78,10 @@ Rules start in shadow mode; hard guards apply. Organization automations use
 stored prompts; external mutations require durable, idempotent runs and
 provider confirmation. Poll and Builder/PR dispatch run only as this factory's
 scheduled job, not chat and not a workspace-owner email match; teammates may
-edit and Run now Factory jobs. Use the visual editor for graph changes and
-agent chat for proposals; persist complete graphs with `save-factory-graph`.
-Change rules through triage actions, never graph JSON.
+edit and Run now Factory jobs. Named creates use `create-factory` and open Inbox. Jobs use
+`create-factory-automation` on the current factory. Persist Map edits with
+`save-factory-graph`; an AI save must not rename. Change rules through triage
+actions, never graph JSON.
 
 ## Source Changes
 

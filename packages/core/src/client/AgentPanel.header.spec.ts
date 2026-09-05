@@ -673,6 +673,15 @@ describe("AgentPanel header overflow actions", () => {
     );
     expect(source).toContain("previousDefaultModeRef.current === defaultMode");
   });
+
+  it("only shows tabs for the active desktop surface", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(/\{mode === "chat" &&\s+mainTabs\.map/);
+    expect(source).toMatch(/\{mode === "cli" &&\s+cliTabs\.map/);
+  });
 });
 
 describe("AgentSidebar wide drawer layout", () => {

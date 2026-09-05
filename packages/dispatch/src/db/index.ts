@@ -24,6 +24,7 @@ registerShareableResource({
     const result = await getDbExec().execute({
       sql: `SELECT 1 FROM org_members
             WHERE org_id = ? AND LOWER(email) = LOWER(?)
+              AND federation_removal_pending_at IS NULL
               AND role IN ('owner', 'admin') LIMIT 1`,
       args: [ctx.orgId, ctx.userEmail],
     });

@@ -224,4 +224,31 @@ describe("loadDashboardCatalogDashboards", () => {
       },
     ]);
   });
+
+  it("normalizes persisted SQL panels before catalog hydration", async () => {
+    state.rows = [
+      {
+        id: "saved",
+        kind: "sql",
+        title: "Saved dashboard",
+        config: JSON.stringify({
+          name: "Saved dashboard",
+          panels: [
+            {
+              id: "section",
+              chartType: "section",
+              config: { columns: 3 },
+            },
+          ],
+        }),
+      },
+    ];
+
+    const result = await loadDashboardCatalogDashboards(ctx, ["saved"]);
+
+    expect(result[0]?.config).toEqual({
+      name: "Saved dashboard",
+      panels: [{ id: "section", chartType: "section", columns: 3 }],
+    });
+  });
 });

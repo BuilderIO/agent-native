@@ -30,6 +30,7 @@ import { ensureDocumentFilesMembership } from "./_content-files.js";
 import {
   databaseItemsPositionScope,
   documentsPositionScope,
+  nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
@@ -965,26 +966,6 @@ async function withMutationLocks<T>(
   );
 }
 
-export function nextPosition(max: unknown): number {
-  const raw = max ?? -1;
-  const value =
-    typeof raw === "number"
-      ? raw
-      : typeof raw === "string" && raw.trim() !== ""
-        ? Number(raw)
-        : Number.NaN;
-  const next = value + 1;
-  if (
-    !Number.isSafeInteger(value) ||
-    value < -1 ||
-    !Number.isSafeInteger(next) ||
-    next > 2_147_483_647
-  ) {
-    throw new Error("Database position is outside the supported range.");
-  }
-  return next;
-}
-
 async function createInsideTransaction(
   tx: Db,
   context: MutationContext,
@@ -999,7 +980,7 @@ async function createInsideTransaction(
   const documentId = args.documentId ?? nanoid();
   const itemId = args.itemId ?? nanoid();
   const [maxDoc] = await tx
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.documents)
     .where(
       and(
@@ -1008,7 +989,7 @@ async function createInsideTransaction(
       ),
     );
   const [maxItem] = await tx
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, context.database.id));
   const shares = await tx
@@ -1028,7 +1009,7 @@ async function createInsideTransaction(
     title: args.title?.trim() ?? "",
     content: "",
     icon: null,
-    position: nextPosition(maxDoc?.max),
+    position: nextAppendPosition(maxDoc?.max),
     isFavorite: 0,
     hideFromSearch: context.databaseDocument.hideFromSearch ?? 0,
     visibility: context.databaseDocument.visibility ?? "private",
@@ -1041,7 +1022,7 @@ async function createInsideTransaction(
     orgId: context.database.orgId,
     databaseId: context.database.id,
     documentId,
-    position: nextPosition(maxItem?.max),
+    position: nextAppendPosition(maxItem?.max),
     createdAt: now,
     updatedAt: now,
   });

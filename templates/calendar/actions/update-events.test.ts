@@ -54,6 +54,54 @@ describe("update-events", () => {
     resolveCalendarEventRangeMock.mockReturnValue(RANGE);
   });
 
+  it("rejects a shared source id before a bulk update can target primary", async () => {
+    await expect(
+      run({
+        ids: ["google-google-calendar:opaque-source-shared-event"],
+        accountEmail: OWNER,
+        shiftMinutes: 15,
+      }),
+    ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(getEventMock).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("skips read-only shared events discovered by a filtered bulk update", async () => {
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-shared-event",
+          googleEventId: "shared-event",
+          title: "Shared standup",
+          start: "2026-09-02T09:00:00.000Z",
+          end: "2026-09-02T09:30:00.000Z",
+          allDay: false,
+          accountEmail: OWNER,
+          calendarReadOnly: true,
+          source: "google",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-09-01",
+      to: "2026-09-08",
+      shiftMinutes: 15,
+      dryRun: true,
+    });
+
+    expect(result.skipped).toBe(1);
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        outcome: "skipped",
+        reason: "Comes from a read-only Google calendar source",
+      }),
+    );
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
   it("counts an explicit-id lookup failure in the aggregate failed total", async () => {
     getEventMock.mockRejectedValue(new Error("boom"));
 

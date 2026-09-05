@@ -592,6 +592,28 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector("[data-onboarding-screen='tools']"),
     ).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Sigma");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Sigma"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain(
+      "Sigma's MCP URL is organization-specific.",
+    );
+    expect(document.body.textContent).toContain("Configure Sigma");
+    expect(mocks.completeFirstRun).not.toHaveBeenCalled();
   });
 
   it("skips the generic integrations catalog but still asks for a role", () => {

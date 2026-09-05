@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockAppStateGet = vi.fn();
 const mockAppStateGetManyEntries = vi.fn();
 const mockAppStatePut = vi.fn();
+const mockAppStateCompareAndSet = vi.fn();
 const mockAppStateDelete = vi.fn();
 const mockAppStateList = vi.fn();
 const mockAppStateDeleteByPrefix = vi.fn();
@@ -14,6 +15,7 @@ vi.mock("./store.js", () => ({
   appStateGetManyEntries: (...args: any[]) =>
     mockAppStateGetManyEntries(...args),
   appStatePut: (...args: any[]) => mockAppStatePut(...args),
+  appStateCompareAndSet: (...args: any[]) => mockAppStateCompareAndSet(...args),
   appStateDelete: (...args: any[]) => mockAppStateDelete(...args),
   appStateList: (...args: any[]) => mockAppStateList(...args),
   appStateDeleteByPrefix: (...args: any[]) =>
@@ -45,6 +47,7 @@ import {
   getStateMany,
   MAX_APP_STATE_BATCH_KEYS,
   putState,
+  compareAndSetState,
   deleteState,
   listComposeDrafts,
   getComposeDraft,
@@ -115,6 +118,29 @@ describe("application-state handlers", () => {
       });
 
       expect(mockAppStateGet).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("compareAndSetState", () => {
+    it("atomically replaces only the expected state", async () => {
+      mockAppStateCompareAndSet.mockResolvedValue(true);
+      const expected = { requestId: "request-a", status: "pending" };
+      const next = { requestId: "request-a", status: "success" };
+
+      await expect(
+        compareAndSetState({
+          _params: { key: "flush-request-doc-1" },
+          _headers: { "x-request-source": "user" },
+          _body: { expected, next },
+        }),
+      ).resolves.toEqual({ changed: true });
+      expect(mockAppStateCompareAndSet).toHaveBeenCalledWith(
+        "user@example.com",
+        "flush-request-doc-1",
+        expected,
+        next,
+        { requestSource: "user" },
+      );
     });
   });
 

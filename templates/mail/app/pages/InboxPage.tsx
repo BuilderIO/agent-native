@@ -465,7 +465,7 @@ export function InboxPage() {
       ? undefined
       : (activeLabel ?? undefined);
   const emailView = activeSavedFilter
-    ? "all"
+    ? "inbox"
     : mailboxWideLabelTab
       ? "all"
       : view;

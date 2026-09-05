@@ -13,6 +13,7 @@ const CHAT_STOP_DEBOUNCE_MS = 4_000;
 
 interface UseAgentGeneratingOptions {
   onComplete?: (tabId: string | null) => void;
+  onStopped?: (tabId: string | null) => void;
   onStale?: (tabId: string | null) => void;
   /** When chat starts on a tab we did not open, adopt it if this returns true. */
   shouldAdoptRunningTab?: () => boolean;
@@ -104,6 +105,12 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
         if (!detail.isRunning) {
           clearStopDebounce();
           const tabId = activeTabIdRef.current;
+          if (!tabId) return;
+          if (detail.reason === "stopped") {
+            callbacksRef.current.onStopped?.(tabId);
+            reset();
+            return;
+          }
           stopDebounceRef.current = window.setTimeout(() => {
             stopDebounceRef.current = null;
             if (activeTabIdRef.current !== tabId) return;

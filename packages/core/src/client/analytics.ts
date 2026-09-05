@@ -2,6 +2,13 @@ import type * as amplitude from "@amplitude/analytics-browser";
 import type * as Sentry from "@sentry/browser";
 
 import {
+  AGENT_NATIVE_LIFECYCLE_EVENTS,
+  legacyLifecycleEvent,
+  normalizeTrackingDimension,
+  withCanonicalTrackingProperties,
+  type AgentNativeLifecycleEventName,
+} from "../shared/analytics-events.js";
+import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
@@ -113,6 +120,11 @@ type GetDefaultProps = (
 type PageviewTrackingState = {
   installed: boolean;
   lastPageviewKey: string | null;
+};
+
+type AppEntryTrackingState = {
+  entryKey?: string | null;
+  entryKeys?: Set<string>;
 };
 
 type AgentChatTrackingState = {
@@ -241,6 +253,9 @@ export const AGENT_NATIVE_EXCEPTION_EVENT_NAME = "$exception";
 const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.pageviewTracking",
 );
+const APP_ENTRY_TRACKING_STATE_KEY = Symbol.for(
+  "agent-native.client.appEntryTracking",
+);
 const AGENT_CHAT_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.agentChatTracking",
 );
@@ -256,6 +271,8 @@ const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
 // wins — an existing value is never overwritten.
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE_NAME = "an_ft";
+const APP_ENTRY_STORAGE_KEY = "agent-native.app_entry";
+const MAX_APP_ENTRY_KEYS = 100;
 // 30 days, matching the session cookie lifetime — long enough to bridge a
 // "land today, sign up next week" path without retaining attribution forever.
 const FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS = 2592000;
@@ -719,6 +736,16 @@ function ensureAmplitude(): boolean {
   return false;
 }
 
+function hasBrowserTrackingDestination(): boolean {
+  const env = import.meta.env as Record<string, string | undefined>;
+  return Boolean(
+    _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
+    env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY ||
+    env.VITE_AMPLITUDE_API_KEY,
+  );
+}
+
 function hasOnlySourcelessFrames(value: {
   stacktrace?: {
     frames?: Array<{
@@ -785,6 +812,7 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   ) {
     return true;
   }
+
   // A server-owned run can emit an expected run_timeout while handing off to
   // its continuation. AssistantChat retries these transitions automatically;
   // only locally timed-out or ultimately unrecoverable runs should create a
@@ -1227,6 +1255,21 @@ function getPageviewTrackingState(): PageviewTrackingState {
     };
   }
   return g[PAGEVIEW_TRACKING_STATE_KEY];
+}
+
+function getAppEntryTrackingState(): AppEntryTrackingState {
+  const g = globalThis as typeof globalThis & {
+    [APP_ENTRY_TRACKING_STATE_KEY]?: AppEntryTrackingState;
+  };
+  if (!g[APP_ENTRY_TRACKING_STATE_KEY]) {
+    g[APP_ENTRY_TRACKING_STATE_KEY] = { entryKeys: new Set() };
+  } else if (!g[APP_ENTRY_TRACKING_STATE_KEY].entryKeys) {
+    const entryKey = g[APP_ENTRY_TRACKING_STATE_KEY].entryKey;
+    g[APP_ENTRY_TRACKING_STATE_KEY].entryKeys = entryKey
+      ? new Set([entryKey])
+      : new Set();
+  }
+  return g[APP_ENTRY_TRACKING_STATE_KEY];
 }
 
 function getAgentChatTrackingState(): AgentChatTrackingState {
@@ -1886,8 +1929,20 @@ function resolveProps(
   for (const [key, value] of Object.entries(replayProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
+  const sessionId = hasBrowserTrackingDestination()
+    ? getOrCreateSessionId()
+    : undefined;
+  const standard = withCanonicalTrackingProperties({
+    ...enriched,
+    ...(sessionId ? { session_id: sessionId } : {}),
+  });
+  const withIdentity = applyTrackingIdentity(standard);
+  const identity = _trackingIdentity;
   return {
-    ...applyTrackingIdentity(enriched),
+    ...withIdentity,
+    ...(getTrackingUserId() ? { user_id: getTrackingUserId() } : {}),
+    ...(identity?.userEmail ? { user_email: identity.userEmail } : {}),
+    ...(identity?.orgId ? { workspace_id: identity.orgId } : {}),
     [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: getAnalyticsClientPlatform(
       _configuredAnalyticsClientPlatform ?? undefined,
     ),
@@ -1939,6 +1994,84 @@ function pageviewProperties(reason: string): Record<string, unknown> {
   return properties;
 }
 
+function readAppEntryKeys(): string[] {
+  const stored = safeStorageGet(APP_ENTRY_STORAGE_KEY);
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((value): value is string => typeof value === "string")
+        .slice(-MAX_APP_ENTRY_KEYS);
+    }
+    // coercion-ok: invalid JSON is treated as the legacy single entry marker.
+  } catch {
+    // Migrate the previous single-key value below.
+  }
+  return [stored];
+}
+
+function rememberAppEntryKey(entryKey: string): boolean {
+  const state = getAppEntryTrackingState();
+  const keys = new Set(state.entryKeys ?? []);
+  for (const storedKey of readAppEntryKeys()) keys.add(storedKey);
+  if (keys.has(entryKey)) {
+    state.entryKeys = new Set([...keys].slice(-MAX_APP_ENTRY_KEYS));
+    state.entryKey = entryKey;
+    return false;
+  }
+
+  keys.add(entryKey);
+  const boundedKeys = [...keys].slice(-MAX_APP_ENTRY_KEYS);
+  state.entryKeys = new Set(boundedKeys);
+  state.entryKey = entryKey;
+  safeStorageSet(APP_ENTRY_STORAGE_KEY, JSON.stringify(boundedKeys));
+  return true;
+}
+
+let _appEntryAuthRetry: Promise<void> | null = null;
+
+function waitForTrackingIdentityBeforeAppEntry(): boolean {
+  const pending = _trackingSessionRefresh;
+  if (!pending || _trackingIdentityResolved) return false;
+  if (!_appEntryAuthRetry) {
+    _appEntryAuthRetry = pending
+      .catch(() => {})
+      .then(() => {
+        _appEntryAuthRetry = null;
+        emitAppEntered();
+      });
+  }
+  return true;
+}
+
+function emitAppEntered(): void {
+  if (typeof window === "undefined" || !_getDefaultProps) return;
+  if (waitForTrackingIdentityBeforeAppEntry()) return;
+  const properties = resolveProps(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
+    entry_path: window.location.pathname,
+  });
+  const appName = normalizeTrackingDimension(
+    properties.app_name ?? properties.app,
+  );
+  const sessionId =
+    typeof properties.session_id === "string"
+      ? properties.session_id
+      : undefined;
+  if (!appName) return;
+  const entryKey = sessionId ? `${appName}:${sessionId}` : appName;
+  if (!rememberAppEntryKey(entryKey)) return;
+  const attribution = getFirstTouchAttribution();
+  trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
+    app_name: appName,
+    entry_path: window.location.pathname,
+    ...(attribution?.ref ? { source: attribution.ref } : {}),
+    ...(attribution?.landing_referrer
+      ? { referrer: attribution.landing_referrer }
+      : {}),
+  });
+}
+
 function emitPageview(reason: string): void {
   if (typeof window === "undefined") return;
   if (isLocalAnalyticsHostname(window.location.hostname)) return;
@@ -1947,6 +2080,7 @@ function emitPageview(reason: string): void {
   if (state.lastPageviewKey === key) return;
   state.lastPageviewKey = key;
   trackEvent("pageview", pageviewProperties(reason));
+  emitAppEntered();
 }
 
 function schedulePageview(reason: string): void {
@@ -2075,6 +2209,15 @@ export function trackEvent(
     }
   }
   sendAgentNativeAnalytics(name, props);
+  const lifecycle = legacyLifecycleEvent(name, props);
+  if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);
+}
+
+export function trackLifecycleEvent(
+  name: AgentNativeLifecycleEventName,
+  params?: Record<string, unknown>,
+): void {
+  trackEvent(name, params);
 }
 
 export function trackSessionStatus(signedIn: boolean): void {

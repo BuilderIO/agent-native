@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
+
 /**
  * Clip FFBTGvnWyEys "Fix Frame and Screen Nesting in Design Editor".
  * On the board "frame" already means a screen card (data-frame-id), so the
@@ -176,7 +178,7 @@ test.beforeAll(async ({}, testInfo) => {
   baseURL =
     (testInfo.project.use as { baseURL?: string }).baseURL ??
     process.env.E2E_BASE_URL ??
-    "http://127.0.0.1:9333";
+    e2eBaseURL();
 });
 
 test("the Frame option remains sticky when reactivated with F", async ({
@@ -244,11 +246,12 @@ test("the live board uses the light canvas theme token", async ({ page }) => {
   });
 
   await expect(page.locator("html")).toHaveClass(/light/);
-  await expect(
-    page.locator(
-      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
-    ),
-  ).toHaveCSS("background-color", "rgb(235, 235, 235)");
+  // The wrapper paints the board; the document inside it is transparent so a
+  // colour-picker tick does not rebuild the iframe srcdoc.
+  await expect(page.locator("[data-board-surface-layer]")).toHaveCSS(
+    "background-color",
+    "rgb(235, 235, 235)",
+  );
 });
 
 test("the development interaction trace exposes a dump", async ({ page }) => {
@@ -365,7 +368,16 @@ test.fixme("4:24 — a board frame can be dragged into a screen and become a chi
   ).toContain('data-an-primitive="frame"');
 });
 
-test("2:11 — a shape drawn on the board is not painted behind the screens", async ({
+// Was an invisible skip: it fired on EVERY run, so this guarded nothing while
+// still counting toward the suite total. Measured cause — its three selectors
+// cannot match a committed board object. `data-draft-id` is transient (the
+// in-progress draw, gone once committed) and `data-board-primitive-id` /
+// `data-an-board-object` do not exist anywhere in the app. Committed board
+// objects live INSIDE the board-surface iframe, so a host-level z-index
+// comparison cannot see them. Rewriting it needs the real stacking contract
+// between `[data-board-surface-layer]` and `[data-screen-iframe-id]`, which is
+// a product decision in the canvas-layering area, not a test fix.
+test.fixme("2:11 — a shape drawn on the board is not painted behind the screens", async ({
   page,
 }) => {
   const id = await newDesign(page);
@@ -446,6 +458,12 @@ test("the canvas does not go black and hide the screens after drawing a frame", 
     x: empty.x + 240,
     y: empty.y + 260,
   });
+
+  // The frame has to exist, or "the screens are still visible" holds for the
+  // trivial reason that nothing was drawn.
+  await expect
+    .poll(() => fileContent(page, id, "__board__.html"), { timeout: 20_000 })
+    .toContain('data-an-primitive="frame"');
 
   // Clip "Canvas Turns Black and Hides Frames": after the frame was created
   // the overview painted black and every screen vanished from the canvas.

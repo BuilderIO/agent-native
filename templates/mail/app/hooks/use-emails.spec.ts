@@ -110,6 +110,41 @@ describe("useLabels", () => {
   });
 });
 
+describe("useEmails query warming", () => {
+  it("shares the infinite-query fetcher with tab prefetches", () => {
+    const source = emailsHookSource();
+    const useEmailsSource = source.slice(
+      source.indexOf("export function useEmails("),
+    );
+
+    expect(useEmailsSource).toContain(
+      "placeholderData: (previousData) => previousData",
+    );
+    expect(useEmailsSource).toContain(
+      "const canPaginate = !q.isPlaceholderData;",
+    );
+    expect(useEmailsSource).toContain(
+      "hasNextPage: canPaginate && q.hasNextPage",
+    );
+    expect(useEmailsSource).toContain(
+      "isFetchingNextPage: canPaginate && q.isFetchingNextPage",
+    );
+    expect(useEmailsSource).toContain(
+      "const hasCurrentQueryData = Boolean(q.data) && !q.isPlaceholderData;",
+    );
+    expect(useEmailsSource).toContain(
+      "isError: q.isError && !hasCurrentQueryData",
+    );
+    expect(source).toContain("function emailQueryOptions(");
+    expect(source).toContain("prefetchInfiniteQuery({");
+    expect(source).toContain('const prefetchKey = ["email-prefetch"');
+    expect(source).toContain("EMAIL_PREFETCH_TIMEOUT_MS");
+    expect(source).toContain("queryClient.removeQueries");
+    expect(source).toContain("queryKey: prefetchKey");
+    expect(source).toContain("...emailQueryOptions(view, search, label)");
+  });
+});
+
 describe("serializePinnedLabelsUpdate", () => {
   it("runs pinned-label writes in order", async () => {
     const { serializePinnedLabelsUpdate } = await import("./use-emails");

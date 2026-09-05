@@ -335,21 +335,30 @@ export function readFactoryAutomationConfig(
   };
 }
 
+const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
+  "slackChannelId",
+  "slackChannelName",
+  "repository",
+  "sentryOrgSlug",
+  "sentryProjectSlug",
+  "sentryEnvironment",
+]);
+
 export function applyAutomationConfigFrontmatter(
   content: string,
   config: FactoryAutomationConfig,
 ): string {
   let next = content;
-  const fields: Array<[string, string]> = [
+  const fields: Array<[string, string | null]> = [
     ["source", config.source],
     ["template", config.template],
     ["slackWorkspace", config.slackWorkspace],
-    ["slackChannelId", config.slackChannelId ?? ""],
-    ["slackChannelName", config.slackChannelName ?? ""],
-    ["repository", config.repository ?? ""],
-    ["sentryOrgSlug", config.sentryOrgSlug ?? ""],
-    ["sentryProjectSlug", config.sentryProjectSlug ?? ""],
-    ["sentryEnvironment", config.sentryEnvironment ?? ""],
+    ["slackChannelId", config.slackChannelId],
+    ["slackChannelName", config.slackChannelName],
+    ["repository", config.repository],
+    ["sentryOrgSlug", config.sentryOrgSlug],
+    ["sentryProjectSlug", config.sentryProjectSlug],
+    ["sentryEnvironment", config.sentryEnvironment],
     ["authorMode", config.authorMode],
     ["authorIds", config.authorIds.join(",")],
     ["scheduleMode", config.scheduleMode],
@@ -364,7 +373,12 @@ export function applyAutomationConfigFrontmatter(
     ["schedule", scheduleCron(config)],
   ];
   for (const [key, value] of fields) {
-    next = setAutomationFrontmatterField(next, key, value);
+    // null = omitted (repair/default): keep the existing YAML line.
+    // "" = explicit clear from save: delete the line.
+    if (OPTIONAL_DESTINATION_FRONTMATTER_FIELDS.has(key) && value == null) {
+      continue;
+    }
+    next = setAutomationFrontmatterField(next, key, value ?? "");
   }
   return next;
 }

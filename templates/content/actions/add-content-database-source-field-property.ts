@@ -33,6 +33,7 @@ import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
 } from "./_database-source-utils.js";
+import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 
 const BUILDER_FIELD_REFRESH_MINIMUM_LIMIT = 500;
@@ -579,7 +580,7 @@ export default defineAction({
         });
         const [maxPos] = await tx
           .select({
-            max: sql<number>`COALESCE(MAX(position), -1)`,
+            max: sql<unknown>`COALESCE(MAX(position), -1)`,
           })
           .from(schema.documentPropertyDefinitions)
           .where(
@@ -591,7 +592,7 @@ export default defineAction({
               eq(schema.documentPropertyDefinitions.databaseId, database.id),
             ),
           );
-        const position = (maxPos?.max ?? -1) + 1;
+        const position = nextAppendPosition(maxPos?.max);
 
         await tx.insert(schema.documentPropertyDefinitions).values({
           id: propertyId,

@@ -34,13 +34,13 @@ vi.mock("../secrets/storage.js", () => ({
   deleteAppSecret: async () => undefined,
 }));
 
-const resolveBuilderGatewayCredentials = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
 // Real `gatewayLaneUnavailableMessage`: which audience this route's copy is
 // written for is the behavior under test, so that decision is not stubbed.
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
-  resolveBuilderGatewayCredentials: (...args: unknown[]) =>
-    resolveBuilderGatewayCredentials(...args),
+  resolveBuilderGatewayAuth: (...args: unknown[]) =>
+    resolveBuilderGatewayAuth(...args),
 }));
 
 const { createGoogleRealtimeSessionHandler } =
@@ -63,12 +63,8 @@ describe("google realtime session credential gate", () => {
     delete process.env.FUSION_ENVIRONMENT;
     delete process.env.FUSION_ENV_ORIGIN;
     delete process.env.VITE_FUSION_ENV_ORIGIN;
-    resolveBuilderGatewayCredentials.mockReset();
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-      userId: null,
-    });
+    resolveBuilderGatewayAuth.mockReset();
+    resolveBuilderGatewayAuth.mockResolvedValue(null);
   });
 
   it("gives a visitor the one line when the credits lane cannot mint a session", async () => {
@@ -92,9 +88,9 @@ describe("google realtime session credential gate", () => {
   // 402/403 reply, which this route used to hand back verbatim.
   describe("with the credits lane connected", () => {
     beforeEach(() => {
-      resolveBuilderGatewayCredentials.mockResolvedValue({
-        privateKey: "btk-site-token",
-        publicKey: "space-1",
+      resolveBuilderGatewayAuth.mockResolvedValue({
+        authorization: "Bearer btk-site-token",
+        spaceId: "space-1",
         userId: null,
       });
     });

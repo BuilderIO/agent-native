@@ -125,6 +125,7 @@ describe("createPtyWebSocketServer", () => {
     for (const server of servers.splice(0)) server.close();
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true });
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   async function createServer(
@@ -355,6 +356,7 @@ describe("createPtyWebSocketServer", () => {
   });
 
   it("pipes terminal input and clamps resize messages", async () => {
+    vi.stubEnv("NO_COLOR", "1");
     const server = await createServer({ command: "builder" });
     const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
     await vi.waitFor(() => expect(ptys).toHaveLength(1));
@@ -373,6 +375,18 @@ describe("createPtyWebSocketServer", () => {
       expect.objectContaining({
         cols: 120,
         rows: 40,
+        env: expect.objectContaining({
+          TERM: "xterm-256color",
+          COLORTERM: "truecolor",
+          FORCE_COLOR: "1",
+        }),
+      }),
+    );
+    expect(spawn).toHaveBeenLastCalledWith(
+      expect.any(String),
+      [],
+      expect.objectContaining({
+        env: expect.not.objectContaining({ NO_COLOR: "1" }),
       }),
     );
     expect(ptys[0].resize).toHaveBeenCalledWith(65535, 1);

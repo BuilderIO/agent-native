@@ -20,7 +20,11 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
-import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
+import {
+  isFederationMembershipValidatedForEvent,
+  resolveOrgByDomain,
+  resolveOrgIdForEmail,
+} from "../org/context.js";
 import {
   agentNativeMcpInstructions,
   agentNativeToolTitle,
@@ -689,6 +693,8 @@ function mountActionRoutesInternal(
             clientPlatform,
             ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
             requestOrigin: getForwardedRequestOrigin(event),
+            federationMembershipValidated:
+              isFederationMembershipValidatedForEvent(event, userEmail, orgId),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),

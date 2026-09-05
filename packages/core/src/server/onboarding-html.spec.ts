@@ -112,6 +112,11 @@ describe("getOnboardingHtml", () => {
       readAuthPageData(getOnboardingHtml({ requestPath: "/signup?tab=signup" }))
         .initialView,
     ).toBe("signup");
+    expect(
+      readAuthPageData(
+        getOnboardingHtml({ requestPath: "/sign-in?c=continuation" }),
+      ).initialView,
+    ).toBe("login");
   });
 
   it("keeps the local-dev CTA hidden in cached HTML and reveals it only for loopback hosts", () => {
@@ -168,14 +173,18 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("canonical hosted login pages omit the browser SSO option", () => {
+    it("canonical hosted login pages include the browser SSO option", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
-      const html = getOnboardingHtml();
+      const html = getOnboardingHtml({
+        requestHost: "calendar.agent-native.com",
+        identitySsoRequestProtocol: "https",
+      });
 
-      expect(html).not.toContain("identity-sso-btn");
-      expect(html).not.toContain("Sign in with Agent-Native");
+      expect(html).toContain("identity-sso-btn");
+      expect(html).toContain("Sign in with Agent-Native");
+      expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
     it("env set → injects exactly one conditional SSO entry pointing at /identity/login", () => {

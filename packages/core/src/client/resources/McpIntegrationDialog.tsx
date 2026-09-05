@@ -26,6 +26,7 @@ import {
   filterMcpIntegrations,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   isCustomMcpIntegrationEnabled,
   navigateToMcpOAuthStart,
   resolveMcpIntegrationScope,
@@ -82,16 +83,6 @@ function parseHeaderLines(text: string): Record<string, string> | undefined {
     out[key] = value;
   }
   return Object.keys(out).length > 0 ? out : undefined;
-}
-
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
 }
 
 function requiresMcpIntegrationSetup(
@@ -174,7 +165,7 @@ export function McpIntegrationDialog({
   );
   const showCatalog = defaultIntegrations.length > 0;
 
-  const connectedUrls = useMemo(() => {
+  const connectedServers = useMemo(() => {
     const servers = [
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
@@ -182,11 +173,7 @@ export function McpIntegrationDialog({
     // A saved server is not necessarily a working connection. The settings
     // page reports failed and unknown health states separately, so only mark
     // catalog entries as connected after the health probe succeeds.
-    return new Set(
-      servers
-        .filter((server) => server.status.state === "connected")
-        .map((server) => compareUrl(server.url)),
-    );
+    return servers.filter((server) => server.status.state === "connected");
   }, [mcpServersQuery.data]);
 
   const filteredIntegrations = useMemo(
@@ -366,6 +353,18 @@ export function McpIntegrationDialog({
     });
   };
 
+  const connectSelectedWithOAuth = () => {
+    if (!name.trim()) {
+      setError(t("mcpIntegrations.serverNameRequired"));
+      return;
+    }
+    beginOAuth({
+      name: name.trim(),
+      url: url.trim(),
+      description: description.trim(),
+    });
+  };
+
   const createServer = async (args: CreateMcpServerArgs) => {
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
@@ -404,6 +403,10 @@ export function McpIntegrationDialog({
     if (hasOrg && supportsMcpIntegrationOrganizationScope(integration)) {
       setSelected(integration);
       setMode("choice");
+      return;
+    }
+    if (!integration.url.trim()) {
+      openForm(integration);
       return;
     }
     if (requiresMcpIntegrationSetup(integration)) {
@@ -765,8 +768,8 @@ export function McpIntegrationDialog({
                 ) : null}
                 <IntegrationGrid
                   items={filteredIntegrations.map((integration) => {
-                    const connected = connectedUrls.has(
-                      compareUrl(integration.url),
+                    const connected = connectedServers.some((server) =>
+                      isMcpIntegrationUrl(integration, server.url),
                     );
                     const setupOnly = requiresMcpIntegrationSetup(integration);
                     const apiFallback =
@@ -1102,7 +1105,7 @@ export function McpIntegrationDialog({
               ) : selected?.authMode === "oauth" ? (
                 <button
                   type="button"
-                  onClick={() => connectWithOAuth(selected)}
+                  onClick={connectSelectedWithOAuth}
                   disabled={!oauthReady || !name.trim() || !url.trim() || busy}
                   aria-busy={busy}
                   className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"

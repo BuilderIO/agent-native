@@ -22,7 +22,7 @@ import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import {
   isConnected,
-  getClients,
+  getClientsWithErrors,
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
@@ -36,6 +36,49 @@ import {
 } from "../server/lib/queued-drafts.js";
 import type { EmailMessage } from "../shared/types.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
+
+// Keep automatic screen context within the page-tool budget; list-emails is
+// the full inventory path when the agent needs more than this preview.
+const SCREEN_EMAIL_LIMIT = 10;
+// ponytail: stop after three pages; use list-emails for exhaustive filtered inventory.
+const SCREEN_EMAIL_MAX_PAGES = 3;
+
+type EmailPreviewResult = {
+  emails: any[];
+  truncated: boolean;
+  coverageComplete: boolean;
+  failedAccounts: string[];
+  error?: string;
+};
+
+function formatPreviewError(error: unknown): string {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : "Unable to read Mail preview";
+  return (
+    message
+      .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+      .replace(
+        /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,
+        "$1=[redacted]",
+      )
+      .slice(0, 240) || "Unable to read Mail preview"
+  );
+}
+
+function boundEmailPreview(
+  emails: any[],
+  failedAccounts: string[] = [],
+  coverageComplete = failedAccounts.length === 0,
+): EmailPreviewResult {
+  return {
+    emails: emails.slice(0, SCREEN_EMAIL_LIMIT + 1),
+    truncated: emails.length > SCREEN_EMAIL_LIMIT,
+    coverageComplete,
+    failedAccounts,
+  };
+}
 
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<string, any>();
@@ -61,7 +104,7 @@ async function fetchEmailList(
   activeInboxTab?: string,
   activeAccounts?: string[],
   filterId?: string,
-): Promise<any[]> {
+): Promise<EmailPreviewResult> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -121,10 +164,28 @@ async function fetchEmailList(
       effectiveView === "inbox" &&
       !effectiveSearch &&
       savedFilterQueries.some(searchQueryNeedsAttachmentMetadata);
+    const needsLabelMap =
+      Boolean(label) ||
+      Boolean(activeInboxTab) ||
+      (effectiveView === "inbox" &&
+        !effectiveSearch &&
+        !label &&
+        savedFilterQueries.length > 0);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
-    const clients = googleConnected ? await getClients(ownerEmail) : [];
+    const { clients, errors: clientErrors } = googleConnected
+      ? await getClientsWithErrors(
+          ownerEmail,
+          selectedAccountEmails.length > 0 ? selectedAccountEmails : undefined,
+        )
+      : { clients: [], errors: [] };
     const connectedEmails = new Set(
       clients.map(({ email }) => email.toLowerCase()),
+    );
+    const clientErrorEmails = new Set(
+      clientErrors.map(({ email }) => email.toLowerCase()),
+    );
+    const missingSelectedAccounts = selectedAccountEmails.filter(
+      (email) => !connectedEmails.has(email) && !clientErrorEmails.has(email),
     );
     const prepareEmails = (emails: any[]) => {
       const augmented = augmentSelfSentLabels(emails as EmailMessage[], {
@@ -163,18 +224,27 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
-      return filterSelectedAccounts(emails).slice(0, 50);
+      return boundEmailPreview(filterSelectedAccounts(emails));
     }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
-      await Promise.all(
-        clients.map(async ({ accessToken }) => {
-          try {
-            const map = await fetchGmailLabelMap(accessToken);
-            for (const [id, name] of map) labelMap.set(id, name);
-          } catch {}
-        }),
-      );
+      const failedAccounts = new Set([
+        ...clientErrors.map(({ email }) => email),
+        ...missingSelectedAccounts,
+      ]);
+      if (needsLabelMap) {
+        await Promise.all(
+          clients.map(async ({ email, accessToken }) => {
+            try {
+              const map = await fetchGmailLabelMap(accessToken);
+              for (const [id, name] of map) labelMap.set(id, name);
+            } catch {
+              // coercion-ok: Label metadata is optional; Gmail messages remain usable without it.
+              failedAccounts.add(email);
+            }
+          }),
+        );
+      }
 
       const gmailQuery = buildGmailEmailSearchQuery({
         view: effectiveView,
@@ -184,36 +254,67 @@ async function fetchEmailList(
         effectiveView === "all" && !effectiveSearch
           ? ""
           : gmailQuery || "in:inbox";
-      const { messages } = await listGmailMessages(
-        effectiveQuery,
-        50,
-        ownerEmail,
-        undefined,
+      const listOptions: NonNullable<Parameters<typeof listGmailMessages>[4]> =
         {
-          mode: "threads",
+          mode: "threads" as const,
           // Metadata responses omit MIME parts. Saved-filter partitioning
           // needs attachment filenames for has:attachment/filename queries.
           threadFormat: needsSavedFilterParts ? "full" : "metadata",
-          accountEmails:
-            selectedAccountEmails.length > 0
-              ? selectedAccountEmails
-              : undefined,
           threadCandidateLimit: effectiveSearch ? 500 : undefined,
           threadRecentMessageCandidateLimit:
             !effectiveSearch &&
             (effectiveView === "inbox" || effectiveView === "unread")
               ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
               : undefined,
-        },
-      );
+        };
+      let pageTokens: Record<string, string> | undefined;
+      let pageAccountEmails =
+        selectedAccountEmails.length > 0 ? selectedAccountEmails : undefined;
+      let messages: any[] = [];
+      let filteredMessages: any[] = [];
+      let hasMore = false;
+      let pagesRead = 0;
 
-      const preparedMessages = messages.map((m: any) =>
-        gmailToEmailMessage(m, m._accountEmail, labelMap),
-      );
-      return latestPerThread(applyActiveInboxTab(preparedMessages)).slice(
-        0,
-        50,
-      );
+      for (;;) {
+        const page = await listGmailMessages(
+          effectiveQuery,
+          SCREEN_EMAIL_LIMIT + 1,
+          ownerEmail,
+          pageTokens,
+          {
+            ...listOptions,
+            accountEmails: pageAccountEmails,
+          },
+        );
+        pagesRead += 1;
+        for (const error of page.errors ?? []) {
+          if (error?.email) failedAccounts.add(error.email);
+        }
+        messages = messages.concat(page.messages);
+        const preparedMessages = messages.map((m: any) =>
+          gmailToEmailMessage(m, m._accountEmail, labelMap),
+        );
+        filteredMessages = latestPerThread(
+          applyActiveInboxTab(preparedMessages),
+        );
+        pageTokens = page.nextPageTokens;
+        hasMore = Boolean(pageTokens && Object.keys(pageTokens).length > 0);
+        if (
+          !hasMore ||
+          filteredMessages.length > SCREEN_EMAIL_LIMIT ||
+          pagesRead >= SCREEN_EMAIL_MAX_PAGES
+        ) {
+          break;
+        }
+        pageAccountEmails = Object.keys(pageTokens!);
+      }
+
+      return {
+        emails: filteredMessages.slice(0, SCREEN_EMAIL_LIMIT + 1),
+        truncated: hasMore || filteredMessages.length > SCREEN_EMAIL_LIMIT,
+        coverageComplete: failedAccounts.size === 0,
+        failedAccounts: Array.from(failedAccounts),
+      };
     }
 
     // Fallback: local store
@@ -258,11 +359,15 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
-      return applyActiveInboxTab(emails).slice(0, 50);
+      return boundEmailPreview(applyActiveInboxTab(emails));
     }
-    return [];
-  } catch {
-    return [];
+    return boundEmailPreview([]);
+  } catch (error) {
+    return {
+      ...boundEmailPreview([]),
+      coverageComplete: false,
+      error: formatPreviewError(error),
+    };
   }
 }
 
@@ -325,7 +430,7 @@ async function fetchThreadMessages(threadId: string): Promise<any> {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
+    "See what the user is currently looking at on screen. Returns the current view, a bounded email preview, and the open thread (if any). Use list-emails for a full inventory. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
   schema: z.object({
     full: z.coerce
       .boolean()
@@ -377,14 +482,15 @@ export default defineAction({
         };
       }
     } else if (nav?.view) {
-      const emails = await fetchEmailList(
-        nav.view,
-        nav.search,
-        nav.label,
-        nav.activeInboxTab,
-        nav.activeAccounts,
-        nav.filter,
-      );
+      const { emails, truncated, coverageComplete, failedAccounts, error } =
+        await fetchEmailList(
+          nav.view,
+          nav.search,
+          nav.label,
+          nav.activeInboxTab,
+          nav.activeAccounts,
+          nav.filter,
+        );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(
             nav.selectedThreadIds.filter(
@@ -392,7 +498,7 @@ export default defineAction({
             ),
           )
         : new Set<string>();
-      const compact = emails.slice(0, 50).map((e: any) => ({
+      const compact = emails.slice(0, SCREEN_EMAIL_LIMIT).map((e: any) => ({
         id: e.id,
         threadId: e.threadId,
         isSelected: selectedThreadIds.has(e.threadId || e.id),
@@ -414,6 +520,12 @@ export default defineAction({
         search: nav.search ?? null,
         selectedThreadIds: Array.from(selectedThreadIds),
         count: compact.length,
+        truncated,
+        coverage: {
+          complete: coverageComplete,
+          failedAccounts,
+          ...(error ? { error } : {}),
+        },
         emails: compact,
       };
     }

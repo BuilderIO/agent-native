@@ -45,6 +45,50 @@ const SLIDE_TEXT_CONTAINER_TAGS = new Set([
   "UL",
 ]);
 
+const SLIDE_EDITOR_BLOCK_ATTRIBUTES = ["dir", "data-pptx-paragraph"] as const;
+const SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "min-height",
+  "text-align",
+  "text-decoration",
+] as const;
+
+function syncSlideEditorBlockFormatting(
+  source: HTMLElement,
+  target: HTMLElement,
+  clearMissing = false,
+): void {
+  const canRoundTripAttributes =
+    target.tagName === "P" ||
+    target.tagName === "LI" ||
+    /^H[1-6]$/.test(target.tagName);
+  for (const attributeName of SLIDE_EDITOR_BLOCK_ATTRIBUTES) {
+    const value = source.getAttribute(attributeName);
+    if (value !== null) target.setAttribute(attributeName, value);
+    else if (clearMissing && canRoundTripAttributes) {
+      target.removeAttribute(attributeName);
+    }
+  }
+  for (const property of SLIDE_EDITOR_BLOCK_STYLE_PROPERTIES) {
+    const value = source.style.getPropertyValue(property);
+    if (value) {
+      target.style.setProperty(
+        property,
+        value,
+        source.style.getPropertyPriority(property),
+      );
+    } else if (clearMissing) {
+      target.style.removeProperty(property);
+    }
+  }
+}
+
 export function isSlideTextContainerTag(tagName: string): boolean {
   return SLIDE_TEXT_CONTAINER_TAGS.has(tagName.toUpperCase());
 }
@@ -53,6 +97,7 @@ export function isSlideTextContainerTag(tagName: string): boolean {
 export function contentForSlideTextContainer(
   tagName: string,
   html: string,
+  listTagName?: "OL" | "UL",
 ): string {
   if (
     !html ||
@@ -63,17 +108,53 @@ export function contentForSlideTextContainer(
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   const first = doc.body.firstElementChild;
-  return doc.body.children.length === 1 &&
-    first?.tagName.toUpperCase() === tagName.toUpperCase()
-    ? first.innerHTML
-    : html;
+  if (
+    doc.body.children.length !== 1 ||
+    first?.tagName.toUpperCase() !== tagName.toUpperCase()
+  ) {
+    return html;
+  }
+  if (/^H[1-6]$/.test(tagName.toUpperCase())) {
+    const source = first as HTMLElement;
+    const hasParagraphRoot =
+      source.children.length === 1 && source.firstElementChild?.tagName === "P";
+    const paragraph = hasParagraphRoot
+      ? (source.firstElementChild!.cloneNode(true) as HTMLElement)
+      : doc.createElement("p");
+    if (!hasParagraphRoot) paragraph.innerHTML = source.innerHTML;
+    syncSlideEditorBlockFormatting(source, paragraph);
+    return paragraph.outerHTML;
+  }
+  if (tagName.toUpperCase() === "P") {
+    const paragraph = doc.createElement("p");
+    syncSlideEditorBlockFormatting(first as HTMLElement, paragraph);
+    paragraph.innerHTML = first.innerHTML;
+    return paragraph.outerHTML;
+  }
+  if (tagName.toUpperCase() === "LI") {
+    const list = doc.createElement(listTagName === "OL" ? "ol" : "ul");
+    const item = doc.createElement("li");
+    syncSlideEditorBlockFormatting(first as HTMLElement, item);
+    item.innerHTML = first.innerHTML;
+    list.appendChild(item);
+    return list.outerHTML;
+  }
+  if (["BLOCKQUOTE", "OL", "UL"].includes(tagName.toUpperCase())) {
+    const wrapper = doc.createElement(tagName.toLowerCase());
+    syncSlideEditorBlockFormatting(first as HTMLElement, wrapper);
+    wrapper.innerHTML = first.innerHTML;
+    return wrapper.outerHTML;
+  }
+  return first.innerHTML;
 }
 
 /** Keep a semantic canvas target valid when rich text changes its block root. */
 export function restoreSlideTextContainerContent(
   element: HTMLElement,
   html: string,
+  legacySourceHtml?: string,
 ): HTMLElement {
+  html = restoreLegacyBulletRows(legacySourceHtml, html);
   if (!isSlideTextContainerTag(element.tagName)) {
     element.innerHTML = html;
     return element;
@@ -83,9 +164,122 @@ export function restoreSlideTextContainerContent(
     return element;
   }
 
+  const nextDocument = new DOMParser().parseFromString(html, "text/html");
+  const nextRoot = nextDocument.body.firstElementChild as HTMLElement | null;
+  const nextChildren = Array.from(nextDocument.body.children);
+  if (nextChildren.length === 1 && nextRoot?.tagName === element.tagName) {
+    syncSlideEditorBlockFormatting(nextRoot, element, true);
+    element.innerHTML = nextRoot.innerHTML;
+    return element;
+  }
+
+  const nextListRoot =
+    nextRoot && (nextRoot.tagName === "OL" || nextRoot.tagName === "UL")
+      ? nextRoot
+      : null;
+  let parentList =
+    element.tagName === "LI" &&
+    (element.parentElement?.tagName === "OL" ||
+      element.parentElement?.tagName === "UL")
+      ? element.parentElement
+      : null;
+  if (
+    parentList &&
+    nextListRoot &&
+    parentList.tagName !== nextListRoot.tagName
+  ) {
+    const replacement = element.ownerDocument.createElement(
+      nextListRoot.tagName.toLowerCase(),
+    );
+    for (const attribute of Array.from(parentList.attributes)) {
+      replacement.setAttribute(attribute.name, attribute.value);
+    }
+    while (parentList.firstChild) {
+      replacement.appendChild(parentList.firstChild);
+    }
+    parentList.replaceWith(replacement);
+    parentList = replacement;
+  }
+
   const content = contentForSlideTextContainer(element.tagName, html);
   if (content !== html) {
     element.innerHTML = content;
+    return element;
+  }
+
+  const nextListItemRoot =
+    element.tagName === "LI" &&
+    nextListRoot !== null &&
+    nextListRoot.children.length === 1 &&
+    nextListRoot.firstElementChild?.tagName === "LI"
+      ? (nextListRoot.firstElementChild as HTMLElement)
+      : null;
+  const hasMultipleListItems =
+    element.tagName === "LI" &&
+    nextListRoot !== null &&
+    nextListRoot.children.length > 1 &&
+    Array.from(nextListRoot.children).every((child) => child.tagName === "LI");
+  const preservesListItemRoot =
+    element.tagName === "LI" &&
+    !hasMultipleListItems &&
+    (nextListItemRoot !== null ||
+      (nextChildren.length > 0 &&
+        nextChildren.every((child) =>
+          ["OL", "P", "UL"].includes(child.tagName),
+        )));
+  const preservesListRoot =
+    (element.tagName === "UL" || element.tagName === "OL") &&
+    nextRoot !== null &&
+    ["OL", "UL"].includes(nextRoot.tagName) &&
+    nextRoot.children.length > 0 &&
+    Array.from(nextRoot.children).every((child) => child.tagName === "LI");
+  const preservesRoot = preservesListItemRoot || preservesListRoot;
+  if (
+    nextChildren.length === 1 &&
+    /^H[1-6]$/.test(element.tagName) &&
+    nextRoot?.tagName === "P"
+  ) {
+    syncSlideEditorBlockFormatting(nextRoot, element, true);
+    element.innerHTML = nextRoot.innerHTML;
+    return element;
+  }
+  if (preservesRoot) {
+    if (preservesListRoot && nextRoot?.tagName !== element.tagName) {
+      const replacement = element.ownerDocument.createElement(
+        nextRoot.tagName.toLowerCase(),
+      );
+      for (const attribute of Array.from(element.attributes)) {
+        replacement.setAttribute(attribute.name, attribute.value);
+      }
+      syncSlideEditorBlockFormatting(nextRoot, replacement, true);
+      replacement.innerHTML = nextRoot.innerHTML;
+      element.replaceWith(replacement);
+      return replacement;
+    }
+    if (element.tagName === "LI" && nextChildren[0]?.tagName === "P") {
+      syncSlideEditorBlockFormatting(
+        nextChildren[0] as HTMLElement,
+        element,
+        true,
+      );
+    }
+    if (nextListItemRoot) {
+      syncSlideEditorBlockFormatting(nextListItemRoot, element, true);
+      element.innerHTML = nextListItemRoot.innerHTML;
+      return element;
+    }
+    element.innerHTML = html;
+    return element;
+  }
+
+  if (hasMultipleListItems && parentList && nextListRoot) {
+    const firstItem = nextListRoot.firstElementChild as HTMLElement;
+    syncSlideEditorBlockFormatting(firstItem, element, true);
+    element.innerHTML = firstItem.innerHTML;
+    const insertBefore = element.nextSibling;
+    for (const item of Array.from(nextListRoot.children).slice(1)) {
+      parentList.insertBefore(item.cloneNode(true), insertBefore);
+    }
     return element;
   }
 
@@ -94,8 +288,6 @@ export function restoreSlideTextContainerContent(
     replacement.setAttribute(attribute.name, attribute.value);
   }
   if (element.tagName === "UL" || element.tagName === "OL") {
-    const nextRoot = new DOMParser().parseFromString(html, "text/html").body
-      .firstElementChild;
     if (nextRoot?.tagName !== "UL" && nextRoot?.tagName !== "OL") {
       for (const property of [
         "list-style",
@@ -290,20 +482,191 @@ function isRemovedLegacyBulletText(root: HTMLElement, node: Text): boolean {
   return false;
 }
 
+const LEGACY_ROW_TEXT_STYLE_PROPERTIES = [
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  "text-align",
+  "text-decoration",
+];
+const LEGACY_ROW_LAYOUT_STYLE_PROPERTIES = [
+  "align-items",
+  "display",
+  "flex-shrink",
+  "gap",
+  "justify-content",
+  "row-gap",
+  "column-gap",
+];
+const LEGACY_MARKER_STYLE_PROPERTIES = [
+  ["font-size", "--slide-legacy-marker-size"],
+  ["color", "--slide-legacy-marker-color"],
+  ["top", "--slide-legacy-marker-top"],
+] as const;
+
+function listItemContent(item: HTMLElement): string {
+  const firstChild = item.firstElementChild;
+  return item.children.length === 1 && firstChild?.tagName === "P"
+    ? firstChild.innerHTML
+    : item.innerHTML;
+}
+
+function restoreLegacyBulletRow(
+  template: HTMLElement,
+  item: HTMLElement,
+): HTMLElement {
+  const row = template.cloneNode(true) as HTMLElement;
+  const marker = row.firstElementChild;
+  if (!marker) return row;
+
+  while (marker.nextSibling) marker.nextSibling.remove();
+
+  const textTemplate = template.children[1];
+  const content = listItemContent(item);
+  if (textTemplate) {
+    const text = textTemplate.cloneNode(false) as HTMLElement;
+    text.innerHTML = content;
+    row.appendChild(text);
+  } else {
+    row.insertAdjacentHTML("beforeend", content);
+  }
+
+  for (const attribute of Array.from(item.attributes)) {
+    if (attribute.name !== "style") {
+      row.setAttribute(attribute.name, attribute.value);
+    }
+  }
+  for (const property of LEGACY_ROW_TEXT_STYLE_PROPERTIES) {
+    row.style.removeProperty(property);
+  }
+  copyRowTextStyles(item, row);
+  copyLegacyRowLayoutStyles(item, row);
+  return row;
+}
+
+function restoreLegacyBulletRowsInContainer(
+  source: Element,
+  current: Element,
+): void {
+  const sourceChildren = Array.from(source.children);
+  let currentIndex = 0;
+
+  for (let sourceIndex = 0; sourceIndex < sourceChildren.length; ) {
+    const sourceChild = sourceChildren[sourceIndex];
+    if (isLegacyBulletRow(sourceChild)) {
+      const templates: HTMLElement[] = [];
+      while (
+        sourceIndex < sourceChildren.length &&
+        isLegacyBulletRow(sourceChildren[sourceIndex])
+      ) {
+        templates.push(sourceChildren[sourceIndex] as HTMLElement);
+        sourceIndex += 1;
+      }
+
+      const currentChild = current.children[currentIndex];
+      if (currentChild?.tagName === "UL") {
+        const items = Array.from(currentChild.children).filter(
+          (child): child is HTMLElement => child.tagName === "LI",
+        );
+        const hasNestedList = items.some((item) =>
+          Array.from(item.children).some(
+            (child) => child.tagName === "UL" || child.tagName === "OL",
+          ),
+        );
+        if (!hasNestedList && items.length > 0) {
+          const rows = items.map((item, index) =>
+            restoreLegacyBulletRow(
+              templates[Math.min(index, templates.length - 1)],
+              item,
+            ),
+          );
+          currentChild.replaceWith(...rows);
+          currentIndex += rows.length;
+          continue;
+        }
+      }
+      currentIndex += 1;
+      continue;
+    }
+
+    const currentChild = current.children[currentIndex];
+    if (currentChild && currentChild.tagName === sourceChild.tagName) {
+      restoreLegacyBulletRowsInContainer(sourceChild, currentChild);
+    }
+    sourceIndex += 1;
+    currentIndex += 1;
+  }
+}
+
+function restoreLegacyBulletRows(
+  sourceHtml: string | undefined,
+  html: string,
+): string {
+  if (
+    !sourceHtml ||
+    !html ||
+    typeof DOMParser === "undefined" ||
+    !sourceHtml.includes("<")
+  ) {
+    return html;
+  }
+  const sourceDocument = new DOMParser().parseFromString(
+    sourceHtml,
+    "text/html",
+  );
+  const currentDocument = new DOMParser().parseFromString(html, "text/html");
+  restoreLegacyBulletRowsInContainer(sourceDocument.body, currentDocument.body);
+  return currentDocument.body.innerHTML;
+}
+
 function copyRowTextStyles(row: HTMLElement, item: HTMLElement): void {
-  for (const property of [
-    "color",
-    "font-family",
-    "font-size",
-    "font-style",
-    "font-weight",
-    "letter-spacing",
-    "line-height",
-    "text-align",
-    "text-decoration",
-  ]) {
+  for (const property of LEGACY_ROW_TEXT_STYLE_PROPERTIES) {
     const value = row.style.getPropertyValue(property);
     if (value) item.style.setProperty(property, value);
+  }
+}
+
+function copyLegacyRowLayoutStyles(row: HTMLElement, item: HTMLElement): void {
+  for (const property of LEGACY_ROW_LAYOUT_STYLE_PROPERTIES) {
+    const value = row.style.getPropertyValue(property);
+    if (value) item.style.setProperty(property, value);
+  }
+}
+
+function copyLegacyListLayoutStyles(
+  container: Element,
+  list: HTMLUListElement,
+): void {
+  list.style.setProperty("--slide-legacy-list", "1");
+  list.style.setProperty("list-style", "none");
+  list.style.setProperty("padding-left", "0");
+  for (const property of [
+    "display",
+    "flex-direction",
+    "gap",
+    "row-gap",
+    "column-gap",
+  ]) {
+    const value = (container as HTMLElement).style.getPropertyValue(property);
+    if (value) list.style.setProperty(property, value);
+  }
+}
+
+function copyLegacyMarkerStyles(marker: HTMLElement, item: HTMLElement): void {
+  const glyph = marker.textContent?.trim();
+  if (glyph) {
+    item.style.setProperty(
+      "--slide-legacy-marker-content",
+      JSON.stringify(glyph),
+    );
+  }
+  for (const [property, variable] of LEGACY_MARKER_STYLE_PROPERTIES) {
+    const value = marker.style.getPropertyValue(property);
+    if (value) item.style.setProperty(variable, value);
   }
 }
 
@@ -322,6 +685,7 @@ export function normalizeSlideEditorContent(html: string): string {
         if (isLegacyBulletRow(child)) {
           if (!list) {
             list = doc.createElement("ul");
+            copyLegacyListLayoutStyles(container, list);
             converted.push(list);
           }
           const item = doc.createElement("li");
@@ -334,6 +698,9 @@ export function normalizeSlideEditorContent(html: string): string {
             }
           }
           copyRowTextStyles(child as HTMLElement, item);
+          copyLegacyRowLayoutStyles(child as HTMLElement, item);
+          item.style.setProperty("list-style", "none");
+          copyLegacyMarkerStyles(child.firstElementChild as HTMLElement, item);
           list.appendChild(item);
         } else {
           list = null;

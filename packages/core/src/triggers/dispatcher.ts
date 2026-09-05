@@ -24,6 +24,7 @@ import {
   buildJobResourceContent,
   jobBelongsToApp,
   parseJobResource,
+  patchJobFrontmatterFields,
 } from "../jobs/frontmatter.js";
 import {
   resourceGetByPath,
@@ -215,11 +216,10 @@ async function recordTriggerExecutionOutcome(
     return true;
   }
 
-  const nextMeta: TriggerFrontmatter = { ...current.meta, ...outcome };
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,
-    content: buildTriggerContent(nextMeta, current.body),
+    content: patchJobFrontmatterFields(latest.content, outcome),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
     expectedContent: latest.content,
@@ -496,7 +496,11 @@ async function dispatchAgentic(
   const claimed = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,
-    content: buildTriggerContent(runningMeta, latestTrigger.body),
+    content: patchJobFrontmatterFields(latest.content, {
+      lastRun: runningMeta.lastRun,
+      lastStatus: "running",
+      lastError: undefined,
+    }),
     expectedId: latest.id,
     expectedUpdatedAt: latest.updatedAt,
     expectedContent: latest.content,

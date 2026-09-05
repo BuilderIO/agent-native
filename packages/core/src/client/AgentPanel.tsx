@@ -1989,93 +1989,120 @@ function AgentPanelInner({
           aria-label={t("agentPanel.panelOptions")}
           data-agent-panel-surface-tabs
         >
-          {mainTabs.map((tab) => {
-            const isActive =
-              mode === "chat" &&
-              (tab.id === activeTabId ||
-                (tab.id === focusParentId &&
-                  activeTab?.parentThreadId === tab.id));
-            return (
-              <div key={tab.id} className="relative flex shrink-0 items-center">
+          {mode === "chat" &&
+            mainTabs.map((tab) => {
+              const isActive =
+                mode === "chat" &&
+                (tab.id === activeTabId ||
+                  (tab.id === focusParentId &&
+                    activeTab?.parentThreadId === tab.id));
+              return (
                 <div
-                  role="tab"
-                  tabIndex={0}
-                  aria-selected={isActive}
-                  ref={isActive ? activeTabRefCb : undefined}
-                  onClick={() => {
-                    setActiveTabId(tab.id);
-                    switchMode("chat");
-                  }}
-                  onKeyDown={activateOnKeyDown(() => {
-                    setActiveTabId(tab.id);
-                    switchMode("chat");
-                  })}
-                  className={cn(
-                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
-                    isActive
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
+                  key={tab.id}
+                  className="relative flex shrink-0 items-center"
                 >
-                  <span className="truncate pe-1">{tab.label}</span>
-                  {tab.status === "running" && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                  )}
+                  <div
+                    role="tab"
+                    tabIndex={0}
+                    aria-selected={isActive}
+                    ref={isActive ? activeTabRefCb : undefined}
+                    onClick={() => {
+                      setActiveTabId(tab.id);
+                      switchMode("chat");
+                    }}
+                    onKeyDown={activateOnKeyDown(() => {
+                      setActiveTabId(tab.id);
+                      switchMode("chat");
+                    })}
+                    className={cn(
+                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                      isActive
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    <span className="truncate pe-1">{tab.label}</span>
+                    {tab.status === "running" && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={t("agentPanel.closeTab")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeTab(tab.id);
+                    }}
+                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 28,
+                      paddingRight: 6,
+                      borderRadius: "0 6px 6px 0",
+                      background:
+                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                    }}
+                  >
+                    <IconX size={10} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  aria-label={t("agentPanel.closeTab")}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    closeTab(tab.id);
-                  }}
-                  className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                >
-                  <IconX size={10} />
-                </button>
-              </div>
-            );
-          })}
-          {cliTabs.map((id, index) => {
-            const isActive = mode === "cli" && id === activeCliTab;
-            return (
-              <div key={id} className="relative flex shrink-0 items-center">
-                <div
-                  role="tab"
-                  tabIndex={0}
-                  aria-selected={isActive}
-                  ref={isActive ? activeTabRefCb : undefined}
-                  onClick={() => {
-                    setActiveCliTab(id);
-                    switchMode("cli");
-                  }}
-                  onKeyDown={activateOnKeyDown(() => {
-                    setActiveCliTab(id);
-                    switchMode("cli");
-                  })}
-                  className={cn(
-                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
-                    isActive
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                >
-                  <span>Terminal {index + 1}</span>
+              );
+            })}
+          {mode === "cli" &&
+            cliTabs.map((id, index) => {
+              const isActive = mode === "cli" && id === activeCliTab;
+              return (
+                <div key={id} className="relative flex shrink-0 items-center">
+                  <div
+                    role="tab"
+                    tabIndex={0}
+                    aria-selected={isActive}
+                    ref={isActive ? activeTabRefCb : undefined}
+                    onClick={() => {
+                      setActiveCliTab(id);
+                      switchMode("cli");
+                    }}
+                    onKeyDown={activateOnKeyDown(() => {
+                      setActiveCliTab(id);
+                      switchMode("cli");
+                    })}
+                    className={cn(
+                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
+                      isActive
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    <span>Terminal {index + 1}</span>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={t("agentPanel.closeTab")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeCliTab(id);
+                    }}
+                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 28,
+                      paddingRight: 6,
+                      borderRadius: "0 6px 6px 0",
+                      background:
+                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                    }}
+                  >
+                    <IconX size={10} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  aria-label={t("agentPanel.closeTab")}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    closeCliTab(id);
-                  }}
-                  className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                >
-                  <IconX size={10} />
-                </button>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       );
 

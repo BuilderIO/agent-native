@@ -16,6 +16,8 @@ MCP 埋め込みルートなど、認証済みの `sessionBypass` サーフェ�
 
 ブラウザに利用可能なネイティブ WebMCP サーフェスがない場合、Agent-Native コアは `@mcp-b/webmcp-polyfill` を初期化します。このポリフィルはページ内に限定され、ネットワーク MCP 接続は作成しません。
 
+認証済みページはブラウザ エージェント向けに `window.__agentNativeWebMcp` も公開しており、`ready()`、`tools()`、`describe()`、`call()`、`result(id)` を利用できます。`call()` はアクティブなホストの入力契約、最新のツール記述子、再試行、短いエバリュエーターより長く続く呼び出しを処理します。詳細は英語のガイドを参照してください。
+
 ## HTTP 検出と fetch フォールバック
 
 ブラウザを実行しないエージェント向けに、Agent-Native は

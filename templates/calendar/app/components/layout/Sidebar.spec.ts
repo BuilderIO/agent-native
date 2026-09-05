@@ -14,12 +14,16 @@ describe("Calendar mini-calendar navigation", () => {
     expect(source).not.toContain("}, [selectedDate, viewMonth]);");
   });
 
-  it("groups non-primary Google calendars under their connected account", () => {
+  it("keeps Google calendars actionable without provenance badges", () => {
     const source = sidebarSource();
 
-    expect(source).toContain("function SharedGoogleCalendarsGroup");
-    expect(source).toContain("!calendar.primary");
-    expect(source).toContain("calendar.accountEmail");
+    expect(source).toContain("function GoogleCalendarsSections");
+    expect(source).toContain('calendar.accessRole !== "owner"');
     expect(source).toContain("updateGoogleCalendarVisibility");
+    expect(source).toContain('setAddCalendarDefaultTab("google")');
+    expect(source).toContain('section === "owned" && calendar.primary');
+    expect(source).toContain("? calendar.accountEmail");
+    expect(source).not.toContain("showProvenance");
+    expect(source).not.toContain("sourceAccounts.length > 1");
   });
 });

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import {
   cdpScreenshot,
-  enterDirectMode,
+  enterInteractView,
   gotoEditor,
   readSeedDesignId,
 } from "./helpers";
@@ -18,16 +18,16 @@ const sectionTitle = (name: string) =>
 
 test("nothing-selected inspector addresses the canvas surround, never a screen's document", async ({
   page,
-}) => {
+}, testInfo) => {
   const designId = await readSeedDesignId();
   await gotoEditor(page, designId);
 
   await expect(page.locator(sectionTitle("Canvas"))).toBeVisible();
   await expect(page.locator(sectionTitle("Screen"))).toHaveCount(0);
-  await cdpScreenshot(page, "../../.tmp/panel-board.png");
+  await cdpScreenshot(page, testInfo.outputPath("panel-board.png"));
 
-  await enterDirectMode(page);
+  await enterInteractView(page);
 
   await expect(page.locator(sectionTitle("Screen"))).toHaveCount(0);
-  await cdpScreenshot(page, "../../.tmp/panel-interact.png");
+  await cdpScreenshot(page, testInfo.outputPath("panel-interact.png"));
 });

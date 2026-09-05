@@ -468,7 +468,7 @@ const DEFAULT_SHORTCUT_BINDINGS: Record<
   rotateClockwise: "",
   flipHorizontal: "shift+h",
   flipVertical: "shift+v",
-  toggleUi: "shift+\\",
+  toggleUi: "$mod+\\",
   toggleComments: "shift+c",
 };
 

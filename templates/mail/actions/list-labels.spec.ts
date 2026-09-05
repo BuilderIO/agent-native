@@ -111,4 +111,26 @@ describe("list-labels action", () => {
       ]),
     );
   });
+
+  it("returns a retryable contract error when Gmail label reads fail", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      { accountId: "user@gmail.com", displayName: null, tokens: {} },
+    ]);
+    mocks.getAccessTokens.mockResolvedValue([
+      { email: "user@gmail.com", accessToken: "token-1" },
+    ]);
+    mocks.gmailListLabels.mockRejectedValue(new Error("Gmail unavailable"));
+
+    await expect(action.run({}, undefined as any)).rejects.toSatisfy(
+      (err: unknown) => {
+        expect(isActionContractError(err)).toBe(true);
+        expect((err as Error).message).toContain("Please retry");
+        expect((err as { errorCode?: string }).errorCode).toBe(
+          "labels_fetch_failed",
+        );
+        expect((err as { statusCode?: number }).statusCode).toBe(503);
+        return true;
+      },
+    );
+  });
 });

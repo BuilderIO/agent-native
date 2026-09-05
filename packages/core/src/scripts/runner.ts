@@ -16,6 +16,7 @@ import path from "path";
 import { pathToFileURL } from "url";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getAppConfig } from "../app-config/index.js";
 import { closeDbExec } from "../db/client.js";
 import {
   actionCallIsReadOnly,
@@ -404,9 +405,12 @@ function parsePositionalJsonArg(args: string[]): Record<string, unknown> {
 function cliActionCtx(
   actionName: string,
 ): import("../action.js").ActionRunContext {
+  const app = getAppConfig().app;
+  const appId = app.id ?? app.slug ?? app.template;
   return {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId() ?? null,
+    ...(appId ? { appId } : {}),
     caller: "cli",
     actionName,
   };

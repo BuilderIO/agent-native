@@ -39,6 +39,8 @@ export default defineConfig({
   // These suites intentionally exercise panels that are not mounted in the
   // disabled profile. Ignoring them keeps that profile focused on verifying
   // the hidden-panel contract without failing on missing advanced controls.
+  // No CI job sets E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS=0, so this branch and
+  // editor.spec.ts's hidden-panel test only run via `pnpm e2e:no-panels`.
   testIgnore: SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES,
   // The editor is heavy (iframe bridge + polling); give generous budgets.
   timeout: 90_000,

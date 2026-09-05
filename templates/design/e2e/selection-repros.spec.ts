@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { expandAllLayers } from "./helpers";
+
 /**
  * Selection reachability: everything a click can select, a rubber band must be
  * able to sweep, and a hairline must be grabbable. Each test drives the gesture
@@ -102,15 +104,9 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  for (let i = 0; i < 4; i += 1) {
-    await page
-      .getByRole("button", { name: "Expand layer" })
-      .first()
-      .click()
-      .catch(() => {});
-    await page.waitForTimeout(250);
-  }
+  // No blind settle: expandAllLayers waits for the first layer row, which
+  // the editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
 
@@ -279,6 +275,43 @@ test.describe("clicking into a selected screen", () => {
   });
 });
 
+/**
+ * Where box-a is actually painted, across every preview surface. Returned with
+ * the frame index and position so a caller can prove a drag moved it: the
+ * survival checks below (exists / not hidden / no leftover transform / in
+ * viewport) are all satisfied by a drag that never happened.
+ */
+async function paintedBoxA(page: Page) {
+  return page.evaluate(() => {
+    const frames = Array.from(document.querySelectorAll("iframe"));
+    for (let index = 0; index < frames.length; index += 1) {
+      const frame = frames[index]!;
+      const el = frame.contentDocument?.querySelector(
+        '[data-agent-native-node-id="box-a"]',
+      );
+      if (!el) continue;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return {
+        frameIndex: index,
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        hidden:
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          Number(style.opacity) === 0,
+        transform: style.transform,
+        inViewport:
+          rect.right > 0 &&
+          rect.bottom > 0 &&
+          rect.x < frame.clientWidth &&
+          rect.y < frame.clientHeight,
+      };
+    }
+    return null;
+  });
+}
+
 test.describe("dragging an element out of a screen", () => {
   test("the element stays visible somewhere instead of vanishing", async ({
     page,
@@ -290,6 +323,9 @@ test.describe("dragging an element out of a screen", () => {
     await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
     await page.waitForTimeout(1800);
 
+    const beforeDrag = await paintedBoxA(page);
+    expect(beforeDrag, "box-a must be painted before the drag").not.toBeNull();
+
     const card = await screenCard(page);
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
@@ -298,34 +334,20 @@ test.describe("dragging an element out of a screen", () => {
     await page.mouse.up();
     await page.waitForTimeout(4000);
 
-    const painted = await page.evaluate(() => {
-      for (const frame of Array.from(document.querySelectorAll("iframe"))) {
-        const el = frame.contentDocument?.querySelector(
-          '[data-agent-native-node-id="box-a"]',
-        );
-        if (!el) continue;
-        const style = getComputedStyle(el);
-        const rect = el.getBoundingClientRect();
-        return {
-          hidden:
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            Number(style.opacity) === 0,
-          transform: style.transform,
-          inViewport:
-            rect.right > 0 &&
-            rect.bottom > 0 &&
-            rect.x < frame.clientWidth &&
-            rect.y < frame.clientHeight,
-        };
-      }
-      return null;
-    });
+    const painted = await paintedBoxA(page);
 
     expect(
       painted,
       "the dragged element must still exist somewhere",
     ).not.toBeNull();
+    expect(
+      painted!.frameIndex !== beforeDrag!.frameIndex ||
+        Math.abs(painted!.x - beforeDrag!.x) > 20 ||
+        Math.abs(painted!.y - beforeDrag!.y) > 20,
+      `the drag must actually relocate box-a, or every survival check below ` +
+        `passes for free (frame ${beforeDrag!.frameIndex}@${beforeDrag!.x},${beforeDrag!.y} ` +
+        `-> ${painted!.frameIndex}@${painted!.x},${painted!.y})`,
+    ).toBe(true);
     expect(painted!.hidden, "a drop must never leave the element hidden").toBe(
       false,
     );

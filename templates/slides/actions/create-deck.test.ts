@@ -179,9 +179,10 @@ describe("create-deck — aspectRatio", () => {
   it("uses the user's default design system when creating a new deck without an explicit one", async () => {
     defaultDesignSystemId = "ds-default";
 
-    await action.run({ title: "T", slides: [] });
+    const result = await action.run({ title: "T", slides: [] });
 
     expect(insertedRow!.designSystemId).toBe("ds-default");
+    expect(result.designSystemId).toBe("ds-default");
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.designSystemId).toBe("ds-default");
   });
@@ -189,7 +190,7 @@ describe("create-deck — aspectRatio", () => {
   it("uses an explicit design system instead of the default", async () => {
     defaultDesignSystemId = "ds-default";
 
-    await action.run({
+    const result = await action.run({
       title: "T",
       slides: [],
       designSystemId: "ds-explicit",
@@ -201,6 +202,7 @@ describe("create-deck — aspectRatio", () => {
       "viewer",
     );
     expect(insertedRow!.designSystemId).toBe("ds-explicit");
+    expect(result.designSystemId).toBe("ds-explicit");
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.designSystemId).toBe("ds-explicit");
   });

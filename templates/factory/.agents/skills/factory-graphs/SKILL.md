@@ -2,8 +2,9 @@
 name: factory-graphs
 description: >-
   Design, inspect, and safely edit Factory graph versions. Use when a user asks
-  to create a factory, change a node or route, explain an item path, or comment
-  on the visual map.
+  to change a node or route, explain an item path, or comment on the visual map.
+  Do not use this when the user only wants a new named Factory or a new
+  automation.
 ---
 
 # Factory Graphs
@@ -34,6 +35,9 @@ merge conflict. Selected automation is `automationId` on the factory
 view. Creating one is `createAutomation=1` on the Automations tab.
 
 ## Workflow
+
+Creating a named Factory is `create-factory`, then Inbox. Creating a job is
+`create-factory-automation`. This skill is for Map topology only.
 
 1. Read `view-screen` to identify the selected Factory, tab, node, or edge.
 2. Call `get-factory-graph` before explaining or changing the map.

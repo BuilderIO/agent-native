@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
@@ -92,6 +92,60 @@ function affectedRowCount(result: unknown): number | undefined {
     if (typeof value === "number") return value;
   }
   return undefined;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new Error("Dashboard config contains an unserializable value.");
+    }
+    return serialized;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
+    .join(",")}}`;
+}
+
+function comparableJson(raw: string): string {
+  try {
+    return stableStringify(JSON.parse(raw));
+  } catch {
+    // coercion-ok: invalid legacy JSON stays distinct and cannot suppress a save.
+    return raw;
+  }
+}
+
+function nextRevisionTimestamp(previous: string | null | undefined): string {
+  const previousMs = previous ? Date.parse(previous) : Number.NaN;
+  return new Date(
+    Math.max(Date.now(), Number.isFinite(previousMs) ? previousMs + 1 : 0),
+  ).toISOString();
+}
+
+function revisionId(
+  dashboardId: string,
+  previousRevisionId: string | undefined,
+  kind: string,
+  title: string,
+  config: string,
+): string {
+  const fingerprint = stableStringify({
+    dashboardId,
+    previousRevisionId: previousRevisionId ?? "initial",
+    kind,
+    title,
+    config,
+  });
+  return `dashboard-revision-${createHash("sha256")
+    .update(fingerprint)
+    .digest("hex")}`;
 }
 
 function requireWriter(ctx: AccessContext): string {
@@ -247,7 +301,7 @@ export function createDashboardStorage<
       .select({ id: dashboardRevisions.id })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, dashboardId))
-      .orderBy(desc(dashboardRevisions.createdAt));
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id));
     const staleIds = rows
       .slice(maxRevisions)
       .map((row: { id: string }) => row.id);
@@ -264,18 +318,50 @@ export function createDashboardStorage<
     writer: string,
     chatContext: DashboardRevisionChatContext | null = requestDashboardChatContext(),
   ) {
-    await db.insert(dashboardRevisions).values({
-      id: `dashboard-revision-${randomUUID()}`,
-      dashboardId: dashboard.id,
-      kind: dashboard.kind,
-      title: dashboard.title,
-      config: serializeConfig(dashboard.config),
-      createdBy: writer,
-      ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
-      ownerEmail: dashboard.ownerEmail,
-      orgId: dashboard.orgId,
-      visibility: dashboard.visibility,
-    });
+    const config = serializeConfig(dashboard.config);
+    const configKey = comparableJson(config);
+    const [latest] = await db
+      .select({
+        id: dashboardRevisions.id,
+        kind: dashboardRevisions.kind,
+        title: dashboardRevisions.title,
+        config: dashboardRevisions.config,
+        createdAt: dashboardRevisions.createdAt,
+      })
+      .from(dashboardRevisions)
+      .where(eq(dashboardRevisions.dashboardId, dashboard.id))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
+      .limit(1);
+    if (
+      latest?.kind === dashboard.kind &&
+      latest.title === dashboard.title &&
+      comparableJson(latest.config) === configKey
+    ) {
+      return;
+    }
+    const id = revisionId(
+      dashboard.id,
+      latest?.id,
+      dashboard.kind,
+      dashboard.title,
+      configKey,
+    );
+    await db
+      .insert(dashboardRevisions)
+      .values({
+        id,
+        dashboardId: dashboard.id,
+        kind: dashboard.kind,
+        title: dashboard.title,
+        config,
+        createdAt: nextRevisionTimestamp(latest?.createdAt),
+        createdBy: writer,
+        ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
+        ownerEmail: dashboard.ownerEmail,
+        orgId: dashboard.orgId,
+        visibility: dashboard.visibility,
+      })
+      .onConflictDoNothing();
     await pruneRevisions(db, dashboard.id);
   }
 
@@ -302,10 +388,19 @@ export function createDashboardStorage<
       });
     } else {
       await assertAccess(options.resourceType, input.id, "editor", ctx);
+      const config = serializeConfig(input.config);
+      if (
+        existing.kind === input.kind &&
+        existing.title === input.title &&
+        comparableJson(serializeConfig(existing.config)) ===
+          comparableJson(config)
+      ) {
+        return existing;
+      }
       const values = {
         kind: input.kind,
         title: input.title,
-        config: serializeConfig(input.config),
+        config,
         updatedAt: new Date().toISOString(),
         updatedBy: writer,
       };
@@ -351,7 +446,7 @@ export function createDashboardStorage<
       .select()
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, id))
-      .orderBy(desc(dashboardRevisions.createdAt))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
       .limit(maxRevisions);
     return rows.map(revisionFromRow);
   }
@@ -373,7 +468,7 @@ export function createDashboardStorage<
       })
       .from(dashboardRevisions)
       .where(eq(dashboardRevisions.dashboardId, id))
-      .orderBy(desc(dashboardRevisions.createdAt))
+      .orderBy(desc(dashboardRevisions.createdAt), desc(dashboardRevisions.id))
       .limit(maxRevisions);
     return rows.map(revisionMetadataFromRow);
   }

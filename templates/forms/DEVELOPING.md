@@ -110,13 +110,6 @@ Local development defaults to a SQLite file at `data/app.db`. That local file is
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-### Cloudflare Pages + D1
-
-1. Set `NITRO_PRESET=cloudflare_pages` in env
-2. Swap `server/db/index.ts` to use `drizzle-orm/d1` driver instead of `@libsql/client`
-3. Configure `wrangler.toml` with D1 binding
-4. Set `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY` in Cloudflare dashboard
-
 ## Build & Dev Commands
 
 ```bash

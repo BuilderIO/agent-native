@@ -54,6 +54,15 @@ export const DASHBOARD_MUTATION_ACTIONS = new Set([
   "update-extension",
 ]);
 
+// A turn that already searched the saved-query catalog or dashboard
+// references found something to adapt or found nothing, either way it did
+// discovery work. The guard's catch-all fallback must not treat that turn
+// identically to one that never looked.
+export const CATALOG_DISCOVERY_ACTIONS = new Set([
+  "search-analytics-query-catalog",
+  "search-dashboard-references",
+]);
+
 const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
@@ -157,6 +166,10 @@ function isDashboardMutationActionName(name: string): boolean {
   return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
 }
 
+function isCatalogDiscoveryActionName(name: string): boolean {
+  return CATALOG_DISCOVERY_ACTIONS.has(normalizeActionToolName(name));
+}
+
 // "Build/clone/template" language targeting a dashboard/extension/panel is
 // dashboard construction, distinct from an analytics-result question. Turns
 // like this may inspect and clone a template without running a metric query.
@@ -196,6 +209,17 @@ export function hasDashboardMutationAttempt(
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;
     return isDashboardMutationActionName(String(result.name ?? ""));
+  });
+}
+
+export function hasCatalogSearchAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isCatalogDiscoveryActionName(String(result.name ?? ""));
   });
 }
 
@@ -304,6 +328,21 @@ const SETUP_REQUEST_FRAMING =
 
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
+// An explicit request to review a code artifact is never a data question,
+// whatever dates or metric words it also carries ("review the signup
+// changelog from last week").
+const EXPLICIT_CODE_REVIEW_REQUEST =
+  /\b(?:review|check|inspect|read|look at|go over)\s+(?:(?:this|the|my|that|our|these)\s+)?(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
+// A bare mention of a PR, diff, commit, or reviewer feedback makes the
+// message about a change rather than live data — unless it also asks for a
+// result ("how many signups came from each PR?"), which is a data question
+// with a pull-request dimension. Bare "reviewer" is not enough: "how many
+// calls did our reviewers handle" is about people, not a code review.
+const CODE_REVIEW_MENTION =
+  /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\b(?:code review|diffs?|commits?|changelogs?|release notes)\b|\breviewers?\s+(?:said|says|say|asked|noted|flagged|comments?|feedback)\b/;
+const METRIC_RESULT_INTENT =
+  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
+
 const ARTIFACT_DATA_INTENT =
   /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
 
@@ -337,6 +376,10 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   if (
     /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
   ) {
+    return false;
+  }
+  if (EXPLICIT_CODE_REVIEW_REQUEST.test(lower)) return false;
+  if (CODE_REVIEW_MENTION.test(lower) && !METRIC_RESULT_INTENT.test(lower)) {
     return false;
   }
   if (
@@ -374,16 +417,102 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   );
 }
 
+// Each unit alternative after the number carries its own trailing `\b`
+// instead of one shared after the group: `%` is not a word character, so a
+// shared `\b` right after it can never match (neither "%" nor the following
+// space is a word char) and silently dropped every percentage claim, e.g.
+// "4.2%".
 const UNSUPPORTED_RESULT_CLAIM =
-  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent\b|users?\b|customers?\b|accounts?\b|sessions?\b|events?\b|deals?\b|tickets?\b|issues?\b|calls?\b|messages?\b|signups?\b|pageviews?\b)|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|dropped|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b|\btrending (?:up|down)\b|\b(?:higher|lower) than\b)/i;
 
 // Reuse the same broad unsupported-result-claim vocabulary that gates
 // isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
 // bypass the no-query fallback just by avoiding the narrower set of units a
 // dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
-export function draftClaimsAnalyticsMetrics(text: string): boolean {
-  return UNSUPPORTED_RESULT_CLAIM.test(String(text ?? "").trim());
+// Up to 40 characters of the same clause that never name an artifact: "the
+// signup dashboard was improved" is an edit summary, not a signup result.
+const NON_ARTIFACT_GAP =
+  "(?:(?!\\b(?:dashboards?|panels?|charts?|extensions?|widgets?|layouts?|queries|query|tables?|views?|pages?|reports?|columns?|fields?|sql)\\b)[^.\\n]){0,40}?";
+
+// A qualitative verdict about a metric ("signup conversion was strong last
+// week", "signups performed poorly") is a result claim with no number in it.
+// Anchored to a result term earlier in the same clause so an edit summary
+// such as "improved the dashboard layout" does not read as a claim.
+const METRIC_VERDICT_PHRASES =
+  "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish|excellent|great|good|bad|poor|healthy|unhealthy|solid|successful|disappointing|impressive|terrible|robust|encouraging|concerning|low|high|best|worst)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|rose|risen|rising|fell|fallen|falling|climbed|jumped|soared|sank|shrank|shrunk|went (?:up|down)|(?:is|are|was|were) (?:up|down)|ticked (?:up|down)|(?:up|down)\\s+\\d|trending|growing|increasing|decreasing|declining|flattened|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
+const QUALITATIVE_METRIC_VERDICT = new RegExp(
+  `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}\\b${METRIC_VERDICT_PHRASES}\\b`,
+  "i",
+);
+
+// "signups were 480" / "conversion: 4.2" put the metric before the figure,
+// which the unit-after-number shapes above never see.
+const METRIC_THEN_FIGURE = new RegExp(
+  `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}(?:\\b(?:was|were|is|are|of|at|hit|reached|totaled|came (?:in at|to))\\b|[:=])\\s*(?:~|about|around|roughly|approximately)?\\s*\\$?\\d`,
+  "i",
+);
+
+function hasUnsupportedResultClaim(text: string): boolean {
+  return (
+    UNSUPPORTED_RESULT_CLAIM.test(text) ||
+    QUALITATIVE_METRIC_VERDICT.test(text) ||
+    METRIC_THEN_FIGURE.test(text)
+  );
 }
+
+export function draftClaimsAnalyticsMetrics(text: string): boolean {
+  return hasUnsupportedResultClaim(String(text ?? "").trim());
+}
+
+// Whether a draft only restates an earlier turn's grounded result. Every
+// figure it states must appear in those tool results, and every metric it
+// names must be named somewhere in that turn's evidence (query input, result
+// payload, or the answer given from it), so a figure cannot be re-attributed
+// to a different metric ("paying customers were 532" over a signups result).
+// A draft with no figures at all returns false rather than vacuously true, so
+// a qualitative-only draft still has to earn grounding this turn.
+// ponytail: numeric-value match after comma stripping plus term-stem presence
+// — a rounded or derived figure ("~1.2k", a percentage computed from two
+// counts) reads as ungrounded and is retried; add unit-aware or tolerance
+// matching if that retries too often.
+export function draftRestatesPriorEvidence(
+  draft: string,
+  prior: {
+    toolResults:
+      | Array<{ name?: string; isError?: boolean; content?: string }>
+      | undefined;
+    text: string;
+  },
+): boolean {
+  const draftText = draft ?? "";
+  const figureTokens = draftText.match(NUMERIC_TOKEN) ?? [];
+  if (!figureTokens.length) return false;
+  const known = new Set<number>();
+  for (const result of prior.toolResults ?? []) {
+    if (result.isError) continue;
+    for (const token of String(result.content ?? "").match(NUMERIC_TOKEN) ??
+      []) {
+      known.add(Number(token.replace(/,/g, "")));
+    }
+  }
+  if (
+    !figureTokens.every((token) => known.has(Number(token.replace(/,/g, ""))))
+  ) {
+    return false;
+  }
+  const priorText = prior.text.toLowerCase();
+  const namedMetrics =
+    draftText.toLowerCase().match(ANALYTICS_RESULT_TERMS_GLOBAL) ?? [];
+  return namedMetrics.every((term) =>
+    priorText.includes(term.replace(/(?:ies|es|s)$/, "")),
+  );
+}
+
+const ANALYTICS_RESULT_TERMS_GLOBAL = new RegExp(
+  ANALYTICS_RESULT_TERMS.source,
+  "g",
+);
+const NUMERIC_TOKEN = /\d[\d,]*(?:\.\d+)?/g;
 
 export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
   "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
@@ -414,9 +543,9 @@ export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   // attempting a query, it must go through the retry path instead of being
   // accepted as an explicit unavailable-source or clarification response.
   if (isGenericNoDataFallback(trimmed)) return false;
-  if (UNSUPPORTED_RESULT_CLAIM.test(trimmed)) return false;
+  if (hasUnsupportedResultClaim(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
-  return /\?\s*$/.test(trimmed) && !UNSUPPORTED_RESULT_CLAIM.test(trimmed);
+  return /\?\s*$/.test(trimmed);
 }
 
 function tryParseJsonContent(content: string): unknown {

@@ -104,7 +104,7 @@ describe("public form SSR", () => {
       '<meta property="og:description" content="Tell us what you need.">',
     );
     expect(html).toContain(
-      "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z",
+      "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z-background-v1",
     );
   });
 

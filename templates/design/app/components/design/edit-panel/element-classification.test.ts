@@ -26,6 +26,7 @@ import {
   measuredElementSize,
   parentFlexDirection,
   isTextElement,
+  isVectorShapeElement,
 } from "./element-classification";
 
 function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
@@ -589,5 +590,40 @@ describe("canHugContent — hug needs something to measure", () => {
   it("treats an absent content signal as unknown, not empty", () => {
     // Older/hover payloads omit both; denying hug there would be a guess.
     expect(canHugContent(makeElement({ tagName: "div" }))).toBe(true);
+  });
+});
+
+describe("isVectorShapeElement", () => {
+  it("accepts a drawn vector, whose paint lives on an SVG shape child", () => {
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "svg", primitiveKind: "path" }),
+      ),
+    ).toBe(true);
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "svg", primitiveKind: "polygon" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a board-migrated polygon, which is a div painted with background", () => {
+    // board-file.ts serializes polygon/star as plain divs carrying the same
+    // data-an-primitive, so keying on the kind alone would send fill/stroke
+    // declarations to an element that renders neither.
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "div", primitiveKind: "polygon" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects frames, text and unmarked svgs", () => {
+    expect(
+      isVectorShapeElement(
+        makeElement({ tagName: "div", primitiveKind: "frame" }),
+      ),
+    ).toBe(false);
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
   });
 });

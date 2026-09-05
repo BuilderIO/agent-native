@@ -21,7 +21,11 @@ import {
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -239,7 +243,7 @@ export default defineAction({
       async () => {
         // Get max position among siblings
         const maxPos = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             parentId
@@ -253,7 +257,7 @@ export default defineAction({
                 ),
           );
 
-        const position = (maxPos[0]?.max ?? -1) + 1;
+        const position = nextAppendPosition(maxPos[0]?.max);
 
         await db.transaction(async (tx) => {
           await tx.insert(schema.documents).values({

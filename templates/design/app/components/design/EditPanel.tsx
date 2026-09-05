@@ -457,6 +457,12 @@ interface EditPanelProps {
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
+  /**
+   * True when `onAlignSelection` would refuse this selection — a lone
+   * top-level frame, or fewer than two selected screens in overview. The row
+   * stays rendered and goes disabled, so the buttons never look live.
+   */
+  alignSelectionDisabled?: boolean;
   // -------------------------------------------------------------------------
   // Element interaction states (hover / focus / focus-visible / active /
   // disabled) — see shared/interaction-states.ts for the persisted format
@@ -1814,6 +1820,7 @@ export const EditPanel = memo(function EditPanel({
   activeTool,
   onCreateScreenFromPreset,
   onAlignSelection,
+  alignSelectionDisabled = false,
   onDisableAutoLayout,
   onApplyLayoutFlow,
   onInteractionStateChange,
@@ -2371,6 +2378,7 @@ export const EditPanel = memo(function EditPanel({
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
                     onAlignSelection={onAlignSelection}
+                    alignSelectionDisabled={alignSelectionDisabled}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />

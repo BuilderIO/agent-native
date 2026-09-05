@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
+import type { AppConfig } from "@shared/app-registry";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
@@ -19,12 +20,17 @@ vi.mock("../app-store", () => ({
   loadApps: vi.fn(() => []),
 }));
 
+vi.mock("../cookie-header", () => ({
+  readCookieHeaderForUrl: vi.fn(async () => ""),
+}));
+
 import {
   desktopTerminalMcpArgs,
   desktopTerminalInfo,
   desktopTerminalWorkspacePath,
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
+  getDesktopAppMcpAuthorization,
   resolveDesktopTerminalCwd,
   resolveTargetUrl,
   shouldForwardRequestHeader,
@@ -155,6 +161,34 @@ describe("desktop chat relay target URLs", () => {
         },
       },
     });
+  });
+
+  it("bounds optional app MCP authorization requests", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ token: "token" }), { status: 200 }),
+      );
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(new AbortController().signal);
+
+    try {
+      await expect(
+        getDesktopAppMcpAuthorization(
+          { id: "mail", name: "Mail" } as AppConfig,
+          "https://mail.agent-native.com",
+        ),
+      ).resolves.toEqual({ Authorization: "Bearer token" });
+      expect(timeoutSpy).toHaveBeenCalledWith(10_000);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://mail.agent-native.com/mcp/connect/token",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    } finally {
+      timeoutSpy.mockRestore();
+      fetchSpy.mockRestore();
+    }
   });
 
   it("keeps Codex preferences while removing unrelated MCP startup work", () => {

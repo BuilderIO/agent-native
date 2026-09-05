@@ -11,11 +11,6 @@ const listOverlayEventsMock = vi.hoisted(() => vi.fn());
 const fetchICalEventsMock = vi.hoisted(() => vi.fn());
 const signShortLivedTokenMock = vi.hoisted(() => vi.fn());
 const verifyShortLivedTokenMock = vi.hoisted(() => vi.fn());
-const isFeatureFlagEnabledMock = vi.hoisted(() => vi.fn(async () => true));
-
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: isFeatureFlagEnabledMock,
-}));
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestTimezone: getRequestTimezoneMock,

@@ -122,6 +122,6 @@ test("rejects design.md files larger than the inline Builder limit", async ({
   });
 
   await expect(page.getByRole("alert")).toHaveText(
-    "design.md must be 2 MB or smaller.",
+    "The Markdown file must be 2 MB or smaller.",
   );
 });

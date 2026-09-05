@@ -40,6 +40,7 @@ import {
   buildMcpOAuthStartUrl,
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   navigateToMcpOAuthStart,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
@@ -222,17 +223,13 @@ export function FirstRunOnboarding({
     profile,
     screen,
   ]);
-  const connectedUrls = useMemo(() => {
-    if (previewMode) return new Set<string>();
+  const connectedServers = useMemo(() => {
+    if (previewMode) return [];
     const servers = [
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
     ];
-    return new Set(
-      servers
-        .filter((server) => server.status.state === "connected")
-        .map((server) => compareUrl(server.url)),
-    );
+    return servers.filter((server) => server.status.state === "connected");
   }, [mcpServersQuery.data, previewMode]);
   const hasOrg = Boolean(mcpServersQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
@@ -387,7 +384,9 @@ export function FirstRunOnboarding({
     setConnectError(null);
 
     if (
-      connectedUrls.has(compareUrl(integration.url)) ||
+      connectedServers.some((server) =>
+        isMcpIntegrationUrl(integration, server.url),
+      ) ||
       connectingIntegrationId === integration.id
     ) {
       return;
@@ -396,6 +395,11 @@ export function FirstRunOnboarding({
     if (!mcpServersQuery.isSuccess) return;
 
     if (hasOrg) {
+      setIntegrationDialogId(integration.id);
+      return;
+    }
+
+    if (!integration.url.trim()) {
       setIntegrationDialogId(integration.id);
       return;
     }
@@ -877,8 +881,8 @@ export function FirstRunOnboarding({
 
             <IntegrationGrid
               items={mcpIntegrations.map((integration) => {
-                const connected = connectedUrls.has(
-                  compareUrl(integration.url),
+                const connected = connectedServers.some((server) =>
+                  isMcpIntegrationUrl(integration, server.url),
                 );
                 return {
                   id: integration.id,
@@ -1399,13 +1403,3 @@ function FirstRunCompletionError({
 
 const secondaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
-
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
-}

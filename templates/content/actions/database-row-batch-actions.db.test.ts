@@ -26,7 +26,8 @@ let replaceMockSourceRows: typeof import("./_database-source-utils.js").replaceM
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let updateDatabaseItemsAction: typeof import("./update-database-items.js").default;
-let nextPosition: typeof import("./_database-row-mutation.js").nextPosition;
+let nextAppendPosition: typeof import("./_position-utils.js").nextAppendPosition;
+let createAppendPositionAllocator: typeof import("./_position-utils.js").createAppendPositionAllocator;
 let spaceId: string;
 
 const OWNER = "owner@example.com";
@@ -50,7 +51,8 @@ beforeAll(async () => {
   ({ lockDatabaseMemberships } =
     await import("./_database-membership-lock.js"));
   ({ replaceMockSourceRows } = await import("./_database-source-utils.js"));
-  ({ nextPosition } = await import("./_database-row-mutation.js"));
+  ({ createAppendPositionAllocator, nextAppendPosition } =
+    await import("./_position-utils.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
     .default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
@@ -1370,20 +1372,48 @@ describe("database row batch actions", () => {
     ).toEqual(Array.from({ length: concurrentAdds }, (_, index) => index));
   });
 
-  it("normalizes string MAX results before assigning the next position", () => {
-    expect(nextPosition("41")).toBe(42);
-    expect(nextPosition(-1)).toBe(0);
-    expect(nextPosition(2_147_483_646)).toBe(2_147_483_647);
-    expect(() => nextPosition(2_147_483_647)).toThrow(
+  it("normalizes aggregate results before assigning the next position", () => {
+    expect(nextAppendPosition("41")).toBe(42);
+    expect(nextAppendPosition(" 41 ")).toBe(42);
+    expect(nextAppendPosition(null)).toBe(0);
+    expect(nextAppendPosition(-1)).toBe(0);
+    expect(nextAppendPosition("-11")).toBe(0);
+    expect(nextAppendPosition(-111)).toBe(0);
+    expect(nextAppendPosition(2_147_483_646)).toBe(2_147_483_647);
+    expect(() => nextAppendPosition(2_147_483_647)).toThrow(
       "Database position is outside the supported range.",
     );
-    expect(() => nextPosition("")).toThrow(
+    expect(() => nextAppendPosition("")).toThrow(
       "Database position is outside the supported range.",
     );
-    expect(() => nextPosition(true)).toThrow(
+    expect(() => nextAppendPosition(true)).toThrow(
       "Database position is outside the supported range.",
     );
-    expect(() => nextPosition("not-a-position")).toThrow(
+    expect(() => nextAppendPosition("not-a-position")).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextAppendPosition(1.5)).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextAppendPosition("1.5")).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextAppendPosition("1e2")).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextAppendPosition(Number.MAX_SAFE_INTEGER + 1)).toThrow(
+      "Database position is outside the supported range.",
+    );
+  });
+
+  it("checks every position allocated for a multi-row append", () => {
+    const allocateLegacyPosition = createAppendPositionAllocator("-111");
+    expect(allocateLegacyPosition()).toBe(0);
+    expect(allocateLegacyPosition()).toBe(1);
+
+    const allocateAtLimit = createAppendPositionAllocator(2_147_483_646);
+    expect(allocateAtLimit()).toBe(2_147_483_647);
+    expect(() => allocateAtLimit()).toThrow(
       "Database position is outside the supported range.",
     );
   });

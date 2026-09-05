@@ -5,6 +5,8 @@ import type { ElementInfo } from "@/components/design/types";
 
 import {
   canonicalElementInfoForCodeLayerNode,
+  codeLayerNodeLooksLikeComponent,
+  layerTypeForCodeLayer,
   codeLayerNodeMatchesBridgeTarget,
   resolveCodeLayerTargetFromBridge,
   resolveCodeLayerTargetFromElementInfo,
@@ -895,5 +897,66 @@ describe("liveDeleteSelectorGroups", () => {
         fallbackSelectors: [],
       }),
     ).toEqual([]);
+  });
+});
+
+describe("layerTypeForCodeLayer", () => {
+  it("keeps a frame a frame in the Layers panel", () => {
+    expect(
+      layerTypeForCodeLayer({
+        id: "n1",
+        name: "Btn Primary",
+        type: "frame",
+        tag: "button",
+        selector: "button",
+        detail: "<button>",
+        renamable: true,
+        children: [],
+      }),
+    ).toBe("frame");
+  });
+});
+
+describe("codeLayerNodeLooksLikeComponent", () => {
+  const node = (classes: string[], tag = "div"): CodeLayerNode =>
+    ({
+      id: "n1",
+      tag,
+      layerName: "Frame",
+      layerNameSource: "tag",
+      selector: tag,
+      selectors: [tag],
+      path: tag,
+      attributes: {},
+      dataAttributes: {},
+      classes,
+      textSnippet: null,
+      style: {},
+      styleTokens: [],
+      children: [],
+      layout: {
+        siblingIndex: 0,
+        nthOfType: 0,
+        isFlexContainer: false,
+        isGridContainer: false,
+      },
+      capabilities: [],
+      confidence: 1,
+      source: null,
+    }) as unknown as CodeLayerNode;
+
+  it("does not treat a colour utility as a component", () => {
+    expect(codeLayerNodeLooksLikeComponent(node(["p-6", "bg-card"]))).toBe(
+      false,
+    );
+  });
+
+  it("still treats a real component class as a component", () => {
+    expect(codeLayerNodeLooksLikeComponent(node(["pricing-card"]))).toBe(true);
+    expect(codeLayerNodeLooksLikeComponent(node(["btn-primary"]))).toBe(true);
+  });
+
+  it("still treats a form control tag as a component", () => {
+    expect(codeLayerNodeLooksLikeComponent(node([], "input"))).toBe(true);
   });
 });

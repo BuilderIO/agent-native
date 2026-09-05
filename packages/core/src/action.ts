@@ -12,6 +12,7 @@ import type {
 } from "./agent/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
+import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 /**
  * How an action's `run` was invoked. Tagged at each dispatch site so the action
@@ -1066,6 +1067,7 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
     ? wrapRunWithAudit(run, auditConfig)
     : run;
+  const trackedRun = wrapRunWithActionTracking(finalRun, readOnly);
 
   // toolCallable: thread through whatever the caller declared. We DO NOT
   // default to `true` here — the absence of an explicit field is meaningful
@@ -1145,7 +1147,7 @@ export function defineAction(options: any) {
       description: options.description,
       parameters: toolParameters,
     },
-    run: finalRun,
+    run: trackedRun,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"

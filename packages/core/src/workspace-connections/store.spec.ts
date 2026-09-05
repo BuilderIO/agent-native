@@ -566,7 +566,8 @@ describe("workspace connection store", () => {
         org_id TEXT NOT NULL,
         email TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'member',
-        joined_at INTEGER NOT NULL DEFAULT 0
+        joined_at INTEGER NOT NULL DEFAULT 0,
+        federation_removal_pending_at INTEGER
       )
     `);
     sqlite

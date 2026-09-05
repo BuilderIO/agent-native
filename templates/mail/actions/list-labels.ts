@@ -141,8 +141,9 @@ export default defineAction({
       }
     }
     if (failures.length > 0) {
-      throw new Error(
+      fail(
         `Unable to load Gmail labels for ${failures.length} account(s). Please retry.`,
+        { errorCode: "labels_fetch_failed", statusCode: 503 },
       );
     }
 

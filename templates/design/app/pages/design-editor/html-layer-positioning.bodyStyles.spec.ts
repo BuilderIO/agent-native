@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { setBodyInlineStyles } from "@/pages/design-editor/html-layer-positioning";
+import {
+  rawAbsoluteContainerOffsetFromDrop,
+  setBodyInlineStyles,
+} from "@/pages/design-editor/html-layer-positioning";
 
 describe("setBodyInlineStyles", () => {
   const doc = (body: string) =>
@@ -102,5 +105,44 @@ describe("setBodyInlineStyles", () => {
     expect(setBodyInlineStyles(content, { backgroundColor: "red" })).toBe(
       content,
     );
+  });
+});
+
+describe("rawAbsoluteContainerOffsetFromDrop", () => {
+  it("uses rebased inline left/top for a sibling un-nest", () => {
+    expect(
+      rawAbsoluteContainerOffsetFromDrop({
+        dropMode: "absolute-container",
+        placement: "after",
+        sourceRect: { x: 3803, y: 3921 },
+        anchorRect: { x: 40, y: 40 },
+        inlineStyles: { left: "260px", top: "80px" },
+      }),
+    ).toEqual({ x: 260, y: 80 });
+  });
+
+  it("keeps sourceRect − anchorRect for an inside nest", () => {
+    expect(
+      rawAbsoluteContainerOffsetFromDrop({
+        dropMode: "absolute-container",
+        placement: "inside",
+        sourceRect: { x: 120, y: 80 },
+        anchorRect: { x: 40, y: 40 },
+        inlineStyles: { left: "999px", top: "999px" },
+      }),
+    ).toEqual({ x: 80, y: 40 });
+  });
+
+  it("uses rebased inline left/top for an inside drop on html > body", () => {
+    expect(
+      rawAbsoluteContainerOffsetFromDrop({
+        dropMode: "absolute-container",
+        placement: "inside",
+        sourceRect: { x: 3803, y: 3921 },
+        anchorRect: { x: 0, y: 0 },
+        inlineStyles: { left: "260px", top: "80px" },
+        anchorSelector: "html > body",
+      }),
+    ).toEqual({ x: 260, y: 80 });
   });
 });

@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import { ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER } from "../action-ui.js";
-import { AgentActionStopError, type ActionRunContext } from "../action.js";
+import {
+  AgentActionStopError,
+  fail,
+  type ActionRunContext,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
@@ -777,19 +781,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             const message =
               `The extension edit was not applied: ${error.message} ` +
               "Do not retry the same arguments. Read the current extension and submit one focused patch or edit with an exact target.";
-            throw new AgentActionStopError(message, {
-              errorCode: "extension_content_edit_failed",
-              toolResult: JSON.stringify(
-                {
-                  error: "extension_content_edit_failed",
-                  message: error.message,
-                  recoverable: false,
-                  next: "Read the current extension with get-extension, then make one focused update-extension patches/edits call. Do not retry unchanged arguments.",
-                },
-                null,
-                2,
-              ),
-            });
+            // A text/marker mismatch is not terminal like a missing credential
+            // or a policy block — the model can read the error (which now
+            // carries closest-match candidates or the ambiguous locations) and
+            // retarget. Report it as a normal action failure so it reaches the
+            // model as a retryable tool error, bounded by the identical-error
+            // breaker (3 tries) and the across-arguments breaker (6); an
+            // AgentActionStopError here would end the turn on the first miss.
+            fail(message, { errorCode: "extension_content_edit_failed" });
           }
         }
 

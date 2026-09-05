@@ -4347,7 +4347,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 
 ### Patch Changes
 
-- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add complete MUI and Ant Design Chat examples that exercise the public conformance contract, and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
+- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add public conformance coverage and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
 - f0da2e0: Preserve staged cookies across MCP OAuth redirects so browser callbacks retain their authorization flow state.
 - f0da2e0: Add horizontal breathing room around in-chat MCP connection suggestions.
 - f0da2e0: Keep parent chats alive while a delegated A2A task is actively processing.

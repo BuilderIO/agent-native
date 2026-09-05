@@ -63,13 +63,21 @@ on:
         required: false
         type: boolean
         default: false
+      devTag:
+        description: "Dev snapshot: publish a testable version from this branch under npm dist-tag dev-<value> (leave empty for a normal stable dispatch)"
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
 concurrency:
   # Stable preparation and publication must not wait behind, or be replaced
-  # by, the ordinary push-driven nightly lane.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'stable-preparation' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication' || 'nightly') }}
+  # by, the ordinary push-driven nightly lane. A dev snapshot dispatch gets
+  # its own lane keyed by branch (github.ref) AND devTag, so two developers
+  # (or one developer with two tags) can publish dev snapshots at the same
+  # time without waiting on each other or on the nightly/stable lanes.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' && inputs.devTag) && format('dev-{0}', inputs.devTag) || (github.event_name == 'workflow_dispatch' && 'stable-preparation') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication') || 'nightly' }}
   cancel-in-progress: false
 
 jobs:
@@ -239,6 +247,89 @@ jobs:
             echo "The builder-workspace nightly deploy was requested after the npm publish completed."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # On-demand publish for any developer to test a real npm install of their
+  # feature branch's packages before merging to main. Runs from whatever
+  # branch dispatched it — no `needs: [verify-stable-merge]` and no push
+  # trigger — and publishes under npm dist-tag `dev-<devTag>` instead of
+  # `latest`/`nightly`. npm's trusted publisher for these packages is keyed on
+  # repo + workflow filename only (no branch restriction), so this reuses the
+  # same `npm-publish` environment/OIDC handshake as the other two lanes with
+  # no new token or npm-side config.
+  publish-dev-snapshot:
+    name: Publish dev snapshot
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.devTag != '' }}
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      # Node 24 ships with npm 11.6+, required for Trusted Publishing OIDC.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      # Rejects reserved/confusing tag values (latest, nightly, beta, ...).
+      # If this branch has no pending changeset, synthesizes one covering
+      # every publishable package so `changeset version --snapshot` has
+      # something to act on.
+      - name: Validate dev tag and prepare a changeset
+        env:
+          DEV_TAG: ${{ inputs.devTag }}
+        run: pnpm exec tsx scripts/prepare-dev-snapshot.ts "$DEV_TAG"
+
+      - name: Create dev snapshot versions
+        env:
+          DEV_TAG: ${{ inputs.devTag }}
+        run: |
+          pnpm changeset version --snapshot "$DEV_TAG"
+          pnpm install --lockfile-only
+
+      - name: Build all packages
+        run: pnpm -r build
+
+      - name: Publish dev snapshot packages sequentially
+        id: publish
+        env:
+          AGENT_NATIVE_NPM_DIST_TAG: dev-${{ inputs.devTag }}
+          # Same one-time escape hatch as the other lanes, for a package that
+          # has not been created on npm yet. Existing packages still use OIDC.
+          AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+        run: node scripts/changeset-publish-sequential.ts
+
+      - name: Summarize dev snapshot publish
+        env:
+          DEV_DIST_TAG: dev-${{ inputs.devTag }}
+          # Sourced from the publish step's own output — the packages it
+          # actually attempted, already filtered to the public allowlist —
+          # not reconstructed by re-scanning `packages/*` directory names.
+          PUBLISHED_PACKAGES: ${{ steps.publish.outputs.published-packages }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$PUBLISHED_PACKAGES" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "::error::published package list is not a JSON array: ${PUBLISHED_PACKAGES}"
+            exit 1
+          fi
+          {
+            echo "Dev snapshot published under npm dist-tag \`${DEV_DIST_TAG}\`."
+            echo ""
+            echo "Install a package published in this run:"
+            echo ""
+            printf '%s' "$PUBLISHED_PACKAGES" | jq -r --arg tag "$DEV_DIST_TAG" \
+              '.[] | "- `pnpm add \(.name)@\($tag)` (resolves to \(.version))"'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   release:
     name: Prepare or publish stable npm packages
     # Ordinary main pushes are nightly-only. A manual dispatch creates the
@@ -246,7 +337,10 @@ jobs:
     # publication. A downstream redispatch only re-sends a notification for
     # versions that are already on npm, so it must not re-enter build/publish.
     needs: [verify-stable-merge]
-    if: ${{ !inputs.redispatchDownstream && needs.verify-stable-merge.outputs.verified == 'true' }}
+    # A dev snapshot dispatch must never fall through to a stable release,
+    # even if verify-stable-merge reports verified (it always does for
+    # workflow_dispatch runs).
+    if: ${{ !inputs.redispatchDownstream && !inputs.devTag && needs.verify-stable-merge.outputs.verified == 'true' }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -462,9 +556,12 @@ jobs:
     needs: [release, verify-stable-merge]
     # A normal main push has no stable release job. Manual dispatches (including
     # redispatch) and marked stable merges still need a written notification
-    # result even when the release job fails or is intentionally skipped.
+    # result even when the release job fails or is intentionally skipped. A
+    # dev snapshot dispatch is never a real release, so it's excluded outright
+    # rather than reported as a skipped one.
     if: |
       always() &&
+      !inputs.devTag &&
       (
         inputs.redispatchDownstream ||
         github.event_name == 'workflow_dispatch' ||

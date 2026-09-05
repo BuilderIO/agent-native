@@ -82,6 +82,51 @@ describe("tracking registry", () => {
     expect(events[0]?.sessionId).toBe("session-2");
   });
 
+  it("emits a canonical output event alongside legacy share telemetry", () => {
+    const events = captureEvents();
+
+    track(
+      "share_link_copied",
+      {
+        app: "agent-native-clips",
+        recording_id: "recording-1",
+        resource_type: "clip",
+      },
+      { userId: "alice@example.com", sessionId: "session-share" },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.name).toBe("share_link_copied");
+    expect(events[1]).toMatchObject({
+      name: "output_shared",
+      userId: "alice@example.com",
+      sessionId: "session-share",
+      properties: {
+        app_name: "clips",
+        output_id: "recording-1",
+        output_type: "clip",
+        session_id: "session-share",
+        share_method: "copy_link",
+      },
+    });
+  });
+
+  it("classifies the pre-navigation deck event as a CTA", () => {
+    const events = captureEvents();
+
+    track("generate deck", { app: "agent-native-docs" });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.name).toBe("generate deck");
+    expect(events[1]).toMatchObject({
+      name: "cta_clicked",
+      properties: {
+        app_name: "docs",
+        cta_name: "generate_deck",
+      },
+    });
+  });
+
   it("suppresses reserved QA identities before track or identify reaches providers", () => {
     const events = captureEvents();
     const identified: string[] = [];

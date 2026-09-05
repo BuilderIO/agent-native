@@ -583,7 +583,9 @@ export function useUpdatePreviewDocumentDraft() {
 }
 
 export function useCreateDocument() {
-  return useActionMutation<Document, DocumentCreateRequest>("create-document");
+  return useActionMutation<Document, DocumentCreateRequest>("create-document", {
+    skipActionQueryInvalidation: true,
+  });
 }
 
 export function useUpdateDocument() {
