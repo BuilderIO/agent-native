@@ -147,9 +147,14 @@ function dataRouteUrlForHref(href: string): string | null {
   const url = hrefUrl(href);
   if (!url || !isWarmableRouteUrl(url)) return null;
 
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
-  if (pathname === "/") return null;
-  url.pathname = `${pathname}.data`;
+  const basename = normalizeBasename(window.__reactRouterContext?.basename);
+  if (basename !== "/" && url.pathname === basename) {
+    url.pathname = `${basename}/_.data`;
+  } else {
+    url.pathname = url.pathname.endsWith("/")
+      ? `${url.pathname}_.data`
+      : `${url.pathname}.data`;
+  }
   url.hash = "";
   return url.href;
 }
@@ -583,6 +588,7 @@ export const __routeWarmupInternalsForTests = {
   hasReactRouterManifestRoutes,
   hasWarmableRouteAssets,
   parseBuildTimeRouteWarmupConfig,
+  dataRouteUrlForHref,
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
