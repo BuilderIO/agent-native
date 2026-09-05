@@ -892,8 +892,15 @@ async function gotoCommitted(
         if (
           current.origin === requested.origin &&
           (requested.pathname === "/" || requested.pathname === "/home") &&
-          /^\/chat\/chat-[^/]+$/.test(current.pathname)
+          (/(?:net::ERR_ABORTED|interrupted by another navigation)/u.test(
+            message,
+          ) || /^\/chat\/chat-[^/]+$/.test(current.pathname))
         ) {
+          // The authenticated home route intentionally replaces itself with a
+          // durable Chat URL during hydration. Playwright can reject the
+          // original document navigation after that response committed but
+          // before the replacement URL is observable. Retrying /home starts a
+          // second handoff and can leave the dev server in a reload loop.
           return;
         }
       } catch {
