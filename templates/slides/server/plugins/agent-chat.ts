@@ -38,6 +38,8 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  // Read-only; the selected-text edit rule in mcp.instructions depends on it.
+  "view-screen",
   "list-decks",
   "get-deck",
   "get-design-system",
@@ -149,7 +151,7 @@ export default createAgentChatPlugin({
   mcp: {
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
-      "When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash; do not load the full deck. Use targeted get-deck only for ambiguous or structural text, then read back.",
+      "For every new deck, call get-workspace-defaults before authoring; an explicit designSystemId or create-deck's effective personal default wins over the workspace default, and when create-deck returns a non-null designSystemId call get-design-system before adding slides and follow its agentContext tokens, assets, and custom instructions in slide HTML. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash; do not load the full deck for that path. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Read back the same slide after writing; a delegated ask_app response is unverified until that readback confirms it.",
   },
   externalAgents: { writes: "allowlisted" },
   durableBackgroundRuns: true,

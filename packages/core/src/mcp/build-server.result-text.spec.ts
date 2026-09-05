@@ -46,4 +46,14 @@ describe("conciseToolResultText", () => {
     });
     expect(text).not.toContain("Next:");
   });
+
+  it("keeps the link and Next marker when a long message is truncated", () => {
+    const text = conciseToolResultText("create-deck", {
+      message: "x".repeat(50_000),
+      url: "/deck/d1",
+      nextRequiredAction: "update-slide",
+    });
+    expect(text).toContain("/deck/d1");
+    expect(text).toContain("Next: update-slide");
+  });
 });

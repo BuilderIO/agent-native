@@ -1625,7 +1625,9 @@ export function conciseToolResultText(
     const tail = `${typeof link === "string" && link.trim() ? ` ${truncateToolText(link.trim(), 500)}` : ""}${next}`;
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
-      return truncateToolText(`${message.trim()}${tail}`);
+      // Truncate the message alone so a long message cannot swallow the deep
+      // link and `Next:` marker external callers rely on.
+      return `${truncateToolText(message.trim())}${tail}`;
     }
     const id = record.id ?? record.planId ?? record.commentId;
     const title = record.title ?? record.name;
