@@ -1355,6 +1355,8 @@ interface LoopbackProviderState {
   helloActionResults: string[];
   approvalActionResults: string[];
   markdownChunks: number;
+  markdownPartialReady: boolean;
+  releaseMarkdownPartial: (() => void) | null;
   queuedPromptSeen: boolean;
   rejectedSteerPromptSeen: boolean;
   suggestionPromptSeen: boolean;
@@ -1427,11 +1429,13 @@ async function streamTextResponse(
   chunks: string[],
   state: LoopbackProviderState,
   delayMs = 80,
+  beforeNextChunk?: (index: number) => void | Promise<void>,
 ): Promise<void> {
   response.write(openAiChunk(requestNumber, { role: "assistant" }));
-  for (const chunk of chunks) {
+  for (const [index, chunk] of chunks.entries()) {
     response.write(openAiChunk(requestNumber, { content: chunk }));
     state.markdownChunks += 1;
+    await beforeNextChunk?.(index);
     await sleep(delayMs);
   }
   response.write(openAiChunk(requestNumber, {}, "stop"));
@@ -1571,6 +1575,13 @@ async function handleLoopbackCompletion(
       ],
       state,
       5_000,
+      async (index) => {
+        if (index !== 0) return;
+        state.markdownPartialReady = true;
+        await new Promise<void>((resolve) => {
+          state.releaseMarkdownPartial = resolve;
+        });
+      },
     );
     return;
   }
@@ -1666,6 +1677,8 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
     helloActionResults: [],
     approvalActionResults: [],
     markdownChunks: 0,
+    markdownPartialReady: false,
+    releaseMarkdownPartial: null,
     queuedPromptSeen: false,
     rejectedSteerPromptSeen: false,
     suggestionPromptSeen: false,
@@ -2129,24 +2142,29 @@ async function assertAgentKitChatAcceptance(
   await waitForLoopbackState(
     "the initial streamed markdown response",
     () =>
-      provider.helloActionResults.length === 1 && provider.markdownChunks >= 1,
+      provider.helloActionResults.length === 1 && provider.markdownPartialReady,
     30_000,
   );
   network.allowInitialEphemeralThread404 = false;
   await waitForStableChatSurface(page);
   const threadUrl = page.url();
   const threadPath = new URL(threadUrl).pathname;
-  await waitForChatText(page, "Loopback complete");
-  await waitForChatText(page, helloPrompt);
-  await waitForChatText(page, "Hello, AgentKit Browser!");
-  assert.equal(
-    await page
-      .locator(".agentkit-message-content strong")
-      .filter({ hasText: "Hello, AgentKit Browser!" })
-      .count(),
-    0,
-    "partial markdown must render without prematurely completing bold syntax",
-  );
+  try {
+    await waitForChatText(page, "Loopback complete");
+    await waitForChatText(page, helloPrompt);
+    await waitForChatText(page, "Hello, AgentKit Browser!");
+    assert.equal(
+      await page
+        .locator(".agentkit-message-content strong")
+        .filter({ hasText: "Hello, AgentKit Browser!" })
+        .count(),
+      0,
+      "partial markdown must render without prematurely completing bold syntax",
+    );
+  } finally {
+    provider.releaseMarkdownPartial?.();
+    provider.releaseMarkdownPartial = null;
+  }
   await waitForLoopbackState(
     "the completed streamed markdown response",
     () => provider.markdownChunks >= 2,
