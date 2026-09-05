@@ -4340,12 +4340,13 @@ function createAgentNativeConfig(
         },
     optimizeDeps: {
       ...userOptimizeDeps,
-      // AgentKit's CommonJS compatibility seams are enumerated below. Keep
-      // discovery off once the explicit app entries have been scanned: a
-      // second discovery pass during a live Chat run can invalidate the
-      // browser module graph and reload the active document mid-response.
+      // AgentKit's CommonJS compatibility seams are enumerated below. Standalone
+      // consumers still need Vite's scanner to follow their generated route graph
+      // on cold start; the Chat template supplies focused entries so discovery
+      // does not crawl unrelated lazy surfaces. Monorepo apps keep discovery off
+      // to avoid invalidating the browser graph while framework source is hot.
       noDiscovery: usesAgentKit
-        ? (userConfig.optimizeDeps?.noDiscovery ?? true)
+        ? (userConfig.optimizeDeps?.noDiscovery ?? !isStandaloneAgentKitDev)
         : userConfig.optimizeDeps?.noDiscovery,
       include: [
         ...(usesAgentKit
