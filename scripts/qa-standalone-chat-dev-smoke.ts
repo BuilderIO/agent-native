@@ -1570,7 +1570,7 @@ async function handleLoopbackCompletion(
         "** streamed through AgentKit.",
       ],
       state,
-      1_000,
+      5_000,
     );
     return;
   }
@@ -2129,7 +2129,7 @@ async function assertAgentKitChatAcceptance(
   await waitForLoopbackState(
     "the initial streamed markdown response",
     () =>
-      provider.helloActionResults.length === 1 && provider.markdownChunks >= 2,
+      provider.helloActionResults.length === 1 && provider.markdownChunks >= 1,
     30_000,
   );
   network.allowInitialEphemeralThread404 = false;
@@ -2146,6 +2146,11 @@ async function assertAgentKitChatAcceptance(
       .count(),
     0,
     "partial markdown must render without prematurely completing bold syntax",
+  );
+  await waitForLoopbackState(
+    "the completed streamed markdown response",
+    () => provider.markdownChunks >= 2,
+    30_000,
   );
   await page
     .locator(".agentkit-message-content strong")
