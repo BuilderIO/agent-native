@@ -2675,11 +2675,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       return deckIdFromPathname(window.location.pathname);
     };
 
-    const isHidden = () =>
-      typeof document !== "undefined" && document.visibilityState === "hidden";
+    // A backgrounded tab still reconciles an OPEN deck. "Nobody is looking" is
+    // not "nothing can change": an external agent (MCP / WebMCP / CDP) edits a
+    // deck in a tab that is never focused, and skipping the poll there left an
+    // add-slide unseen for 33s on beta — the write had landed, the editor just
+    // never asked. Only a hidden tab with no open deck (the deck list) still
+    // idles completely.
+    const isIdleHidden = () =>
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden" &&
+      !readOpenDeckId();
 
     const schedule = () => {
-      if (stopped || isHidden()) return;
+      if (stopped || isIdleHidden()) return;
       timer = setTimeout(
         poll,
         fallbackPollIntervalMs({
@@ -2690,7 +2698,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     };
 
     async function poll() {
-      if (stopped || isHidden()) return;
+      if (stopped || isIdleHidden()) return;
       const now = Date.now();
       const currentOpenId = readOpenDeckId();
 
@@ -2721,7 +2729,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     }
 
     const pollNow = () => {
-      if (isHidden()) return;
+      if (isIdleHidden()) return;
       if (timer) {
         clearTimeout(timer);
         timer = null;
@@ -2730,7 +2738,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" || !isIdleHidden()) {
         pollNow();
       } else if (timer) {
         clearTimeout(timer);

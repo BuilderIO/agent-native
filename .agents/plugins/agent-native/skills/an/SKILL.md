@@ -47,6 +47,12 @@ with the exact listed name and origin. Page-local tools reflect current app
 state and selection, so use `view-screen` before selection-dependent edits
 and read back writes.
 
+You are the model doing the work: when the user asks for new content — a
+design, a deck, a form, a document — author it yourself and save it with the
+app's create/update tools. Never hand off authoring to the app's own agent
+when those tools exist, and never wait on an in-app question form; it answers
+back through that app's own chat, not to you.
+
 Use `ask_app` only when the host has no direct page tools, the requested
 capability is not exposed, the task needs the app agent's interpretation or
 multi-step specialist reasoning, or a direct call fails and needs recovery.

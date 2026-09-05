@@ -81,10 +81,30 @@ beforeEach(() => {
 });
 
 describe("get-deck", () => {
-  it("advertises id as the required deck parameter", () => {
-    expect(action.schema.safeParse({}).success).toBe(false);
+  it("accepts the deck id under either `id` or `deckId`", () => {
     expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
-    expect((action.tool.parameters as any).required).toContain("id");
+    // Every sibling tool (create-deck, add-slide, update-slide, patch-deck)
+    // names this parameter `deckId`; rejecting it here cost agents a retry.
+    expect(action.schema.safeParse({ deckId: "deck-1" }).success).toBe(true);
+    expect(JSON.stringify(action.tool.parameters).includes("deckId")).toBe(
+      true,
+    );
+  });
+
+  it("rejects a read with neither `id` nor `deckId`", async () => {
+    await expect(action.run({} as any, { caller: "tool" })).rejects.toThrow(
+      /`id` or `deckId`/,
+    );
+  });
+
+  it("reads the same deck through the deckId alias", async () => {
+    const result = (await action.run(
+      { deckId: "deck-1" },
+      { caller: "cli" },
+    )) as any;
+
+    expect(result.id).toBe("deck-1");
+    expect(result.slides[0]).toMatchObject({ id: "slide-a" });
   });
 
   it("bounds a full-deck read so a stalled lookup can return a tool error", () => {

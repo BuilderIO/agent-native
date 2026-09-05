@@ -20,6 +20,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useAvatarUrl: () => null,
+  getBrowserTabId: () => "test-tab",
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

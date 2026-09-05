@@ -195,6 +195,68 @@ describe("view-screen", () => {
     expect(result).not.toContain("### Current visual selection");
   });
 
+  it("surfaces a selection made on a different slide than the stale/cross-tab currentSlide", async () => {
+    // Regression test for the WebMCP tab-mismatch bug: `navigation` and
+    // `slides-selection` are each read independently through
+    // `readAppStateForCurrentTab`, which falls back to the last global write
+    // for this app when the caller carries no browser tab id (every WebMCP
+    // call). That fallback can resolve to a different slide than the one the
+    // user actually selected text on. The selection must still surface using
+    // its own recorded slide, not be dropped because it disagrees with
+    // `currentSlide`.
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [
+            { id: "slide-a", content: "<h1>Opening</h1>" },
+            { id: "slide-b", content: "<h1>The 4-Step Journey</h1>" },
+          ],
+        }),
+      },
+    ];
+    // `navigation` resolved (stale/cross-tab) to slide index 0 ("slide-a")...
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    // ...but the selection was actually made on slide-b.
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-b",
+      mode: "editing",
+      items: [{ selector: '[data-builder-id="b-2"]', selectedText: "4-Step" }],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### Current visual selection");
+    expect(result).toContain("selectionSlideId: slide-b");
+    expect(result).toContain("differs from currentSlideId slide-a");
+    expect(result).toContain("selectedText: 4-Step");
+  });
+
+  it("does not surface a selection left over from a different deck", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>A</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-other",
+      slideId: "slide-a",
+      mode: "single",
+      items: [{ selector: '[data-builder-id="b-1"]' }],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("### Current visual selection");
+  });
+
   it("marks long selection text as a preview before editing", async () => {
     mockRows = [
       {

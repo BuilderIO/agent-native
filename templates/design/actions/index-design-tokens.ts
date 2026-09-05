@@ -75,6 +75,19 @@ export interface DesignToken {
   /** Opaque source chip label, e.g. "globals.css" or "Brand Kit". */
   source: string;
   /**
+   * Every design file that declares this cssVar, when more than one does
+   * (e.g. the same :root var repeated in index.html and task-details.html).
+   * `source` stays the first file for compatibility; omitted when only one
+   * file contributed.
+   */
+  sources?: string[];
+  /**
+   * Per-file value, keyed by filename, present only when contributing files
+   * disagree on this cssVar's value — surfaced instead of silently keeping
+   * whichever file's value happened to be read first.
+   */
+  sourceValues?: Record<string, string>;
+  /**
    * True when the value comes from the design's own tweak selections (i.e.
    * the user has already customised this token in the editor).
    */
@@ -90,8 +103,10 @@ export default defineAction({
     "Index the design tokens for a design as a friendly { name, cssVar, " +
     "value, type, source } list. Parses CSS custom properties from the " +
     "design's HTML :root block, the linked Brand Kit / design system, and " +
-    "the user's applied tweak selections.  Returns tokens grouped by type " +
-    "(color, typography, spacing, radius, shadow, other).",
+    "the user's applied tweak selections. When multiple files declare the " +
+    "same cssVar, also returns `sources` (every contributing filename) and " +
+    "`sourceValues` (per-file value) if those files disagree. Returns tokens " +
+    "grouped by type (color, typography, spacing, radius, shadow, other).",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
   }),
@@ -108,28 +123,65 @@ export default defineAction({
     // ------------------------------------------------------------------
     // 1. Parse tokens from the design's own HTML files (:root vars)
     // ------------------------------------------------------------------
-    const files = await db
-      .select({
-        filename: schema.designFiles.filename,
-        content: schema.designFiles.content,
-      })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
+    const files = (
+      await db
+        .select({
+          filename: schema.designFiles.filename,
+          content: schema.designFiles.content,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId))
+    ).sort((a, b) => (a.filename ?? "").localeCompare(b.filename ?? ""));
 
-    /** cssVar -> { value, source } */
-    const rawTokens: Map<string, { value: string; source: string }> = new Map();
+    interface RawTokenEntry {
+      value: string;
+      source: string;
+      sources: string[];
+      sourceValues?: Record<string, string>;
+    }
+    /** cssVar -> contributing (value, source) info. */
+    const rawTokens: Map<string, RawTokenEntry> = new Map();
     // Persisted Brand Kit JSON can outlive its schema. Keep one malformed token
     // from taking down the whole read action while preserving valid siblings.
+    //
+    // `accumulate` distinguishes two different meanings of "setting a token
+    // again": the design's own files merely co-declaring the same :root var
+    // (accumulate — every file is a legitimate contributor, so track them
+    // all) vs. the Brand Kit / Tweaks overlay passes below, which intend to
+    // replace whatever an earlier layer set (not accumulate).
     const setRawToken = (
       cssVar: string,
       value: unknown,
       source: unknown,
+      opts?: { accumulate?: boolean },
     ): void => {
       if (typeof value !== "string") return;
-      rawTokens.set(cssVar, {
-        value,
-        source: typeof source === "string" && source ? source : "Unknown",
-      });
+      const src = typeof source === "string" && source ? source : "Unknown";
+
+      const existing = opts?.accumulate ? rawTokens.get(cssVar) : undefined;
+      if (!existing) {
+        rawTokens.set(cssVar, { value, source: src, sources: [src] });
+        return;
+      }
+
+      // Same cssVar declared in more than one design file — keep the first
+      // file's (value, source) as the reported primary for compatibility,
+      // record every contributing file, and call out disagreeing values
+      // instead of silently keeping whichever file the DB happened to
+      // return last.
+      const sources = existing.sources.includes(src)
+        ? existing.sources
+        : [...existing.sources, src];
+      const sourceValues =
+        value !== existing.value
+          ? {
+              ...(existing.sourceValues ?? {
+                [existing.source]: existing.value,
+              }),
+              [src]: value,
+            }
+          : existing.sourceValues;
+      rawTokens.set(cssVar, { ...existing, sources, sourceValues });
     };
 
     for (const file of files) {
@@ -145,7 +197,7 @@ export default defineAction({
       };
       extractCssVars(state, file.content);
       for (const [k, v] of Object.entries(state.cssCustomProperties)) {
-        setRawToken(k, v, file.filename);
+        setRawToken(k, v, file.filename, { accumulate: true });
       }
     }
 
@@ -264,13 +316,18 @@ export default defineAction({
     // 4. Build friendly token list
     // ------------------------------------------------------------------
     const tokens: DesignToken[] = [];
-    for (const [cssVar, { value, source }] of rawTokens) {
+    for (const [
+      cssVar,
+      { value, source, sources, sourceValues },
+    ] of rawTokens) {
       tokens.push({
         name: friendlyName(cssVar),
         cssVar,
         value,
         type: classifyVar(cssVar, value),
         source,
+        ...(sources.length > 1 ? { sources } : {}),
+        ...(sourceValues ? { sourceValues } : {}),
         isTweakOverride: tweakCssVars.has(cssVar),
       });
     }

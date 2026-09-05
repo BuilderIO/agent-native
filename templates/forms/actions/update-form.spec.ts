@@ -157,10 +157,17 @@ describe("update-form settings", () => {
     });
 
     expect(result.fields).toEqual(fields);
+    // Compare structurally rather than as an exact JSON string: the fields
+    // schema validates each field through a real zod object shape now, and
+    // zod always reconstructs an object in its shape's declared key order —
+    // a harmless, order-only difference no reader of the persisted JSON
+    // (or of `result.fields` above) can observe.
     expect(mockInvalidatePublicFormCache).toHaveBeenCalledWith(
       state.existing,
-      expect.objectContaining({ fields: JSON.stringify(fields) }),
+      expect.objectContaining({ fields: expect.any(String) }),
     );
+    const [, written] = mockInvalidatePublicFormCache.mock.calls.at(-1)!;
+    expect(JSON.parse((written as { fields: string }).fields)).toEqual(fields);
   });
 
   it("validates field replacements on an already-published form", async () => {

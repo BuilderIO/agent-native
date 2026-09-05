@@ -262,6 +262,7 @@ export default defineAction({
       const selection = (await readAppStateForCurrentTab(
         "slides-selection",
       )) as {
+        deckId?: string;
         slideId?: string;
         mode?: string;
         activeTool?: string;
@@ -278,11 +279,26 @@ export default defineAction({
           style?: Record<string, unknown>;
         }>;
       } | null;
-      if (selection && currentSlide && selection.slideId === currentSlide.id) {
+      // Match the selection to its OWN recorded slide instead of requiring it
+      // to equal `currentSlide`: `navigation` and `slides-selection` are two
+      // independent app-state reads, and a caller with no tab id in request
+      // context gets each one's last global write, not necessarily from the
+      // same tab. The selection record names its own deck/slide at write
+      // time (SlideEditor's syncSelectionToAppState), so that identity is
+      // authoritative even when the `navigation` read resolves a stale slide.
+      const selectionSlide =
+        selection?.slideId &&
+        (selection.deckId ? selection.deckId === rows[0].id : true)
+          ? (slides.find((s) => s.id === selection.slideId) ?? null)
+          : null;
+      if (selection && selectionSlide) {
         lines.push(``);
         lines.push(`### Current visual selection`);
         lines.push(
-          `selectionSlideId: ${selection.slideId}   (matches currentSlideId)`,
+          `selectionSlideId: ${selection.slideId}` +
+            (selectionSlide.id === currentSlide?.id
+              ? `   (matches currentSlideId)`
+              : `   (differs from currentSlideId ${currentSlide?.id ?? "(none)"} — use selectionSlideId, the slide this selection was made on)`),
         );
         lines.push(`mode: ${selection.mode ?? "unknown"}`);
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
@@ -306,10 +322,10 @@ export default defineAction({
               if (!item.selectedText) {
                 lines.push(
                   item.textTruncated === true
-                    ? `textStatus: element preview may be truncated; use get-deck with slideId=${currentSlide.id} before editing`
+                    ? `textStatus: element preview may be truncated; use get-deck with slideId=${selectionSlide.id} before editing`
                     : item.textTruncated === false
-                      ? `textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=${currentSlide.id} before editing`
-                      : `textStatus: element preview status unknown; use get-deck with slideId=${currentSlide.id} before editing`,
+                      ? `textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=${selectionSlide.id} before editing`
+                      : `textStatus: element preview status unknown; use get-deck with slideId=${selectionSlide.id} before editing`,
                 );
               } else {
                 lines.push(

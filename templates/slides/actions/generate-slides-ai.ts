@@ -11,6 +11,9 @@ const BUILDER_MODEL = "gpt-5-6-luna";
 const GEMINI_MODEL = "gemini-2.0-flash";
 
 export default defineAction({
+  // Runs the app's own model. External agents are the model; they draft with
+  // create-deck + add-slide, so this stays off MCP/WebMCP.
+  mcpTool: false,
   description:
     "Legacy helper for the Generate Slides dialog that drafts a whole new deck outline (multiple slides) from a topic. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action. Do NOT use this for a request to generate one or more images/image variations for an existing slide — use generate-image-api for that. When Builder is connected, this uses GPT-5.6 Luna; otherwise it falls back to a user Gemini API key.",
   schema: z.object({

@@ -146,11 +146,17 @@ export default defineAction({
       .preprocess((value) => {
         if (typeof value !== "string") return value;
         const trimmed = value.trim();
+        // "start"/"end" are the words an agent reaches for first ("end" used
+        // to fail validation as NaN). Resolve them into the numeric domain so
+        // the insert below keeps one representation; it already clamps an
+        // index past the last slide to an append.
+        if (trimmed.toLowerCase() === "start") return 0;
+        if (trimmed.toLowerCase() === "end") return Number.MAX_SAFE_INTEGER;
         return trimmed === "" ? value : Number(trimmed);
       }, z.number().int().min(0))
       .optional()
       .describe(
-        "Optional 0-based index to insert at. If not provided, appends to the end of the deck.",
+        'Where to insert the slide: a 0-based index, or "start" / "end". Omit to append to the end of the deck.',
       ),
     targetSlideCountOverride: z
       .number()

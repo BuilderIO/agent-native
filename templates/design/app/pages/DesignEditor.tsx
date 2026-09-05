@@ -4966,6 +4966,13 @@ function DesignEditor() {
           setViewMode,
           setZoomForView,
           viewModeRef,
+          requestCameraFit: (camera) => {
+            cameraCommandNonceRef.current += 1;
+            setCameraCommand({
+              ...camera,
+              nonce: cameraCommandNonceRef.current,
+            });
+          },
         },
         command,
       ),

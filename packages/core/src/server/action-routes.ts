@@ -17,6 +17,7 @@ import {
   isAgentActionStopError,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { normalizeBrowserTabId } from "../application-state/script-helpers.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
@@ -174,6 +175,26 @@ function readTimezoneHeader(event: any): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Read the caller's browser tab id from `X-Request-Source` — the same header
+ * the frontend action client (use-action.ts) and the page-local WebMCP
+ * bridge (webmcp.ts) already send with `getBrowserTabId()`. Reusing that one
+ * header (instead of adding a second) means every generic action call, not
+ * just WebMCP, resolves `getRequestRunContext()?.browserTabId`, so per-tab
+ * app state (`readAppStateForCurrentTab`) scopes to the tab that actually
+ * made the call instead of whichever tab last wrote the global key.
+ * `normalizeBrowserTabId` only accepts a tab-id-shaped value, so an unrelated
+ * fixed `X-Request-Source` tag some callers send (e.g. "deep-link",
+ * "clips-desktop") either scopes harmlessly under its own bucket or is
+ * simply not tab-id-shaped — never trusted for anything auth-related, this
+ * is purely a scoping hint for app-state keys.
+ */
+function readBrowserTabIdHeader(event: any): string | undefined {
+  return (
+    normalizeBrowserTabId(getHeader(event, "x-request-source")) ?? undefined
+  );
 }
 
 /**
@@ -677,6 +698,7 @@ function mountActionRoutesInternal(
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
         const isSyntheticTraffic = readSyntheticTrafficHeader(event);
+        const browserTabId = readBrowserTabIdHeader(event);
 
         return runWithRequestContext(
           {
@@ -692,6 +714,12 @@ function mountActionRoutesInternal(
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),
+            // `run` (not a top-level field) is deliberate: it's the same
+            // RequestContext.run sub-store `getRequestRunContext()` reads, so
+            // readAppStateForCurrentTab sees this without a second context.
+            // No header means no fabricated id — stays undefined, matching
+            // CLI/external-agent callers that predate tab scoping.
+            ...(browserTabId ? { run: { browserTabId } } : {}),
           },
           async () => {
             // Reject oversize bodies from Content-Length before parsing, so a

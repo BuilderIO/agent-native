@@ -5,6 +5,7 @@ const mockCallAction = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mockCallAction(...args),
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
+  getBrowserTabId: () => "test-tab",
 }));
 
 vi.mock("react-dom", () => ({

@@ -9,6 +9,7 @@ vi.mock("@mcp-b/webmcp-polyfill", () => ({
   initializeWebMCPPolyfill,
 }));
 
+import { getBrowserTabId } from "./browser-tab-id.js";
 import type { AgentNativeClientAction } from "./host-bridge.js";
 import {
   AgentNativeWebMcpUnsupportedError,
@@ -283,6 +284,45 @@ describe("automatic server action WebMCP registration", () => {
       "/docs/_agent-native/webmcp/actions/get-order",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("sends the current browser tab id on every action invocation", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              name: "get-order",
+              description: "Read an order",
+              inputSchema: { type: "object" },
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "order-1" })));
+
+    const registration = createAgentNativeServerActionWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      fetch: fetchMock,
+    });
+    await registration.start();
+    const tool = modelContext.registerTool.mock.calls[0]?.[0];
+    await tool?.execute({});
+
+    // Same header, same value convention as the frontend action client
+    // (use-action.ts): the server resolves one `browserTabId` regardless of
+    // which client made the call.
+    const [, runInit] = fetchMock.mock.calls[1]!;
+    expect((runInit as RequestInit).headers).toMatchObject({
+      "X-Request-Source": getBrowserTabId(),
+    });
   });
 
   it("derives tools from the authenticated manifest and invokes the shared route", async () => {

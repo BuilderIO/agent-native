@@ -2,6 +2,7 @@ import { initializeWebMCPPolyfill } from "@mcp-b/webmcp-polyfill";
 
 import { agentNativeToolTitle } from "../shared/agent-mcp-metadata.js";
 import { agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import type {
   AgentNativeClientAction,
   AgentNativeClientActions,
@@ -118,8 +119,11 @@ interface NativeRegisteredTool {
   annotations?: unknown;
 }
 
-const DEFAULT_INPUT_CHARS = 20_000;
-const DEFAULT_RESULT_CHARS = 50_000;
+// A single authored screen, deck, or document must fit in one write: a
+// hand-authored HTML screen alone is routinely 30-80k chars, so these match
+// DEFAULT_MANIFEST_CHARS rather than a smaller "typical tool call" size.
+const DEFAULT_INPUT_CHARS = 500_000;
+const DEFAULT_RESULT_CHARS = 500_000;
 const DEFAULT_SCHEMA_CHARS = 50_000;
 const DEFAULT_DESCRIPTION_CHARS = 2_000;
 const DEFAULT_TOOL_COUNT = 100;
@@ -1161,6 +1165,14 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
               headers: {
                 Accept: "application/json",
                 "Content-Type": "application/json",
+                // Same header the frontend action client (use-action.ts)
+                // sends with the same value, so the server resolves one
+                // `getRequestRunContext()?.browserTabId` regardless of
+                // which client called the action — a WebMCP call from this
+                // page reads/writes this tab's app state (navigation,
+                // selection) instead of whichever tab wrote the global key
+                // last.
+                "X-Request-Source": getBrowserTabId(),
               },
               body: JSON.stringify(args),
               ...(runtime.signal ? { signal: runtime.signal } : {}),

@@ -1070,6 +1070,31 @@ button[title="Open agent sidebar"] {
   filter: brightness(0) invert(1) !important;
 }
 
+/* Author-supplied slide HTML owns its own colors.
+   The `.slide-content <tag>` palette above is a fallback for MARKDOWN slides;
+   `[data-slide-content-scope]` is set only on the raw-HTML container, so this
+   hands every raw slide back to whatever color its own markup inherits from.
+   Without it a light-themed slide keeps the hardcoded white on headings and
+   body text and is illegible — and no edit to the slide can repair it, because
+   the color lives here, not in the slide. Was scoped to `.fmd-slide`, which
+   only covered slides that happened to carry that class. */
+.slide-content[data-slide-content-scope] h1,
+.slide-content[data-slide-content-scope] h2,
+.slide-content[data-slide-content-scope] h3,
+.slide-content[data-slide-content-scope] h4,
+.slide-content[data-slide-content-scope] h5,
+.slide-content[data-slide-content-scope] h6,
+.slide-content[data-slide-content-scope] p,
+.slide-content[data-slide-content-scope] ul,
+.slide-content[data-slide-content-scope] ol,
+.slide-content[data-slide-content-scope] li,
+.slide-content[data-slide-content-scope] strong,
+.slide-content[data-slide-content-scope] em,
+.slide-content[data-slide-content-scope] td,
+.slide-content[data-slide-content-scope] th {
+  color: inherit;
+}
+
 /* Prevent slide-content defaults from overriding FMD styles */
 .slide-content .fmd-slide p,
 .slide-content .fmd-slide li,
@@ -1079,7 +1104,6 @@ button[title="Open agent sidebar"] {
   padding: 0;
   font-size: inherit;
   line-height: inherit;
-  color: inherit;
 }
 
 .slide-content .fmd-slide h1,
@@ -1089,16 +1113,10 @@ button[title="Open agent sidebar"] {
   padding: 0;
   font-size: inherit;
   line-height: inherit;
-  color: inherit;
   letter-spacing: inherit;
 }
 
-.slide-content .fmd-slide strong {
-  color: inherit;
-}
-
 .slide-content .fmd-slide em {
-  color: inherit;
   font-style: normal;
 }
 

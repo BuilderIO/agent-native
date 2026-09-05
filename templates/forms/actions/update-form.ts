@@ -8,9 +8,9 @@ import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
   assertValidFields,
-  FIELD_TYPES,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
+import { formFieldSchema } from "../shared/field-schema.js";
 import {
   assertValidFormCompletionSettings,
   FORM_SETTINGS_KEYS,
@@ -40,10 +40,10 @@ export default defineAction({
     // actual array (UI POSTs JSON bodies via useActionMutation, which
     // serializes the FormField[] directly — Zod must accept both).
     fields: z
-      .union([z.string(), z.array(z.any())])
+      .union([z.string(), z.array(formFieldSchema)])
       .optional()
       .describe(
-        `Array of complete field objects with id, type, label, and required (or JSON string of the same). Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings such as 'text: Enter a name'. This REPLACES the whole fields array, so never rebuild it from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the form with get-form first, or the options past the cap are deleted.`,
+        "Array of complete field objects (or JSON string of the same). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'. This REPLACES the whole fields array, so never rebuild it from view-screen's preview: it caps options and sets optionsTruncated when it did. Read the form with get-form first, or the options past the cap are deleted.",
       ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
