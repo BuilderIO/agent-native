@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertPrerendered,
   attributeChunks,
+  pruneFunction,
 } from "../scripts/prune-serverless-functions";
 
 /**
@@ -27,15 +28,22 @@ describe("prune-serverless-functions", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  function writeChunk(name: string, entries: Array<[string, string]>): void {
+  function writeChunk(
+    targetDir: string,
+    name: string,
+    entries: Array<[string, string]>,
+  ): void {
     const body = entries
       .map(([key, chunk]) => `"${key}":()=>import(\`./${chunk}\`)`)
       .join(",");
-    writeFileSync(path.join(dir, name), `const m={${body}};export default m;`);
+    writeFileSync(
+      path.join(targetDir, name),
+      `const m={${body}};export default m;`,
+    );
   }
 
   it("treats a chunk reached only by locale keys as locale-only", () => {
-    writeChunk("docs-content.mjs", [
+    writeChunk(dir, "docs-content.mjs", [
       [
         "../../../core/docs/content/locales/de-DE/actions.mdx",
         "actions-DE.mjs",
@@ -51,7 +59,7 @@ describe("prune-serverless-functions", () => {
 
   it("keeps a chunk shared by an English key, even if a locale key also reaches it", () => {
     // Deleting this would strip content the function genuinely still renders.
-    writeChunk("docs-content.mjs", [
+    writeChunk(dir, "docs-content.mjs", [
       ["../../../core/docs/content/locales/ja-JP/shared.mdx", "shared.mjs"],
       ["../../../core/docs/content/shared.mdx", "shared.mjs"],
     ]);
@@ -93,5 +101,19 @@ describe("prune-serverless-functions", () => {
     ]);
 
     expect(missing).toEqual([]);
+  });
+
+  it("keeps query-sensitive Getting Started chunks on the SSR function", () => {
+    const chunks = path.join(dir, "_chunks");
+    mkdirSync(chunks);
+    writeChunk(chunks, "docs-content.mjs", [
+      [
+        "../../../core/docs/content/locales/fr-FR/getting-started.mdx",
+        "getting-started-FR.mjs",
+      ],
+    ]);
+    writeFileSync(path.join(chunks, "getting-started-FR.mjs"), "export {};\n");
+
+    expect(pruneFunction(dir)).toEqual({ removed: 0, bytes: 0 });
   });
 });
