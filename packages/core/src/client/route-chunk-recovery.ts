@@ -117,6 +117,14 @@ function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
 
+function hasViteDevRecovery(win: Window): boolean {
+  return (
+    (win as unknown as Record<string, unknown>)[
+      "__agentNativeViteDevRecoveryInstalled"
+    ] === true
+  );
+}
+
 function readStaleChunkReloadAt(win: Window): number {
   try {
     const raw = (
@@ -223,11 +231,7 @@ function recoverFromDynamicImportFailure(
   // The Vite dev recovery script owns optimizer races in development. Let its
   // bounded overlay/reload policy handle those failures instead of starting a
   // second reload loop from the route recovery layer.
-  if (
-    (win as unknown as Record<string, unknown>)[
-      "__agentNativeViteDevRecoveryInstalled"
-    ] === true
-  ) {
+  if (hasViteDevRecovery(win)) {
     return false;
   }
   state.routeModuleFailureAt = Date.now();
@@ -344,7 +348,10 @@ export function installRouteChunkRecovery(
   const originalError = consoleRef.error.bind(consoleRef);
   try {
     consoleRef.error = (...args: unknown[]) => {
-      if (args.some(isRouteModuleReloadMessage)) {
+      // React Router logs before calling location.reload(). In Vite dev the
+      // recovery script owns that reload; recovering here as well can turn a
+      // same-route failure into a document replacement loop.
+      if (args.some(isRouteModuleReloadMessage) && !hasViteDevRecovery(win)) {
         state.routeModuleFailureAt = Date.now();
         recoverToIntendedNavigation(win, state);
       }
