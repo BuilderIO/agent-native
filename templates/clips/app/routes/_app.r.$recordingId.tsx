@@ -771,7 +771,7 @@ export default function RecordingPage() {
     const previous = requestedPlaybackRef.current;
     if (
       previous?.recordingId === recording.id &&
-      previous.startMs === requestedStartMs
+      previous?.startMs === requestedStartMs
     ) {
       return;
     }
