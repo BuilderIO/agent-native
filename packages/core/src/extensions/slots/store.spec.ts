@@ -146,6 +146,14 @@ beforeEach(async () => {
       joined_at BIGINT NOT NULL,
       federation_removal_pending_at INTEGER
     );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      identity_authority TEXT,
+      identity_id TEXT
+    );
   `);
   await pglite.exec(EXTENSION_SLOTS_CREATE_SQL);
   await pglite.exec(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
