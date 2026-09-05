@@ -14,13 +14,13 @@ E2E_BROWSER_CHANNEL=chrome pnpm e2e  # run the suite in installed Google Chrome
 ```
 
 - `playwright.config.ts` starts its own dev server on **:9333** backed by a
-  throwaway SQLite db (`data/e2e.db`) — `APP_NAME=design` +
-  `DESIGN_DATABASE_URL=file:...` so a `.env` Postgres URL can never leak in.
+  throwaway PGlite database (`data/pglite/e2e`) — `APP_NAME=design` +
+  `DESIGN_DATABASE_URL=pglite:...` so a `.env` database URL can never leak in.
 - Locally, if a server is already running on :9333 it is **reused**
   (`reuseExistingServer`). The most reliable local loop is to keep a server up
   yourself and run against it:
   ```bash
-  APP_NAME=design DESIGN_DATABASE_URL="file:./data/e2e.db" PORT=9333 pnpm dev   # one terminal
+  APP_NAME=design DESIGN_DATABASE_URL="pglite:./data/pglite/e2e" PORT=9333 pnpm dev   # one terminal
   E2E_BASE_URL=http://localhost:9333 pnpm e2e                                   # another
   ```
   `E2E_BASE_URL` makes Playwright skip server management entirely and just use
@@ -36,14 +36,17 @@ action endpoints. Both `.auth/` files are gitignored.
 The design renders inside a sandboxed iframe, and a pointer-capturing shield
 overlay sits on top. So:
 
-| Symptom                                                                 | Wrong approach                         | Right approach                                                                                                                                                                                             |
-| ----------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reaching into iframe DOM                                                | parent-document locators               | `page.frameLocator('iframe').locator(...)` — Playwright targets the frame directly and stays stable across sandbox/overlay changes                                                                         |
-| Clicks "intercepted by `<div data-agent-native-edit-overlay="shield">`" | normal click (actionability fails)     | `.click({ force: true })` — the shield is _meant_ to get the event and drive selection                                                                                                                     |
-| Asserting an edit happened                                              | reading iframe state                   | listen for the bridge's parent `postMessage`s: `element-select`, `element-hover`, `visual-style-change`, `visual-structure-change` (see `installBridge`/`waitForBridge`)                                   |
-| `page.screenshot()` hangs forever                                       | `page.screenshot()`                    | `cdpScreenshot()` — CDP `Page.captureScreenshot`, no stability wait (the page never idles; the agent-chat panel polls)                                                                                     |
-| Node ids change between runs                                            | hardcoding `data-agent-native-node-id` | select by **text/role**, then read the stamped id back from the `element-select` payload                                                                                                                   |
-| Drag move/resize                                                        | HTML5 `dragTo` on the canvas           | `page.mouse.move/down/up` with intermediate steps at `boundingBox()` coords (the canvas uses raw pointer events). The **layers panel** is in the parent doc and _does_ use HTML5 DnD → `locator.dragTo()`. |
+| Symptom                                                                 | Wrong approach                         | Right approach                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reaching into iframe DOM                                                | parent-document locators               | `page.frameLocator('iframe').locator(...)` — Playwright targets the frame directly and stays stable across sandbox/overlay changes                                                                                          |
+| Clicks "intercepted by `<div data-agent-native-edit-overlay="shield">`" | normal click (actionability fails)     | `.click({ force: true })` — the shield is _meant_ to get the event and drive selection                                                                                                                                      |
+| Asserting an edit happened                                              | reading iframe state                   | listen for the bridge's parent `postMessage`s: `element-select`, `element-hover`, `visual-style-change`, `visual-structure-change` (see `installBridge`/`waitForBridge`)                                                    |
+| `page.screenshot()` hangs forever                                       | `page.screenshot()`                    | `cdpScreenshot()` — CDP `Page.captureScreenshot`, no stability wait (the page never idles; the agent-chat panel polls)                                                                                                      |
+| Node ids change between runs                                            | hardcoding `data-agent-native-node-id` | select by **text/role**, then read the stamped id back from the `element-select` payload                                                                                                                                    |
+| Drag move/resize                                                        | HTML5 `dragTo` on the canvas           | `page.mouse.move/down/up` with intermediate steps at `boundingBox()` coords (the canvas uses raw pointer events). The **layers panel** is in the parent doc and _does_ use HTML5 DnD → `locator.dragTo()`.                  |
+| Inspector never renders — the right panel is empty                      | waiting longer for the panel           | `design-selection` state is per USER, so a reused db can restore **responsive-preview** mode into a brand-new design and unmount the inspector. Click `Exit responsive preview` before _and_ after `enterDirectMode`.       |
+| Selecting a nested layer lands on the screen instead                    | one canvas click on the child          | Figma drill-in: the first click selects the screen root. Click the **Layers tree** row (expanding ancestors first) and assert `[role="treeitem"][aria-selected="true"]` — a canvas click gives a different selection shape. |
+| An editor command silently does nothing                                 | guessing from the source               | Every command traces its refusal. `page.evaluate(() => window.__designTrace.dump())` after the click prints `structure:align-abandoned` with the reason; `__designTrace.clear()` first to scope it.                         |
 
 `helpers.ts` wraps all of this: `gotoEditor`, `selectByText`, `dragCanvasByText`,
 `installBridge`/`waitForBridge`, `cdpScreenshot`, `readSeedDesignId`.

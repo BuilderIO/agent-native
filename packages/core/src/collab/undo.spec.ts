@@ -120,6 +120,32 @@ describe("createLocalOpUndoController", () => {
     expect(applied[1].ops[0].value).toBe("v2");
   });
 
+  it("allows an entry to coalesce across a long-lived operation group", async () => {
+    let time = 0;
+    const { controller, applied } = makeController({
+      now: () => time,
+      coalesceMs: 800,
+    });
+
+    controller.push({
+      undo: [{ op: "patch", path: "deck", value: "before" }],
+      redo: [{ op: "patch", path: "deck", value: "first" }],
+      coalesceKey: "agent:turn-1",
+      coalesceWindowMs: Number.POSITIVE_INFINITY,
+    });
+    time = 60_000;
+    controller.push({
+      undo: [{ op: "patch", path: "deck", value: "first" }],
+      redo: [{ op: "patch", path: "deck", value: "last" }],
+      coalesceKey: "agent:turn-1",
+      coalesceWindowMs: Number.POSITIVE_INFINITY,
+    });
+
+    await controller.undo();
+    expect(applied[0].ops[0].value).toBe("before");
+    expect(controller.canUndo()).toBe(false);
+  });
+
   it("does not coalesce beyond the window or across keys", () => {
     let time = 0;
     const { controller } = makeController({ now: () => time, coalesceMs: 800 });

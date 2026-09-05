@@ -15,10 +15,26 @@ const schemaMock = vi.hoisted(() => ({
   assetGenerationRuns: { id: "runs.id" },
 }));
 
+const draftScopeMock = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  // This spec covers template access; the draft rules have their own tests.
+  resolveDraftReadScope: vi.fn(async () => draftScopeMock),
+  canReadSession: vi.fn(() => true),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+}));
+
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (entry: unknown) => entry,
 }));
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: vi.fn((...conditions) => ({ op: "and", conditions })),
   asc: vi.fn((column) => ({ op: "asc", column })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),

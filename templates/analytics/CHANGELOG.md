@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-01
+
+### Added
+
+- Analytics admins can join read-only data from connected app databases
+
 ## 2026-08-31
 
 ### Improved
@@ -71,7 +77,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
-- Fixed the Agent-Native Templates (First-party) dashboard panels failing to load on a local SQLite database
+- Fixed the Agent-Native Templates (First-party) dashboard panels failing to load on a local PGlite database
 - Org admin panels no longer report a database error as a permission denial. A failed
   organization-role lookup now surfaces as a retryable error instead of silently reading
   as "you are not an owner or admin", which had been 403-ing the usage stats panel for

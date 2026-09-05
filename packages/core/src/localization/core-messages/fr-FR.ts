@@ -85,6 +85,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "Interface utilisateur",
+  "agentHostNudge.sidebarTitle": "Utiliser le chat de {{agent}}",
+  "agentHostNudge.sidebarDescription":
+    "Vous discutez déjà avec {{agent}}. Demandez-lui de travailler directement avec cette app.",
+  "agentHostNudge.promptTitle": "Demander plutôt à {{agent}}",
+  "agentHostNudge.promptDescription":
+    "Vous pouvez demander à {{agent}} de créer ou modifier ceci ici.",
+  "agentHostNudge.useThisChat": "Utiliser ce chat",
+  "agentHostNudge.useThisPrompt": "Utiliser cette invite",
   "common.cancel": "Annuler",
   "common.collapse": "Réduire",
   "common.connect": "Connecter",

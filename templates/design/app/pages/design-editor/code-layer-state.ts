@@ -1,5 +1,6 @@
 import {
   buildCodeLayerProjection,
+  componentIdentityHint,
   type CodeLayerNode,
   type CodeLayerProjection,
   type CodeLayerTreeNode,
@@ -24,6 +25,7 @@ import { queryUniqueSelector } from "./dom-utils";
 export function layerTypeForCodeLayer(
   node: CodeLayerTreeNode,
 ): LayersPanelNode["type"] {
+  if (node.type === "frame") return "frame";
   if (node.type === "group") return "group";
   if (node.type === "component") return "component";
   if (node.type === "ellipse") return "ellipse";
@@ -52,10 +54,8 @@ export function codeLayerNodeLooksLikeComponent(
   ) {
     return true;
   }
-  if (/component|card|button|control/i.test(node.layerName)) return true;
-  return node.classes.some((item) =>
-    /component|card|button|control/i.test(item),
-  );
+  if (componentIdentityHint(node.layerName)) return true;
+  return node.classes.some(componentIdentityHint);
 }
 
 export function preferredCodeLayerSelector(node: CodeLayerNode): string {
@@ -292,6 +292,7 @@ export function codeLayerTreeToPanelNodes(
       id: node.id,
       name: resolvedLayerName(node),
       type: layerTypeForCodeLayer(node),
+      isComponent: node.isComponent,
       tagName: node.tag,
       layout: node.layout,
       detail: node.detail,
@@ -485,11 +486,20 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
-    computedStyles: Object.fromEntries(
-      Object.entries(node.style).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
+    // The inspector reads camelCase keys, so a hyphenated source declaration
+    // (stroke-width, border-color) is invisible without the alias pass that
+    // `refreshedComputedStyles` already applies on the sibling path.
+    computedStyles: cssStyleAliases(
+      Object.fromEntries(
+        Object.entries(node.style).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
       ),
     ),
+    // Dropping this made every projection-backed selection (URL-restored,
+    // layers panel, post-draw overview) fall back to tag heuristics, so a
+    // drawn vector was styled as a plain box.
+    primitiveKind: node.dataAttributes["data-an-primitive"] || undefined,
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
     textContent: node.textSnippet ?? undefined,
     childElementCount: node.children.length,

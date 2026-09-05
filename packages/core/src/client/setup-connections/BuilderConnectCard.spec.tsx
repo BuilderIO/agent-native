@@ -153,6 +153,88 @@ describe("BuilderConnectCard", () => {
     expect(mocks.useBuilderConnectCardController).toHaveBeenCalledOnce();
   });
 
+  it("shows connection management for the connected settings card", () => {
+    viewModel = {
+      ...viewModel,
+      configured: true,
+      status: { kind: "connected", label: "Connected" },
+      action: null,
+      connectFlow: {
+        configured: true,
+        statusResolved: true,
+        envManaged: false,
+        agentNativeProvisioningEnabled: false,
+        codeChangeConfigured: false,
+        builderEnabled: true,
+        orgName: "Acme",
+        connecting: false,
+        error: null,
+        accountExists: false,
+        hasFetchedStatus: true,
+        credentialSource: "user",
+        canDisconnect: true,
+        start: vi.fn(),
+        retry: vi.fn(),
+      },
+    };
+    mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
+
+    act(() =>
+      root.render(
+        <BuilderConnectCard showManage trackingSource="settings_connections" />,
+      ),
+    );
+
+    expect(
+      container.querySelector(
+        'button[aria-label="Manage Builder.io connection"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("hides disconnect for workspace-managed credentials", () => {
+    viewModel = {
+      ...viewModel,
+      configured: true,
+      status: { kind: "connected", label: "Connected" },
+      action: null,
+      connectFlow: {
+        configured: true,
+        statusResolved: true,
+        envManaged: false,
+        agentNativeProvisioningEnabled: false,
+        codeChangeConfigured: false,
+        builderEnabled: true,
+        orgName: "Acme",
+        connecting: false,
+        error: null,
+        accountExists: false,
+        hasFetchedStatus: true,
+        credentialSource: "workspace",
+        canDisconnect: false,
+        start: vi.fn(),
+        retry: vi.fn(),
+      },
+    };
+    mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
+
+    act(() => {
+      root.render(
+        <BuilderConnectCard showManage trackingSource="settings_connections" />,
+      );
+    });
+    act(() => {
+      (
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    expect(document.body.textContent).toContain("Reconnect Builder.io");
+    expect(document.body.textContent).not.toContain("Disconnect");
+  });
+
   it("falls back to the default view when a product renderer fails", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 

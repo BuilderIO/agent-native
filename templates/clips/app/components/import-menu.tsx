@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import { cn } from "@/lib/utils";
 
 type MenuSide = "top" | "right" | "bottom" | "left";
@@ -47,6 +48,7 @@ export function ImportMenu({
   variant = "outline",
 }: ImportMenuProps) {
   const t = useT();
+  const { input, openUploadPicker } = useUploadVideoPicker();
 
   if (!uploadHref && !onUpload && !importLoomHref) return null;
 
@@ -85,11 +87,14 @@ export function ImportMenu({
       )}
       <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
         {uploadHref ? (
-          <DropdownMenuItem asChild>
-            <Link to={uploadHref}>
-              <IconUpload />
-              {t("preRecord.uploadVideo")}
-            </Link>
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              openUploadPicker(uploadHref);
+            }}
+          >
+            <IconUpload />
+            {t("preRecord.uploadVideo")}
           </DropdownMenuItem>
         ) : onUpload ? (
           <DropdownMenuItem onSelect={onUpload}>
@@ -106,6 +111,7 @@ export function ImportMenu({
           </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>
+      {input}
     </DropdownMenu>
   );
 }

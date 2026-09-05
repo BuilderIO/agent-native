@@ -18,7 +18,7 @@ describe("Clips shared navigation", () => {
       view: "recording",
       recordingId: "recording-1",
       panel: "transcript",
-      atMs: 42_000,
+      atMs: 42_000_000,
     });
   });
 
@@ -30,7 +30,7 @@ describe("Clips shared navigation", () => {
         panel: "agent",
         atMs: 12_345.6,
       }),
-    ).toBe("/r/recording-1?panel=agent&at=12346");
+    ).toBe("/r/recording-1?panel=agent&at=12.346");
   });
 
   it("round-trips encoded resource IDs", () => {

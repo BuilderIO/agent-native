@@ -2,7 +2,7 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { type SearchMatchMode } from "@agent-native/core/search-utils";
 import { and, eq, inArray } from "drizzle-orm";
 
@@ -38,7 +38,6 @@ import {
   delimitUntrustedReference,
   UNTRUSTED_REFERENCE_ROLE,
 } from "../untrusted-reference.js";
-import { PGVECTOR_REQUIRED_MESSAGE } from "../vector/pgvector.js";
 import { getCreativeContext } from "./context.js";
 
 export interface CreativeContextSearchInput {
@@ -125,7 +124,6 @@ async function queryImage(input: {
   base64: string;
 } | null> {
   if (!input.imageBlobRef && !input.mediaId) return null;
-  if (!isPostgres()) throw new Error(PGVECTOR_REQUIRED_MESSAGE);
   const { connectorContext, getDb, schema } = getCreativeContext();
   let reference = input.imageBlobRef;
   let mimeType: string | undefined;
@@ -237,11 +235,11 @@ export async function performCreativeContextSearch(
         ? byChunk.get(candidate.chunkId)
         : undefined;
       return document
-        ? [ranked(document, candidate.score, "portable lexical match")]
+        ? [ranked(document, candidate.score, "lexical match")]
         : [];
     });
 
-    if (isPostgres() && shouldUsePostgresFts(input.matchMode)) {
+    if (shouldUsePostgresFts(input.matchMode)) {
       const hits = await queryPostgresFts(getDbExec(), {
         query,
         ...(input.packId ? { allowedChunkIds: [...byChunk.keys()] } : {}),
@@ -280,7 +278,7 @@ export async function performCreativeContextSearch(
   }
 
   let vectorAvailable = false;
-  if (isPostgres()) {
+  {
     const families = await availableEmbeddingFamilies();
     const activeSet = await getActiveEmbeddingSet();
     const family = activeSet
@@ -526,7 +524,7 @@ export async function performCreativeContextSearch(
           count: lanes.lexical?.length ?? 0,
         },
         fts: {
-          available: Boolean(query) && isPostgres(),
+          available: Boolean(query),
           count: lanes.fts?.length ?? 0,
         },
         vector: {

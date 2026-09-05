@@ -5,6 +5,8 @@
  * the AI tools popover both read/write the same object.
  */
 
+import type { ClipsNotificationPrefs } from "./clips-notification-prefs.js";
+
 export const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 
 /**
@@ -25,13 +27,12 @@ export type ClipsAiPrefs = {
   includeFullVideoInAi?: boolean;
 };
 
-export type ClipsUserPrefs = ClipsAiPrefs & {
-  defaultPlaybackSpeed?: string;
-  /** Activity emails (comments, replies, reactions) only — never share invites. */
-  emailNotifications?: boolean;
-  /** Overrides the organization default visibility for new recordings. */
-  defaultRecordingVisibility?: ClipsDefaultVisibility;
-};
+export type ClipsUserPrefs = ClipsAiPrefs &
+  ClipsNotificationPrefs & {
+    defaultPlaybackSpeed?: string;
+    /** Overrides the organization default visibility for new recordings. */
+    defaultRecordingVisibility?: ClipsDefaultVisibility;
+  };
 
 /** Visibility applied to new recordings unless the creator picks another. */
 export type ClipsDefaultVisibility = "private" | "org" | "public";

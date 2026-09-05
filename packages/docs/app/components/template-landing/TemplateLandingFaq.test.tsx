@@ -100,6 +100,7 @@ describe("TemplateLandingFaq", () => {
     const firstPanel = document.getElementById("test-faq-first-panel");
 
     expect(faqRegion.tagName).toBe("SECTION");
+    expect(faqRegion.querySelector("p")?.textContent).toBe("FAQs");
     expect(firstTrigger.id).toBe("test-faq-first-trigger");
     expect(firstTrigger.getAttribute("aria-controls")).toBe(
       "test-faq-first-panel",

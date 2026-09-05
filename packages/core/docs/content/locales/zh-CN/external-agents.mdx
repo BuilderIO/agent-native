@@ -1,7 +1,7 @@
 ---
-title: "外部代理：Claude、ChatGPT、Codex、光标、Cowork"
-description: "将 Claude、ChatGPT、Codex、Cursor、Claude Cowork 或任何 MCP 兼容主机连接到托管代理本机应用程序，然后使用 MCP 应用程序和深层链接将往返工件返回到正在运行的 UI。"
-search: "Claude ChatGPT Claude 代码 Codex 光标 Claude Cowork MCP 应用程序代理-本地连接本地代理工具外部代理"
+title: "外部代理：Claude、ChatGPT、Codex、光标、Cowork、Grok"
+description: "将 Claude、ChatGPT、Codex、Cursor、Claude Cowork、Grok 或任何 MCP 兼容主机连接到托管代理本机应用程序，然后使用 MCP 应用程序和深层链接将往返工件返回到正在运行的 UI。"
+search: "Claude Anthropic ChatGPT OpenAI Claude 代码 Codex 光标 Claude Cowork Grok xAI MCP 应用程序代理-本地连接本地代理工具外部代理"
 ---
 
 # 外部代理
@@ -99,8 +99,11 @@ search: "Claude ChatGPT Claude 代码 Codex 光标 Claude Cowork MCP 应用程�
 https://<your-app>.agent-native.com/mcp
 ```
 
-在应用中打开 **Settings**，搜索 **MCP**，然后复制 **MCP server URL**。将此 URL
-粘贴到要使用的 AI 主机中即可。URL 是已部署应用的基础 URL 加上 `/mcp`，无需查找开发者设置。
+在应用中打开 **Settings → Integrations**，然后搜索您熟悉的主机名称：
+Claude、Claude Cowork、Claude Code、Anthropic、ChatGPT、OpenAI、Codex、Grok
+或 xAI。唯一的外部主机结果会打开 **Settings → MCP**，并选中最匹配的指南。
+复制 **MCP server URL** 并粘贴到 AI 主机中。URL 是已部署应用的基础 URL 加上
+`/mcp`。
 
 对于工作区或跨应用程序工作，请使用 Dispatch：
 
@@ -122,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 每个托管应用程序还有一个帮助页面
 `https://&lt;app&gt;/mcp/connect` 与可复制的 URL 和
-Claude、ChatGPT、光标、Claude 代码、Codex 和其他的主机特定选项卡。
+Claude、ChatGPT、光标、Claude 代码、Codex、Grok 和其他的主机特定选项卡。
 
 <a id="access-tab"></a>
 
@@ -505,6 +508,8 @@ CSP 和沙箱权限等安全元数据存在于资源中
 这使得相同的应用程序界面可用于每个兼容的主机，而不是构建每个客户端的垫片。哪些主机内联渲染 MCP 应用程序（以及元数据更改后的连接器缓存问题）位于 [MCP Apps → Client support and caching](/docs/mcp-apps#client-support) 中 — 该页面是客户端矩阵的唯一主页。
 
 实际上，每个代理本机应用程序都应使用以下两种方式编写：用于在有能力的主机中进行内联审查/编辑的 MCP 应用程序，以及用于通用往返返回完整应用程序的 `link` 应用程序。不渲染 iframe 的 CLI/代码编辑器客户端会回退到深层链接。人工选择工具可以向回退添加粘贴步骤：例如，资产选择器从回退链接打开，让用户在浏览器中选择媒体，然后复制用户粘贴回聊天中的交接摘要。
+
+外部代理可以使用应用真正的创建/更新工具——与应用内代理调用的是同一批命名操作——因此当用户要求新内容(设计、幻灯片、表单、文档)时,应直接撰写并用这些工具保存,而不是把工作委托给 `ask_app`。标记为 `endsTurn: true` 的操作(例如在该应用自身聊天中等待用户回答的应用内提问表单)默认会对 MCP、WebMCP 和 A2A 隐藏;它们是应用内代理的工具,不是外部调用者的工具,除非该操作显式地用 `mcpTool: true` 重新启用。WebMCP 桥接接受最多 500,000 个字符的工具输入和结果,因此整份手写的界面、幻灯片或文档可以一次写入,无需拆分。页面本地的 WebMCP 调用也会携带浏览器标签页 ID,因此按标签页划分的上下文(导航、选择)会解析到用户实际正在查看的那个标签页。
 
 ### 一流的MCP应用桥 {#mcp-app-bridge}
 

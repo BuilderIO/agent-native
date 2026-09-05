@@ -17,6 +17,10 @@ describe("list-agent-engines", () => {
     vi.doMock("../../settings/index.js", () => ({
       getSetting: vi.fn().mockResolvedValue(null),
     }));
+    vi.doMock("../../oauth-tokens/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../oauth-tokens/store.js")>()),
+      getOAuthTokens: vi.fn().mockResolvedValue(null),
+    }));
     vi.doMock("../../agent/app-model-defaults.js", () => ({
       getAgentAppModelDefaultForCurrentRequest: vi.fn().mockResolvedValue(null),
     }));

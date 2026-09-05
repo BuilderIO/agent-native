@@ -11,7 +11,7 @@ import { serializePropertyOptions } from "../shared/properties.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-database-form-${process.pid}-${Date.now()}.sqlite`,
+  `content-database-form-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "form-owner@example.com";
 
@@ -22,7 +22,7 @@ let submitForm: typeof import("./submit-content-database-form.js").default;
 let spaceId: string;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -56,9 +56,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function seedFormDatabase() {
@@ -260,6 +258,70 @@ describe("submit-content-database-form", () => {
     expect(notes.content).toBe("Route through the web design queue.");
   });
 
+  it("starts the canonical range at zero when legacy rows have negative positions", async () => {
+    const seeded = await seedFormDatabase();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const legacyRows = [
+      { suffix: "near", position: -11 },
+      { suffix: "far", position: -111 },
+    ];
+    await db.insert(schema.documents).values(
+      legacyRows.map(({ suffix, position }) => ({
+        id: `${seeded.databaseId}-legacy-document-${suffix}`,
+        spaceId,
+        ownerEmail: OWNER,
+        parentId: seeded.databaseDocumentId,
+        title: `Legacy ${suffix}`,
+        content: "",
+        position,
+        visibility: "org" as const,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseItems).values(
+      legacyRows.map(({ suffix, position }) => ({
+        id: `${seeded.databaseId}-legacy-item-${suffix}`,
+        ownerEmail: OWNER,
+        databaseId: seeded.databaseId,
+        documentId: `${seeded.databaseId}-legacy-document-${suffix}`,
+        position,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "First canonical form row",
+        propertyValues: {
+          Description: "Preserve legacy rows while appending canonically.",
+          Priority: "P1 — High",
+        },
+      }),
+    );
+    const [document] = await db
+      .select({ position: schema.documents.position })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId));
+    const [item] = await db
+      .select({ position: schema.contentDatabaseItems.position })
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, seeded.databaseId),
+          eq(schema.contentDatabaseItems.documentId, result.createdDocumentId),
+        ),
+      );
+
+    expect(result.verified).toBe(true);
+    expect(document?.position).toBe(0);
+    expect(item?.position).toBe(0);
+  });
+
   it("rejects missing required questions without creating a partial row", async () => {
     const seeded = await seedFormDatabase();
     const db = getDb();
@@ -379,11 +441,22 @@ describe("submit-content-database-form", () => {
   it("rolls back the document and item when an in-transaction property write fails", async () => {
     const seeded = await seedFormDatabase();
     const triggerName = `force_form_rollback_${Date.now()}`;
+    const functionName = `${triggerName}_fn`;
+    await getDbExec().execute(
+      `CREATE FUNCTION ${functionName}() RETURNS trigger
+       LANGUAGE plpgsql AS $form$
+       BEGIN
+         IF NEW.property_id = '${seeded.priorityId}' THEN
+           RAISE EXCEPTION 'forced form rollback';
+         END IF;
+         RETURN NEW;
+       END;
+       $form$`,
+    );
     await getDbExec().execute(
       `CREATE TRIGGER ${triggerName}
        BEFORE INSERT ON document_property_values
-       WHEN NEW.property_id = '${seeded.priorityId}'
-       BEGIN SELECT RAISE(ABORT, 'forced form rollback'); END`,
+       FOR EACH ROW EXECUTE FUNCTION ${functionName}()`,
     );
     try {
       await expect(
@@ -398,9 +471,12 @@ describe("submit-content-database-form", () => {
             },
           }),
         ),
-      ).rejects.toThrow("forced form rollback");
+      ).rejects.toThrow(/forced form rollback|Failed query:/);
     } finally {
-      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+      await getDbExec().execute(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON document_property_values`,
+      );
+      await getDbExec().execute(`DROP FUNCTION IF EXISTS ${functionName}()`);
     }
 
     const db = getDb();

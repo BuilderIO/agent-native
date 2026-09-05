@@ -1,6 +1,8 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
+import { parseTimeParam } from "@/lib/time-param";
+
 export type ClipsView =
   | "library"
   | "shared"
@@ -98,7 +100,7 @@ export function stateFromLocation(
     if (!recordingId) return { view: "library" };
     const panel = params.get("panel");
     const atParam = params.get("at") ?? params.get("t");
-    const atMs = atParam == null ? undefined : Number(atParam);
+    const atMs = atParam == null ? undefined : parseTimeParam(atParam);
     return {
       view: panel === "insights" ? "insights" : "recording",
       recordingId,
@@ -208,7 +210,12 @@ export function pathFromCommand(cmd: NavigateCommand): string {
       const recordingParams = new URLSearchParams();
       if (cmd.panel) recordingParams.set("panel", cmd.panel);
       if (typeof cmd.atMs === "number" && Number.isFinite(cmd.atMs)) {
-        recordingParams.set("at", String(Math.max(0, Math.round(cmd.atMs))));
+        // Viewer routes use the public `at` query parameter in seconds while
+        // navigation commands expose timestamps in milliseconds.
+        recordingParams.set(
+          "at",
+          String(Math.max(0, Math.round(cmd.atMs) / 1000)),
+        );
       }
       return `/r/${encodeURIComponent(cmd.recordingId)}${
         recordingParams.size > 0 ? `?${recordingParams.toString()}` : ""

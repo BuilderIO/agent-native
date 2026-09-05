@@ -419,7 +419,7 @@ function AskSessionPopover({
         <TooltipContent>{t("sessions.askAgentTooltip")}</TooltipContent>
       </Tooltip>
       <PopoverContent
-        className="w-[calc(100vw-2rem)] p-3 sm:w-[460px]"
+        className="relative w-[calc(100vw-2rem)] p-3 sm:w-[460px]"
         align="end"
       >
         <div className="px-1 pb-2">

@@ -16,6 +16,7 @@ mod echo_guard;
 mod eventkit;
 mod logfile;
 mod meetings_watcher;
+mod mic_attribution;
 mod native_screen;
 mod native_speech;
 mod notifications;
@@ -86,8 +87,17 @@ pub fn run() {
             // single writer, so the one report it can never deliver is its
             // own death. Any toolbar teardown restores the plain status item.
             if window.label() == "toolbar" {
-                if let tauri::WindowEvent::Destroyed = event {
-                    tray::reset_tray_recording(window.app_handle());
+                match event {
+                    tauri::WindowEvent::Moved(position) => {
+                        // Forward the platform move event directly to the
+                        // toolbar webview. The renderer's Window.onMoved
+                        // subscription can lag native macOS drag events.
+                        let _ = window.emit("clips:toolbar-native-moved", position);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        tray::reset_tray_recording(window.app_handle());
+                    }
+                    _ => {}
                 }
             }
             // The popover and camera bubble are separate native windows. If
@@ -111,7 +121,12 @@ pub fn run() {
             clips::show_finalizing,
             clips::hide_finalizing,
             clips::show_toolbar,
+            clips::toolbar_drag_start,
+            clips::toolbar_drag_move,
+            clips::toolbar_drag_end,
+            clips::toolbar_set_bounds,
             clips::toolbar_save_position,
+            clips::toolbar_get_dock_preference,
             clips::toolbar_set_visible,
             clips::set_toolbar_finishing,
             tray::tray_recording_status,
@@ -595,6 +610,7 @@ pub fn run() {
                 native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
                 native_screen::kill_active_screencapture_child(&state);
+                mic_attribution::shutdown();
             }
         });
 }

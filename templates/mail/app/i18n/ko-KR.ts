@@ -55,6 +55,7 @@ const messages = {
       rename: "이름 변경",
       renameTab: "탭 이름 변경",
       savedFilters: "저장된 필터",
+      combinedInbox: "통합 받은편지함",
       help: "체크한 항목은 탭으로 표시됩니다. 라벨 이메일은 받은편지함에서 분리됩니다.",
     },
     accounts: {

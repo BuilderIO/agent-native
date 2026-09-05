@@ -2,7 +2,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
+import {
+  createPostgresScriptClient,
+  type PostgresScriptClient,
+} from "./postgres-client.js";
+
+type Client = PostgresScriptClient;
+
+async function createClient({ url }: { url: string }) {
+  return createPostgresScriptClient(url);
+}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -17,11 +26,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *     through the view succeeds and the patch engine's output is what lands.
  *   - The mock records the SELECT result and captures the UPDATE bind value so
  *     we can assert exactly what applyEdits / the JSON-op engine produced.
- * (See the SQLite section below for the desktop/local path, which surfaces a
+ * (See the PostgreSQL section below for the desktop/local path, which surfaces a
  * genuine view-write bug.)
  *
  * For tests that only check validation / no-write behavior we use a real
- * temp-file SQLite database since no write is attempted.
+ * temp-file PostgreSQL database since no write is attempted.
  */
 describe("db-patch", () => {
   let dir: string;
@@ -29,20 +38,20 @@ describe("db-patch", () => {
   let url: string;
 
   async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
-    const c = createClient({ url });
+    const c = await createClient({ url });
     try {
       return await fn(c);
     } finally {
-      c.close();
+      await c.end();
     }
   }
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), "db-patch-"));
-    dbFile = path.join(dir, "app.db");
-    url = "file:" + dbFile;
+    dbFile = path.join(dir, "app");
+    url = "pglite:" + dbFile;
     await withClient(async (c) => {
-      await c.execute(
+      await c.unsafe(
         `CREATE TABLE documents (id TEXT PRIMARY KEY, owner_email TEXT, content TEXT)`,
       );
     });
@@ -51,7 +60,7 @@ describe("db-patch", () => {
 
   afterEach(async () => {
     // doMock registrations are file-scoped and survive resetModules; clear them
-    // so the SQLite tests (which use the real client) don't inherit a partial
+    // so the PostgreSQL tests (which use the real client) don't inherit a partial
     // Postgres mock of ../../db/client.js from an earlier test.
     vi.doUnmock("postgres");
     vi.doUnmock("../../db/client.js");
@@ -90,6 +99,9 @@ describe("db-patch", () => {
       if (lower.includes("temporary view") || lower.startsWith("drop view")) {
         return [];
       }
+      if (lower.includes("information_schema.columns")) {
+        return introspectRows;
+      }
       if (lower.startsWith("select")) {
         return opts.selectRows;
       }
@@ -111,9 +123,11 @@ describe("db-patch", () => {
     });
 
     vi.doMock("postgres", () => ({ default: () => pgSql }));
-    vi.doMock("../../db/client.js", () => ({
+    vi.doMock("../../db/client.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../db/client.js")>()),
       getDatabaseUrl: () => "postgres://qa.example/db",
       getDatabaseAuthToken: () => undefined,
+      isPgliteUrl: () => false,
     }));
 
     return {
@@ -140,13 +154,10 @@ describe("db-patch", () => {
     return start >= 0 ? JSON.parse(joined.slice(start)) : null;
   }
 
-  // ── SQLite harness (validation / no-write paths) ────────────────────────
+  // ── PostgreSQL harness (validation / no-write paths) ────────────────────────
   async function seedDoc(id: string, owner: string, content: string) {
     await withClient((c) =>
-      c.execute({
-        sql: `INSERT INTO documents VALUES (?, ?, ?)`,
-        args: [id, owner, content],
-      }),
+      c.unsafe(`INSERT INTO documents VALUES (?, ?, ?)`, [id, owner, content]),
     );
   }
 
@@ -169,7 +180,7 @@ describe("db-patch", () => {
           "--replace",
           "b",
         ]),
-      ).rejects.toThrow(/Invalid --table/);
+      ).rejects.toThrow(/--table and --column must be plain identifiers/);
     });
 
     it("rejects a non-identifier column name", async () => {
@@ -189,7 +200,7 @@ describe("db-patch", () => {
           "--replace",
           "b",
         ]),
-      ).rejects.toThrow(/Invalid --column/);
+      ).rejects.toThrow(/--table and --column must be plain identifiers/);
     });
 
     it("rejects a WHERE clause that chains statements", async () => {
@@ -209,7 +220,7 @@ describe("db-patch", () => {
           "--replace",
           "b",
         ]),
-      ).rejects.toThrow(/no statement chaining/);
+      ).rejects.toThrow(/--where must not contain/);
     });
 
     it("rejects a WHERE clause containing a blocked DDL keyword", async () => {
@@ -257,7 +268,7 @@ describe("db-patch", () => {
       // literals, so unlike the DDL-keyword denylist there is no carve-out for
       // a semicolon hidden in a quoted value. This is the conservative-by-design
       // asymmetry: a stray ';' is always refused, the throw happens before any
-      // DB connection, and the SQLite victim DB is never touched.
+      // DB connection, and the PostgreSQL victim DB is never touched.
       const { default: dbPatch } = await import("./patch.js");
       await expect(
         dbPatch([
@@ -274,7 +285,7 @@ describe("db-patch", () => {
           "--replace",
           "b",
         ]),
-      ).rejects.toThrow(/no statement chaining/);
+      ).rejects.toThrow(/--where must not contain/);
     });
 
     it("allows a blocked keyword that only appears inside a quoted string literal", async () => {
@@ -406,22 +417,42 @@ describe("db-patch", () => {
 
     it("refuses an ambiguous match by default (strict uniqueness) and writes nothing", async () => {
       const h = docPg("foo and foo and foo");
-      const out = await runPatchPg(h, [
-        "--table",
-        "documents",
-        "--column",
-        "content",
-        "--where",
-        "id = 'd1'",
-        "--find",
-        "foo",
-        "--replace",
-        "bar",
-      ]);
-      expect(out.applied).toBe(0);
-      expect(out.results[0].status).toBe("not-found");
-      expect(out.results[0].occurrences).toBe(3);
-      expect(out.results[0].detail).toContain("3 occurrences");
+      const { default: dbPatch } = await import("./patch.js");
+      await expect(
+        dbPatch([
+          "--table",
+          "documents",
+          "--column",
+          "content",
+          "--where",
+          "id = 'd1'",
+          "--find",
+          "foo",
+          "--replace",
+          "bar",
+        ]),
+      ).rejects.toThrow(/3 occurrences/);
+      expect(h.updateCount()).toBe(0);
+    });
+
+    it("aborts an ambiguous edit before a later edit can commit", async () => {
+      const h = docPg("foo and foo and alpha");
+      const { default: dbPatch } = await import("./patch.js");
+      await expect(
+        dbPatch([
+          "--table",
+          "documents",
+          "--column",
+          "content",
+          "--where",
+          "id = 'd1'",
+          "--edits",
+          JSON.stringify([
+            { find: "foo", replace: "bar" },
+            { find: "alpha", replace: "beta" },
+          ]),
+        ]),
+      ).rejects.toThrow(/2 occurrences/);
       expect(h.updateCount()).toBe(0);
     });
 
@@ -622,17 +653,13 @@ describe("db-patch", () => {
       expect(result.list).toEqual(["a", "d", "b", "c"]);
     });
 
-    it("move forward (to a higher index in the same array) shifts the target down by one after the source splice", async () => {
-      // Move index 0 to index 2 within the same array. The source splice removes
-      // "a" first (→ b, c, d) and because target 2 > source 0 the destination is
-      // decremented to 1, so "a" is reinserted at index 1 → b, a, c, d. This is
-      // the stable-index convention shared with move-before.
-      const h = deckPg({ list: ["a", "b", "c", "d"] });
+    it("moves a forward array item to the requested index", async () => {
+      const h = deckPg({ list: ["a", "b", "c"] });
       const { out, result } = await runDeckOps(h, [
         { op: "move", from: "/list/0", path: "/list/2" },
       ]);
       expect(out.applied).toBe(1);
-      expect(result.list).toEqual(["b", "a", "c", "d"]);
+      expect(result.list).toEqual(["b", "c", "a"]);
     });
 
     it("records a per-op failure without aborting surviving ops, and writes the partial result", async () => {
@@ -685,7 +712,7 @@ describe("db-patch", () => {
           "--json-ops",
           JSON.stringify(["not-an-op"]),
         ]),
-      ).rejects.toThrow(/Each op must be an object with an 'op' field/);
+      ).rejects.toThrow(/Each JSON operation must have an op field/);
     });
 
     it("escapes JSON Pointer ~1 (slash) and ~0 (tilde) in key segments", async () => {
@@ -708,8 +735,8 @@ describe("db-patch", () => {
     });
   });
 
-  // ── Scoping / safety (SQLite, no successful write needed) ───────────────
-  describe("scoping and safety (SQLite)", () => {
+  // ── Scoping / safety (PostgreSQL, no successful write needed) ───────────────
+  describe("scoping and safety (PostgreSQL)", () => {
     it("cannot read a row owned by another user (it appears as no-rows)", async () => {
       await seedDoc("victim", "other@x.com", "victim content");
       const { default: dbPatch } = await import("./patch.js");
@@ -732,11 +759,8 @@ describe("db-patch", () => {
       // The victim's row is byte-for-byte intact.
       const stillThere = await withClient((c) =>
         c
-          .execute({
-            sql: `SELECT content FROM documents WHERE id = ?`,
-            args: ["victim"],
-          })
-          .then((r) => (r.rows[0]?.content ?? r.rows[0]?.[0]) as string),
+          .unsafe(`SELECT content FROM documents WHERE id = ?`, ["victim"])
+          .then((r) => r[0]?.content as string),
       );
       expect(stillThere).toBe("victim content");
     });
@@ -785,13 +809,9 @@ describe("db-patch", () => {
       ).rejects.toThrow(/require an authenticated user identity/);
     });
 
-    it('writes a scoped patch to main."table" (SQLite views are not updatable, so the UPDATE must target the real table with the scope predicate re-applied)', async () => {
+    it("writes a scoped patch through the PostgreSQL temporary view", async () => {
       await seedDoc("d1", "owner@x.com", "the quik brown fox");
       const { default: dbPatch } = await import("./patch.js");
-      // The SELECT reads through the scoped temp view; the UPDATE must NOT —
-      // it targets main."documents" with the view's owner_email predicate
-      // re-applied, so the patch lands on the real table without ever exposing
-      // a row the SELECT couldn't see.
       await dbPatch([
         "--db",
         dbFile,
@@ -808,16 +828,13 @@ describe("db-patch", () => {
       ]);
       const after = await withClient((c) =>
         c
-          .execute({
-            sql: `SELECT content FROM documents WHERE id = ?`,
-            args: ["d1"],
-          })
-          .then((r) => (r.rows[0]?.content ?? r.rows[0]?.[0]) as string),
+          .unsafe(`SELECT content FROM documents WHERE id = ?`, ["d1"])
+          .then((r) => r[0]?.content as string),
       );
       expect(after).toBe("the quick brown fox");
     });
 
-    it("refuses to patch a row owned by a different user under SQLite scoping (the re-applied predicate blocks the cross-tenant write)", async () => {
+    it("refuses to patch a row owned by a different user under PostgreSQL scoping (the re-applied predicate blocks the cross-tenant write)", async () => {
       // The row exists but belongs to someone else. The scoped SELECT can't see
       // it, so db-patch reports "no rows matched" and never issues the UPDATE —
       // the cross-tenant row must stay untouched.
@@ -841,11 +858,8 @@ describe("db-patch", () => {
       ).rejects.toThrow(/No rows matched/);
       const after = await withClient((c) =>
         c
-          .execute({
-            sql: `SELECT content FROM documents WHERE id = ?`,
-            args: ["d-other"],
-          })
-          .then((r) => (r.rows[0]?.content ?? r.rows[0]?.[0]) as string),
+          .unsafe(`SELECT content FROM documents WHERE id = ?`, ["d-other"])
+          .then((r) => r[0]?.content as string),
       );
       expect(after).toBe("secret value");
     });

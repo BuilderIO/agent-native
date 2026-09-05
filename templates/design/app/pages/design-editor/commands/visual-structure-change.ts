@@ -15,6 +15,7 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import {
   isAbsoluteCodeLayerNode,
+  rawAbsoluteContainerOffsetFromDrop,
   removeAbsolutePositioningFromNodeInHtml,
   setAbsolutePositioningForNodeInHtml,
   setFlowPositioningOverrideForNodeInHtml,
@@ -175,28 +176,25 @@ export function runVisualStructureChange(
           (node) => node.id === patch.result.after?.nodeId,
         )?.dataAttributes["data-agent-native-node-id"]
       : undefined);
-  // Absolute-container drops persist sourceRect − anchorRect (both
-  // measured in-iframe by the bridge AFTER its optimistic DOM move). On
-  // the BOARD surface, top-level elements carry the content-offset
-  // translate (+65536 — see embeddedContentOffsetStyle in
-  // DesignCanvas.tsx) while nested ones do not, and the bridge's
-  // rect-space delta math doesn't model that translate — the measured
-  // offset for a board nest comes out exactly one surface offset
-  // (65536px) away from the true parent-relative value and, persisted
-  // verbatim, parks the nested child off-world. Strip that fingerprint
-  // before persisting (a no-op for screens and for sane offsets), and
-  // when it fired, ALSO refresh the preview: the bridge's optimistic
-  // in-iframe placement was off by the same 65536, so the iframe must be
-  // re-rendered from the corrected content instead of being trusted.
-  const rawAbsoluteContainerOffset =
-    details?.dropMode === "absolute-container" &&
-    details.sourceRect &&
-    details.anchorRect
-      ? {
-          x: details.sourceRect.x - details.anchorRect.x,
-          y: details.sourceRect.y - details.anchorRect.y,
-        }
-      : null;
+  // Absolute-container inside drops persist sourceRect − anchorRect.
+  // Sibling un-nests use the bridge's rebased inline left/top instead —
+  // the anchor is the old parent, not the new containing block. On the
+  // BOARD surface, top-level elements carry the content-offset translate
+  // (+65536 — see embeddedContentOffsetStyle in DesignCanvas.tsx) while
+  // nested ones do not, and rect-space delta math doesn't model that
+  // translate. Strip that fingerprint before persisting (a no-op for
+  // screens and for sane offsets), and when it fired, ALSO refresh the
+  // preview: the bridge's optimistic in-iframe placement was off by the
+  // same 65536, so the iframe must be re-rendered from the corrected
+  // content instead of being trusted.
+  const rawAbsoluteContainerOffset = rawAbsoluteContainerOffsetFromDrop({
+    dropMode: details?.dropMode,
+    placement,
+    sourceRect: details?.sourceRect,
+    anchorRect: details?.anchorRect,
+    inlineStyles: elementInfo?.inlineStyles,
+    anchorSelector,
+  });
   const absoluteContainerOffset = rawAbsoluteContainerOffset
     ? {
         x: stripBoardSurfaceOffsetFromCoord(rawAbsoluteContainerOffset.x),

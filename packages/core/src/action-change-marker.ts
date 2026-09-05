@@ -6,6 +6,14 @@ export interface ActionChangeTarget {
   owner?: string;
   orgId?: string;
   requestSource?: string;
+  nonce?: string;
+}
+
+export function actionChangeDedupeKey(
+  target: ActionChangeTarget,
+  markerIdentity: string,
+): string {
+  return `${markerIdentity}|${target.actionName ?? ""}|${target.owner ?? ""}|${target.orgId ?? ""}`;
 }
 
 export function actionChangeMarkerSession(
@@ -25,6 +33,7 @@ export function actionChangeMarkerValue(
     ...(target.owner ? { owner: target.owner } : {}),
     ...(target.orgId ? { orgId: target.orgId } : {}),
     ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    ...(target.nonce ? { nonce: target.nonce } : {}),
   };
 }
 
@@ -45,6 +54,7 @@ export function parseActionChangeMarker(
   let owner: string | undefined;
   let orgId: string | undefined;
   let requestSource: string | undefined;
+  let nonce: string | undefined;
 
   if (parsed && typeof parsed === "object") {
     const record = parsed as Record<string, unknown>;
@@ -56,6 +66,7 @@ export function parseActionChangeMarker(
       typeof record.requestSource === "string"
         ? record.requestSource
         : undefined;
+    nonce = typeof record.nonce === "string" ? record.nonce : undefined;
   }
 
   if (!owner && !orgId && typeof sessionId === "string" && sessionId) {
@@ -70,5 +81,11 @@ export function parseActionChangeMarker(
   }
 
   if (!actionName && !owner && !orgId) return null;
-  return { actionName, owner, orgId, requestSource };
+  return {
+    actionName,
+    owner,
+    orgId,
+    requestSource,
+    ...(nonce ? { nonce } : {}),
+  };
 }

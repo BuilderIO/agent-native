@@ -18,5 +18,6 @@ export {
 export { createJobTools } from "./tools.js";
 export {
   AUTOMATION_RUN_MIGRATIONS,
+  deleteAutomationRuns,
   runAutomationRunMigrations,
 } from "./run-history.js";

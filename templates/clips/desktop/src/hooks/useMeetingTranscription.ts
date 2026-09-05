@@ -90,6 +90,9 @@ interface Props {
 }
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
+// How often to poll get-meeting for a server-side actualEnd while local
+// capture is running — a backstop for the native end-of-call detector.
+const MEETING_ENDED_POLL_MS = 30_000;
 
 function unlistenAll(unlisteners: Array<() => void>): void {
   for (const unlisten of unlisteners) {
@@ -221,6 +224,7 @@ export function useMeetingTranscription({
           stopRecording: async () => {
             await callClipsAction("stop-meeting-recording", {
               meetingId: session.meetingId,
+              reason,
             }).catch((err) => {
               console.warn("[clips-popover] stop meeting action failed:", err);
             });
@@ -800,6 +804,7 @@ export function useMeetingTranscription({
           if (session.recordingId) {
             await callClipsAction("stop-meeting-recording", {
               meetingId: session.meetingId,
+              reason: "superseded",
             }).catch((err) => {
               console.warn(
                 "[clips-popover] could not close a superseded meeting row:",
@@ -951,6 +956,7 @@ export function useMeetingTranscription({
           if (failedSession?.meetingId) {
             await callClipsAction("stop-meeting-recording", {
               meetingId: failedSession.meetingId,
+              reason: "start-failed",
             }).catch(() => {});
           }
           pendingPillInitRef.current = null;
@@ -964,6 +970,7 @@ export function useMeetingTranscription({
           // belong to the newer one.
           await callClipsAction("stop-meeting-recording", {
             meetingId: startedSession.meetingId,
+            reason: "superseded",
           }).catch(() => {});
         }
         if (err !== MEETING_START_CANCELLED) {
@@ -1058,6 +1065,37 @@ export function useMeetingTranscription({
       unlisteners.length = 0;
     };
   }, [startTranscription]);
+
+  // -------------------------------------------------------------------------
+  // Server-ended backstop
+  // -------------------------------------------------------------------------
+
+  // The native end-of-call detector (mic release / calendar end / silence) is
+  // macOS-only and can still miss a real hangup. Poll the meeting row so a
+  // server-side close — the stale-meeting sweeper, or finalize-recording's
+  // reconcile hook — still stops local capture instead of leaving it
+  // recording into a meeting the server already considers over.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const session = sessionRef.current;
+      if (!session || session.stopping) return;
+      callClipsAction<{ meeting?: { actualEnd?: string | null } }>(
+        "get-meeting",
+        { id: session.meetingId },
+        { method: "GET" },
+      )
+        .then((data) => {
+          if (sessionRef.current !== session || session.stopping) return;
+          if (!data?.meeting?.actualEnd) return;
+          stopTranscription("server-ended").catch(() => {});
+        })
+        .catch(() => {
+          // Best-effort — a failed poll just waits for the next tick or the
+          // native detector.
+        });
+    }, MEETING_ENDED_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [callClipsAction, stopTranscription]);
 
   useEffect(() => {
     let stopped = false;

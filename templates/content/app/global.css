@@ -587,6 +587,7 @@
 .notion-editor .notion-task-list li label {
   display: flex;
   align-items: center;
+  align-self: start;
   min-height: 1.7em;
   margin-top: 0;
 }
@@ -2384,23 +2385,35 @@ audio.media-block__content {
 
 /* ===== Inline comment highlights ===== */
 .notion-editor .comment-highlight {
-  background-color: hsl(45 93% 47% / 0.2);
-  border-bottom: 2px solid hsl(45 93% 47% / 0.55);
+  --comment-highlight-fill: hsl(45 93% 47% / 0.14);
+  --comment-highlight-line: hsl(45 93% 40% / 0.5);
+  background:
+    linear-gradient(
+        var(--comment-highlight-line),
+        var(--comment-highlight-line)
+      )
+      left bottom / 100% 1px no-repeat content-box,
+    linear-gradient(
+        var(--comment-highlight-fill),
+        var(--comment-highlight-fill)
+      )
+      content-box;
   border-radius: 2px;
+  padding-block: 0.2em;
+  padding-inline: 0.15em;
+  margin-inline: -0.15em;
   cursor: pointer;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   transition: background-color 0.12s ease;
 }
-.notion-editor .comment-highlight:hover {
-  background-color: hsl(45 93% 47% / 0.32);
-}
+.notion-editor .comment-highlight:hover,
 .notion-editor .comment-highlight--active {
-  background-color: hsl(45 93% 47% / 0.42);
+  --comment-highlight-fill: hsl(45 93% 47% / 0.28);
 }
 .notion-editor .comment-highlight--pending {
-  background-color: hsl(210 100% 52% / 0.2);
-  border-bottom-color: hsl(210 100% 52% / 0.55);
+  --comment-highlight-fill: hsl(210 100% 52% / 0.2);
+  --comment-highlight-line: hsl(210 100% 52% / 0.55);
   cursor: default;
 }
 

@@ -44,6 +44,8 @@ export default defineEventHandler(async (event) => {
         }),
     );
 
+    // Immediate exports stream in this request; durable URLs require optional
+    // blob storage and are intentionally a separate future capability.
     const bytes = new Uint8Array(result.buffer);
     const responseBody = bytes.buffer.slice(
       bytes.byteOffset,
@@ -56,6 +58,8 @@ export default defineEventHandler(async (event) => {
         "Content-Disposition": `attachment; filename="${path.basename(
           result.filename,
         )}"`,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {

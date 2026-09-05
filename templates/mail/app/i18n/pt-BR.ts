@@ -55,6 +55,7 @@ const messages = {
       rename: "Renomear",
       renameTab: "Renomear aba",
       savedFilters: "Filtros salvos",
+      combinedInbox: "Caixa de entrada combinada",
       help: "Itens marcados aparecem como abas. Emails com marcador ficam separados da caixa de entrada.",
     },
     accounts: {

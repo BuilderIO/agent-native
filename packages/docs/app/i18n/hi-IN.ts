@@ -157,8 +157,8 @@ const hiIN = {
           body: "काम को एक बार define करें और UI, agent, HTTP, MCP, A2A और CLI से use करें।",
         },
         sqlStateOrm: {
-          title: "SQL state और ORM",
-          body: "Durable app data, application state, migrations और provider-agnostic schemas।",
+          title: "PostgreSQL state और ORM",
+          body: "Durable app data, application state, migrations और PostgreSQL/PGlite schemas।",
         },
         dbAdmin: {
           title: "Database admin",
@@ -211,7 +211,7 @@ const hiIN = {
       body1:
         "Agent-Native agentic applications बनाने के लिए open-source framework है: Chat से शुरू करें, shared actions define करें, फिर उसी state के आसपास UI, jobs और collaboration जोड़ें।",
       body2:
-        "अपना database, hosting provider, model stack और app code साथ लाएं।",
+        "Local PGlite या hosted PostgreSQL, अपना hosting provider, model stack और app code इस्तेमाल करें।",
       cta: "framework guide पढ़ें",
       primitives: {
         actions: {
@@ -222,17 +222,17 @@ const hiIN = {
         sharedState: {
           title: "साझा state",
           description:
-            "SQL-backed app state humans, agents और sessions को sync में रखता है।",
+            "PostgreSQL/PGlite-backed app state humans, agents और sessions को sync में रखता है।",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop, tools, skills, memory, jobs और observability साथ में ship होते हैं।",
         },
-        backendAgnostic: {
-          title: "बैकएंड अज्ञेयवादी",
+        postgresSpecific: {
+          title: "PostgreSQL-विशिष्ट",
           description:
-            "किसी भी Drizzle-supported SQL database और Nitro-compatible host को plug in करें।",
+            "Framework के PostgreSQL schema helpers को local PGlite या किसी भी Nitro-compatible host पर hosted Postgres के साथ इस्तेमाल करें।",
         },
       },
     },
@@ -311,7 +311,7 @@ const hiIN = {
     },
     quickStart: {
       title: "एक command से शुरू करें",
-      body: "एक command actions, durable threads और SQLite पर backed chat-first स्थानीय app बनाता है। `--headless` केवल तब इस्तेमाल करें जब automation-first workflow को अभी browser UI नहीं चाहिए।",
+      body: "एक command actions, durable threads और PGlite पर backed chat-first स्थानीय app बनाता है। `--headless` केवल तब इस्तेमाल करें जब automation-first workflow को अभी browser UI नहीं चाहिए।",
     },
     finalCta: {
       title: "agentic era के लिए बना software",
@@ -416,6 +416,7 @@ const hiIN = {
   },
   common: {
     copied: "नकल की गई",
+    copyFailed: "कॉपी नहीं हो सका",
     copyCommand: "आदेश कॉपी करें",
     copyCode: "कोड कॉपी करें",
     tryIt: "आज़माएँ",
@@ -445,14 +446,14 @@ const hiIN = {
     },
     actions: {
       title: "एक Action हर सतह को चलाता है",
-      bodyLine1: "Actions एक Agent-Native ऐप की बुनियादी इकाइयाँ हैं।",
+      bodyLine1: "Actions तय करते हैं कि आपका एजेंट क्या कर सकता है।",
       bodyLine2:
-        "कार्यक्षमता एक बार परिभाषित करें, फिर उसे अपने UI, एजेंट चैट, HTTP API, MCP, A2A या CLI से उपयोग करें।",
+        "हर क्षमता को एक बार परिभाषित करें, फिर उसे एजेंट, UI, HTTP API, MCP, A2A या CLI से उपयोग करें।",
       diagramAlt: "एक Action UI, MCP, एजेंट चैट, A2A, HTTP API और CLI को चलाता है",
     },
     builtIn: {
-      title: "हर Agent-Native ऐप में पहले से मौजूद",
-      body: "उपयोगकर्ताओं और AI एजेंट्स को साथ काम करने के लिए जो कुछ चाहिए, वह सब एक ही एप्लिकेशन में पहले से जुड़ा है।",
+      title: "आपके एजेंट की हर ज़रूरत",
+      body: "UI, संदर्भ, डेटा, अनुमतियाँ और इंफ्रास्ट्रक्चर, सभी पहले से जुड़े हुए।",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -460,14 +461,14 @@ const hiIN = {
         },
         agentChat: {
           title: "अंतर्निहित एजेंट चैट",
-          body: "उपयोगकर्ता ऐप छोड़े बिना काम सौंप सकते हैं, सवाल पूछ सकते हैं और परिणाम देख सकते हैं।",
+          body: "उपयोगकर्ता एक ही UI में काम सौंप सकते हैं, सवाल पूछ सकते हैं और परिणाम देख सकते हैं।",
         },
         sharedState: {
           title: "साझा एप्लिकेशन स्थिति",
           body: "एजेंट जानता है कि उपयोगकर्ता क्या देख रहे, चुन रहे और संपादित कर रहे हैं।",
         },
         sharedSql: {
-          title: "साझा SQL डेटा",
+          title: "साझा PostgreSQL डेटा",
           body: "उपयोगकर्ता और एजेंट एक ही विश्वसनीय स्रोत को पढ़ते और अपडेट करते हैं।",
         },
         skillsMemory: {
@@ -476,11 +477,11 @@ const hiIN = {
         },
         automations: {
           title: "ऑटोमेशन",
-          body: "एजेंट का काम शेड्यूल या एप्लिकेशन इवेंट्स पर स्वचालित रूप से चलाएं।",
+          body: "एजेंट का काम शेड्यूल या इवेंट्स पर स्वचालित रूप से चलाएं।",
         },
         agentTeams: {
           title: "एजेंट टीमें",
-          body: "ऐप के भीतर या कई ऐप्स में विशेषज्ञ एजेंट्स को काम सौंपें।",
+          body: "एक ही वर्कस्पेस में या कनेक्टेड एजेंट्स के बीच विशेषज्ञ एजेंट्स को काम सौंपें।",
         },
         auth: {
           title: "प्रमाणीकरण और संगठन",
@@ -494,19 +495,19 @@ const hiIN = {
     },
     stack: {
       title: "आपके स्टैक के साथ काम करता है",
-      body: "अपना LLM, डेटाबेस, टूल्स और इंफ्रास्ट्रक्चर लाएं, Agent-Native ओपन सोर्स TypeScript है, इसलिए आपका एप्लिकेशन आपका ही रहता है।",
+      body: "अपना LLM, डेटाबेस, टूल्स और इंफ्रास्ट्रक्चर लाएं। Agent-Native ओपन-सोर्स TypeScript है, इसलिए आप जो भी बनाते हैं वह आपका ही रहता है।",
       exploreApps: "Agent-Native से बने ऐप्स देखें",
     },
     showcase: {
       title: "Agent-Native से आप क्या बना सकते हैं?",
-      body: "ऐसे एजेंटिक ऐप्स जो आपके काम को समझते हैं, कार्रवाई करते हैं और आपके साथ सहयोग करते हैं। अपना ऐप बनाएं या इन ओपन-सोर्स ऐप्स में से किसी एक को आज़माएं।",
+      body: "मीटिंग्स, डिज़ाइन, प्रेज़ेंटेशन, डेटा और दूसरे कामों के लिए UI वाले एजेंट बनाएं। इनमें से किसी ओपन-सोर्स ऐप से शुरुआत करें या अपना एजेंट बनाएं।",
       browseApps: "ऐप्स देखें",
       scrollLeft: "ऐप्स बाईं ओर स्क्रॉल करें",
       scrollRight: "ऐप्स दाईं ओर स्क्रॉल करें",
     },
     bottomCta: {
-      title: "अपना पहला Agent-Native ऐप बनाएं",
-      body: "उपयोगकर्ताओं और AI एजेंट्स के लिए एक ही एप्लिकेशन बनाएं। अपना LLM लाएं और कहीं भी डिप्लॉय करें।",
+      title: "UI वाला अपना पहला एजेंट बनाएं",
+      body: "एजेंट और UI समान क्षमताएं साझा करते हैं। अपना LLM लाएं और कहीं भी डिप्लॉय करें।",
     },
     footer: {
       tagline: "एजेंटिक एप्लिकेशन फ्रेमवर्क।",
@@ -518,16 +519,29 @@ const hiIN = {
       download: "डाउनलोड",
       apps: "ऐप्स",
       privacyPolicy: "गोपनीयता नीति",
-      saasTerms: "SaaS शर्तें",
+      saasTerms: "होस्ट की गई सेवा की शर्तें",
+      legalResources: "कानूनी संसाधन",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "लोकल रूप से नहीं बना रहे हैं?",
-      exploreApp: "पहले एक live ऐप देखें",
-      between: "या",
-      joinWaitlist: "waitlist में शामिल हों",
-      end: "और इसके बजाय browser में बनाएं।",
+    tabs: {
+      label: "बनाने का तरीका चुनें",
+      local: "लोकल में बनाएं",
+      localDescription: "अपने कंप्यूटर पर बनाने के लिए CLI का उपयोग करें।",
+      cloud: "क्लाउड में बनाएं",
+      cloudDescription: "Builder.io के साथ ब्राउज़र में बनाएं।",
+    },
+    cloud: {
+      intro:
+        "कुछ भी इंस्टॉल किए बिना वही ऐप बनाएं। आप जो चाहते हैं उसका वर्णन करें; एजेंट Builder द्वारा होस्ट किए गए वर्कस्पेस में कोड लिखकर चलाता है।",
+      stepOneTitle: "Builder अकाउंट बनाएं",
+      stepOneBody:
+        "ब्राउज़र में बनाने के लिए अपने Builder खाते का उपयोग करें। बिना API keys लाए मुफ्त में शुरू करें।",
+      stepTwoTitle: "प्रॉम्प्ट करें",
+      stepTwoBody:
+        "आप जो बनाना चाहते हैं उसे साधारण भाषा में बताएं और एजेंट उसे आपके लिए बना देगा।",
+      stepThreeTitle: "डिप्लॉय करें",
+      stepThreeBody: "तैयार होने पर Builder में अपनी ऐप को एक क्लिक से डिप्लॉय करें।",
     },
   },
   templatesPage: {
@@ -549,9 +563,9 @@ const hiIN = {
     copyCommunityInstallCommand: "इंस्टॉल कमांड कॉपी करें",
     viewRepository: "रिपॉज़िटरी देखें",
     tryCommunityDemo: "डेमो आज़माएँ",
-    customizeDescription: "आप इस कोड को पूरी तरह customize कर सकते हैं।",
-    customizeOnline: "ऑनलाइन customize करें",
-    customizeLocally: "लोकल customize करें",
+    customizeDescription: "इस ऐप को शुरुआती बिंदु के रूप में उपयोग करें।",
+    customizeOnline: "ऑनलाइन",
+    customizeLocally: "लोकल",
     communityNew: "नया",
     communityComingSoon: "जल्द आ रहा है",
     communityGithubStars: "GitHub पर {{count}} स्टार",
@@ -571,7 +585,7 @@ const hiIN = {
     communitySubmissionName: "ऐप का नाम",
     communitySubmissionNamePlaceholder: "कस्टमर सपोर्ट हब",
     communitySubmissionUrl: "ऐप URL",
-    communitySubmissionUrlPlaceholder: "example.com या https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "विवरण",
     communitySubmissionDescriptionPlaceholder:
       "ऐप क्या करता है और यह किसके लिए है?",
@@ -587,8 +601,15 @@ const hiIN = {
     communitySubmissionSubmit: "ऐप सबमिट करें",
     communitySubmissionReady:
       "धन्यवाद। प्रकाशित करने से पहले हम आपके ऐप की समीक्षा करेंगे।",
-    communitySubmissionValidation:
-      "नाम और विवरण जोड़ें, फिर example.com जैसा ऐप लिंक डालें। हम आपके लिए https:// जोड़ देंगे। रिपॉज़िटरी जोड़ने पर github.com का लिंक इस्तेमाल करें। PNG, JPG या WebP इमेज अपलोड करें, प्रत्येक 1.5 MB तक।",
+    communitySubmissionNameError: "ऐप का नाम दर्ज करें।",
+    communitySubmissionDescriptionError: "छोटा विवरण जोड़ें।",
+    communitySubmissionUrlError: "मान्य ऐप लिंक दर्ज करें, जैसे example.com।",
+    communitySubmissionRepositoryError: "GitHub रिपॉज़िटरी लिंक दर्ज करें।",
+    communitySubmissionScreenshotsError:
+      "PNG, JPG या WebP इमेज इस्तेमाल करें, प्रत्येक 1.5 MB तक और अधिकतम 5 इमेज।",
+    communitySubmissionSubmitError:
+      "अभी सबमिट नहीं हो सका। चिह्नित फ़ील्ड जाँचकर फिर कोशिश करें।",
+    communitySubmissionSubmitting: "सबमिट हो रहा है…",
   },
   buildFromScratch: {
     title: "शुरू से बनाएँ",
@@ -597,15 +618,8 @@ const hiIN = {
     readDocs: "डॉक्स पढ़ें",
     buildOnline: "ऑनलाइन बनाएँ",
     popoverTitle: "Browser में बनाएँ",
-    popoverBody:
-      "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
-    emailLabel: "ईमेल",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "Waitlist में शामिल हों",
-    joining: "शामिल हो रहे हैं…",
-    joined: "आप waitlist में हैं. build-online access खुलने पर हम आपको ईमेल करेंगे.",
-    invalidEmail: "एक मान्य ईमेल पता दर्ज करें.",
-    submitError: "Waitlist में शामिल नहीं हो सके. कृपया फिर से कोशिश करें.",
+    popoverBody: "Builder.io के साथ क्लाउड में agent-native ऐप तेज़ी से बनाएं.",
+    launchBuilder: "Builder लॉन्च करें",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",
@@ -883,8 +897,11 @@ const hiIN = {
       s004: "हुक्म चलाना",
       s005: "देख + सुन सकते हैं",
       s006: "सभी टेम्पलेट",
-      s007: "Loom का ओपन-सोर्स विकल्प",
-      s008: "एक एजेंट में एक Clips लिंक चिपकाएँ और यह प्रतिलेख सुन सकता है, सारांश पढ़ सकता है, और टाइमस्टैम्प्ड फ़्रेम देख सकता है, भले ही इसका मॉडल कच्चे वीडियो या ऑडियो को ग्रहण न कर सके।",
+      s007Primary: "स्क्रीन रिकॉर्डिंग जिन्हें आपका",
+      s007Secondary: "AI देख और सुन सकता है।",
+      s008: "ब्राउज़र डीबग लॉग कैप्चर करें, ट्रांसक्रिप्ट प्राप्त करें और अंतर्निहित डिक्टेशन का उपयोग करें। 100% निःशुल्क, ओपन-सोर्स और कस्टमाइज़ करने योग्य।",
+      s063: "व्यक्तिगत सिफ़ारिश प्राप्त करें",
+      s064: "इस प्रॉम्प्ट को Claude, ChatGPT या Cursor में चिपकाएँ और देखें कि Clips आपके वर्कफ़्लो को कैसे बदल सकता है।",
       s009: "इसे आज़माएँ",
       s010: "आप क्या कर सकते हैं",
       s011: "रिकॉर्ड, ट्रांसक्राइब और डीबग - एक ऐप, एक लाइब्रेरी, सब्सक्रिप्शन स्टैक के बिना।",
@@ -939,6 +956,25 @@ const hiIN = {
       s060: "चुनें कि क्या कैप्चर करना है, फिर Clips में रिकॉर्डिंग शुरू करें।",
       s061: "और ऐप्स देखें",
       s062: "सभी टेम्पलेट देखें",
+      faq: {
+        question1: "क्या Clips मुफ़्त है?",
+        answer1: "हाँ। Clips मुफ़्त और ओपन सोर्स है।",
+        question2: "क्या AI स्क्रीन रिकॉर्डिंग पढ़ सकता है?",
+        answer2:
+          "हाँ। हर क्लिप में ट्रांसक्रिप्ट, सारांश और टाइमस्टैम्प वाले फ़्रेम होते हैं, जिन्हें एजेंट सीधे पढ़ सकता है।",
+        question3: "Clips, Loom से कैसे अलग है?",
+        answer3:
+          "Clips ओपन सोर्स है, डेटा आपका है और हर साझा लिंक को सिर्फ़ लोग ही नहीं, AI एजेंट भी पढ़ सकते हैं।",
+        question4: "क्या स्क्रीन रिकॉर्डिंग कंसोल की गड़बड़ियाँ कैप्चर कर सकती है?",
+        answer4:
+          "हाँ। Clips रिकॉर्डिंग के साथ ब्राउज़र कंसोल की गड़बड़ियाँ और विफल नेटवर्क अनुरोध भी कैप्चर करता है। ये ट्रांसक्रिप्ट और फ़्रेम वाले उसी साझा लिंक से जुड़े होते हैं। एजेंट क्लिप को केवल देखने के बजाय उससे डिबग कर सकता है।",
+        question5: "क्या Clips Claude, ChatGPT या Cursor के साथ काम करता है?",
+        answer5:
+          "हाँ! किसी प्लगइन या API कुंजी की ज़रूरत नहीं है। Clips का साझा लिंक किसी भी एजेंट में चिपकाएँ और वह ट्रांसक्रिप्ट, सारांश और फ़्रेम सीधे पढ़ सकता है।",
+        question6: "मेरी रिकॉर्डिंग कहाँ रहती हैं?",
+        answer6:
+          "जहाँ आप उन्हें डिप्लॉय करते हैं। सेल्फ-होस्टेड Clips आपके वीडियो, ट्रांसक्रिप्ट और विश्लेषण को आपके अपने इंफ्रास्ट्रक्चर में रखता है।",
+      },
       quickStart: {
         recordingMode: "रिकॉर्डिंग मोड",
         modeScreenCamera: "स्क्रीन + कैमरा",
@@ -1470,8 +1506,8 @@ const hiIN = {
       s003: "उत्पन्न करें",
       s004: "परिष्कृत करें",
       s005: "सभी टेम्पलेट",
-      s006Primary: "इंसानों और एजेंटों के लिए",
-      s006Secondary: "स्लाइड प्रस्तुतियाँ",
+      s006Primary: "आपके AI एजेंट से बनी स्लाइड्स।",
+      s006Secondary: "ब्रांड के अनुरूप और संपादन योग्य",
       s007: "अपने AI एजेंट से ब्रांडेड स्लाइड डेक बनाएं, जब चाहें खुद बदलाव करें और कहीं भी एक्सपोर्ट करें।",
       s008: "आज़माएँ",
       s009: "यह कैसे काम करता है",
@@ -1725,6 +1761,35 @@ const hiIN = {
   },
   legal: {
     lastUpdated: "अंतिम अपडेट: {{date}}",
+    resources: {
+      eyebrow: "कानूनी संसाधन",
+      title: "Agent-Native के कानूनी संसाधन",
+      intro:
+        "Agent-Native होस्ट किए गए ऐप्लिकेशन और सेवाओं के लिए स्वतंत्र कानूनी नीतियाँ।",
+      agentNative: {
+        title: "Agent-Native नीतियां",
+        body: "ये पृष्ठ साझा नीति ढांचे को Agent-Native के ओपन-सोर्स प्रोजेक्ट और होस्ट किए गए उदाहरणों के अनुसार ढालते हैं।",
+        terms: "Agent-Native सेवा की शर्तें",
+        privacy: "Agent-Native गोपनीयता नीति",
+      },
+      builder: {
+        title: "होस्ट की गई सेवा की अतिरिक्त नीतियाँ",
+        body: "इन स्थानीय प्रतियों में स्वीकार्य उपयोग, AI सुविधाएँ, प्लैटफ़ॉर्म नियम, निलंबन और हटाना, कॉपीराइट और कानून-प्रवर्तन अनुरोध शामिल हैं। अंग्रेज़ी संस्करण प्रभावी होगा।",
+      },
+      links: {
+        terms: "SaaS सेवा समझौता",
+        privacy: "गोपनीयता नीति",
+        acceptableUse: "स्वीकार्य उपयोग नीति",
+        aiTerms: "AI शर्तें",
+        platformRules: "प्लेटफ़ॉर्म नियम",
+        takedown: "निलंबन, हटाने और डेटा प्रबंधन नीति",
+        lawEnforcement: "कानून प्रवर्तन अनुरोध नीति",
+      },
+      notIncluded: {
+        title: "वाणिज्यिक शर्तें शामिल नहीं हैं",
+        body: "Agent-Native की कोई भुगतान योजना या एंटरप्राइज़ अनुबंध नहीं है। एंटरप्राइज़ SLA, सहायता शर्तें, DPA, सुरक्षा परिशिष्ट, पेशेवर सेवाओं की शर्तें और शुल्क जैसी व्यावसायिक सामग्री शामिल नहीं है।",
+      },
+    },
     privacy: {
       eyebrow: "गोपनीयता नीति",
       title: "Agent-Native होस्ट किए गए एप्लिकेशन",
@@ -1747,6 +1812,7 @@ const hiIN = {
       sections: {
         scope: "दायरा",
         information: "जानकारी हम एकत्रित करते हैं",
+        cookies: "कुकीज़ और एनालिटिक्स",
         clipsExtension: "Agent-Native Clips Chrome एक्सटेंशन",
         use: "हम जानकारी का उपयोग कैसे करते हैं",
         sharing: "साझाकरण और तृतीय पक्ष",
@@ -1760,6 +1826,8 @@ const hiIN = {
           "Agent-Native खुला स्रोत है, और स्रोत कोड MIT लाइसेंस के तहत उपलब्ध है। यह नीति केवल Agent-Native उपयोगकर्ताओं के लिए Builder.io द्वारा संचालित होस्ट किए गए एप्लिकेशन और सेवाओं पर लागू होती है। यह किसी अन्य व्यक्ति द्वारा कोड के उपयोग पर लागू नहीं होता है, जिसमें फोर्क्स, अनुकूलित टेम्पलेट, निजी परिनियोजन या स्वयं-होस्ट किए गए संस्करण शामिल हैं। यदि आप अपनी स्वयं की तैनाती संचालित करते हैं, तो आप अपनी डेटा प्रथाओं और गोपनीयता नीति के लिए स्वयं जिम्मेदार हैं।",
         scope2Prefix: "इस नीति का उद्देश्य Builder.io के व्यापक को पूरक बनाना है",
         scope2Suffix: "Agent-Native होस्ट किए गए एप्लिकेशन व्यवहार के लिए।",
+        cookies:
+          "Agent-Native की दस्तावेज़ साइट और होस्ट किए गए ऐप प्रमाणीकरण और सुरक्षा, भाषा या थीम जैसी प्राथमिकताओं को सहेजने और कॉन्फ़िगर की गई एनालिटिक्स तकनीकों के लिए आवश्यक कुकीज़ का उपयोग कर सकते हैं। डिप्लॉयमेंट में कॉन्फ़िगर होने पर दस्तावेज़ साइट Google Analytics या Google Tag Manager लोड कर सकती है, और होस्ट की गई सेवा विश्वसनीयता तथा फीचर उपयोग को मापने के लिए प्रथम-पक्ष एनालिटिक्स का उपयोग कर सकती है। हम होस्ट किए गए ऐप की सामग्री का उपयोग तृतीय-पक्ष विज्ञापन के लिए नहीं करते। आप ब्राउज़र सेटिंग में कुकीज़ नियंत्रित कर सकते हैं, हालांकि आवश्यक कुकीज़ अक्षम करने से साइन-इन या अन्य सुविधाएं रुक सकती हैं।",
         clips1:
           "Agent-Native Clips Chrome extension आपको ब्राउज़र-आधारित रिकॉर्डिंग शुरू करने में मदद करता है और सक्षम होने पर, ब्राउज़र डायग्नोस्टिक्स को एक क्लिप में संलग्न करता है। यह चयनित कैप्चर स्रोत, कैमरा और माइक्रोफ़ोन मीडिया जिसे आप शामिल करना चाहते हैं, सक्रिय टैब शीर्षक और यूआरएल, और एक्सटेंशन को होस्ट किए गए Clips से कनेक्ट करने के लिए आवश्यक प्रमाणीकरण स्थिति एकत्र कर सकता है।",
         clips2:
@@ -1903,6 +1971,8 @@ const hiIN = {
         scope2Middle: "और Agent-Native",
         scope2Suffix:
           "यदि आप किसी कंपनी या संगठन की ओर से होस्ट किए गए Agent-Native ऐप का उपयोग करते हैं, तो आप दर्शाते हैं कि आपके पास उस संगठन के लिए इन शर्तों को स्वीकार करने का अधिकार है।",
+        scope3:
+          "Agent-Native में कोई paid plans या paid hosting subscriptions नहीं हैं। Builder.io की व्यावसायिक शर्तें, जैसे order forms, fees, enterprise support, service levels और data-processing addenda, अलग लिखित समझौते के बिना इस ऑफ़र का हिस्सा नहीं हैं।",
         hostedService:
           "Builder.io होस्ट किए गए Agent-Native एप्लिकेशन, टेम्प्लेट, डेमो, साझा कार्यस्थान, ब्राउज़र एक्सटेंशन और संबंधित एजेंट वर्कफ़्लो प्रदान कर सकता है। उत्पाद के विकसित होने पर होस्ट की गई सेवा को अद्यतन, सीमित, निलंबित या बंद किया जा सकता है।",
         accounts1:
@@ -2023,12 +2093,16 @@ const hiIN = {
     actionsAgentTools: "Production में Agent Access",
     publicAgentWeb: "Public agent web",
     database: "डेटाबेस",
+    databaseProviders: "डेटाबेस प्रदाता",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databasePostgres: "Plain Postgres",
     internationalization: "अंतरराष्ट्रीयकरण",
     localFileMode: "Local File Mode",
     fileUploads: "File uploads",
     deployment: "Deployment",
     deploymentOverview: "अवलोकन",
-    deploymentProviders: "प्रदाता",
+    deploymentProviders: "होस्टिंग प्रदाता",
     deploymentProduction: "प्रोडक्शन और उन्नत",
     deployAnApp: "ऐप परिनियोजित करें",
     workspaceDeployment: "वर्कस्पेस परिनियोजन",

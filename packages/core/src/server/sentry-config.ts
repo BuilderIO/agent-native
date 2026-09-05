@@ -83,19 +83,32 @@ export function resolveRealtimeClientConfig(): {
   transport: "hosted";
   gatewayBaseUrl: string;
 } | null {
-  // Fail closed: emit hosted config only when BOTH the transport is hosted AND
-  // an explicit gateway URL is set. No production default — this ships into the
-  // CDN-cached shell served to every visitor, so a mis-set staging/preview/
-  // self-hosted env must stay on the local transport rather than silently
-  // point every browser at api.builder.io. This gating is mirrored byte-for-
-  // byte in the worker emitter in `deploy/build.ts` (kept in sync deliberately).
+  // One gate: the transport env var. Everything else is derivable, which is the
+  // point — a self-registering app should need exactly one var, not three.
+  //
+  // This used to also require an explicit gateway URL, so that a mis-set env
+  // could not point a CDN-cached shell at api.builder.io. That check moved
+  // rather than disappeared: the shell now advertises the gateway, and the
+  // app's own `/_agent-native/realtime-token` decides whether a channel exists
+  // to talk on. No channel means a 404 and the client stays on local `/poll`,
+  // so the failure is still closed — just one layer down, where it can tell the
+  // difference between "not configured" and "configured elsewhere".
+  //
+  // Mirrored byte-for-byte by the worker emitter in `deploy/build.ts` and by
+  // `hostedRealtimeTransportEnabled` in `server/poll.ts`; a skew between them
+  // is a silent cross-writer version bug, so `realtime-transport-gate.spec.ts`
+  // asserts all three agree.
   if (firstNonEmpty(process.env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
     return null;
   }
-  const gatewayBaseUrl = firstNonEmpty(
-    process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL,
-  );
-  if (!gatewayBaseUrl) return null;
+  // config-ok: mirrored by the generated worker source in `deploy/build.ts`,
+  // which has no app-config at runtime.
+  const explicit = firstNonEmpty(process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
+  // config-ok: same mirrored emitter as above.
+  const builderGateway = firstNonEmpty(process.env.BUILDER_GATEWAY_BASE_URL);
+  const gatewayBaseUrl =
+    explicit ||
+    `${(builderGateway || "https://api.builder.io/agent-native/gateway/v1").replace(/\/+$/, "")}/realtime`;
   return { transport: "hosted", gatewayBaseUrl };
 }
 

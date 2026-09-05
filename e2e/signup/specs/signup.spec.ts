@@ -127,6 +127,23 @@ for (const target of targets) {
         400,
       );
       await renderedText(page, signInUrl);
+      // The form is absent, not hidden, when the server picks password auth —
+      // which it does whenever the deployment has no email provider. Read the
+      // mode the server actually rendered so the failure names the missing env
+      // instead of timing out on a locator.
+      const authData = await page
+        .locator("#agent-native-auth-data")
+        .textContent();
+      const authMode = authData
+        ? (JSON.parse(authData) as { authMode?: string }).authMode
+        : undefined;
+      expect(
+        authMode,
+        `${signInUrl} rendered authMode=${authMode ?? "unknown"}. Magic-link ` +
+          "signup is unavailable because this deployment has no RESEND_API_KEY " +
+          "or SENDGRID_API_KEY (+EMAIL_FROM) configured — fix the site's email " +
+          "provider env, not this assertion.",
+      ).toBe("magic-link");
       await expect(page.locator("#magic-link-form")).toBeVisible();
     });
 

@@ -158,8 +158,8 @@ const jaJP = {
           body: "作業を一度定義し、UI、agent、HTTP、MCP、A2A、CLI から使えます。",
         },
         sqlStateOrm: {
-          title: "SQL 状態と ORM",
-          body: "永続的なアプリデータ、application state、マイグレーション、プロバイダー非依存の schema。",
+          title: "PostgreSQL 状態と ORM",
+          body: "永続的なアプリデータ、application state、マイグレーション、PostgreSQL/PGlite の schema。",
         },
         dbAdmin: {
           title: "データベース管理",
@@ -212,7 +212,7 @@ const jaJP = {
       body1:
         "Agent-Native は agentic applications を構築するためのオープンソース framework です。Chat から始め、共有 actions を定義し、同じ state を中心に UI、jobs、コラボレーションを追加できます。",
       body2:
-        "自分のデータベース、ホスティングプロバイダー、モデルスタック、app コードを持ち込めます。",
+        "ローカル PGlite またはホスト型 PostgreSQL、ホスティングプロバイダー、モデルスタック、app コードを使用できます。",
       cta: "framework ガイドを読む",
       primitives: {
         actions: {
@@ -223,17 +223,17 @@ const jaJP = {
         sharedState: {
           title: "共有状態",
           description:
-            "SQL-backed app state が、人、agents、sessions の同期を保ちます。",
+            "PostgreSQL/PGlite-backed app state が、人、agents、sessions の同期を保ちます。",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop、tools、skills、memory、jobs、observability が一緒に出荷されます。",
         },
-        backendAgnostic: {
-          title: "バックエンド非依存",
+        postgresSpecific: {
+          title: "PostgreSQL 固有",
           description:
-            "Drizzle 対応の任意の SQL データベースと Nitro 互換ホストを接続できます。",
+            "フレームワークの PostgreSQL schema ヘルパーを、ローカル PGlite または Nitro 互換ホスト上のホスト型 Postgres と組み合わせて使用できます。",
         },
       },
     },
@@ -312,7 +312,7 @@ const jaJP = {
     },
     quickStart: {
       title: "コマンドから始める",
-      body: "1 つのコマンドで、actions、durable threads、SQLite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
+      body: "1 つのコマンドで、actions、durable threads、PGlite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
     },
     finalCta: {
       title: "agentic era のために作られたソフトウェア",
@@ -417,6 +417,7 @@ const jaJP = {
   },
   common: {
     copied: "コピーされました",
+    copyFailed: "コピーできませんでした",
     copyCommand: "コピーコマンド",
     copyCode: "コードをコピーする",
     tryIt: "試す",
@@ -446,15 +447,15 @@ const jaJP = {
     },
     actions: {
       title: "1 つの Action があらゆる面を動かす",
-      bodyLine1: "Action は Agent-Native アプリを構成する基本単位です。",
+      bodyLine1: "Action はエージェントができることを定義します。",
       bodyLine2:
-        "機能を一度定義すれば、UI、agent チャット、HTTP API、MCP、A2A、CLI から利用できます。",
+        "各機能を一度定義すれば、エージェント、UI、HTTP API、MCP、A2A、CLI から利用できます。",
       diagramAlt:
         "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
     },
     builtIn: {
-      title: "すべての Agent-Native アプリに組み込み済み",
-      body: "ユーザーと AI エージェントが共に働くために必要なものが、すでに 1 つのアプリケーションに組み込まれています。",
+      title: "エージェントに必要なものすべて",
+      body: "UI、コンテキスト、データ、権限、インフラが、あらかじめ連携されています。",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -462,14 +463,14 @@ const jaJP = {
         },
         agentChat: {
           title: "組み込みの agent チャット",
-          body: "アプリを離れずに、作業を任せたり質問したり結果を確認したりできます。",
+          body: "同じ UI で、作業を任せたり質問したり結果を確認したりできます。",
         },
         sharedState: {
           title: "共有アプリケーション状態",
           body: "agent はユーザーが表示、選択、編集している内容を把握します。",
         },
         sharedSql: {
-          title: "共有 SQL データ",
+          title: "共有 PostgreSQL データ",
           body: "ユーザーと agent は同じ信頼できるデータソースを読み書きします。",
         },
         skillsMemory: {
@@ -478,11 +479,11 @@ const jaJP = {
         },
         automations: {
           title: "自動化",
-          body: "スケジュールやアプリケーションイベントに応じて agent の作業を自動実行します。",
+          body: "スケジュールやイベントに応じて agent の作業を自動実行します。",
         },
         agentTeams: {
           title: "Agent チーム",
-          body: "アプリ内、またはアプリをまたいで専門の agent に作業を任せられます。",
+          body: "同じワークスペース内、または接続された agent 間で専門の agent に作業を任せられます。",
         },
         auth: {
           title: "認証と組織",
@@ -496,19 +497,19 @@ const jaJP = {
     },
     stack: {
       title: "お使いのスタックで動作",
-      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、アプリケーションはあなたのものであり続けます。",
+      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、構築したものはすべてあなたのものです。",
       exploreApps: "Agent-Native で作られたアプリを見る",
     },
     showcase: {
       title: "Agent-Native で何を作れるか",
-      body: "あなたの仕事を理解し、行動し、共に取り組むエージェント型アプリ。独自に構築することも、これらのオープンソースアプリを試すこともできます。",
+      body: "会議、デザイン、プレゼンテーション、データなどの仕事に対応する UI 付きエージェントを構築できます。これらのオープンソースアプリから始めることも、独自に構築することもできます。",
       browseApps: "アプリを見る",
       scrollLeft: "アプリを左へスクロール",
       scrollRight: "アプリを右へスクロール",
     },
     bottomCta: {
-      title: "最初の Agent-Native アプリを作る",
-      body: "ユーザーと AI エージェントのために 1 つのアプリケーションを作成します。好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      title: "最初の UI 付きエージェントを作る",
+      body: "エージェントと UI は同じ機能を共有します。好きな LLM を持ち込み、どこにでもデプロイできます。",
     },
     footer: {
       tagline: "agentic アプリケーションのための framework。",
@@ -520,16 +521,30 @@ const jaJP = {
       download: "ダウンロード",
       apps: "アプリ",
       privacyPolicy: "プライバシーポリシー",
-      saasTerms: "SaaS 利用規約",
+      saasTerms: "ホスト型サービス利用規約",
+      legalResources: "法務リソース",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ローカルで構築しない場合は、",
-      exploreApp: "まず公開中のアプリを試す",
-      between: "か",
-      joinWaitlist: "ウェイトリストに登録して",
-      end: "ブラウザで構築してください。",
+    tabs: {
+      label: "構築方法を選択",
+      local: "ローカルで構築",
+      localDescription: "CLIを使って自分のマシンで構築します。",
+      cloud: "クラウドで構築",
+      cloudDescription: "Builder.ioを使ってブラウザで構築します。",
+    },
+    cloud: {
+      intro:
+        "何もインストールせずに同じアプリを構築できます。作りたいものを説明すると、Builderがホストするワークスペースでエージェントがコードを書いて実行します。",
+      stepOneTitle: "Builderアカウントを作成",
+      stepOneBody:
+        "Builderアカウントを使ってブラウザで構築します。APIキーを用意せず、無料で始められます。",
+      stepTwoTitle: "プロンプトを入力",
+      stepTwoBody:
+        "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
+      stepThreeTitle: "デプロイ",
+      stepThreeBody:
+        "準備ができたら、Builderでアプリをワンクリックでデプロイします。",
     },
   },
   templatesPage: {
@@ -552,9 +567,9 @@ const jaJP = {
     copyCommunityInstallCommand: "インストールコマンドをコピー",
     viewRepository: "リポジトリを見る",
     tryCommunityDemo: "デモを試す",
-    customizeDescription: "このコードはすべてカスタマイズできます。",
-    customizeOnline: "オンラインでカスタマイズ",
-    customizeLocally: "ローカルでカスタマイズ",
+    customizeDescription: "このアプリを出発点として使えます。",
+    customizeOnline: "オンライン",
+    customizeLocally: "ローカル",
     communityNew: "新着",
     communityComingSoon: "近日公開",
     communityGithubStars: "GitHub スター {{count}}",
@@ -574,7 +589,7 @@ const jaJP = {
     communitySubmissionName: "アプリ名",
     communitySubmissionNamePlaceholder: "カスタマーサポートハブ",
     communitySubmissionUrl: "アプリ URL",
-    communitySubmissionUrlPlaceholder: "example.com または https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "説明",
     communitySubmissionDescriptionPlaceholder:
       "アプリの機能と対象ユーザーを教えてください。",
@@ -590,8 +605,17 @@ const jaJP = {
     communitySubmissionSubmit: "アプリを送信",
     communitySubmissionReady:
       "ありがとうございます。公開前にアプリを確認します。",
-    communitySubmissionValidation:
-      "名前と説明を入力し、example.com のようなアプリリンクを入力してください。https:// は自動で追加します。リポジトリを追加する場合は github.com のリンクを使用してください。PNG、JPG、WebP 画像は各 1.5 MB までアップロードできます。",
+    communitySubmissionNameError: "アプリ名を入力してください。",
+    communitySubmissionDescriptionError: "短い説明を追加してください。",
+    communitySubmissionUrlError:
+      "example.com のような有効なアプリリンクを入力してください。",
+    communitySubmissionRepositoryError:
+      "GitHub リポジトリのリンクを入力してください。",
+    communitySubmissionScreenshotsError:
+      "PNG、JPG、WebP 画像を使用してください。各 1.5 MB まで、最大 5 枚です。",
+    communitySubmissionSubmitError:
+      "現在送信できません。強調表示された項目を確認して、もう一度お試しください。",
+    communitySubmissionSubmitting: "送信中…",
   },
   buildFromScratch: {
     title: "ゼロから構築",
@@ -601,15 +625,8 @@ const jaJP = {
     buildOnline: "オンラインで構築",
     popoverTitle: "ブラウザで構築",
     popoverBody:
-      "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
-    emailLabel: "メール",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "待機リストに参加",
-    joining: "参加中…",
-    joined:
-      "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
-    invalidEmail: "有効なメールアドレスを入力してください。",
-    submitError: "待機リストに参加できませんでした。もう一度お試しください。",
+      "Builder.io を使って、クラウドで agent-native アプリをすばやく生成できます。",
+    launchBuilder: "Builderを起動",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",
@@ -875,8 +892,11 @@ const jaJP = {
       s004: "口述する",
       s005: "見える + 聞こえる",
       s006: "すべてのテンプレート",
-      s007: "Loom のオープンソース代替品",
-      s008: "Clips リンクをエージェントに貼り付けると、そのモデルが生のビデオや音声を取り込むことができない場合でも、トランスクリプトを聞いたり、概要を読んだり、タイムスタンプ付きのフレームを表示したりできます。",
+      s007Primary: "AI が見て聞ける",
+      s007Secondary: "画面録画。",
+      s008: "ブラウザーのデバッグ ログを取得し、文字起こしを作成し、組み込みのディクテーションを使用できます。100% 無料、オープンソース、カスタマイズ可能。",
+      s063: "パーソナライズされた提案を受け取る",
+      s064: "このプロンプトを Claude、ChatGPT、または Cursor に貼り付けて、Clips がワークフローにどのような効果をもたらすかを確認してください。",
       s009: "試してみる",
       s010: "できること",
       s011: "サブスクリプション スタックを必要とせずに、1 つのアプリ、1 つのライブラリで記録、文字起こし、デバッグを行います。",
@@ -931,6 +951,25 @@ const jaJP = {
       s060: "キャプチャする内容を選択して、Clips で録画を開始します。",
       s061: "その他のアプリを見る",
       s062: "すべてのテンプレートを表示",
+      faq: {
+        question1: "Clips は無料ですか？",
+        answer1: "はい。Clips は無料のオープンソースです。",
+        question2: "AI は画面録画を読み取れますか？",
+        answer2:
+          "はい。すべてのクリップにはトランスクリプト、要約、タイムスタンプ付きフレームが含まれており、エージェントが直接読み取れます。",
+        question3: "Clips は Loom とどう違いますか？",
+        answer3:
+          "Clips はオープンソースで、データはあなたが所有します。共有リンクは人だけでなく AI エージェントも読み取れます。",
+        question4: "画面録画でコンソールエラーを取得できますか？",
+        answer4:
+          "はい。Clips は録画と一緒にブラウザーのコンソールエラーと失敗したネットワークリクエストを取得します。トランスクリプトやフレームと同じ共有リンクに添付されるため、エージェントはクリップを視聴するだけでなく、そこからデバッグできます。",
+        question5: "Clips は Claude、ChatGPT、Cursor で使えますか？",
+        answer5:
+          "はい。プラグインも API キーも必要ありません。Clips の共有リンクを任意のエージェントに貼り付けるだけで、トランスクリプト、要約、フレームを直接読み取れます。",
+        question6: "録画データはどこに保存されますか？",
+        answer6:
+          "デプロイ先に保存されます。セルフホストの Clips なら、動画、トランスクリプト、分析データを自分のインフラストラクチャで管理できます。",
+      },
       quickStart: {
         recordingMode: "録画モード",
         modeScreenCamera: "画面 + カメラ",
@@ -1449,8 +1488,8 @@ const jaJP = {
       s003: "生成する",
       s004: "絞り込む",
       s005: "すべてのテンプレート",
-      s006Primary: "人とエージェントのための",
-      s006Secondary: "スライドプレゼンテーション",
+      s006Primary: "AI エージェントが作るスライド。",
+      s006Secondary: "ブランドに沿って編集も自在",
       s007: "AI エージェントでブランドに沿ったスライドデッキを生成し、いつでも自分で編集して、どこにでもエクスポートできます。",
       s008: "試す",
       s009: "仕組み",
@@ -1737,6 +1776,35 @@ const jaJP = {
   },
   legal: {
     lastUpdated: "最終更新日: {{date}}",
+    resources: {
+      eyebrow: "法務リソース",
+      title: "Agent-Native の法務リソース",
+      intro:
+        "Agent-Native のホスト型アプリケーションとサービスに適用される独立した法務ポリシーです。",
+      agentNative: {
+        title: "Agent-Native のポリシー",
+        body: "これらのページは、共通のポリシーを Agent-Native のオープンソースプロジェクトとホスト型サンプル向けに調整したものです。",
+        terms: "Agent-Native 利用規約",
+        privacy: "Agent-Native プライバシーポリシー",
+      },
+      builder: {
+        title: "ホスト型サービスの追加ポリシー",
+        body: "利用規約、AI 機能、プラットフォームルール、停止と削除、著作権、法執行機関からの要請に関するローカルコピーです。英語版が優先されます。",
+      },
+      links: {
+        terms: "SaaS サービス契約",
+        privacy: "プライバシーポリシー",
+        acceptableUse: "許容利用ポリシー",
+        aiTerms: "AI 利用規約",
+        platformRules: "プラットフォームルール",
+        takedown: "停止・削除・データ処理ポリシー",
+        lawEnforcement: "法執行機関からの要請ポリシー",
+      },
+      notIncluded: {
+        title: "含まれない商用条件",
+        body: "Agent-Native には有料プランもエンタープライズ契約もありません。エンタープライズ SLA、サポート条件、DPA、セキュリティ補遺、プロフェッショナルサービス条件、料金などの商用資料は含まれません。",
+      },
+    },
     privacy: {
       eyebrow: "プライバシーポリシー",
       title: "Agent-Native ホスト型アプリケーション",
@@ -1759,6 +1827,7 @@ const jaJP = {
       sections: {
         scope: "範囲",
         information: "当社が収集する情報",
+        cookies: "Cookie と分析",
         clipsExtension: "Agent-Native Clips Chrome 拡張機能",
         use: "情報の使用方法",
         sharing: "共有とサードパーティ",
@@ -1774,6 +1843,8 @@ const jaJP = {
           "このポリシーは、Builder.io の広範なポリシーを補足することを目的としています。",
         scope2Suffix:
           "Agent-Native ホストされたアプリケーションの動作について。",
+        cookies:
+          "Agent-Native のドキュメントサイトとホスト型アプリケーションでは、認証とセキュリティ、言語やテーマなどの設定の保存、構成された分析技術のために必要な Cookie を使用する場合があります。ドキュメントサイトでは、デプロイで設定されている場合に Google Analytics または Google Tag Manager を読み込むことがあり、ホスト型サービスでは信頼性や機能の利用状況を測定するためにファーストパーティ分析を使用する場合があります。ホスト型アプリケーションのコンテンツを第三者広告には使用しません。Cookie はブラウザ設定で管理できますが、必要な Cookie を無効にするとサインインなどの機能が使えなくなる場合があります。",
         clips1:
           "Agent-Native Clips Chrome extension は、ブラウザベースの録画を開始し、有効になっている場合はブラウザ診断をクリップに添付するのに役立ちます。 It may collect the selected capture source, camera and microphone media you choose to include, the active tab title and URL, and authentication state needed to connect the extension to hosted Clips.",
         clips2:
@@ -1919,6 +1990,8 @@ const jaJP = {
         scope2Middle: "そしてAgent-Native",
         scope2Suffix:
           "企業または組織を代表してホストされた Agent-Native アプリを使用する場合、その組織に対してこれらの規約に同意する権限があることを表明することになります。",
+        scope3:
+          "Agent-Native には有料プランや有料のホスティングサブスクリプションはありません。注文書、料金、エンタープライズサポート、サービスレベル、データ処理に関する追加条項などの Builder.io の商用条件は、別途書面で合意されない限り、この提供内容には含まれません。",
         hostedService:
           "Builder.io は、ホストされた Agent-Native アプリケーション、テンプレート、デモ、共有ワークスペース、ブラウザ拡張機能、および関連するエージェント ワークフローを提供する場合があります。 The hosted service may be updated, limited, suspended, or discontinued as the product evolves.",
         accounts1:
@@ -2039,12 +2112,16 @@ const jaJP = {
     actionsAgentTools: "本番環境でのエージェントアクセス",
     publicAgentWeb: "公開 Agent Web",
     database: "データベース",
+    databaseProviders: "データベースプロバイダー",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databasePostgres: "Plain Postgres",
     internationalization: "国際化",
     localFileMode: "ローカルファイルモード",
     fileUploads: "ファイルアップロード",
     deployment: "デプロイ",
     deploymentOverview: "概要",
-    deploymentProviders: "プロバイダー",
+    deploymentProviders: "ホスティングプロバイダー",
     deploymentProduction: "本番環境と高度な設定",
     deployAnApp: "アプリをデプロイ",
     workspaceDeployment: "ワークスペースのデプロイ",

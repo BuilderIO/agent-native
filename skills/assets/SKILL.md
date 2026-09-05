@@ -96,11 +96,13 @@ Use unattended actions when the agent already knows what to do:
 - `refresh-generation-run`
 - `export-asset`
 
-For images, generation actions are synchronous; use the returned asset fields
-directly. For videos, poll `refresh-generation-run` until the run completes.
+For images, generation actions are synchronous; use the returned compact asset
+summary directly. Use `get-asset` for full asset details and the audit-run
+actions for prompts, references, and settings. For videos, poll
+`refresh-generation-run` until the run completes.
 
-Preserve returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, media type,
-dimensions, `presetId`, and `sessionId` when present.
+Preserve returned `id`, `runId`, `previewUrl`, `downloadUrl`, `embedUrl`, media
+type, and dimensions.
 
 ## Guardrails
 

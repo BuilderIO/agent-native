@@ -567,9 +567,13 @@ describe("readAgentsBundleFromFs", () => {
     );
     expect(turnIntoApp!.content).toContain("Spreadsheet sources");
     expect(turnIntoApp!.content).toContain(
-      "A Google Sheets URL is a live provider source",
+      "A Google Sheets URL is not proof the sheet is readable",
     );
+    expect(turnIntoApp!.content).toContain("Never use a public export URL");
     expect(turnIntoApp!.extraFiles).toContain("references/fresh-project.md");
+    expect(turnIntoApp!.extraFiles).toContain(
+      "references/spreadsheet-source.md",
+    );
 
     const promptBlock = generateSkillsPromptBlock(bundle);
     expect(promptBlock).toContain("`turn-into-app`");

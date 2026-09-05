@@ -14,7 +14,13 @@ export const CHAT_STOP_DEBOUNCE_MS = 4_000;
 
 type AgentGeneratingSubmitOptions = Pick<
   AgentChatMessage,
-  "newTab" | "openSidebar" | "referenceImagePaths" | "images"
+  | "newTab"
+  | "openSidebar"
+  | "referenceImagePaths"
+  | "images"
+  | "model"
+  | "engine"
+  | "effort"
 > & {
   reuseEmptyTab?: boolean;
   attachments?: ReadonlyArray<unknown>;

@@ -81,6 +81,32 @@ beforeEach(() => {
 });
 
 describe("get-deck", () => {
+  it("accepts the deck id under either `id` or `deckId`", () => {
+    expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
+    // Every sibling tool (create-deck, add-slide, update-slide, patch-deck)
+    // names this parameter `deckId`; rejecting it here cost agents a retry.
+    expect(action.schema.safeParse({ deckId: "deck-1" }).success).toBe(true);
+    expect(JSON.stringify(action.tool.parameters).includes("deckId")).toBe(
+      true,
+    );
+  });
+
+  it("rejects a read with neither `id` nor `deckId`", async () => {
+    await expect(action.run({} as any, { caller: "tool" })).rejects.toThrow(
+      /`id` or `deckId`/,
+    );
+  });
+
+  it("reads the same deck through the deckId alias", async () => {
+    const result = (await action.run(
+      { deckId: "deck-1" },
+      { caller: "cli" },
+    )) as any;
+
+    expect(result.id).toBe("deck-1");
+    expect(result.slides[0]).toMatchObject({ id: "slide-a" });
+  });
+
   it("bounds a full-deck read so a stalled lookup can return a tool error", () => {
     expect(action.timeoutMs).toBe(60_000);
   });
@@ -104,6 +130,7 @@ describe("get-deck", () => {
     });
     expect(result.createdByMe).toBe(true);
     expect(result.slides[0]).not.toHaveProperty("index");
+    expect(result.sourceEditability).toEqual({ structuralEdits: "allowed" });
   });
 
   it("repairs duplicate persisted slide IDs before returning the deck", async () => {
@@ -236,6 +263,38 @@ describe("get-deck", () => {
       missingSlideIds: ["source-2"],
       unexpectedSlideIds: ["extra"],
     });
+    expect(result.sourceEditability).toMatchObject({
+      structuralEdits: "blocked",
+      reason: "source-preserving import",
+      conversion: {
+        action: "patch-deck",
+        parameter: "rewriteSource",
+      },
+    });
+  });
+
+  it("reports editable source snapshots without structural restrictions", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Copied source",
+      slides: [{ id: "slide-1", content: "One" }],
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pptx",
+        fidelity: "source-faithful",
+        slideCount: 1,
+        slideIds: ["slide-1"],
+        slides: [{ id: "slide-1" }],
+        editableSnapshot: true,
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.sourceImport.editableSnapshot).toBe(true);
+    expect(result.sourceEditability).toEqual({ structuralEdits: "allowed" });
   });
 
   it("lets agent calls opt into full slide HTML", async () => {

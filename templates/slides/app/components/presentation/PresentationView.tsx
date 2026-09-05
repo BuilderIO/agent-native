@@ -2,12 +2,15 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronLeft,
   IconChevronRight,
+  IconFileTypePdf,
+  IconLoader2,
   IconMaximize,
   IconNotes,
   IconX,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type {
@@ -15,7 +18,8 @@ import type {
   SlideAnimation,
   AnimationType,
 } from "@/context/DeckContext";
-import type { AspectRatio } from "@/lib/aspect-ratios";
+import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import {
   expandByParagraphAnimations,
   findLegacyAnimationContainer,
@@ -33,6 +37,36 @@ interface PresentationViewProps {
   startIndex?: number;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
+  pdfExportTitle?: string;
+  pdfExportToken?: string;
+}
+
+function PdfExportStage({
+  slides,
+  aspectRatio,
+  designSystem,
+}: Pick<PresentationViewProps, "slides" | "aspectRatio" | "designSystem">) {
+  const dims = getAspectRatioDims(aspectRatio);
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none fixed top-0"
+      data-pdf-export-stage="true"
+      style={{ left: "-10000px", width: dims.width }}
+    >
+      {slides.map((slide) => (
+        <div key={slide.id} style={{ width: dims.width, height: dims.height }}>
+          <SlideRenderer
+            slide={slide}
+            thumbnail={false}
+            aspectRatio={aspectRatio}
+            designSystem={designSystem}
+          />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ─── Element animation helpers ────────────────────────────────────────────────
@@ -183,6 +217,8 @@ export default function PresentationView({
   startIndex = 0,
   aspectRatio,
   designSystem,
+  pdfExportTitle,
+  pdfExportToken,
 }: PresentationViewProps) {
   const t = useT();
   const safeSlides = useMemo(
@@ -237,6 +273,14 @@ export default function PresentationView({
   const [showControls, setShowControls] = useState(false);
   const [cursorVisible, setCursorVisible] = useState(true);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
+  const [pdfExportRequest, setPdfExportRequest] = useState<{
+    deckId: string;
+    title: string;
+    slides: Slide[];
+    aspectRatio?: AspectRatio;
+    shareToken?: string;
+  } | null>(null);
+  const pdfExporting = pdfExportRequest !== null;
   const enteredFullscreenRef = useRef(false);
   const transitionTimerRef = useRef<number | null>(null);
   const queuedNavigationRef = useRef<"next" | "prev" | null>(null);
@@ -600,6 +644,60 @@ export default function PresentationView({
     };
   }, []);
 
+  const handleDownloadPdf = useCallback(() => {
+    if (!pdfExportTitle || pdfExporting || safeSlides.length === 0) return;
+    setPdfExportRequest({
+      deckId,
+      title: pdfExportTitle,
+      slides: safeSlides,
+      aspectRatio,
+      shareToken: pdfExportToken,
+    });
+  }, [
+    aspectRatio,
+    deckId,
+    pdfExportTitle,
+    pdfExportToken,
+    pdfExporting,
+    safeSlides,
+  ]);
+
+  useEffect(() => {
+    if (!pdfExportRequest) return;
+    if (pdfExportRequest.deckId !== deckId) {
+      setPdfExportRequest(null);
+      return;
+    }
+    let cancelled = false;
+    const abortController = new AbortController();
+
+    const exportPdf = async () => {
+      try {
+        await exportDeckAsPdf(
+          pdfExportRequest.title,
+          pdfExportRequest.slides,
+          pdfExportRequest.aspectRatio,
+          {
+            signal: abortController.signal,
+            shareToken: pdfExportRequest.shareToken,
+          },
+        );
+      } catch (error) {
+        if (cancelled || abortController.signal.aborted) return;
+        console.error("[slides] shared PDF export failed:", error);
+        toast.error(t("deckEditor.pdfRenderFailed"));
+      } finally {
+        if (!cancelled) setPdfExportRequest(null);
+      }
+    };
+
+    void exportPdf();
+    return () => {
+      cancelled = true;
+      abortController.abort();
+    };
+  }, [deckId, pdfExportRequest, t]);
+
   const displaySlide = useMemo(() => {
     if (!currentSlide || !animSteps || animSteps.length === 0)
       return currentSlide;
@@ -719,6 +817,36 @@ export default function PresentationView({
           </div>
 
           <div className="flex items-center gap-2">
+            {pdfExportTitle && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleDownloadPdf();
+                }}
+                disabled={pdfExporting}
+                aria-busy={pdfExporting}
+                className={
+                  "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" // guard:allow-raw-color - fixed black presentation surface
+                }
+                aria-label={t("editorExport.exportPdf")}
+                title={t("editorExport.exportPdf")}
+              >
+                {pdfExporting ? (
+                  <IconLoader2
+                    className={
+                      "w-5 h-5 sm:w-4 sm:h-4 animate-spin motion-reduce:animate-none text-white" // guard:allow-raw-color - fixed black presentation surface
+                    }
+                  />
+                ) : (
+                  <IconFileTypePdf
+                    className={
+                      "w-5 h-5 sm:w-4 sm:h-4 text-white" // guard:allow-raw-color - fixed black presentation surface
+                    }
+                  />
+                )}
+              </button>
+            )}
             <button
               onClick={openPresenterWindow}
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
@@ -766,6 +894,14 @@ export default function PresentationView({
           <IconMaximize className="w-4 h-4" />
           {t("presentation.clickToEnterFullscreen")}
         </button>
+      )}
+
+      {pdfExportRequest && (
+        <PdfExportStage
+          slides={pdfExportRequest.slides}
+          aspectRatio={pdfExportRequest.aspectRatio}
+          designSystem={designSystem}
+        />
       )}
     </div>
   );

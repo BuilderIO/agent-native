@@ -1,7 +1,7 @@
 ---
-title: "外部エージェント: Claude、ChatGPT、Codex、カーソル、Cowork"
-description: "Claude、ChatGPT、Codex、Cursor、Claude Cowork、または MCP 互換ホストをホストされたエージェント ネイティブ アプリに接続し、MCP アプリとディープ リンクを使用してアーティファクトを実行中の UI に往復させます。"
-search: "Claude ChatGPT Claude コード Codex カーソル Claude Cowork MCP アプリ エージェントネイティブ接続 ローカル エージェント ツール 外部エージェント"
+title: "外部エージェント: Claude、ChatGPT、Codex、カーソル、Cowork、Grok"
+description: "Claude、ChatGPT、Codex、Cursor、Claude Cowork、Grok、または MCP 互換ホストをホストされたエージェント ネイティブ アプリに接続し、MCP アプリとディープ リンクを使用してアーティファクトを実行中の UI に往復させます。"
+search: "Claude Anthropic ChatGPT OpenAI Claude コード Codex カーソル Claude Cowork Grok xAI MCP アプリ エージェントネイティブ接続 ローカル エージェント ツール 外部エージェント"
 ---
 
 # 外部エージェント
@@ -99,9 +99,12 @@ search: "Claude ChatGPT Claude コード Codex カーソル Claude Cowork MCP �
 https://<your-app>.agent-native.com/mcp
 ```
 
-アプリで **Settings** を開き、**MCP** を検索して **MCP server URL** をコピー
-します。その URL を使用する AI ホストに貼り付けます。URL はデプロイ済みアプリの
-ベース URL に `/mcp` を付けたものです。開発者設定を探す必要はありません。
+アプリで **Settings → Integrations** を開き、すでに知っているホスト名を検索
+します。Claude、Claude Cowork、Claude Code、Anthropic、ChatGPT、OpenAI、
+Codex、Grok、xAI のいずれでも検索できます。外部ホストの検索結果は 1 件だけ
+表示され、最も近いガイドを選択した状態で **Settings → MCP** が開きます。
+**MCP server URL** をコピーして AI ホストに貼り付けます。URL はデプロイ済み
+アプリのベース URL に `/mcp` を付けたものです。
 
 ワークスペースまたはクロスアプリ作業の場合は、Dispatch を使用します。
 
@@ -123,7 +126,7 @@ https://<your-app>.agent-native.com/mcp
 
 ホストされているすべてのアプリには、ヘルパー ページもあります
 `https://&lt;app&gt;/mcp/connect` とコピー可能な URL および
-Claude、ChatGPT、カーソル、Claude コード、Codex、その他のホスト固有のタブ。
+Claude、ChatGPT、カーソル、Claude コード、Codex、Grok、その他のホスト固有のタブ。
 
 <a id="access-tab"></a>
 
@@ -510,6 +513,8 @@ ChatGPT/Claude スタイルの OAuth アプリ ホストの場合、検出サー
 これにより、クライアントごとに shim を構築するのではなく、互換性のあるすべてのホストで同じアプリ サーフェスを利用できるようになります。 MCP アプリをインラインでレンダリングするホスト (およびメタデータ変更後のコネクタ キャッシュの問題点) は [MCP Apps → Client support and caching](/docs/mcp-apps#client-support) にあります。そのページはクライアント マトリックスの単一のホームです。
 
 実際には、すべてのエージェント ネイティブ アプリは、対応ホストでのインライン レビュー/編集用の MCP アプリと、完全なアプリへのユニバーサル ラウンドトリップ用の `link` の両方を使用して作成する必要があります。 iframe をレンダリングしない CLI/コードエディター クライアントは、ディープ リンクにフォールバックします。人間による選択ツールは、そのフォールバックにペーストバック ステップを追加できます。たとえば、アセット ピッカーがフォールバック リンクから開き、ユーザーがブラウザでメディアを選択できるようにして、ユーザーがチャットに貼り付けるハンドオフの概要をコピーします。
+
+外部エージェントはアプリの実際の作成・更新ツール ― アプリ内エージェントが呼び出すのと同じ名前付きアクション ― を利用できます。そのため、ユーザーが新しいコンテンツ(デザイン、デッキ、フォーム、ドキュメントなど)を求めた場合は、`ask_app` に作業を委任するのではなく、直接それを作成し、それらのツールで保存してください。`endsTurn: true` が付いたアクション ― そのアプリ自身のチャットでユーザーの回答を待つアプリ内質問フォームなど ― は、アクションが明示的に `mcpTool: true` で再度有効にしない限り、デフォルトで MCP、WebMCP、A2A から隠されます。それらはアプリ内エージェントのためのツールであり、外部の呼び出し元のためのものではありません。WebMCP ブリッジはツールの入力と結果を最大 500,000 文字まで受け付けるため、手作業で作成した画面、デッキ、ドキュメント全体を分割することなく一度の書き込みに収めることができます。ページローカルの WebMCP 呼び出しはブラウザのタブ ID も伝えるため、タブごとのコンテキスト(ナビゲーションや選択状態)はユーザーが実際に見ているタブに解決されます。
 
 ### ファーストクラス MCP アプリ ブリッジ {#mcp-app-bridge}
 

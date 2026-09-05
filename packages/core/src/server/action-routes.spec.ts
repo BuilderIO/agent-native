@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { getRequestRunContext } from "./request-context.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
@@ -28,6 +29,7 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: (event: any) => event._method ?? "GET",
   getQuery: (event: any) => event._query ?? {},
+  readBody: async (event: any) => event._body,
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
@@ -65,6 +67,7 @@ vi.mock("../org/context.js", () => ({
     mockResolveOrgIdForEmail(...args),
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
   resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
+  isFederationMembershipValidatedForEvent: () => false,
 }));
 
 vi.mock("./auth.js", () => ({
@@ -384,6 +387,69 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("reports an unreadable action body as a contract error", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn();
+    const actions = {
+      updateItem: {
+        run,
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = {
+      _method: "POST",
+      req: { json: async () => Promise.reject(new SyntaxError("bad json")) },
+    };
+
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(400);
+    expect(result).toEqual({
+      error: "Request body must be a valid JSON object.",
+      errorCode: "invalid_action_request_body",
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicit null body on the H3 fallback", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn();
+    const actions = {
+      updateItem: {
+        run,
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", _body: null, req: {} };
+
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(400);
+    expect(result).toEqual({
+      error: "Request body must be a valid JSON object.",
+      errorCode: "invalid_action_request_body",
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("echoes a fail() message instead of a generic 500", async () => {
     const { fail } = await import("../scripts/utils.js");
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -659,6 +725,7 @@ describe("mountActionRoutes", () => {
       ping: {
         run: vi.fn(async () => ({
           browserSessionId: getRequestContext()?.browserSessionId,
+          browserTabId: getRequestContext()?.run?.browserTabId,
           clientPlatform: getRequestContext()?.clientPlatform,
         })),
       } as any,
@@ -672,6 +739,7 @@ describe("mountActionRoutes", () => {
       _method: "POST",
       _headers: {
         "x-agent-native-session-id": "pinned-session-1",
+        "x-agent-native-browser-tab": "tab-a",
         "x-agent-native-client-platform": "mobile",
       },
       req: { json: async () => ({}) },
@@ -684,10 +752,12 @@ describe("mountActionRoutes", () => {
 
     expect(await mounted[0].handler(withSession)).toEqual({
       browserSessionId: "pinned-session-1",
+      browserTabId: "tab-a",
       clientPlatform: "mobile",
     });
     expect(await mounted[0].handler(withoutSession)).toEqual({
       browserSessionId: undefined,
+      browserTabId: undefined,
       clientPlatform: undefined,
     });
   });
@@ -2197,10 +2267,7 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
-  it.each([
-    "no such table: org_members",
-    'relation "org_members" does not exist',
-  ])(
+  it.each(['relation "org_members" does not exist'])(
     "suppresses the verified first-boot missing org table error: %s",
     async (message) => {
       const { mountActionRoutes } = await import("./action-routes.js");
@@ -2491,6 +2558,7 @@ describe("mountWebMcpActionRoutes", () => {
         manifest: {
           name: "Clips",
           description: "Read clips",
+          instructions: "Call view-screen before editing.",
           websiteUrl: "https://clips.example.com",
         },
       },
@@ -2530,6 +2598,7 @@ describe("mountWebMcpActionRoutes", () => {
       protocol: "WebMCP",
       name: "Clips",
       description: "Read clips",
+      instructions: expect.stringContaining("Call view-screen before editing."),
       website_url: "https://clips.example.com",
       endpoints: {
         mcp: "https://clips.example.com/mcp",
@@ -2542,6 +2611,7 @@ describe("mountWebMcpActionRoutes", () => {
       tools: [
         {
           name: "eligible",
+          title: "Eligible",
           description: "Eligible",
           parameters: { type: "object" },
           inputSchema: { type: "object" },
@@ -2558,6 +2628,7 @@ describe("mountWebMcpActionRoutes", () => {
     ).resolves.toEqual([
       {
         name: "eligible",
+        title: "Eligible",
         description: "Eligible",
         inputSchema: { type: "object" },
         readOnly: true,
@@ -2586,5 +2657,242 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).resolves.toEqual({ caller: "webmcp" });
     expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves getRequestRunContext().browserTabId from X-Agent-Native-Browser-Tab, on both the webmcp and /mcp/tool paths, and leaves it undefined without the header", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    // The action itself reads the context — same helper
+    // `readAppStateForCurrentTab` (application-state/script-helpers.ts) uses
+    // to scope app state to the calling tab.
+    const run = vi.fn(async () => ({
+      browserTabId: getRequestRunContext()?.browserTabId,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(nitroApp, {
+      eligible: {
+        tool: { description: "Eligible", parameters: { type: "object" } },
+        run,
+        readOnly: true,
+      } as any,
+    });
+
+    const webMcpRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
+    );
+    const mcpToolRoute = mounted.find(
+      ({ path }) => path === "/mcp/tool/eligible",
+    );
+
+    await expect(
+      webMcpRoute?.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-browser-tab": "tab-abc123" },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+
+    await expect(
+      mcpToolRoute?.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-browser-tab": "tab-abc123" },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+
+    // No header sent (CLI/external-agent callers that predate tab scoping):
+    // no id is fabricated, it just stays undefined.
+    await expect(
+      webMcpRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ browserTabId: undefined });
+  });
+
+  it("serves only explicitly public read-only actions to anonymous pages", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const privateRun = vi.fn();
+    const getOwnerFromEvent = vi.fn(async () => {
+      throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: {
+            description: "Search public docs",
+            parameters: { type: "object" },
+          },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "private-docs": {
+          tool: {
+            description: "Read private docs",
+            parameters: { type: "object" },
+          },
+          run: privateRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+        } as any,
+        "vetoed-docs": {
+          tool: {
+            description: "Never expose these docs",
+            parameters: { type: "object" },
+          },
+          run: vi.fn(),
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          agentTool: true,
+          mcpTool: false,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/search-docs",
+    );
+    const guessedPrivateRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/private-docs",
+    );
+    const vetoedRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/vetoed-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: { type: "object" },
+        readOnly: true,
+        title: "Search docs",
+      },
+    ]);
+    expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
+    expect(vetoedRoute).toBeUndefined();
+
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ userEmail: undefined });
+    expect(publicRun).toHaveBeenCalledTimes(1);
+    await expect(
+      guessedPrivateRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(privateRun).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a synthetic anonymous owner as authenticated", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const mutationRun = vi.fn();
+    const getOwnerContextFromEvent = vi.fn(async () => ({
+      owner: "public-owner",
+      anonymous: true,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: { description: "Search public docs", parameters: {} },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "mutate-docs": {
+          tool: { description: "Mutate docs", parameters: {} },
+          run: mutationRun,
+          http: false,
+          readOnly: false,
+        } as any,
+      },
+      { getOwnerContextFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const mutationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/mutate-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: {},
+        readOnly: true,
+        title: "Search docs",
+      },
+    ]);
+    await expect(
+      mutationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mutationRun).not.toHaveBeenCalled();
   });
 });

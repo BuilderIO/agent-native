@@ -305,6 +305,23 @@ export function factoryAutomationJobPath(
   return `jobs/factories/${factoryId}/${automationName}.md`;
 }
 
+export function factoryAutomationJobPrefix(factoryId: string): string {
+  return `jobs/factories/${factoryId}/`;
+}
+
+/** Path prefixes used to discover jobs by folder, not YAML `domain`. */
+export function factoryAutomationJobPrefixes(factoryId: string): string[] {
+  if (factoryId === DEFAULT_FACTORY_ID) {
+    return ["jobs/factory-", factoryAutomationJobPrefix(factoryId)];
+  }
+  return [factoryAutomationJobPrefix(factoryId)];
+}
+
+/** Same key `listAutomationRuns` / `deleteAutomationRuns` use for a job path. */
+export function factoryAutomationRunHistoryKey(path: string): string {
+  return path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
 export function legacyFactoryAutomationJobPath(automationName: string): string {
   return `jobs/${automationName}.md`;
 }
@@ -323,7 +340,7 @@ export function factoryAutomationLeafName(nameOrPath: string): string {
 }
 
 export function readFactoryIdFromAutomationPath(path: string): string | null {
-  const match = path.match(/^jobs\/factories\/([^/]+)\/factory-[^/]+\.md$/);
+  const match = path.match(/^jobs\/factories\/([^/]+)\/[^/]+\.md$/);
   return match?.[1] ?? null;
 }
 

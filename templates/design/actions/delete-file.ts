@@ -66,8 +66,15 @@ export default defineAction({
     "Delete a file from a design project. Idempotent: if the file is already gone, returns deleted=false so cleanup retries can continue. Validates ownership via the parent design's access when the file exists.",
   schema: z.object({
     id: z.string().describe("File ID to delete"),
+    allowLockedLayers: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Delete the screen even though it holds locked layers. Only set this when the user explicitly asked for that screen to go.",
+      ),
   }),
-  run: async ({ id }, context) => {
+  run: async ({ id, allowLockedLayers }, context) => {
     const db = getDb();
 
     // Look up the file to get its designId for access check
@@ -94,9 +101,13 @@ export default defineAction({
 
     await assertAccess("design", file.designId, "editor");
     await snapshotDesignBeforeAgentEdit(file.designId, context);
-    if (countLockedLayers(file.content) > 0) {
+    // Locks exist to stop an agent destroying template branding in passing.
+    // A person deleting their own screen has already decided, and every
+    // template-backed screen carries locked layers — without this opt-in they
+    // could not be removed at all.
+    if (!allowLockedLayers && countLockedLayers(file.content) > 0) {
       throw new Error(
-        "This screen contains locked layers. Unlock them before deleting the screen.",
+        "This screen contains locked layers. Unlock them before deleting the screen, or pass allowLockedLayers when the user asked for the whole screen to go.",
       );
     }
 

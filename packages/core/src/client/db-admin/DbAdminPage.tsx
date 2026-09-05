@@ -17,12 +17,6 @@ import { TableEditor } from "./TableEditor.js";
 import { useDbAdminAgentSync, useNavigateConsumer } from "./useAgentSync.js";
 import { useOverview, type DbAdminRequestConfig } from "./useDbAdmin.js";
 
-const DIALECT_LABEL: Record<string, string> = {
-  postgres: "Postgres",
-  sqlite: "SQLite",
-  d1: "Cloudflare D1",
-};
-
 export interface DbAdminPageProps {
   apiBasePath?: string;
   cacheScope?: string;
@@ -55,8 +49,6 @@ export function DbAdminPage({
   );
 
   const tables = overview?.tables ?? [];
-  const dialect = overview?.dialect ?? "sqlite";
-
   // Default selection to the first table once the overview loads.
   useEffect(() => {
     if (selectedTable === null && tables.length > 0) {
@@ -108,9 +100,6 @@ export function DbAdminPage({
       <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
         <IconDatabase className="h-5 w-5 text-muted-foreground" stroke={1.75} />
         <span className="text-sm font-semibold">{title}</span>
-        <span className="inline-flex items-center rounded-full border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-          {DIALECT_LABEL[dialect] ?? dialect}
-        </span>
         <span className="text-xs text-muted-foreground">
           {tables.length} {tables.length === 1 ? "table" : "tables"}
         </span>
@@ -145,7 +134,6 @@ export function DbAdminPage({
             <MainLoading />
           ) : mode === "sql" ? (
             <SqlEditor
-              dialect={dialect}
               tableNames={tableNames}
               columnsByTable={columnsByTable}
               requestConfig={requestConfig}
@@ -154,7 +142,6 @@ export function DbAdminPage({
             <TableEditor
               key={selectedTable}
               table={selectedTable}
-              dialect={dialect}
               requestConfig={requestConfig}
               initialFilters={fkFilters}
               onNavigateToRow={(t, filters) => {

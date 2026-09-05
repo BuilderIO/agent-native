@@ -5,12 +5,9 @@ description: "채팅 UI가 있는 에이전트를 만들고 에이전트와 UI�
 
 # 시작하기
 
-Agent-Native는 직관적인 UI를 갖춘 자율형 에이전트를 구축하기 위한 오픈 소스
-TypeScript 프레임워크입니다. 각 기능을 [액션](/docs/actions-overview)으로 한 번만 정의합니다. 액션은 에이전트가 도구로 사용하고 UI가 코드에서 호출하는 타입이 지정된 함수입니다.
+<GettingStartedPaths />
 
 이 가이드에서는 채팅 UI가 있는 에이전트를 만들고, 포함된 `hello` 액션을 에이전트와 UI에서 호출합니다.
-
-<GettingStartedPaths />
 
 ## 사전 요구 사항
 
@@ -152,7 +149,7 @@ return { message: `Welcome, ${name}.` };
 | [HTTP API](/docs/http-api)              | 스크립트, 백엔드 또는 통합에서 액션을 호출합니다.            |
 | [CLI](/docs/actions-other-surfaces#cli) | 터미널에서 액션을 실행하거나 테스트합니다.                   |
 | [MCP](/docs/actions-other-surfaces#mcp) | 외부 AI 클라이언트가 액션을 도구로 검색하고 호출하게 합니다. |
-| [A2A](/docs/actions-other-surfaces#a2a) | 다른 에이전트가 내 에이전트에 작업을 위임하게 합니다.         |
+| [A2A](/docs/actions-other-surfaces#a2a) | 다른 에이전트가 내 에이전트에 작업을 위임하게 합니다.        |
 
 모든 호출자가 같은 액션 정의를 사용합니다. 호출자별로 별도 구현이 필요하지 않습니다. 이 공유 액션 모델은 Agent-Native의 핵심입니다. 기능을 추가해도 UI, 에이전트, 통합 전반에서 동작, 검증, 권한이 일관되게 유지됩니다.
 

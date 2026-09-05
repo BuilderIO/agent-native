@@ -15,6 +15,11 @@ export const organizations = table("organizations", {
   a2aSecret: text("a2a_secret"),
   workspaceUrl: text("workspace_url"),
   requiredAuthProvider: text("required_auth_provider"),
+  /** Stable Dispatch identity used to match this org across app databases. */
+  identityAuthority: text("identity_authority"),
+  identityId: text("identity_id"),
+  /** Set after the identity authority has accepted the initial member roster. */
+  federationRosterInitializedAt: integer("federation_roster_initialized_at"),
 });
 
 export const orgMembers = table("org_members", {
@@ -23,6 +28,8 @@ export const orgMembers = table("org_members", {
   email: text("email").notNull(),
   role: text("role").notNull(),
   joinedAt: integer("joined_at").notNull(),
+  /** Restrictive marker retained if authority revocation beats local deletion. */
+  federationRemovalPendingAt: integer("federation_removal_pending_at"),
 });
 
 /**

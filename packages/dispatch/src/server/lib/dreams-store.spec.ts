@@ -251,7 +251,6 @@ beforeEach(() => {
         current: true,
         connected: true,
         databaseUrlEnv: "DATABASE_URL",
-        databaseAuthTokenEnv: null,
         canInspectAll: true,
       },
     ],
@@ -391,7 +390,6 @@ describe("listDreamCandidates", () => {
           current: false,
           connected: true,
           databaseUrlEnv: "VOICE_DATABASE_URL",
-          databaseAuthTokenEnv: null,
           canInspectAll: true,
         },
         {
@@ -401,7 +399,6 @@ describe("listDreamCandidates", () => {
           current: false,
           connected: true,
           databaseUrlEnv: "MAIL_DATABASE_URL",
-          databaseAuthTokenEnv: null,
           canInspectAll: true,
         },
       ],

@@ -3,6 +3,10 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import {
+  formatHtmlStyleSummary,
+  summarizeHtmlStyles,
+} from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -10,6 +14,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import {
+  pickRepresentativeSlide,
+  slideStyleFragment,
+} from "../shared/representative-slide.js";
+import {
+  hashSlideContent,
   slideFitMeasurementMatchesSlide,
   type DeckFitState,
 } from "../shared/slide-fit.js";
@@ -86,8 +95,9 @@ function getCurrentSlideFitMeasurement(
 }
 
 export default defineAction({
+  title: "Inspect current Slides screen",
   description:
-    "See what the user is currently looking at. Returns the CURRENT deck ID, current slide ID, and the full list of slide IDs in the open deck (or the deck list if the user is on the home page). Call this before any slide operation to get the exact IDs you need for add-slide / update-slide / create-deck.",
+    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1; do not load the full deck for that path.",
   schema: z.object({}),
   http: false,
   run: async (_args) => {
@@ -145,6 +155,7 @@ export default defineAction({
         id: string;
         layout?: string;
         content?: string;
+        background?: string;
         layoutFitRevision?: string;
       }> = Array.isArray(deck?.slides) ? deck.slides : [];
       const slideIndex =
@@ -166,7 +177,7 @@ export default defineAction({
       lines.push(``);
       lines.push(`view: ${effectiveNavigation.view ?? "editor"}`);
       lines.push(
-        `deckId: ${rows[0].id}            ← use this for add-slide / update-slide / create-deck --deckId`,
+        `deckId: ${rows[0].id}            ← use this as deckId for add-slide / update-slide / create-deck, and as id for get-deck`,
       );
       lines.push(`deckTitle: ${rows[0].title ?? deck?.title ?? "(untitled)"}`);
       lines.push(`slideCount: ${slides.length}`);
@@ -184,6 +195,9 @@ export default defineAction({
           `currentSlideId: ${currentSlide.id}   ← use this for update-slide --slideId`,
         );
         lines.push(`currentSlideLayout: ${currentSlide.layout ?? "(none)"}`);
+        lines.push(
+          `currentSlideContentHash: ${hashSlideContent(String(currentSlide.content ?? ""))}   ← optional baseContentHash for update-slide`,
+        );
       } else {
         lines.push(
           `currentSlideId: (no slide for slide number ${slideNumber} / internal index ${slideIndex} — deck may be empty)`,
@@ -210,6 +224,35 @@ export default defineAction({
           );
         }
       }
+      // The slide being edited is one of many; without the deck's shared
+      // vocabulary an agent asked to restyle it invents a palette that only
+      // that slide uses. Summarize the siblings so the edit can match them.
+      const deckStyle = formatHtmlStyleSummary(
+        summarizeHtmlStyles(
+          slides
+            .map((s, i) => ({
+              label: `slide ${i + 1}`,
+              html: slideStyleFragment(s),
+            }))
+            .filter((fragment) => fragment.html.length > 0),
+        ),
+        { noun: "slide" },
+      );
+      // Counts show the palette, not the composition; one real sibling
+      // shows spacing, element order, and sizes to mirror. A class-styled
+      // deck tallies nothing, and still has a sibling worth reading.
+      const representative = pickRepresentativeSlide(slides, slideIndex);
+      if (deckStyle.length > 0 || representative !== null) {
+        lines.push(``);
+        lines.push(`### Deck style (shared across slides)`);
+        lines.push(...deckStyle);
+        if (representative !== null) {
+          const sibling = slides[representative]!;
+          lines.push(
+            `representativeSlide: id=${sibling.id} (slide ${representative + 1}, layout=${sibling.layout ?? "-"})   ← before a style or layout change, read it with get-deck { id: deckId, slideId: "${sibling.id}", compact: "false" } and mirror its structure and values`,
+          );
+        }
+      }
       if (currentSlide?.content) {
         lines.push(``);
         lines.push(
@@ -220,9 +263,12 @@ export default defineAction({
         lines.push("```");
       }
 
-      const selection = (await readAppStateForCurrentTab(
-        "slides-selection",
-      )) as {
+      // No global fallback: with a tab id in context, another tab's selection
+      // must never become this tab's edit target.
+      const selection = (await readAppStateForCurrentTab("slides-selection", {
+        fallbackToGlobal: false,
+      })) as {
+        deckId?: string;
         slideId?: string;
         mode?: string;
         activeTool?: string;
@@ -231,17 +277,34 @@ export default defineAction({
           runtimeSelector?: string;
           objectId?: string;
           text?: string;
+          selectedText?: string;
+          textTruncated?: boolean;
           kind?: string;
           tagName?: string;
           imageSrc?: string;
           style?: Record<string, unknown>;
         }>;
       } | null;
-      if (selection && currentSlide && selection.slideId === currentSlide.id) {
+      // Match the selection to its OWN recorded slide instead of requiring it
+      // to equal `currentSlide`: `navigation` and `slides-selection` are two
+      // independent app-state reads, and a caller with no tab id in request
+      // context gets each one's last global write, not necessarily from the
+      // same tab. The selection record names its own deck/slide at write
+      // time (SlideEditor's syncSelectionToAppState), so that identity is
+      // authoritative even when the `navigation` read resolves a stale slide.
+      const selectionSlide =
+        selection?.slideId &&
+        (selection.deckId ? selection.deckId === rows[0].id : true)
+          ? (slides.find((s) => s.id === selection.slideId) ?? null)
+          : null;
+      if (selection && selectionSlide) {
         lines.push(``);
         lines.push(`### Current visual selection`);
         lines.push(
-          `selectionSlideId: ${selection.slideId}   (matches currentSlideId)`,
+          `selectionSlideId: ${selection.slideId}` +
+            (selectionSlide.id === currentSlide?.id
+              ? `   (matches currentSlideId)`
+              : `   (differs from currentSlideId ${currentSlide?.id ?? "(none)"} — use selectionSlideId, the slide this selection was made on)`),
         );
         lines.push(`mode: ${selection.mode ?? "unknown"}`);
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
@@ -254,7 +317,28 @@ export default defineAction({
             if (item.runtimeSelector) {
               lines.push(`runtimeSelector: ${item.runtimeSelector}`);
             }
-            if (item.text) lines.push(`text: ${item.text}`);
+            if (item.selectedText) {
+              lines.push(`selectedText: ${item.selectedText}`);
+              lines.push(
+                "selectedTextStatus: exact browser range; use verbatim as edits.find with expectedMatches: 1",
+              );
+            }
+            if (item.text) {
+              lines.push(`text: ${item.text}`);
+              if (!item.selectedText) {
+                lines.push(
+                  item.textTruncated === true
+                    ? `textStatus: element preview may be truncated; use get-deck with slideId=${selectionSlide.id} before editing`
+                    : item.textTruncated === false
+                      ? `textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=${selectionSlide.id} before editing`
+                      : `textStatus: element preview status unknown; use get-deck with slideId=${selectionSlide.id} before editing`,
+                );
+              } else {
+                lines.push(
+                  "textStatus: element preview; use selectedText for a literal replacement",
+                );
+              }
+            }
             if (item.imageSrc) lines.push(`imageSrc: ${item.imageSrc}`);
             if (item.style) {
               lines.push(`style: ${JSON.stringify(item.style)}`);

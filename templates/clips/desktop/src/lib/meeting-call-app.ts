@@ -17,10 +17,15 @@ function isHost(hostname: string, host: string): boolean {
 }
 
 /**
- * Limit microphone-use monitoring to the app that can own this meeting.
- * Browser bundles are included only when the calendar join URL identifies a
- * browser-hosted provider, so another tab using the microphone cannot end a
- * native Zoom or Teams recording.
+ * Bundle ids for the call-ended watcher to monitor for this meeting's join
+ * URL. Adding a browser's bundle ids alongside a native app's can never end
+ * that native recording early — the watcher only stops once every watched
+ * app has released the mic, so a browser is just one more app that also has
+ * to let go. Zoom's web client runs in a browser and was never watched, so
+ * Zoom join URLs watch both, covering a session whichever client it opens
+ * in. The cost is an unrelated browser tab still holding the mic keeps a
+ * native Zoom recording alive until that tab releases it — failing safe
+ * over stopping early.
  */
 export function callAppBundleIdsForJoinUrl(joinUrl?: string | null): string[] {
   if (!joinUrl) return [...NATIVE_CALL_APP_BUNDLE_IDS];
@@ -30,7 +35,12 @@ export function callAppBundleIdsForJoinUrl(joinUrl?: string | null): string[] {
     if (isHost(hostname, "meet.google.com")) {
       return [...BROWSER_CALL_APP_BUNDLE_IDS];
     }
-    if (isHost(hostname, "teams.microsoft.com")) {
+    if (
+      isHost(hostname, "teams.microsoft.com") ||
+      isHost(hostname, "zoom.us") ||
+      isHost(hostname, "zoom.com") ||
+      isHost(hostname, "zoomgov.com")
+    ) {
       return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
     }
   } catch {

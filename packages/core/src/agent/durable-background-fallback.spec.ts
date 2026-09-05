@@ -1,5 +1,6 @@
-import Database from "better-sqlite3";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 /**
  * Safety invariants behind the durable-background *inline fallback*.
@@ -10,33 +11,36 @@ import { describe, expect, it, vi } from "vitest";
  * the already-inserted run row atomically via `claimBackgroundRun` and runs the
  * turn inline. The SQL atomic claim is the single backstop that guarantees at
  * most ONE of {inline fallback, a delayed background delivery} ever executes a
- * given run — these tests pin that claim's exclusivity against a real SQLite
+ * given run — these tests pin that claim's exclusivity against a real PGlite
  * engine (so the conditional UPDATE / rowsAffected semantics are exercised for
  * real, not mocked).
  */
 
-const sqlite = new Database(":memory:");
+const pglite = await createTestPglite();
+
+afterAll(async () => {
+  await pglite.close();
+});
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [] as unknown[], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
@@ -49,10 +53,10 @@ function nextRunId(): string {
   return `run-fallback-${seq}`;
 }
 
-function dispatchModeOf(runId: string): string | null {
-  const row = sqlite
+async function dispatchModeOf(runId: string): Promise<string | null> {
+  const row = (await pglite
     .prepare(`SELECT dispatch_mode FROM agent_runs WHERE id = ?`)
-    .get(runId) as { dispatch_mode: string | null } | undefined;
+    .get(runId)) as { dispatch_mode: string | null } | undefined;
   return row?.dispatch_mode ?? null;
 }
 
@@ -65,7 +69,7 @@ describe("durable-background inline fallback — claimBackgroundRun exclusivity"
     expect(await claimBackgroundRun(runId)).toBe(true);
 
     // The row is now owned (background-processing), still running.
-    expect(dispatchModeOf(runId)).toBe("background-processing");
+    await expect(dispatchModeOf(runId)).resolves.toBe("background-processing");
     expect((await getRunById(runId))?.status).toBe("running");
   });
 

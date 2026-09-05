@@ -10,6 +10,7 @@ import {
 } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
+import { getEffectiveDatabaseEnvStatus } from "../db/runtime-diagnostics.js";
 import { getOrgContext } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -239,15 +240,23 @@ export function createServer(
           orgId = orgCtx?.orgId ?? undefined;
         }
         return Promise.all(
-          envKeys.map(async (cfg) => ({
-            key: cfg.key,
-            label: cfg.label,
-            required: cfg.required ?? false,
-            configured: await runWithRequestContext({ userEmail, orgId }, () =>
-              resolveSecret(cfg.key).then(Boolean),
-            ),
-            ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
-          })),
+          envKeys.map(async (cfg) => {
+            const effectiveDatabaseStatus = getEffectiveDatabaseEnvStatus(
+              cfg.key,
+            );
+            const configured =
+              effectiveDatabaseStatus ??
+              (await runWithRequestContext({ userEmail, orgId }, () =>
+                resolveSecret(cfg.key).then(Boolean),
+              ));
+            return {
+              key: cfg.key,
+              label: cfg.label,
+              required: cfg.required ?? false,
+              configured,
+              ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
+            };
+          }),
         );
       }),
     );

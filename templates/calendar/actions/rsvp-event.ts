@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
-  normalizeGoogleEventId,
+  normalizeWritableGoogleEventId,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
@@ -49,7 +49,7 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeGoogleEventId(args.id);
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
       args.accountEmail,
       ownerEmail,

@@ -90,7 +90,9 @@ describe("authenticated recording route loading", () => {
   it("keeps public viewer identity, engagement, and side panels aligned", () => {
     const route = readRoute("share.$shareId.tsx");
 
-    expect(route).toContain("const ownerEmail =");
+    expect(route).toContain("const ownerInitial =");
+    expect(route).toContain("ownerInitial: rec.ownerEmail");
+    expect(route).not.toContain("ownerEmail: rec.ownerEmail");
     expect(route).toContain("<ClipsAvatar");
     expect(route).toContain("const recordedOn = formatRecordedOn");
     expect(route).toContain("<RecordingViewsBadge");

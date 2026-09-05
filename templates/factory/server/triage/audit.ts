@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ActionRunContext } from "@agent-native/core/action";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { factoryAuditEvents } from "../db/schema.js";
@@ -80,4 +81,61 @@ export async function recordFactoryAudit(
       ownerEmail: identity.userEmail,
       orgId: identity.orgId,
     });
+}
+
+/** Skip an item-scoped decision that repeats the last recorded summary. */
+export async function recordFactoryAuditIfChanged(
+  context: ActionRunContext | undefined,
+  identity: { userEmail: string; orgId: string },
+  input: FactoryAuditInput,
+  factoryId?: string | null,
+): Promise<void> {
+  if (context?.caller !== "automation" || !context.runId || !input.itemId) {
+    await recordFactoryAudit(context, identity, input, factoryId);
+    return;
+  }
+  const itemId = input.itemId;
+  const runId = context.runId;
+  const status = input.status ?? "success";
+  const summary = boundedText(input.summary, MAX_SUMMARY_LENGTH);
+  const action = boundedText(input.action, 120);
+  await getDb().transaction(async (tx) => {
+    const last = (
+      await tx
+        .select({
+          summary: factoryAuditEvents.summary,
+          status: factoryAuditEvents.status,
+        })
+        .from(factoryAuditEvents)
+        .where(
+          and(
+            eq(factoryAuditEvents.itemId, itemId),
+            eq(factoryAuditEvents.action, action),
+            eq(factoryAuditEvents.kind, input.kind),
+          ),
+        )
+        .orderBy(desc(factoryAuditEvents.createdAt))
+        .limit(1)
+    )[0];
+    if (last && last.summary === summary && last.status === status) return;
+    const resolvedFactoryId = factoryId ?? input.factoryId ?? null;
+    await tx.insert(factoryAuditEvents).values({
+      id: randomUUID(),
+      automationRunId: runId,
+      automationThreadId: context.threadId ?? null,
+      automationName: context.automation?.triggerName ?? null,
+      factoryId: resolvedFactoryId,
+      itemId,
+      source: input.source ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      action,
+      kind: input.kind,
+      status,
+      summary,
+      detailsJson: boundedDetails(input.details),
+      createdAt: new Date().toISOString(),
+      ownerEmail: identity.userEmail,
+      orgId: identity.orgId,
+    });
+  });
 }

@@ -20,6 +20,7 @@
   display: inline-flex;
   height: 42px;
   flex: none;
+  flex-direction: row;
   align-items: center;
   border-radius: 9999px;
   background: var(--playhead-chrome);
@@ -29,7 +30,21 @@
   -webkit-user-select: none;
 }
 
-/* Collapsible segments use measured pixels, never max-width. The right edge
+.recording-playhead[data-orientation="vertical"] {
+  width: 42px;
+  height: auto;
+  min-height: 42px;
+  flex-direction: column;
+  justify-content: flex-start;
+  border-radius: 22px;
+}
+
+.recording-playhead[data-orientation="vertical"][data-confirming="true"] {
+  width: 176px;
+  box-sizing: border-box;
+}
+
+/* Collapsible segments use measured pixels, never max-width. The trailing edge
  * stays solid while a segment grows, which is the desktop pill's motion. */
 .recording-playhead__segment {
   display: flex;
@@ -47,10 +62,41 @@
   opacity: 1;
 }
 
+.recording-playhead__segment > .recording-playhead__inline {
+  opacity: 0;
+  transition: opacity 72ms var(--playhead-ease);
+}
+
+.recording-playhead__segment[data-state="open"] > .recording-playhead__inline,
+.recording-playhead__segment--mid > .recording-playhead__inline {
+  opacity: 1;
+}
+
+.recording-playhead__segment[data-state="closed"]
+  > .recording-playhead__inline {
+  opacity: 0;
+}
+
+.recording-playhead[data-orientation="vertical"] .recording-playhead__segment {
+  width: auto;
+  height: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__segment--mid {
+  height: auto;
+}
+
 .recording-playhead__inline {
   display: inline-flex;
   flex: none;
   align-items: center;
+}
+
+.recording-playhead[data-orientation="vertical"] .recording-playhead__inline {
+  flex-direction: column;
 }
 
 .recording-playhead__button {
@@ -111,6 +157,12 @@
   transition: color 150ms ease;
 }
 
+.recording-playhead[data-orientation="vertical"] .recording-playhead__timer {
+  margin-top: 6px;
+  margin-left: 0;
+  font-size: 12px;
+}
+
 .recording-playhead__meter-wrap {
   display: inline-flex;
   height: 18px;
@@ -118,6 +170,12 @@
   flex: none;
   align-items: center;
   margin-left: 14px;
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__meter-wrap {
+  margin-top: 8px;
+  margin-left: 0;
 }
 
 .recording-playhead__meter-wrap > * {
@@ -128,10 +186,25 @@
   margin-left: 6px;
 }
 
+.recording-playhead[data-orientation="vertical"] .recording-playhead__pause {
+  margin-top: 6px;
+  margin-left: 0;
+}
+
 .recording-playhead__confirm-question {
   padding-left: 10px;
   color: var(--playhead-q-ink);
   font-size: 12px;
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__confirm-question {
+  max-width: 140px;
+  padding-top: 10px;
+  padding-left: 0;
+  line-height: 1.35;
+  white-space: normal;
+  text-align: center;
 }
 
 .recording-playhead__confirm-action,
@@ -158,6 +231,18 @@
 .recording-playhead__confirm-action[data-intent="restart"] {
   background: var(--playhead-on-chrome);
   color: var(--playhead-chrome);
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__confirm-action,
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__resume-action {
+  margin-top: 8px;
+  margin-left: 0;
+  width: 108px;
+  justify-content: center;
+  padding-right: 10px;
+  padding-left: 10px;
 }
 
 .recording-playhead__resume-action {
@@ -191,6 +276,13 @@
   background: var(--playhead-soft);
 }
 
+.recording-playhead[data-orientation="vertical"] .recording-playhead__divider {
+  height: 1px;
+  width: 18px;
+  margin-top: 6px;
+  margin-left: 0;
+}
+
 .recording-playhead__extras-restart {
   margin-left: 6px;
 }
@@ -199,7 +291,16 @@
   margin-left: 0;
 }
 
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__extras-restart,
+.recording-playhead[data-orientation="vertical"]
+  .recording-playhead__extras-delete {
+  margin-top: 0;
+  margin-left: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .recording-playhead__segment > .recording-playhead__inline,
   .recording-playhead__button,
   .recording-playhead__timer {
     transition: none;

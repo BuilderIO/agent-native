@@ -1,34 +1,6 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { createGetDb } from "./create-get-db.js";
 
-export type DbConfig =
-  | { driver: "sqlite"; filename: string }
-  | { driver: "d1"; binding: any }
-  | { driver: "postgres"; connectionString: string };
-
-/**
- * Create a Drizzle ORM database instance.
- * Supports SQLite via better-sqlite3 and Postgres via postgres-js.
- * Postgres driver is loaded dynamically to avoid bundling in edge runtimes.
- */
-export async function createDb(config: DbConfig) {
-  if (config.driver === "postgres") {
-    const { drizzle: drizzlePg } = await import("drizzle-orm/postgres-js");
-    const { default: pg } = await import("postgres");
-    const { pgPoolOptions } = await import("./client.js");
-    return drizzlePg(
-      pg(config.connectionString, pgPoolOptions(config.connectionString)),
-    );
-  }
-  if (config.driver === "sqlite") {
-    const sqlite = new Database(config.filename);
-    sqlite.pragma("journal_mode = WAL");
-    return drizzle(sqlite);
-  }
-  throw new Error(`Unsupported driver: ${(config as any).driver}`);
-}
-
-export type DrizzleDb = Awaited<ReturnType<typeof createDb>>;
+export type DrizzleDb = ReturnType<typeof createGetDb>;
 
 export { createGetDb } from "./create-get-db.js";
 export {
@@ -46,24 +18,22 @@ export {
   createDbExec,
   getDatabaseUrl,
   getRuntimeDatabaseUrl,
-  getDialect,
+  getRuntimeDatabaseSource,
   isLocalDatabase,
-  isPostgres,
   assertSchemaMutationAllowed,
   isSchemaMutationStatement,
   isProductionServerlessFunctionRuntime,
-  intType,
   closeDbExec,
   type DbExec,
   type DbExecConfig,
   type DbExecQuery,
   type DbExecStatement,
-  type Dialect,
 } from "./client.js";
-export { table, text, integer, now } from "./schema.js";
+export { table, text, integer, real, now } from "./schema.js";
 export {
   ensureAdditiveColumns,
   type EnsureAdditiveColumnsOptions,
   type EnsureAdditiveColumnsResult,
   type EnsureAdditiveColumnsLogger,
 } from "./ensure-additive-columns.js";
+export { widenIntColumnsToBigInt } from "./widen-columns.js";

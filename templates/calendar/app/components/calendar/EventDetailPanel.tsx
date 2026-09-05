@@ -150,7 +150,10 @@ export function EventDetailPanel({
   );
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
-  const isOverlay = !!event?.overlayEmail;
+  const isOverlay =
+    !!event?.overlayEmail ||
+    event?.calendarPrimary === false ||
+    event?.calendarReadOnly === true;
   const isWorkingLocation = event ? isWorkingLocationEvent(event) : false;
   const isOutOfOffice = event ? isOutOfOfficeEvent(event) : false;
   const isRecurringEvent = !!(
@@ -167,7 +170,13 @@ export function EventDetailPanel({
           entryPoint.entryPointType === "video" &&
           entryPoint.uri.includes("meet.google.com"),
       ));
-  const ownerLabel = event?.ownerName || event?.overlayEmail;
+  const ownerLabel =
+    event?.ownerName ||
+    event?.overlayEmail ||
+    ((event?.calendarPrimary === false || event?.calendarReadOnly) &&
+    event?.calendarName
+      ? `${event.calendarName} · ${event.accountEmail ?? "Google"}`
+      : undefined);
   const eventDetailSlotContext = useMemo(
     () => (event ? buildEventDetailSlotContext(event) : null),
     [event],
@@ -426,7 +435,7 @@ export function EventDetailPanel({
               {/* Content */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 {/* Title — click to edit */}
-                {isEditingTitle && !isWorkingLocation ? (
+                {isEditingTitle && !isWorkingLocation && !isOverlay ? (
                   <input
                     ref={titleInputRef}
                     value={editingTitle}
@@ -462,10 +471,12 @@ export function EventDetailPanel({
                   <h2
                     className={cn(
                       "-mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground",
-                      !isWorkingLocation && "cursor-text hover:bg-muted/50",
+                      !isWorkingLocation &&
+                        !isOverlay &&
+                        "cursor-text hover:bg-muted/50",
                     )}
                     onClick={() => {
-                      if (isWorkingLocation) return;
+                      if (isWorkingLocation || isOverlay) return;
                       setEditingTitle(getEditableEventTitle(event));
                       setIsEditingTitle(true);
                     }}
@@ -548,20 +559,23 @@ export function EventDetailPanel({
                   </div>
                 ) : null}
 
-                {event.overlayEmail && ownerLabel && (
-                  <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-                    <span
-                      aria-hidden="true"
-                      className="ml-0.5 size-2 shrink-0 rounded-full ring-1 ring-border"
-                      style={{ backgroundColor: event.ownerColor }}
-                    />
-                    <span>
-                      {t("eventForm.viewingOwnerCalendar", {
-                        owner: ownerLabel,
-                      })}
-                    </span>
-                  </div>
-                )}
+                {(event.overlayEmail ||
+                  event.calendarPrimary === false ||
+                  event.calendarReadOnly) &&
+                  ownerLabel && (
+                    <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                      <span
+                        aria-hidden="true"
+                        className="ml-0.5 size-2 shrink-0 rounded-full ring-1 ring-border"
+                        style={{ backgroundColor: event.ownerColor }}
+                      />
+                      <span>
+                        {t("eventForm.viewingOwnerCalendar", {
+                          owner: ownerLabel,
+                        })}
+                      </span>
+                    </div>
+                  )}
 
                 {!isWorkingLocation &&
                   (meetingLink ? (

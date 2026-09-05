@@ -73,6 +73,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  getMcpOAuthBearerSession,
   COOKIE_NAME,
   addSession,
   removeSession,
@@ -315,6 +316,7 @@ export {
   renderAgentNativeOgImageSvg,
   type AgentNativeOgImageInput,
 } from "./social-og-image.js";
+export { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 export {
   createBrowserSessionActionEntries,
@@ -528,12 +530,15 @@ export {
   isAllowedOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
   oauthDesktopExchangePage,
   type OAuthStatePayload,
+  type OAuthStateDecodeFailureReason,
+  type DecodeOAuthStateResult,
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
@@ -573,8 +578,10 @@ export {
   // identity — image and video generation, realtime transcription. Falls
   // through to the identity credential first, so a consumer moves lane by
   // swapping the resolver and changing nothing else.
-  resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveBuilderGatewayAuth,
+  // Deprecated: kept only for external callers built against the old export.
+  resolveBuilderGatewayCredentials,
   resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
@@ -585,11 +592,18 @@ export {
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
+  resolveBuilderRequestAuthorization,
+  type BuilderLegacyCredentialKey,
+  type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
-export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
+export {
+  BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_OAUTH_SCOPE,
+} from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,

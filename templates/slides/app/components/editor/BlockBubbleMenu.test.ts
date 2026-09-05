@@ -20,10 +20,19 @@ describe("buildReviseSelectionContext", () => {
       selectedText: "Perfect LIGHT for every home",
       instruction: "shorter",
       slideId: "slide-1",
+      slideContentHash: "hash-1",
     });
 
-    expect(prompt).toContain("replaces only the quoted text");
-    expect(prompt).toContain("update-slide --fullContent");
+    expect(prompt).toContain("using the quoted text as `find`");
+    expect(prompt).toContain(
+      "update-slide` with one `edits` literal replacement",
+    );
+    expect(prompt).toContain("expectedMatches: 1");
+    expect(prompt).toContain("Captured slide content hash: `hash-1`");
+    expect(prompt).toContain("pass it as `baseContentHash`");
+    expect(prompt).toContain("selection crosses inline markup");
+    expect(prompt).toContain("get-deck` with `slideId` only");
+    expect(prompt).not.toContain("update-slide --fullContent");
   });
 
   it("omits the slide id line when the slide is unknown", () => {

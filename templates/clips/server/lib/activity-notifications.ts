@@ -4,7 +4,7 @@
  * Recipient resolution and delivery reporting live in
  * `@agent-native/core/server`; this module only knows which Clips rows are
  * involved and which template to render. Share invites are deliberately NOT
- * routed through the `emailNotifications` preference — they have their own
+ * routed through the Clips notification preferences - they have their own
  * delivery path.
  */
 
@@ -18,6 +18,7 @@ import { and, eq } from "drizzle-orm";
 
 import { CLIPS_USER_PREFS_KEY } from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
+import { filterClipsNotificationRecipients } from "./notification-preferences.js";
 import { canReceiveRecordingActivity } from "./recording-page-access.js";
 import { sendClipsTransactionalEmail } from "./transactional-email-templates.js";
 
@@ -125,9 +126,13 @@ async function deliverRecordingCommentEmails(
     emails: clipsAllowed,
     orgId: recording.orgId,
   });
+  const recipients = await filterClipsNotificationRecipients(
+    allowed,
+    "comments",
+  );
 
   return notifyActivity({
-    candidates: allowed,
+    candidates: recipients,
     actorEmail: input.authorEmail,
     preferenceKey: CLIPS_USER_PREFS_KEY,
     logLabel: LOG_LABEL,
@@ -189,9 +194,13 @@ async function deliverRecordingReactionEmails(
     emails: clipsAllowed,
     orgId: recording.orgId,
   });
+  const recipients = await filterClipsNotificationRecipients(
+    allowed,
+    "reactions",
+  );
 
   return notifyActivity({
-    candidates: allowed,
+    candidates: recipients,
     actorEmail: input.viewerEmail,
     preferenceKey: CLIPS_USER_PREFS_KEY,
     logLabel: LOG_LABEL,

@@ -1,4 +1,4 @@
-// Integration tests for the enrichment surface. Real libsql, real migrations,
+// Integration tests for the enrichment surface. Real PGlite, real migrations,
 // real sharing registry — the access scoping and the bitemporal write behaviour
 // are the parts worth proving, and mocking either would make them vacuous.
 
@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-enrichment-actions-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-enrichment-actions-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -121,7 +121,7 @@ function currentFieldRows(recordId: string, apiSlug: string) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -155,9 +155,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("list-crm-enrichment-slots", () => {

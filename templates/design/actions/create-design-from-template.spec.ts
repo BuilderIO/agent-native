@@ -2,9 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const testState = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
+  assertAccess: vi.fn(),
   nanoidValues: ["copied-design", "copied-file"],
   insertedDesign: null as Record<string, unknown> | null,
   insertedFiles: [] as Array<Record<string, unknown>>,
+  updatedDesign: null as Record<string, unknown> | null,
+  targetDesignFiles: [] as Array<Record<string, unknown>>,
+  targetDesignRows: [] as Array<Record<string, unknown>>,
   transactionCount: 0,
 }));
 
@@ -15,11 +19,14 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => testState.resolveAccess(...args),
+  assertAccess: (...args: unknown[]) => testState.assertAccess(...args),
 }));
 
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  ne: (column: unknown, value: unknown) => ({ column, value, op: "ne" }),
+  and: (...parts: unknown[]) => ({ parts }),
 }));
 
 vi.mock("nanoid", () => ({
@@ -53,12 +60,33 @@ vi.mock("../server/db/index.js", () => {
     schema,
     getDb: () => ({
       select: () => ({
-        from: () => ({ where: async () => templateFiles }),
+        from: (table: { table: string }) => ({
+          where: () => {
+            const rows =
+              table.table === "designFiles"
+                ? testState.targetDesignFiles
+                : table.table === "designs"
+                  ? testState.targetDesignRows
+                  : templateFiles;
+            // Awaited directly for the template read, `.limit()`-chained for
+            // the target-is-empty check.
+            const result = Promise.resolve(rows) as Promise<unknown[]> & {
+              limit: (n: number) => Promise<unknown[]>;
+            };
+            result.limit = async () => rows;
+            return result;
+          },
+        }),
       }),
       transaction: async (
         run: (tx: {
           insert: (table: { table: string }) => {
             values: (values: unknown) => Promise<void>;
+          };
+          update: (table: { table: string }) => {
+            set: (values: unknown) => {
+              where: (condition: unknown) => Promise<void>;
+            };
           };
         }) => Promise<void>,
       ) => {
@@ -75,6 +103,13 @@ vi.mock("../server/db/index.js", () => {
               }
             },
           }),
+          update: () => ({
+            set: (values) => ({
+              where: async () => {
+                testState.updatedDesign = values as Record<string, unknown>;
+              },
+            }),
+          }),
         });
       },
     }),
@@ -89,7 +124,11 @@ describe("create-design-from-template", () => {
     testState.nanoidValues = ["copied-design", "copied-file"];
     testState.insertedDesign = null;
     testState.insertedFiles = [];
+    testState.updatedDesign = null;
+    testState.targetDesignFiles = [];
+    testState.targetDesignRows = [];
     testState.transactionCount = 0;
+    testState.assertAccess.mockResolvedValue(undefined);
     testState.resolveAccess.mockImplementation(
       async (type: string, id: string) => {
         if (type === "design-template" && id === "saved-template") {
@@ -186,6 +225,78 @@ describe("create-design-from-template", () => {
       adaptationPending: true,
     });
     expect(result.nextRequiredAction).toContain("Do not call generate-design");
+  });
+
+  it("fills the design the caller already created instead of making a second one", async () => {
+    const result = await action.run({
+      templateId: "saved-template",
+      targetDesignId: "existing-design",
+    } as never);
+
+    expect(testState.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "existing-design",
+      "editor",
+    );
+    expect(testState.insertedDesign).toBeNull();
+    expect(testState.updatedDesign).toMatchObject({
+      title: "Saved campaign",
+      designSystemId: "linked-system",
+    });
+    expect(result.id).toBe("existing-design");
+    expect(
+      testState.insertedFiles.every(
+        (file) => file.designId === "existing-design",
+      ),
+    ).toBe(true);
+  });
+
+  it("treats a design holding only the board row as empty", async () => {
+    // The editor creates the board on mount, so requiring zero files would
+    // reject every design the New Design button just made.
+    testState.targetDesignFiles = [];
+
+    const result = await action.run({
+      templateId: "saved-template",
+      targetDesignId: "existing-design",
+    } as never);
+
+    expect(result.id).toBe("existing-design");
+    expect(testState.insertedFiles.length).toBe(1);
+  });
+
+  it("keeps the target's own editor state instead of replacing its data blob", async () => {
+    // boardFileId lives in designs.data; losing it makes the editor mint a
+    // second board the next time the design is opened.
+    testState.targetDesignRows = [
+      { data: JSON.stringify({ boardFileId: "board-1", keepMe: true }) },
+    ];
+
+    await action.run({
+      templateId: "saved-template",
+      targetDesignId: "existing-design",
+    } as never);
+
+    const written = JSON.parse(
+      String(testState.updatedDesign?.data ?? "{}"),
+    ) as Record<string, unknown>;
+    expect(written.boardFileId).toBe("board-1");
+    expect(written.keepMe).toBe(true);
+    expect(written.templateSource).toBeTruthy();
+  });
+
+  it("refuses to overwrite a target that already has screens", async () => {
+    testState.targetDesignFiles = [{ id: "existing-file" }];
+
+    await expect(
+      action.run({
+        templateId: "saved-template",
+        targetDesignId: "existing-design",
+      } as never),
+    ).rejects.toThrow(/only fill an empty design/i);
+
+    expect(testState.transactionCount).toBe(0);
+    expect(testState.updatedDesign).toBeNull();
   });
 
   it("rejects an inaccessible explicit override before inserting anything", async () => {

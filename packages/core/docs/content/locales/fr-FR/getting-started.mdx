@@ -5,15 +5,10 @@ description: "Créez un agent doté d’une interface de chat et appelez la mêm
 
 # Démarrage
 
-Agent-Native est un framework TypeScript open source pour créer des agents
-autonomes avec des interfaces intuitives. Vous définissez chaque capacité une
-seule fois sous forme d’[action](/docs/actions-overview) : une fonction typée que
-l’agent utilise comme outil et que l’UI appelle depuis le code.
+<GettingStartedPaths />
 
 Dans ce guide, vous allez créer un agent doté d’une interface de chat et appeler
 son action `hello` incluse depuis l’agent et l’interface utilisateur.
-
-<GettingStartedPaths />
 
 ## Prérequis
 
@@ -169,12 +164,12 @@ deux renvoient le message d’accueil mis à jour, car ils appellent la même ac
 Vous avez appelé la même action depuis l’agent et l’interface utilisateur. La
 même action peut aussi être appelée depuis :
 
-| Appeler depuis                          | Utilisez-le pour                                                                                       |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| [HTTP API](/docs/http-api)              | appeler une action depuis un script, un backend ou une intégration.                                    |
-| [CLI](/docs/actions-other-surfaces#cli) | exécuter ou tester une action depuis un terminal.                                                      |
-| [MCP](/docs/actions-other-surfaces#mcp) | laisser un client d’IA externe découvrir et appeler des actions comme outils.                          |
-| [A2A](/docs/actions-other-surfaces#a2a) | permettre à un autre agent de déléguer du travail au vôtre.                                           |
+| Appeler depuis                          | Utilisez-le pour                                                              |
+| --------------------------------------- | ----------------------------------------------------------------------------- |
+| [HTTP API](/docs/http-api)              | appeler une action depuis un script, un backend ou une intégration.           |
+| [CLI](/docs/actions-other-surfaces#cli) | exécuter ou tester une action depuis un terminal.                             |
+| [MCP](/docs/actions-other-surfaces#mcp) | laisser un client d’IA externe découvrir et appeler des actions comme outils. |
+| [A2A](/docs/actions-other-surfaces#a2a) | permettre à un autre agent de déléguer du travail au vôtre.                   |
 
 Chaque appelant utilise la même définition d’action. Vous n’avez pas besoin
 d’une implémentation distincte pour chacun. Ce modèle d’actions partagées est au

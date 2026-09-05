@@ -1,4 +1,9 @@
-import { defineEventHandler, getQuery, setResponseHeaders } from "h3";
+import {
+  defineEventHandler,
+  getQuery,
+  getRequestURL,
+  setResponseHeaders,
+} from "h3";
 
 import {
   DESKTOP_RELEASE_CACHE_HEADERS,
@@ -9,8 +14,13 @@ import {
 import { publicApiError } from "../../../lib/public-api-errors";
 
 export default defineEventHandler(async (event) => {
+  const queryChannel = getQuery(event).channel;
   const channel =
-    getQuery(event).channel === "nightly" ? "nightly" : "production";
+    queryChannel === "production" || queryChannel === "nightly"
+      ? queryChannel
+      : getRequestURL(event).hostname === "beta.agent-native.com"
+        ? "nightly"
+        : "production";
   let manifest: DesktopDownloadManifest;
   try {
     manifest = await getDesktopDownloadManifest(channel);

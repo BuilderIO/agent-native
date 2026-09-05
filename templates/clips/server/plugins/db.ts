@@ -4,7 +4,6 @@ import {
   runMigrations,
   deferMigration,
   getDbExec,
-  isPostgres,
   ensureAdditiveColumns,
   type MigrationRunResult,
 } from "@agent-native/core/db";
@@ -42,20 +41,16 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
  * Post-migration fixup for Postgres: retype boolean-mode columns from bigint
  * to boolean.
  *
- * The early table-create migrations (v4–v14 below) used `INTEGER` because
- * `runMigrations` needs dialect-neutral SQL; `adaptSqlForPostgres` rewrites
- * INTEGER → BIGINT on Postgres. But the Drizzle schema declares these
- * columns as `integer(..., { mode: "boolean" })` — which on Postgres maps
- * to the `boolean` type. Drizzle then sends `true`/`false` at insert, which
+ * The early table-create migrations (v4–v14 below) used `INTEGER`, but the
+ * current Drizzle schema declares these columns as native `boolean` values.
+ * Drizzle sends `true`/`false` at insert, which
  * Postgres rejects against a bigint column (`invalid input syntax for type
  * bigint: "true"`).
  *
- * This function runs the ALTERs needed to realign live DBs. It's a no-op on
- * SQLite (where booleans are just 0/1 INTEGERs natively) and on Postgres
- * installations where the columns are already BOOLEAN (idempotent check).
+ * This function runs the ALTERs needed to realign live databases and is
+ * idempotent when the columns are already BOOLEAN.
  */
 async function retypeBooleanColumnsOnPostgres(): Promise<void> {
-  if (!isPostgres()) return;
   const exec = getDbExec();
   const alters: Array<[string, string, boolean]> = [
     ["recordings", "has_audio", true],
@@ -143,11 +138,11 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
   const expiresAt = now + RECORDING_ORG_ID_BACKFILL_LEASE_MS;
   await exec.execute({
     sql: `INSERT INTO clips_backfill_leases (lease_key, holder, expires_at)
-      VALUES (?, ?, ?)
+      VALUES ($1, $2, $3)
       ON CONFLICT (lease_key) DO UPDATE SET
         holder = excluded.holder,
         expires_at = excluded.expires_at
-      WHERE clips_backfill_leases.expires_at <= ?`,
+      WHERE clips_backfill_leases.expires_at <= $4`,
     args: [
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
       recordingOrgIdBackfillHolder,
@@ -157,7 +152,7 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
   });
   const result = await exec.execute({
     sql: `SELECT holder FROM clips_backfill_leases
-      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+      WHERE lease_key = $1 AND holder = $2 AND expires_at > $3`,
     args: [
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
       recordingOrgIdBackfillHolder,
@@ -170,8 +165,8 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
 async function renewRecordingOrgIdBackfillLease(): Promise<boolean> {
   const result = await getDbExec().execute({
     sql: `UPDATE clips_backfill_leases
-      SET expires_at = ?
-      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+      SET expires_at = $1
+      WHERE lease_key = $2 AND holder = $3 AND expires_at > $4`,
     args: [
       Date.now() + RECORDING_ORG_ID_BACKFILL_LEASE_MS,
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
@@ -197,7 +192,7 @@ async function backfillRecordingOrgIdsInBatches(): Promise<void> {
             SELECT id FROM recordings
             WHERE org_id IS NULL AND workspace_id IS NOT NULL
             ORDER BY id
-            LIMIT ?
+            LIMIT $1
           )`,
         args: [RECORDING_ORG_ID_BACKFILL_BATCH_SIZE],
       });
@@ -215,7 +210,7 @@ async function backfillRecordingOrgIdsInBatches(): Promise<void> {
     await exec
       .execute({
         sql: `DELETE FROM clips_backfill_leases
-          WHERE lease_key = ? AND holder = ?`,
+          WHERE lease_key = $1 AND holder = $2`,
         args: [
           RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
           recordingOrgIdBackfillHolder,
@@ -250,8 +245,8 @@ export const migrations = runMigrations(
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
       default_visibility TEXT NOT NULL DEFAULT 'public',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -279,7 +274,7 @@ export const migrations = runMigrations(
       invited_by TEXT NOT NULL,
       expires_at TEXT,
       accepted_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -294,7 +289,7 @@ export const migrations = runMigrations(
       color TEXT NOT NULL DEFAULT '#18181B',
       icon_emoji TEXT,
       is_all_company BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -316,7 +311,7 @@ export const migrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       name TEXT NOT NULL DEFAULT 'Untitled folder',
       position INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -362,8 +357,8 @@ export const migrations = runMigrations(
       enable_downloads BOOLEAN NOT NULL DEFAULT TRUE,
       default_speed TEXT NOT NULL DEFAULT '1.2',
       animated_thumbnail_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -380,7 +375,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -405,8 +400,8 @@ export const migrations = runMigrations(
       full_text TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
       failure_reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -418,7 +413,7 @@ export const migrations = runMigrations(
       url TEXT NOT NULL,
       color TEXT NOT NULL DEFAULT '#18181B',
       placement TEXT NOT NULL DEFAULT 'throughout',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -438,8 +433,8 @@ export const migrations = runMigrations(
       video_timestamp_ms INTEGER NOT NULL DEFAULT 0,
       emoji_reactions_json TEXT NOT NULL DEFAULT '{}',
       resolved BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -451,7 +446,7 @@ export const migrations = runMigrations(
       viewer_name TEXT,
       emoji TEXT NOT NULL,
       video_timestamp_ms INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -464,8 +459,8 @@ export const migrations = runMigrations(
       recording_id TEXT NOT NULL,
       viewer_email TEXT,
       viewer_name TEXT,
-      first_viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
-      last_viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      first_viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      last_viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       total_watch_ms INTEGER NOT NULL DEFAULT 0,
       completed_pct INTEGER NOT NULL DEFAULT 0,
       counted_view BOOLEAN NOT NULL DEFAULT FALSE,
@@ -481,7 +476,7 @@ export const migrations = runMigrations(
       kind TEXT NOT NULL,
       timestamp_ms INTEGER NOT NULL DEFAULT 0,
       payload TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -500,8 +495,8 @@ export const migrations = runMigrations(
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
       default_visibility TEXT NOT NULL DEFAULT 'public',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -528,8 +523,8 @@ export const migrations = runMigrations(
       action_items_json TEXT NOT NULL DEFAULT '[]',
       source TEXT NOT NULL DEFAULT 'adhoc',
       reminder_fired_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -546,7 +541,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -558,7 +553,7 @@ export const migrations = runMigrations(
       name TEXT,
       is_organizer BOOLEAN NOT NULL DEFAULT FALSE,
       attended_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -570,7 +565,7 @@ export const migrations = runMigrations(
       text TEXT NOT NULL,
       due_date TEXT,
       completed_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -589,8 +584,8 @@ export const migrations = runMigrations(
       last_synced_at TEXT,
       last_sync_error TEXT,
       status TEXT NOT NULL DEFAULT 'connected',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -605,7 +600,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -624,8 +619,8 @@ export const migrations = runMigrations(
       attendees_json TEXT NOT NULL DEFAULT '[]',
       meeting_id TEXT,
       provider_updated_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -641,9 +636,9 @@ export const migrations = runMigrations(
       audio_url TEXT,
       source TEXT NOT NULL DEFAULT 'fn-hold',
       target_app TEXT,
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -658,7 +653,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // ---------------------------------------------------------------------------
@@ -691,8 +686,8 @@ export const migrations = runMigrations(
       action_items_json TEXT NOT NULL DEFAULT '[]',
       source TEXT NOT NULL DEFAULT 'adhoc',
       reminder_fired_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -709,7 +704,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -722,9 +717,9 @@ export const migrations = runMigrations(
       audio_url TEXT,
       source TEXT NOT NULL DEFAULT 'fn-hold',
       target_app TEXT,
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -739,12 +734,11 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     // -------------------------------------------------------------------------
-    // Indices for hot list-query paths on meetings + dictations. Additive only;
-    // CREATE INDEX IF NOT EXISTS works on both SQLite and Postgres.
+    // Indices for hot list-query paths on meetings + dictations. Additive only.
     // -------------------------------------------------------------------------
     {
       version: 30,
@@ -795,7 +789,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -818,8 +812,7 @@ export const migrations = runMigrations(
     // Indices for the hot recordings list/read paths, per-recording comment
     // loads, and the `accessFilter` share-lookup EXISTS subqueries that run on
     // every list/read of recordings, meetings, dictations, and calendar
-    // accounts. Strictly additive; `CREATE INDEX IF NOT EXISTS` works on both
-    // SQLite and Postgres. The composite share index matches the subquery's
+    // accounts. Strictly additive. The composite share index matches the subquery's
     // `(resource_id, principal_type, principal_id)` predicate exactly.
     //
     // `clips_vocabulary_shares` already has a `resource_id` index (v37) and is
@@ -875,8 +868,8 @@ export const migrations = runMigrations(
           console_logs_json TEXT NOT NULL DEFAULT '[]',
           network_requests_json TEXT NOT NULL DEFAULT '[]',
           redaction_version INTEGER NOT NULL DEFAULT 1,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_browser_diagnostics_owner_idx ON recording_browser_diagnostics (owner_email, updated_at)`,
       ].join("; "),
@@ -901,8 +894,8 @@ export const migrations = runMigrations(
           org_id TEXT,
           status TEXT NOT NULL DEFAULT 'connected',
           last_error TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS slack_installations_team_status_idx ON slack_installations (team_id, status)`,
         `CREATE INDEX IF NOT EXISTS slack_installations_team_app_status_idx ON slack_installations (team_id, api_app_id, status)`,
@@ -930,9 +923,9 @@ export const migrations = runMigrations(
           reporter_name TEXT,
           reporter_id TEXT,
           metadata_json TEXT NOT NULL DEFAULT '{}',
-          submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          submitted_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_owner_idx ON recording_bug_reports (owner_email, updated_at)`,
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_project_idx ON recording_bug_reports (project_id, updated_at)`,
@@ -962,7 +955,7 @@ export const migrations = runMigrations(
           view_session_id TEXT,
           viewer_email TEXT,
           viewer_name TEXT,
-          viewed_at TEXT NOT NULL DEFAULT (datetime('now'))
+          viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_views_recording_idx ON recording_views (recording_id, viewed_at)`,
       ].join("; "),
@@ -1015,8 +1008,8 @@ export const migrations = runMigrations(
           agent_key TEXT NOT NULL,
           agent_label TEXT,
           view_session_id TEXT NOT NULL,
-          first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
-          last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          first_seen_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          last_seen_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
           request_count INTEGER NOT NULL DEFAULT 1
         )`,
         `CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_views_session_unique_idx ON recording_agent_views (recording_id, agent_key, view_session_id)`,
@@ -1083,8 +1076,8 @@ export const migrations = runMigrations(
       viewer_key TEXT NOT NULL,
       viewer_email TEXT,
       position_ms INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
     CREATE UNIQUE INDEX IF NOT EXISTS recording_playback_positions_recording_viewer_key_unique_idx
       ON recording_playback_positions (recording_id, viewer_key)`,
@@ -1130,7 +1123,6 @@ export const migrations = runMigrations(
       // that predate BOOLEAN, and it probes information_schema to decide. Once
       // applied it can never have anything left to do, so recording it removes
       // the probe from the boot path entirely instead of paying it forever.
-      // No-ops on SQLite, which never had the wrong type.
       sql: {},
       run: retypeBooleanColumnsOnPostgres,
     },
@@ -1157,7 +1149,7 @@ export const migrations = runMigrations(
     {
       version: 65,
       name: "recording-media-updated-at",
-      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
     },
     {
       version: 66,
@@ -1179,8 +1171,8 @@ export const migrations = runMigrations(
           month TEXT,
           generated_summary TEXT,
           attempts INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
           ai_dispatched_at TEXT,
           ai_claimed_by TEXT,
           ready_at TEXT,
@@ -1198,6 +1190,25 @@ export const migrations = runMigrations(
           config_json TEXT NOT NULL
         )`,
       ].join("; "),
+    },
+    {
+      version: 68,
+      name: "recording-thumbnail-status",
+      // Additive. NULL on every existing row — the thumbnail sweeper (and
+      // ensureRecordingThumbnail's own status writes) treat NULL the same as
+      // 'pending' so pre-migration rows are still picked up.
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS thumbnail_status TEXT`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS thumbnail_failure_reason TEXT`,
+        `CREATE INDEX IF NOT EXISTS recordings_thumbnail_status_idx ON recordings (status, thumbnail_status)`,
+      ].join("; "),
+    },
+    {
+      version: 69,
+      name: "clips-meeting-end-reason",
+      // Additive. NULL on every existing row and on any stop that doesn't
+      // pass a reason — absent stays distinguishable from every named cause.
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS end_reason TEXT`,
     },
   ],
   { table: "clips_migrations" },
@@ -1221,7 +1232,6 @@ export const migrations = runMigrations(
  */
 async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   const exec = getDbExec();
-  const pg = isPostgres();
 
   // 0) Skip cleanly if either source or dest tables don't exist yet. The
   //    source may be missing on fresh installs after the workspace tables
@@ -1230,15 +1240,8 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //    very first boot.
   const hasTable = async (name: string): Promise<boolean> => {
     try {
-      if (pg) {
-        const r = await exec.execute({
-          sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
-          args: [name],
-        });
-        return (r.rows?.length ?? 0) > 0;
-      }
       const r = await exec.execute({
-        sql: `SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?`,
+        sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
         args: [name],
       });
       return (r.rows?.length ?? 0) > 0;
@@ -1267,29 +1270,16 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //    `organizations` table has a simple shape: id, name, created_by, created_at.
   // guard:allow-unscoped — schema migration backfill — system-level by design
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO organizations (id, name, created_by, created_at)
-        SELECT
-          w.id,
-          w.name,
-          w.owner_email,
-          EXTRACT(EPOCH FROM COALESCE(w.created_at::TIMESTAMPTZ, NOW())) * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO organizations (id, name, created_by, created_at)
-        SELECT
-          w.id,
-          w.name,
-          w.owner_email,
-          strftime('%s','now') * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO organizations (id, name, created_by, created_at)
+      SELECT
+        w.id,
+        w.name,
+        w.owner_email,
+        EXTRACT(EPOCH FROM COALESCE(w.created_at::TIMESTAMPTZ, NOW())) * 1000
+      FROM workspaces w
+      WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
+    `);
   } catch (err) {
     console.warn(
       `[db] workspaces → organizations sync failed:`,
@@ -1319,37 +1309,20 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //     were implicitly members in the old Clips workspace model — this is
   //     the step that lands the current user inside their new org.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          'ownr-' || w.id,
-          w.id,
-          w.owner_email,
-          'admin',
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          'ownr-' || w.id,
-          w.id,
-          w.owner_email,
-          'admin',
-          strftime('%s','now') * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_members (id, org_id, email, role, joined_at)
+      SELECT
+        'ownr-' || w.id,
+        w.id,
+        w.owner_email,
+        'admin',
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM workspaces w
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_members m
+        WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] workspace owners → org_members sync failed:`,
@@ -1361,37 +1334,20 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //     framework `admin`, everything else (`creator`, `creator-lite`,
   //     `viewer`) → `member`.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          wm.id,
-          wm.workspace_id,
-          wm.email,
-          CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM workspace_members wm
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          wm.id,
-          wm.workspace_id,
-          wm.email,
-          CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
-          strftime('%s','now') * 1000
-        FROM workspace_members wm
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_members (id, org_id, email, role, joined_at)
+      SELECT
+        wm.id,
+        wm.workspace_id,
+        wm.email,
+        CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM workspace_members wm
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_members m
+        WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] workspace_members → org_members sync failed:`,
@@ -1401,37 +1357,20 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
 
   // 4) Copy invites → org_invitations (pending only).
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
-        SELECT
-          i.id,
-          i.workspace_id,
-          i.email,
-          i.invited_by,
-          EXTRACT(EPOCH FROM NOW()) * 1000,
-          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
-        FROM invites i
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_invitations x WHERE x.id = i.id
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
-        SELECT
-          i.id,
-          i.workspace_id,
-          i.email,
-          i.invited_by,
-          strftime('%s','now') * 1000,
-          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
-        FROM invites i
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_invitations x WHERE x.id = i.id
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
+      SELECT
+        i.id,
+        i.workspace_id,
+        i.email,
+        i.invited_by,
+        EXTRACT(EPOCH FROM NOW()) * 1000,
+        CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
+      FROM invites i
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_invitations x WHERE x.id = i.id
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] invites → org_invitations sync failed:`,
@@ -1445,41 +1384,22 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //    `u:<email>:active-org-id`. `settings.updated_at` is NOT NULL so we
   //    set it to now.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO settings (key, value, updated_at)
-        SELECT
-          'u:' || LOWER(sub.email) || ':active-org-id',
-          '{"orgId":"' || sub.org_id || '"}',
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM (
-          SELECT DISTINCT ON (LOWER(email)) email, org_id
-          FROM org_members
-          ORDER BY LOWER(email), joined_at DESC
-        ) sub
-        WHERE NOT EXISTS (
-          SELECT 1 FROM settings s
-          WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO settings (key, value, updated_at)
-        SELECT
-          'u:' || LOWER(sub.email) || ':active-org-id',
-          '{"orgId":"' || sub.org_id || '"}',
-          strftime('%s','now') * 1000
-        FROM (
-          SELECT email, org_id, MAX(joined_at) AS jmax
-          FROM org_members
-          GROUP BY LOWER(email)
-        ) sub
-        WHERE NOT EXISTS (
-          SELECT 1 FROM settings s
-          WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO settings (key, value, updated_at)
+      SELECT
+        'u:' || LOWER(sub.email) || ':active-org-id',
+        '{"orgId":"' || sub.org_id || '"}',
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM (
+        SELECT DISTINCT ON (LOWER(email)) email, org_id
+        FROM org_members
+        ORDER BY LOWER(email), joined_at DESC
+      ) sub
+      WHERE NOT EXISTS (
+        SELECT 1 FROM settings s
+        WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] active-org-id user-setting backfill failed:`,
@@ -1497,20 +1417,11 @@ function assertSafeIdentifier(name: string): string {
 
 async function tableExists(name: string): Promise<boolean> {
   const exec = getDbExec();
-  const pg = isPostgres();
   assertSafeIdentifier(name);
 
   try {
-    if (pg) {
-      const result = await exec.execute({
-        sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
-        args: [name],
-      });
-      return (result.rows?.length ?? 0) > 0;
-    }
-
     const result = await exec.execute({
-      sql: `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
       args: [name],
     });
     return (result.rows?.length ?? 0) > 0;
@@ -1524,30 +1435,19 @@ async function tableHasColumns(
   columns: readonly string[],
 ): Promise<boolean> {
   const exec = getDbExec();
-  const pg = isPostgres();
   assertSafeIdentifier(name);
 
   if (!(await tableExists(name))) return false;
 
   try {
-    if (pg) {
-      const result = await exec.execute({
-        sql: `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
-        args: [name],
-      });
-      const present = new Set(
-        (result.rows as Array<{ column_name?: string }>).map(
-          (row) => row.column_name,
-        ),
-      );
-      return columns.every((column) => present.has(column));
-    }
-
-    const result = await exec.execute(
-      `PRAGMA table_info(${assertSafeIdentifier(name)})`,
-    );
+    const result = await exec.execute({
+      sql: `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+      args: [name],
+    });
     const present = new Set(
-      (result.rows as Array<{ name?: string }>).map((row) => row.name),
+      (result.rows as Array<{ column_name?: string }>).map(
+        (row) => row.column_name,
+      ),
     );
     return columns.every((column) => present.has(column));
   } catch {

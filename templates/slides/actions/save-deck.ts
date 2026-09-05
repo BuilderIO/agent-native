@@ -17,7 +17,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionContentSignature,
+} from "../server/lib/deck-versions.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -31,6 +34,7 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
@@ -44,17 +48,6 @@ import {
 } from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
 
-function comparableDeckData(raw: unknown): string {
-  try {
-    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-    const clone = JSON.parse(JSON.stringify(data ?? {}));
-    delete clone.updatedAt;
-    return JSON.stringify(clone);
-  } catch {
-    return typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
-  }
-}
-
 function shouldSnapshotDeckWrite(
   current: { title?: string | null; data?: string | null },
   nextTitle: string,
@@ -62,7 +55,8 @@ function shouldSnapshotDeckWrite(
 ): boolean {
   return (
     (current.title ?? "Untitled") !== nextTitle ||
-    comparableDeckData(current.data ?? "") !== comparableDeckData(nextDeck)
+    deckVersionContentSignature(current.data ?? "") !==
+      deckVersionContentSignature(nextDeck)
   );
 }
 
@@ -103,7 +97,6 @@ export default defineAction({
       deck.id = deckId;
       deck.updatedAt = now;
       const requestedTitle = deckTitle(deck);
-      const nextDesignSystemId = deckDesignSystemId(deck);
 
       // Resolve access first — this loads the row AND tells us the caller's
       // effective role in one pass, so we never run an unscoped existence
@@ -125,13 +118,13 @@ export default defineAction({
           requestedTitle;
         assertHumanReadableDeckTitle(title);
         deck.title = title;
-        await assertDesignSystemReadable(nextDesignSystemId);
+        await assertDesignSystemReadable(deckDesignSystemId(deck));
         try {
           await db.insert(schema.decks).values({
             id: deckId,
             title,
             data: JSON.stringify(deck),
-            designSystemId: nextDesignSystemId,
+            designSystemId: deckDesignSystemId(deck),
             ownerEmail,
             orgId: getRequestOrgId() ?? null,
             createdAt: now,
@@ -157,7 +150,13 @@ export default defineAction({
         deck.title = title;
         const updatedAt = nextDeckRevision(access.resource.updatedAt);
         deck.updatedAt = updatedAt;
+        const nextDesignSystemId = Object.hasOwn(deck, "designSystemId")
+          ? deckDesignSystemId(deck)
+          : (access.resource.designSystemId ?? null);
         await assertDesignSystemReadable(nextDesignSystemId);
+        if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
+          return { ...deck, updatedAt: access.resource.updatedAt };
+        }
         await db.transaction(async (tx: any) => {
           if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
             await createDeckVersionSnapshot(
@@ -175,8 +174,7 @@ export default defineAction({
             .set({
               title,
               data: JSON.stringify(deck),
-              designSystemId:
-                nextDesignSystemId ?? access.resource.designSystemId,
+              designSystemId: nextDesignSystemId,
               updatedAt,
             })
             .where(
@@ -195,7 +193,7 @@ export default defineAction({
       }
 
       notifyClients(deckId);
-      return deck;
+      return { ...deck, appUrl: getDeckUrl(deckId) };
     }),
 });
 

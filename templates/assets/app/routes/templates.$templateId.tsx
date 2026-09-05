@@ -84,6 +84,7 @@ import { cn } from "@/lib/utils";
 import { normalizePresetReferences } from "../../server/lib/preset-references";
 import {
   ASPECT_RATIOS,
+  canApproveWithRole,
   GENERATION_PRESET_REFERENCE_POLICIES,
   IMAGE_CATEGORIES,
   IMAGE_MODELS,
@@ -364,10 +365,6 @@ function uploadedSkeletonAssetId(
   );
 }
 
-function isEditableRole(role: unknown): boolean {
-  return role === "owner" || role === "admin" || role === "editor";
-}
-
 function FieldLabel({
   htmlFor,
   children,
@@ -541,7 +538,7 @@ export default function TemplateEditorRoute() {
   );
   const loading = templateLoading || libraryLoading;
   const accessRole = template?.accessRole ?? library?.accessRole;
-  const readOnly = Boolean(accessRole && !isEditableRole(accessRole));
+  const readOnly = Boolean(accessRole && !canApproveWithRole(accessRole));
   const pinningUnavailable = !libraryId;
 
   useEffect(() => {

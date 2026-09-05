@@ -28,16 +28,8 @@ dist-ssr
 # Auth sessions
 data/.sessions.json
 
-# DB file (created at runtime)
-data/app.db
-data/app.db-wal
-data/app.db-shm
-
-# Stray SQLite files at the template root (real DB lives under data/)
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
+# PGlite data (created at runtime)
+data/pglite/
 
 # Learnings
 learnings.md

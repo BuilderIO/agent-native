@@ -19,6 +19,7 @@ interface ComposerStubProps {
 }
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
   appBasePath: () => "",
 }));
 

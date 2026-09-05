@@ -158,8 +158,8 @@ const koKR = {
           body: "작업을 한 번 정의하고 UI, agent, HTTP, MCP, A2A, CLI에서 사용합니다.",
         },
         sqlStateOrm: {
-          title: "SQL 상태와 ORM",
-          body: "지속되는 앱 데이터, application state, migration, 공급자 독립 schema.",
+          title: "PostgreSQL 상태와 ORM",
+          body: "지속되는 앱 데이터, application state, migration, PostgreSQL/PGlite schema.",
         },
         dbAdmin: {
           title: "데이터베이스 관리",
@@ -212,7 +212,7 @@ const koKR = {
       body1:
         "Agent-Native 는 agentic applications를 만들기 위한 오픈소스 framework 입니다. Chat에서 시작하고, shared actions를 정의한 뒤, 같은 state를 중심으로 UI, jobs, 협업을 추가하세요.",
       body2:
-        "자체 데이터베이스, 호스팅 제공자, 모델 스택, app 코드를 가져오세요.",
+        "로컬 PGlite 또는 호스팅 PostgreSQL과 호스팅 제공자, 모델 스택, app 코드를 사용하세요.",
       cta: "framework 가이드 읽기",
       primitives: {
         actions: {
@@ -223,17 +223,17 @@ const koKR = {
         sharedState: {
           title: "공유 상태",
           description:
-            "SQL-backed app state 가 사람, agents, sessions 를 동기화된 상태로 유지합니다.",
+            "PostgreSQL/PGlite로 뒷받침되는 app state가 사람, agents, sessions를 동기화된 상태로 유지합니다.",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop, tools, skills, memory, jobs, observability 가 함께 제공됩니다.",
         },
-        backendAgnostic: {
-          title: "백엔드 독립적",
+        postgresSpecific: {
+          title: "PostgreSQL 전용",
           description:
-            "Drizzle 이 지원하는 어떤 SQL 데이터베이스와 Nitro 호환 호스트든 연결할 수 있습니다.",
+            "프레임워크의 PostgreSQL 스키마 도우미를 로컬 PGlite 또는 Nitro 호환 호스트의 호스팅 Postgres와 함께 사용하세요.",
         },
       },
     },
@@ -312,7 +312,7 @@ const koKR = {
     },
     quickStart: {
       title: "명령으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
+      body: "명령 하나가 actions, durable threads, PGlite로 뒷받침되는 chat-first 로컬 app을 만듭니다. 아직 브라우저 UI가 필요 없는 automation-first workflow에만 `--headless`를 사용하세요.",
     },
     finalCta: {
       title: "agentic era 를 위해 구축된 소프트웨어",
@@ -417,6 +417,7 @@ const koKR = {
   },
   common: {
     copied: "복사됨",
+    copyFailed: "복사하지 못했습니다",
     copyCommand: "복사 명령",
     copyCode: "코드 복사",
     tryIt: "사용해 보기",
@@ -446,15 +447,15 @@ const koKR = {
     },
     actions: {
       title: "하나의 Action이 모든 표면을 구동합니다",
-      bodyLine1: "Action은 Agent-Native 앱의 기본 구성 요소입니다.",
+      bodyLine1: "Action은 에이전트가 할 수 있는 일을 정의합니다.",
       bodyLine2:
-        "기능을 한 번만 정의하고 UI, 에이전트 채팅, HTTP API, MCP, A2A, CLI에서 그대로 사용하세요.",
+        "각 기능을 한 번만 정의하고 에이전트, UI, HTTP API, MCP, A2A, CLI에서 그대로 사용하세요.",
       diagramAlt:
         "하나의 Action이 UI, MCP, 에이전트 채팅, A2A, HTTP API, CLI를 구동합니다",
     },
     builtIn: {
-      title: "모든 Agent-Native 앱에 기본으로 내장",
-      body: "사용자와 AI 에이전트가 함께 일하는 데 필요한 모든 것이 하나의 애플리케이션에 이미 연결되어 있습니다.",
+      title: "에이전트에 필요한 모든 것",
+      body: "UI, 컨텍스트, 데이터, 권한, 인프라가 이미 연결되어 있습니다.",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -462,14 +463,14 @@ const koKR = {
         },
         agentChat: {
           title: "내장된 에이전트 채팅",
-          body: "앱을 벗어나지 않고 작업을 위임하고, 질문하고, 결과를 검토할 수 있습니다.",
+          body: "같은 UI에서 작업을 위임하고, 질문하고, 결과를 검토할 수 있습니다.",
         },
         sharedState: {
           title: "공유 애플리케이션 상태",
           body: "에이전트가 사용자가 무엇을 보고, 선택하고, 편집하는지 알고 있습니다.",
         },
         sharedSql: {
-          title: "공유 SQL 데이터",
+          title: "공유 PostgreSQL 데이터",
           body: "사용자와 에이전트가 동일한 신뢰 출처를 읽고 업데이트합니다.",
         },
         skillsMemory: {
@@ -478,11 +479,11 @@ const koKR = {
         },
         automations: {
           title: "자동화",
-          body: "일정이나 애플리케이션 이벤트에 따라 에이전트 작업을 자동으로 실행합니다.",
+          body: "일정이나 이벤트에 따라 에이전트 작업을 자동으로 실행합니다.",
         },
         agentTeams: {
           title: "에이전트 팀",
-          body: "앱 내부 또는 여러 앱에 걸쳐 전문 에이전트에게 작업을 위임합니다.",
+          body: "같은 워크스페이스 또는 연결된 에이전트 간에 전문 에이전트에게 작업을 위임합니다.",
         },
         auth: {
           title: "인증과 조직",
@@ -496,19 +497,19 @@ const koKR = {
     },
     stack: {
       title: "기존 스택과 함께 작동",
-      body: "LLM, 데이터베이스, 도구, 인프라를 그대로 사용하세요. Agent-Native는 오픈 소스 TypeScript이므로 애플리케이션은 계속 여러분의 것입니다.",
+      body: "LLM, 데이터베이스, 도구, 인프라를 그대로 사용하세요. Agent-Native는 오픈 소스 TypeScript이므로 구축한 모든 것은 여러분의 것입니다.",
       exploreApps: "Agent-Native로 만든 앱 살펴보기",
     },
     showcase: {
       title: "Agent-Native로 무엇을 만들 수 있나요?",
-      body: "업무를 이해하고, 행동하며, 함께 협업하는 에이전틱 앱입니다. 직접 만들거나 이 오픈 소스 앱 중 하나를 사용해 보세요.",
+      body: "회의, 디자인, 프레젠테이션, 데이터 등을 위한 UI가 있는 에이전트를 구축하세요. 이 오픈 소스 앱 중 하나로 시작하거나 직접 구축할 수 있습니다.",
       browseApps: "앱 살펴보기",
       scrollLeft: "앱 왼쪽으로 스크롤",
       scrollRight: "앱 오른쪽으로 스크롤",
     },
     bottomCta: {
-      title: "첫 Agent-Native 앱을 만들어 보세요",
-      body: "사용자와 AI 에이전트를 위한 하나의 애플리케이션을 만드세요. 원하는 LLM을 사용하고 어디에나 배포하세요.",
+      title: "UI가 있는 첫 에이전트를 만들어 보세요",
+      body: "에이전트와 UI가 동일한 기능을 공유합니다. 원하는 LLM을 사용해 어디에나 배포하세요.",
     },
     footer: {
       tagline: "에이전틱 애플리케이션 프레임워크.",
@@ -520,16 +521,30 @@ const koKR = {
       download: "다운로드",
       apps: "앱",
       privacyPolicy: "개인정보 처리방침",
-      saasTerms: "SaaS 약관",
+      saasTerms: "호스팅 서비스 약관",
+      legalResources: "법률 리소스",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "로컬에서 빌드하지 않으시나요?",
-      exploreApp: "먼저 라이브 앱을 살펴보세요",
-      between: "또는",
-      joinWaitlist: "대기자 명단에 등록하고",
-      end: "브라우저에서 빌드하세요.",
+    tabs: {
+      label: "빌드 방식 선택",
+      local: "로컬에서 빌드",
+      localDescription: "CLI를 사용해 컴퓨터에서 빌드합니다.",
+      cloud: "클라우드에서 빌드",
+      cloudDescription: "Builder.io를 사용해 브라우저에서 빌드합니다.",
+    },
+    cloud: {
+      intro:
+        "아무것도 설치하지 않고 동일한 앱을 빌드할 수 있습니다. 원하는 것을 설명하면 Builder가 호스팅하는 워크스페이스에서 에이전트가 코드를 작성하고 실행합니다.",
+      stepOneTitle: "Builder 계정 만들기",
+      stepOneBody:
+        "Builder 계정으로 브라우저에서 빌드합니다. API 키를 직접 준비하지 않아도 무료로 시작할 수 있습니다.",
+      stepTwoTitle: "프롬프트해 보세요",
+      stepTwoBody:
+        "만들고 싶은 것을 자연어로 설명하면 에이전트가 대신 만들어 줍니다.",
+      stepThreeTitle: "배포",
+      stepThreeBody:
+        "준비가 되면 Builder에서 한 번의 클릭으로 앱을 배포하세요.",
     },
   },
   templatesPage: {
@@ -552,9 +567,9 @@ const koKR = {
     copyCommunityInstallCommand: "설치 명령 복사",
     viewRepository: "저장소 보기",
     tryCommunityDemo: "데모 사용해 보기",
-    customizeDescription: "이 코드는 완전히 맞춤 설정할 수 있습니다.",
-    customizeOnline: "온라인에서 맞춤 설정",
-    customizeLocally: "로컬에서 맞춤 설정",
+    customizeDescription: "이 앱을 시작점으로 사용하세요.",
+    customizeOnline: "온라인",
+    customizeLocally: "로컬",
     communityNew: "새 앱",
     communityComingSoon: "곧 공개",
     communityGithubStars: "GitHub 별 {{count}}개",
@@ -574,7 +589,7 @@ const koKR = {
     communitySubmissionName: "앱 이름",
     communitySubmissionNamePlaceholder: "고객 지원 허브",
     communitySubmissionUrl: "앱 URL",
-    communitySubmissionUrlPlaceholder: "example.com 또는 https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "설명",
     communitySubmissionDescriptionPlaceholder:
       "앱은 무엇을 하며 누구를 위한 것인가요?",
@@ -589,8 +604,16 @@ const koKR = {
     communitySubmissionScreenshotRemove: "스크린샷 {{index}} 제거",
     communitySubmissionSubmit: "앱 제출",
     communitySubmissionReady: "감사합니다. 게시하기 전에 앱을 검토하겠습니다.",
-    communitySubmissionValidation:
-      "이름과 설명을 입력한 다음 example.com과 같은 앱 링크를 입력하세요. https://는 자동으로 추가됩니다. 저장소를 추가하려면 github.com 링크를 사용하세요. PNG, JPG 또는 WebP 이미지는 각각 1.5MB 이하로 업로드하세요.",
+    communitySubmissionNameError: "앱 이름을 입력하세요.",
+    communitySubmissionDescriptionError: "간단한 설명을 추가하세요.",
+    communitySubmissionUrlError:
+      "example.com과 같은 유효한 앱 링크를 입력하세요.",
+    communitySubmissionRepositoryError: "GitHub 저장소 링크를 입력하세요.",
+    communitySubmissionScreenshotsError:
+      "PNG, JPG 또는 WebP 이미지를 사용하세요. 각 1.5MB 이하, 최대 5개입니다.",
+    communitySubmissionSubmitError:
+      "지금 제출할 수 없습니다. 강조 표시된 필드를 확인하고 다시 시도하세요.",
+    communitySubmissionSubmitting: "제출 중…",
   },
   buildFromScratch: {
     title: "처음부터 만들기",
@@ -600,15 +623,8 @@ const koKR = {
     buildOnline: "온라인에서 빌드",
     popoverTitle: "브라우저에서 빌드",
     popoverBody:
-      "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
-    emailLabel: "이메일",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "대기자 명단 참여",
-    joining: "참여 중…",
-    joined:
-      "대기자 명단에 등록되었습니다. 온라인 빌드 액세스가 열리면 이메일로 알려드릴게요.",
-    invalidEmail: "유효한 이메일 주소를 입력하세요.",
-    submitError: "대기자 명단에 참여하지 못했습니다. 다시 시도하세요.",
+      "Builder.io를 사용해 클라우드에서 agent-native 앱을 빠르게 생성하세요.",
+    launchBuilder: "Builder 실행",
   },
   templateCard: {
     pasteIntoTerminal: "터미널에 붙여넣으세요.",
@@ -873,8 +889,11 @@ const koKR = {
       s004: "받아쓰기",
       s005: "볼 수 있고 들을 수 있음",
       s006: "모든 템플릿",
-      s007: "Loom에 대한 오픈 소스 대안",
-      s008: "Clips 링크를 에이전트에 붙여 넣으면 해당 모델이 원시 비디오 또는 오디오를 수집할 수 없는 경우에도 스크립트를 듣고, 요약을 읽고, 타임스탬프가 표시된 프레임을 볼 수 있습니다.",
+      s007Primary: "AI가 보고 들을 수 있는",
+      s007Secondary: "화면 녹화.",
+      s008: "브라우저 디버그 로그를 캡처하고 스크립트를 생성하며 내장 받아쓰기를 사용하세요. 100% 무료, 오픈 소스, 사용자 지정 가능.",
+      s063: "맞춤형 추천 받기",
+      s064: "이 프롬프트를 Claude, ChatGPT 또는 Cursor에 붙여 넣어 Clips가 워크플로에 어떤 영향을 줄 수 있는지 확인하세요.",
       s009: "사용해 보기",
       s010: "당신이 할 수 있는 일",
       s011: "구독 스택 없이 하나의 앱, 하나의 라이브러리로 기록하고, 복사하고, 디버깅할 수 있습니다.",
@@ -929,6 +948,25 @@ const koKR = {
       s060: "캡처할 항목을 선택한 다음 Clips에서 녹화를 시작하세요.",
       s061: "더 많은 앱 보기",
       s062: "모든 템플릿 보기",
+      faq: {
+        question1: "Clips는 무료인가요?",
+        answer1: "네. Clips는 무료 오픈 소스입니다.",
+        question2: "AI가 화면 녹화를 읽을 수 있나요?",
+        answer2:
+          "네. 모든 클립에는 에이전트가 직접 읽을 수 있는 트랜스크립트, 요약, 타임스탬프 프레임이 포함됩니다.",
+        question3: "Clips는 Loom과 어떻게 다른가요?",
+        answer3:
+          "Clips는 오픈 소스이고 데이터를 직접 소유하며, 모든 공유 링크를 사람뿐 아니라 AI 에이전트도 읽을 수 있습니다.",
+        question4: "화면 녹화에서 콘솔 오류를 캡처할 수 있나요?",
+        answer4:
+          "네. Clips는 녹화와 함께 브라우저 콘솔 오류와 실패한 네트워크 요청을 캡처합니다. 트랜스크립트와 프레임이 있는 동일한 공유 링크에 함께 첨부되므로 에이전트가 클립을 보기만 하는 것이 아니라 클립을 바탕으로 디버깅할 수 있습니다.",
+        question5: "Clips는 Claude, ChatGPT, Cursor에서 작동하나요?",
+        answer5:
+          "네! 플러그인이나 API 키가 필요하지 않습니다. Clips 공유 링크를 어떤 에이전트에든 붙여 넣으면 트랜스크립트, 요약, 프레임을 직접 읽을 수 있습니다.",
+        question6: "녹화본은 어디에 저장되나요?",
+        answer6:
+          "배포한 곳에 저장됩니다. 직접 호스팅하는 Clips는 동영상, 트랜스크립트, 분석 데이터를 자체 인프라에 보관합니다.",
+      },
       quickStart: {
         recordingMode: "녹화 모드",
         modeScreenCamera: "화면 + 카메라",
@@ -1444,8 +1482,8 @@ const koKR = {
       s003: "생성",
       s004: "구체화",
       s005: "모든 템플릿",
-      s006Primary: "사람과 에이전트를 위한",
-      s006Secondary: "슬라이드 프레젠테이션",
+      s006Primary: "AI 에이전트가 만드는 슬라이드.",
+      s006Secondary: "브랜드에 맞고 편집 가능",
       s007: "AI 에이전트로 브랜드에 맞는 슬라이드 덱을 생성하고, 언제든 직접 수정한 뒤 어디로든 내보내세요.",
       s008: "사용해 보기",
       s009: "작동 원리",
@@ -1729,6 +1767,35 @@ const koKR = {
   },
   legal: {
     lastUpdated: "마지막 업데이트: {{date}}",
+    resources: {
+      eyebrow: "법률 리소스",
+      title: "Agent-Native 법률 리소스",
+      intro:
+        "Agent-Native 호스팅 애플리케이션과 서비스에 적용되는 독립적인 법률 정책입니다.",
+      agentNative: {
+        title: "Agent-Native 정책",
+        body: "이 페이지들은 공통 정책 체계를 Agent-Native 오픈 소스 프로젝트와 호스팅 예제에 맞게 조정합니다.",
+        terms: "Agent-Native 서비스 약관",
+        privacy: "Agent-Native 개인정보 처리방침",
+      },
+      builder: {
+        title: "호스팅 서비스 추가 정책",
+        body: "허용되는 사용, AI 기능, 플랫폼 규칙, 중지 및 삭제, 저작권, 법 집행기관 요청에 대한 로컬 사본입니다. 영어 버전이 우선합니다.",
+      },
+      links: {
+        terms: "SaaS 서비스 계약",
+        privacy: "개인정보 처리방침",
+        acceptableUse: "허용 가능한 사용 정책",
+        aiTerms: "AI 약관",
+        platformRules: "플랫폼 규칙",
+        takedown: "중지, 삭제 및 데이터 처리 정책",
+        lawEnforcement: "법 집행기관 요청 정책",
+      },
+      notIncluded: {
+        title: "포함되지 않는 상업적 조건",
+        body: "Agent-Native에는 유료 요금제나 엔터프라이즈 계약이 없습니다. 엔터프라이즈 SLA, 지원 약관, DPA, 보안 부록, 전문 서비스 약관 및 요금과 같은 상업 자료는 포함되지 않습니다.",
+      },
+    },
     privacy: {
       eyebrow: "개인 정보 보호 정책",
       title: "Agent-Native 호스팅된 애플리케이션",
@@ -1751,6 +1818,7 @@ const koKR = {
       sections: {
         scope: "범위",
         information: "우리가 수집하는 정보",
+        cookies: "쿠키 및 분석",
         clipsExtension: "Agent-Native Clips Chrome 확장 프로그램",
         use: "우리가 정보를 사용하는 방법",
         sharing: "공유 및 제3자",
@@ -1765,6 +1833,8 @@ const koKR = {
         scope2Prefix:
           "이 정책은 Builder.io의 광범위한 정책을 보완하기 위한 것입니다.",
         scope2Suffix: "Agent-Native 호스팅된 애플리케이션 동작에 대해.",
+        cookies:
+          "Agent-Native 문서 사이트와 호스팅 애플리케이션은 인증 및 보안, 언어 또는 테마와 같은 기본 설정 저장, 구성된 분석 기술을 위해 필요한 쿠키를 사용할 수 있습니다. 배포 환경에서 구성된 경우 문서 사이트는 Google Analytics 또는 Google Tag Manager를 로드할 수 있으며, 호스팅 서비스는 안정성과 기능 사용량을 측정하기 위해 퍼스트 파티 분석을 사용할 수 있습니다. 호스팅 애플리케이션 콘텐츠를 제3자 광고에 사용하지 않습니다. 브라우저 설정에서 쿠키를 관리할 수 있지만 필요한 쿠키를 비활성화하면 로그인이나 다른 기능을 사용하지 못할 수 있습니다.",
         clips1:
           "Agent-Native Clips Chrome extension는 브라우저 기반 녹화를 시작하는 데 도움이 되며, 활성화되면 브라우저 진단을 클립에 첨부할 수 있습니다. 선택한 캡처 소스, 포함하도록 선택한 카메라 및 마이크 미디어, 활성 탭 제목 및 URL, 확장 프로그램을 호스팅된 Clips에 연결하는 데 필요한 인증 상태를 수집할 수 있습니다.",
         clips2:
@@ -1908,6 +1978,8 @@ const koKR = {
         scope2Middle: "그리고 Agent-Native",
         scope2Suffix:
           "회사 또는 조직을 대신하여 호스팅된 Agent-Native 앱을 사용하는 경우 귀하는 해당 조직에 대해 이러한 약관을 수락할 권한이 있음을 나타냅니다.",
+        scope3:
+          "Agent-Native에는 유료 플랜이나 유료 호스팅 구독이 없습니다. 주문서, 요금, 엔터프라이즈 지원, 서비스 수준 및 데이터 처리 부속서와 같은 Builder.io의 상업적 조건은 별도로 서면 합의하지 않는 한 이 제공 범위에 포함되지 않습니다.",
         hostedService:
           "Builder.io은 호스팅된 Agent-Native 애플리케이션, 템플릿, 데모, 공유 작업 공간, 브라우저 확장 프로그램 및 관련 에이전트 워크플로를 제공할 수 있습니다. 호스팅 서비스는 제품이 발전함에 따라 업데이트, 제한, 일시 중단 또는 중단될 수 있습니다.",
         accounts1:
@@ -2027,12 +2099,16 @@ const koKR = {
     actionsAgentTools: "프로덕션 에이전트 액세스",
     publicAgentWeb: "공개 Agent Web",
     database: "데이터베이스",
+    databaseProviders: "데이터베이스 프로바이더",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databasePostgres: "Plain Postgres",
     internationalization: "국제화",
     localFileMode: "로컬 파일 모드",
     fileUploads: "파일 업로드",
     deployment: "배포",
     deploymentOverview: "개요",
-    deploymentProviders: "프로바이더",
+    deploymentProviders: "호스팅 제공업체",
     deploymentProduction: "프로덕션 및 고급",
     deployAnApp: "앱 배포",
     workspaceDeployment: "워크스페이스 배포",

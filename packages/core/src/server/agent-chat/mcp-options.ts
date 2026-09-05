@@ -72,6 +72,8 @@ export interface AgentChatMcpOptions {
   websiteUrl?: string;
   /** App icons. Relative `src` values are resolved against the request origin. */
   icons?: AgentChatMcpIcon[];
+  /** Additional host-facing guidance included in MCP initialization metadata. */
+  instructions?: string;
 }
 
 /** The legacy top-level keys `mcp` replaces. */
@@ -84,6 +86,7 @@ export interface AgentChatMcpLegacyInput {
     description?: string;
     websiteUrl?: string;
     icons?: AgentChatMcpIcon[];
+    instructions?: string;
   };
   /** @deprecated Use `mcp.connectorCatalog`. */
   connectorCatalog?: string[];
@@ -102,6 +105,7 @@ export interface ResolvedAgentChatMcp {
   description: string | undefined;
   websiteUrl: string | undefined;
   icons: AgentChatMcpIcon[] | undefined;
+  instructions: string | undefined;
 }
 
 function conflict(
@@ -215,5 +219,11 @@ export function resolveAgentChatMcpOptions(
       mcp.websiteUrl,
     ),
     icons: pick("icons", "mcpServerInfo.icons", legacyInfo?.icons, mcp.icons),
+    instructions: pick(
+      "instructions",
+      "mcpServerInfo.instructions",
+      legacyInfo?.instructions,
+      mcp.instructions,
+    ),
   };
 }

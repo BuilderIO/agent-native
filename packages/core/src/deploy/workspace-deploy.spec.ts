@@ -522,6 +522,9 @@ describe("workspace deploy", () => {
       "/dispatch/robots.txt /_workspace_static/dispatch/robots.txt 200",
     );
     expect(redirects).toContain(
+      "/dispatch/auth-marketing/dispatch.webp /_workspace_static/dispatch/auth-marketing/dispatch.webp 200",
+    );
+    expect(redirects).toContain(
       "/starter/feed.xml /_workspace_static/starter/feed.xml 200",
     );
     expect(redirects).toContain(
@@ -1526,6 +1529,13 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
   fs.writeFileSync(path.join(appDir, "dist", app, "poster.avif"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "robots.txt"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "site.webmanifest"), "{}");
+  fs.mkdirSync(path.join(appDir, "dist", app, "auth-marketing"), {
+    recursive: true,
+  });
+  fs.writeFileSync(
+    path.join(appDir, "dist", app, "auth-marketing", `${app}.webp`),
+    "image",
+  );
   fs.mkdirSync(path.join(appDir, "dist", app, app, "assets"), {
     recursive: true,
   });

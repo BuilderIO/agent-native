@@ -31,7 +31,17 @@ vi.mock("drizzle-orm", () => ({
   }),
 }));
 
-vi.mock("h3", () => ({ HTTPError: class extends Error {} }));
+vi.mock("h3", () => ({
+  HTTPError: class extends Error {
+    statusCode?: number;
+    statusMessage?: string;
+    constructor(init: { statusCode?: number; statusMessage?: string } = {}) {
+      super(init.statusMessage);
+      this.statusCode = init.statusCode;
+      this.statusMessage = init.statusMessage;
+    }
+  },
+}));
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: vi.fn(),
@@ -63,6 +73,7 @@ import {
   countedViewCondition,
   countRecordingViews,
   getDefaultRecordingVisibility,
+  requireActiveOrganizationId,
 } from "./recordings.js";
 
 /**
@@ -244,5 +255,20 @@ describe("getDefaultRecordingVisibility", () => {
       "owner@example.test",
       "clips-user-prefs",
     );
+  });
+});
+
+describe("requireActiveOrganizationId", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reports a first-time caller with no org as 409, not a generic 500", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(null);
+    mocks.getDb.mockReturnValue(undefined);
+
+    await expect(requireActiveOrganizationId()).rejects.toMatchObject({
+      statusCode: 409,
+    });
   });
 });

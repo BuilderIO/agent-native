@@ -55,6 +55,7 @@ const messages = {
       rename: "重新命名",
       renameTab: "重新命名標籤頁面",
       savedFilters: "已儲存的篩選條件",
+      combinedInbox: "合併收件匣",
       help: "勾選的專案會顯示為標籤頁面。標籤郵件會從收件箱中分離。",
     },
     accounts: {

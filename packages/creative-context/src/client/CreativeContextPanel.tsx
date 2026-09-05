@@ -1416,7 +1416,9 @@ export function CreativeContextPanel({
     brandProposal?.voiceDescriptors?.join(" · ") ?? brandProposal?.voiceLine;
   const canManageScope = libraryScope === "user" || canManageOrg;
   const canCreateContext =
-    canManageScope && contexts.some((context) => context.access.canAdmin);
+    contextsQuery.data?.canCreateContext === true &&
+    canManageScope &&
+    contexts.some((context) => context.access.canAdmin);
   const activeAppId = contextsQuery.data?.appId;
   const appDefaultContextId = contextsQuery.data?.appDefaultContextId ?? null;
   const canSetAppDefault = Boolean(

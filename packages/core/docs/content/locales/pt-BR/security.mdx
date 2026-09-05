@@ -238,13 +238,13 @@ A estrutura cria visualizações SQL temporárias que filtram consultas automati
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 As instruções INSERT são injetadas automaticamente em `owner_email` quando a coluna ainda não está presente.
 
-As ferramentas `db-query`/`db-exec` rejeitam referências de tabela qualificadas pelo esquema (`public.<table>`, `main.<table>`) — um nome qualificado é resolvido para a tabela base e ignoraria a visualização temporária acima. Os agentes usam nomes de tabelas simples; o escopo é aplicado automaticamente.
+As ferramentas `db-query`/`db-exec` rejeitam referências de tabela qualificadas pelo esquema (`public.<table>`) — um nome qualificado é resolvido para a tabela base e ignoraria a visualização temporária acima. Os agentes usam nomes de tabelas simples; o escopo é aplicado automaticamente.
 
 ### Escopo por organização (`org_id`)
 

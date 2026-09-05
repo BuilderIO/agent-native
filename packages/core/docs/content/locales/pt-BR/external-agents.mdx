@@ -1,7 +1,7 @@
 ---
-title: "Agentes Externos: Claude, ChatGPT, Codex, Cursor, Cowork"
-description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork ou qualquer host compatível com MCP a um aplicativo nativo de agente hospedado e, em seguida, faça o retorno dos artefatos ao UI em execução com aplicativos MCP e links diretos."
-search: "Claude ChatGPT Claude Código Codex Cursor Claude Cowork MCP Aplicativos agente nativo conectar ferramentas de agente local agentes externos"
+title: "Agentes Externos: Claude, ChatGPT, Codex, Cursor, Cowork, Grok"
+description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok ou qualquer host compatível com MCP a um aplicativo nativo de agente hospedado e, em seguida, faça o retorno dos artefatos ao UI em execução com aplicativos MCP e links diretos."
+search: "Claude Anthropic ChatGPT OpenAI Claude Código Codex Cursor Claude Cowork Grok xAI MCP Aplicativos agente nativo conectar ferramentas de agente local agentes externos"
 ---
 
 # Agentes Externos
@@ -99,9 +99,11 @@ Cada aplicativo Agent-Native expõe uma URL MCP canônica:
 https://<your-app>.agent-native.com/mcp
 ```
 
-No aplicativo, abra **Settings**, pesquise **MCP** e copie a **MCP server URL**. Cole essa
-URL no host de IA que você deseja usar. A URL é a URL base do aplicativo implantado seguida de `/mcp`;
-você não precisa procurar uma configuração de desenvolvedor.
+No aplicativo, abra **Settings → Integrations** e pesquise pelo nome de host que
+você já conhece: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
+Codex, Grok ou xAI. O único resultado de host externo abre **Settings → MCP**
+com o guia mais adequado selecionado. Copie a **MCP server URL** e cole-a no
+host de IA. A URL é a URL base do aplicativo implantado seguida de `/mcp`.
 
 Para trabalho em espaço de trabalho ou entre aplicativos, use Dispatch:
 
@@ -123,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 Todo aplicativo hospedado também tem uma página auxiliar em
 `https://&lt;app&gt;/mcp/connect` com o URL copiável e
-guias específicas do host para Claude, ChatGPT, Cursor, Código Claude, Codex e Outros.
+guias específicas do host para Claude, ChatGPT, Cursor, Claude Code, Codex, Grok e Outros.
 
 <a id="access-tab"></a>
 
@@ -513,6 +515,8 @@ Para hosts de aplicativos OAuth estilo ChatGPT/Claude, a superfície de descober
 Isso disponibiliza a mesma superfície de aplicativo para todos os hosts compatíveis, em vez de criar correções por cliente. Quais hosts renderizam aplicativos MCP inline (e a pegadinha do cache do conector após alterações de metadados) residem em [MCP Apps → Client support and caching](/docs/mcp-apps#client-support) - essa página é o único local para a matriz do cliente.
 
 Na prática, todo aplicativo nativo do agente deve ser criado com ambos: aplicativos MCP para revisão/edição in-line em hosts compatíveis e `link` para retorno universal ao aplicativo completo. Os clientes CLI/editor de código que não renderizam um iframe voltam para o link direto. As ferramentas de seleção humana podem adicionar uma etapa de colagem a esse substituto: por exemplo, o seletor de recursos abre a partir do link substituto, permite que o usuário escolha a mídia no navegador e, em seguida, copia um resumo da transferência que o usuário cola de volta no bate-papo.
+
+Os agentes externos recebem as ferramentas reais de criação/atualização do aplicativo — as mesmas ações nomeadas que o agente interno chama — então, quando um usuário pedir novo conteúdo (um design, uma apresentação, um formulário, um documento), crie-o diretamente e salve-o com essas ferramentas em vez de delegar o trabalho por meio do `ask_app`. Ações marcadas com `endsTurn: true`, como um formulário de perguntas interno que espera a resposta do usuário no chat do próprio aplicativo, ficam ocultas do MCP, WebMCP e A2A por padrão; elas são a ferramenta do agente interno, não a de um chamador externo, a menos que a ação opte explicitamente por reativá-las com `mcpTool: true`. A ponte WebMCP aceita entradas e resultados de ferramentas com até 500.000 caracteres, de modo que uma tela, apresentação ou documento inteiro cabe em uma única gravação em vez de precisar ser dividido. As chamadas WebMCP locais à página também carregam o id da aba do navegador, de modo que o contexto próprio de cada aba (navegação, seleção) é resolvido para a aba que o usuário está realmente vendo.
 
 ### Ponte de aplicativo MCP de primeira classe {#mcp-app-bridge}
 

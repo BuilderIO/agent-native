@@ -1,3 +1,5 @@
+import { generateKeyPairSync } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
@@ -25,10 +27,96 @@ const repository = { owner: "builder", repo: "factory" };
 beforeEach(() => {
   mockedResolveConnectorSecret
     .mockReset()
-    .mockResolvedValue("github-test-token");
+    .mockImplementation(async (key) =>
+      key === "GITHUB_TOKEN" ? "github-test-token" : undefined,
+    );
 });
 
 describe("GitHub triage client", () => {
+  it("exchanges and reuses a GitHub App installation token", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    mockedResolveConnectorSecret.mockImplementation(
+      async (key) =>
+        ({
+          GITHUB_APP_ID: "123",
+          GITHUB_APP_INSTALLATION_ID: "456",
+          GITHUB_APP_PRIVATE_KEY: pem.replace(/\n/g, "\\n"),
+        })[key],
+    );
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).includes("/access_tokens")) {
+        return response({
+          token: "installation-token",
+          expires_at: "2099-01-01T00:00:00Z",
+        });
+      }
+      return response([]);
+    });
+    const client = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    });
+    await client.listOpenIssues(repository);
+    await client.listOpenIssues(repository);
+    expect(
+      fetchImpl.mock.calls.filter(([input]) =>
+        String(input).includes("/access_tokens"),
+      ),
+    ).toHaveLength(1);
+    expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({
+      headers: expect.objectContaining({
+        Authorization: "Bearer installation-token",
+      }),
+    });
+  });
+
+  it("resolves the GitHub App bot actor for authenticated identity checks", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    mockedResolveConnectorSecret.mockImplementation(
+      async (key) =>
+        ({
+          GITHUB_APP_ID: "123",
+          GITHUB_APP_INSTALLATION_ID: "456",
+          GITHUB_APP_PRIVATE_KEY: pem,
+        })[key],
+    );
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/access_tokens")) {
+        return response({
+          token: "installation-token",
+          expires_at: "2099-01-01T00:00:00Z",
+        });
+      }
+      if (path === "/app") return response({ slug: "agent-native-factory" });
+      if (path.includes("/users/agent-native-factory")) {
+        return response({ login: "agent-native-factory[bot]", id: 323 });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl,
+      }).getAuthenticatedUser(),
+    ).resolves.toEqual({ login: "agent-native-factory[bot]", id: 323 });
+  });
+
+  it("rejects incomplete GitHub App configuration without exposing key material", async () => {
+    mockedResolveConnectorSecret.mockImplementation(async (key) =>
+      key === "GITHUB_APP_ID" ? "123" : undefined,
+    );
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl: vi.fn<typeof fetch>(),
+      }).listOpenIssues(repository),
+    ).rejects.toThrow("GitHub App configuration is incomplete");
+  });
+
   it("resolves the workspace token and bounds open reads", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       response([
@@ -194,7 +282,9 @@ describe("GitHub triage client", () => {
       "GITHUB_TOKEN is not configured",
     );
 
-    mockedResolveConnectorSecret.mockResolvedValue("github-test-token");
+    mockedResolveConnectorSecret.mockImplementation(async (key) =>
+      key === "GITHUB_TOKEN" ? "github-test-token" : undefined,
+    );
     const failedFetch = vi.fn<typeof fetch>(async () =>
       response({ merged: false, message: "not clean" }),
     );
@@ -279,6 +369,7 @@ describe("GitHub triage client", () => {
       },
     ]);
     expect(evidence.commentsTruncated).toBe(false);
+    expect(evidence.reviewsTruncated).toBe(false);
     expect(evidence.reviews).toEqual([
       {
         author: "reviewer",
@@ -302,6 +393,66 @@ describe("GitHub triage client", () => {
       "/repos/builder/factory/pulls/7/comments",
       "/repos/builder/factory/commits/sha-7/check-runs",
     ]);
+    expect(
+      new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get("page"),
+    ).toBe("1");
+  });
+
+  it("pages review submissions and flags an incomplete last page", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      if (path.endsWith("/reviews")) {
+        const page = url.searchParams.get("page");
+        if (page === "1") {
+          return response(
+            Array.from({ length: 100 }, (_, index) => ({
+              user: { login: "reviewer", id: 2 },
+              state: "COMMENTED",
+              body: `note ${index}`,
+              submitted_at: "2026-08-28T12:00:00Z",
+            })),
+          );
+        }
+        if (page === "2") {
+          return response([
+            {
+              user: { login: "reviewer", id: 2 },
+              state: "COMMENTED",
+              body: "later feedback",
+              submitted_at: "2026-08-28T13:00:00Z",
+            },
+          ]);
+        }
+        throw new Error(`unexpected review page ${page}`);
+      }
+      if (path.endsWith("/comments")) return response([]);
+      if (path.endsWith("/check-runs")) {
+        return response({
+          total_count: 1,
+          check_runs: [
+            {
+              name: "ci",
+              status: "completed",
+              conclusion: "success",
+              completed_at: "2026-08-28T12:02:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    const evidence = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).getPullRequestEvidence(repository, 7, "sha-7");
+
+    expect(evidence.reviews).toHaveLength(101);
+    expect(evidence.reviews[evidence.reviews.length - 1]?.body).toBe(
+      "later feedback",
+    );
+    expect(evidence.reviewsTruncated).toBe(false);
   });
 
   it("falls back to Actions workflow runs when Checks permission is unavailable", async () => {

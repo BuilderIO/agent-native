@@ -54,3 +54,32 @@ export function buildWorkingLocationDraft({
     updatedAt: now,
   };
 }
+
+export function buildAllDayEventDraft({
+  id,
+  date,
+  accountEmail,
+  now = new Date().toISOString(),
+}: {
+  id: string;
+  date: Date;
+  accountEmail?: string;
+  now?: string;
+}): CalendarEventDraft {
+  const dateKey = dateToCalendarDateKey(date);
+  return {
+    id,
+    title: "",
+    description: "",
+    location: "",
+    start: dateKey,
+    end: addCalendarDays(dateKey, 1),
+    startTimeZone: undefined,
+    endTimeZone: undefined,
+    allDay: true,
+    eventType: "default",
+    accountEmail,
+    createdAt: now,
+    updatedAt: now,
+  };
+}

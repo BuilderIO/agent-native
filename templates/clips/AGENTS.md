@@ -92,6 +92,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 | `search-meetings` | Find a meeting by title, summary, notes, attendee, or transcript |
 | `list-dictations`, `cleanup-dictation` | Dictation history |
 | `add-comment`, `update-comment`, `create-folder`, `create-space` | Comments, folders |
+| `get-clips-notification-prefs`, `update-clips-notification-prefs` | Read or change optional email notifications |
 | `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |
 | `create-recording-agent-link` | Two-hour `agent_access` share URL |
 | `prepare-crm-call-evidence` | Opaque clip id plus `/r/<id>` for CRM |

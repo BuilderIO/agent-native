@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "contiene",
     conditionValue: "Respuesta",
     conditionValuePlaceholder: "Escribe una respuesta...",
+    allowMultiple: "Permitir varios archivos",
+    accept: "Tipos de archivo aceptados",
+    acceptPlaceholder: "p. ej., image/*, .pdf",
     fieldTypes: {
       text: "Texto corto",
       email: "Correo electrónico",
@@ -110,6 +113,7 @@ const messages = {
       date: "Fecha",
       rating: "Clasificación",
       scale: "Escala",
+      file: "Carga de archivos",
     },
   },
   builder: {
@@ -181,6 +185,7 @@ const messages = {
       dateLabel: "Fecha",
       ratingLabel: "Valoración",
       scaleLabel: "Escala",
+      fileLabel: "Carga de archivos",
       option1: "Opción 1",
       option2: "Opción 2",
       option3: "Opción 3",
@@ -330,12 +335,9 @@ const messages = {
     sharePubliclyDescription:
       "Para compartir contenido públicamente, conecta una base de datos en la nube.",
     providerDescriptions: {
-      turso: "SQLite en el borde",
       neon: "Postgres sin servidor",
       supabase: "Alternativa de código abierto a Firebase",
-      d1: "SQLite en el borde",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Pasos de configuración",
     authToken: "Token de autenticación",
     connectedReloading: "Conectado correctamente. Recargando...",
@@ -405,6 +407,13 @@ const messages = {
     page: "Pagina",
     source: "Origen",
     sortBy: "Ordenar por {{label}}",
+    communityReview: "Revisar",
+    communityPublish: "Publicar en el sitio",
+    communityPublishing: "Publicando...",
+    communityPublished: "Publicado",
+    communityView: "Ver en el sitio",
+    communityNeedsCheck: "Comprueba Builder antes de reintentar",
+    communityPromotionFailed: "No se pudo publicar este envío.",
   },
 };
 

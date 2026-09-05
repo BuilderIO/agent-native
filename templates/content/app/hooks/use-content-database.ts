@@ -724,11 +724,15 @@ export function useContentDatabaseById(
   );
 }
 
-export function useCreateContentDatabase(documentId: string | null) {
+export function useCreateContentDatabase(
+  documentId: string | null,
+  options?: { skipListDocumentsInvalidation?: boolean },
+) {
   const queryClient = useQueryClient();
   return useActionMutation<ContentDatabaseResponse, CreateDatabaseRequest>(
     "create-content-database",
     {
+      skipActionQueryInvalidation: true,
       onSuccess: (data) => {
         if (documentId) {
           void queryClient.invalidateQueries(documentQueryFilter(documentId));
@@ -739,9 +743,11 @@ export function useCreateContentDatabase(documentId: string | null) {
         void queryClient.invalidateQueries(
           documentQueryFilter(data.database.documentId),
         );
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        if (!options?.skipListDocumentsInvalidation) {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+        }
       },
     },
   );

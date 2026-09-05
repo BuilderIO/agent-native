@@ -3,10 +3,18 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-02
+
+### Fixed
+
+- Edit with AI now opens a focused editing prompt for selected elements in multi-screen view and reliably returns generated options without misclassifying an active request as superseded.
+- A greeting or question as the first message in a new design no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
+
 ## 2026-09-01
 
 ### Fixed
 
+- Frame labels now move smoothly into place after canvas zoom changes.
 - The Share button stays inside the editor's right panel. At the panel's default width the action row was wider than the panel, so Share was clipped at the window edge; Add to Context now collapses to an icon with a tooltip when the panel is narrow, and the whole row fits.
 
 ## 2026-08-28

@@ -50,6 +50,7 @@ Read the relevant skill in `.agents/skills/` before deeper work:
 - Keep inline previews and picker outputs lightweight; fetch full asset details
   through actions when needed.
 - Use framework sharing/collaboration primitives for ownable assets.
+- Kit viewers may generate drafts; saving one into the kit needs editor.
 
 ## Application State
 

@@ -1,10 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 import { ASPECT_RATIOS, IMAGE_CATEGORIES, IMAGE_SIZES } from "../shared/api.js";
 
 export default defineAction({
@@ -20,7 +20,7 @@ export default defineAction({
     styleBrief: z.record(z.string(), z.unknown()).optional(),
   }),
   run: async ({ id, libraryId, ...args }) => {
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Updating a collection");
     const updates: Record<string, unknown> = { updatedAt: nowIso() };
     if (args.title !== undefined) updates.title = args.title;
     if (args.description !== undefined) updates.description = args.description;

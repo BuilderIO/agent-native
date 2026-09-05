@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -70,7 +70,7 @@ export default defineAction({
       nav.view = args.view || "inbox";
       nav.composeDraftId = args.composeDraftId;
     }
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${nav.view || ""}${args.filter ? ` filter:${args.filter}` : ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}${args.settingsSection ? ` settings:${args.settingsSection}` : ""}`;
   },
 });

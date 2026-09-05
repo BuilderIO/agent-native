@@ -15,7 +15,12 @@ import {
   toAiErrorDetail,
   toPostHogMessages,
 } from "./posthog-ai.js";
-import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
+import {
+  type AgentSpan,
+  endAgentSpan,
+  startAgentSpan,
+  withAgentSpanContext,
+} from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 
@@ -638,10 +643,9 @@ export async function instrumentAgentLoop(opts: {
     opts.browserSessionId ?? getRequestContext()?.browserSessionId;
 
   // Optional OpenTelemetry root span for this run. No-ops unless a host has
-  // installed `@opentelemetry/api` and registered a provider. The promise is
-  // resolved before the loop runs so child tool/model spans can parent under
-  // it conceptually (we keep them flat in the same tracer, which is enough
-  // for the dashboards an embedding app would build).
+  // installed `@opentelemetry/api` and registered a provider. The root is
+  // installed as the active context while the loop runs so child tool/model
+  // spans have a real parent relationship in the exported trace.
   const otelRunSpanPromise = startAgentSpan("agent.run", {
     "agent.run_id": runId,
     "agent.thread_id": threadId ?? undefined,
@@ -657,6 +661,7 @@ export async function instrumentAgentLoop(opts: {
         ? opts.experimentAssignments[0].variantId
         : undefined,
   });
+  let otelRunSpan: AgentSpan | null = null;
 
   const spans: TraceSpan[] = [];
   let toolInvocationCounter = 0;
@@ -716,6 +721,115 @@ export async function instrumentAgentLoop(opts: {
   /** The call currently streaming, or the last one that streamed — text and
    *  usage arriving between calls belong to the call that just finished. */
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
+  type CostCalculator = (
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    cacheReadTokens?: number,
+    cacheWriteTokens?: number,
+  ) => number;
+  let calculateCost: CostCalculator | undefined;
+  const calculateUsageCost = (
+    callUsage: AgentLoopUsage | undefined,
+  ): number | undefined => {
+    if (!calculateCost || !callUsage) return undefined;
+    try {
+      return calculateCost(
+        callUsage.inputTokens,
+        callUsage.outputTokens,
+        callUsage.model,
+        callUsage.cacheReadTokens,
+        callUsage.cacheWriteTokens,
+      );
+    } catch {
+      // coercion-ok: cost estimation is enrichment and cannot fail tracing.
+      return undefined;
+    }
+  };
+  type OtelModelSpanEndResult = {
+    status: "success" | "error";
+    errorMessage: string | null;
+    attributes: Record<string, string | number | boolean | null | undefined>;
+    endTime?: number;
+  };
+  const pendingOtelModelSpans = new Map<
+    number,
+    {
+      spanPromise: Promise<AgentSpan | null>;
+      span: AgentSpan | null;
+      endResult?: OtelModelSpanEndResult;
+      ended: boolean;
+    }
+  >();
+  const openOtelModelSpans = new Set<AgentSpan>();
+  const modelSpansAwaitingFinalError = new Set<number>();
+  const modelSpanAttributes = (index: number) => {
+    const trip = modelRoundTrips[index];
+    const callUsage = trip?.usage;
+    return {
+      "llm.model": callUsage?.model ?? loopOpts.model,
+      "llm.call_index": index,
+      "llm.stop_reason": trip?.stopReason,
+      "llm.input_tokens": callUsage?.inputTokens,
+      "llm.output_tokens": callUsage?.outputTokens,
+      "llm.cache_read_tokens": callUsage?.cacheReadTokens,
+      "llm.cache_write_tokens": callUsage?.cacheWriteTokens,
+      "llm.cost_cents_x100": calculateUsageCost(callUsage),
+    };
+  };
+  const startOtelModelSpan = (index: number): void => {
+    const entry = {
+      spanPromise: Promise.resolve(null) as Promise<AgentSpan | null>,
+      span: null as AgentSpan | null,
+      endResult: undefined as OtelModelSpanEndResult | undefined,
+      ended: false,
+    };
+    entry.spanPromise = startAgentSpan(
+      "llm.call",
+      {
+        "llm.model": loopOpts.model,
+        "llm.call_index": index,
+      },
+      otelRunSpan,
+    );
+    pendingOtelModelSpans.set(index, entry);
+    void entry.spanPromise.then((span) => {
+      if (!span || entry.ended) return;
+      if (entry.endResult) {
+        entry.ended = true;
+        endAgentSpan(span, entry.endResult);
+      } else {
+        entry.span = span;
+        openOtelModelSpans.add(span);
+      }
+    });
+  };
+  const finishOtelModelSpan = (
+    index: number,
+    result: OtelModelSpanEndResult,
+  ): void => {
+    const entry = pendingOtelModelSpans.get(index);
+    if (!entry || entry.ended) return;
+    entry.endResult = result;
+    if (!entry.span) return;
+    entry.ended = true;
+    openOtelModelSpans.delete(entry.span);
+    endAgentSpan(entry.span, result);
+  };
+  const finishAwaitingOtelModelSpans = (
+    finalErrorMessage: string | null = null,
+  ): void => {
+    for (const tripIndex of modelSpansAwaitingFinalError) {
+      finishOtelModelSpan(tripIndex, {
+        status: "error",
+        errorMessage:
+          finalErrorMessage ?? "Model stream ended before completion.",
+        attributes: modelSpanAttributes(tripIndex),
+        endTime: modelRoundTrips[tripIndex]?.end,
+      });
+    }
+    modelSpansAwaitingFinalError.clear();
+  };
   const modelStreamIntervals: TimeInterval[] = [];
   let modelStreamOpenedAt: number | null = null;
   /** Tool span id → the round-trip that requested it. */
@@ -793,6 +907,7 @@ export async function instrumentAgentLoop(opts: {
       // counted as a successful delegated generation. A later clear/done means
       // the wrapper recovered and finished cleanly, so reset in that case.
       if (event.type === "clear" || event.type === "done") {
+        finishAwaitingOtelModelSpans();
         runStatus = "success";
         errorMessage = null;
         cutOffReason = null;
@@ -820,8 +935,13 @@ export async function instrumentAgentLoop(opts: {
         // The emitter brackets these itself, so a repeated start or an
         // unmatched end is a no-op here rather than a fabricated interval.
         if (event.status === "start") {
+          // A reasonless closure is emitted before the agent loop decides
+          // whether to retry. If another attempt starts, the old attempt is
+          // definitely final and must not span the retry backoff.
+          finishAwaitingOtelModelSpans();
           if (modelStreamOpenedAt === null) {
             modelStreamOpenedAt = Date.now();
+            const tripIndex = modelRoundTrips.length;
             modelRoundTrips.push({
               spanId: spanId(),
               start: modelStreamOpenedAt,
@@ -842,14 +962,22 @@ export async function instrumentAgentLoop(opts: {
                 : {}),
               assistantText: [],
             });
+            startOtelModelSpan(tripIndex);
           }
         } else if (modelStreamOpenedAt !== null) {
           const end = Date.now();
           modelStreamIntervals.push({ start: modelStreamOpenedAt, end });
+          const tripIndex = modelRoundTrips.length - 1;
           const trip = currentRoundTrip();
           if (trip) {
             trip.end = end;
             if (event.reason) trip.stopReason = event.reason;
+          }
+          if (event.reason === undefined || event.reason === "error") {
+            // The engine emits this from a `finally`, before the outer catch
+            // has classified a provider error. Defer ending the span so that
+            // the real error message wins over a generic stream-ended value.
+            modelSpansAwaitingFinalError.add(tripIndex);
           }
           modelStreamOpenedAt = null;
         }
@@ -894,9 +1022,13 @@ export async function instrumentAgentLoop(opts: {
         };
         pendingTools.set(counter, entry);
         if (event.id) toolCallIdToCounter.set(event.id, counter);
-        void startAgentSpan("tool.call", {
-          "tool.name": event.tool,
-        }).then((span) => {
+        void startAgentSpan(
+          "tool.call",
+          {
+            "tool.name": event.tool,
+          },
+          otelRunSpan,
+        ).then((span) => {
           if (!span) return;
           // If `tool_done` already ran for this call, end the span now with the
           // status it recorded; otherwise stash it for the done handler.
@@ -1074,19 +1206,22 @@ export async function instrumentAgentLoop(opts: {
     : loopOpts.messages;
 
   try {
-    usage = await runAgentLoop({
-      ...loopOpts,
-      runId,
-      send: instrumentedSend,
-      onOutcome: instrumentedOutcome,
-      // Fires once per model round-trip with THAT call's tokens, not the
-      // running total — which is what lets each generation report its own.
-      onUsage: (callUsage: AgentLoopUsage) => {
-        const trip = currentRoundTrip();
-        if (trip) trip.usage = callUsage;
-        loopOpts.onUsage?.(callUsage);
-      },
-    });
+    otelRunSpan = await otelRunSpanPromise;
+    usage = await withAgentSpanContext(otelRunSpan, () =>
+      runAgentLoop({
+        ...loopOpts,
+        runId,
+        send: instrumentedSend,
+        onOutcome: instrumentedOutcome,
+        // Fires once per model round-trip with THAT call's tokens, not the
+        // running total — which is what lets each generation report its own.
+        onUsage: (callUsage: AgentLoopUsage) => {
+          const trip = currentRoundTrip();
+          if (trip) trip.usage = callUsage;
+          loopOpts.onUsage?.(callUsage);
+        },
+      }),
+    );
   } catch (err: any) {
     const classification = opts.classifyError?.(err) ?? null;
     runStatus = classification?.status ?? "error";
@@ -1117,6 +1252,10 @@ export async function instrumentAgentLoop(opts: {
       // model was still running when the run stopped, so the interval closes at
       // the run's end rather than being dropped.
       const failedInsideModelCall = modelStreamOpenedAt !== null;
+      const interruptedModelRoundTrip =
+        modelStreamOpenedAt !== null && modelRoundTrips.length > 0
+          ? modelRoundTrips.length - 1
+          : null;
       if (modelStreamOpenedAt !== null) {
         modelStreamIntervals.push({ start: modelStreamOpenedAt, end: runEnd });
         const trip = currentRoundTrip();
@@ -1193,15 +1332,6 @@ export async function instrumentAgentLoop(opts: {
       let costCentsX100 = 0;
       // Held for the per-generation costs below, which price each round-trip
       // from its own tokens rather than splitting the run total.
-      let calculateCost:
-        | ((
-            inputTokens: number,
-            outputTokens: number,
-            model: string,
-            cacheReadTokens?: number,
-            cacheWriteTokens?: number,
-          ) => number)
-        | undefined;
       try {
         ({ calculateCost } = await import("../usage/store.js"));
         if (usage) {
@@ -1266,8 +1396,8 @@ export async function instrumentAgentLoop(opts: {
         llmCallCount =
           usage?.llmCalls ??
           // Compatibility for custom loop implementations that predate the
-          // attempt counter: a measured run still counts as one call.
-          1;
+          // attempt counter: observed brackets still count every attempt.
+          (modelRoundTrips.length > 0 ? modelRoundTrips.length : 1);
         const runUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
@@ -1685,13 +1815,39 @@ export async function instrumentAgentLoop(opts: {
 
       writeTraceData(spans, summary, runId, config).catch(() => {});
 
-      // OpenTelemetry export (no-op unless a provider is registered). Emit a
-      // self-contained `llm.call` span carrying model + token usage, end any
-      // tool spans still open (loop threw mid-tool), and end the run span. Awaited
-      // so the spans are emitted before the function returns; cheap when no-op.
+      // OpenTelemetry export (no-op unless a provider is registered). Bracketed
+      // model calls have already emitted live spans; engines without brackets
+      // get one aggregate generation. End any tool/model spans still open and
+      // then end the run span. Awaited so spans are emitted before return.
       try {
-        if (usage) {
-          endAgentSpan(await startAgentSpan("llm.call", {}), {
+        if (interruptedModelRoundTrip !== null) {
+          finishOtelModelSpan(interruptedModelRoundTrip, {
+            status: "error",
+            errorMessage:
+              errorMessage ?? "Model stream interrupted before completion.",
+            attributes: modelSpanAttributes(interruptedModelRoundTrip),
+            endTime: runEnd,
+          });
+        }
+        for (const [tripIndex, trip] of modelRoundTrips.entries()) {
+          if (trip.stopReason && trip.stopReason !== "error") {
+            finishOtelModelSpan(tripIndex, {
+              status: "success",
+              errorMessage: null,
+              attributes: modelSpanAttributes(tripIndex),
+              endTime: trip.end,
+            });
+          }
+        }
+        finishAwaitingOtelModelSpans(errorMessage);
+        await Promise.all(
+          [...pendingOtelModelSpans.values()].map((entry) => entry.spanPromise),
+        );
+        if (usage && modelRoundTrips.length === 0) {
+          const aggregateLlmSpan = await withAgentSpanContext(otelRunSpan, () =>
+            startAgentSpan("llm.call", {}, otelRunSpan),
+          );
+          endAgentSpan(aggregateLlmSpan, {
             status: runStatus,
             errorMessage,
             attributes: {
@@ -1704,6 +1860,13 @@ export async function instrumentAgentLoop(opts: {
             },
           });
         }
+        for (const modelSpan of openOtelModelSpans) {
+          endAgentSpan(modelSpan, {
+            status: "error",
+            errorMessage: "Agent run ended before model_stream completed.",
+          });
+        }
+        openOtelModelSpans.clear();
         for (const toolSpan of openOtelToolSpans) {
           endAgentSpan(toolSpan, {
             status: "error",
@@ -1711,10 +1874,11 @@ export async function instrumentAgentLoop(opts: {
           });
         }
         openOtelToolSpans.clear();
-        endAgentSpan(await otelRunSpanPromise, {
+        endAgentSpan(otelRunSpan, {
           status: runStatus,
           errorMessage,
           attributes: {
+            "agent.llm_calls": llmCallCount,
             "agent.tool_calls": toolCallCount,
             "agent.successful_tools": successfulTools,
             "agent.failed_tools": failedTools,

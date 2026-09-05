@@ -57,6 +57,13 @@ export function buildDesktopDisplayMediaOptions({
   };
 }
 
+export function shouldRequestSystemAudio(
+  wantsScreen: boolean,
+  systemAudioOn?: boolean,
+): boolean {
+  return wantsScreen && systemAudioOn !== false;
+}
+
 export function isMediaConstraintFailure(err: unknown): boolean {
   const name =
     err instanceof DOMException || err instanceof Error ? err.name : "";

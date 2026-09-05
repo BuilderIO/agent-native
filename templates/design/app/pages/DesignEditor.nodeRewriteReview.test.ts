@@ -21,10 +21,8 @@ describe("DesignEditor candidate review navigation", () => {
     expect(reviewHandler).not.toContain("handleSidebarScreenSelect");
   });
 
-  it("mounts one viewport-level panel and marks the active base preview", () => {
-    expect(source).toContain(
-      "nodeRewriteCanvasTarget={\n            screenIsActive && breakpointWidthPx === undefined\n          }",
-    );
+  it("mounts one viewport-level panel and marks the active responsive preview", () => {
+    expect(source).toContain("nodeRewriteCanvasTarget={screenIsActive}");
     expect(source).toContain(
       "<NodeRewriteProposalPanel\n          designId={id}",
     );

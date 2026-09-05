@@ -56,7 +56,7 @@ export type NewDeckReferenceSource = NonNullable<
 export interface ImportedReference {
   id: string;
   title: string;
-  source: "pptx" | "pdf" | "google-slides";
+  source: "pptx" | "pdf" | "docx" | "google-slides";
 }
 
 interface DesignSystemOption {
@@ -425,7 +425,7 @@ export function NewDeckReferenceStep({
                   accept=".docx"
                   icon={<IconFileText className="size-4" />}
                   label="DOCX"
-                  imported={false}
+                  imported={importedReference?.source === "docx"}
                   importedLabel={t("home.imported")}
                   importing={importing}
                   importingLabel={importingLabel}

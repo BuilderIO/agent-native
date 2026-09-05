@@ -1,5 +1,20 @@
 # @agent-native/creative-context
 
+## 0.7.20
+
+### Patch Changes
+
+- 345fcd7: Allow signed Creative Context background processors to bypass session auth and
+  cover both processor HMAC routes.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.19
+
+### Patch Changes
+
+- 56404c7: Restore Creative context as a Share tab and compact its submission controls.
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.18
 
 ### Patch Changes

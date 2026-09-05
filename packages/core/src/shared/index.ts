@@ -4,6 +4,11 @@ export {
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./agent-chat.js";
+export {
+  appendAgentChatContextToMessage,
+  splitAgentChatContextFromMessage,
+  type AgentChatMessageParts,
+} from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
   extractOAuthStateAppId,
@@ -30,10 +35,20 @@ export {
   normalizeDocumentTitle,
 } from "./document-title.js";
 export { injectDocumentMarkup } from "./html-document.js";
+export {
+  formatHtmlStyleSummary,
+  summarizeHtmlStyles,
+  type HtmlStyleFragment,
+  type HtmlStyleSummary,
+  type HtmlStyleValue,
+} from "./html-style-summary.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_REDIRECT_DURATION_MS,
+  BETA_REDIRECT_STORAGE_KEY,
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -79,6 +94,14 @@ export {
   normalizeLlmConnection,
   type LlmConnectionStatus,
 } from "./llm-connection.js";
+export {
+  AGENT_NATIVE_ACTION_EVENTS,
+  AGENT_NATIVE_LIFECYCLE_EVENTS,
+  normalizeTrackingDimension,
+  withCanonicalTrackingProperties,
+  type AgentNativeActionEventName,
+  type AgentNativeLifecycleEventName,
+} from "./analytics-events.js";
 export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,
@@ -173,3 +196,20 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "./agent-readable-resource.js";
+export {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatch,
+  type TargetedMatchFailure,
+  type TargetedMatchesResult,
+  type TargetedReplaceResult,
+  type TargetedTextEditOptions,
+} from "./targeted-text-edit.js";
+export {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+  stripDiagnosticSnippets,
+  wrapDiagnosticSnippet,
+} from "./diagnostic-snippet.js";

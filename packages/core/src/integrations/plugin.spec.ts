@@ -1798,6 +1798,8 @@ describe("integrations plugin routes", () => {
       kind: "response-delivery",
       incoming,
       message: { text: "Updated /page/request_123", platformContext: {} },
+      placeholderRef: "stream-qa",
+      strictTargetRef: true,
     });
     claimPendingTaskMock.mockResolvedValueOnce(task);
     const nitroApp = createNitroApp();
@@ -1814,7 +1816,12 @@ describe("integrations plugin routes", () => {
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Updated /page/request_123" }),
       expect.objectContaining({ externalThreadId: "fake-thread" }),
-      {},
+      {
+        placeholderRef: "stream-qa",
+        strictTargetRef: true,
+        idempotencyKey: `integration-response:${task.id}`,
+        reconcileAfter: task.createdAt,
+      },
     );
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
     expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);

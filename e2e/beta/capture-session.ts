@@ -60,11 +60,17 @@ function parseSessionEmail(
 function requestedSites() {
   const arg = process.argv[2]?.trim();
   if (!arg || arg === "all") return authenticatableSites();
-  return arg
+  const requested = arg
     .split(",")
     .map((id) => id.trim())
-    .filter(Boolean)
-    .map(siteById);
+    .filter(Boolean);
+  const disabled = requested.filter((id) => siteById(id).e2e === false);
+  if (disabled.length > 0) {
+    throw new Error(
+      `Cannot capture sessions for beta site(s) excluded from E2E: ${disabled.join(", ")}.`,
+    );
+  }
+  return requested.map(siteById);
 }
 
 async function capture(): Promise<void> {

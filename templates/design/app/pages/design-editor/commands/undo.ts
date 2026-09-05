@@ -835,7 +835,10 @@ export function runUndo({
       } catch (error) {
         await Promise.allSettled(
           recreatedIds.map((fileId) =>
-            deleteFileMutation.mutateAsync({ id: fileId } as any),
+            deleteFileMutation.mutateAsync({
+              id: fileId,
+              allowLockedLayers: true,
+            } as any),
           ),
         );
         fileDeletionUndoStackRef.current = [

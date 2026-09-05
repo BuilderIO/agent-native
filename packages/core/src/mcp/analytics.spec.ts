@@ -23,6 +23,7 @@ import { createMCPServerForRequest, type MCPConfig } from "./build-server.js";
 
 const ORIGINAL_ENV = { ...process.env };
 let events: TrackingEvent[] = [];
+let capturedMcpActionContext: Record<string, unknown> | undefined;
 
 function config(): MCPConfig {
   return {
@@ -38,7 +39,8 @@ function config(): MCPConfig {
       } as any,
       "send-message": {
         tool: { description: "Send a message", parameters: undefined },
-        run: async () => {
+        run: async (_args: unknown, ctx: Record<string, unknown>) => {
+          capturedMcpActionContext = ctx;
           throw new Error("smtp unavailable");
         },
       } as any,
@@ -74,6 +76,7 @@ beforeEach(() => {
   delete process.env.MCP_ANALYTICS_PARAMETERS;
   resetAppConfigForTests();
   events = [];
+  capturedMcpActionContext = undefined;
   registerTrackingProvider({
     name: "spec-collector",
     track(event) {
@@ -148,6 +151,17 @@ describe("MCP analytics events", () => {
     expect(props.$mcp_is_error).toBe(true);
     expect(props.$mcp_error_type).toBe("Error");
     expect(props.$mcp_error_message).toContain("smtp unavailable");
+  });
+
+  it("passes the configured app id into the action context", async () => {
+    const client = await connectedClient();
+    await client.callTool({ name: "send-message", arguments: {} });
+
+    expect(capturedMcpActionContext).toMatchObject({
+      appId: "mail",
+      caller: "mcp",
+      actionName: "send-message",
+    });
   });
 
   it("distinguishes an unknown tool from a tool that threw", async () => {

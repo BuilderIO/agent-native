@@ -22,10 +22,11 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   writePendingGeneration: vi.fn(),
   clearPendingGeneration: vi.fn(),
+  fullAppBuilding: false,
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: () => mocks.fullAppBuilding,
 }));
 
 vi.mock("@agent-native/core/client/collab", () => ({
@@ -186,6 +187,7 @@ beforeEach(async () => {
   mocks.generateTitle.mockResolvedValue(undefined);
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
+  mocks.fullAppBuilding = false;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -255,6 +257,58 @@ describe("Index skip to editor", () => {
 
     expect(mocks.navigate).toHaveBeenCalledTimes(1);
     expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1");
+  });
+
+  it("takes the New Design card straight into the editor and asks there", async () => {
+    let resolveCreate: (() => void) | undefined;
+    mocks.createDesign.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+
+    const card = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.newDesign",
+    );
+    expect(card).toBeDefined();
+
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.createDesign).toHaveBeenCalledTimes(1);
+    expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveCreate?.();
+      await Promise.resolve();
+    });
+
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1?new=1");
+  });
+
+  it("still asks up front when the design-or-app choice exists", async () => {
+    await act(async () => root.unmount());
+    mocks.fullAppBuilding = true;
+    mocks.promptProps = null;
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<Index />);
+    });
+
+    const card = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.newDesign",
+    );
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+
+    // An app is a different creation call, so the row cannot exist yet.
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect((mocks.promptProps as { open?: boolean } | null)?.open).toBe(true);
   });
 
   it("does not navigate on failure and allows a successful retry", async () => {

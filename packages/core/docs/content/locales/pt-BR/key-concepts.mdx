@@ -1,6 +1,6 @@
 ---
 title: "Conceitos-chave"
-description: "Como os aplicativos Agent-Native funcionam em três camadas: o framework Core, os blocos de construção opcionais do Toolkit e os Templates opcionais, além das ações compartilhadas, do banco de dados SQL, do loop app-agente e das regras de portabilidade."
+description: "Como os aplicativos Agent-Native funcionam em três camadas: o framework Core, os blocos de construção opcionais do Toolkit e os Templates opcionais, além das ações compartilhadas, do banco de dados PostgreSQL, do loop app-agente e das regras para PGlite e Postgres."
 ---
 
 # Conceitos-chave
@@ -11,11 +11,11 @@ Como os aplicativos Agent-Native funcionam por baixo dos panos: os princípios e
 
 Agent-Native é um framework com três camadas:
 
-| Camada                                                        | O que é                                                                                                                                                                                                                                 |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core: o framework**                                         | O contrato fundamental de runtime: ações, auxiliares de SQL e Drizzle, autenticação, estado da aplicação, execução do agente, verificações de acesso, roteamento e sincronização ao vivo. Todo aplicativo pode usar o Core diretamente. |
-| **Toolkit: peças reutilizáveis opcionais**                    | UI compartilhada para construção de apps e sistemas de produto, como primitivos, editores, compartilhamento, colaboração, configurações e UX do agente. Os aplicativos podem usar, compor ou fazer fork das peças de que precisam.      |
-| **Templates: aplicativos opcionais construídos sobre o Core** | Aplicativos completos e específicos de domínio, com rotas, schema, ações, instruções e identidade visual. Templates próprios e personalizados costumam usar o Toolkit, e podem ser forkados e usados como ponto de partida.             |
+| Camada                                                        | O que é                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Core: o framework**                                         | O contrato fundamental de runtime: ações, auxiliares de PostgreSQL/PGlite e Drizzle, autenticação, estado da aplicação, execução do agente, verificações de acesso, roteamento e sincronização ao vivo. Todo aplicativo pode usar o Core diretamente. |
+| **Toolkit: peças reutilizáveis opcionais**                    | UI compartilhada para construção de apps e sistemas de produto, como primitivos, editores, compartilhamento, colaboração, configurações e UX do agente. Os aplicativos podem usar, compor ou fazer fork das peças de que precisam.                    |
+| **Templates: aplicativos opcionais construídos sobre o Core** | Aplicativos completos e específicos de domínio, com rotas, schema, ações, instruções e identidade visual. Templates próprios e personalizados costumam usar o Toolkit, e podem ser forkados e usados como ponto de partida.                           |
 
 O Core é a base. Toolkit e Templates são opcionais: um template pode usar o Toolkit, mas o Toolkit não é obrigatório para construir um aplicativo sobre o Core.
 
@@ -133,11 +133,11 @@ e gravam os dados reais.
 
 Cinco regras regem a arquitetura:
 
-1. **Os dados residem em SQL:** todo o estado do aplicativo reside no banco de dados via Drizzle ORM.
+1. **Os dados residem em PostgreSQL:** todo o estado do aplicativo reside no banco de dados via Drizzle ORM.
 2. **Toda IA passa pelo agente:** nenhuma chamada de LLM inline; toda interação de IA flui pela ponte de chat do agente.
 3. **Ações para operações do agente:** trabalho complexo roda como uma ação tipada, não como código inline.
 4. **A sincronização ao vivo mantém a UI sincronizada:** as alterações do banco de dados são transmitidas via SSE, com polling como substituto universal.
-5. **Estado da aplicação em SQL:** o estado efêmero da UI reside no banco de dados, legível tanto pelo agente quanto pela UI.
+5. **Estado da aplicação em PostgreSQL:** o estado efêmero da UI reside no banco de dados, legível tanto pelo agente quanto pela UI.
 
 ## A lista de verificação de quatro áreas {#four-area-checklist}
 
@@ -166,11 +166,11 @@ Adotar o framework é valioso principalmente pelo que você deixa de precisar co
 | Cliente + servidor MCP, nas duas direções | O aplicativo ingere servidores MCP (locais, remotos, compartilhados via hub) _e_ expõe suas próprias ações como um servidor MCP. Consulte [MCP Clients](/docs/mcp-clients) e [MCP Protocol](/docs/mcp-protocol).                                                                                                                                                                                                                              |
 | Delegação entre aplicativos               | Agentes em aplicativos diferentes se comunicam via [A2A](/docs/a2a-protocol). Implantações de mesma origem dispensam JWT; origens cruzadas usam um `A2A_SECRET` compartilhado.                                                                                                                                                                                                                                                                |
 | Equipes de subagentes                     | Crie um subagente com sua própria thread e ferramentas, exibido como um chip inline no chat. Consulte [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                                                                       |
-| Portabilidade                             | Qualquer banco de dados SQL compatível com Drizzle, qualquer host compatível com Nitro (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                                                   |
+| Portabilidade                             | PostgreSQL com PGlite local e Postgres hospedado, além de qualquer host compatível com Nitro (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                                             |
 
-## Dados em SQL {#data-in-sql}
+## Dados em PostgreSQL {#data-in-sql}
 
-Todo o estado da aplicação reside em um banco de dados SQL via Drizzle ORM. Os schemas são agnósticos de provedor; os bancos de dados suportados, a configuração de `DATABASE_URL` e as regras de portabilidade estão em [Database](/docs/server-database).
+Todo o estado da aplicação reside no PostgreSQL via Drizzle ORM. Os schemas usam os auxiliares de PostgreSQL e PGlite; a configuração de `DATABASE_URL` e as regras operacionais estão em [Database](/docs/server-database).
 
 As stores SQL do Core são criadas automaticamente e estão disponíveis em todo template:
 
@@ -467,11 +467,11 @@ Para a matriz completa de protocolos/superfícies (servidor MCP e OAuth, MCP App
 
 O framework não concede ao agente incorporado acesso ambiente ao código-fonte de um aplicativo. Em um aplicativo implantado, o agente normalmente trabalha por meio de ações, estado com suporte de SQL e integrações configuradas. Ele pode editar componentes, rotas, estilos e ações quando seu frame recebe intencionalmente workspace e ferramentas de escrita. Templates são aplicativos completos que você pode fazer fork e personalizar no seu próprio repositório e fluxo de desenvolvimento, de qualquer forma. Para personalização em tempo de execução sem alterações no código-fonte, use [Extensions](/docs/extensions).
 
-## Portátil por padrão {#hosting-agnostic}
+## PostgreSQL por padrão {#hosting-agnostic}
 
-Duas regras arquiteturais mantêm os aplicativos portáteis entre bancos de dados e hosts:
+Duas regras arquiteturais mantêm os aplicativos consistentes entre PGlite, Postgres hospedado e os diferentes hosts:
 
-- **Agnóstico de banco de dados.** Escreva schemas com `@agent-native/core/db/schema` e leituras/gravações com o DSL de query portátil do Drizzle, para que o mesmo código rode em qualquer provedor suportado. Use SQL bruto apenas para migrações aditivas ou manutenção pontual, mantendo-o parametrizado e agnóstico de dialeto. Consulte [Database](/docs/server-database).
+- **PostgreSQL.** Escreva schemas com `@agent-native/core/db/schema` e use Drizzle para leituras e gravações. Use SQL PostgreSQL bruto apenas para migrações aditivas ou manutenção pontual, mantendo-o compatível com PGlite. Consulte [Database](/docs/server-database).
 - **Agnóstico de hosting.** O servidor roda sobre Nitro e compila para qualquer destino de implantação. Nunca use APIs específicas do Node (`fs`, `child_process`, `path`) em rotas ou plugins do servidor, e nunca assuma um processo de servidor persistente. Serverless e edge são stateless, então mantenha todo o estado em SQL. Consulte [Deployment](/docs/deployment).
 
 ## Recursos do Agente {#workspace}

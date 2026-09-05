@@ -33,6 +33,11 @@ import {
 import { getOrgSetting } from "../settings/org-settings.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
+  BUILDER_OAUTH_SCOPE,
+  getBuilderOAuthSession,
+  hasBuilderOAuthSession,
+} from "./builder-oauth.js";
+import {
   getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
@@ -271,7 +276,7 @@ function isBuilderCredentialKey(key: string): boolean {
   return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);
 }
 
-function isHostedWorkspaceRuntime(): boolean {
+export function isHostedWorkspaceRuntime(): boolean {
   const hasFusionPreview = Boolean(
     process.env.FUSION_ENVIRONMENT ||
     process.env.FUSION_ENV_ORIGIN ||
@@ -286,9 +291,19 @@ function isHostedWorkspaceRuntime(): boolean {
   );
 }
 
-function isProductionLikeRuntime(): boolean {
+/**
+ * Whether a hosting PLATFORM marked this process as one of its runtimes.
+ *
+ * Deliberately excludes `NODE_ENV`: that one is set by the app's own env file,
+ * so it travels with a copied `.env` to a laptop and proves nothing about
+ * where the process is running. Every marker here is written by the platform
+ * itself, so a local run of a production build has none of them. Callers that
+ * only need "is this production-shaped" should use `isProductionLikeRuntime`;
+ * use this one where mistaking a developer's machine for the deployment has a
+ * consequence beyond the process itself.
+ */
+export function hasPlatformRuntimeMarker(): boolean {
   return (
-    process.env.NODE_ENV === "production" ||
     /^(1|true)$/i.test(process.env.NETLIFY ?? "") ||
     /^(1|true)$/i.test(process.env.VERCEL ?? "") ||
     /^(1|true)$/i.test(process.env.CF_PAGES ?? "") ||
@@ -300,6 +315,10 @@ function isProductionLikeRuntime(): boolean {
       process.env.RENDER,
     )
   );
+}
+
+export function isProductionLikeRuntime(): boolean {
+  return process.env.NODE_ENV === "production" || hasPlatformRuntimeMarker();
 }
 
 /**
@@ -1104,8 +1123,10 @@ export async function resolveBuilderGatewayCredentialsDetailed(
 }
 
 /**
- * Gateway-lane credentials in the same shape as `resolveBuilderCredentials`, so
- * a consumer moves lane by changing which resolver it calls and nothing else.
+ * @deprecated Use `resolveBuilderGatewayAuth()` instead — it also checks the
+ * request owner's Builder OAuth grant, which this key-only shape cannot
+ * represent. Kept only so an external caller built against the old export
+ * does not break; no code in this repo calls it anymore.
  */
 export async function resolveBuilderGatewayCredentials(
   identity?: BuilderCredentialLookupIdentity,
@@ -1150,7 +1171,11 @@ export async function resolveBuilderGatewayCredentials(
 export interface BuilderGatewayAuth {
   /** `Bearer <token>` for the `Authorization` header. */
   authorization: string;
-  /** Send as `x-builder-api-key`. Null only for a legacy single-key deployment. */
+  /**
+   * Send as `x-builder-api-key`. Null for a legacy single-key deployment, or
+   * for an OAuth access token: the token itself carries the caller's identity,
+   * so the gateway does not require a space id alongside it.
+   */
   spaceId: string | null;
   /** Send as `x-builder-user-id` when the lane carries a Builder user. */
   userId: string | null;
@@ -1164,8 +1189,39 @@ export async function resolveHasBuilderGatewayCredential(): Promise<boolean> {
   return Boolean(await resolveBuilderGatewayAuth());
 }
 
-/** Gateway-lane `resolveBuilderAuthHeader`, same fall-through order. */
+/**
+ * Gateway-lane `resolveBuilderAuthHeader`, same fall-through order, with the
+ * request owner's Builder OAuth grant checked first. Mirrors
+ * `resolveBuilderRequestAuthorization`'s OAuth-before-legacy-key precedence in
+ * builder-api-auth.ts, including that helper's rule that OAuth custody wins
+ * outright: once a stored grant exists, a broken one (expired, missing scope,
+ * needs reconnect) reports "not configured" rather than falling through to a
+ * key-based credential that could belong to a different Builder identity.
+ */
 export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | null> {
+  const ownerEmail = getRequestUserEmail();
+  const orgId = getRequestOrgId() ?? null;
+  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+    try {
+      const session = await getBuilderOAuthSession(
+        ownerEmail,
+        orgId,
+        BUILDER_OAUTH_SCOPE,
+      );
+      return session
+        ? {
+            authorization: `Bearer ${session.accessToken}`,
+            spaceId: null,
+            userId: null,
+          }
+        : null;
+    } catch {
+      // coercion-ok: custody exists but the grant needs reconnecting
+      // (expired, missing scope) -- report "not configured" rather than
+      // falling through to a different identity's credential.
+      return null;
+    }
+  }
   const creds = await resolveBuilderGatewayCredentialsDetailed();
   const token = creds.privateKey?.trim();
   const spaceId = creds.publicKey?.trim();
@@ -1681,7 +1737,7 @@ export async function deleteBuilderCredentials(
         key,
         scope: target.scope,
         scopeId: target.scopeId,
-      }).catch(() => {}),
+      }),
     ),
   );
   return target;

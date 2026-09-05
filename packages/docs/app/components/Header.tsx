@@ -4,6 +4,7 @@ import { IconMessage } from "@tabler/icons-react";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
 
+import { firstPartyAppUrl } from "./deployment-links";
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 import DocsLanguagePicker from "./DocsLanguagePicker";
 import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
@@ -16,8 +17,9 @@ import {
 } from "./ui/context-menu";
 import { useSearchModal } from "./use-search-modal";
 
-const DOCS_FEEDBACK_URL =
-  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+const DOCS_FEEDBACK_URL = firstPartyAppUrl(
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+);
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),

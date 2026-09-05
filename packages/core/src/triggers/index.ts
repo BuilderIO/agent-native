@@ -22,4 +22,7 @@ export {
   type AutomationDefinition,
 } from "../automations/service.js";
 export { queueAutomationRunNow } from "../jobs/run-now.js";
-export { listAutomationRuns } from "../jobs/run-history.js";
+export {
+  deleteAutomationRuns,
+  listAutomationRuns,
+} from "../jobs/run-history.js";

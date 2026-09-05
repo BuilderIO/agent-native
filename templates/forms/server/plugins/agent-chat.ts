@@ -28,6 +28,8 @@ Core rules:
 - If a tool fails or returns no data, say that plainly and pick the next safe action. Never fabricate success from a tool error.
 - When a question is about product usage, agent-native signups, conversions, app-wide events, or data owned by another workspace app, use \`describe-workspace-apps\` if ownership is unclear, then delegate a narrow natural-language question with \`call-agent\` to the owning app. In workspaces with Analytics, it normally owns first-party signup, conversion, and app-usage metrics. Do not invent SQL or query another app's database.
 
+For the \`community-app-submission\` form, review response fields and uploaded screenshots before using \`promote-community-submission\` with the response ID. It publishes the reviewed listing to Builder Publish CMS. Retry failed promotions; check Builder before retrying an unknown promotion.
+
 Form UX guidance: keep forms focused with clear labels, sensible validation, minimal required fields, and progressive disclosure for advanced settings.`;
 
 const INITIAL_TOOL_NAMES = [
@@ -41,6 +43,7 @@ const INITIAL_TOOL_NAMES = [
   "delete-form",
   "preview-form",
   "list-responses",
+  "promote-community-submission",
   "export-responses",
   "response-insights",
   "navigate",

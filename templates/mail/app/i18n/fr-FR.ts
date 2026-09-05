@@ -55,6 +55,7 @@ const messages = {
       rename: "Renommer",
       renameTab: "Renommer l’onglet",
       savedFilters: "Filtres enregistrés",
+      combinedInbox: "Boîte de réception combinée",
       help: "Les éléments cochés s’affichent comme onglets. Les emails libellés sont séparés de la boîte de réception.",
     },
     accounts: {

@@ -45,6 +45,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     onReady,
     onContent,
     onRevisionConflict,
+    onReleaseSettled,
   }: {
     documentId: string;
     propertyId: string;
@@ -54,6 +55,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     onReady: (onChange: (markdown: string) => void) => void;
     onContent?: (content: string, editorResetVersion: number) => void;
     onRevisionConflict?: () => void;
+    onReleaseSettled?: (evicted: boolean) => void;
   }) {
     const { content, editorResetVersion, onChange } = useBlockFieldEditor({
       documentId,
@@ -62,6 +64,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       initialRevision,
       save,
       onRevisionConflict,
+      onReleaseSettled,
     });
     onReady(onChange);
     onContent?.(content, editorResetVersion);
@@ -111,6 +114,82 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       value: "persisted now",
       expectedBlocksFieldRevision: 0,
     });
+  });
+
+  it("reports release only after the final persistence settles", async () => {
+    vi.useFakeTimers();
+    let resolveSave!: () => void;
+    const save = vi.fn(
+      async (_request: SaveCall) =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const releaseSettled = vi.fn();
+    let onChange!: (markdown: string) => void;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "persisted",
+          save,
+          onReady: (callback) => {
+            onChange = callback;
+          },
+          onReleaseSettled: releaseSettled,
+        }),
+      );
+    });
+    act(() => onChange("latest live value"));
+    act(() => root!.unmount());
+    root = null;
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(releaseSettled).not.toHaveBeenCalled();
+
+    await act(async () => resolveSave());
+    expect(releaseSettled).toHaveBeenCalledWith(true);
+  });
+
+  it("retains the live projection when the final persistence fails", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async (_request: SaveCall) => {
+      throw new Error("network unavailable");
+    });
+    const releaseSettled = vi.fn();
+    let onChange!: (markdown: string) => void;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "persisted",
+          save,
+          onReady: (callback) => {
+            onChange = callback;
+          },
+          onReleaseSettled: releaseSettled,
+        }),
+      );
+    });
+    act(() => onChange("unsaved live value"));
+    act(() => root!.unmount());
+    root = null;
+
+    await act(async () => {
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(releaseSettled).toHaveBeenCalledWith(false);
   });
 
   it("an edit after switching docs persists to the NEW doc's field", async () => {

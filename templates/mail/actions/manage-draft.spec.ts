@@ -20,6 +20,21 @@ describe("manage-draft MCP App", () => {
     expect(source).not.toContain("Update draft");
     expect(existsSync(new URL("./_mcp-apps.ts", import.meta.url))).toBe(false);
   });
+
+  it("requires an action and IDs for draft operations that target a draft", () => {
+    const source = manageDraftSource();
+
+    expect(source).toContain('z.discriminatedUnion("action"');
+    expect(source).toContain('action: z.literal("update")');
+    expect(source).toContain('action: z.literal("delete")');
+    expect(source).toContain('errorCode: "draft_not_found"');
+    expect(source).toContain("deleteGmailDraft");
+    expect(source).toContain('listAppState("compose-")');
+    expect(source).toContain("replyToId: args.replyToId");
+    expect(source).toContain(
+      "draft.accountEmail = savedGmailDraft.accountEmail",
+    );
+  });
 });
 
 describe("manage-draft deep link", () => {

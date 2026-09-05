@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
 
 import addComment from "./add-comment.js";
+import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
+import addDatabaseItem from "./add-database-item.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createDocument from "./create-document.js";
+import deleteContentDatabase from "./delete-content-database.js";
 import describeContentDatabase from "./describe-content-database.js";
 import editDocument from "./edit-document.js";
+import getContentDatabase from "./get-content-database.js";
+import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
 import listDocuments from "./list-documents.js";
+import manageContentDatabaseMigration from "./manage-content-database-migration.js";
+import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
 import refreshList from "./refresh-list.js";
 import searchDocuments from "./search-documents.js";
 import updateComment from "./update-comment.js";
+import updateDatabaseItem from "./update-database-item.js";
+import updateDatabaseItems from "./update-database-items.js";
 import updateDocument from "./update-document.js";
+import upsertDatabaseItemByKey from "./upsert-database-item-by-key.js";
 import viewScreen from "./view-screen.js";
 
 describe("Content action-owned agent catalogs", () => {
@@ -28,12 +38,31 @@ describe("Content action-owned agent catalogs", () => {
     "update-comment": updateComment,
     "list-content-databases": listContentDatabases,
     "describe-content-database": describeContentDatabase,
+    "get-content-database": getContentDatabase,
+    "add-database-item": addDatabaseItem,
+    "update-database-item": updateDatabaseItem,
+    "update-database-items": updateDatabaseItems,
+    "upsert-database-item-by-key": upsertDatabaseItemByKey,
+    "migrate-content-database-rows": migrateContentDatabaseRows,
+  };
+
+  const deferredDatabaseActions = {
+    "add-content-database-source-field-property":
+      addContentDatabaseSourceFieldProperty,
+    "delete-content-database": deleteContentDatabase,
+    "manage-content-database-migration": manageContentDatabaseMigration,
   };
 
   it("owns compact MCP membership beside each directly callable action", () => {
     for (const action of Object.values(directMcpActions)) {
       expect(action.mcpTool).toBe(true);
       expect(action.tool.description.length).toBeGreaterThan(80);
+    }
+  });
+
+  it("keeps schema, destructive, and migration actions out of compact MCP discovery", () => {
+    for (const action of Object.values(deferredDatabaseActions)) {
+      expect(action.mcpTool).not.toBe(true);
     }
   });
 
@@ -65,6 +94,50 @@ describe("Content action-owned agent catalogs", () => {
     );
   });
 
+  it("describes a fresh, identifier-safe database read-to-write handoff", () => {
+    expect(getContentDatabase.tool.description).toContain("mutation target");
+    expect(getContentDatabase.tool.description).toContain(
+      "membership id as itemId",
+    );
+    expect(getContentDatabase.tool.description).toContain(
+      "document.id as documentId",
+    );
+    expect(getContentDatabase.tool.description).toContain(
+      "rowRevision as expectedRowRevision",
+    );
+    expect(getContentDatabase.tool.parameters?.properties?.limit?.default).toBe(
+      100,
+    );
+    expect(
+      getContentDatabase.tool.parameters?.properties?.limit?.description,
+    ).toContain("Paginate");
+
+    const updateProperties = updateDatabaseItem.tool.parameters?.properties;
+    expect(updateProperties?.itemId?.description).toContain(
+      "never use the row page document ID",
+    );
+    expect(updateProperties?.documentId?.description).toContain(
+      "distinct from itemId",
+    );
+    expect(updateDatabaseItem.tool.description).toContain("fresh schema");
+    expect(updateDatabaseItem.tool.description).toContain(
+      "preserves omitted properties",
+    );
+    expect(addDatabaseItem.tool.description).toContain("fresh idempotency key");
+    expect(upsertDatabaseItemByKey.tool.description).toContain(
+      "expectedRowRevision null only to assert the key is absent",
+    );
+  });
+
+  it("bounds agent reads without truncating the unpaginated frontend", () => {
+    expect(resolveContentDatabaseReadLimit(undefined, "mcp")).toBe(100);
+    expect(resolveContentDatabaseReadLimit(undefined, "tool")).toBe(100);
+    expect(resolveContentDatabaseReadLimit(undefined, "frontend")).toBe(
+      undefined,
+    );
+    expect(resolveContentDatabaseReadLimit(25, "frontend")).toBe(25);
+  });
+
   it("keeps the existing Content starter surface action-owned", () => {
     const eagerActions = [
       viewScreen,
@@ -91,12 +164,22 @@ describe("Content action-owned agent catalogs", () => {
     expect(createDocument.tool.description).toContain("edit-document");
     expect(editDocument.tool.description).toContain("Prefer this over");
     expect(editDocument.tool.description).toContain("match exactly");
+    expect(updateDocument.tool.description).toContain(
+      "Agents must use get-document followed by edit-document",
+    );
 
     const createProperties = createDocument.tool.parameters?.properties;
     const editProperties = editDocument.tool.parameters?.properties;
     expect(createProperties?.content?.description).toContain("Markdown");
     expect(createProperties?.parentId?.description).toContain("root page");
     expect(editProperties?.find?.description).toContain("Exact");
-    expect(editProperties?.edits?.description).toContain("ordered batch");
+    expect(editProperties?.edits?.description).toContain(
+      "snapshot-stable batch",
+    );
+    expect(editDocument.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["id", "baseRevision", "idempotencyKey"]),
+    );
+    expect(editProperties?.baseRevision?.description).toContain("get-document");
+    expect(editProperties?.idempotencyKey?.description).toContain("stable key");
   });
 });

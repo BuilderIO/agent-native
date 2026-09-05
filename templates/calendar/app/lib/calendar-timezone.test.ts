@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   dateKeyToDate,
+  dateToCalendarDateKey,
   eventOverlapsCalendarDay,
   getCalendarDayBounds,
   getDisplayDateInTimezone,
@@ -23,6 +24,20 @@ describe("calendar timezone helpers", () => {
       "2026-08-14",
     );
     expect(getDateKeyInTimezone(instant, "Asia/Tokyo")).toBe("2026-08-15");
+  });
+
+  it("keeps a UTC+13 local date carrier on the same calendar day", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "Pacific/Auckland";
+    try {
+      const selectedDate = new Date(2026, 0, 15, 12);
+
+      expect(selectedDate.toISOString()).toBe("2026-01-14T23:00:00.000Z");
+      expect(dateToCalendarDateKey(selectedDate)).toBe("2026-01-15");
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
   });
 
   it("uses zoned midnight bounds across a DST transition", () => {

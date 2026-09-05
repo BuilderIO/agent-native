@@ -2,7 +2,7 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
+import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import {
   VIDEO_STORAGE_STATUS_KEY,
   useVideoStorageStatus,
@@ -56,11 +57,16 @@ async function copyRecordingLink(recordingId: string): Promise<void> {
 }
 
 async function writeNavigateAppState(recordingId: string): Promise<void> {
-  await fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ view: "recording", recordingId }),
-  }).catch(() => {});
+  await fetch(
+    agentNativePath(
+      `/_agent-native/application-state/navigate:${getBrowserTabId()}`,
+    ),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ view: "recording", recordingId }),
+    },
+  ).catch(() => {});
 }
 
 function userFacingActionErrorMessage(error: string): string {
@@ -109,13 +115,7 @@ export default function ImportRoute() {
     return qs ? `/record?${qs}` : "/record";
   }, [spaceIdFromUrl, folderIdFromUrl]);
 
-  const uploadHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
-    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
-    params.set("autoUpload", "1");
-    return `/record?${params.toString()}`;
-  }, [spaceIdFromUrl, folderIdFromUrl]);
+  const { input: uploadInput, openUploadPicker } = useUploadVideoPicker();
 
   const [loomUrl, setLoomUrl] = useState("");
   const [phase, setPhase] = useState<ImportPhase>("form");
@@ -383,13 +383,14 @@ export default function ImportRoute() {
 
               {!busy ? (
                 <div className="flex items-center justify-center gap-4 border-t border-border px-6 py-4">
-                  <Link
-                    to={uploadHref}
+                  <button
+                    type="button"
+                    onClick={() => openUploadPicker(recordHref)}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
                   >
                     <IconUpload className="h-3.5 w-3.5" />
                     {t("preRecord.uploadVideo")}
-                  </Link>
+                  </button>
                   <Link
                     to={recordHref}
                     className="text-xs font-medium text-muted-foreground hover:text-foreground"
@@ -408,6 +409,7 @@ export default function ImportRoute() {
           )}
         </div>
       </div>
+      {uploadInput}
     </div>
   );
 }

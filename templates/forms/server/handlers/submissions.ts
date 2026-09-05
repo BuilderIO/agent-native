@@ -32,6 +32,12 @@ import type {
   FormSettings,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
+import { findFormBySlugOrId } from "../lib/form-lookup.js";
+import {
+  isPublicFormOriginAllowed,
+  parseStoredFormSettings,
+  setPublicFormCors,
+} from "../lib/form-request.js";
 import {
   buildIntegrationDeliverySnapshots,
   deliverIntegrationDelivery,
@@ -44,8 +50,10 @@ import {
 } from "../lib/response-email.js";
 import {
   isEmptySubmissionValue,
+  sanitizeSubmissionFieldValue,
   validateSubmissionField,
 } from "../lib/submission-validation.js";
+import { assertValidFields } from "../lib/validate-fields.js";
 
 const MAX_PAYLOAD_BYTES = 100 * 1024; // 100KB
 const MIN_FILL_TIME_MS = 500; // reject submits faster than this
@@ -56,6 +64,15 @@ const APPLICATION_STATE_DESTINATION = "application-state";
 const RESPONSE_EMAIL_DESTINATION = "email";
 const DELIVERY_CLAIM_LEASE_MS = 60_000;
 const DELIVERY_CLAIM_HEARTBEAT_MS = Math.floor(DELIVERY_CLAIM_LEASE_MS / 3);
+
+function requestPayloadExceedsLimit(event: H3Event): boolean {
+  const raw = getRequestHeader(event, "content-length");
+  if (!raw) return false;
+  const length = Number(raw);
+  return (
+    !Number.isSafeInteger(length) || length < 0 || length > MAX_PAYLOAD_BYTES
+  );
+}
 
 type ResponseDeliveryStatus = "pending" | "processing" | "succeeded" | "failed";
 
@@ -847,7 +864,12 @@ async function deliverResponseSideEffects({
 
 export const submitForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
-  const id = getRouterParam(event, "id") as string;
+  const requestedFormId = getRouterParam(event, "id")?.trim() ?? "";
+
+  if (requestPayloadExceedsLimit(event)) {
+    setResponseStatus(event, 413);
+    return { error: "Payload too large" };
+  }
 
   // coercion-ok: malformed request bodies are rejected as invalid submissions.
   const body = await readBody(event).catch(() => null);
@@ -861,6 +883,24 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   if (Buffer.byteLength(bodyStr, "utf8") > MAX_PAYLOAD_BYTES) {
     setResponseStatus(event, 413);
     return { error: "Payload too large" };
+  }
+
+  const form = await findFormBySlugOrId(db, requestedFormId);
+  const id = form?.id ?? requestedFormId;
+
+  let settings: FormSettings = {};
+  if (form) {
+    try {
+      settings = parseStoredFormSettings(form.settings);
+    } catch {
+      setResponseStatus(event, 500);
+      return { error: "Form configuration is invalid" };
+    }
+    setPublicFormCors(event, settings);
+    if (!isPublicFormOriginAllowed(event, settings)) {
+      setResponseStatus(event, 403);
+      return { error: "Origin not allowed" };
+    }
   }
 
   const rawIdempotencyKey = getRequestHeader(event, "idempotency-key");
@@ -922,39 +962,25 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // guard:allow-unscoped — public submission endpoint intentionally accepts anonymous responses for published forms by id; it returns no owner data and rejects non-published forms.
+  // guard:allow-unscoped — public submission endpoint intentionally accepts anonymous responses for published forms by slug or id; it returns no owner data and rejects non-published forms.
   // Public submission endpoint: published forms are intentionally readable
-  // without an authenticated viewer, but only by exact id and published status.
+  // without an authenticated viewer, but only by a resolved public identifier
+  // and published status.
   // guard:allow-unscoped — anonymous respondents must be able to submit published forms; unpublished/private forms still return 404
-  const form = await db
-    .select()
-    .from(schema.forms)
-    .where(
-      and(
-        eq(schema.forms.id, id),
-        eq(schema.forms.status, "published"),
-        isNull(schema.forms.deletedAt),
-      ),
-    )
-
-    .then((rows) => rows[0]);
   if (!form) {
     setResponseStatus(event, 404);
     return { error: "Form not found or not accepting responses" };
   }
 
-  const settings: FormSettings = form.settings ? JSON.parse(form.settings) : {};
+  if (form.status !== "published" || form.deletedAt) {
+    setResponseStatus(event, 404);
+    return { error: "Form not found or not accepting responses" };
+  }
 
-  // Origin allowlist (per-form). Empty/unset = allow any (back-compat).
-  // Skip for same-origin requests (no Origin header set by browser on
-  // same-origin POSTs from some setups).
-  const allowedOrigins = settings.allowedOrigins ?? [];
-  if (allowedOrigins.length > 0) {
-    const origin = getRequestHeader(event, "origin");
-    if (!origin || !allowedOrigins.includes(origin)) {
-      setResponseStatus(event, 403);
-      return { error: "Origin not allowed" };
-    }
+  setPublicFormCors(event, settings);
+  if (!isPublicFormOriginAllowed(event, settings)) {
+    setResponseStatus(event, 403);
+    return { error: "Origin not allowed" };
   }
 
   const finishResponse = async ({
@@ -1078,8 +1104,17 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Parse form fields and build whitelist of valid field IDs
-  const fields: FormField[] = JSON.parse(form.fields);
+  // Parse form fields and build whitelist of valid field IDs. Published forms
+  // must pass the same structural checks as forms at write time because the
+  // public route is also reachable for legacy rows and direct HTTP clients.
+  let fields: FormField[];
+  try {
+    fields = JSON.parse(form.fields);
+    assertValidFields(fields);
+  } catch {
+    setResponseStatus(event, 500);
+    return { error: "Form configuration is invalid" };
+  }
   const fieldMap = new Map(fields.map((f) => [f.id, f]));
   const submittedData =
     body.data && typeof body.data === "object" && !Array.isArray(body.data)
@@ -1112,6 +1147,14 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     if (validationError) {
       setResponseStatus(event, 400);
       return { error: validationError };
+    }
+
+    if (
+      field.type === "file" &&
+      Object.prototype.hasOwnProperty.call(data, field.id) &&
+      !isEmptySubmissionValue(val)
+    ) {
+      data[field.id] = sanitizeSubmissionFieldValue(field, val);
     }
   }
 

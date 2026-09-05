@@ -1,5 +1,9 @@
 import { getOrgContext } from "@agent-native/core/org";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getMcpOAuthBearerSession,
+  getSession,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import type { H3Event } from "h3";
 
 export interface SlidesRequestAuthContext {
@@ -32,11 +36,20 @@ export class SlidesSessionLookupError extends Error {
 export async function resolveSlidesRequestAuthContext(
   event: H3Event,
 ): Promise<SlidesRequestAuthContext> {
+  // Check the connect token first. On framework action routes, getSession can
+  // already resolve it, but it does not mark the result as token-scoped; doing
+  // the browser org lookup after that would let a stale active-org cookie
+  // replace the org carried by the bearer token.
+  const mcpSession = await getMcpOAuthBearerSession(event);
   let session: Awaited<ReturnType<typeof getSession>>;
-  try {
-    session = await getSession(event);
-  } catch (err) {
-    throw new SlidesSessionLookupError(err);
+  if (mcpSession?.email) {
+    session = mcpSession;
+  } else {
+    try {
+      session = await getSession(event);
+    } catch (err) {
+      throw new SlidesSessionLookupError(err);
+    }
   }
 
   // Prefer the live active org context over `session.orgId`. Better Auth's
@@ -45,7 +58,7 @@ export async function resolveSlidesRequestAuthContext(
   // any switch. `getOrgContext()` resolves the user's current active-org-id
   // user-setting on every request, which is what we actually want.
   let orgId: string | undefined;
-  if (session?.email) {
+  if (session?.email && !mcpSession?.email) {
     try {
       const orgContext = await getOrgContext(event);
       orgId = orgContext.orgId ?? undefined;

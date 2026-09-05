@@ -6,16 +6,29 @@ import {
   getMethod,
   getQuery,
   getHeader,
+  readBody as readH3Body,
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
-import { isActionContractError, isAgentActionStopError } from "../action.js";
+import {
+  ActionContractError,
+  isActionContractError,
+  isActionExposedToExternalAgents,
+  isAgentActionStopError,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
-import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
-import { readBody } from "../server/h3-helpers.js";
+import {
+  isFederationMembershipValidatedForEvent,
+  resolveOrgByDomain,
+  resolveOrgIdForEmail,
+} from "../org/context.js";
+import {
+  agentNativeMcpInstructions,
+  agentNativeToolTitle,
+} from "../shared/agent-mcp-metadata.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
@@ -25,6 +38,7 @@ import {
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
+  readBrowserTabIdHeader,
   readAnalyticsClientPlatformHeader,
   readSyntheticTrafficHeader,
   seedAgentRunOwnerContext,
@@ -234,7 +248,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -317,6 +331,7 @@ export interface WebMcpManifestOptions {
   name: string;
   description: string;
   title?: string;
+  instructions?: string;
   version?: string;
   websiteUrl?: string;
   icons?: Array<{
@@ -330,6 +345,10 @@ export interface WebMcpManifestOptions {
 export interface MountWebMcpActionRoutesOptions extends MountActionRoutesOptions {
   /** Optional branding included in `/.well-known/mcp.json`. */
   manifest?: WebMcpManifestOptions;
+  /** Resolve the owner context so anonymous template identities stay scoped. */
+  getOwnerContextFromEvent?: (
+    event: any,
+  ) => AgentRunOwnerContext | Promise<AgentRunOwnerContext>;
 }
 
 interface MountActionRoutesInternalOptions extends MountActionRoutesOptions {
@@ -338,6 +357,7 @@ interface MountActionRoutesInternalOptions extends MountActionRoutesOptions {
   forcePost?: boolean;
   caller?: "webmcp";
   allowDelegatedCaller?: boolean;
+  getOwnerContextFromEvent?: MountWebMcpActionRoutesOptions["getOwnerContextFromEvent"];
 }
 
 function normalizeOrgId(value: string | null | undefined): string | undefined {
@@ -348,9 +368,8 @@ function normalizeOrgId(value: string | null | undefined): string | undefined {
 
 function isFirstBootMissingOrgTableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  return (
-    /no such table:?\s*["'`]?org_members["'`]?/i.test(error.message) ||
-    /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(error.message)
+  return /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(
+    error.message,
   );
 }
 
@@ -395,6 +414,18 @@ function isAuthResolutionFailure(error: unknown): boolean {
   return (
     typeof maybeStatus.statusMessage === "string" &&
     /unauthenticated|forbidden/i.test(maybeStatus.statusMessage)
+  );
+}
+
+function isPublicWebMcpAction(entry: ActionEntry): boolean {
+  const publicAgent = entry.publicAgent;
+  return (
+    entry.requiresAuth === false &&
+    entry.readOnly === true &&
+    publicAgent?.expose === true &&
+    publicAgent.readOnly === true &&
+    publicAgent.requiresAuth !== true &&
+    publicAgent.isConsequential !== true
   );
 }
 
@@ -564,7 +595,43 @@ function mountActionRoutesInternal(
             resolvedCaller = caller;
           }
         }
-        if (!resolvedCaller && options?.getOwnerFromEvent) {
+        let ownerContextResolved = false;
+        if (
+          !resolvedCaller &&
+          options?.caller === "webmcp" &&
+          options?.getOwnerContextFromEvent
+        ) {
+          ownerContextResolved = true;
+          try {
+            const ownerContext = await options.getOwnerContextFromEvent(event);
+            if (ownerContext.anonymous && !isPublicWebMcpAction(entry)) {
+              throw createError({
+                statusCode: 401,
+                statusMessage: "Unauthorized",
+              });
+            }
+            if (!ownerContext.anonymous) {
+              userEmail = ownerContext.owner;
+              userName = ownerContext.name;
+            }
+          } catch (error) {
+            if (
+              entry.requiresAuth === false &&
+              isAuthResolutionFailure(error) &&
+              isPublicWebMcpAction(entry)
+            ) {
+              userEmail = undefined;
+              userName = undefined;
+            } else {
+              throw error;
+            }
+          }
+        }
+        if (
+          !resolvedCaller &&
+          !ownerContextResolved &&
+          options?.getOwnerFromEvent
+        ) {
           try {
             userEmail = await options.getOwnerFromEvent(event);
             userName = options?.getUserNameFromEvent
@@ -573,7 +640,8 @@ function mountActionRoutesInternal(
           } catch (error) {
             if (
               entry.requiresAuth === false &&
-              isAuthResolutionFailure(error)
+              isAuthResolutionFailure(error) &&
+              (options?.caller !== "webmcp" || isPublicWebMcpAction(entry))
             ) {
               userEmail = undefined;
               userName = undefined;
@@ -613,6 +681,7 @@ function mountActionRoutesInternal(
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
         const isSyntheticTraffic = readSyntheticTrafficHeader(event);
+        const browserTabId = readBrowserTabIdHeader(event);
 
         return runWithRequestContext(
           {
@@ -623,8 +692,11 @@ function mountActionRoutesInternal(
             timezone,
             browserSessionId,
             clientPlatform,
+            ...(browserTabId ? { run: { browserTabId } } : {}),
             ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
             requestOrigin: getForwardedRequestOrigin(event),
+            federationMembershipValidated:
+              isFederationMembershipValidatedForEvent(event, userEmail, orgId),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),
@@ -649,6 +721,7 @@ function mountActionRoutesInternal(
             // directly. H3's readBody fails on those runtimes because it expects
             // a Node.js stream on event.node.req.
             let params: Record<string, any>;
+            let paramsError: string | undefined;
             try {
               if (method === "GET") {
                 // H3 v2: prefer web Request URL, fallback to getQuery
@@ -665,14 +738,22 @@ function mountActionRoutesInternal(
                 const webReq = (event as any).req;
                 if (webReq && typeof webReq.json === "function") {
                   // H3 v2: event.req is the web Request — use .json() directly
-                  params = (await webReq.json().catch(() => null)) ?? {};
+                  params = await webReq.json();
                 } else {
                   // Fallback: H3's readBody (Node.js dev)
-                  params = (await readBody(event)) ?? {};
+                  params = (await readH3Body(event)) as Record<string, any>;
+                }
+                if (
+                  !params ||
+                  typeof params !== "object" ||
+                  Array.isArray(params)
+                ) {
+                  throw new Error("request body is not an object");
                 }
               }
             } catch {
               params = {};
+              paramsError = "Request body must be a valid JSON object.";
             }
 
             // Run the action. Tag the caller: browser calls (useActionQuery /
@@ -681,6 +762,12 @@ function mountActionRoutesInternal(
             // userEmail / orgId mirror the request context resolved above (do
             // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
+              if (paramsError) {
+                throw new ActionContractError(paramsError, {
+                  errorCode: "invalid_action_request_body",
+                  statusCode: 400,
+                });
+              }
               const caller =
                 options?.caller ??
                 (resolvedCaller
@@ -857,6 +944,7 @@ function buildWebMcpCompatibilityManifest(
     };
     return {
       name,
+      title: agentNativeToolTitle(name, entry.tool.title),
       description: entry.tool.description,
       parameters: inputSchema,
       inputSchema,
@@ -873,6 +961,7 @@ function buildWebMcpCompatibilityManifest(
     name: options?.name ?? "Agent",
     ...(options?.title ? { title: options.title } : {}),
     description: options?.description ?? "Agent-Native app agent",
+    instructions: agentNativeMcpInstructions(options?.instructions),
     version: options?.version ?? "1.0.0",
     ...(options?.websiteUrl ? { website_url: options.websiteUrl } : {}),
     ...(options?.icons ? { icons: options.icons } : {}),
@@ -899,9 +988,13 @@ export function mountWebMcpActionRoutes(
     Object.entries(actions).filter(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
+        isActionExposedToExternalAgents(entry) &&
         entry.agentTool !== false &&
         entry.needsApproval === undefined,
     ),
+  );
+  const publicEligible = Object.fromEntries(
+    Object.entries(eligible).filter(([, entry]) => isPublicWebMcpAction(entry)),
   );
 
   const app = getH3App(nitroApp);
@@ -911,9 +1004,9 @@ export function mountWebMcpActionRoutes(
       (name) => `${routePrefix}/${encodeURIComponent(name)}`,
     ),
   );
-  // These routes own their auth decision: the manifest is public metadata,
-  // while each action handler distinguishes public actions from protected
-  // ones using the same `requiresAuth` contract as normal HTTP actions.
+  // These routes own their auth decision: the compatibility manifest is public
+  // metadata, while the page-local manifest returns only explicitly public
+  // read-only actions when no browser session is present.
   registerAuthPublicPaths(
     ["/_agent-native/webmcp/manifest", ...actionRoutePaths],
     app,
@@ -944,13 +1037,30 @@ export function mountWebMcpActionRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed. Use GET." };
       }
-      if (!options?.getOwnerFromEvent) {
+      let authenticated = false;
+      if (options?.getOwnerContextFromEvent) {
+        try {
+          const ownerContext = await options.getOwnerContextFromEvent(event);
+          authenticated = !ownerContext.anonymous;
+        } catch (error) {
+          if (!isAuthResolutionFailure(error)) throw error;
+        }
+      } else if (options?.getOwnerFromEvent) {
+        try {
+          await options.getOwnerFromEvent(event);
+          authenticated = true;
+        } catch (error) {
+          if (!isAuthResolutionFailure(error)) throw error;
+        }
+      }
+      if (!authenticated && Object.keys(publicEligible).length === 0) {
         throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
       }
-      await options.getOwnerFromEvent(event);
       setResponseHeader(event, "Cache-Control", "no-store");
-      return Object.entries(eligible).map(([name, entry]) => ({
+      const visible = authenticated ? eligible : publicEligible;
+      return Object.entries(visible).map(([name, entry]) => ({
         name,
+        title: agentNativeToolTitle(name, entry.tool.title),
         description: entry.tool.description,
         inputSchema: entry.tool.parameters,
         readOnly: entry.readOnly === true,

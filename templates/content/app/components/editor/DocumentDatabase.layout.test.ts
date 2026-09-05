@@ -347,6 +347,7 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain('data-database-scroll-surface="table"');
+    expect(source).toContain('horizontalOverflowAffordance="edges"');
     expect(source).toContain("min-w-0 max-w-full overflow-x-auto");
     expect(source).toContain("group/footer grid border-b border-border/30");
     expect(source).toContain(

@@ -85,10 +85,8 @@ const messages = {
     cloudConnectedReloading: "Conectado com sucesso. Recarregando...",
     cloudConnectionFailed: "Falha na conexão",
     cloudTestConnect: "Testar e conectar",
-    cloudSqliteEdge: "SQLite na borda",
     cloudServerlessPostgres: "Postgres serverless",
     cloudOpenSourceFirebaseAlternative: "Alternativa open source ao Firebase",
-    cloudCloudflareSqliteEdge: "SQLite na borda da Cloudflare",
     designSlidePreview: "Prévia do slide",
     designSlideTitle: "Título do slide",
     designSupportingText:
@@ -145,6 +143,8 @@ const messages = {
     clearSelection: "Limpar seleção",
     sendToAgent: "एजेंट को भेजें",
     saveReconnect: "As alterações serão salvas ao reconectar",
+    saveFailedDescription:
+      "आपके नवीनतम बदलाव केवल इसी डिवाइस पर हैं। जाने से पहले बैकअप डाउनलोड करें।",
     offline: "ऑफ़लाइन",
     selected: "चयनित",
     chooseDesignSystem: "Escolha um sistema de design",
@@ -204,6 +204,9 @@ const messages = {
     usingDesignSystem: "{{title}} उपयोग हो रहा है",
     usingLinkedDesignSystem: "लिंक किया गया डिज़ाइन सिस्टम उपयोग हो रहा है",
     viewOnly: "केवल देखें",
+    sourcePreserving: "सीमित संपादन",
+    sourcePreservingDescription:
+      "टेक्स्ट और ऑब्जेक्ट संपादित किए जा सकते हैं। इस इंपोर्ट किए गए डेक में स्लाइड जोड़ना, हटाना या क्रम बदलना अक्षम है।",
     commenterRoleLabel: "टिप्पणीकार",
     commenterRoleDescription: "देख सकते हैं और टिप्पणियां जोड़ सकते हैं",
     slideSettings: "स्लाइड सेटिंग्स",
@@ -259,6 +262,11 @@ const messages = {
     more: "और",
     importing: "आयात हो रहा है...",
     importFile: "फ़ाइल आयात करें",
+    downloadBackup: "बैकअप डाउनलोड करें",
+    importBackup: "बैकअप आयात करें",
+    backupDownloaded: "बैकअप डाउनलोड हो गया",
+    backupDownloadFailed: "बैकअप डाउनलोड नहीं हो सका",
+    invalidBackup: "Slides की मान्य बैकअप JSON फ़ाइल चुनें।",
     savedVersions: "सहेजे गए संस्करण",
     lightTheme: "लाइट थीम",
     darkTheme: "डार्क थीम",
@@ -266,6 +274,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX फ़ाइल जनरेट नहीं हो सकी।",
     exportFailed: "निर्यात विफल",
+    exporting: "निर्यात हो रहा है...",
     exportPptxError: "PPTX के रूप में निर्यात करते समय कुछ गलत हुआ।",
     googleSlidesDownloaded: "Google Slides के लिए डाउनलोड किया गया",
     googleSlidesImportHint:

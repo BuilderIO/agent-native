@@ -125,6 +125,8 @@ export default defineAction({
     await deleteAppState(`recording-upload-${args.id}`);
     await deleteAppState(`recording-compression-${args.id}`);
     await deleteAppState(`recording-blob-${args.id}`);
+    await deleteAppState(`recording-thumbnail-asset-${args.id}`);
+    await deleteAppState(`recording-thumbnail-lease-${args.id}`);
     await deleteAppState(`agent-task-recording-${args.id}`);
 
     await writeAppState("refresh-signal", { ts: Date.now() });

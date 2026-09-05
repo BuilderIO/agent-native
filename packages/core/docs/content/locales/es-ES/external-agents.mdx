@@ -1,7 +1,7 @@
 ---
-title: "Agentes externos: Claude, ChatGPT, Codex, Cursor, Cowork"
-description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork o cualquier host compatible con MCP a una aplicación nativa del agente alojada y luego envíe los artefactos de ida y vuelta al UI en ejecución con aplicaciones MCP y enlaces profundos."
-search: "Claude ChatGPT Claude Código Codex Cursor Claude Cowork MCP Aplicaciones agente nativo conectar herramientas de agente local agentes externos"
+title: "Agentes externos: Claude, ChatGPT, Codex, Cursor, Cowork, Grok"
+description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok o cualquier host compatible con MCP a una aplicación nativa del agente alojada y luego envíe los artefactos de ida y vuelta al UI en ejecución con aplicaciones MCP y enlaces profundos."
+search: "Claude Anthropic ChatGPT OpenAI Claude Código Codex Cursor Claude Cowork Grok xAI MCP Aplicaciones agente nativo conectar herramientas de agente local agentes externos"
 ---
 
 # Agentes externos
@@ -99,9 +99,11 @@ Cada aplicación Agent-Native expone una URL MCP canónica:
 https://<your-app>.agent-native.com/mcp
 ```
 
-En la aplicación, abra **Settings**, busque **MCP** y copie la **MCP server URL**.
-Pegue esa URL en el host de IA que quiera usar. La URL es la URL base de la aplicación
-desplegada más `/mcp`; no necesita buscar una opción de desarrollador.
+En la aplicación, abra **Settings → Integrations** y busque el nombre del host
+que ya conoce: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
+Codex, Grok o xAI. El único resultado de host externo abre **Settings → MCP**
+con la guía más adecuada seleccionada. Copie la **MCP server URL** y péguela en
+el host de IA. La URL es la URL base de la aplicación desplegada más `/mcp`.
 
 Para trabajos en espacios de trabajo o entre aplicaciones, utilice Dispatch:
 
@@ -123,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 Cada aplicación alojada también tiene una página de ayuda en
 `https://&lt;app&gt;/mcp/connect` con el URL copiable y
-pestañas específicas del host para Claude, ChatGPT, Cursor, Código Claude, Codex y Otros.
+pestañas específicas del host para Claude, ChatGPT, Cursor, Claude Code, Codex, Grok y Otros.
 
 <a id="access-tab"></a>
 
@@ -514,6 +516,8 @@ Para los hosts de aplicaciones OAuth de estilo ChatGPT/Claude, la superficie de 
 Esto hace que la misma superficie de aplicación esté disponible para todos los hosts compatibles en lugar de crear correcciones por cliente. Los hosts que procesan las aplicaciones MCP en línea (y el problema de la caché del conector después de los cambios de metadatos) residen en [MCP Apps → Client support and caching](/docs/mcp-apps#client-support): esa página es el hogar único para la matriz del cliente.
 
 En la práctica, cada aplicación nativa del agente debe crearse con ambas: aplicaciones MCP para revisión/edición en línea en hosts compatibles y `link` para retorno universal a la aplicación completa. Los clientes CLI/editor de código que no representan un iframe recurren al enlace profundo. Las herramientas de selección humana pueden agregar un paso de pegado a ese recurso alternativo: por ejemplo, el selector de Recursos se abre desde el enlace alternativo, permite al usuario elegir medios en el navegador y luego copia un resumen de transferencia que el usuario vuelve a pegar en el chat.
+
+Los agentes externos obtienen las herramientas reales de creación/actualización de la aplicación —las mismas acciones con nombre que llama el agente interno—, así que cuando un usuario pide contenido nuevo (un diseño, una presentación, un formulario, un documento), redáctalo directamente y guárdalo con esas herramientas en lugar de delegar el trabajo mediante `ask_app`. Las acciones marcadas con `endsTurn: true`, como un formulario de preguntas dentro de la app que espera la respuesta del usuario en el chat de esa misma app, se ocultan de MCP, WebMCP y A2A de forma predeterminada; son la herramienta del agente interno, no la de un llamador externo, a menos que la acción vuelva a activarse explícitamente con `mcpTool: true`. El puente WebMCP acepta entradas y resultados de herramientas de hasta 500.000 caracteres, de modo que una pantalla, presentación o documento redactado completo cabe en una sola escritura sin necesidad de dividirlo. Las llamadas WebMCP locales a la página también incluyen el id de la pestaña del navegador, de modo que el contexto propio de cada pestaña (navegación, selección) se resuelve a la pestaña que el usuario está viendo realmente.
 
 ### Puente de aplicación MCP de primera clase {#mcp-app-bridge}
 

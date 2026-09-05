@@ -9,6 +9,7 @@ import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import type { FormField } from "../../shared/types.js";
 import {
   isEmptySubmissionValue,
+  sanitizeSubmissionFieldValue,
   validateSubmissionField,
 } from "./submission-validation.js";
 import { assertValidFields } from "./validate-fields.js";
@@ -95,6 +96,67 @@ check("rejects multiselect values outside configured options", () => {
     ["A", "C"],
   );
   assert(err === "Field contains an unavailable option", `got ${err}`);
+});
+
+check(
+  "accepts stored file references and strips unpersistable metadata",
+  () => {
+    const value = {
+      url: "https://cdn.example.test/screenshot.png",
+      name: "screenshot.png",
+      type: "image/png",
+      size: 128,
+      provider: "builder",
+      handle: "asset-1",
+    };
+    const fileField = field({
+      id: "screenshot",
+      type: "file",
+      accept: "image/png",
+    });
+    assert(validateSubmissionField(fileField, value) === null, "file rejected");
+    assert(
+      JSON.stringify(sanitizeSubmissionFieldValue(fileField, value)) ===
+        JSON.stringify(value),
+      "file reference was not normalized",
+    );
+    assert(
+      validateSubmissionField(fileField, {
+        ...value,
+        url: "data:image/png;base64,not-stored-in-sql",
+      }) !== null,
+      "data URL was accepted as a stored reference",
+    );
+  },
+);
+
+check("enforces file type and count metadata server-side", () => {
+  const fileField = field({
+    id: "screenshots",
+    type: "file",
+    multiple: true,
+    maxFiles: 2,
+    accept: "image/png",
+  });
+  const file = {
+    url: "https://cdn.example.test/screenshot.png",
+    name: "screenshot.png",
+    type: "image/png",
+    size: 128,
+  };
+  assert(
+    validateSubmissionField(fileField, [file, file]) === null,
+    "valid file list rejected",
+  );
+  assert(
+    validateSubmissionField(fileField, [file, file, file]) !== null,
+    "file count limit was bypassed",
+  );
+  assert(
+    validateSubmissionField(fileField, [{ ...file, type: "text/plain" }]) !==
+      null,
+    "file accept filter was bypassed",
+  );
 });
 
 check("rejects numeric values outside min/max", () => {

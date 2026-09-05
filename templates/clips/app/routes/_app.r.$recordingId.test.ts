@@ -234,4 +234,12 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("min-h-0 w-full max-w-6xl");
     expect(route).not.toContain("{session ?");
   });
+
+  it("keeps protected recordings out of anonymous agent context links", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("recording.hasPassword === true");
+    expect(route).toContain("const shouldFallbackToShare =");
+    expect(route).toContain("playerDataUnauthorized && !session");
+  });
 });

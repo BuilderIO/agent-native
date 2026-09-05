@@ -988,3 +988,28 @@ describe("normalizePoisonedBoardNestedCoords — negative-k (translate-compensat
     );
   });
 });
+
+describe("board object path fill", () => {
+  it("keeps an authored fill instead of dropping it on migration", () => {
+    const html = boardObjectEntryToHtmlFragment({
+      id: "p1",
+      kind: "path",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+      pathData: "M 0 0 L 100 0 L 50 100 Z",
+      fill: "#ff0000",
+    } as Parameters<typeof boardObjectEntryToHtmlFragment>[0]);
+
+    expect(html).toContain('fill="#ff0000"');
+  });
+
+  it("still leaves an unfilled legacy path unfilled", () => {
+    const html = boardObjectEntryToHtmlFragment({
+      id: "p2",
+      kind: "path",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+      pathData: "M 0 0 L 100 0 L 50 100 Z",
+    } as Parameters<typeof boardObjectEntryToHtmlFragment>[0]);
+
+    expect(html).toContain('fill="none"');
+  });
+});

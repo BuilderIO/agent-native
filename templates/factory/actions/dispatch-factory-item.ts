@@ -26,7 +26,10 @@ import {
   githubIssueReaction,
   parseOptionalReaction,
 } from "../server/lib/source-reaction.js";
-import { recordFactoryAudit } from "../server/triage/audit.js";
+import {
+  recordFactoryAudit,
+  recordFactoryAuditIfChanged,
+} from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { stableId } from "../server/triage/ids.js";
 import {
@@ -463,7 +466,7 @@ export default defineAction({
       reason,
       guardResults,
     });
-    await recordFactoryAudit(
+    await recordFactoryAuditIfChanged(
       context,
       { userEmail, orgId },
       {

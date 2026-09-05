@@ -648,11 +648,13 @@ export default function RecordingPage() {
   const playerDataUnauthorized = playerDataAccessStatus === 401;
   const playerDataForbidden = playerDataAccessStatus === 403;
 
-  // A signed-in user without direct access may still have a public or explicit
-  // share grant. Only 403 is an access-boundary fallback; 401 is session drift
-  // and stays in the authenticated shell so it cannot bounce between routes.
+  // A public recording opened from an old `/r/:id` link has no session and
+  // receives 401 from the protected player action. Send that legacy URL to the
+  // share surface; a signed-in 401 still stays in the shell for session retry.
+  const shouldFallbackToShare =
+    playerDataForbidden || (playerDataUnauthorized && !session);
   useEffect(() => {
-    if (!recordingId || !playerDataForbidden) return;
+    if (!recordingId || !shouldFallbackToShare) return;
     const shareParams = new URLSearchParams();
     shareParams.set(REF_PARAM, CLIP_SHARE_REF);
     void navigate(
@@ -661,7 +663,7 @@ export default function RecordingPage() {
         replace: true,
       },
     );
-  }, [recordingId, playerDataForbidden, navigate]);
+  }, [recordingId, shouldFallbackToShare, navigate]);
 
   const recording = playerDataQ.data?.recording;
   const {
@@ -778,6 +780,7 @@ export default function RecordingPage() {
     if (
       typeof window === "undefined" ||
       !recording?.id ||
+      recording.hasPassword === true ||
       (recording.visibility !== "public" && role !== "owner")
     ) {
       return null;

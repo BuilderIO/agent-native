@@ -9,6 +9,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   isBuilderMdxSourcePath,
   isContentSourcePath,
@@ -402,7 +403,10 @@ export default defineAction({
           const updates: Record<string, unknown> = { updatedAt: now };
           if (!existing.spaceId) updates.spaceId = existingSpaceId;
           if (titleChanged) updates.title = file.title;
-          if (contentChanged) updates.content = file.content;
+          if (contentChanged) {
+            updates.content = file.content;
+            updates.bodyRevision = bodyRevisionForContent(file.content);
+          }
           if (descriptionChanged) updates.description = file.description;
           if (iconChanged) updates.icon = file.icon ?? null;
           if (favoriteChanged) updates.isFavorite = boolToInt(file.isFavorite);

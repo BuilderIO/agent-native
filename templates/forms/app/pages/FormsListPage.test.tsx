@@ -64,14 +64,6 @@ vi.mock("@agent-native/toolkit/sharing", () => ({
   ),
 }));
 
-vi.mock("@/components/CloudUpgrade", () => ({
-  CloudUpgrade: () => null,
-}));
-
-vi.mock("@/hooks/use-db-status", () => ({
-  useDbStatus: () => ({ isLocal: false }),
-}));
-
 vi.mock("@/hooks/use-forms", () => ({
   useCreateForm: () => mutationMock,
   useDeleteForm: () => mutationMock,

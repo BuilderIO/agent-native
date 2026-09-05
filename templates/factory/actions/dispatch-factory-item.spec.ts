@@ -13,6 +13,7 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
 }));
 vi.mock("../server/triage/audit.js", () => ({
   recordFactoryAudit: vi.fn(),
+  recordFactoryAuditIfChanged: vi.fn(),
 }));
 vi.mock("../server/triage/github-client.js", () => ({
   createGitHubClient: vi.fn(),

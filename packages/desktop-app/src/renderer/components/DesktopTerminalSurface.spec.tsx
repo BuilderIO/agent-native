@@ -76,6 +76,35 @@ describe("DesktopTerminalSurface", () => {
     expect(onNewUiTab).toHaveBeenCalledOnce();
   });
 
+  it("offers a new CLI tab from CLI options", async () => {
+    act(() => {
+      root.render(<DesktopTerminalSurface agent="codex" theme="dark" />);
+    });
+
+    await act(async () => {
+      const trigger = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Terminal options"]',
+      );
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+    const item = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((candidate) => candidate.textContent?.includes("New CLI tab"));
+
+    expect(item).toBeDefined();
+    await act(async () => item?.click());
+    expect(
+      container.querySelectorAll("[data-desktop-terminal-tab]"),
+    ).toHaveLength(2);
+  });
+
   it("toggles the shared sidebar from CLI options", async () => {
     const onToggleSidebar = vi.fn();
     act(() => {
@@ -140,9 +169,10 @@ describe("DesktopTerminalSurface", () => {
       document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((item) => item.textContent?.includes("Provider"));
     expect(providerItem).not.toBeUndefined();
-    expect(
-      providerItem?.querySelector(".desktop-dropdown-item__main"),
-    ).not.toBe(null);
+    expect(providerItem?.querySelector(".desktop-dropdown-item__main")).toBe(
+      null,
+    );
+    expect(providerItem?.classList.contains("gap-2")).toBe(true);
     expect(providerItem?.querySelector("svg.ms-auto")).not.toBeNull();
     expect(
       Array.from(

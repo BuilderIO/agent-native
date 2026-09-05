@@ -11,6 +11,12 @@ const messages = {
     themeTitle: "Theme",
     themeDescription: "Dunkel / hell umschalten",
   },
+  common: {
+    cancel: "Abbrechen",
+    confirmDisconnect: "Trennung bestätigen",
+    disconnect: "Trennen",
+    disconnecting: "Wird getrennt…",
+  },
   settings: {
     title: "Einstellungen",
     description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
@@ -28,6 +34,9 @@ const messages = {
     openTeamSettings: "Teameinstellungen öffnen",
     openResourceSettings: "Ressourceneinstellungen öffnen",
     backHome: "Zur Startseite",
+    builderConnection: {
+      manage: "Builder.io-Verbindung verwalten",
+    },
   },
   dispatch: {
     nav: {

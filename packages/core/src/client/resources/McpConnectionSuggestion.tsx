@@ -12,6 +12,7 @@ import {
   findMcpIntegrationForText,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
+  isMcpIntegrationUrl,
   isMcpConnectionFailureText,
   isMcpConnectionSuggestionText,
   type DefaultMcpIntegration,
@@ -31,6 +32,41 @@ export interface McpConnectionSuggestionProps {
   contextText?: string;
   variant?: McpConnectionSuggestionVariant;
   integrations?: DefaultMcpIntegration[];
+}
+
+const DISMISSED_MCP_SUGGESTIONS_STORAGE_KEY =
+  "agent-native:mcp-connection-suggestions-dismissed";
+
+function readDismissedMcpSuggestionIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(
+      DISMISSED_MCP_SUGGESTIONS_STORAGE_KEY,
+    );
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    // coercion-ok: unavailable browser storage means no persisted dismissals.
+    return [];
+  }
+}
+
+function rememberMcpSuggestionDismissal(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const ids = readDismissedMcpSuggestionIds();
+    if (ids.includes(id)) return;
+    window.localStorage.setItem(
+      DISMISSED_MCP_SUGGESTIONS_STORAGE_KEY,
+      JSON.stringify([...ids, id]),
+    );
+  } catch {
+    // coercion-ok: unavailable browser storage only skips persistence.
+    return;
+  }
 }
 
 function visibleUserAuthoredText(text: string): string {
@@ -78,25 +114,14 @@ export function shouldRenderMcpIntegrationFallback(
   return !logoUrl || logoLoadFailed;
 }
 
-function compareUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
-}
-
 function isConnected(
   integration: DefaultMcpIntegration,
   servers: McpServer[],
 ): boolean {
-  const targetUrl = compareUrl(integration.url);
   return servers.some(
     (server) =>
       server.status.state === "connected" &&
-      compareUrl(server.url) === targetUrl,
+      isMcpIntegrationUrl(integration, server.url),
   );
 }
 
@@ -119,7 +144,9 @@ export function McpConnectionSuggestion({
   const [quickConnectIntegrationId, setQuickConnectIntegrationId] = useState<
     string | null
   >(null);
-  const [dismissedId, setDismissedId] = useState<string | null>(null);
+  const [dismissedIds, setDismissedIds] = useState(
+    readDismissedMcpSuggestionIds,
+  );
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const integrations = useMemo(
@@ -157,7 +184,7 @@ export function McpConnectionSuggestion({
     mcpServersQuery.isSuccess &&
     integration &&
     !connected &&
-    dismissedId !== integration.id &&
+    !dismissedIds.includes(integration.id) &&
     (variant === "composer" ||
       isMcpConnectionFailureText(text) ||
       isMcpConnectionSuggestionText(text));
@@ -228,7 +255,14 @@ export function McpConnectionSuggestion({
         </button>
         <button
           type="button"
-          onClick={() => setDismissedId(integration.id)}
+          onClick={() => {
+            setDismissedIds((current) =>
+              current.includes(integration.id)
+                ? current
+                : [...current, integration.id],
+            );
+            rememberMcpSuggestionDismissal(integration.id);
+          }}
           className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
           aria-label={t("mcpIntegrations.dismissSuggestion")}
         >
@@ -263,7 +297,11 @@ export function McpConnectionSuggestion({
         hasOrg={hasOrg}
         onCreateMcpServer={(args) => createMcpServer.mutateAsync(args)}
         onCreated={() => {
-          setDismissedId(integration.id);
+          setDismissedIds((current) =>
+            current.includes(integration.id)
+              ? current
+              : [...current, integration.id],
+          );
           saveMcpConnectionResume(variant === "response" ? contextText : text);
           notifyMcpConnectionComplete();
         }}

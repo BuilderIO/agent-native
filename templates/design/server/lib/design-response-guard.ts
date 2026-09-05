@@ -2,6 +2,13 @@ import type {
   AgentLoopFinalResponseGuardContext,
   AgentLoopFinalResponseGuardResult,
 } from "@agent-native/core/server";
+import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
+
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
+import {
+  isRepromptSelectionMessage,
+  isSelectionQuestionMessage,
+} from "./reprompt-action-guard.js";
 
 const DESIGN_MUTATION_ACTIONS = new Set([
   "apply-a11y-fix",
@@ -348,6 +355,26 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   );
 }
 
+/**
+ * Every app-authored generation directive block names mutating actions, so
+ * only the user's own words decide intent unless the attached context states
+ * outright that this turn has to persist something.
+ */
+function requiresPersistedDesignOutput(composedRequest: string): boolean {
+  const { message, context } =
+    splitAgentChatContextFromMessage(composedRequest);
+  // Preview and read-only turns are marked in the attached context, never in
+  // the instruction, which reads like any other edit request on its own.
+  if (
+    isRepromptSelectionMessage(context) ||
+    isSelectionQuestionMessage(context)
+  ) {
+    return false;
+  }
+  if (context.includes(DESIGN_MUTATION_REQUIRED_DIRECTIVE)) return true;
+  return looksLikeDesignMutationRequest(message);
+}
+
 export function designFinalResponseGuard(
   context: AgentLoopFinalResponseGuardContext,
 ): AgentLoopFinalResponseGuardResult | null {
@@ -355,7 +382,7 @@ export function designFinalResponseGuard(
 
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
-  if (!looksLikeDesignMutationRequest(requestText)) return null;
+  if (!requiresPersistedDesignOutput(requestText)) return null;
   if (hasSuccessfulMutation(context.toolResults)) return null;
 
   return {

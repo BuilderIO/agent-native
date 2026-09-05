@@ -35,6 +35,34 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function createActiveTimeline(now: () => number = Date.now) {
+  let elapsedMs = 0;
+  let running = true;
+  let runningSinceMs = now();
+
+  const current = () =>
+    elapsedMs + (running ? Math.max(0, now() - runningSinceMs) : 0);
+
+  return {
+    current,
+    pause(elapsedAtPauseMs: number = current()) {
+      if (!running) return;
+      elapsedMs = elapsedAtPauseMs;
+      running = false;
+    },
+    resume() {
+      if (running) return;
+      runningSinceMs = now();
+      running = true;
+    },
+    reset(shouldRun: boolean = true) {
+      elapsedMs = 0;
+      runningSinceMs = now();
+      running = shouldRun;
+    },
+  };
+}
+
 export interface CapturedTranscript {
   /** Speaker-labelled text, lines joined by blank lines. */
   text: string;
@@ -339,6 +367,7 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 }
 
 export const __test = {
+  createActiveTimeline,
   createWebSpeechTranscriptBuffer,
   startBrowserTranscriptionCapture,
 };
@@ -375,6 +404,7 @@ export async function startTranscriptionCapture(
   let pauseFinalsSettleUntil = 0;
   let transitionFailure: string | null = null;
   const unlistens: UnlistenFn[] = [];
+  const timeline = createActiveTimeline();
 
   const cleanup = () => {
     disposed = true;
@@ -436,12 +466,14 @@ export async function startTranscriptionCapture(
     transitioning = true;
     try {
       if (desiredPaused) {
+        const pauseBoundaryMs = timeline.current();
         await stopTranscriptionEngine(engine);
+        timeline.pause(pauseBoundaryMs);
         paused = true;
         pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
         console.log(`[clips-recorder] transcription paused (${engine})`);
       } else {
-        engine = await startTranscriptionEngine({
+        const nextEngine = await startTranscriptionEngine({
           mic,
           captureSystem,
           voiceProcessing: opts?.voiceProcessing,
@@ -450,9 +482,24 @@ export async function startTranscriptionCapture(
         // stop()/cancel() can run during the await above; if it did, the new
         // engine would leak (mic/system capture stays live). Tear it down.
         if (disposed) {
-          await stopTranscriptionEngine(engine).catch(() => {});
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
           return;
         }
+        // A resumed Whisper capture is a fresh native session whose timestamps
+        // otherwise begin at zero. Rebase it to the recorder's active elapsed
+        // time, excluding the pause, before any new speech can finalize.
+        try {
+          await resetTranscriptionTimeline(nextEngine, timeline.current());
+        } catch (err) {
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
+          throw err;
+        }
+        if (disposed) {
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
+          return;
+        }
+        engine = nextEngine;
+        timeline.resume();
         paused = false;
         console.log(`[clips-recorder] transcription resumed (${engine})`);
       }
@@ -522,7 +569,8 @@ export async function startTranscriptionCapture(
       await applyAudioState();
     },
     async resetTimeline() {
-      await resetTranscriptionTimeline(engine);
+      timeline.reset(!desiredPaused);
+      await resetTranscriptionTimeline(engine, timeline.current());
     },
   };
 }

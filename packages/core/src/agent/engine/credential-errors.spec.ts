@@ -23,6 +23,15 @@ describe("LLM credential error helpers", () => {
     ).toBe(true);
   });
 
+  it.each(["http_401", "http_403", "invalid_api_key"])(
+    "detects a provider-rejected credential from %s",
+    (errorCode) => {
+      expect(
+        isLlmCredentialError(new Error("provider rejected request"), errorCode),
+      ).toBe(true);
+    },
+  );
+
   it("does not treat an unreadable credential store as a setup failure", () => {
     expect(
       isLlmCredentialError(

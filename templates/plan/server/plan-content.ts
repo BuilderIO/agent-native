@@ -3626,7 +3626,7 @@ function defaultVisualQuestions(brief: string): VisualQuestionBuilderInput[] {
         { label: "Desktop web app", preview: "desktop" },
         { label: "Mobile app", preview: "mobile" },
         { label: "Both / responsive", recommended: true, preview: "split" },
-        { label: "Decide for me" },
+        { label: "Let the agent decide" },
       ],
     },
     {

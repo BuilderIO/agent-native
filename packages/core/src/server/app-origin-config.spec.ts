@@ -77,6 +77,19 @@ describe("app origin client config", () => {
     });
   });
 
+  it("projects workspace mount paths for early runtime path reconciliation", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "dispatch", path: "/dispatch" },
+      { id: "diagrams", path: "/diagrams/" },
+    ]);
+
+    expect(resolvePublicAppOriginConfig()).toEqual({
+      appHomePath: "/home",
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch", "/diagrams"],
+    });
+  });
+
   it("prefers the canonical spelling over its mirror", () => {
     process.env.APP_URL = "https://canonical.example.com";
     process.env.VITE_APP_URL = "https://mirror.example.com";
@@ -104,6 +117,16 @@ describe("app origin client config", () => {
       "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,",
     );
     expect(script).toContain('"appUrl":"https://app.example.com"');
+  });
+
+  it("HTML-escapes the public config payload", () => {
+    process.env.APP_URL = "https://app.example.com/?value=</script>&next=>";
+
+    const script = getAppOriginClientConfigScript();
+
+    expect(script).toContain("\\u003c/script\\u003e");
+    expect(script).toContain("\\u0026next=\\u003e");
+    expect(script.match(/<\/script>/g)).toEqual(["</script>"]);
   });
 
   it("omits absent fields instead of emitting undefined", () => {

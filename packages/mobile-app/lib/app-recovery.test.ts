@@ -27,6 +27,6 @@ describe("mobile app inventory recovery", () => {
       'accessibilityLabel="Retry loading apps"',
     );
     expect(appScreenSource).toContain('accessibilityLabel="Back to apps"');
-    expect(appScreenSource).toContain('router.replace("/more" as never)');
+    expect(appScreenSource).toContain('mobileNavigation.replace("/more")');
   });
 });

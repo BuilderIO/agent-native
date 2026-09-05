@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   draftClaimsAnalyticsMetrics,
+  draftRestatesPriorEvidence,
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
+  hasCatalogSearchAttempt,
   hasDashboardConstructionAttempt,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
@@ -285,6 +287,194 @@ describe("analytics data request classification", () => {
       looksLikeAnalyticsDataRequest(
         "the chat keeps typing long messages that disappear",
       ),
+    ).toBe(false);
+  });
+
+  it("keeps PR/code-review framing out of the guard even when it names analytics vocabulary", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Is my PR description clear about the events we track?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Can you review this pull request and check the diff for the signups migration?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Does this commit's changelog entry accurately describe the sessions fix?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What did the reviewer say about the release notes for this PR?",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps analytics questions that merely mention review or pull-request words inside the guard", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Review this dashboard and tell me the highest conversion step.",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What was the signup conversion rate for the pull request landing page last week?",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest("How many calls did our reviewers handle?"),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest("How many signups came from each PR?"),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Which pull request had the most conversion?",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest("Did the latest PR increase signups?"),
+    ).toBe(true);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What impact did this pull request have on revenue?",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an explicit code-review request out of the guard even when it carries a date", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Review the signup changelog from last week.",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Check the PR diff for the sessions migration from last month.",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest("Review signup PR from last week."),
+    ).toBe(false);
+  });
+});
+
+describe("draftClaimsAnalyticsMetrics qualitative verdicts", () => {
+  it("treats a qualitative verdict about a metric as a claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics("Signup conversion was strong last week."),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("Signups performed poorly this week."),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("Revenue spiked after the launch."),
+    ).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Signups rose last week.")).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Sessions went up this month.")).toBe(
+      true,
+    );
+    expect(draftClaimsAnalyticsMetrics("Revenue is down.")).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Signups up 12% this week.")).toBe(true);
+  });
+
+  it("treats ordinary evaluative adjectives about a metric as a claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics("Signup conversion was excellent last week."),
+    ).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Retention looks healthy.")).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("The signups dashboard looks solid now."),
+    ).toBe(false);
+  });
+
+  it("does not treat a chart position edit as an up/down trend claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics("I moved the sessions chart up 2 rows."),
+    ).toBe(false);
+  });
+
+  it("treats a metric stated before its figure as a claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics("The week before that, signups were 480."),
+    ).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("Conversion: 4.2")).toBe(true);
+  });
+
+  it("does not treat an edit summary with the same verbs as a claim", () => {
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "I improved the dashboard layout and saved it.",
+      ),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "The signup dashboard was improved and saved.",
+      ),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics("Set the sessions panel at 3 columns."),
+    ).toBe(false);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "Confirmed — this is the agreed instrumentation specification, not a live analytics result.",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("draftRestatesPriorEvidence", () => {
+  const prior = {
+    toolResults: [
+      {
+        name: "bigquery",
+        content: '{"rows":[{"signups":1234,"week":"2026-08-24"}]}',
+      },
+    ],
+    text: 'SELECT COUNT(*) AS signups FROM events WHERE week = "2026-08-24"\n{"rows":[{"signups":1234,"week":"2026-08-24"}]}\nSignups for the week of 2026-08-24 were 1,234.',
+  };
+
+  it("accepts a draft whose figures and metrics all come from the prior turn, across comma formatting", () => {
+    expect(
+      draftRestatesPriorEvidence(
+        "So 1,234 signups in the week of 2026-08-24.",
+        prior,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a draft that states a figure the results never produced", () => {
+    expect(
+      draftRestatesPriorEvidence("The week before was 980 signups.", prior),
+    ).toBe(false);
+  });
+
+  it("rejects a prior figure re-attributed to a metric that turn never named", () => {
+    expect(
+      draftRestatesPriorEvidence(
+        "Paying customers were 1,234 this month.",
+        prior,
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a draft with no figures rather than passing it vacuously", () => {
+    expect(draftRestatesPriorEvidence("Signups were higher.", prior)).toBe(
+      false,
+    );
+  });
+
+  it("ignores figures that only appear in failed results", () => {
+    expect(
+      draftRestatesPriorEvidence("Signups were 980.", {
+        toolResults: [
+          { name: "bigquery", isError: true, content: '{"error":"980 rows"}' },
+        ],
+        text: "signups 980",
+      }),
     ).toBe(false);
   });
 });
@@ -895,6 +1085,31 @@ describe("incomplete evidence detection", () => {
     expect(hasDashboardConstructionAttempt([])).toBe(false);
   });
 
+  it("recognizes catalog/dashboard-reference discovery as a search attempt", () => {
+    expect(
+      hasCatalogSearchAttempt([
+        { name: "search-analytics-query-catalog", content: "[]" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCatalogSearchAttempt([
+        { name: "search-dashboard-references", content: "[]" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCatalogSearchAttempt([
+        {
+          name: "search-analytics-query-catalog",
+          isError: true,
+          content: "boom",
+        },
+      ]),
+    ).toBe(false);
+    expect(hasCatalogSearchAttempt([{ name: "bigquery" }])).toBe(false);
+    expect(hasCatalogSearchAttempt([])).toBe(false);
+    expect(hasCatalogSearchAttempt(undefined)).toBe(false);
+  });
+
   it("does not treat authoring/saving a dashboard or extension alone as construction progress", () => {
     // update-dashboard/mutate-dashboard/create-extension/update-extension can
     // all author brand-new SQL or extension content, so calling them with no
@@ -950,5 +1165,25 @@ describe("incomplete evidence detection", () => {
         "I've cloned the Company A extension for Company B. What org id should I filter on?",
       ),
     ).toBe(false);
+  });
+
+  it("treats a qualitative trend claim as a claim, not just an explicit number", () => {
+    expect(draftClaimsAnalyticsMetrics("signups increased last week")).toBe(
+      true,
+    );
+    expect(draftClaimsAnalyticsMetrics("traffic dropped this week")).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("sessions are trending up recently"),
+    ).toBe(true);
+    expect(draftClaimsAnalyticsMetrics("usage is higher than last month")).toBe(
+      true,
+    );
+    expect(draftClaimsAnalyticsMetrics("churn was lower than expected")).toBe(
+      true,
+    );
+    // Still a topic word, not a claim — no assertion is being made.
+    expect(draftClaimsAnalyticsMetrics("what's the trend for signups?")).toBe(
+      false,
+    );
   });
 });

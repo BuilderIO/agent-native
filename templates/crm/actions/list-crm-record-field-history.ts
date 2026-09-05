@@ -142,8 +142,8 @@ export default defineAction({
       // not order the chain. The current row is first, then closed rows by when
       // they were closed — a row's `activeUntil` is the next row's `activeFrom`,
       // which is what actually orders same-instant edits. `(x is null) desc`
-      // puts the current row first in both SQLite (1 > 0) and PostgreSQL
-      // (true > false); NULLS FIRST/LAST defaults differ and cannot be relied on.
+      // puts the current row first in PostgreSQL; NULLS FIRST/LAST defaults
+      // cannot be relied on.
       .orderBy(
         desc(sql`(${schema.crmRecordFields.activeUntil} is null)`),
         desc(schema.crmRecordFields.activeUntil),

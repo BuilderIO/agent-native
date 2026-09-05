@@ -55,6 +55,7 @@ const messages = {
       rename: "Cambiar nombre",
       renameTab: "Renombrar pestaña",
       savedFilters: "Filtros guardados",
+      combinedInbox: "Bandeja de entrada combinada",
       help: "Los elementos marcados se muestran como pestañas. Los emails con etiquetas se separan de la bandeja de entrada.",
     },
     accounts: {

@@ -577,16 +577,20 @@ function TemplateCard({
             </span>
           ) : null}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={(event) => onUse(template, event.currentTarget)}
-          data-template-use-button
-          className="mt-auto w-full"
-        >
-          <IconTemplate className="size-4" />
-          {t("templatesPage.useTemplate")}
-        </Button>
+        {/* The wrapper owns the gap: `mt-auto` on the button itself keeps the
+            row bottom-aligned but collapses against the meta chips. */}
+        <div className="mt-auto pt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(event) => onUse(template, event.currentTarget)}
+            data-template-use-button
+            className="w-full"
+          >
+            <IconTemplate className="size-4" />
+            {t("templatesPage.useTemplate")}
+          </Button>
+        </div>
       </div>
     </article>
   );

@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AGENT_ACCESS_PARAM,
@@ -227,17 +228,22 @@ function PublicDocumentContextSync({
   basePath?: string;
 }) {
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        view: "public-document",
-        documentId: document.id,
-        title: document.title,
-        publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
-      }),
-    }).catch(() => {});
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          view: "public-document",
+          documentId: document.id,
+          title: document.title,
+          publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
+        }),
+      },
+    ).catch(() => {});
   }, [basePath, document.id, document.title]);
 
   return null;

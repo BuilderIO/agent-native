@@ -37,6 +37,8 @@ export default defineEventHandler(async (event) => {
     }
 
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    setResponseHeader(event, "Cache-Control", "no-store");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     setResponseHeader(
       event,
       "Content-Disposition",

@@ -306,6 +306,14 @@ const enUS = {
       right: "Right",
       justify: "Justify",
     },
+    positionAligns: {
+      left: "Align left",
+      centerHorizontal: "Align horizontal centers",
+      right: "Align right",
+      top: "Align top",
+      centerVertical: "Align vertical centers",
+      bottom: "Align bottom",
+    },
     textDecorations: {
       underline: "Underline",
       strikethrough: "Strikethrough",
@@ -1044,12 +1052,12 @@ const enUS = {
       modeAuto: "Auto",
       modePreview: "Preview change",
       modeAsk: "Ask agent",
-      modeRegenerate: "Regenerate",
+      modeRegenerate: "Edit with AI", // i18n-copy-ignore: localized node-rewrite CTA overrides live in app/i18n/*.ts and are updated with this source string
       agentModeOptions: "Choose agent behavior",
       pendingReview: "Review changes · {{count}}",
       pendingReviewMenu: "Changes ready to review",
       reviewCandidate: "Review change",
-      regenerate: "Regenerate…",
+      regenerate: "Edit with AI…",
       sending: "Regenerating…",
       sent: "Regeneration request sent",
       sendFailed: "Could not send the regeneration request",
@@ -1274,6 +1282,10 @@ const enUS = {
       "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
     failedToSubmitPrompt: "Failed to submit prompt",
     skipPrompt: "Skip prompt",
+    startBlankCanvas: "Start with a blank canvas",
+    startWithAi: "Start with AI",
+    startWithAiHint: "Describe a page and get a first draft to edit.",
+    startBlankCanvasHint: "Draw it yourself with frames, shapes and text.",
     designSystem: "Design system",
     noDesignSystem: "No design system",
     newDesignSystem: "New",
@@ -1568,9 +1580,9 @@ const enUS = {
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
       githubIndex:
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
-      chooseDesignMd: "Please choose a design.md or design.mdx file.",
-      readDesignMd: "Could not read the design.md file.",
-      designMdTooLarge: "design.md must be 2 MB or smaller.",
+      chooseDesignMd: "Please choose a Markdown (.md or .mdx) file.",
+      readDesignMd: "Could not read that Markdown file.",
+      designMdTooLarge: "The Markdown file must be 2 MB or smaller.",
       designMdIndex:
         "Could not start design.md indexing. Check your Builder connection.",
       noSources: "Add at least one source before generating a design system.",
@@ -1864,6 +1876,14 @@ const designLocaleOverrides = {
         right: "正确的",
         justify: "证明合法",
       },
+      positionAligns: {
+        left: "左对齐",
+        centerHorizontal: "水平居中对齐",
+        right: "右对齐",
+        top: "顶部对齐",
+        centerVertical: "垂直居中对齐",
+        bottom: "底部对齐",
+      },
       textDecorations: {
         underline: "下划线",
         strikethrough: "删除线",
@@ -2060,9 +2080,9 @@ const designLocaleOverrides = {
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
         githubIndex:
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
-        chooseDesignMd: "请选择 design.md 或 design.mdx 文件。",
-        readDesignMd: "无法读取 design.md 文件。",
-        designMdTooLarge: "design.md 必须不超过 2 MB。",
+        chooseDesignMd: "请选择 Markdown（.md 或 .mdx）文件。",
+        readDesignMd: "无法读取该 Markdown 文件。",
+        designMdTooLarge: "Markdown 文件必须不超过 2 MB。",
         designMdIndex: "无法启动 design.md 索引。请检查 Builder 连接。",
         noSources: "在生成设计系统之前至少添加一个源。",
       },
@@ -2293,6 +2313,14 @@ const designLocaleOverrides = {
         right: "Bien",
         justify: "Justificar",
       },
+      positionAligns: {
+        left: "Alinear a la izquierda",
+        centerHorizontal: "Centrar horizontalmente",
+        right: "Alinear a la derecha",
+        top: "Alinear arriba",
+        centerVertical: "Centrar verticalmente",
+        bottom: "Alinear abajo",
+      },
       textDecorations: {
         underline: "Subrayado",
         strikethrough: "Tachado",
@@ -2504,9 +2532,10 @@ const designLocaleOverrides = {
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
-        chooseDesignMd: "Elija un archivo design.md o design.mdx.",
-        readDesignMd: "No se pudo leer el archivo design.md.",
-        designMdTooLarge: "design.md debe tener un tamaño máximo de 2 MB.",
+        chooseDesignMd: "Elija un archivo Markdown (.md o .mdx).",
+        readDesignMd: "No se pudo leer ese archivo Markdown.",
+        designMdTooLarge:
+          "El archivo Markdown debe tener un tamaño máximo de 2 MB.",
         designMdIndex:
           "No se pudo iniciar la indexación de design.md. Comprueba la conexión de Builder.",
         noSources:
@@ -2747,6 +2776,14 @@ const designLocaleOverrides = {
         right: "Droite",
         justify: "Justifier",
       },
+      positionAligns: {
+        left: "Aligner à gauche",
+        centerHorizontal: "Centrer horizontalement",
+        right: "Aligner à droite",
+        top: "Aligner en haut",
+        centerVertical: "Centrer verticalement",
+        bottom: "Aligner en bas",
+      },
       textDecorations: {
         underline: "Souligné",
         strikethrough: "Barré",
@@ -2963,9 +3000,9 @@ const designLocaleOverrides = {
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
         githubIndex:
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
-        chooseDesignMd: "Veuillez choisir un fichier design.md ou design.mdx.",
-        readDesignMd: "Impossible de lire le fichier design.md.",
-        designMdTooLarge: "design.md doit faire 2 Mo ou moins.",
+        chooseDesignMd: "Veuillez choisir un fichier Markdown (.md ou .mdx).",
+        readDesignMd: "Impossible de lire ce fichier Markdown.",
+        designMdTooLarge: "Le fichier Markdown doit faire 2 Mo ou moins.",
         designMdIndex:
           "Impossible de démarrer l’indexation de design.md. Vérifiez la connexion à Builder.",
         noSources:
@@ -3206,6 +3243,14 @@ const designLocaleOverrides = {
         right: "Rechts",
         justify: "Rechtfertigen",
       },
+      positionAligns: {
+        left: "Links ausrichten",
+        centerHorizontal: "Horizontal zentrieren",
+        right: "Rechts ausrichten",
+        top: "Oben ausrichten",
+        centerVertical: "Vertikal zentrieren",
+        bottom: "Unten ausrichten",
+      },
       textDecorations: {
         underline: "Unterstrichen",
         strikethrough: "Durchgestrichen",
@@ -3423,9 +3468,9 @@ const designLocaleOverrides = {
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
         githubIndex:
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
-        chooseDesignMd: "Wählen Sie eine design.md- oder design.mdx-Datei aus.",
-        readDesignMd: "Die design.md-Datei konnte nicht gelesen werden.",
-        designMdTooLarge: "design.md darf höchstens 2 MB groß sein.",
+        chooseDesignMd: "Wählen Sie eine Markdown-Datei (.md oder .mdx) aus.",
+        readDesignMd: "Diese Markdown-Datei konnte nicht gelesen werden.",
+        designMdTooLarge: "Die Markdown-Datei darf höchstens 2 MB groß sein.",
         designMdIndex:
           "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
         noSources:
@@ -3665,6 +3710,14 @@ const designLocaleOverrides = {
         right: "右",
         justify: "正当化する",
       },
+      positionAligns: {
+        left: "左揃え",
+        centerHorizontal: "左右中央揃え",
+        right: "右揃え",
+        top: "上揃え",
+        centerVertical: "上下中央揃え",
+        bottom: "下揃え",
+      },
       textDecorations: {
         underline: "下線",
         strikethrough: "取り消し線",
@@ -3880,9 +3933,9 @@ const designLocaleOverrides = {
         githubIndex:
           "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
         chooseDesignMd:
-          "design.md または design.mdx ファイルを選択してください。",
-        readDesignMd: "design.md ファイルを読み込めませんでした。",
-        designMdTooLarge: "design.md は 2 MB 以下にしてください。",
+          "Markdown（.md または .mdx）ファイルを選択してください。",
+        readDesignMd: "その Markdown ファイルを読み込めませんでした。",
+        designMdTooLarge: "Markdown ファイルは 2 MB 以下にしてください。",
         designMdIndex:
           "design.md のインデックス作成を開始できませんでした。Builder の接続を確認してください。",
         noSources:
@@ -4119,6 +4172,14 @@ const designLocaleOverrides = {
         right: "오른쪽",
         justify: "신이 옳다고 하다",
       },
+      positionAligns: {
+        left: "왼쪽 정렬",
+        centerHorizontal: "가로 가운데 정렬",
+        right: "오른쪽 정렬",
+        top: "위쪽 정렬",
+        centerVertical: "세로 가운데 정렬",
+        bottom: "아래쪽 정렬",
+      },
       textDecorations: {
         underline: "밑줄",
         strikethrough: "취소선",
@@ -4328,9 +4389,9 @@ const designLocaleOverrides = {
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
         githubIndex:
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
-        chooseDesignMd: "design.md 또는 design.mdx 파일을 선택하세요.",
-        readDesignMd: "design.md 파일을 읽을 수 없습니다.",
-        designMdTooLarge: "design.md 파일은 2MB 이하여야 합니다.",
+        chooseDesignMd: "Markdown(.md 또는 .mdx) 파일을 선택하세요.",
+        readDesignMd: "해당 Markdown 파일을 읽을 수 없습니다.",
+        designMdTooLarge: "Markdown 파일은 2MB 이하여야 합니다.",
         designMdIndex:
           "design.md 인덱싱을 시작할 수 없습니다. Builder 연결을 확인하세요.",
         noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
@@ -4565,6 +4626,14 @@ const designLocaleOverrides = {
         right: "Certo",
         justify: "Justificar",
       },
+      positionAligns: {
+        left: "Alinhar à esquerda",
+        centerHorizontal: "Centralizar horizontalmente",
+        right: "Alinhar à direita",
+        top: "Alinhar acima",
+        centerVertical: "Centralizar verticalmente",
+        bottom: "Alinhar abaixo",
+      },
       textDecorations: {
         underline: "Sublinhado",
         strikethrough: "Tachado",
@@ -4777,9 +4846,9 @@ const designLocaleOverrides = {
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
-        chooseDesignMd: "Escolha um arquivo design.md ou design.mdx.",
-        readDesignMd: "Não foi possível ler o arquivo design.md.",
-        designMdTooLarge: "design.md deve ter no máximo 2 MB.",
+        chooseDesignMd: "Escolha um arquivo Markdown (.md ou .mdx).",
+        readDesignMd: "Não foi possível ler esse arquivo Markdown.",
+        designMdTooLarge: "O arquivo Markdown deve ter no máximo 2 MB.",
         designMdIndex:
           "Não foi possível iniciar a indexação do design.md. Verifique a conexão do Builder.",
         noSources:
@@ -5019,6 +5088,14 @@ const designLocaleOverrides = {
         right: "सही",
         justify: "औचित्य",
       },
+      positionAligns: {
+        left: "बाएँ संरेखित करें",
+        centerHorizontal: "क्षैतिज रूप से मध्य में संरेखित करें",
+        right: "दाएँ संरेखित करें",
+        top: "ऊपर संरेखित करें",
+        centerVertical: "लंबवत रूप से मध्य में संरेखित करें",
+        bottom: "नीचे संरेखित करें",
+      },
       textDecorations: {
         underline: "रेखांकित",
         strikethrough: "स्ट्राइकथ्रू",
@@ -5224,9 +5301,9 @@ const designLocaleOverrides = {
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
         githubIndex:
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
-        chooseDesignMd: "कृपया design.md या design.mdx फ़ाइल चुनें।",
-        readDesignMd: "design.md फ़ाइल पढ़ी नहीं जा सकी।",
-        designMdTooLarge: "design.md 2 MB या उससे छोटा होना चाहिए।",
+        chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
+        readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
+        designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
         designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
         noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
@@ -5461,6 +5538,14 @@ const designLocaleOverrides = {
         right: "يمين",
         justify: "يبرر",
       },
+      positionAligns: {
+        left: "محاذاة إلى اليسار",
+        centerHorizontal: "توسيط أفقي",
+        right: "محاذاة إلى اليمين",
+        top: "محاذاة إلى الأعلى",
+        centerVertical: "توسيط رأسي",
+        bottom: "محاذاة إلى الأسفل",
+      },
       textDecorations: {
         underline: "تسطير",
         strikethrough: "يتوسطه خط",
@@ -5666,9 +5751,9 @@ const designLocaleOverrides = {
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
         githubIndex:
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
-        chooseDesignMd: "يرجى اختيار ملف design.md أو design.mdx.",
-        readDesignMd: "تعذر قراءة ملف design.md.",
-        designMdTooLarge: "يجب ألا يتجاوز حجم design.md ‏2 ميغابايت.",
+        chooseDesignMd: "يرجى اختيار ملف Markdown (.md أو .mdx).",
+        readDesignMd: "تعذر قراءة ملف Markdown هذا.",
+        designMdTooLarge: "يجب ألا يتجاوز حجم ملف Markdown ‏2 ميغابايت.",
         designMdIndex: "تعذر بدء فهرسة design.md. تحقق من اتصال Builder.",
         noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
       },
@@ -15093,6 +15178,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "无法提交提示",
       skipPrompt: "跳过提示",
+      startBlankCanvas: "从空白画布开始",
+      startWithAi: "使用 AI 开始",
+      startWithAiHint: "描述页面，先获得可编辑的初稿。",
+      startBlankCanvasHint: "使用画框、形状和文字自行绘制。",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15123,6 +15212,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "No se pudo enviar el prompt",
       skipPrompt: "Omitir prompt",
+      startBlankCanvas: "Empezar con un lienzo en blanco",
+      startWithAi: "Empezar con IA",
+      startWithAiHint:
+        "Describe una página y obtén un primer borrador editable.",
+      startBlankCanvasHint: "Dibújala tú con marcos, formas y texto.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15154,6 +15248,12 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Impossible d’envoyer le prompt",
       skipPrompt: "Ignorer le prompt",
+      startBlankCanvas: "Commencer avec une toile vierge",
+      startWithAi: "Commencer avec l'IA",
+      startWithAiHint:
+        "Décrivez une page et obtenez un premier jet à modifier.",
+      startBlankCanvasHint:
+        "Dessinez-la vous-même avec cadres, formes et texte.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15184,6 +15284,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
       skipPrompt: "Prompt überspringen",
+      startBlankCanvas: "Mit leerer Zeichenfläche beginnen",
+      startWithAi: "Mit KI beginnen",
+      startWithAiHint:
+        "Beschreibe eine Seite und erhalte einen bearbeitbaren Entwurf.",
+      startBlankCanvasHint: "Zeichne selbst mit Rahmen, Formen und Text.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15215,6 +15320,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "プロンプトを送信できませんでした",
       skipPrompt: "プロンプトをスキップ",
+      startBlankCanvas: "空白のキャンバスから始める",
+      startWithAi: "AI で始める",
+      startWithAiHint: "ページを説明すると、編集できる下書きが作成されます。",
+      startBlankCanvasHint: "フレーム・図形・テキストで自分で描きます。",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15245,6 +15354,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
       skipPrompt: "프롬프트 건너뛰기",
+      startBlankCanvas: "빈 캔버스로 시작",
+      startWithAi: "AI로 시작",
+      startWithAiHint: "페이지를 설명하면 편집 가능한 초안을 만듭니다.",
+      startBlankCanvasHint: "프레임, 도형, 텍스트로 직접 그립니다.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15275,6 +15388,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "Não foi possível enviar o prompt",
       skipPrompt: "Pular prompt",
+      startBlankCanvas: "Começar com uma tela em branco",
+      startWithAi: "Começar com IA",
+      startWithAiHint: "Descreva uma página e receba um rascunho editável.",
+      startBlankCanvasHint: "Desenhe você mesmo com molduras, formas e texto.",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15306,6 +15423,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
       skipPrompt: "प्रॉम्प्ट छोड़ें",
+      startBlankCanvas: "खाली कैनवास से शुरू करें",
+      startWithAi: "AI से शुरू करें",
+      startWithAiHint: "पेज बताइए और संपादन योग्य पहला ड्राफ़्ट पाइए।",
+      startBlankCanvasHint: "फ़्रेम, आकृतियों और टेक्स्ट से स्वयं बनाइए।",
     },
     visualEditor: {
       queuedCommentsDiscarded:
@@ -15336,6 +15457,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
     promptDialog: {
       failedToSubmitPrompt: "تعذر إرسال المطالبة",
       skipPrompt: "تخطي المطالبة",
+      startBlankCanvas: "ابدأ بلوحة فارغة",
+      startWithAi: "ابدأ باستخدام الذكاء الاصطناعي",
+      startWithAiHint: "صِف الصفحة واحصل على مسودة أولى قابلة للتحرير.",
+      startBlankCanvasHint: "ارسمها بنفسك بالإطارات والأشكال والنص.",
     },
     visualEditor: {
       queuedCommentsDiscarded:

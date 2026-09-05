@@ -2,11 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   babysitFingerprint,
+  babysitLeavesReviewWindow,
   babysitOutOfScopeClause,
+  DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
   hasCompletePassingChecks,
   hasMergeConflict,
   reconcileBabysitState,
+  shouldPostBabysitComment,
+  shouldRecordBabysitAudit,
+  countHumanReviewBodies,
+  countHumanReviewComments,
+  hasHumanChangesRequested,
+  shouldReopenParkedBabysit,
   shouldRequestBabysitWork,
   type BabysitInput,
   type ReviewCommentObservation,
@@ -300,7 +308,37 @@ describe("reconcileBabysitState", () => {
 
     const complete = reconcileBabysitState(baseInput);
     expect(complete.commentsTruncated).toBe(false);
+    expect(complete.reviewsTruncated).toBe(false);
+    expect(complete.humanReviewBodyKeys).toEqual([]);
     expect(complete.isClean).toBe(true);
+  });
+
+  it("is never clean when a human COMMENTED review has a body", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      reviews: [
+        { author: "reviewer", state: "commented", body: "please fix the API" },
+      ],
+    });
+    expect(result.isClean).toBe(false);
+    expect(result.humanReviewBodyKeys).toEqual(["reviewer:please fix the API"]);
+    expect(
+      shouldRequestBabysitWork({
+        mergeable: true,
+        mergeableState: "clean",
+        snapshot: result,
+      }),
+    ).toBe(true);
+  });
+
+  it("is never clean when the review page was truncated", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      reviews: [],
+      reviewsTruncated: true,
+    });
+    expect(result.reviewsTruncated).toBe(true);
+    expect(result.isClean).toBe(false);
   });
 });
 
@@ -344,16 +382,27 @@ describe("babysit work policy", () => {
     ).toBe(true);
   });
 
-  it("changes the durable fingerprint when review state changes", () => {
+  it("changes the durable fingerprint for review bodies and changes_requested", () => {
+    const commented = babysitFingerprint({
+      headSha: "sha-1",
+      mergeable: true,
+      mergeableState: "clean",
+      snapshot: clean,
+      reviewStates: ["commented"],
+    });
     expect(
       babysitFingerprint({
         headSha: "sha-1",
         mergeable: true,
         mergeableState: "clean",
-        snapshot: clean,
+        snapshot: {
+          ...clean,
+          humanReviewBodyKeys: ["reviewer:please fix the API"],
+        },
         reviewStates: ["commented"],
       }),
-    ).not.toBe(
+    ).not.toBe(commented);
+    expect(
       babysitFingerprint({
         headSha: "sha-1",
         mergeable: true,
@@ -361,7 +410,255 @@ describe("babysit work policy", () => {
         snapshot: clean,
         reviewStates: ["changes_requested"],
       }),
-    );
+    ).not.toBe(commented);
+  });
+
+  it("parks waiting, quiet, and clean items out of the review window", () => {
+    expect(babysitLeavesReviewWindow("waiting")).toBe(true);
+    expect(babysitLeavesReviewWindow("quiet")).toBe(true);
+    expect(babysitLeavesReviewWindow("clean")).toBe(true);
+    expect(babysitLeavesReviewWindow("active")).toBe(false);
+    expect(
+      shouldRecordBabysitAudit({
+        previousState: "waiting",
+        nextState: "waiting",
+        posted: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRecordBabysitAudit({
+        previousState: "active",
+        nextState: "waiting",
+        posted: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 2,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: true,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: true,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: true,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 40,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: true,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
+        storedHumanReviewBodyCount: 0,
+        nextHumanReviewBodyCount: 1,
+        storedReviewsTruncated: false,
+        nextReviewsTruncated: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
+        storedHumanReviewBodyCount: 0,
+        nextHumanReviewBodyCount: 40,
+        storedReviewsTruncated: true,
+        nextReviewsTruncated: true,
+      }),
+    ).toBe(false);
+    expect(
+      countHumanReviewComments([
+        comment({ id: "1", author: "reviewer" }),
+        comment({ id: "2", author: "builderio-bot" }),
+        comment({ id: "3", author: "author", inReplyToId: "1" }),
+      ]),
+    ).toBe(1);
+    expect(
+      countHumanReviewBodies([
+        { author: "reviewer", state: "commented", body: "please fix the API" },
+        { author: "builderio-bot", state: "commented", body: "looking" },
+        { author: "reviewer", state: "pending", body: "draft" },
+        { author: "reviewer", state: "approved", body: "LGTM" },
+        { author: "reviewer", state: "commented", body: "   " },
+      ]),
+    ).toBe(1);
+    expect(
+      hasHumanChangesRequested([
+        { author: "builderio-bot", state: "changes_requested" },
+        { author: "reviewer", state: "commented" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasHumanChangesRequested([
+        { author: "reviewer", state: "changes_requested" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("does not treat a new SHA, CI flicker, or uncomputed mergeability as new work", () => {
+    const failing = reconcileBabysitState({
+      ...baseInput,
+      checks: [check("ci", "failed")],
+    });
+    const unknown = babysitFingerprint({
+      headSha: "sha-1",
+      mergeable: null,
+      mergeableState: "unknown",
+      snapshot: failing,
+    });
+    expect(
+      babysitFingerprint({
+        headSha: "sha-2",
+        mergeable: true,
+        mergeableState: "blocked",
+        snapshot: reconcileBabysitState({
+          ...baseInput,
+          checks: [check("ci", "failed"), check("lint", "in_progress")],
+        }),
+      }),
+    ).toBe(unknown);
+  });
+
+  it("treats new unanswered comments or a real merge conflict as new work", () => {
+    const failing = reconcileBabysitState({
+      ...baseInput,
+      checks: [check("ci", "failed")],
+    });
+    const baseline = babysitFingerprint({
+      headSha: "sha-1",
+      mergeable: true,
+      mergeableState: "blocked",
+      snapshot: failing,
+    });
+    expect(
+      babysitFingerprint({
+        headSha: "sha-1",
+        mergeable: true,
+        mergeableState: "blocked",
+        snapshot: reconcileBabysitState({
+          ...baseInput,
+          comments: [comment({ id: "c1" })],
+          checks: [check("ci", "failed")],
+        }),
+      }),
+    ).not.toBe(baseline);
+    expect(
+      babysitFingerprint({
+        headSha: "sha-1",
+        mergeable: false,
+        mergeableState: "dirty",
+        snapshot: failing,
+      }),
+    ).not.toBe(baseline);
+  });
+
+  it("posts once for a new unfinished episode, not for SHA or CI flicker", () => {
+    const now = 1_000_000;
+    expect(
+      shouldPostBabysitComment({
+        previousFingerprint: '{"mergeConflict":false}',
+        fingerprint: '{"mergeConflict":false}',
+        previousState: null,
+        lastCommentAtMs: null,
+        nowMs: now,
+        minCommentIntervalMs: 90_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPostBabysitComment({
+        previousFingerprint: '{"mergeConflict":false}',
+        fingerprint: '{"mergeConflict":false}',
+        previousState: "active",
+        lastCommentAtMs: now - 200_000,
+        nowMs: now,
+        minCommentIntervalMs: 90_000,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPostBabysitComment({
+        previousFingerprint: '{"mergeConflict":false}',
+        fingerprint: '{"mergeConflict":false}',
+        previousState: "clean",
+        lastCommentAtMs: now - 200_000,
+        nowMs: now,
+        minCommentIntervalMs: 90_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPostBabysitComment({
+        previousFingerprint: '{"unanswered":[]}',
+        fingerprint: '{"unanswered":["c1"]}',
+        previousState: "active",
+        lastCommentAtMs: now - 200_000,
+        nowMs: now,
+        minCommentIntervalMs: 90_000,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the posted comment one-shot and out of the Factory loop", () => {
+    expect(DEFAULT_BABYSIT_PR_COMMENT).toContain("@builderio-bot");
+    expect(DEFAULT_BABYSIT_PR_COMMENT).not.toMatch(/2 minutes/i);
+    expect(DEFAULT_BABYSIT_PR_COMMENT).not.toMatch(/20 minutes/i);
+    expect(DEFAULT_BABYSIT_PR_COMMENT).not.toMatch(/\bloop\b/i);
   });
 
   it("names the pull request and author in the audit sentence", () => {

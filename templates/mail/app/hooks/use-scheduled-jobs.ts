@@ -46,7 +46,7 @@ export function useCreateScheduledJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: {
-      type: "snooze" | "send_later";
+      type: "snooze";
       emailId?: string;
       payload?: Record<string, unknown>;
       runAt: number;

@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   afterAll,
   beforeAll,
@@ -9,13 +8,14 @@ import {
   vi,
 } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
+
 vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>();
   return {
     ...actual,
     getDbExec: () => sharedClient,
-    isPostgres: () => false,
-    intType: () => "INTEGER",
+    isProductionServerlessFunctionRuntime: () => false,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });
@@ -27,45 +27,45 @@ interface FrameworkClient {
   }>;
 }
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let sharedClient: FrameworkClient = {
   async execute() {
     return { rows: [], rowsAffected: 0 };
   },
 };
 
-beforeAll(() => {
-  sqlite = new Database(":memory:");
+beforeAll(async () => {
+  pglite = await createTestPglite();
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = sqlite.prepare(sql);
+      const stmt = await pglite.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   for (const table of [
     "agent_native_browser_session_requests",
     "agent_native_browser_sessions",
   ]) {
     try {
-      sqlite.prepare(`DELETE FROM ${table}`).run();
+      await pglite.prepare(`DELETE FROM ${table}`).run();
     } catch {
       // First test creates the tables through the store initializer.
     }
   }
 });
 
-afterAll(() => {
-  sqlite.close();
+afterAll(async () => {
+  await pglite.close();
 });
 
 describe("browser session store", () => {

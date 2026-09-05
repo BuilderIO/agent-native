@@ -1,8 +1,13 @@
+import { appendAgentChatContextToMessage } from "@agent-native/core/shared";
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { describe, expect, it } from "vitest";
 
+import { designFinalResponseGuard } from "../../../server/lib/design-response-guard";
 import {
+  designGenerationDirectives,
   designIntakeQuestionDirectives,
   designTemplateRefinementDirectives,
+  designVariantGenerationDirectives,
   structuralReferenceDirectives,
 } from "./generation-prompt-directives";
 import type { IntakeTopicCoverage } from "./intake-question-topics";
@@ -69,5 +74,52 @@ describe("designIntakeQuestionDirectives", () => {
     expect(text).toContain("could not be checked");
     expect(text).toContain("context service down");
     expect(text).toContain('not treat it as "nothing saved"');
+  });
+});
+
+describe("DESIGN_MUTATION_REQUIRED_DIRECTIVE", () => {
+  it("rides on directives that must persist, and never on the intake turn", () => {
+    for (const directives of [
+      designGenerationDirectives("design-1"),
+      designVariantGenerationDirectives("design-1"),
+      designTemplateRefinementDirectives("design-1", "template-1"),
+    ]) {
+      expect(directives).toContain(DESIGN_MUTATION_REQUIRED_DIRECTIVE);
+    }
+    // The intake turn is told to show questions and stop, so carrying the
+    // directive would make the response guard reject its own flow.
+    expect(designIntakeQuestionDirectives("design-1")).not.toContain(
+      DESIGN_MUTATION_REQUIRED_DIRECTIVE,
+    );
+  });
+});
+
+describe("the intake and generation turns against the response guard", () => {
+  const guardContext = (requestText: string) =>
+    ({
+      messages: [
+        { role: "user", content: [{ type: "text", text: requestText }] },
+      ],
+      requestText,
+      assistantContent: [],
+      text: "What would you like to design?",
+      toolCalls: [],
+      toolResults: [],
+      retryCount: 0,
+      executionMode: "act",
+    }) as Parameters<typeof designFinalResponseGuard>[0];
+
+  it("lets the intake turn answer a greeting, and holds the generation turn to a save", () => {
+    const intake = appendAgentChatContextToMessage(
+      "hi",
+      designIntakeQuestionDirectives("design-1").join("\n"),
+    );
+    const generation = appendAgentChatContextToMessage(
+      "hi",
+      designGenerationDirectives("design-1").join("\n"),
+    );
+
+    expect(designFinalResponseGuard(guardContext(intake))).toBeNull();
+    expect(designFinalResponseGuard(guardContext(generation))).not.toBeNull();
   });
 });

@@ -593,64 +593,113 @@ export function encodeOAuthState(
   return `${data}.${sig}`;
 }
 
+/** Why `decodeOAuthState` rejected a state parameter. Distinguishes "nobody
+ *  sent one" from the shapes that mean tampering, an expired/rotated signing
+ *  key, or a corrupted payload — callers must not treat any of these as a
+ *  successful decode. */
+export type OAuthStateDecodeFailureReason =
+  | "missing-state"
+  | "missing-delimiter"
+  | "bad-signature"
+  | "malformed-payload";
+
+export type DecodeOAuthStateResult =
+  | ({ ok: true } & OAuthStatePayload)
+  | { ok: false; reason: OAuthStateDecodeFailureReason; redirectUri: string };
+
 /**
  * Decode and verify OAuth state from the callback's state query parameter.
- * A fallback-shaped payload is returned when state is missing, malformed, or
- * fails HMAC verification. That payload is untrusted; callers must validate
- * the fields their flow requires before exchanging a code or redirecting.
+ *
+ * Returns a discriminated result: `ok: true` only for a state blob this
+ * server itself signed and that round-trips intact. Every other case — no
+ * state param, no HMAC delimiter, a bad signature, or a payload that doesn't
+ * parse — comes back `ok: false` with a `reason`, and `redirectUri` set to
+ * the caller-supplied fallback. This used to return a success-shaped object
+ * with `redirectUri: fallbackUri` and every other field `undefined` for all
+ * of those failures, which callers processed as an anonymous plain sign-in —
+ * silently dropping owner/org/desktop context on a tampered or expired state
+ * instead of surfacing the failure. Callers MUST check `ok` before reading
+ * any other field.
  */
 export function decodeOAuthState(
   stateParam: string | undefined,
   fallbackUri: string,
-): OAuthStatePayload {
-  if (stateParam) {
-    try {
-      const dotIdx = stateParam.lastIndexOf(".");
-      if (dotIdx === -1) return { redirectUri: fallbackUri };
-
-      const data = stateParam.slice(0, dotIdx);
-      const sig = stateParam.slice(dotIdx + 1);
-      const expected = crypto
-        .createHmac("sha256", getOAuthStateSigningKey())
-        .update(data)
-        .digest("base64url");
-
-      if (
-        sig.length !== expected.length ||
-        !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
-      ) {
-        return { redirectUri: fallbackUri };
-      }
-
-      const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
-      return {
-        redirectUri: parsed.r || fallbackUri,
-        owner: parsed.o || undefined,
-        orgId: typeof parsed.g === "string" ? parsed.g : undefined,
-        desktop: !!parsed.d,
-        mobile: !!parsed.m,
-        addAccount: !!parsed.a,
-        app: typeof parsed.app === "string" ? parsed.app : undefined,
-        scope: typeof parsed.s === "string" ? parsed.s : undefined,
-        provider: typeof parsed.p === "string" ? parsed.p : undefined,
-        // Pass returnUrl through as-is — same-origin validation runs at the
-        // consumer (oauthCallbackResponse → safeReturnPath). The state is
-        // HMAC-signed, but we still validate at consumption as defence in
-        // depth in case the signing key ever leaks.
-        returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
-        flowId: parsed.f || undefined,
-        oauthTargetId: typeof parsed.ot === "string" ? parsed.ot : undefined,
-        desktopVerifierHash:
-          typeof parsed.vh === "string" ? parsed.vh : undefined,
-        desktopBrowserBindingHash:
-          typeof parsed.bh === "string" ? parsed.bh : undefined,
-        desktopWebview: parsed.dw === true,
-        signupAttribution: sanitizeStateAttribution(parsed.ft),
-        signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
-      };
-    } catch {}
+): DecodeOAuthStateResult {
+  if (!stateParam) {
+    return { ok: false, reason: "missing-state", redirectUri: fallbackUri };
   }
-  return { redirectUri: fallbackUri };
+  try {
+    const dotIdx = stateParam.lastIndexOf(".");
+    if (dotIdx === -1) {
+      return {
+        ok: false,
+        reason: "missing-delimiter",
+        redirectUri: fallbackUri,
+      };
+    }
+
+    const data = stateParam.slice(0, dotIdx);
+    const sig = stateParam.slice(dotIdx + 1);
+    const expected = crypto
+      .createHmac("sha256", getOAuthStateSigningKey())
+      .update(data)
+      .digest("base64url");
+
+    if (
+      sig.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
+    ) {
+      return { ok: false, reason: "bad-signature", redirectUri: fallbackUri };
+    }
+
+    const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
+    return {
+      ok: true,
+      redirectUri: parsed.r || fallbackUri,
+      owner: parsed.o || undefined,
+      orgId: typeof parsed.g === "string" ? parsed.g : undefined,
+      desktop: !!parsed.d,
+      mobile: !!parsed.m,
+      addAccount: !!parsed.a,
+      app: typeof parsed.app === "string" ? parsed.app : undefined,
+      scope: typeof parsed.s === "string" ? parsed.s : undefined,
+      provider: typeof parsed.p === "string" ? parsed.p : undefined,
+      // Pass returnUrl through as-is — same-origin validation runs at the
+      // consumer (oauthCallbackResponse → safeReturnPath). The state is
+      // HMAC-signed, but we still validate at consumption as defence in
+      // depth in case the signing key ever leaks.
+      returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
+      flowId: parsed.f || undefined,
+      oauthTargetId: typeof parsed.ot === "string" ? parsed.ot : undefined,
+      desktopVerifierHash:
+        typeof parsed.vh === "string" ? parsed.vh : undefined,
+      desktopBrowserBindingHash:
+        typeof parsed.bh === "string" ? parsed.bh : undefined,
+      desktopWebview: parsed.dw === true,
+      signupAttribution: sanitizeStateAttribution(parsed.ft),
+      signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
+    };
+  } catch {
+    return { ok: false, reason: "malformed-payload", redirectUri: fallbackUri };
+  }
+}
+
+/**
+ * Structured, secret-free warning for a rejected OAuth state — the one signal
+ * that a tampered/expired/rotated-secret state didn't get silently processed
+ * as a plain sign-in. Call this from every `decodeOAuthState` call site on
+ * `!ok`, before falling back to that route's existing error page/redirect.
+ */
+export function logOAuthStateDecodeFailure(
+  event: H3Event,
+  reason: OAuthStateDecodeFailureReason,
+  provider?: string,
+): void {
+  console.warn("[agent-native][oauth] state decode failed", {
+    reason,
+    provider,
+    path: getOriginalRequestPath(event),
+  });
 }
 
 // ─── Session Creation ────────────────────────────────────────────────────────

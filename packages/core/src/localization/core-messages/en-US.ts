@@ -77,6 +77,14 @@ const messages = {
   "common.agent": "Agent",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
+  "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
+  "agentHostNudge.sidebarDescription":
+    "You're already chatting with {{agent}}. Ask it to work with this app directly.",
+  "agentHostNudge.promptTitle": "Ask {{agent}} instead",
+  "agentHostNudge.promptDescription":
+    "You can prompt {{agent}} to create or change this here.",
+  "agentHostNudge.useThisChat": "Use this chat",
+  "agentHostNudge.useThisPrompt": "Use this prompt",
   "common.cancel": "Cancel",
   "common.collapse": "Collapse",
   "common.connect": "Connect",

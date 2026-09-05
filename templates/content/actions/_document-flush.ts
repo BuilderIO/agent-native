@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  appStateDelete,
+  appStateCompareAndSet,
   appStateGet,
-  appStatePut,
 } from "@agent-native/core/application-state";
 import {
   AGENT_CLIENT_ID,
@@ -56,6 +55,7 @@ function awarenessFlushCandidate(entry: {
 export async function flushOpenDocumentEditorToSql(args: {
   documentId: string;
   ownerEmail?: string | null;
+  propertyId?: string;
 }) {
   // If a live Yjs collab session is open, the in-memory editor doc is fresher
   // than the SQL column. Ask the open editor to serialize + save, then wait
@@ -74,6 +74,18 @@ export async function flushOpenDocumentEditorToSql(args: {
     .filter((candidate): candidate is NonNullable<typeof candidate> => {
       return candidate !== null;
     });
+  if (args.propertyId && flushCandidates.length > 0) {
+    const exactCandidate = flushCandidates[0];
+    if (
+      flushCandidates.length !== 1 ||
+      exactCandidate?.required !== true ||
+      !exactCandidate.sessionEmail
+    ) {
+      throw new Error(
+        "An exact fresh Blocks field value cannot be established while multiple or legacy editors are open.",
+      );
+    }
+  }
   if (flushCandidates.length === 0) return;
   const acknowledgementRequired = flushCandidates.some(
     (candidate) => candidate.required,
@@ -90,11 +102,10 @@ export async function flushOpenDocumentEditorToSql(args: {
   const callerEmail = getRequestUserEmail() || undefined;
   const targetSessions = Array.from(
     new Set(
-      [
-        ...activeSessionEmails,
-        args.ownerEmail ?? undefined,
-        callerEmail,
-      ].filter((s): s is string => typeof s === "string" && s.length > 0),
+      (args.propertyId
+        ? activeSessionEmails
+        : [...activeSessionEmails, args.ownerEmail ?? undefined, callerEmail]
+      ).filter((s): s is string => typeof s === "string" && s.length > 0),
     ),
   );
   if (targetSessions.length === 0) {
@@ -107,14 +118,37 @@ export async function flushOpenDocumentEditorToSql(args: {
     id: args.documentId,
     ts: Date.now(),
     requestId,
+    ...(args.propertyId ? { propertyId: args.propertyId } : {}),
     status: "pending",
   };
   const writes = await Promise.allSettled(
-    targetSessions.map((session) =>
-      appStatePut(session, flushKey, flushValue, {
-        requestSource: "agent",
-      }),
-    ),
+    targetSessions.map(async (session) => {
+      const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        if (
+          await appStateCompareAndSet(session, flushKey, null, flushValue, {
+            requestSource: "agent",
+          })
+        ) {
+          return;
+        }
+        const occupied = await appStateGet(session, flushKey);
+        if (
+          occupied &&
+          (occupied.status === "success" || occupied.status === "error") &&
+          typeof occupied.ts === "number" &&
+          Date.now() - occupied.ts >= FLUSH_TIMEOUT_MS
+        ) {
+          await appStateCompareAndSet(session, flushKey, occupied, null, {
+            requestSource: "agent",
+          });
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, FLUSH_POLL_INTERVAL_MS),
+        );
+      }
+      throw new Error("Timed out waiting to request an open-editor flush.");
+    }),
   );
   const writtenSessions = targetSessions.filter(
     (_session, index) => writes[index]?.status === "fulfilled",
@@ -159,11 +193,23 @@ export async function flushOpenDocumentEditorToSql(args: {
 
   // Best-effort cleanup after success, explicit failure, or timeout.
   await Promise.all(
-    writtenSessions.map((session) =>
-      appStateDelete(session, flushKey, { requestSource: "agent" }).catch(
-        () => {},
-      ),
-    ),
+    writtenSessions.map(async (session) => {
+      try {
+        const current = await appStateGet(session, flushKey);
+        if (current?.requestId === requestId) {
+          await appStateCompareAndSet(session, flushKey, current, null, {
+            requestSource: "agent",
+          });
+        }
+      } catch (error) {
+        console.warn("Failed to clean up a document flush mailbox value", {
+          error,
+          flushKey,
+          requestId,
+          sessionEmail: session,
+        });
+      }
+    }),
   );
 
   if (flushError) {

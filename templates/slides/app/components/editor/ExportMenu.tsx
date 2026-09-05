@@ -11,7 +11,6 @@ import {
   IconBrandGoogle,
 } from "@tabler/icons-react";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +32,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 
@@ -83,19 +83,128 @@ interface ExportMenuProps {
   deckId: string;
   deckTitle: string;
   onDuplicate: () => void;
-  onExportPdf: () => void;
+  onExportPdf: () => Promise<void> | void;
   onExportPptx: () => Promise<void> | void;
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onShareLink?: () => void;
   onShareTeam?: () => void;
   /** Render the export actions inside an existing dropdown menu. */
   inline?: boolean;
+  /** Keep export status visible when the containing menu closes. */
+  hideExportDialog?: boolean;
+  onExportStatusChange?: (status: ExportStatus) => void;
 }
 
 export interface ExportMenuHandle {
   exportGoogleSlides: () => Promise<void>;
   exportHtml: () => Promise<void>;
+  exportPdf: () => Promise<void>;
   exportPptx: () => Promise<void>;
+}
+
+type ExportKind = "html" | "pdf" | "pptx" | "google-slides";
+
+export type ExportStatus =
+  | { state: "idle" }
+  | { state: "exporting"; kind: ExportKind }
+  | {
+      state: "ready";
+      title: string;
+      description?: string;
+      openUrl: string;
+    }
+  | { state: "error"; message: string };
+
+export function ExportStatusDialog({
+  status,
+  onStatusChange,
+}: {
+  status: ExportStatus;
+  onStatusChange: (status: ExportStatus) => void;
+}) {
+  const t = useT();
+  const exportingLabel =
+    status.state === "exporting"
+      ? status.kind === "html"
+        ? t("editorExport.downloadHtml")
+        : status.kind === "pdf"
+          ? t("editorExport.exportPdf")
+          : status.kind === "pptx"
+            ? t("editorExport.exportPptx")
+            : t("editorExport.openInGoogleSlides")
+      : null;
+
+  return (
+    <Dialog
+      open={status.state !== "idle"}
+      onOpenChange={(open) => {
+        if (!open && status.state !== "exporting") {
+          onStatusChange({ state: "idle" });
+        }
+      }}
+    >
+      <DialogContent hideClose={status.state === "exporting"}>
+        {status.state === "exporting" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{t("editorExport.exporting")}</DialogTitle>
+              <DialogDescription>{exportingLabel}</DialogDescription>
+            </DialogHeader>
+            <div className="flex items-center gap-3 py-2" aria-live="polite">
+              <Spinner className="size-5" />
+              <span className="text-sm text-muted-foreground">
+                {t("editorExport.exporting")}
+              </span>
+            </div>
+          </>
+        ) : status.state === "ready" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{status.title}</DialogTitle>
+              {status.description ? (
+                <DialogDescription>{status.description}</DialogDescription>
+              ) : null}
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                onClick={() =>
+                  window.open(status.openUrl, "_blank", "noopener,noreferrer")
+                }
+              >
+                {t("editorExport.openInGoogleSlides")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onStatusChange({ state: "idle" })}
+              >
+                {t("comments.close")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : status.state === "error" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{t("editorExport.exportFailed")}</DialogTitle>
+              <DialogDescription className="break-words">
+                {status.message}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onStatusChange({ state: "idle" })}
+              >
+                {t("comments.close")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
@@ -110,13 +219,21 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       onShareLink,
       onShareTeam,
       inline = false,
+      hideExportDialog = false,
+      onExportStatusChange,
     },
     ref,
   ) {
     const t = useT();
     const { getDeck, flushDeckSave } = useDecks();
-    const [googleSlidesImportOpen, setGoogleSlidesImportOpen] = useState(false);
-    const googleSlidesImportTarget = useRef<Window | null>(null);
+    const [exportStatus, setExportStatus] = useState<ExportStatus>({
+      state: "idle",
+    });
+    const exportInFlightRef = useRef(false);
+    const updateExportStatus = (status: ExportStatus) => {
+      setExportStatus(status);
+      onExportStatusChange?.(status);
+    };
     const triggerBlobDownload = (blob: Blob, filename: string) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -147,6 +264,37 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
     };
 
+    const beginExport = (kind: ExportKind) => {
+      if (exportInFlightRef.current) return false;
+      exportInFlightRef.current = true;
+      updateExportStatus({ state: "exporting", kind });
+      return true;
+    };
+
+    const finishExport = () => {
+      exportInFlightRef.current = false;
+    };
+
+    const runExport = async (
+      kind: ExportKind,
+      action: () => Promise<void> | void,
+      fallbackError: string,
+    ) => {
+      if (!beginExport(kind)) return;
+      try {
+        await action();
+        updateExportStatus({ state: "idle" });
+      } catch (err) {
+        console.error("Export failed:", err);
+        updateExportStatus({
+          state: "error",
+          message: err instanceof Error ? err.message : fallbackError,
+        });
+      } finally {
+        finishExport();
+      }
+    };
+
     const exportPptxFromServer = async () => {
       // The server exports the persisted deck, so an unflushed edit would be
       // missing from the file the user just asked for.
@@ -170,26 +318,48 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       );
     };
 
-    const handleExportPptx = async () => {
-      try {
-        // An imported deck's shapes survive only on the server path. Falling
-        // back to the browser exporter on failure would hand back rasterized
-        // silhouettes of the same deck without saying so.
-        if (canExportPptxFromServer(getDeck(deckId))) {
-          await exportPptxFromServer();
-          return;
-        }
-        await onExportPptx();
-      } catch (err) {
-        console.error("Export failed:", err);
-        toast.error(t("editorExport.exportFailed"), {
-          description:
-            err instanceof Error
-              ? err.message
-              : t("editorExport.exportPptxError"),
-        });
-      }
-    };
+    const handleExportPptx = () =>
+      runExport(
+        "pptx",
+        async () => {
+          // An imported deck's shapes survive only on the server path. Falling
+          // back to the browser exporter on failure would hand back rasterized
+          // silhouettes of the same deck without saying so.
+          if (canExportPptxFromServer(getDeck(deckId))) {
+            await exportPptxFromServer();
+            return;
+          }
+          await onExportPptx();
+        },
+        t("editorExport.exportPptxError"),
+      );
+
+    const handleExportPdf = () =>
+      runExport("pdf", onExportPdf, t("deckEditor.pdfRenderFailed"));
+
+    const handleExportHtml = () =>
+      runExport(
+        "html",
+        async () => {
+          const res = await fetch(`${appBasePath()}/api/exports/html`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deckId }),
+          });
+          if (!res.ok) {
+            throw new Error(
+              await readErrorMessage(res, t("editorExport.htmlFailed")),
+            );
+          }
+          const blob = await res.blob();
+          const filename = filenameFromDisposition(
+            res.headers.get("content-disposition"),
+            ".html",
+          );
+          triggerBlobDownload(blob, filename);
+        },
+        t("editorExport.exportHtmlError"),
+      );
 
     const handleConnectGoogle = () => {
       startWorkspaceProviderOAuth("google_drive", {
@@ -201,74 +371,40 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
 
     const handleExportGoogleSlides = async () => {
       if (!onExportGoogleSlides) return;
-      // Opened up-front: browsers only honour window.open() inside the click
-      // gesture, and building the PPTX is async. If the account is missing,
-      // the same tab becomes the OAuth popup so the export action owns setup.
-      const target = window.open("", "_blank");
-      googleSlidesImportTarget.current = target;
+      if (!beginExport("google-slides")) return;
       try {
         const result = await onExportGoogleSlides();
         if ("requiresConnection" in result && result.requiresConnection) {
-          googleSlidesImportTarget.current = null;
-          target?.close();
+          updateExportStatus({ state: "idle" });
           handleConnectGoogle();
           return;
         }
         if (result.url !== null) {
-          googleSlidesImportTarget.current = null;
-          if (target) target.location.href = result.url;
-          toast.success(t("editorExport.googleSlidesCreated"), {
+          updateExportStatus({
+            state: "ready",
+            title: t("editorExport.googleSlidesCreated"),
             description: t("editorExport.googleSlidesCreatedHint"),
+            openUrl: result.url,
           });
           return;
         }
-        if (target) target.location.href = GOOGLE_SLIDES_IMPORT_URL;
-        setGoogleSlidesImportOpen(true);
-        // The deck did not reach Drive. Saying "success" here is why users read
-        // the .pptx download as the intended result and never learn that Drive
-        // rejected the upload.
-        toast.warning(t("editorExport.googleSlidesDownloaded"), {
+        updateExportStatus({
+          state: "ready",
+          title: t("editorExport.googleSlidesDownloaded"),
           description: `${result.reason} ${t("editorExport.googleSlidesImportHint")}`,
+          openUrl: GOOGLE_SLIDES_IMPORT_URL,
         });
       } catch (err) {
-        googleSlidesImportTarget.current = null;
-        target?.close();
         console.error("Export failed:", err);
-        toast.error(t("editorExport.exportFailed"), {
-          description:
+        updateExportStatus({
+          state: "error",
+          message:
             err instanceof Error
               ? err.message
               : t("editorExport.exportGoogleSlidesError"),
         });
-      }
-    };
-
-    const handleExportHtml = async () => {
-      try {
-        const res = await fetch(`${appBasePath()}/api/exports/html`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deckId }),
-        });
-        if (!res.ok) {
-          throw new Error(
-            await readErrorMessage(res, t("editorExport.htmlFailed")),
-          );
-        }
-        const blob = await res.blob();
-        const filename = filenameFromDisposition(
-          res.headers.get("content-disposition"),
-          ".html",
-        );
-        triggerBlobDownload(blob, filename);
-      } catch (err) {
-        console.error("Export failed:", err);
-        toast.error(t("editorExport.exportFailed"), {
-          description:
-            err instanceof Error
-              ? err.message
-              : t("editorExport.exportHtmlError"),
-        });
+      } finally {
+        finishExport();
       }
     };
 
@@ -277,28 +413,43 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       () => ({
         exportGoogleSlides: handleExportGoogleSlides,
         exportHtml: handleExportHtml,
+        exportPdf: handleExportPdf,
         exportPptx: handleExportPptx,
       }),
-      [handleExportGoogleSlides, handleExportHtml, handleExportPptx],
+      [
+        handleExportGoogleSlides,
+        handleExportHtml,
+        handleExportPdf,
+        handleExportPptx,
+      ],
     );
 
     const exportActions = (
       <>
-        <DropdownMenuItem onClick={handleExportHtml} className="cursor-pointer">
+        <DropdownMenuItem
+          onClick={() => void handleExportHtml()}
+          className="cursor-pointer"
+        >
           <IconCode className="size-4" />
           {t("editorExport.downloadHtml")}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={onExportPdf} className="cursor-pointer">
+        <DropdownMenuItem
+          onClick={() => void handleExportPdf()}
+          className="cursor-pointer"
+        >
           <IconFileTypePdf className="size-4" />
           {t("editorExport.exportPdf")}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleExportPptx} className="cursor-pointer">
+        <DropdownMenuItem
+          onClick={() => void handleExportPptx()}
+          className="cursor-pointer"
+        >
           <IconDownload className="size-4" />
           {t("editorExport.exportPptx")}
         </DropdownMenuItem>
         {onExportGoogleSlides && (
           <DropdownMenuItem
-            onClick={handleExportGoogleSlides}
+            onClick={() => void handleExportGoogleSlides()}
             className="cursor-pointer"
           >
             <IconBrandGoogle className="size-4" />
@@ -386,37 +537,12 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        <Dialog
-          open={googleSlidesImportOpen}
-          onOpenChange={setGoogleSlidesImportOpen}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {t("editorExport.googleSlidesDownloaded")}
-              </DialogTitle>
-              <DialogDescription>
-                {t("editorExport.googleSlidesImportHint")}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                type="button"
-                onClick={() => {
-                  const target = googleSlidesImportTarget.current;
-                  if (target && !target.closed) {
-                    target.focus?.();
-                  } else {
-                    window.open(GOOGLE_SLIDES_IMPORT_URL, "_blank");
-                  }
-                  setGoogleSlidesImportOpen(false);
-                }}
-              >
-                {t("editorExport.openInGoogleSlides")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {!hideExportDialog && (
+          <ExportStatusDialog
+            status={exportStatus}
+            onStatusChange={updateExportStatus}
+          />
+        )}
       </>
     );
   },

@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import type { FormField } from "../../shared/types.js";
 
 /** Reject forms that would be unusable if published. */
@@ -31,8 +33,8 @@ export function assertPublishableForm(fields: FormField[]): void {
   }
 
   if (issues.length > 0) {
-    throw new Error(
-      `Cannot publish: ${issues.join("; ")}. Fix these before publishing.`,
-    );
+    fail(`Cannot publish: ${issues.join("; ")}. Fix these before publishing.`, {
+      errorCode: "form_not_publishable",
+    });
   }
 }

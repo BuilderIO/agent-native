@@ -10,7 +10,7 @@ const execute = vi.hoisted(() =>
         rowsAffected: 0,
       };
     }
-    if (sql.startsWith("INSERT OR IGNORE")) {
+    if (sql.startsWith("INSERT INTO")) {
       const [key, value] = args as [string, string];
       if (settings.has(key)) return { rows: [], rowsAffected: 0 };
       settings.set(key, value);
@@ -30,7 +30,6 @@ const execute = vi.hoisted(() =>
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute }),
-  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({

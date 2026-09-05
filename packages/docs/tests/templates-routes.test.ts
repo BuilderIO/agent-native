@@ -90,25 +90,25 @@ describe("template routes", () => {
     ).toThrow(expect.objectContaining({ status: 404 }));
   });
 
-  it("accepts every reviewed community app slug on its detail route", () => {
+  it("accepts every reviewed community app slug on its detail route", async () => {
     for (const app of communityApps) {
-      expect(() =>
+      await expect(
         communityAppLoader({
           params: { slug: app.slug },
         } as unknown as Parameters<typeof communityAppLoader>[0]),
-      ).not.toThrow();
-      expect(communityAppMeta({ params: { slug: app.slug } })).toEqual(
+      ).resolves.toEqual(app);
+      expect(communityAppMeta({ loaderData: app })).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ title: `${app.name} - Community App` }),
         ]),
       );
     }
 
-    expect(() =>
+    await expect(
       communityAppLoader({
         params: { slug: "not-a-real-community-app" },
       } as unknown as Parameters<typeof communityAppLoader>[0]),
-    ).toThrow(expect.objectContaining({ status: 404 }));
+    ).rejects.toEqual(expect.objectContaining({ status: 404 }));
   });
 
   it("uses product-specific OG image titles for template pages", () => {

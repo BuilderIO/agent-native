@@ -19,6 +19,7 @@ import type { ImageCategory, ImageRole } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer, mediaTypeFromMime } from "../lib/assets.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
+import { assertCanApprove } from "../lib/library-access.js";
 import { getObject } from "../lib/storage.js";
 import {
   filterDuplicateAssetUploads,
@@ -165,7 +166,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
       setResponseStatus(event, 400);
       return { error: "libraryId is required" };
     }
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Uploading assets");
     const collectionId = readField(parts, "collectionId") || null;
     const folderId = readField(parts, "folderId") || null;
     if (collectionId) {
@@ -388,7 +389,10 @@ export async function markAssetSaved(
     .where(eq(schema.assets.id, assetId))
     .limit(1);
   if (!asset) throw new Error("Asset not found.");
-  await assertAccess("asset-library", asset.libraryId, "editor");
+  await assertCanApprove(
+    asset.libraryId,
+    "Saving a generated asset to the kit",
+  );
   if (folderId !== undefined && folderId !== null) {
     await assertFolderBelongsToLibrary(folderId, asset.libraryId);
   }

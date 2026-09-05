@@ -17,6 +17,7 @@ interface ComputerSetupDependencies {
   openExternal(url: string): Promise<void>;
   extensionPath(): string;
   pathExists(filePath: string): boolean;
+  prepareBrowserSetup?(): Promise<void>;
   revealExtensionFolder(folderPath: string): Promise<void>;
   openChromeExtensions(): void;
   restart(): void;
@@ -109,6 +110,7 @@ export async function runComputerSetupAction(
           error: "Chrome extension bundle is missing.",
         };
       }
+      await dependencies.prepareBrowserSetup?.();
       await dependencies.revealExtensionFolder(extensionPath);
       dependencies.openChromeExtensions();
       return {

@@ -712,6 +712,7 @@ export async function listCreativeContexts(input: {
   includeArchived?: boolean;
 }) {
   await ensureDefaultCreativeContext();
+  const actor = requireActor();
   const { getDb, schema } = getCreativeContext();
   const filters: any[] = [
     accessFilter(schema.creativeContexts, schema.creativeContextShares),
@@ -770,6 +771,8 @@ export async function listCreativeContexts(input: {
         : [];
     }),
     nextCursor: rows.length > input.limit ? page.at(-1)?.id : undefined,
+    canCreateContext:
+      !actor.orgId || (await currentRequestUserIsOrgAdmin(actor.orgId)),
   };
 }
 

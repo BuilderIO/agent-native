@@ -17,7 +17,11 @@ required_capabilities:
     "content.job.durable",
   ]
 enhancing_capabilities:
-  ["content.portability.pdf-export", "content.source.local-bridge"]
+  [
+    "content.portability.collection-export",
+    "content.portability.pdf-export",
+    "content.source.local-bridge",
+  ]
 increments: []
 feature_proof: null
 publicness: "public"

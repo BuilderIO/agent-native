@@ -93,6 +93,7 @@ describe("runScript package actions", () => {
                     caller: ctx?.caller,
                     userEmail: ctx?.userEmail ?? null,
                     orgId: ctx?.orgId ?? null,
+                    appId: ctx?.appId ?? null,
                   }),
                 );
                 return "context-ok";
@@ -195,6 +196,7 @@ describe("runScript package actions", () => {
     const env = { ...process.env };
     delete env.AGENT_USER_EMAIL;
     delete env.AGENT_ORG_ID;
+    env.AGENT_NATIVE_APP_ID = "fixture-app";
     env.NODE_ENV = "production";
 
     const result = spawnSync(
@@ -218,6 +220,7 @@ describe("runScript package actions", () => {
       caller: "cli",
       userEmail: null,
       orgId: null,
+      appId: "fixture-app",
     });
   }, 40_000);
 

@@ -12,6 +12,7 @@ import type {
 } from "./agent/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
+import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 /**
  * How an action's `run` was invoked. Tagged at each dispatch site so the action
@@ -493,6 +494,8 @@ interface DefineActionWithSchema<
   TReturn = any,
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
 > {
+  /** Optional human-facing tool title used by WebMCP and MCP hosts. */
+  title?: string;
   description: string;
   /** Standard Schema-compatible schema (Zod, Valibot, ArkType). Provides runtime
    *  validation and full TypeScript type inference for `run()` args. The schema is
@@ -576,7 +579,10 @@ interface DefineActionWithSchema<
    *  Membership is not permission: an external caller still passes the OAuth
    *  scope, `externalAgents` policy, and `publicAgent` checks. Resolved by
    *  `isActionExposedToExternalAgents` below, which every external surface
-   *  reads instead of testing these two fields itself. */
+   *  reads instead of testing these two fields itself — including the rule
+   *  that an action ending the in-app agent's turn is in-app only by default,
+   *  because the user's answer flows back through the in-app chat that an
+   *  external caller is not on. */
   mcpTool?: boolean;
   /** Whether this action's schema is held back from the agent's FIRST-REQUEST
    *  tool list and loaded on demand through `tool-search` instead. The
@@ -737,6 +743,8 @@ interface DefineActionWithParams<
     | undefined,
   TReturn = any,
 > {
+  /** Optional human-facing tool title used by WebMCP and MCP hosts. */
+  title?: string;
   description: string;
   /** Flat map of parameter names to their schema. Automatically wrapped in
    *  `{ type: "object", properties: ... }` for the Claude API. */
@@ -1062,6 +1070,7 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
     ? wrapRunWithAudit(run, auditConfig)
     : run;
+  const trackedRun = wrapRunWithActionTracking(finalRun, readOnly);
 
   // toolCallable: thread through whatever the caller declared. We DO NOT
   // default to `true` here — the absence of an explicit field is meaningful
@@ -1135,10 +1144,13 @@ export function defineAction(options: any) {
 
   return {
     tool: {
+      ...(typeof options.title === "string" && options.title.trim()
+        ? { title: options.title.trim() }
+        : {}),
       description: options.description,
       parameters: toolParameters,
     },
-    run: finalRun,
+    run: trackedRun,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
@@ -1214,6 +1226,7 @@ export function defineAction(options: any) {
  *   agentTool: false, mcpTool: true → MCP-only: external agents get it, the
  *                                     app's own agent does not
  *   mcpTool: false                  → in-app only, whatever `agentTool` says
+ *   endsTurn: true                  → in-app only, unless `mcpTool: true` is explicit
  *
  * The MCP-only combination needs the plugin to route those actions around the
  * `filterAgentTools` gate — see `mcpOnlyActions` in `agent-chat-plugin.ts`.
@@ -1221,7 +1234,14 @@ export function defineAction(options: any) {
 export function isActionExposedToExternalAgents(entry: {
   agentTool?: boolean;
   mcpTool?: boolean;
+  endsTurn?: boolean;
 }): boolean {
+  // An action that ends the in-app agent's turn is in-app only by default,
+  // because the user's answer flows back through the in-app chat that an
+  // external caller is not on — only an explicit `mcpTool: true` opts back in.
+  if (entry.endsTurn === true) {
+    return entry.mcpTool === true;
+  }
   return typeof entry.mcpTool === "boolean"
     ? entry.mcpTool
     : entry.agentTool !== false;

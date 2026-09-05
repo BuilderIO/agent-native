@@ -724,6 +724,30 @@ describe("mergeDocumentIntoDocumentCache", () => {
     ).toEqual({ ...updated, database });
   });
 
+  it("copies the authoritative body revision metadata with server content", () => {
+    const current = {
+      ...doc("database-page", null),
+      content: "Local snapshot",
+      revision: "revision-1",
+      bodyRevision: 1,
+      contentHash: "hash-1",
+    };
+    const winning = {
+      ...current,
+      content: "Winning server snapshot",
+      revision: "revision-2",
+      bodyRevision: 2,
+      contentHash: "hash-2",
+    };
+
+    expect(mergeDocumentIntoDocumentCache(current, winning)).toMatchObject({
+      content: "Winning server snapshot",
+      revision: "revision-2",
+      bodyRevision: 2,
+      contentHash: "hash-2",
+    });
+  });
+
   it("never copies membership or hydration context between query variants", () => {
     const localMembership = {
       databaseId: "local-database",

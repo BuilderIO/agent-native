@@ -146,7 +146,7 @@ type SharePageMetaRecording = {
   id: string;
   title: string;
   description: string;
-  ownerEmail: string;
+  ownerInitial: string;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   visibility: "private" | "org" | "public";
@@ -154,6 +154,7 @@ type SharePageMetaRecording = {
   hasPassword: boolean;
   archivedAt: string | null;
   trashedAt: string | null;
+  isLoomEmbedBacked: boolean;
 };
 
 type SharePageLoaderData = {
@@ -250,6 +251,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       expiresAt: schema.recordings.expiresAt,
       archivedAt: schema.recordings.archivedAt,
       trashedAt: schema.recordings.trashedAt,
+      sourceAppName: schema.recordings.sourceAppName,
+      videoUrl: schema.recordings.videoUrl,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, id))
@@ -293,7 +296,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     id: rec.id,
     title: rec.title,
     description: rec.description,
-    ownerEmail: rec.ownerEmail,
+    ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
@@ -303,6 +306,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     hasPassword: Boolean(rec.password),
     archivedAt: rec.archivedAt,
     trashedAt: rec.trashedAt,
+    isLoomEmbedBacked: isLoomEmbedBackedRecording(rec),
   };
   const canExposeAnonymousAgentContext =
     rec.visibility === "public" &&
@@ -369,7 +373,10 @@ function AgentDiscovery({
         className="sr-only"
         data-agent-context-url={agentContextUrl}
       >
-        {t("sharePage.agentReadableContext")}
+        {/* The href alone is invisible to agents: the common way to read a page
+            is rendered-text or accessibility-tree extraction, which keeps this
+            text and drops every attribute. Keep the URL in the text itself. */}
+        {`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions")}`}
       </a>
       <script
         type="application/agent-native+json"
@@ -798,12 +805,11 @@ export default function ShareRoute() {
   const ownerEmail =
     (typeof recording?.ownerEmail === "string"
       ? recording.ownerEmail.trim()
-      : "") ||
-    (typeof loaderData.recording?.ownerEmail === "string"
-      ? loaderData.recording.ownerEmail.trim()
-      : "") ||
-    "";
-  const ownerInitial = ownerEmail.charAt(0).toUpperCase() || "C";
+      : "") || "";
+  const ownerInitial =
+    ownerEmail.charAt(0).toUpperCase() ||
+    loaderData.recording?.ownerInitial ||
+    "C";
   const recordedOn = formatRecordedOn(recording?.createdAt);
   const visibilityLabel = recording
     ? t(`shareUi.visibility.${recording.visibility}.label`)
@@ -1527,9 +1533,11 @@ export default function ShareRoute() {
                       fallbackClassName="bg-muted text-[10px] font-semibold text-muted-foreground"
                     />
                     <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
-                      <bdi className="min-w-0 max-w-full truncate font-medium text-foreground">
-                        {ownerEmail}
-                      </bdi>
+                      {ownerEmail ? (
+                        <bdi className="min-w-0 max-w-full truncate font-medium text-foreground">
+                          {ownerEmail}
+                        </bdi>
+                      ) : null}
                       {recordedOn ? (
                         <>
                           <span aria-hidden="true">·</span>

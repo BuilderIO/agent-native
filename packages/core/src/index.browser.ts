@@ -91,6 +91,7 @@ export {
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
   createAgentNativeServerActionWebMcpRegistration,
+  initializeAgentNativeWebMcp,
   isAgentNativeWebMcpSupported,
   type AgentNativeWebMcpApprovalRequest,
   type AgentNativeWebMcpClient,

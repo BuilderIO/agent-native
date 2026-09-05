@@ -11,7 +11,8 @@ export function getSlideClipboardStorageKey(email: string): string {
   return `${SLIDE_CLIPBOARD_STORAGE_PREFIX}:${encodeURIComponent(email)}`;
 }
 
-const SLIDE_CLIPBOARD_VERSION = 1;
+const LEGACY_SLIDE_CLIPBOARD_VERSION = 1;
+const SLIDE_CLIPBOARD_VERSION = 2;
 const SLIDE_LAYOUTS: readonly SlideLayout[] = [
   "title",
   "section",
@@ -32,8 +33,8 @@ const ANIMATION_TYPES: readonly AnimationType[] = [
 type SlideClipboardStorage = Pick<Storage, "getItem" | "setItem">;
 
 interface StoredSlideClipboard {
-  version: number;
-  slide: Slide;
+  version: typeof SLIDE_CLIPBOARD_VERSION;
+  slides: Slide[];
   copiedAt: number;
 }
 
@@ -45,6 +46,47 @@ export type SlideClipboardReadResult =
     }
   | { status: "ready"; slide: Slide; copiedAt: number };
 
+export type SlideClipboardsReadResult =
+  | {
+      status: "unavailable" | "empty" | "unreadable";
+      slides: null;
+      copiedAt: null;
+    }
+  | { status: "ready"; slides: Slide[]; copiedAt: number };
+
+export function resolveSlideClipboardsForPaste(
+  result: SlideClipboardsReadResult,
+  cachedSlides: Slide[] | null,
+  cachedStorageKey: string | null,
+  storageKey: string,
+  cachedCopiedAt: number | null = null,
+  cachedPersistenceFailed = false,
+): Slide[] | null {
+  const canUseCachedClipboard =
+    cachedStorageKey === storageKey ||
+    (cachedStorageKey === null && cachedSlides !== null);
+  if (
+    result.status === "ready" &&
+    canUseCachedClipboard &&
+    (cachedPersistenceFailed || cachedStorageKey === null) &&
+    cachedSlides &&
+    cachedCopiedAt !== null &&
+    cachedCopiedAt > result.copiedAt
+  ) {
+    return cachedSlides;
+  }
+  if (result.status === "ready") return result.slides;
+  if (
+    canUseCachedClipboard &&
+    (result.status === "unavailable" ||
+      cachedPersistenceFailed ||
+      cachedStorageKey === null)
+  ) {
+    return cachedSlides;
+  }
+  return null;
+}
+
 export function resolveSlideClipboardForPaste(
   result: SlideClipboardReadResult,
   cachedSlide: Slide | null,
@@ -53,29 +95,17 @@ export function resolveSlideClipboardForPaste(
   cachedCopiedAt: number | null = null,
   cachedPersistenceFailed = false,
 ): Slide | null {
-  const canUseCachedClipboard =
-    cachedStorageKey === storageKey ||
-    (cachedStorageKey === null && cachedSlide !== null);
-  if (
-    result.status === "ready" &&
-    canUseCachedClipboard &&
-    (cachedPersistenceFailed || cachedStorageKey === null) &&
-    cachedSlide &&
-    cachedCopiedAt !== null &&
-    cachedCopiedAt > result.copiedAt
-  ) {
-    return cachedSlide;
-  }
-  if (result.status === "ready") return result.slide;
-  if (
-    canUseCachedClipboard &&
-    (result.status === "unavailable" ||
-      cachedPersistenceFailed ||
-      cachedStorageKey === null)
-  ) {
-    return cachedSlide;
-  }
-  return null;
+  const slides = resolveSlideClipboardsForPaste(
+    result.status === "ready"
+      ? { status: "ready", slides: [result.slide], copiedAt: result.copiedAt }
+      : { status: result.status, slides: null, copiedAt: null },
+    cachedSlide ? [cachedSlide] : null,
+    cachedStorageKey,
+    storageKey,
+    cachedCopiedAt,
+    cachedPersistenceFailed,
+  );
+  return slides?.[0] ?? null;
 }
 
 function getBrowserStorage(): SlideClipboardStorage | null {
@@ -148,7 +178,11 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
     normalized.transition = candidate.transition as Slide["transition"];
   }
 
-  for (const key of ["splitByParagraph", "skipped"] as const) {
+  for (const key of [
+    "layoutWarningDismissed",
+    "splitByParagraph",
+    "skipped",
+  ] as const) {
     const field = candidate[key];
     if (field !== undefined && typeof field !== "boolean") return null;
     if (field !== undefined) normalized[key] = field;
@@ -207,12 +241,39 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
   return normalized;
 }
 
+export function normalizeSlideClipboards(values: unknown): Slide[] | null {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  const normalized = values.map(normalizeSlideClipboard);
+  return normalized.every((slide): slide is Slide => slide !== null)
+    ? normalized
+    : null;
+}
+
+function unreadableClipboardResult(): SlideClipboardsReadResult {
+  return { status: "unreadable", slides: null, copiedAt: null };
+}
+
 export function readSlideClipboard(
   storageKey: string,
   storage: SlideClipboardStorage | null = getBrowserStorage(),
 ): SlideClipboardReadResult {
+  const result = readSlideClipboards(storageKey, storage);
+  if (result.status === "ready") {
+    return {
+      status: "ready",
+      slide: result.slides[0]!,
+      copiedAt: result.copiedAt,
+    };
+  }
+  return { status: result.status, slide: null, copiedAt: null };
+}
+
+export function readSlideClipboards(
+  storageKey: string,
+  storage: SlideClipboardStorage | null = getBrowserStorage(),
+): SlideClipboardsReadResult {
   if (!storage) {
-    return { status: "unavailable", slide: null, copiedAt: null };
+    return { status: "unavailable", slides: null, copiedAt: null };
   }
 
   let raw: string | null;
@@ -221,30 +282,41 @@ export function readSlideClipboard(
   } catch {
     // coercion-ok: storage read failures return an explicit unreadable status.
     // A failed read is not the same as an empty clipboard.
-    return { status: "unreadable", slide: null, copiedAt: null };
+    return { status: "unreadable", slides: null, copiedAt: null };
   }
-  if (raw === null) return { status: "empty", slide: null, copiedAt: null };
+  if (raw === null) return { status: "empty", slides: null, copiedAt: null };
 
   try {
-    const parsed = JSON.parse(raw) as Partial<StoredSlideClipboard>;
-    const slide = normalizeSlideClipboard(parsed.slide);
+    const parsed = JSON.parse(raw) as {
+      copiedAt?: unknown;
+      slide?: unknown;
+      slides?: unknown;
+      version?: unknown;
+    };
+    const slides =
+      parsed.version === SLIDE_CLIPBOARD_VERSION
+        ? normalizeSlideClipboards(parsed.slides ?? [])
+        : parsed.version === LEGACY_SLIDE_CLIPBOARD_VERSION
+          ? normalizeSlideClipboards(
+              parsed.slide === undefined ? [] : [parsed.slide],
+            )
+          : null;
     if (
-      parsed.version !== SLIDE_CLIPBOARD_VERSION ||
-      !slide ||
+      !slides ||
       typeof parsed.copiedAt !== "number" ||
       !Number.isFinite(parsed.copiedAt)
     ) {
-      return { status: "unreadable", slide: null, copiedAt: null };
+      return unreadableClipboardResult();
     }
     return {
       status: "ready",
-      slide,
+      slides,
       copiedAt: parsed.copiedAt,
     };
   } catch {
     // coercion-ok: malformed storage data returns an explicit unreadable status.
     // A malformed local value must not become a pasteable slide.
-    return { status: "unreadable", slide: null, copiedAt: null };
+    return unreadableClipboardResult();
   }
 }
 
@@ -254,14 +326,23 @@ export function writeSlideClipboard(
   copiedAt: number,
   storage: SlideClipboardStorage | null = getBrowserStorage(),
 ): boolean {
-  const normalizedSlide = normalizeSlideClipboard(slide);
-  if (!storage || !normalizedSlide || !Number.isFinite(copiedAt)) return false;
+  return writeSlideClipboards(storageKey, [slide], copiedAt, storage);
+}
+
+export function writeSlideClipboards(
+  storageKey: string,
+  slides: readonly Slide[],
+  copiedAt: number,
+  storage: SlideClipboardStorage | null = getBrowserStorage(),
+): boolean {
+  const normalizedSlides = normalizeSlideClipboards(slides);
+  if (!storage || !normalizedSlides || !Number.isFinite(copiedAt)) return false;
   try {
     storage.setItem(
       storageKey,
       JSON.stringify({
         version: SLIDE_CLIPBOARD_VERSION,
-        slide: normalizedSlide,
+        slides: normalizedSlides,
         copiedAt,
       } satisfies StoredSlideClipboard),
     );

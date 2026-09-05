@@ -29,7 +29,6 @@ test("does not treat implementation and instruction paths as docs-only", () => {
   assert.equal(isDocsPath(".agents/skills/qa/SKILL.md"), false);
   assert.equal(isDocsPath(".github/workflows/ci.yml"), false);
   assert.equal(isDocsPath("scripts/ci-test-lanes.ts"), false);
-  assert.equal(isWorkspacePath("examples/demo/src/index.ts"), true);
 });
 
 test("normalizes paths from git output", () => {
@@ -133,13 +132,10 @@ test("keeps package metadata targeted but runs the drizzle guard", () => {
   assert.equal(scope.checks.drizzle, true);
 });
 
-test("includes nested and example workspaces in selectors", () => {
+test("includes nested template workspaces in selectors", () => {
   assert.deepEqual(
-    workspaceFiltersForPaths([
-      "templates/clips/desktop/src/main.ts",
-      "examples/demo/src/index.ts",
-    ]),
-    ["...{examples/demo}...", "...{templates/clips/desktop}..."],
+    workspaceFiltersForPaths(["templates/clips/desktop/src/main.ts"]),
+    ["...{templates/clips/desktop}..."],
   );
 });
 

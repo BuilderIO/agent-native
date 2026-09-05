@@ -64,16 +64,6 @@ const messages = {
     testAndConnect: "測試並連線",
     testingConnection: "正在測試連線...",
     providers: {
-      turso: {
-        description: "邊緣 SQLite",
-        steps: {
-          step1: "安裝 CLI：curl -sSfL https://get.tur.so/install.sh | bash",
-          step2: "註冊/登入：turso auth login（開啟瀏覽器）",
-          step3: "建立資料庫：turso db create my-app",
-          step4: "複製 URL：turso db show my-app --url → 以 libsql:// 開頭",
-          step5: "建立認證權杖：turso db tokens create my-app → 貼上到下方",
-        },
-      },
       neon: {
         description: "無伺服器 Postgres",
         steps: {
@@ -93,17 +83,6 @@ const messages = {
           step4: "前往 Project Settings → Database → Connection string",
           step5:
             '選取 "URI" 標籤 → 複製 postgres://... 字串（將 [YOUR-PASSWORD] 替換為資料庫密碼）',
-        },
-      },
-      d1: {
-        description: "Cloudflare 邊緣 SQLite",
-        steps: {
-          step1: "前往 dash.cloudflare.com → Workers & Pages → D1 SQL Database",
-          step2: '點選 "Create" → 為資料庫命名 → 點選 Create',
-          step3: "從資料庫概覽頁面複製 Database ID",
-          step4: "認證權杖：前往 My Profile → API Tokens → Create Token",
-          step5: '選取 "Edit Cloudflare Workers" 範本 → Create Token → 複製',
-          step6: "按 d1://<database-id> 填寫，並在下方提供 API token",
         },
       },
     },
@@ -167,6 +146,7 @@ const messages = {
     nextYear: "下一年",
     otherCalendars: "其他行事曆",
     otherCalendarsDescription: "新增隊友的行事曆或訂閱公開行事曆 URL",
+    overlayCalendarUnavailable: "目前無法載入 {{email}} 的行事曆",
     previousYear: "上一年",
     showCalendar: "顯示行事曆",
   },
@@ -576,6 +556,20 @@ const messages = {
     requiredHostsCount: "{{count}} 所需主機",
     requiredHostsDescription: "您將自動包含在內。新增也必須空閒的隊友。",
     removeHost: "刪除{{email}}",
+    overlayHostsLabel: "來自你的行事曆",
+    overlayHostsPlaceholder: "選取你已新增到行事曆的人",
+    overlayHostsEmpty: "未找到任何人。",
+    noOverlayPeopleYet: "你尚未在行事曆中新增任何同事。",
+    addOverlayPersonCta: "新增同事的行事曆",
+    addOtherEmail: "新增其他電子郵件",
+    overlayHostsHint:
+      "來自你行事曆的聯絡人會依照他們的工作時間安排行程。其他電子郵件僅用於檢查衝突。",
+    showTimeZones: "顯示時區",
+    hideTimeZones: "隱藏時區",
+    youLabel: "你",
+    hostLabel: "主持人",
+    addTimeZone: "新增時區",
+    removeTimeZone: "移除 {{timezone}}",
     saveAvailability: "儲存可用性",
     saved: "已儲存",
     selectDate: "選取日期",

@@ -4,6 +4,7 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -151,7 +152,11 @@ export default defineAction({
           previousContent = currentDocument.content;
           await tx
             .update(schema.documents)
-            .set({ content, updatedAt: now })
+            .set({
+              content,
+              bodyRevision: bodyRevisionForContent(content),
+              updatedAt: now,
+            })
             .where(eq(schema.documents.id, documentId));
         } else {
           const [currentField] = await tx

@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
@@ -50,6 +51,7 @@ import {
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
+  nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
@@ -526,6 +528,7 @@ export async function listPropertiesForDocument(
 
 export async function listPropertiesForAllDocumentDatabases(
   document: DocumentRow,
+  options: { requireDatabaseAccess?: boolean } = {},
 ) {
   const db = getDb();
   const memberships = await db
@@ -554,9 +557,16 @@ export async function listPropertiesForAllDocumentDatabases(
 
   const properties = [];
   for (const database of databases) {
-    if (!(await resolveAccess("document", database.documentId))) continue;
+    if (
+      options.requireDatabaseAccess !== false &&
+      !(await resolveAccess("document", database.documentId))
+    ) {
+      continue;
+    }
     properties.push(
-      ...(await listPropertiesForDatabase(database.id, document)),
+      ...(await listPropertiesForDatabase(database.id, document, {
+        includeContainerDerivedValues: options.requireDatabaseAccess !== false,
+      })),
     );
   }
   return properties;
@@ -1202,7 +1212,11 @@ export async function writePrimaryBlocksContent(args: {
   const db = getDb();
   await db
     .update(schema.documents)
-    .set({ content: args.content, updatedAt: args.now })
+    .set({
+      content: args.content,
+      bodyRevision: bodyRevisionForContent(args.content),
+      updatedAt: args.now,
+    })
     .where(eq(schema.documents.id, args.documentId));
 }
 
@@ -1330,7 +1344,7 @@ export async function seedDefaultBlocksField(args: {
     propertyDefinitionsPositionScope(args.databaseId),
     async () => {
       const [maxPos] = await db
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
         .from(schema.documentPropertyDefinitions)
         .where(
           eq(schema.documentPropertyDefinitions.databaseId, args.databaseId),
@@ -1347,7 +1361,7 @@ export async function seedDefaultBlocksField(args: {
           type: "blocks",
           visibility: "always_show",
           optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           createdAt: args.now,
           updatedAt: args.now,
         })

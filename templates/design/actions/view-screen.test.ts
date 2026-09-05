@@ -112,6 +112,68 @@ describe("view-screen", () => {
     mocks.queryReviewComments.mockResolvedValue([]);
   });
 
+  it("reports the design's own linked design system, not just a template's", async () => {
+    // Choosing a system on an empty design writes it to the design row and
+    // nowhere else, so the agent's first read has to carry it.
+    mocks.resolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        title: "Shared checkout",
+        designSystemId: "system-7",
+        data: '{"canvasFrames":[]}',
+      },
+    });
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design?.designSystemId).toBe("system-7");
+  });
+
+  it("reports no linked design system rather than guessing one", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design?.designSystemId).toBeNull();
+  });
+
   it("uses active file before overview multi-selection", async () => {
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({

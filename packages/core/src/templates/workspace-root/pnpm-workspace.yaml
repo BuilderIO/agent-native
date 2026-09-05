@@ -62,7 +62,6 @@ overrides:
 
 onlyBuiltDependencies:
   - "@swc/core"
-  - better-sqlite3
   - canvas
   - electron
   - esbuild
@@ -72,7 +71,6 @@ onlyBuiltDependencies:
 
 allowBuilds:
   "@swc/core": true
-  better-sqlite3: true
   canvas: true
   electron: true
   esbuild: true

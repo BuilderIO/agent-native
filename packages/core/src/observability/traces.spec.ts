@@ -12,6 +12,7 @@ import {
   SPAN_STATUS_ERROR,
   SPAN_STATUS_OK,
   __resetAgentTracerCache,
+  __setAgentTraceRuntimeForTests,
   __setAgentTracerForTests,
 } from "./tracing.js";
 import type { ObservabilityConfig } from "./types.js";
@@ -157,24 +158,27 @@ describe("redactSensitiveFields", () => {
 interface RecordedSpan {
   name: string;
   attributes: Record<string, string | number | boolean>;
+  parent?: RecordedSpan;
   status?: { code: number; message?: string };
   ended: boolean;
 }
 
 function createRecordingTracer() {
   const spans: RecordedSpan[] = [];
+  const spanRecords = new Map<AgentSpan, RecordedSpan>();
   const tracer = {
     startSpan(
       name: string,
       options?: { attributes?: Record<string, string | number | boolean> },
+      context?: unknown,
     ): AgentSpan {
       const recorded: RecordedSpan = {
         name,
         attributes: { ...(options?.attributes ?? {}) },
+        parent: context ? spanRecords.get(context as AgentSpan) : undefined,
         ended: false,
       };
-      spans.push(recorded);
-      return {
+      const span: AgentSpan = {
         setAttribute(key, value) {
           recorded.attributes[key] = value;
         },
@@ -189,9 +193,26 @@ function createRecordingTracer() {
           recorded.ended = true;
         },
       };
+      spans.push(recorded);
+      spanRecords.set(span, recorded);
+      return span;
     },
   };
-  return { tracer, spans };
+  const runtime = {
+    tracer,
+    context: {
+      // The default OTel context manager is a no-op. Parentage must therefore
+      // also be passed explicitly to `startSpan`, not only installed here.
+      active: () => null,
+      with<T>(_context: unknown, callback: () => T): T {
+        return callback();
+      },
+    },
+    trace: {
+      setSpan: (_context: unknown, span: AgentSpan) => span,
+    },
+  };
+  return { tracer, spans, runtime };
 }
 
 /**
@@ -1736,8 +1757,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   });
 
   it("emits run/tool/llm spans with expected names and attributes", async () => {
-    const { tracer, spans } = createRecordingTracer();
-    __setAgentTracerForTests(tracer as any);
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
 
     const loopOpts: any = {
       engine: {},
@@ -1797,9 +1818,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     );
     expect(readSpan?.status?.code).toBe(SPAN_STATUS_OK);
     expect(readSpan?.ended).toBe(true);
+    expect(readSpan?.parent).toBe(runSpan);
     expect(dbSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
     expect(dbSpan?.status?.message).toBe("Error: boom");
     expect(dbSpan?.ended).toBe(true);
+    expect(dbSpan?.parent).toBe(runSpan);
 
     // LLM span carries model + token usage.
     const llmSpan = byName("llm.call")[0];
@@ -1810,6 +1833,189 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(llmSpan.attributes["llm.cache_read_tokens"]).toBe(5);
     expect(llmSpan.status?.code).toBe(SPAN_STATUS_OK);
     expect(llmSpan.ended).toBe(true);
+    expect(llmSpan.parent).toBe(runSpan);
+  });
+
+  it("exports each bracketed model call as a live child span", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+    let modelSpanWasLive = false;
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, onUsage }) => {
+        send({ type: "model_stream", status: "start" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const startedModelSpan = spans.find((span) => span.name === "llm.call");
+        modelSpanWasLive =
+          startedModelSpan !== undefined && !startedModelSpan.ended;
+        onUsage?.({
+          inputTokens: 12,
+          outputTokens: 4,
+          cacheReadTokens: 2,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        } as any);
+        send({
+          type: "model_stream",
+          status: "end",
+          reason: "end_turn",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return {
+          inputTokens: 12,
+          outputTokens: 4,
+          cacheReadTokens: 2,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 1,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-live-llm",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    const runSpan = spans.find((span) => span.name === "agent.run");
+    const modelSpan = spans.find((span) => span.name === "llm.call");
+    expect(modelSpanWasLive).toBe(true);
+    expect(modelSpan?.parent).toBe(runSpan);
+    expect(modelSpan?.attributes).toMatchObject({
+      "llm.model": "claude-test",
+      "llm.call_index": 0,
+      "llm.stop_reason": "end_turn",
+      "llm.input_tokens": 12,
+      "llm.output_tokens": 4,
+      "llm.cache_read_tokens": 2,
+      "llm.cost_cents_x100": expect.any(Number),
+    });
+    expect(modelSpan?.status?.code).toBe(SPAN_STATUS_OK);
+    expect(modelSpan?.ended).toBe(true);
+  });
+
+  it("ends an interrupted model attempt before a retry starts", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+    let firstSpanEndedBeforeRetry = false;
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        send({ type: "clear" });
+        firstSpanEndedBeforeRetry =
+          spans.find((span) => span.name === "llm.call")?.ended ?? false;
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 12,
+          outputTokens: 4,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-retry",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    const modelSpans = spans.filter((span) => span.name === "llm.call");
+    expect(firstSpanEndedBeforeRetry).toBe(true);
+    expect(modelSpans[0]?.status?.code).toBe(SPAN_STATUS_ERROR);
+    expect(modelSpans[0]?.ended).toBe(true);
+  });
+
+  it("keeps a provider error on a model span when its stream closes first", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        // The production engine emits this from `finally`, before the outer
+        // wrapper sees the provider error.
+        send({ type: "model_stream", status: "end" });
+        throw new Error("provider stream reset");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-model-error",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    const runSpan = spans.find((span) => span.name === "agent.run");
+    const modelSpan = spans.find((span) => span.name === "llm.call");
+    expect(modelSpan?.parent).toBe(runSpan);
+    expect(modelSpan?.status).toEqual({
+      code: SPAN_STATUS_ERROR,
+      message: "provider stream reset",
+    });
+    expect(modelSpan?.ended).toBe(true);
+  });
+
+  it("counts bracketed model attempts when a later call throws", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        send({ type: "model_stream", status: "start" });
+        throw new Error("second provider failure");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-partial-failure",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    const runSpan = spans.find((span) => span.name === "agent.run");
+    expect(runSpan?.attributes["agent.llm_calls"]).toBe(2);
   });
 
   it("distinguishes explicit tool failures from legacy inferred errors", async () => {

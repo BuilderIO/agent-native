@@ -29,6 +29,11 @@
   --input: 0 0% 90%;
   --ring: 0 0% 40%;
   --radius: 0.5rem;
+  --recorder-mode-option-radius: 1.125rem;
+  --recorder-mode-toggle-inset: 0.3125rem;
+  --recorder-mode-toggle-radius: calc(
+    var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)
+  );
   --sidebar-background: 0 0% 97%;
   --sidebar-foreground: 0 0% 45%;
   --sidebar-primary: 0 0% 15%;
@@ -170,6 +175,7 @@
   .clips-meeting-detail-grid {
     grid-template-columns: minmax(0, 1fr) 380px;
     grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
   }
 
   .clips-meeting-notes-panel {

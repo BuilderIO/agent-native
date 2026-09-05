@@ -49,6 +49,16 @@ export const responses = table(
     // Immutable form/schema/integration snapshot used when an idempotent
     // response needs to replay delivery after the form has changed.
     deliverySnapshot: text("delivery_snapshot"),
+    // Community app review/promotion state. Uploaded screenshots remain in
+    // blob storage; this row only records the Builder publication result.
+    promotionStatus: text("promotion_status", {
+      enum: ["publishing", "published", "failed", "unknown"],
+    }),
+    builderContentId: text("builder_content_id"),
+    communitySlug: text("community_slug"),
+    promotionError: text("promotion_error"),
+    promotedAt: text("promoted_at"),
+    promotedBy: text("promoted_by"),
   },
   (response) => ({
     idempotencyKeyUnique: uniqueIndex("responses_form_idempotency_key_idx").on(

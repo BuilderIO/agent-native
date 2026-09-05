@@ -162,7 +162,9 @@ jobs:
           const sites = JSON.parse(
             fs.readFileSync("scripts/netlify-beta-sites.json", "utf8"),
           );
-          const known = sites.map((site) => site.id);
+          const known = sites
+            .filter((site) => site.e2e !== false)
+            .map((site) => site.id);
           const raw = (process.env.REQUESTED_APPS || "all").trim();
           let apps;
           if (!raw || raw === "all") {

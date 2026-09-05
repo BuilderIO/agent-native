@@ -97,6 +97,9 @@ const messages = {
     conditionContains: "تتضمن",
     conditionValue: "الإجابة",
     conditionValuePlaceholder: "أدخل إجابة...",
+    allowMultiple: "السماح بملفات متعددة",
+    accept: "أنواع الملفات المقبولة",
+    acceptPlaceholder: "image/*، .pdf",
     fieldTypes: {
       text: "نص قصير",
       email: "بريد إلكتروني",
@@ -109,6 +112,7 @@ const messages = {
       date: "تاريخ",
       rating: "تصنيف",
       scale: "حجم",
+      file: "رفع الملفات",
     },
   },
   builder: {
@@ -175,6 +179,7 @@ const messages = {
       dateLabel: "تاريخ",
       ratingLabel: "تقييم",
       scaleLabel: "مقياس",
+      fileLabel: "رفع الملفات",
       option1: "الخيار 1",
       option2: "الخيار 2",
       option3: "الخيار 3",
@@ -326,12 +331,9 @@ const messages = {
     sharePublicly: "مشاركة علنية",
     sharePubliclyDescription: "لمشاركة المحتوى علنًا، صِل قاعدة بيانات سحابية.",
     providerDescriptions: {
-      turso: "SQLite على الحافة",
       neon: "Postgres بلا خوادم",
       supabase: "بديل مفتوح المصدر لـ Firebase",
-      d1: "SQLite على الحافة",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "خطوات الإعداد",
     authToken: "رمز المصادقة",
     connectedReloading: "تم الاتصال بنجاح. جارٍ إعادة التحميل...",
@@ -397,6 +399,13 @@ const messages = {
     page: "Page",
     source: "المصدر",
     sortBy: "Sort by {{label}}",
+    communityReview: "مراجعة",
+    communityPublish: "نشر على الموقع",
+    communityPublishing: "جارٍ النشر...",
+    communityPublished: "تم النشر",
+    communityView: "عرض على الموقع",
+    communityNeedsCheck: "تحقق من Builder قبل إعادة المحاولة",
+    communityPromotionFailed: "تعذر نشر هذا الإرسال.",
   },
 };
 

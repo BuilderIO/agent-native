@@ -63,12 +63,13 @@ Read the relevant skill before deeper work:
 | Action | Purpose |
 | --- | --- |
 | `search-emails` / `list-emails` | Query mail by view/query. |
+| `list-labels` | List mailbox labels. |
 | `get-email` / `get-thread` | Full body/metadata for a message or thread. |
 | `find-contact` | Resolve a name/partial address to a real email. |
 | `get-hubspot-contact` | HubSpot contact + deals + tickets by email. |
 | `create-attachment-upload` | Short-lived upload URL for an attachment. |
 | `manage-draft` | Create/update/delete a `compose-{id}` draft. |
-| `send-email` | Real send; interactive calls require approval, while automation calls require the Mail opt-in setting. |
+| `send-email` / `send-queued-drafts` | Approval-gated real sends; not registered as page-local WebMCP tools. Hand sends to the in-app agent or MCP rather than `provider-api-request`. |
 | `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts` | Teammate/Slack draft review. |
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
 | `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |

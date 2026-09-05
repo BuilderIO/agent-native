@@ -30,6 +30,7 @@ import {
 import {
   decodeOAuthState,
   encodeOAuthState,
+  logOAuthStateDecodeFailure,
   oauthCallbackResponse,
   oauthErrorPage,
   resolveOAuthRedirectUri,
@@ -200,6 +201,7 @@ import {
 } from "./usage-budget-store.js";
 import {
   handleWebhook,
+  integrationResponseIdempotencyKey,
   processIntegrationTask,
   recordIntegrationResponseDelivery,
   type IntegrationResponseDeliveryTaskPayload,
@@ -2233,6 +2235,13 @@ export function createIntegrationsPlugin(
                       ...(taskPayload.placeholderRef
                         ? { placeholderRef: taskPayload.placeholderRef }
                         : {}),
+                      ...(taskPayload.strictTargetRef
+                        ? { strictTargetRef: true }
+                        : {}),
+                      idempotencyKey: integrationResponseIdempotencyKey(
+                        task.id,
+                      ),
+                      reconcileAfter: task.createdAt,
                     },
                   );
                 }
@@ -3055,6 +3064,12 @@ export function createIntegrationsPlugin(
           typeof query.state === "string" ? query.state : undefined,
           fallbackRedirect,
         );
+        if (!state.ok) {
+          logOAuthStateDecodeFailure(event, state.reason, "slack");
+          return oauthErrorPage(
+            "Your Slack install session expired or changed. Sign in and start again.",
+          );
+        }
         const session = await getSession(event).catch(() => null);
         const org = await getOrgContext(event).catch(() => null);
         if (

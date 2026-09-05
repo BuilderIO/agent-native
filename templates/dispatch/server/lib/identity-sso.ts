@@ -16,7 +16,6 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
   isProductionServerlessFunctionRuntime,
 } from "@agent-native/core/db";
 import {
@@ -82,6 +81,24 @@ export interface IdentitySsoAppRegistration {
   clientId: string;
   origin: string;
   callbackPath: typeof IDENTITY_SSO_CALLBACK_PATH;
+  federationSecret?: string;
+}
+
+function federationSecretEnvKey(appId: string): string {
+  return `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_${appId
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .toUpperCase()}`;
+}
+
+function attachFederationSecret(
+  registration: IdentitySsoAppRegistration,
+  env: NodeJS.ProcessEnv,
+): IdentitySsoAppRegistration {
+  const federationSecret =
+    env[federationSecretEnvKey(registration.appId)]?.trim();
+  return federationSecret
+    ? { ...registration, federationSecret }
+    : registration;
 }
 
 function canonicalRegistrations(): IdentitySsoAppRegistration[] {
@@ -116,7 +133,9 @@ function parseCustomRegistrations(
 export function getIdentitySsoAppRegistry(
   env: NodeJS.ProcessEnv = process.env,
 ): IdentitySsoAppRegistration[] {
-  return [...canonicalRegistrations(), ...parseCustomRegistrations(env)];
+  return [...canonicalRegistrations(), ...parseCustomRegistrations(env)].map(
+    (registration) => attachFederationSecret(registration, env),
+  );
 }
 
 function parseAbsoluteUrl(raw: string): URL | null {
@@ -227,6 +246,9 @@ export interface IdentityClaims {
   email: string;
   name?: string;
   org_domain?: string;
+  org_id?: string;
+  org_name?: string;
+  org_role?: "owner" | "admin" | "member";
   scope: typeof IDENTITY_SCOPE;
   jti: string;
 }
@@ -235,6 +257,9 @@ export function buildIdentityClaims(input: {
   email: string;
   name?: string | null;
   orgDomain?: string | null;
+  orgId?: string | null;
+  orgName?: string | null;
+  orgRole?: "owner" | "admin" | "member" | null;
 }): IdentityClaims {
   const claims: IdentityClaims = {
     sub: input.email,
@@ -244,6 +269,11 @@ export function buildIdentityClaims(input: {
   };
   if (input.name?.trim()) claims.name = input.name.trim();
   if (input.orgDomain?.trim()) claims.org_domain = input.orgDomain.trim();
+  if (input.orgId?.trim() && input.orgName?.trim() && input.orgRole) {
+    claims.org_id = input.orgId.trim();
+    claims.org_name = input.orgName.trim();
+    claims.org_role = input.orgRole;
+  }
   return claims;
 }
 
@@ -285,12 +315,18 @@ export interface CreateIdentityAuthorizationCodeInput {
   email: string;
   name?: string | null;
   orgDomain?: string | null;
+  orgId?: string | null;
+  orgName?: string | null;
+  orgRole?: "owner" | "admin" | "member" | null;
 }
 
 export interface ConsumedIdentityAuthorizationCode {
   email: string;
   name?: string;
   orgDomain?: string;
+  orgId?: string;
+  orgName?: string;
+  orgRole?: "owner" | "admin" | "member";
   jti: string;
 }
 
@@ -310,9 +346,12 @@ function buildCodeTableSql(): string {
       name TEXT,
       org_domain TEXT,
       jti TEXT NOT NULL,
-      created_at ${intType()} NOT NULL,
-      expires_at ${intType()} NOT NULL,
-      consumed_at ${intType()}
+      created_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL,
+      consumed_at BIGINT,
+      org_id TEXT,
+      org_name TEXT,
+      org_role TEXT
     )
   `;
 }
@@ -361,8 +400,8 @@ export async function createIdentityAuthorizationCode(
   await getDbExec().execute({
     sql:
       "INSERT INTO identity_sso_authorization_code " +
-      "(code_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, created_at, expires_at, consumed_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "(code_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, created_at, expires_at, consumed_at, org_id, org_name, org_role) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
     args: [
       identityCodeHash(code),
       input.state,
@@ -378,11 +417,14 @@ export async function createIdentityAuthorizationCode(
       now,
       now + IDENTITY_AUTHORIZATION_CODE_TTL_MS,
       null,
+      claims.org_id ?? null,
+      claims.org_name ?? null,
+      claims.org_role ?? null,
     ],
   });
   void getDbExec()
     .execute({
-      sql: "DELETE FROM identity_sso_authorization_code WHERE expires_at < ?",
+      sql: "DELETE FROM identity_sso_authorization_code WHERE expires_at < $1",
       args: [now],
     })
     .catch(() => {});
@@ -413,8 +455,8 @@ export async function consumeIdentityAuthorizationCode(input: {
   const codeHash = identityCodeHash(input.code);
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, expires_at, consumed_at " +
-      "FROM identity_sso_authorization_code WHERE code_hash = ?",
+      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, expires_at, consumed_at, org_id, org_name, org_role " +
+      "FROM identity_sso_authorization_code WHERE code_hash = $1",
     args: [codeHash],
   });
   if (rows.length !== 1) return null;
@@ -435,8 +477,8 @@ export async function consumeIdentityAuthorizationCode(input: {
   }
   const result = await getDbExec().execute({
     sql:
-      "UPDATE identity_sso_authorization_code SET consumed_at = ? " +
-      "WHERE code_hash = ? AND consumed_at IS NULL",
+      "UPDATE identity_sso_authorization_code SET consumed_at = $1 " +
+      "WHERE code_hash = $2 AND consumed_at IS NULL",
     args: [Date.now(), codeHash],
   });
   if (affectedRows(result) !== 1) return null;
@@ -447,6 +489,17 @@ export async function consumeIdentityAuthorizationCode(input: {
     ...(typeof row.name === "string" && row.name ? { name: row.name } : {}),
     ...(typeof row.org_domain === "string" && row.org_domain
       ? { orgDomain: row.org_domain }
+      : {}),
+    ...(typeof row.org_id === "string" && row.org_id
+      ? { orgId: row.org_id }
+      : {}),
+    ...(typeof row.org_name === "string" && row.org_name
+      ? { orgName: row.org_name }
+      : {}),
+    ...(row.org_role === "owner" ||
+    row.org_role === "admin" ||
+    row.org_role === "member"
+      ? { orgRole: row.org_role }
       : {}),
     jti: row.jti,
   };

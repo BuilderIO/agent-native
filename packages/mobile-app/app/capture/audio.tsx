@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -9,10 +8,11 @@ import { enqueueCaptureJob } from "@/lib/capture-queue";
 import { syncCaptureJob } from "@/lib/clips-api";
 import { getClipsSession } from "@/lib/clips-session";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
+import { useMobileNavigation } from "@/lib/navigation";
 import { persistCaptureFile } from "@/lib/persist-capture";
 
 export default function MeetingCaptureScreen() {
-  const router = useRouter();
+  const navigation = useMobileNavigation();
 
   const handleCaptured = useCallback(
     async (media: CapturedAudioMedia) => {
@@ -37,17 +37,17 @@ export default function MeetingCaptureScreen() {
         phase: "processing",
         captureId: job.id,
       });
-      router.replace("/" as never);
+      navigation.replace("/");
       void syncCaptureJob(job.id).catch(() => null);
     },
-    [router],
+    [navigation],
   );
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={{ flex: 1 }}>
       <AudioCaptureView
         kind="meeting"
-        onCancel={() => router.back()}
+        onCancel={navigation.back}
         onCaptured={handleCaptured}
       />
     </SafeAreaView>

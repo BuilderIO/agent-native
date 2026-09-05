@@ -486,7 +486,7 @@ export function slackAdapter(
       const restChunks = chunks.slice(1);
       const messageRefs: string[] = [];
       const freshChunkIndexes = [
-        ...(!placeholderRef ? [0] : []),
+        ...(!placeholderRef || opts?.idempotencyKey ? [0] : []),
         ...restChunks.map((_, index) => index + 1),
       ];
       const reconciledRefs =
@@ -520,41 +520,46 @@ export function slackAdapter(
 
       try {
         if (placeholderRef) {
-          // Replace the "thinking…" placeholder in place.
-          const data = (await slackApiJson(
-            "https://slack.com/api/chat.update",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ ...baseBody, ts: placeholderRef }),
-              signal: opts?.signal,
-            },
-          )) as {
-            ok: boolean;
-            error?: string;
-            ts?: string;
-          };
-          if (!data.ok) {
-            console.error("[slack] chat.update error:", data.error);
-            if (opts?.strictTargetRef) {
-              throw new Error(data.error || "chat.update failed");
-            }
-            // Fall back to a fresh post so the user still sees a reply
-            const postedTs = await postFresh(
-              token,
-              channelId,
-              threadTs,
-              opts?.idempotencyKey
-                ? withSlackDeliveryMarker(baseBody, opts.idempotencyKey, 0)
-                : baseBody,
-              opts?.signal,
-            );
-            if (postedTs) messageRefs.push(postedTs);
+          const reconciledRef = reconciledRefs.get(0);
+          if (reconciledRef) {
+            messageRefs.push(reconciledRef);
           } else {
-            messageRefs.push(data.ts || placeholderRef);
+            // Replace the "thinking…" placeholder in place.
+            const data = (await slackApiJson(
+              "https://slack.com/api/chat.update",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ ...baseBody, ts: placeholderRef }),
+                signal: opts?.signal,
+              },
+            )) as {
+              ok: boolean;
+              error?: string;
+              ts?: string;
+            };
+            if (!data.ok) {
+              console.error("[slack] chat.update error:", data.error);
+              if (opts?.strictTargetRef) {
+                throw new Error(data.error || "chat.update failed");
+              }
+              // Fall back to a fresh post so the user still sees a reply
+              const postedTs = await postFresh(
+                token,
+                channelId,
+                threadTs,
+                opts?.idempotencyKey
+                  ? withSlackDeliveryMarker(baseBody, opts.idempotencyKey, 0)
+                  : baseBody,
+                opts?.signal,
+              );
+              if (postedTs) messageRefs.push(postedTs);
+            } else {
+              messageRefs.push(data.ts || placeholderRef);
+            }
           }
         } else {
           const reconciledRef = reconciledRefs.get(0);
@@ -2224,6 +2229,14 @@ function createSlackRunProgress(
             },
           ]
         : [];
+      const terminalBlocks = [...messageBlocks, ...controlBlocks].slice(0, 50);
+      const markedTerminalBlocks = opts?.idempotencyKey
+        ? (withSlackDeliveryMarker(
+            { text: message.text || "Done.", blocks: terminalBlocks },
+            opts.idempotencyKey,
+            0,
+          ).blocks as unknown[])
+        : terminalBlocks;
       await postSlackJson(
         token,
         "chat.stopStream",
@@ -2232,8 +2245,8 @@ function createSlackRunProgress(
           ts: streamTs,
           markdown_text: message.text || "Done.",
           ...(finalChunks.length ? { chunks: finalChunks } : {}),
-          ...(messageBlocks.length || controlBlocks.length
-            ? { blocks: [...messageBlocks, ...controlBlocks].slice(0, 50) }
+          ...(markedTerminalBlocks.length
+            ? { blocks: markedTerminalBlocks }
             : {}),
         },
         opts?.signal,

@@ -537,7 +537,8 @@ async function readStrictRemoteAgentResources(): Promise<
   } = await import("../resources/store.js");
   const { REMOTE_AGENT_RESOURCE_PREFIXES } =
     await import("../resources/metadata.js");
-  const activeOwner = sharedResourceOwner(getRequestOrgId());
+  const orgId = getRequestOrgId() ?? null;
+  const activeOwner = sharedResourceOwner(orgId);
   const owners = [...new Set([SHARED_OWNER, activeOwner])];
   const prefixes = [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse();
   const ownerRank = new Map(owners.map((owner, index) => [owner, index]));
@@ -546,6 +547,7 @@ async function readStrictRemoteAgentResources(): Promise<
   const resources = await resourceListContentByOwnersAndPrefixes(
     owners,
     prefixes,
+    { orgId },
   );
   resources.sort((a, b) => {
     const ownerDelta =

@@ -1,3 +1,4 @@
+import { useNavigation } from "@react-navigation/native";
 import {
   IconArrowUp,
   IconAt,
@@ -23,7 +24,6 @@ import {
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
-import { useNavigation, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -50,6 +50,7 @@ import type {
 } from "@/lib/agent-chat/types";
 import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useMobileNavigation } from "@/lib/navigation";
 import { getAndClearLastDictatedText } from "@/lib/voice-api";
 
 import { MobilePopover } from "./MobilePopover";
@@ -333,7 +334,7 @@ export function Composer({
 }) {
   const { foreground, mutedForeground, primaryForeground, accentBlue, theme } =
     useMobileThemeColors();
-  const router = useRouter();
+  const mobileNavigation = useMobileNavigation();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
@@ -422,7 +423,7 @@ export function Composer({
   }, [navigation]);
 
   const startDictation = () => {
-    router.push("/capture/dictate" as never);
+    mobileNavigation.push("/capture/dictate");
   };
 
   const submit = () => {

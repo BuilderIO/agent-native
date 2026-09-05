@@ -113,11 +113,19 @@ vi.mock("@agent-native/core/collab", () => ({
 // Real per-deck lock just runs the fn; passthrough keeps the unit test focused
 // on update-slide's own read-modify-write logic.
 vi.mock("./patch-deck.js", () => ({
+  isAgentPatchCaller: (caller?: string) =>
+    caller === "tool" || caller === "mcp" || caller === "a2a",
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  deckVersionChangeGroupFromAction: vi.fn(() => undefined),
   deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
@@ -157,6 +165,7 @@ describe("update-slide", () => {
         {
           id: "slide-1",
           content: "<div>Old</div>",
+          layoutWarningDismissed: true,
           animations: [
             {
               id: "old-reveal",
@@ -168,11 +177,14 @@ describe("update-slide", () => {
         },
       ],
     });
-    const result = await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      fullContent: "<div>New</div>",
-    });
+    const result = await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: "<div>New</div>",
+      },
+      { caller: "tool" },
+    );
 
     expect(result).toMatchObject({
       ok: true,
@@ -188,6 +200,7 @@ describe("update-slide", () => {
     expect(lastUpdateSet).toBeDefined();
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
+    expect(deck.slides[0].layoutWarningDismissed).toBeUndefined();
     expect(deck.slides[0].animations).toBeUndefined();
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
@@ -197,20 +210,10 @@ describe("update-slide", () => {
       slideId: "slide-1",
       actor: "agent",
     });
-    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        artifactId: "deck-1",
-        contextMode: "auto",
-        contextPackId: null,
-        elementProvenance: [
-          expect.objectContaining({
-            elementId: "slide-1",
-            influence: "generated",
-          }),
-        ],
-      }),
-      expect.objectContaining({ db: mockDb }),
-    );
+    // A deterministic focused edit without an existing or explicit Creative
+    // Context scope must not enter the generation-context gate.
+    expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
     // The agent's presence is recorded on the DECK presence doc for this slide.
     expect(mockAgentTouchDocument).toHaveBeenCalledWith(
       "deck-deck-1",
@@ -221,6 +224,50 @@ describe("update-slide", () => {
         }),
       }),
     );
+  });
+
+  it("does not require Creative Context for an unscoped WebMCP edit", async () => {
+    const result = await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New", expectedMatches: 1 }],
+      },
+      { caller: "webmcp" },
+    );
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(mockGetGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("preserves dismissed overflow warnings for human content edits", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Old</div>",
+          layoutWarningDismissed: true,
+        },
+      ],
+    });
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: "<div>Human edit</div>",
+      },
+      { caller: "frontend" },
+    );
+
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0]
+        .layoutWarningDismissed,
+    ).toBe(true);
   });
 
   it("applies a surgical find/replace edit", async () => {

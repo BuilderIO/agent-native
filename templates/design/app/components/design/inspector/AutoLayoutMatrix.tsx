@@ -246,6 +246,9 @@ export interface AutoLayoutMatrixProps {
   ) => void;
   onPaddingLinkedChange: (linked: boolean) => void;
   onClipContentChange?: (clipContent: boolean) => void;
+  /** Clipping is a container's decision. A drawn rectangle or text node has
+   *  nothing to clip, so the control is meaningless on those. */
+  clipContentSupported?: boolean;
   onDistribute?: (axis: DistributionAxis) => void;
   onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
   onChildSizingChange: (
@@ -364,6 +367,7 @@ export function AutoLayoutMatrix({
   onPaddingChange,
   onPaddingLinkedChange,
   onClipContentChange,
+  clipContentSupported = true,
   onDistribute,
   onGapModeChange,
   onChildSizingChange,
@@ -828,7 +832,7 @@ export function AutoLayoutMatrix({
         ) : null}
 
         {/* ── Clip content ── */}
-        {showChildLayoutControls ? (
+        {showChildLayoutControls && clipContentSupported ? (
           <InspectorGrid>
             <InspectorGridCell span={28}>
               <label className="flex h-6 cursor-pointer items-center gap-2 !text-[11px] text-foreground">

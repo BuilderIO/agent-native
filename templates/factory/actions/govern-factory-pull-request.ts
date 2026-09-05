@@ -253,6 +253,7 @@ export default defineAction({
     );
     const safetyFindingsClean =
       !snapshot.commentsTruncated &&
+      !snapshot.reviewsTruncated &&
       !hasActiveCredibleSafetyFinding(snapshot.reviews, snapshot.comments);
     let currentApprovals;
     try {
@@ -515,6 +516,8 @@ export default defineAction({
       checks: snapshot.checks,
       checksCoverage: snapshot.checksCoverage,
       commentsTruncated: snapshot.commentsTruncated,
+      reviews: snapshot.reviews,
+      reviewsTruncated: snapshot.reviewsTruncated,
       botAuthors: [
         "github-actions",
         "github-actions[bot]",
@@ -749,6 +752,7 @@ export default defineAction({
         );
       const postClaimSafetyFindingsClean =
         !postClaimSnapshot.commentsTruncated &&
+        !postClaimSnapshot.reviewsTruncated &&
         !hasActiveCredibleSafetyFinding(
           postClaimSnapshot.reviews,
           postClaimSnapshot.comments,
@@ -771,6 +775,8 @@ export default defineAction({
         checks: postClaimSnapshot.checks,
         checksCoverage: postClaimSnapshot.checksCoverage,
         commentsTruncated: postClaimSnapshot.commentsTruncated,
+        reviews: postClaimSnapshot.reviews,
+        reviewsTruncated: postClaimSnapshot.reviewsTruncated,
         botAuthors: [
           "github-actions",
           "github-actions[bot]",
@@ -973,6 +979,7 @@ export default defineAction({
           ) ||
           !hasCompletePassingChecks(finalReviewSnapshot) ||
           finalReviewSnapshot.commentsTruncated ||
+          finalReviewSnapshot.reviewsTruncated ||
           hasActiveCredibleSafetyFinding(
             finalReviewSnapshot.reviews,
             finalReviewSnapshot.comments,

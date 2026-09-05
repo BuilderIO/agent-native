@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
@@ -180,7 +181,11 @@ export default defineAction({
             const now = new Date().toISOString();
             await tx
               .update(schema.documents)
-              .set({ content: "", updatedAt: now })
+              .set({
+                content: "",
+                bodyRevision: bodyRevisionForContent(""),
+                updatedAt: now,
+              })
               .where(
                 inArray(schema.documents.id, documentsWithoutSurvivingPrimary),
               );

@@ -1,5 +1,8 @@
 import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
-import { isInBuilderFrame } from "@agent-native/core/client/host";
+import {
+  getClientSurface,
+  isInBuilderFrame,
+} from "@agent-native/core/client/host";
 import {
   resolveEnvironmentTargets,
   withBuilderUtmTrackingParams,
@@ -376,9 +379,9 @@ export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
 
 export function shouldOpenWorkspaceAppInTopWindow(): boolean {
   if (typeof window === "undefined") return false;
-  // A generic iframe is an inline host by design. Only Builder owns the
-  // parent navigation contract for workspace apps.
-  return isInBuilderFrame();
+  // Standard browser iframes stay inline; Builder and native shells need the
+  // app as the top-level document so browser APIs such as WebMCP bind to it.
+  return isInBuilderFrame() || getClientSurface() !== "web";
 }
 
 export function navigateToWorkspaceApp(href: string): boolean {

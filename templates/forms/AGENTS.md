@@ -66,8 +66,9 @@ Read the relevant skill before deeper work:
 ## Application State
 
 - `navigation` exposes the `/home` chat, builder, published form, responses,
-  response-insights, selected field, and builder tab context
-  (`activeTab`: `edit`, `responses`, `settings`, or `integrations`).
+  response-insights, and builder tab context (`activeTab`: `edit`,
+  `responses`, `settings`, or `integrations`); `view-screen` reports the
+  selected field as `form.selection`.
 - `navigate` moves the UI between home, forms, builder, responses,
   response-insights, preview, and team/settings-style views. For builder
   sub-tabs, call `navigate` with `view=form`, the form ID, and

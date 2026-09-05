@@ -196,10 +196,34 @@ export function localizeDocsHref(href: string, locale: DocsLocale): string {
   return `${docsPathForSlug(slug, target)}${suffix}`;
 }
 
+const LOCALIZED_POLICY_ROOTS = new Set(["legal", "privacy", "terms"]);
+
+/** Rewrite same-site policy links using the same locale rules as docs links. */
+export function localizeSiteHref(href: string, locale: DocsLocale): string {
+  const localizedDocsHref = localizeDocsHref(href, locale);
+  if (localizedDocsHref !== href) return localizedDocsHref;
+
+  const suffixIndex = href.search(/[?#]/);
+  const path = suffixIndex === -1 ? href : href.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : href.slice(suffixIndex);
+  if (!path || !path.startsWith("/") || isFileLikePath(path)) return href;
+
+  const segments = pathSegments(path);
+  const prefixLocale = normalizeLocaleCode(segments[0]);
+  const unprefixedSegments = prefixLocale ? segments.slice(1) : segments;
+  if (!LOCALIZED_POLICY_ROOTS.has(unprefixedSegments[0] ?? "")) return href;
+
+  const target = prefixLocale ?? locale;
+  return `${sitePathForLocale(
+    `/${unprefixedSegments.join("/")}`,
+    target,
+  )}${suffix}`;
+}
+
 /**
- * Apply `localizeDocsHref` to every same-site link in a Markdown body. The
+ * Apply same-site URL localization to every link in a Markdown body. The
  * generated Markdown twins are served to agents verbatim, so without this they
- * hand out the redirecting form of every internal link.
+ * hand out redirecting forms of internal links.
  */
 export function localizeDocsMarkdownLinks(
   markdown: string,
@@ -216,7 +240,7 @@ export function localizeDocsMarkdownLinks(
         : part.replace(
             /(\]\()(\/[^)\s]+)(\))/g,
             (_match, open: string, href: string, close: string) =>
-              `${open}${localizeDocsHref(href, locale)}${close}`,
+              `${open}${localizeSiteHref(href, locale)}${close}`,
           ),
     )
     .join("");

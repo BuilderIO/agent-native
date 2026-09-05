@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { createAssetFromBuffer } from "../server/lib/assets.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 import { getObject } from "../server/lib/storage.js";
 import {
   filterDuplicateAssetUploads,
@@ -278,7 +278,7 @@ export default defineAction({
     // null so it can't skip membership validation yet still land in the row.
     const collectionId = args.collectionId || null;
     const folderId = args.folderId || null;
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Importing an asset");
     validateHttpsUrl(url);
     if (collectionId) {
       await assertCollectionBelongsToLibrary(collectionId, libraryId);

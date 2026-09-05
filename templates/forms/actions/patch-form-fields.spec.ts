@@ -43,6 +43,7 @@ vi.mock("../server/lib/public-form-ssr.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  and: vi.fn((...conditions: unknown[]) => ({ conditions })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -50,6 +51,8 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     forms: {
       id: "forms.id",
+      fields: "forms.fields",
+      updatedAt: "forms.updatedAt",
     },
   },
 }));

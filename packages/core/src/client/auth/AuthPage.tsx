@@ -28,7 +28,6 @@ export interface AuthMarketingProps {
   screenshotWidth?: number;
   screenshotHeight?: number;
   learnMoreUrl?: string;
-  learnMorePlacement?: "top-right" | "bottom-right";
 }
 
 export interface AuthLocaleOption {
@@ -67,9 +66,9 @@ export interface AuthPageProps {
   showGoogle: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
-  connectionLabel: string;
   docsAuthUrl: string;
   identitySsoEnabled: boolean;
+  identitySsoAuto: boolean;
   publicOAuthOrigin: string;
   workspaceGatewayReturnOrigin: string;
   googleAuthMode: "popup" | "redirect" | "auto";
@@ -218,6 +217,19 @@ export function shouldRetryAuthSessionProbe(
   readable: boolean,
 ): boolean {
   return !readable || response.status === 429 || response.status >= 500;
+}
+
+export function isConfirmedAnonymousAuthSession(
+  response: Pick<Response, "ok" | "status">,
+  data: Record<string, unknown>,
+  readable: boolean,
+): boolean {
+  return (
+    response.ok &&
+    response.status === 200 &&
+    readable &&
+    data.error === "Not authenticated"
+  );
 }
 
 async function requestJson(
@@ -630,9 +642,9 @@ export function AuthPage(props: AuthPageProps) {
     showGoogle,
     signupLegalNotice,
     signupLocalModeNote,
-    connectionLabel,
     docsAuthUrl,
     identitySsoEnabled,
+    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -648,7 +660,6 @@ export function AuthPage(props: AuthPageProps) {
   const [localDevBusy, setLocalDevBusy] = React.useState(false);
   const [fullAuthOptionsVisible, setFullAuthOptionsVisible] =
     React.useState(true);
-  const [localNoteVisible, setLocalNoteVisible] = React.useState(false);
   const [upgradeVisible, setUpgradeVisible] = React.useState(false);
   const [magicLinkEmail, setMagicLinkEmail] = React.useState("");
   const [signupEmail, setSignupEmail] = React.useState("");
@@ -680,6 +691,10 @@ export function AuthPage(props: AuthPageProps) {
   const nativeOAuthAbandonTimer = React.useRef<number | null>(null);
   const verificationCheckInFlight = React.useRef(false);
   const verifiedReturnHandled = React.useRef(false);
+  const verificationStepStartedRef = React.useRef(false);
+  const [sessionProbeComplete, setSessionProbeComplete] = React.useState(false);
+  const [sessionProbeAnonymous, setSessionProbeAnonymous] =
+    React.useState(false);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -703,6 +718,10 @@ export function AuthPage(props: AuthPageProps) {
   const apiPath = React.useCallback(
     (path: string) => `${runtimeAppBasePath}${path}`,
     [runtimeAppBasePath],
+  );
+  const identityHref = React.useMemo(
+    () => apiPath("/_agent-native/identity/login"),
+    [apiPath],
   );
   const journey = React.useCallback((): SignInJourney => {
     if (typeof window === "undefined") {
@@ -842,6 +861,10 @@ export function AuthPage(props: AuthPageProps) {
       setView("magicLink");
       return;
     }
+    if (params.get("c")) {
+      setView("login");
+      return;
+    }
     const storedTab = readStorage(TAB_STORAGE_KEY);
     if (storedTab === "login" || storedTab === "signup") setView(storedTab);
   }, [authMode, googleOnly, readPendingSignupEmail, setNotice, t]);
@@ -863,6 +886,10 @@ export function AuthPage(props: AuthPageProps) {
             redirectToSignedInApp();
             return;
           }
+          if (isConfirmedAnonymousAuthSession(response, data, readable)) {
+            setSessionProbeAnonymous(true);
+            return;
+          }
           retry = shouldRetryAuthSessionProbe(response, readable);
         } catch {
           retry = true;
@@ -873,8 +900,39 @@ export function AuthPage(props: AuthPageProps) {
         );
       }
     };
-    void probe();
+    void probe().finally(() => setSessionProbeComplete(true));
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
+
+  React.useEffect(() => {
+    if (
+      !identitySsoAuto ||
+      !runtimeBasePathResolved ||
+      !sessionProbeComplete ||
+      !sessionProbeAnonymous ||
+      isAgentNativeDesktop() ||
+      (view !== "login" && view !== "signup")
+    ) {
+      return;
+    }
+    if (isInFrame()) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("sso") || params.has("error") || params.has("verified")) {
+      return;
+    }
+    const probeParams = new URLSearchParams({
+      return: resumeHref(),
+      prompt: "none",
+    });
+    window.location.replace(`${identityHref}?${probeParams.toString()}`);
+  }, [
+    identityHref,
+    identitySsoAuto,
+    resumeHref,
+    runtimeBasePathResolved,
+    sessionProbeAnonymous,
+    sessionProbeComplete,
+    view,
+  ]);
 
   React.useEffect(() => {
     let anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
@@ -941,16 +999,6 @@ export function AuthPage(props: AuthPageProps) {
     });
   }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
 
-  React.useEffect(() => {
-    const hostname = window.location.hostname.toLowerCase();
-    setLocalNoteVisible(
-      hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "::1" ||
-        hostname.endsWith(".local"),
-    );
-  }, []);
-
   const localDevAllowed = React.useMemo(
     () =>
       isLoopbackHostname() ||
@@ -975,6 +1023,10 @@ export function AuthPage(props: AuthPageProps) {
         const available = response.ok && data.available === true;
         setLocalDevAvailable(available);
         if (!available) {
+          setFullAuthOptionsVisible(true);
+          return;
+        }
+        if (verificationStepStartedRef.current) {
           setFullAuthOptionsVisible(true);
           return;
         }
@@ -1480,6 +1532,8 @@ export function AuthPage(props: AuthPageProps) {
       setVerificationEmail(normalized);
       rememberPendingSignupEmail(normalized);
       setNotice("verification", null);
+      verificationStepStartedRef.current = true;
+      setFullAuthOptionsVisible(true);
       setView("verification");
       writeStorage(TAB_STORAGE_KEY, "signup");
     },
@@ -2088,7 +2142,6 @@ export function AuthPage(props: AuthPageProps) {
       message={messages.signup?.text}
     />
   );
-  const identityHref = apiPath("/_agent-native/identity/login");
   const authCard = (
     <div className={cardClassName}>
       <h1 id="heading" data-i18n={keys.heading}>
@@ -2519,16 +2572,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const localNote = (
-    <p
-      className={`local-note ${localNoteVisible ? "show" : ""}`}
-      id="local-note"
-    >
-      <span data-i18n="localNotePrefix">{t("localNotePrefix")}</span> (
-      <strong>{connectionLabel}</strong>)
-      <span data-i18n="localNoteSuffix">{t("localNoteSuffix")}</span>
-    </p>
-  );
   const localePicker = (
     <div className="locale-picker">
       <button
@@ -2656,6 +2699,7 @@ export function AuthPage(props: AuthPageProps) {
         marketingCopy.learnMoreUrl ? (
           <a
             className="auth-marketing-learn-more"
+            data-auth-marketing-learn-more="true"
             href={marketingCopy.learnMoreUrl}
             target="_blank"
             rel="noreferrer"
@@ -2673,24 +2717,21 @@ export function AuthPage(props: AuthPageProps) {
           </a>
         ) : null
       }
-      auth={
-        <>
-          {authCard}
-          {localNote}
-        </>
-      }
+      auth={authCard}
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
-        marketingCopy.learnMorePlacement === "bottom-right"
-          ? "has-bottom-right-learn-more"
-          : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
       {marketingCopy.screenshotSrc ? (
-        <div className="auth-marketing-screenshot-wrap">
+        <div
+          className="auth-marketing-screenshot-wrap"
+          style={{
+            aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
+          }}
+        >
           <img
             className="auth-marketing-screenshot"
             src={marketingCopy.screenshotSrc}
@@ -2754,10 +2795,7 @@ export function AuthPage(props: AuthPageProps) {
       )}
     </MarketingHome>
   ) : (
-    <>
-      <div className="auth-centered">{authCard}</div>
-      {localNote}
-    </>
+    <div className="auth-centered">{authCard}</div>
   );
 
   return (

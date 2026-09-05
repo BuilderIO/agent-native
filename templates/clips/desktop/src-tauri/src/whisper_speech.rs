@@ -129,11 +129,13 @@ pub fn shutdown(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub async fn whisper_transcription_reset_timeline() -> Result<(), String> {
+pub async fn whisper_transcription_reset_timeline(offset_ms: u64) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::reset_timeline();
+        macos::reset_timeline(std::time::Duration::from_millis(offset_ms));
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = offset_ms;
     Ok(())
 }
 
@@ -574,15 +576,15 @@ mod macos {
             );
         }
 
-        /// Rebase timestamps to "now" and discard any audio captured while the
-        /// recorder was warming up/counting down.
-        fn reset_timeline(&self) {
+        /// Rebase timestamps to a point on the recording timeline and discard
+        /// audio captured before that boundary (warmup, countdown, or resume).
+        fn reset_timeline(&self, offset: Duration) {
             if let Ok(mut buf) = self.buf.lock() {
                 buf.clear();
             }
             let now = Instant::now();
             if let Ok(mut timeline) = self.timeline.lock() {
-                timeline.stream_start = now;
+                timeline.stream_start = timeline_start_for_offset(now, offset);
                 timeline.buffer_start = now;
             }
             self.reset_generation.fetch_add(1, Ordering::SeqCst);
@@ -798,6 +800,10 @@ mod macos {
 
     fn buffer_start_after_drain(now: Instant, pending: Duration) -> Instant {
         now.checked_sub(pending).unwrap_or(now)
+    }
+
+    fn timeline_start_for_offset(now: Instant, offset: Duration) -> Instant {
+        now.checked_sub(offset).unwrap_or(now)
     }
 
     fn partial_inference_due(
@@ -1414,7 +1420,7 @@ mod macos {
         Ok(())
     }
 
-    pub fn reset_timeline() {
+    pub fn reset_timeline(offset: Duration) {
         let session = match session_slot().lock() {
             Ok(slot) => slot.as_ref().map(|session| {
                 (
@@ -1427,11 +1433,14 @@ mod macos {
         let Some((mic, sys)) = session else {
             return;
         };
-        mic.reset_timeline();
+        mic.reset_timeline(offset);
         if let Some(sys) = sys {
-            sys.reset_timeline();
+            sys.reset_timeline(offset);
         }
-        eprintln!("[whisper] transcription timeline reset");
+        eprintln!(
+            "[whisper] transcription timeline reset to {}ms",
+            offset.as_millis()
+        );
     }
 
     fn release_temporary_audio(
@@ -1492,7 +1501,8 @@ mod macos {
         use super::{
             buffer_start_after_drain, clean_transcript, partial_inference_due,
             partial_inference_timestamp, resample_to_16k, should_use_combined_sck_capture,
-            split_mic_capture_options, utterance_finalize_due, IncrementalResample, SessionOwner,
+            split_mic_capture_options, timeline_start_for_offset, utterance_finalize_due,
+            IncrementalResample, SessionOwner,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
@@ -1550,6 +1560,15 @@ mod macos {
                 buffer_start_after_drain(now, pending),
                 now.checked_sub(pending).unwrap()
             );
+        }
+
+        #[test]
+        fn resumed_timeline_starts_at_the_accumulated_recording_offset() {
+            let now = Instant::now();
+            let offset = Duration::from_millis(12_345);
+            let started_at = timeline_start_for_offset(now, offset);
+
+            assert_eq!(now.duration_since(started_at), offset);
         }
 
         #[test]

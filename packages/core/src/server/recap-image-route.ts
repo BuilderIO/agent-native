@@ -29,7 +29,11 @@ import {
   type H3Event,
 } from "h3";
 
-import { getSession, type AuthSession } from "./auth.js";
+import {
+  getMcpOAuthBearerSession,
+  getSession,
+  type AuthSession,
+} from "./auth.js";
 import { getAppUrl } from "./google-oauth.js";
 import {
   RECAP_IMAGE_CONTENT_TYPE,
@@ -57,45 +61,15 @@ function isPngBuffer(buf: Buffer): boolean {
  * action surface uses:
  *   1. `getSession(event)` — browser cookie, ACCESS_TOKEN, and legacy bearer
  *      (`sessions` table) tokens.
- *   2. A connect-minted MCP OAuth access token, verified through the MCP
- *      surface's canonical `verifyAuth` with this app's MCP resource as the
- *      expected audience and `allowDevOpen: false`. `getSession` only honors
- *      this token on the `/_agent-native/actions/*` surface, so we mirror that
- *      verification here for the recap-image upload route.
+ *   2. A connect-minted MCP OAuth access token, verified through the same
+ *      canonical helper used by custom binary routes.
  */
 async function resolveUploadSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
   const session = await getSession(event).catch(() => null);
   if (session?.email) return session;
-
-  const authHeader = getHeader(event, "authorization")?.trim();
-  const bearer = /^Bearer\s+(.+)$/i.exec(authHeader ?? "")?.[1]?.trim();
-  if (!authHeader || !bearer) return null;
-
-  try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveOrgIdFromDomain }] =
-      await Promise.all([
-        import("../mcp/oauth-route.js"),
-        import("../mcp/build-server.js"),
-      ]);
-    const result = await verifyAuth(authHeader, undefined, {
-      resourceUrl: getMcpOAuthAudiences(event),
-      allowDevOpen: false,
-    });
-    const identity = result.authed ? result.identity : undefined;
-    if (!identity?.userEmail) return null;
-    const orgId =
-      identity.orgId ?? (await resolveOrgIdFromDomain(identity.orgDomain));
-    return {
-      email: identity.userEmail,
-      token: bearer,
-      ...(orgId ? { orgId } : {}),
-    };
-  } catch (error) {
-    console.error("[recap-image] bearer verification error:", error);
-    return null;
-  }
+  return getMcpOAuthBearerSession(event);
 }
 
 /**

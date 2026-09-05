@@ -45,8 +45,11 @@ export interface UploadedReferenceFile {
   size: number;
 }
 
-function safeFilename(originalName: string): string | null {
-  const ext = path.extname(originalName).toLowerCase();
+function safeFilename(
+  originalName: string,
+  extension = path.extname(originalName).toLowerCase(),
+): string | null {
+  const ext = extension.toLowerCase();
   if (!isSlidesReferenceFileExtension(ext)) return null;
   // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
   // not `Date.now()` — second-resolution timestamps are guessable and let
@@ -117,6 +120,25 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
   return !data.subarray(0, 4096).includes(0);
 }
 
+interface DetectedReferenceImage {
+  extension: ".png" | ".jpg" | ".gif" | ".webp";
+  mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+}
+
+function detectReferenceImage(data: Uint8Array): DetectedReferenceImage | null {
+  const candidates: DetectedReferenceImage[] = [
+    { extension: ".png", mimeType: "image/png" },
+    { extension: ".jpg", mimeType: "image/jpeg" },
+    { extension: ".gif", mimeType: "image/gif" },
+    { extension: ".webp", mimeType: "image/webp" },
+  ];
+  return (
+    candidates.find((candidate) =>
+      hasExpectedSignature(candidate.extension, data),
+    ) ?? null
+  );
+}
+
 function pathForAgent(absPath: string): string {
   const relative = path.relative(process.cwd(), absPath);
   if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
@@ -132,16 +154,37 @@ export async function saveUploadedReferenceFile(args: {
   data: Uint8Array;
   type?: string;
 }): Promise<UploadedReferenceFile> {
-  const filename = safeFilename(args.originalName);
+  const declaredExt = path.extname(args.originalName).toLowerCase();
+  if (!isSlidesReferenceFileExtension(declaredExt)) {
+    throw new Error(
+      `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
+    );
+  }
+  const isDeclaredImage = [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(
+    declaredExt,
+  );
+  const detectedImage = isDeclaredImage
+    ? detectReferenceImage(args.data)
+    : null;
+  const ext =
+    detectedImage && !hasExpectedSignature(declaredExt, args.data)
+      ? detectedImage.extension
+      : declaredExt;
+  const filename = safeFilename(args.originalName, ext);
   if (!filename) {
     throw new Error(
       `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
     );
   }
-  const ext = path.extname(filename).toLowerCase();
   if (!hasExpectedSignature(ext, args.data)) {
     throw new Error(`File contents do not match ${ext} upload type`);
   }
+  const assetOriginalName =
+    ext === declaredExt
+      ? args.originalName
+      : `${path.basename(args.originalName, path.extname(args.originalName))}${ext}`;
+  const resolvedType =
+    detectedImage?.mimeType ?? (args.type || "application/octet-stream");
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
     let reference: string | null;
@@ -151,7 +194,7 @@ export async function saveUploadedReferenceFile(args: {
         orgId: args.orgId,
         data: args.data,
         filename,
-        mimeType: args.type || "application/octet-stream",
+        mimeType: resolvedType,
       });
     } catch {
       throw Object.assign(
@@ -182,7 +225,7 @@ export async function saveUploadedReferenceFile(args: {
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
-      originalName: args.originalName,
+      originalName: assetOriginalName,
       data: args.data,
     })
   ) {
@@ -190,9 +233,9 @@ export async function saveUploadedReferenceFile(args: {
       url = (
         await uploadImageAsset({
           email: args.email,
-          originalName: args.originalName,
+          originalName: assetOriginalName,
           data: args.data,
-          type: args.type,
+          type: resolvedType,
         })
       ).url;
     } catch {
@@ -207,7 +250,7 @@ export async function saveUploadedReferenceFile(args: {
     url,
     originalName: args.originalName,
     filename,
-    type: args.type || "application/octet-stream",
+    type: resolvedType,
     size: args.data.length,
   };
 }

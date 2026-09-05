@@ -4,7 +4,6 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
-import { isPostgres } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -61,12 +60,7 @@ function isRetryableTransactionConflict(error: unknown): boolean {
     typeof rawCode === "string" || typeof rawCode === "number"
       ? String(rawCode)
       : "";
-  return (
-    code === "SQLITE_BUSY" ||
-    code === "SQLITE_LOCKED" ||
-    code === "40001" ||
-    code === "40P01"
-  );
+  return code === "40001" || code === "40P01";
 }
 
 function assertValidFilename(filename: string): void {
@@ -110,7 +104,6 @@ type RenamedFileResult = {
 export default defineAction({
   description:
     "Atomically rename one Design screen and rewrite exact data-screen links in every HTML screen.",
-  agentTool: false,
   schema: z
     .object({
       id: z.string().min(1).max(256).describe("design_files.id to rename"),
@@ -187,7 +180,7 @@ export default defineAction({
       for (let attempt = 0; attempt < MAX_RENAME_ATTEMPTS; attempt += 1) {
         try {
           return await db.transaction(async (tx) => {
-            if (isPostgres()) {
+            {
               await (
                 tx as unknown as {
                   execute: (query: unknown) => Promise<unknown>;

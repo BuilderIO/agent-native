@@ -1,7 +1,7 @@
 ---
-title: "외부 에이전트: Claude, ChatGPT, Codex, 커서, Cowork"
-description: "Claude, ChatGPT, Codex, Cursor, Claude Cowork 또는 MCP 호환 호스트를 호스팅된 에이전트 기본 앱에 연결한 다음 MCP 앱 및 딥 링크를 사용하여 아티팩트를 실행 중인 UI로 다시 왕복합니다."
-search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이전트 기본 연결 로컬 에이전트 도구 외부 에이전트"
+title: "외부 에이전트: Claude, ChatGPT, Codex, 커서, Cowork, Grok"
+description: "Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok 또는 MCP 호환 호스트를 호스팅된 에이전트 기본 앱에 연결한 다음 MCP 앱 및 딥 링크를 사용하여 아티팩트를 실행 중인 UI로 다시 왕복합니다."
+search: "Claude Anthropic ChatGPT OpenAI Claude 코드 Codex 커서 Claude Cowork Grok xAI MCP 앱 에이전트 기본 연결 로컬 에이전트 도구 외부 에이전트"
 ---
 
 # 외부 에이전트
@@ -99,9 +99,11 @@ search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이�
 https://<your-app>.agent-native.com/mcp
 ```
 
-앱에서 **Settings**를 열고 **MCP**를 검색한 다음 **MCP server URL**을 복사하세요.
-사용할 AI 호스트에 이 URL을 붙여넣으면 됩니다. URL은 배포된 앱의 기본 URL 뒤에 `/mcp`를 붙인
-형식이며 developer 설정을 찾을 필요가 없습니다.
+앱에서 **Settings → Integrations**를 열고 알고 있는 호스트 이름을 검색하세요.
+Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI, Codex, Grok,
+xAI 중 어떤 이름으로도 검색할 수 있습니다. 외부 호스트 결과 하나를 선택하면 가장 알맞은
+가이드가 선택된 **Settings → MCP**가 열립니다. **MCP server URL**을 복사해 AI
+호스트에 붙여넣으세요. URL은 배포된 앱의 기본 URL 뒤에 `/mcp`를 붙인 형식입니다.
 
 작업공간 또는 교차 앱 작업의 경우 Dispatch를 사용하세요.
 
@@ -123,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 호스팅된 모든 앱에는 다음 위치에 도우미 페이지도 있습니다.
 복사 가능한 URL가 있는 `https://&lt;app&gt;/mcp/connect` 및
-Claude, ChatGPT, 커서, Claude 코드, Codex 및 기타에 대한 호스트별 탭.
+Claude, ChatGPT, 커서, Claude 코드, Codex, Grok 및 기타에 대한 호스트별 탭.
 
 <a id="access-tab"></a>
 
@@ -512,6 +514,8 @@ ChatGPT/Claude 스타일 OAuth 앱 호스트의 경우 검색 표면은 기본�
 이를 통해 클라이언트별 shim을 구축하는 대신 모든 호환 호스트에서 동일한 앱 표면을 사용할 수 있습니다. MCP 앱을 인라인으로 렌더링하는 호스트(및 메타데이터 변경 후 커넥터 캐시 정보)는 [MCP Apps → Client support and caching](/docs/mcp-apps#client-support)에 있습니다. 해당 페이지는 클라이언트 매트릭스의 단일 홈입니다.
 
 실제로 모든 에이전트 기반 앱은 지원 호스트에서 인라인 검토/편집을 위한 MCP 앱과 전체 앱으로의 범용 왕복을 위한 `link`를 모두 사용하여 작성되어야 합니다. iframe을 렌더링하지 않는 CLI/code-editor 클라이언트는 딥 링크로 대체됩니다. 인간 선택 도구는 해당 대체에 붙여넣기 단계를 추가할 수 있습니다. 예를 들어 자산 선택기가 대체 링크에서 열리고 사용자가 브라우저에서 미디어를 선택할 수 있도록 한 다음 사용자가 채팅에 다시 붙여넣는 핸드오프 요약을 복사합니다.
+
+외부 에이전트는 앱 내 에이전트가 호출하는 것과 동일한 이름의 실제 생성/수정 도구에 접근할 수 있습니다. 따라서 사용자가 새로운 콘텐츠(디자인, 덱, 폼, 문서 등)를 요청하면, 작업을 `ask_app`으로 위임하지 말고 직접 작성한 뒤 해당 도구로 저장하세요. `endsTurn: true`로 표시된 액션 ― 예를 들어 사용자의 답변을 해당 앱 자체의 채팅에서 기다리는 앱 내 질문 폼 ― 은 액션이 `mcpTool: true`로 명시적으로 다시 활성화하지 않는 한 기본적으로 MCP, WebMCP, A2A에서 숨겨집니다. 이는 외부 호출자가 아니라 앱 내 에이전트의 도구입니다. WebMCP 브리지는 도구 입력과 결과를 최대 500,000자까지 허용하므로, 직접 작성한 화면, 덱, 문서 전체를 나누지 않고 한 번의 쓰기로 저장할 수 있습니다. 페이지 로컬 WebMCP 호출도 브라우저 탭 ID를 함께 전달하므로, 탭별 컨텍스트(내비게이션, 선택 항목)가 사용자가 실제로 보고 있는 탭으로 해석됩니다.
 
 ### 최고 수준의 MCP 앱 브리지 {#mcp-app-bridge}
 

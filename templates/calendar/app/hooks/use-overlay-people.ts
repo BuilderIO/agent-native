@@ -64,13 +64,25 @@ export function useUpdateOverlayPersonColor() {
       }
       return updated;
     },
-    onSuccess: (data) => {
-      queryClient.setQueryData(
-        ["action", "get-overlay-people", undefined],
-        data,
+    onMutate: async ({ email, color }) => {
+      await queryClient.cancelQueries({ queryKey: OVERLAY_PEOPLE_KEY });
+      const previousPeople =
+        queryClient.getQueryData<OverlayPerson[]>(OVERLAY_PEOPLE_KEY);
+      queryClient.setQueryData<OverlayPerson[]>(OVERLAY_PEOPLE_KEY, (old) =>
+        old?.map((person) =>
+          person.email === email ? { ...person, color } : person,
+        ),
       );
+      return { previousPeople };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousPeople) {
+        queryClient.setQueryData(OVERLAY_PEOPLE_KEY, context.previousPeople);
+      }
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({
-        queryKey: ["action", "list-events"],
+        queryKey: OVERLAY_PEOPLE_KEY,
       });
     },
   });

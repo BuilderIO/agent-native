@@ -41,6 +41,7 @@ import {
   putRecordingBackupChunk,
   putRecordingBackupMeta,
 } from "@/lib/recording-backup";
+import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 
 // Re-exported for existing callers; the canonical impls live in
@@ -51,6 +52,16 @@ export type RecordingMode = "screen" | "camera" | "screen+camera";
 export type DisplaySurface = "monitor" | "window" | "browser";
 export const NO_MIC_DEVICE_ID = "__clips_no_microphone__";
 export const NO_CAMERA_DEVICE_ID = "__clips_no_camera__";
+
+const CAMERA_CAPTURE_ENDED_MESSAGE =
+  "Camera disconnected before recording could start. Reconnect it and try again.";
+
+export class CameraCaptureEndedError extends Error {
+  constructor() {
+    super(CAMERA_CAPTURE_ENDED_MESSAGE);
+    this.name = "CameraCaptureEndedError";
+  }
+}
 
 export function supportsBrowserTabCapture(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -148,8 +159,8 @@ export interface RecorderEngineOptions {
   onError?: (err: Error) => void;
   /**
    * Fired with a non-fatal notice the UI should surface (e.g. a toast) without
-   * stopping the recording. Used when the camera or microphone disconnects
-   * mid-recording: the engine tears that input down cleanly and keeps going,
+   * stopping the recording. Used when an optional camera or microphone
+   * disconnects: the engine tears that input down cleanly and keeps going,
    * then reports here so the user knows the webcam/audio dropped. Unlike
    * `onError`, this does NOT transition the engine into the `error` state.
    */
@@ -160,11 +171,11 @@ export interface RecorderEngineOptions {
    */
   onCameraEnded?: () => void;
   /**
-   * Called when the display stream's video track ends because the user clicked
-   * the browser's native "Stop sharing" button. When provided, the engine
-   * delegates the stop flow to this callback instead of calling `stop()`
-   * internally — so the UI can run its own side-effects (thumbnail capture,
-   * transcription flush, navigation) before the MediaRecorder is finalized.
+   * Called when the required video source ends: either the display stream or
+   * the sole camera-only track. When provided, the engine delegates the stop
+   * flow to this callback instead of calling `stop()` internally — so the UI
+   * can run its own side-effects (thumbnail capture, transcription flush,
+   * navigation) before the MediaRecorder is finalized.
    */
   onDisplayTrackEnded?: () => void;
   /**
@@ -511,6 +522,10 @@ export class RecorderEngine {
   // True once the camera is acquired, through preview/countdown/recording, until
   // teardown — gates disconnect handling outside the recording state.
   private cameraLive = false;
+  // Latched when MediaRecorder starts with a live webcam track. Unlike the live
+  // stream reference, this remains true if that camera disconnects after some
+  // camera footage has already been recorded.
+  private recordedCameraVideo = false;
   private micStream: MediaStream | null = null;
   private combinedStream: MediaStream | null = null;
   private previewStream: MediaStream | null = null;
@@ -521,6 +536,7 @@ export class RecorderEngine {
   private wakeLockGeneration = 0;
   private wakeLockRetake: (() => void) | null = null;
   private recorder: MediaRecorder | null = null;
+  private stopPromise: Promise<RecorderFinalizeResult> | null = null;
   private mimeType: string = "video/webm";
 
   private chunkIndex = 0;
@@ -614,7 +630,19 @@ export class RecorderEngine {
   }
 
   getCameraStream(): MediaStream | null {
-    return this.cameraStream;
+    return this.hasLiveCameraVideo() ? this.cameraStream : null;
+  }
+
+  /**
+   * Read-only access to the microphone track already owned by this engine.
+   * Recording chrome may analyse it, but must never stop or reconnect it.
+   */
+  getMicrophoneTrack(): MediaStreamTrack | null {
+    return (
+      this.micStream
+        ?.getAudioTracks()
+        .find((track) => track.readyState !== "ended") ?? null
+    );
   }
 
   /**
@@ -862,6 +890,8 @@ export class RecorderEngine {
     const wantsCamera =
       this.opts.mode === "camera" || this.opts.mode === "screen+camera";
     const wantsMic = this.opts.micDeviceId !== NO_MIC_DEVICE_ID;
+    this.cameraDisconnectNotified = false;
+    this.recordedCameraVideo = false;
     this.micFellBackToDefault = false;
 
     try {
@@ -960,6 +990,13 @@ export class RecorderEngine {
             throw this.friendlyError(err, "camera");
           }
         }
+
+        if (!this.hasLiveCameraVideo()) {
+          this.handleCameraUnavailableBeforeStart();
+        } else {
+          this.cameraLive = true;
+          this.observeCameraTracks(this.cameraStream!);
+        }
       }
 
       if (wantsMic) {
@@ -1049,18 +1086,6 @@ export class RecorderEngine {
         }
       }
 
-      // Camera / mic disconnects (USB webcam unplugged, permission revoked,
-      // Bluetooth dropped) are NON-fatal: keep whatever inputs remain and warn.
-      // The handlers gate on `cameraLive`/state so the `ended` events fired by
-      // `cleanupTracks()` during a normal stop/cancel are ignored.
-      if (this.cameraStream) {
-        for (const track of this.cameraStream.getVideoTracks()) {
-          track.addEventListener("ended", () => {
-            this.onCameraTrackEnded();
-          });
-        }
-      }
-
       if (this.micStream) {
         for (const track of this.micStream.getAudioTracks()) {
           track.addEventListener("ended", () => {
@@ -1068,11 +1093,6 @@ export class RecorderEngine {
           });
         }
       }
-
-      // Camera is live from here through preview/countdown/recording until
-      // teardown — set before the async blur setup so a disconnect during that
-      // window is handled, not inherited as a dead stream.
-      if (this.cameraStream) this.cameraLive = true;
 
       // Swap the raw camera for its blurred derivative, which both the preview
       // bubble and the recording composite read ("what you see is what's
@@ -1091,13 +1111,14 @@ export class RecorderEngine {
         } else {
           this.cameraBlur = handle;
           this.cameraStream = this.cameraBlur.stream;
+          if (this.cameraStream !== this.rawCameraStream) {
+            this.observeCameraTracks(this.cameraStream);
+          }
         }
       }
 
-      if (this.opts.mode === "camera" && !this.cameraStream) {
-        throw new Error(
-          "Camera disconnected before recording could start. Reconnect it and try again.",
-        );
+      if (wantsCamera && !this.hasLiveCameraVideo()) {
+        this.handleCameraUnavailableBeforeStart();
       }
 
       this.previewStream =
@@ -1105,7 +1126,7 @@ export class RecorderEngine {
 
       return {
         previewStream: this.previewStream,
-        cameraStream: this.cameraStream,
+        cameraStream: this.getCameraStream(),
       };
     } catch (err) {
       // Release any tracks acquired before the failure so the browser's
@@ -1142,10 +1163,23 @@ export class RecorderEngine {
   // -------------------------------------------------------------------------
 
   async start(): Promise<void> {
+    if (this.opts.mode === "camera" && !this.hasLiveCameraVideo()) {
+      this.cleanupTracks();
+      throw new CameraCaptureEndedError();
+    }
+    if (
+      this.opts.mode === "screen+camera" &&
+      (this.cameraStream || this.rawCameraStream) &&
+      !this.hasLiveCameraVideo()
+    ) {
+      this.handleCameraUnavailableBeforeStart();
+    }
     if (!this.displayStream && !this.cameraStream) {
       throw new Error("Must call acquire() before start()");
     }
     this.combinedStream = this.buildCombinedStream();
+    this.stopPromise = null;
+    this.recordedCameraVideo = false;
 
     // `pickMimeType` returns "" when nothing in our candidate list is
     // supported. Don't throw in that case — the browser's MediaRecorder
@@ -1215,7 +1249,6 @@ export class RecorderEngine {
     this.uploadGenerationId = null;
     this.pendingStreamBlobs = [];
     this.pendingStreamBytes = 0;
-    this.cameraDisconnectNotified = false;
     this.micDisconnectNotified = false;
     const useTimeslicedLocalChunks = canUseTimeslicedRecorderChunks(
       this.mimeType,
@@ -1250,11 +1283,17 @@ export class RecorderEngine {
       this.emitError(err);
     });
 
+    if (this.opts.mode === "camera" && !this.hasLiveCameraVideo()) {
+      this.cleanupTracks();
+      throw new CameraCaptureEndedError();
+    }
+    const startsWithCameraVideo = this.hasLiveCameraVideo();
     if (useTimeslicedLocalChunks) {
       recorder.start(this.opts.chunkIntervalMs);
     } else {
       recorder.start();
     }
+    this.recordedCameraVideo = startsWithCameraVideo;
     this.startedAtMs = performance.now();
     this.transition("recording");
   }
@@ -1297,14 +1336,22 @@ export class RecorderEngine {
    * so a stuck "compressing" state would hang the spinner forever — see
    * `record.tsx`'s `onState` handler.
    */
-  async stop(): Promise<RecorderFinalizeResult> {
-    if (!this.recorder) throw new Error("Not recording");
+  stop(): Promise<RecorderFinalizeResult> {
+    if (this.stopPromise) return this.stopPromise;
+    const recorder = this.recorder;
+    if (!recorder) return Promise.reject(new Error("Not recording"));
+    this.stopPromise = this.stopOnce(recorder);
+    return this.stopPromise;
+  }
 
+  private async stopOnce(
+    recorder: MediaRecorder,
+  ): Promise<RecorderFinalizeResult> {
     // Resume first if paused — some browsers don't fire dataavailable
     // from a paused MediaRecorder on stop().
-    if (this.recorder.state === "paused") {
+    if (recorder.state === "paused") {
       try {
-        this.recorder.resume();
+        recorder.resume();
       } catch {
         // ignore
       }
@@ -1314,8 +1361,8 @@ export class RecorderEngine {
       }
     }
 
-    let backupCaptureComplete = this.recorder.state === "inactive";
-    if (this.recorder.state === "inactive") {
+    let backupCaptureComplete = recorder.state === "inactive";
+    if (recorder.state === "inactive") {
       // The MediaRecorder may have auto-stopped if all its tracks ended
       // (e.g. display-only mode with no mic). Different browsers dispatch
       // `dataavailable` either before or after state transitions to
@@ -1349,7 +1396,7 @@ export class RecorderEngine {
             resolve(true);
           });
         };
-        this.recorder!.addEventListener("dataavailable", passthrough, {
+        recorder.addEventListener("dataavailable", passthrough, {
           once: true,
         });
         // Safety net: if dataavailable never fires (broken recorder),
@@ -1358,13 +1405,13 @@ export class RecorderEngine {
         setTimeout(() => {
           if (resolved) return;
           resolved = true;
-          this.recorder?.removeEventListener("dataavailable", passthrough);
+          recorder.removeEventListener("dataavailable", passthrough);
           resolve(false);
         }, 10_000);
       });
 
       try {
-        this.recorder.stop();
+        recorder.stop();
       } catch (err) {
         // Hardware/recorder failure before we even started the post-stop
         // pipeline — emit, transition, and bail.
@@ -1380,7 +1427,7 @@ export class RecorderEngine {
     const dimensions = this.readDimensions();
     const durationMs = Math.round(this.getElapsedMs());
     const hasAudio = this.hasAudioTrack();
-    const hasCamera = !!this.cameraStream;
+    const hasCamera = this.recordedCameraVideo;
     const finalizeMeta: RecordingFinalizeMeta = {
       durationMs,
       dimensions,
@@ -1448,6 +1495,10 @@ export class RecorderEngine {
         const remainder = new Blob(this.pendingStreamBlobs, {
           type: this.mimeType,
         });
+        void this.uploadThumbnailForBlob(
+          new Blob(this.localChunks, { type: this.mimeType }),
+          this.uploadAbort?.signal,
+        );
         this.pendingStreamBlobs = [];
         this.pendingStreamBytes = 0;
         result = await this.uploadChunk(remainder, this.chunkIndex++, {
@@ -1880,7 +1931,9 @@ export class RecorderEngine {
     // Camera-only: camera video + mic.
     if (this.opts.mode === "camera") {
       const combined = new MediaStream();
-      for (const t of this.cameraStream!.getVideoTracks()) combined.addTrack(t);
+      const cameraTrack = this.liveVideoTrack(this.cameraStream);
+      if (!cameraTrack) throw new CameraCaptureEndedError();
+      combined.addTrack(cameraTrack);
       const audio = this.buildMixedAudioTrack([this.micStream]);
       if (audio) combined.addTrack(audio);
       return combined;
@@ -2025,6 +2078,8 @@ export class RecorderEngine {
     },
     signal?: AbortSignal,
   ): Promise<Record<string, unknown> | undefined> {
+    void this.uploadThumbnailForBlob(blob, signal);
+
     // Reset the upload index for post-stop blob uploads: MP4/QuickTime never
     // streamed chunks, and the compression path has just cleared server chunks.
     this.chunkIndex = 0;
@@ -2142,6 +2197,8 @@ export class RecorderEngine {
       throw new Error("Cannot retry an empty recording upload.");
     }
 
+    void this.uploadThumbnailForBlob(blob, signal);
+
     this.chunkIndex = 0;
     const totalChunks = Math.ceil(blob.size / STREAM_CHUNK_BYTES);
     let result: Record<string, unknown> | undefined;
@@ -2174,6 +2231,22 @@ export class RecorderEngine {
     }
 
     return result;
+  }
+
+  private async uploadThumbnailForBlob(
+    blob: Blob,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!this.opts.recordingId || blob.size === 0) return;
+    try {
+      await uploadVideoBlobThumbnail(this.opts.recordingId, blob, { signal });
+    } catch (error) {
+      if (signal?.aborted) return;
+      console.warn("[recorder] upload-time thumbnail skipped", {
+        recordingId: this.opts.recordingId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async uploadChunk(
@@ -2412,6 +2485,7 @@ export class RecorderEngine {
     if (!recordingId || recordingId === "__pending__") return;
     const index = this.backupChunkIndex++;
     const dimensions = this.readDimensions();
+    const hasCamera = this.recordedCameraVideo;
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(async () => {
         await putRecordingBackupChunk(recordingId, index, blob);
@@ -2422,7 +2496,7 @@ export class RecorderEngine {
           width: dimensions.width,
           height: dimensions.height,
           hasAudio: this.hasAudioTrack(),
-          hasCamera: !!this.cameraStream,
+          hasCamera,
           bytes: this.totalRecordedBytes,
           chunkCount: index + 1,
           savedAt: new Date().toISOString(),
@@ -2567,22 +2641,28 @@ export class RecorderEngine {
     this.opts.onWarning?.(message);
   }
 
-  /**
-   * Camera video track ended mid-recording (USB webcam unplugged, OS revoked
-   * the camera, etc.). Non-fatal: keep recording. In `screen+camera` mode the
-   * recorded video comes from the composite canvas — its bubble draw self-hides
-   * once the camera `<video>` reports zero dimensions, so we deliberately do
-   * NOT call `cameraComposite.cleanup()` (that would stop the canvas capture
-   * and kill the screen recording too). We just stop the dead camera tracks and
-   * warn the user.
-   */
-  private onCameraTrackEnded() {
-    if (!this.cameraLive) return;
-    if (this.cameraDisconnectNotified) return;
-    this.cameraDisconnectNotified = true;
-    this.cameraLive = false;
-    // Tear down the blur pipeline so the composite's camera <video> sees its
-    // (blurred) track end and self-hides, instead of freezing on a stale frame.
+  private liveVideoTrack(stream: MediaStream | null): MediaStreamTrack | null {
+    return (
+      stream?.getVideoTracks().find((track) => track.readyState === "live") ??
+      null
+    );
+  }
+
+  private hasLiveCameraVideo(): boolean {
+    return (
+      this.liveVideoTrack(this.cameraStream) !== null &&
+      (!this.rawCameraStream ||
+        this.liveVideoTrack(this.rawCameraStream) !== null)
+    );
+  }
+
+  private observeCameraTracks(stream: MediaStream): void {
+    for (const track of stream.getVideoTracks()) {
+      track.addEventListener("ended", () => this.onCameraTrackEnded());
+    }
+  }
+
+  private releaseCameraAfterDisconnect(): void {
     if (this.cameraBlur) {
       this.cameraBlur.cleanup();
       this.cameraBlur = null;
@@ -2597,11 +2677,60 @@ export class RecorderEngine {
         // ignore — the track has already ended.
       }
     }
-    // Drop the on-page bubble to match the recorded output (screen-only now).
+    this.rawCameraStream = null;
+    this.cameraStream = null;
     this.opts.onCameraEnded?.();
-    this.emitWarning(
-      "Camera disconnected — recording continues without webcam.",
-    );
+  }
+
+  private handleCameraUnavailableBeforeStart(): void {
+    const shouldNotify = !this.cameraDisconnectNotified;
+    if (shouldNotify) {
+      this.cameraDisconnectNotified = true;
+      this.cameraLive = false;
+      this.releaseCameraAfterDisconnect();
+    }
+    if (this.opts.mode === "camera") {
+      throw new CameraCaptureEndedError();
+    }
+    if (shouldNotify) {
+      this.emitWarning(
+        "Camera disconnected — recording continues without webcam.",
+      );
+    }
+  }
+
+  /**
+   * Screen + camera owns an independent display video track, so a webcam drop
+   * remains non-fatal. Camera-only has no replacement video source: before
+   * MediaRecorder starts it fails loudly, and after start it delegates to the
+   * same UI-owned finalize path used by native screen-share termination.
+   */
+  private onCameraTrackEnded() {
+    if (!this.cameraLive) return;
+    if (this.hasLiveCameraVideo()) return;
+    if (this.cameraDisconnectNotified) return;
+    this.cameraDisconnectNotified = true;
+    this.cameraLive = false;
+    this.releaseCameraAfterDisconnect();
+
+    if (this.opts.mode === "screen+camera") {
+      this.emitWarning(
+        "Camera disconnected — recording continues without webcam.",
+      );
+      return;
+    }
+
+    if (this.state === "recording" || this.state === "paused") {
+      if (this.opts.onDisplayTrackEnded) {
+        this.opts.onDisplayTrackEnded();
+      } else {
+        void this.stop().catch((err) => this.emitError(err));
+      }
+      return;
+    }
+
+    this.cleanupTracks();
+    this.emitError(new CameraCaptureEndedError());
   }
 
   /**

@@ -35,6 +35,7 @@ export function meta() {
  */
 type MailPreferences = {
   pinnedLabels?: string[];
+  combineInbox?: boolean;
 };
 
 async function resolveRootInboxHref(): Promise<string> {
@@ -44,9 +45,11 @@ async function resolveRootInboxHref(): Promise<string> {
     );
     if (!response.ok) return "/inbox";
     const settings = (await response.json()) as MailPreferences;
-    return settings.pinnedLabels === undefined
-      ? "/inbox?label=important"
-      : "/inbox";
+    return settings.combineInbox
+      ? "/inbox"
+      : settings.pinnedLabels === undefined
+        ? "/inbox?label=important"
+        : "/inbox";
   } catch {
     return "/inbox";
   }

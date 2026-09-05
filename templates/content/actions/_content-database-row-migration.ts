@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
   normalizePropertyValue,
@@ -502,7 +503,11 @@ export async function applyMigration(
   for (const row of plan.rows) {
     const updated = await tx
       .update(schema.documents)
-      .set({ content: row.content, updatedAt: now })
+      .set({
+        content: row.content,
+        bodyRevision: bodyRevisionForContent(row.content),
+        updatedAt: now,
+      })
       .where(
         and(
           eq(schema.documents.id, row.documentId),

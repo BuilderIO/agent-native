@@ -8,7 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -29,10 +29,8 @@ export async function ensureTable(): Promise<void> {
       const client = getDbExec();
       // Generic INTEGER maps to BIGINT on Postgres, which millisecond
       // timestamps need.
-      const createSql = isPostgres()
-        ? EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
-        : EMAIL_LOG_CREATE_SQL;
-      if (isPostgres()) {
+      const createSql = EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
+      {
         await ensureTableExists("email_log", createSql);
         await ensureColumnExists(
           "email_log",
@@ -54,7 +52,9 @@ export async function ensureTable(): Promise<void> {
       try {
         await client.execute("ALTER TABLE email_log ADD COLUMN org_id TEXT");
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = String(
+          (error as { message?: unknown } | null)?.message ?? error,
+        );
         if (!/already exists|duplicate column name/i.test(message)) {
           throw error;
         }

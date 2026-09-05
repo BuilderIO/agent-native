@@ -178,6 +178,37 @@ describe("propose-node-rewrite", () => {
     ]);
   });
 
+  it("uses the exact pending snapshot for atomic publication", async () => {
+    const pendingState = {
+      repromptId: "reprompt_1",
+      designId: "design_1",
+      fileId: "file_1",
+      target,
+      baseVersionHash: "hash_base",
+      instruction: "Make the hero darker",
+      createdAt: "2026-07-16T00:00:00.000Z",
+      status: "pending",
+    };
+    mocks.readAppState.mockResolvedValue(pendingState);
+
+    await action.run({
+      source: { fileId: "file_1" },
+      target,
+      baseVersionHash: "hash_base",
+      repromptId: "reprompt_1",
+      variants: [
+        {
+          html: "<section><h1>New</h1></section>",
+          summary: "Updated hero",
+        },
+      ],
+    });
+
+    const [operations] = mocks.compareAndSetManyAppState.mock.calls;
+    expect(operations?.[0]?.[0]?.expectedValue).toBe(pendingState);
+    expect(operations?.[0]?.[0]?.nextValue).toBe(pendingState);
+  });
+
   it("rejects an agent-selected target that differs from pending state", async () => {
     await expect(
       action.run({
@@ -266,5 +297,64 @@ describe("propose-node-rewrite", () => {
     ).rejects.toThrow("superseded by a newer request");
 
     expect(mocks.compareAndSetManyAppState).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a proposal that the same request already published", async () => {
+    mocks.compareAndSetManyAppState
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        repromptId: "reprompt_1",
+        designId: "design_1",
+        fileId: "file_1",
+        target,
+        baseVersionHash: "hash_base",
+        instruction: "Make the hero darker",
+        createdAt: "2026-07-16T00:00:00.000Z",
+      })
+      .mockResolvedValueOnce({
+        proposalId: "node-rewrite-winning_proposal",
+        repromptId: "reprompt_1",
+        designId: "design_1",
+        fileId: "file_1",
+        filename: "index.html",
+        target,
+        resolvedTarget: {
+          nodeId: "hero",
+          selector: '[data-agent-native-node-id="hero"]',
+        },
+        baseVersionHash: "hash_base",
+        variants: [
+          {
+            html: '<section class="bg-slate-950"><h1>Winner</h1></section>',
+            summary: "Winning proposal",
+          },
+        ],
+        chosenIndex: 0,
+        createdAt: "2026-07-16T00:00:01.000Z",
+      });
+
+    await expect(
+      action.run({
+        source: { fileId: "file_1" },
+        target,
+        baseVersionHash: "hash_base",
+        repromptId: "reprompt_1",
+        variants: [
+          { html: "<section>Duplicate</section>", summary: "Duplicate" },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      proposalId: "node-rewrite-winning_proposal",
+      repromptId: "reprompt_1",
+      variants: [expect.objectContaining({ summary: "Winning proposal" })],
+      bridgeMessages: [
+        expect.objectContaining({
+          proposalId: "node-rewrite-winning_proposal",
+          html: '<section class="bg-slate-950"><h1>Winner</h1></section>',
+        }),
+      ],
+    });
   });
 });

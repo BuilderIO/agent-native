@@ -8,6 +8,7 @@
  */
 
 import {
+  SHARED_OWNER,
   resourceGetByPath,
   ensurePersonalDefaults,
   sharedResourceOwner,
@@ -67,10 +68,13 @@ Options:
   }
 
   if (scope === "shared") {
-    const resource = await resourceGetByPath(
-      sharedResourceOwner(getRequestOrgId()),
-      resourcePath,
-    );
+    const orgId = getRequestOrgId() ?? null;
+    const sharedOwner = sharedResourceOwner(orgId);
+    const resource =
+      (await resourceGetByPath(sharedOwner, resourcePath, { orgId })) ??
+      (sharedOwner === SHARED_OWNER
+        ? null
+        : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
     if (!resource) {
       console.log(
         `Resource not found: ${resourcePath} (scope: shared). You can create it with resource-write.`,
@@ -96,10 +100,13 @@ Options:
     return;
   }
 
-  const shared = await resourceGetByPath(
-    sharedResourceOwner(getRequestOrgId()),
-    resourcePath,
-  );
+  const orgId = getRequestOrgId() ?? null;
+  const sharedOwner = sharedResourceOwner(orgId);
+  const shared =
+    (await resourceGetByPath(sharedOwner, resourcePath, { orgId })) ??
+    (sharedOwner === SHARED_OWNER
+      ? null
+      : await resourceGetByPath(SHARED_OWNER, resourcePath, { orgId }));
   if (shared) {
     process.stdout.write(shared.content);
     return;

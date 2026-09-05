@@ -56,7 +56,16 @@ vi.mock("../server/handlers/decks.js", () => ({
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  deckVersionChangeGroupFromAction: vi.fn(() => undefined),
   deckVersionChatContextFromAction: vi.fn(() => undefined),
+}));
+
+vi.mock("./patch-deck.js", () => ({
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -124,6 +133,36 @@ describe("update-deck-aspect-ratio action", () => {
     await action.run({ deckId: "deck-1", aspectRatio: "4:5" });
     const dataJson = JSON.parse(updatedFields!.data as string);
     expect(dataJson.aspectRatio).toBe("4:5");
+  });
+
+  it("skips a repeated aspectRatio without persisting or notifying", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "T",
+      slides: [],
+      aspectRatio: "16:9",
+    });
+
+    await expect(
+      action.run({ deckId: "deck-1", aspectRatio: "16:9" }),
+    ).resolves.toEqual({ id: "deck-1", aspectRatio: "16:9", applied: false });
+    expect(updatedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("throws a no-write error for repeated agent requests", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "T",
+      slides: [],
+      aspectRatio: "16:9",
+    });
+
+    await expect(
+      action.run({ deckId: "deck-1", aspectRatio: "16:9" }, { caller: "tool" }),
+    ).rejects.toThrow("Nothing was written");
+    expect(updatedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("throws when the deck row does not exist", async () => {

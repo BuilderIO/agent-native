@@ -17,8 +17,23 @@ const BUDGETS = {
   "CLAUDE.md": 3430,
   ".agents/skills/visual-recap/SKILL.md": 5140,
   ".agents/skills/visual-plan/SKILL.md": 4740,
-  ".agents/skills/review-latest-feedback/SKILL.md": 4440,
-  ".agents/skills/external-agents/SKILL.md": 4030,
+  // Raised 4440 -> 4490 on 2026-09-02. The skill gained a whole phase this
+  // day: Phase 0 claims work with an eye before investigating, after a live
+  // run marked one of seven actionable reports and left six for peers to
+  // duplicate. It also gained the repeat-report gate and the :upvote: scope
+  // override. Relocate and condense ran first and did the larger share -
+  // roughly 200 words came out across ten passes, including an exclusion list
+  // stated twice, an age-branch rule stated three times, a duplicated
+  // eye-cursor paragraph, and a search block made redundant by the unbounded
+  // cursor. These 50 are what is left after that.
+  ".agents/skills/review-latest-feedback/SKILL.md": 4490,
+  // Raised 4030 -> 4060 on 2026-09-02 for 1a7a00f2ec ("expose WebMCP actions
+  // on bypass surfaces"), a concurrent change on this shared branch that
+  // documents when to use a named direct action versus `ask_app`. Raised
+  // rather than condensed because the words are that commit's, not this
+  // branch's, and rewording a peer's just-written prose to reclaim 25 words
+  // is the worse trade.
+  ".agents/skills/external-agents/SKILL.md": 4060,
   ".agents/skills/turn-into-app/SKILL.md": 3780,
   ".agents/skills/extensions/SKILL.md": 3680,
   ".agents/skills/address-feedback-with-replies/SKILL.md": 3670,

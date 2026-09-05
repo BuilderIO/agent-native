@@ -1262,12 +1262,6 @@ const requestTranscriptAction = defineAction({
       };
     }
 
-    // ── Builder transcription (cloud fallback) ────────────────────────
-    // Gate on the gateway credential, not on Builder connection custody:
-    // `transcribeWithBuilder` authenticates through `resolveBuilderGatewayAuth`,
-    // which reads gateway credentials and a legacy private key and never
-    // consults an OAuth grant. Gating on custody would select this path for an
-    // OAuth-only user, write pending state, prepare audio, and only then fail.
     if (await resolveHasBuilderGatewayCredential()) {
       if (!regeneratingReadyTranscript) {
         await upsertTranscriptRow(db, {

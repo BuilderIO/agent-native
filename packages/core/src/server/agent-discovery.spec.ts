@@ -738,7 +738,9 @@ describe("agent discovery", () => {
       })),
     );
 
-    const result = await discoverOrgDirectoryAgents("dispatch");
+    const result = await runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverOrgDirectoryAgents("dispatch"),
+    );
 
     expect(result.status).toBe("available");
     if (result.status === "available") {
@@ -750,6 +752,11 @@ describe("agent discovery", () => {
       );
     }
     expect(resourceListContentByOwnersAndPrefixesMock).toHaveBeenCalledTimes(1);
+    expect(resourceListContentByOwnersAndPrefixesMock).toHaveBeenCalledWith(
+      ["__shared__", "__organization__:org-123"],
+      expect.any(Array),
+      { orgId: "org-123" },
+    );
     expect(resourceGetMock).not.toHaveBeenCalled();
   });
 

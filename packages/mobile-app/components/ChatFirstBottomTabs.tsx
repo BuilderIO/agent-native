@@ -1,12 +1,11 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
+import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import {
   IconMessageCircle,
   IconPlus,
   IconSettings,
 } from "@tabler/icons-react-native";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
-import { ProgressiveBlur, useTabBarMinimized } from "expo-glass-tabs";
-import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Pressable,
@@ -25,6 +24,10 @@ import Animated, {
 
 import { AppIcon } from "@/components/AppCard";
 import { AppLauncherMenu } from "@/components/AppLauncherMenu";
+import {
+  ProgressiveBlur,
+  useTabBarMinimized,
+} from "@/components/TabBarEffects";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { getDialect } from "@agent-native/core/db";
 import { recordChange } from "@agent-native/core/server";
 import { and, desc, eq } from "drizzle-orm";
 
+import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
@@ -37,7 +37,9 @@ async function applyRepairToDashboardRow(
   const db = getDb() as any;
   let config: Record<string, unknown>;
   try {
-    config = JSON.parse(row.config) as Record<string, unknown>;
+    config = normalizeDashboardConfig(
+      JSON.parse(row.config) as Record<string, unknown>,
+    );
   } catch {
     return false;
   }
@@ -159,7 +161,6 @@ export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise
   // database. Exact-string matches and the optimistic (config, updatedAt)
   // fence ensure a concurrent edit always wins.
   const db = getDb() as any;
-  const dialect = getDialect();
   const rows = await db
     .select({
       id: schema.dashboards.id,
@@ -179,7 +180,7 @@ export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise
     if (typeof row.config !== "string") continue;
     try {
       const wasRepaired = await applyRepairToDashboardRow(row, (config) =>
-        repairUnboundedFirstPartyPanels(config, dialect),
+        repairUnboundedFirstPartyPanels(config),
       );
       if (wasRepaired) repairedCount += 1;
     } catch (err) {

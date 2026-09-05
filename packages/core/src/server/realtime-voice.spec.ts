@@ -23,7 +23,7 @@ vi.mock("./auth.js", () => ({
 }));
 
 const resolveSecret = vi.hoisted(() => vi.fn());
-const resolveBuilderGatewayCredentials = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
 const gatewayBaseUrl = vi.hoisted(() => ({
   value: "https://api.builder.io/agent-native/gateway/v1",
 }));
@@ -32,8 +32,8 @@ const gatewayBaseUrl = vi.hoisted(() => ({
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
-  resolveBuilderGatewayCredentials: (...args: unknown[]) =>
-    resolveBuilderGatewayCredentials(...args),
+  resolveBuilderGatewayAuth: (...args: unknown[]) =>
+    resolveBuilderGatewayAuth(...args),
   getBuilderGatewayBaseUrl: () => gatewayBaseUrl.value,
 }));
 
@@ -281,11 +281,7 @@ beforeEach(() => {
     orgId: "org-session",
   });
   resolveSecret.mockResolvedValue("sk-test-example");
-  resolveBuilderGatewayCredentials.mockResolvedValue({
-    privateKey: null,
-    publicKey: null,
-    userId: null,
-  });
+  resolveBuilderGatewayAuth.mockResolvedValue(null);
   runWithRequestContext.mockImplementation(
     async (_context: unknown, callback: () => Promise<unknown>) => callback(),
   );
@@ -362,7 +358,7 @@ describe("mountRealtimeVoiceRoutes", () => {
     });
     expect(tool.statusCode).toBe(403);
     expect(getSession).not.toHaveBeenCalled();
-    expect(resolveBuilderGatewayCredentials).not.toHaveBeenCalled();
+    expect(resolveBuilderGatewayAuth).not.toHaveBeenCalled();
     expect(resolveSecret).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(executeTool).not.toHaveBeenCalled();
@@ -404,9 +400,9 @@ describe("realtime voice inline preferences", () => {
 
 describe("realtime voice session route", () => {
   it("keeps navigation tools visible when a template registry exceeds the tool cap", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue([
@@ -472,9 +468,9 @@ describe("realtime voice session route", () => {
   });
 
   it("caps tools to the Builder realtime gateway contract", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue(
@@ -503,9 +499,9 @@ describe("realtime voice session route", () => {
   });
 
   it("packs tools within the Builder realtime session byte budget", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue(
@@ -539,9 +535,9 @@ describe("realtime voice session route", () => {
   });
 
   it("rejects tool schemas over the UTF-8 byte limit", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue([
@@ -780,9 +776,9 @@ describe("realtime voice session route", () => {
   });
 
   it("uses Builder managed realtime automatically when connected", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -834,9 +830,9 @@ describe("realtime voice session route", () => {
   // reaches is the gateway's own rejection — which used to arrive verbatim,
   // status code and upstream sentence included.
   it("hides the Builder gateway's realtime rejection behind the one visitor line", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "btk-site-token",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer btk-site-token",
+      spaceId: "space-public-test",
       userId: null,
     });
     vi.stubGlobal(
@@ -887,9 +883,9 @@ describe("realtime voice session route", () => {
   });
 
   it("accepts same-origin SDP through a host-rewriting reverse proxy", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -917,9 +913,9 @@ describe("realtime voice session route", () => {
 
   it("honors a local Builder gateway base URL", async () => {
     gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(

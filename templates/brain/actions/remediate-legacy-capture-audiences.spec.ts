@@ -76,9 +76,14 @@ import action, {
   remediateLegacyCaptureAudiencesSchema,
 } from "./remediate-legacy-capture-audiences.js";
 
-function createDb(rowsAffected = [1, 1]) {
-  const updateWhere = vi.fn().mockImplementation(async () => ({
-    rowsAffected: rowsAffected.shift() ?? 0,
+function createDb(returnedRowCounts = [1, 1]) {
+  const updateWhere = vi.fn(() => ({
+    returning: vi.fn(async () => {
+      const count = returnedRowCounts.shift() ?? 0;
+      return Array.from({ length: count }, (_, index) => ({
+        id: `updated-${index}`,
+      }));
+    }),
   }));
   const queryLimit = vi.fn(async () => candidates);
   const db = {

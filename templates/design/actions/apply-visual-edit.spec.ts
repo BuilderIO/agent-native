@@ -412,3 +412,43 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
     expect(result.patchedContent).toContain("top: 24px;");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Batched intents: a later failure must roll back both content AND projection
+// ---------------------------------------------------------------------------
+
+describe("apply-visual-edit batched intent failure", () => {
+  it("returns a projection consistent with the rolled-back content when a later intent fails", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: [
+        {
+          kind: "class",
+          target: { selector: "#card" },
+          operation: "add",
+          className: "added-class",
+        },
+        {
+          kind: "style",
+          // No such node — forces the batch to fail on the second intent
+          // after the first has already been applied in memory.
+          target: { selector: "#missing" },
+          property: "color",
+          value: "red",
+        },
+      ],
+      includeContent: true,
+    });
+
+    expect(result.result.status).not.toBe("applied");
+    // Content rolls back to the pre-batch source.
+    expect(result.patchedContent).toBe(html);
+    // The returned projection must describe that same rolled-back source —
+    // not the in-memory state after the first (discarded) intent applied.
+    const cardNode = result.projection.nodes.find((node) =>
+      node.selectors.includes("#card"),
+    );
+    expect(cardNode).toBeDefined();
+    expect(cardNode?.classes).not.toContain("added-class");
+  });
+});

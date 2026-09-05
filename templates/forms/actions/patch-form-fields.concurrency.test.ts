@@ -13,7 +13,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * caller's write has fully landed, so both edits survive.
  */
 
-type Row = { id: string; status: string; fields: string };
+type Row = {
+  id: string;
+  status: string;
+  fields: string;
+  updatedAt: string;
+};
 
 const mockAssertAccess = vi.hoisted(() => vi.fn(async () => {}));
 const mockInvalidatePublicFormCache = vi.hoisted(() => vi.fn());
@@ -21,6 +26,7 @@ const mockInvalidatePublicFormCache = vi.hoisted(() => vi.fn());
 const store = vi.hoisted(() => new Map<string, Row>());
 const selectDelay = vi.hoisted(() => ({ ms: 0 }));
 const selectCallCount = vi.hoisted(() => ({ value: 0 }));
+const writeConflictOnce = vi.hoisted(() => ({ value: false }));
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -36,6 +42,7 @@ vi.mock("../server/lib/public-form-ssr.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  and: vi.fn((...conditions: unknown[]) => ({ conditions })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -65,18 +72,42 @@ vi.mock("../server/db/index.js", () => ({
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: Partial<Row>) => ({
-        where: vi.fn(async (cond: { value: string }) => {
-          const row = store.get(cond.value);
-          if (row) {
-            store.set(cond.value, { ...row, ...values });
-          }
-        }),
+        where: vi.fn((cond: { conditions?: Array<{ value?: string }> }) => ({
+          returning: vi.fn(async () => {
+            const id = cond.conditions?.[0]?.value ?? "form-race";
+            const row = store.get(id);
+            if (row && writeConflictOnce.value) {
+              writeConflictOnce.value = false;
+              store.set(id, {
+                ...row,
+                fields: JSON.stringify([
+                  ...JSON.parse(row.fields),
+                  {
+                    id: "field-foreign",
+                    type: "text",
+                    label: "Foreign update",
+                    required: false,
+                  },
+                ]),
+                updatedAt: "2026-09-03T00:00:01.000Z",
+              });
+              return [];
+            }
+            if (row) {
+              store.set(id, { ...row, ...values });
+              return [{ id: row.id }];
+            }
+            return [];
+          }),
+        })),
       })),
     })),
   }),
   schema: {
     forms: {
       id: "forms.id",
+      fields: "forms.fields",
+      updatedAt: "forms.updatedAt",
     },
   },
 }));
@@ -89,6 +120,7 @@ describe("patch-form-fields concurrent writes", () => {
     store.clear();
     selectCallCount.value = 0;
     selectDelay.ms = 0;
+    writeConflictOnce.value = false;
     store.set("form-race", {
       id: "form-race",
       status: "draft",
@@ -96,6 +128,7 @@ describe("patch-form-fields concurrent writes", () => {
         { id: "field-a", type: "text", label: "A", required: false },
         { id: "field-b", type: "text", label: "B", required: false },
       ]),
+      updatedAt: "2026-09-03T00:00:00.000Z",
     });
   });
 
@@ -157,6 +190,7 @@ describe("patch-form-fields concurrent writes", () => {
         { id: "legacy-a", type: "dropdown", label: "A" },
         { id: "legacy-b", type: "text", label: "B" },
       ]),
+      updatedAt: "2026-09-03T00:00:00.000Z",
     });
 
     const result = await patchFormFields.run({
@@ -167,6 +201,36 @@ describe("patch-form-fields concurrent writes", () => {
     expect(result.fields).toEqual([
       { id: "legacy-b", type: "text", label: "B", required: false },
       { id: "legacy-a", type: "text", label: "A", required: false },
+    ]);
+  });
+
+  it("retries against a row changed by another instance", async () => {
+    writeConflictOnce.value = true;
+
+    const result = await patchFormFields.run({
+      id: "form-race",
+      ops: [
+        {
+          op: "upsert",
+          field: {
+            id: "field-a",
+            type: "text",
+            label: "A updated",
+            required: false,
+          },
+        },
+      ],
+    });
+
+    expect(result.fields).toEqual([
+      { id: "field-a", type: "text", label: "A updated", required: false },
+      { id: "field-b", type: "text", label: "B", required: false },
+      {
+        id: "field-foreign",
+        type: "text",
+        label: "Foreign update",
+        required: false,
+      },
     ]);
   });
 });

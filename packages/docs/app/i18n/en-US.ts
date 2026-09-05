@@ -59,6 +59,7 @@ const enUS = {
   },
   common: {
     copied: "Copied",
+    copyFailed: "Copy failed",
     copyCommand: "Copy command",
     copyCode: "Copy code",
     tryIt: "Try It",
@@ -176,8 +177,8 @@ const enUS = {
           body: "Define work once and use it from the UI, agent, HTTP, MCP, A2A, and CLI.",
         },
         sqlStateOrm: {
-          title: "SQL state and ORM",
-          body: "Durable app data, application state, migrations, and provider-agnostic schemas.",
+          title: "PostgreSQL state and ORM",
+          body: "Durable app data, application state, migrations, and PostgreSQL/PGlite schemas.",
         },
         dbAdmin: {
           title: "DB admin",
@@ -230,7 +231,7 @@ const enUS = {
       body1:
         "Agent-Native is an open-source framework for building agentic applications: start with chat, define shared actions, then add UI, jobs, and collaboration around the same state.",
       body2:
-        "Bring your own database, hosting provider, model stack, and app code.",
+        "Use local PGlite or hosted PostgreSQL, your hosting provider, model stack, and app code.",
       cta: "Read the framework guide",
       primitives: {
         actions: {
@@ -241,17 +242,17 @@ const enUS = {
         sharedState: {
           title: "Shared state",
           description:
-            "SQL-backed app state keeps humans, agents, and sessions in sync.",
+            "PostgreSQL/PGlite-backed app state keeps humans, agents, and sessions in sync.",
         },
         agentRuntime: {
           title: "Agent runtime",
           description:
             "The app-agent loop, tools, skills, memory, jobs, and observability ship together.",
         },
-        backendAgnostic: {
-          title: "Backend agnostic",
+        postgresSpecific: {
+          title: "PostgreSQL-specific",
           description:
-            "Plug in any Drizzle-supported SQL database and Nitro-compatible host.",
+            "Use the framework’s PostgreSQL schema helpers with local PGlite or hosted Postgres on any Nitro-compatible host.",
         },
       },
     },
@@ -330,7 +331,7 @@ const enUS = {
     },
     quickStart: {
       title: "Start with a Command",
-      body: "One command creates a chat-first local app backed by actions, durable threads, and SQLite. Use `--headless` only for automation-first workflows with no browser UI yet.",
+      body: "One command creates a chat-first local app backed by actions, durable threads, and PGlite. Use `--headless` only for automation-first workflows with no browser UI yet.",
     },
     finalCta: {
       title: "Software built for the agentic era",
@@ -445,15 +446,15 @@ const enUS = {
     },
     actions: {
       title: "One Action powers every surface",
-      bodyLine1: "Actions are the building blocks of an Agent-Native app.",
+      bodyLine1: "Actions define what your agent can do.",
       bodyLine2:
-        "Define functionality once, then use it from your UI, agent chat, HTTP API, MCP, A2A, or CLI.",
+        "Define each capability once, then use it from the agent, UI, HTTP API, MCP, A2A, or CLI.",
       diagramAlt:
         "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
     },
     builtIn: {
-      title: "Built into every Agent-Native app",
-      body: "Everything users and AI agents need to work together, already wired into one application.",
+      title: "Everything your agent needs",
+      body: "UI, context, data, permissions, and infrastructure, already wired together.",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -461,14 +462,14 @@ const enUS = {
         },
         agentChat: {
           title: "Embedded agent chat",
-          body: "Let users delegate work, ask questions, and review results without leaving the app.",
+          body: "Let users delegate work, ask questions, and review results in the same UI.",
         },
         sharedState: {
           title: "Shared application state",
           body: "The agent knows what users are viewing, selecting, and editing.",
         },
         sharedSql: {
-          title: "Shared SQL data",
+          title: "Shared PostgreSQL data",
           body: "Users and agents read and update the same source of truth.",
         },
         skillsMemory: {
@@ -477,11 +478,11 @@ const enUS = {
         },
         automations: {
           title: "Automations",
-          body: "Run agent work automatically on schedules or application events.",
+          body: "Run agent work automatically on schedules or events.",
         },
         agentTeams: {
           title: "Agent teams",
-          body: "Delegate work to specialist agents within the app or across apps.",
+          body: "Delegate work to specialist agents in the same workspace or across connected agents.",
         },
         auth: {
           title: "Authentication and organizations",
@@ -495,19 +496,19 @@ const enUS = {
     },
     stack: {
       title: "Works with your stack",
-      body: "Bring your LLM, database, tools, and infrastructure, Agent-Native is open source TypeScript, so your application stays yours.",
+      body: "Bring your LLM, database, tools, and infrastructure. Agent-Native is open-source TypeScript, so everything you build stays yours.",
       exploreApps: "Explore apps built with Agent-Native",
     },
     showcase: {
       title: "What can you build with Agent-Native?",
-      body: "Agentic apps that understand your work, take action, and collaborate with you. Build your own or try one of these open-source apps.",
+      body: "Build agents with UIs for meetings, design, presentations, data, and more. Start from one of these open-source apps or build your own.",
       browseApps: "Browse apps",
       scrollLeft: "Scroll apps left",
       scrollRight: "Scroll apps right",
     },
     bottomCta: {
-      title: "Build your first Agent-Native app",
-      body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
+      title: "Build your first agent with a UI",
+      body: "The agent and UI share the same capabilities. Bring your own LLM and deploy anywhere.",
     },
     footer: {
       tagline: "The agentic application framework.",
@@ -519,16 +520,31 @@ const enUS = {
       download: "Download",
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
-      saasTerms: "SaaS Terms",
+      saasTerms: "Hosted Terms",
+      // i18n-copy-ignore: English-only capitalization fix; translations unchanged
+      legalResources: "Legal Resources",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Not building locally?",
-      exploreApp: "Explore a live app",
-      between: "first, or",
-      joinWaitlist: "join the waitlist",
-      end: "to build in the browser instead.",
+    tabs: {
+      label: "Choose how to build",
+      local: "Build locally",
+      localDescription: "Use the CLI to build on your machine.",
+      cloud: "Build in the cloud",
+      cloudDescription: "Build in the browser with Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Build the same apps without installing anything. You describe what you want; the agent writes and runs the code in a workspace Builder hosts for you.",
+      stepOneTitle: "Create a Builder account",
+      stepOneBody:
+        "Use your Builder account to build in the browser. Free to start, and no API keys to bring.",
+      stepTwoTitle: "Prompt away",
+      stepTwoBody:
+        "Describe what you want to build in plain language and the agent will create it for you.",
+      stepThreeTitle: "Deploy",
+      stepThreeBody:
+        "When you're ready, deploy your app with one click in Builder.",
     },
   },
   templatesPage: {
@@ -551,9 +567,9 @@ const enUS = {
     copyCommunityInstallCommand: "Copy install command",
     viewRepository: "View repository",
     tryCommunityDemo: "Try demo",
-    customizeDescription: "You can customize this code completely.",
-    customizeOnline: "Customize online",
-    customizeLocally: "Customize locally",
+    customizeDescription: "Use this app as a starting point.",
+    customizeOnline: "Online",
+    customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
     communityGithubStars: "{{count}} GitHub stars",
@@ -573,7 +589,7 @@ const enUS = {
     communitySubmissionName: "App name",
     communitySubmissionNamePlaceholder: "Customer Support Hub",
     communitySubmissionUrl: "App URL",
-    communitySubmissionUrlPlaceholder: "example.com or https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Description",
     communitySubmissionDescriptionPlaceholder:
       "What does the app do, and who is it for?",
@@ -590,8 +606,15 @@ const enUS = {
     communitySubmissionSubmit: "Submit app",
     communitySubmissionReady:
       "Thanks. We will review your app before publishing it.",
-    communitySubmissionValidation:
-      "Add a name and description, then enter an app link like example.com. We’ll add https:// for you. If you add a repository, use a github.com link. Upload PNG, JPG, or WebP images up to 1.5 MB each.",
+    communitySubmissionNameError: "Enter an app name.",
+    communitySubmissionDescriptionError: "Add a short description.",
+    communitySubmissionUrlError: "Enter a valid app link, such as example.com.",
+    communitySubmissionRepositoryError: "Enter a GitHub repository link.",
+    communitySubmissionScreenshotsError:
+      "Use PNG, JPG, or WebP images up to 1.5 MB each, with up to 5 images.",
+    communitySubmissionSubmitError:
+      "Couldn’t submit right now. Check the highlighted fields and try again.",
+    communitySubmissionSubmitting: "Submitting…",
   },
   buildFromScratch: {
     title: "Build from scratch",
@@ -600,15 +623,8 @@ const enUS = {
     buildOnline: "Build online",
     popoverTitle: "Build in the browser",
     popoverBody:
-      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
-    emailLabel: "Email",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "Join waitlist",
-    joining: "Joining…",
-    joined:
-      "You're on the waitlist. We'll email you when build-online access opens.",
-    invalidEmail: "Enter a valid email address.",
-    submitError: "Couldn't join the waitlist. Please try again.",
+      "Rapidly generate agent-native apps in the cloud with Builder.io.",
+    launchBuilder: "Launch Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",
@@ -885,9 +901,12 @@ const enUS = {
       s004: "Dictate",
       s005: "Can See + Hear",
       s006: "All Apps",
-      s007: "Screen recordings your AI can actually watch",
-      s008: "Record your screen. Share with people to save a meeting. Share with AI to put it straight to work.",
+      s007Primary: "Screen recordings your",
+      s007Secondary: "AI can see and hear.",
+      s008: "Capture browser debug logs, get transcripts, and use built-in dictation. 100% free, open-source, and customizable.",
       s009: "Try it",
+      s063: "Get a personalized recommendation",
+      s064: "Paste this prompt into Claude, ChatGPT, or Cursor to see how Clips could impact your workflow.",
       s010: "What you can do",
       s011: "Record, transcribe, and debug — one app, one library, without the subscription stack.",
       s012: "One-Click Screen Recording",
@@ -941,6 +960,25 @@ const enUS = {
       s060: "Choose what to capture, then start recording in Clips.",
       s061: "View more apps",
       s062: "View all apps",
+      faq: {
+        question1: "Is Clips free?",
+        answer1: "Yes. Clips is free and open source.",
+        question2: "Can AI read a screen recording?",
+        answer2:
+          "Yes. Every clip ships with a transcript, summary, and timestamped frames an agent can read directly.",
+        question3: "How is Clips different from Loom?",
+        answer3:
+          "Clips is open source, you own the data, and every share link is readable by AI agents, not just people.",
+        question4: "Can a screen recording capture console errors?",
+        answer4:
+          "Yes. Clips captures browser console errors and failed network requests alongside the recording. They attach themselves to the same share link as the transcript and frames. An agent can debug from a clip, not just watch it.",
+        question5: "Does Clips work with Claude, ChatGPT, or Cursor?",
+        answer5:
+          "Yes! No plugin or API key required. Paste a Clips share link into any agent and it can read the transcript, summary, and frames directly.",
+        question6: "Where do my recordings live?",
+        answer6:
+          "Wherever you deploy them. Self-hosted Clips keeps your video, transcripts, and analytics in your own infrastructure.",
+      },
       quickStart: {
         recordingMode: "Recording mode",
         modeScreenCamera: "Screen + cam",
@@ -1474,7 +1512,7 @@ const enUS = {
       s004: "Re-use it.",
       s005: "All Apps",
       s006Primary: "Decks from your AI agent.",
-      s006Secondary: "On brand, editable, yours.",
+      s006Secondary: "On-brand & editable",
       s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
       s008: "Try It",
       s009: "How it works",
@@ -1729,6 +1767,35 @@ const enUS = {
   },
   legal: {
     lastUpdated: "Last updated: {{date}}",
+    resources: {
+      eyebrow: "Legal resources",
+      title: "Legal resources for Agent-Native",
+      intro:
+        "Standalone Agent-Native legal policies for hosted applications and services.",
+      agentNative: {
+        title: "Agent-Native policies",
+        body: "These pages adapt the shared policy framework to Agent-Native's open-source project and hosted examples.",
+        terms: "Agent-Native Terms of Service",
+        privacy: "Agent-Native Privacy Policy",
+      },
+      builder: {
+        title: "Additional hosted-service policies",
+        body: "These local copies cover acceptable use, AI features, platform rules, suspension and takedown, copyright, and law-enforcement requests. The English version controls.",
+      },
+      links: {
+        terms: "SaaS Services Agreement",
+        privacy: "Privacy Policy",
+        acceptableUse: "Acceptable Use Policy",
+        aiTerms: "AI Terms",
+        platformRules: "Platform Rules",
+        takedown: "Suspension, Takedown & Data-Handling Policy",
+        lawEnforcement: "Law Enforcement Request Policy",
+      },
+      notIncluded: {
+        title: "Commercial terms not included",
+        body: "Agent-Native has no paid plans or enterprise contract. Commercial materials such as enterprise SLAs, support terms, DPAs, security addenda, professional-services terms, and fees are not included.",
+      },
+    },
     privacy: {
       eyebrow: "Privacy Policy",
       title: "Agent-Native hosted applications",
@@ -1751,6 +1818,7 @@ const enUS = {
       sections: {
         scope: "Scope",
         information: "Information we collect",
+        cookies: "Cookies and analytics",
         clipsExtension: "Agent-Native Clips Chrome extension",
         use: "How we use information",
         sharing: "Sharing and third parties",
@@ -1765,6 +1833,8 @@ const enUS = {
         scope2Prefix:
           "This policy is intended to supplement Builder.io's broader",
         scope2Suffix: "for Agent-Native hosted application behavior.",
+        cookies:
+          "The Agent-Native docs site and hosted applications may use necessary cookies for authentication and security, preference storage such as locale or theme, and configured analytics technologies. The docs site may load Google Analytics or Google Tag Manager when configured by the deployment, and the hosted service may use first-party analytics to measure reliability and feature usage. We do not use hosted application content for third-party advertising. You can control cookies through your browser settings, although disabling necessary cookies may prevent sign-in or other features.",
         clips1:
           "The Agent-Native Clips Chrome extension helps you start browser-based recordings and, when enabled, attach browser diagnostics to a clip. It may collect the selected capture source, camera and microphone media you choose to include, the active tab title and URL, and authentication state needed to connect the extension to hosted Clips.",
         clips2:
@@ -1908,6 +1978,8 @@ const enUS = {
         scope2Middle: "and the Agent-Native",
         scope2Suffix:
           "If you use a hosted Agent-Native app on behalf of a company or organization, you represent that you have authority to accept these terms for that organization.",
+        scope3:
+          "Agent-Native has no paid plans or paid hosted subscriptions. Builder.io commercial terms such as order forms, fees, enterprise support, service levels, and data-processing addenda are not part of this offering unless separately agreed in writing.",
         hostedService:
           "Builder.io may provide hosted Agent-Native applications, apps, demos, shared workspaces, browser extensions, and related agent workflows. The hosted service may be updated, limited, suspended, or discontinued as the product evolves.",
         accounts1:
@@ -2027,12 +2099,16 @@ const enUS = {
     actionsAgentTools: "Production Agent Access",
     publicAgentWeb: "Public Agent Web",
     database: "Database",
+    databaseProviders: "Database providers",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databasePostgres: "Plain Postgres",
     internationalization: "Internationalization",
     localFileMode: "Local File Mode",
     fileUploads: "File Uploads",
     deployment: "Deployment",
     deploymentOverview: "Overview",
-    deploymentProviders: "Providers",
+    deploymentProviders: "Hosting Providers",
     deploymentProduction: "Production & advanced",
     deployAnApp: "Deploy an app",
     workspaceDeployment: "Workspace Deployment",

@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import {
   availableEmbeddingFamilies,
   defaultEmbeddingFamily,
@@ -193,7 +193,7 @@ export async function hybridSearchArtifacts(input: {
     .limit(Math.max((input.limit ?? 25) * 5, 50));
   let ftsRanks = new Map<string, number>();
   let semanticRanks = new Map<string, number>();
-  if (isPostgres()) {
+  {
     try {
       const fts = await queryPostgresFts(getDbExec(), {
         query: input.query,

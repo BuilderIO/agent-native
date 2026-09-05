@@ -4,6 +4,11 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  canReadDraftAsset,
+  resolveDraftReadScope,
+  unrestrictedDraftReadScope,
+} from "../server/lib/library-access.js";
 import { ASSET_MEDIA_TYPES, IMAGE_CATEGORIES } from "../shared/api.js";
 import {
   assetMatchesSearch,
@@ -69,10 +74,16 @@ export default defineAction({
     ]);
     const lineageById = buildAssetLineage(lineageRows);
 
+    // Candidate rows are drafts; the scope only costs a lookup when the caller
+    // actually asked for them.
+    const scope = includeCandidates
+      ? await resolveDraftReadScope(libraryIds)
+      : unrestrictedDraftReadScope();
     const assets = rows
       .filter((asset) =>
         shouldIncludeAssetInLibraryResults(asset, includeCandidates),
       )
+      .filter((asset) => canReadDraftAsset(scope, asset))
       .filter((asset) => assetMatchesSearch(asset, normalizedQuery, category))
       .slice(0, limit)
       .map((asset) => serializeAsset(asset, lineageById.get(asset.id) ?? null));

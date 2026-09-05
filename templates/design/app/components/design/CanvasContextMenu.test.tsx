@@ -4,6 +4,12 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+const contextMenuMock = vi.hoisted(() => ({
+  onCloseAutoFocus: undefined as
+    | ((event: { preventDefault: () => void }) => void)
+    | undefined,
+}));
+
 vi.mock("@/lib/utils", () => ({
   cn: (...values: unknown[]) => values.filter(Boolean).join(" "),
 }));
@@ -16,6 +22,18 @@ vi.mock("@/components/ui/context-menu", () => {
     children?: React.ReactNode;
     className?: string;
   }) => <div className={className}>{children}</div>;
+  const Content = ({
+    children,
+    className,
+    onCloseAutoFocus,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+    onCloseAutoFocus?: (event: { preventDefault: () => void }) => void;
+  }) => {
+    contextMenuMock.onCloseAutoFocus = onCloseAutoFocus;
+    return <div className={className}>{children}</div>;
+  };
   const Item = ({
     children,
     disabled,
@@ -35,7 +53,7 @@ vi.mock("@/components/ui/context-menu", () => {
   );
   return {
     ContextMenu: Container,
-    ContextMenuContent: Container,
+    ContextMenuContent: Content,
     ContextMenuGroup: Container,
     ContextMenuItem: Item,
     ContextMenuSeparator: () => <hr />,
@@ -187,7 +205,7 @@ describe("CanvasContextMenu Select layer", () => {
   });
 });
 
-describe("CanvasContextMenu regenerate", () => {
+describe("CanvasContextMenu edit with AI", () => {
   const candidate = {
     key: "hero",
     label: "Hero",
@@ -212,10 +230,13 @@ describe("CanvasContextMenu regenerate", () => {
       onReprompt,
     });
 
-    await act(async () => view.findButton("Regenerate")?.click());
+    await act(async () => view.findButton("Edit with AI")?.click());
     expect(onReprompt).toHaveBeenCalledWith(
       expect.objectContaining({ action: "reprompt", selectedCount: 1 }),
     );
+    const closeEvent = { preventDefault: vi.fn() };
+    contextMenuMock.onCloseAutoFocus?.(closeEvent);
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
     await view.cleanup();
   });
 

@@ -22,7 +22,7 @@
 //! | `system_audio_version_status`      | Report macOS SCK-audio support.          |
 //! | `system_audio_open_privacy_settings`| Open the Screen Recording privacy pane.  |
 //! | `audio_transcription_start`        | Start the Whisper mic + system capture.  |
-//! | `audio_transcription_reset_timeline`| Rebase transcript timestamps to now.     |
+//! | `audio_transcription_reset_timeline`| Rebase transcript timestamps to an offset.|
 //! | `audio_transcription_stop`         | Stop the capture.                         |
 //!
 //! `start_raw_system_capture` and `start_raw_meeting_capture` (in the `macos`
@@ -153,8 +153,8 @@ pub async fn audio_transcription_stop(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn audio_transcription_reset_timeline() -> Result<(), String> {
-    crate::whisper_speech::whisper_transcription_reset_timeline().await
+pub async fn audio_transcription_reset_timeline(offset_ms: Option<u64>) -> Result<(), String> {
+    crate::whisper_speech::whisper_transcription_reset_timeline(offset_ms.unwrap_or(0)).await
 }
 
 #[cfg(target_os = "macos")]

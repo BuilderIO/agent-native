@@ -93,6 +93,101 @@ describe("the recording playhead has a shared visual source", () => {
     }
   });
 
+  it("keeps the desktop start affordance and mode-toggle radii aligned with web", () => {
+    const appSource = readFileSync(
+      resolve(clipsRoot, "desktop/src/app.tsx"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      resolve(clipsRoot, "desktop/src/styles.css"),
+      "utf8",
+    );
+    const tokens = readFileSync(
+      resolve(clipsRoot, "desktop/src/tailwind.css"),
+      "utf8",
+    );
+    const modeToggleStyles = styles.slice(
+      styles.indexOf(".mode-toggle {"),
+      styles.indexOf(".mode-tooltip {"),
+    );
+    const recordingDotStyles = styles.slice(
+      styles.indexOf(".rec-dot {"),
+      styles.indexOf(".active-recording-card {"),
+    );
+
+    expect(appSource).toContain(
+      '<span className="rec-dot" aria-hidden="true" />',
+    );
+    expect(modeToggleStyles).toContain(
+      "border-radius: var(--recorder-mode-toggle-radius)",
+    );
+    expect(modeToggleStyles).toContain(
+      "border-radius: var(--recorder-mode-option-radius)",
+    );
+    expect(tokens).toContain("--recorder-mode-option-radius: 14px");
+    expect(tokens).toContain("--recorder-mode-toggle-inset: 4px");
+    expect(tokens).toContain(
+      "var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)",
+    );
+    expect(recordingDotStyles).toContain("width: 8px");
+    expect(recordingDotStyles).toContain(
+      "background: hsl(var(--ui-destructive))",
+    );
+    expect(recordingDotStyles).not.toContain("box-shadow");
+  });
+
+  it("uses discard language for an unfinished take on both surfaces", () => {
+    const desktopSource = readFileSync(
+      resolve(clipsRoot, "desktop/src/overlays/record-pill.tsx"),
+      "utf8",
+    );
+    const webSource = readFileSync(
+      resolve(clipsRoot, "app/components/recorder/recording-toolbar.tsx"),
+      "utf8",
+    );
+    const englishCatalog = readFileSync(
+      resolve(clipsRoot, "app/i18n/en-US.ts"),
+      "utf8",
+    );
+
+    expect(desktopSource).toContain('delete: "Discard recording"');
+    expect(desktopSource).toContain('deleteShortcut: "Discard (⌥⇧C)"');
+    expect(desktopSource).toContain(
+      "`Discard ${formatDurationCopy(durationMs)}?`",
+    );
+    expect(desktopSource).toContain('deleteConfirm: "Discard"');
+    expect(desktopSource).not.toContain('delete: "Delete recording"');
+    expect(webSource).toContain('delete: t("recordingToolbar.cancel")');
+    expect(englishCatalog).toContain('cancel: "Discard recording"');
+    expect(englishCatalog).toContain('discardRecording: "Discard recording"');
+  });
+
+  it("renders the docked orientation through the shared component", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(RecordingPlayhead, {
+          elapsedMs: 1_000,
+          paused: false,
+          orientation: "vertical",
+          meter: createElement("span"),
+          labels,
+          onStop: () => {},
+          onTogglePause: () => {},
+          onConfirmAction: () => {},
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const toolbar = container.querySelector<HTMLElement>('[role="toolbar"]');
+    expect(toolbar?.getAttribute("data-orientation")).toBe("vertical");
+    expect(toolbar?.getAttribute("aria-orientation")).toBe("vertical");
+  });
+
   it("closes confirmation through the parent callback when disabled", async () => {
     const changes: RecordingPlayheadConfirmChange[] = [];
     container = document.createElement("div");
@@ -142,6 +237,56 @@ describe("the recording playhead has a shared visual source", () => {
       enteredPaused: false,
       resume: false,
     });
+  });
+
+  it("opens confirmation geometry once and crossfades its content", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(RecordingPlayhead, {
+          elapsedMs: 1_000,
+          paused: false,
+          meter: createElement("span"),
+          labels,
+          confirmRequest: { intent: "restart", token: 1 },
+          onStop: () => {},
+          onTogglePause: () => {},
+          onConfirmAction: () => {},
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const segments = container.querySelectorAll<HTMLElement>(
+      ".recording-playhead__segment",
+    );
+    expect(segments).toHaveLength(3);
+    const confirmation = segments[1];
+    expect(confirmation.style.transitionDelay).toBe("0ms");
+    expect(
+      (confirmation.firstElementChild as HTMLElement).style.transitionDelay,
+    ).toBe("24ms");
+    expect(
+      confirmation.querySelectorAll(
+        ".recording-playhead__confirm-question, .recording-playhead__confirm-action, .recording-playhead__resume-action",
+      ),
+    ).toHaveLength(3);
+
+    const resumeButton = confirmation.querySelector<HTMLButtonElement>(
+      ".recording-playhead__resume-action",
+    );
+    await act(async () => {
+      resumeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const confirmButton = confirmation.querySelector<HTMLButtonElement>(
+      ".recording-playhead__confirm-action",
+    );
+    expect(confirmButton?.textContent).toBe("Restart");
+    expect(confirmButton?.dataset.intent).toBe("restart");
   });
 
   it("reveals actions on the first touch or pen interaction", async () => {
@@ -342,6 +487,7 @@ describe("the recording playhead has a shared visual source", () => {
     expect(source).toContain("if (layoutTransitionPendingRef.current) return;");
     expect(source).toContain("layoutTransitionPendingRef.current = true;");
     expect(source).toContain("layoutTransitionPendingRef.current = false;");
+    expect(source).not.toContain("targetSize)) + 12");
   });
 
   it("feeds measured playhead bounds into the web drag clamp", () => {
@@ -367,13 +513,21 @@ describe("the recording playhead has a shared visual source", () => {
     expect(source).toContain(
       "animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS",
     );
-    expect(source).toContain("userDragActiveRef");
-    expect(source).toContain("userDragArmedRef");
-    expect(source).toContain("userDragGenerationRef");
-    expect(source).toContain("userDragChangeRef");
-    expect(source).toContain("USER_DRAG_ARM_TIMEOUT_MS");
-    expect(source).toContain("saveGeneration");
-    expect(source).toContain("remainingGuardMs");
+    expect(source).toContain("toolbarDraggingRef");
+    expect(source).toContain("toolbarDragGenerationRef");
+    expect(source).toContain('safeInvoke("toolbar_drag_start"');
+    expect(source).toContain('safeInvoke("toolbar_drag_move"');
+    expect(source).toContain('safeInvoke("toolbar_drag_end"');
+    expect(source).toContain('invoke("toolbar_set_bounds"');
+    expect(source).toContain("positionRecordingPlayheadAtEdge");
+    expect(source).toContain("playheadDockTransitioningRef");
+    expect(source).toContain("toolbarMovePromiseRef");
+    expect(source).toContain("waitForToolbarDragMoves");
+    expect(source).not.toContain("playheadSlotRef");
+    expect(source).toContain("settleNativePlayheadDock");
+    expect(source).toContain('safeInvoke("toolbar_save_position"');
+    expect(source).toContain("pendingNativeDockRef.current === dockToPersist");
+    expect(source).toContain("Date.now() < animatingUntilRef.current");
   });
 
   it("serializes web restart requests", () => {

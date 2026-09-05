@@ -1,9 +1,15 @@
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import { createRequire } from "node:module";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let db: ReturnType<typeof drizzle>;
-let sqlite: Client;
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+
+let client: PGliteClient;
 
 vi.mock("../db/index.js", async () => {
   const schema = await import("../db/schema.js");
@@ -21,7 +27,7 @@ const firstViewPayload = {
 };
 
 async function createTables() {
-  await sqlite.execute(`CREATE TABLE clips_transactional_email_jobs (
+  await client.query(`CREATE TABLE clips_transactional_email_jobs (
     logical_key TEXT PRIMARY KEY, type TEXT NOT NULL, state TEXT NOT NULL,
     recipient TEXT NOT NULL, recording_ids_json TEXT NOT NULL, share_id TEXT,
     requested_by TEXT, month TEXT, generated_summary TEXT, attempts INTEGER NOT NULL,
@@ -30,19 +36,19 @@ async function createTables() {
     cancelled_at TEXT, failed_at TEXT, last_error TEXT, lease_until TEXT,
     lease_token TEXT
   )`);
-  await sqlite.execute(`CREATE TABLE clips_transactional_email_configs (
+  await client.query(`CREATE TABLE clips_transactional_email_configs (
     id TEXT PRIMARY KEY, config_json TEXT NOT NULL
   )`);
 }
 
 beforeEach(async () => {
-  sqlite = createClient({ url: ":memory:" });
-  db = drizzle(sqlite);
+  client = await PGlite.create("memory://");
+  db = drizzle(client);
   await createTables();
 });
 
 afterEach(async () => {
-  await sqlite.close();
+  await client.close();
 });
 
 describe("transactional email store", () => {

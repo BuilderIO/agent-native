@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { isPostgres } from "@agent-native/core/db";
 import { buildDeepLink } from "@agent-native/core/server";
 import { and, eq, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -127,16 +126,12 @@ export default defineAction({
   run: async (_args, ctx) => {
     const admin = await requireDbAdminContextFromRequest(ctx);
     const db = getDb() as any;
-    const configName = isPostgres()
-      ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'name')`
-      : sql<string | null>`json_extract(${schema.dashboards.config}, '$.name')`;
-    const panelCount = isPostgres()
-      ? sql<
-          number | null
-        >`CASE WHEN ${schema.dashboards.kind} = 'sql' AND jsonb_typeof(${schema.dashboards.config}::jsonb -> 'panels') = 'array' THEN jsonb_array_length(${schema.dashboards.config}::jsonb -> 'panels') ELSE 0 END`
-      : sql<
-          number | null
-        >`CASE WHEN ${schema.dashboards.kind} = 'sql' AND json_type(json_extract(${schema.dashboards.config}, '$.panels')) = 'array' THEN json_array_length(json_extract(${schema.dashboards.config}, '$.panels')) ELSE 0 END`;
+    const configName = sql<
+      string | null
+    >`(${schema.dashboards.config}::jsonb ->> 'name')`;
+    const panelCount = sql<
+      number | null
+    >`CASE WHEN ${schema.dashboards.kind} = 'sql' AND jsonb_typeof(${schema.dashboards.config}::jsonb -> 'panels') = 'array' THEN jsonb_array_length(${schema.dashboards.config}::jsonb -> 'panels') ELSE 0 END`;
 
     // guard:allow-unscoped — org owner/admin audit intentionally spans all
     // dashboard rows in the active org after requireDbAdminContextFromRequest.

@@ -2,6 +2,7 @@ import {
   getSession,
   getOrigin,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
   resolveOAuthOwner,
   oauthErrorPage,
 } from "@agent-native/core/server";
@@ -62,10 +63,17 @@ export default defineEventHandler(async (event: H3Event) => {
       return oauthErrorPage("Missing authorization code");
     }
 
-    const { redirectUri, owner: stateOwner } = decodeOAuthState(
+    const state = decodeOAuthState(
       query.state as string | undefined,
       `${getOrigin(event)}/_agent-native/zoom/callback`,
     );
+    if (!state.ok) {
+      logOAuthStateDecodeFailure(event, state.reason, "zoom");
+      throw new Error(
+        "Your sign-in link expired or is invalid. Please try again.",
+      );
+    }
+    const { redirectUri, owner: stateOwner } = state;
 
     const { owner } = await resolveOAuthOwner(event, stateOwner);
     const session = await getSession(event);

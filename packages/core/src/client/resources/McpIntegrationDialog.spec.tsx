@@ -99,6 +99,60 @@ describe("McpIntegrationDialog", () => {
     ).toBe("user");
   });
 
+  it("opens Sigma's organization-specific URL form before OAuth", () => {
+    const sigma = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "sigma",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="sigma"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[sigma]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "Sigma's MCP URL is organization-specific.",
+    );
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+
+    const urlInput = document.body.querySelector<HTMLInputElement>(
+      'input[placeholder="https://example.com/agent-integration"]',
+    );
+    expect(urlInput).toBeTruthy();
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    act(() => {
+      valueSetter?.call(urlInput, "https://acme.sigmacomputing.com/mcp");
+      urlInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    expect(connect).toHaveProperty("disabled", false);
+    act(() => connect?.click());
+
+    const oauthUrl = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(oauthUrl, "https://analytics.example.com").searchParams.get(
+        "url",
+      ),
+    ).toBe("https://acme.sigmacomputing.com/mcp");
+  });
+
   it("waits for the desktop OAuth target before connecting", () => {
     const linear = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "linear",

@@ -4,6 +4,7 @@
  * Extract a JPEG frame from a public clip for external agents.
  */
 
+import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -13,6 +14,10 @@ import {
   type H3Event,
 } from "h3";
 
+import {
+  ensureRecordingThumbnail,
+  RECORDING_THUMBNAIL_AT_MS,
+} from "../../lib/ensure-recording-thumbnail.js";
 import {
   CLIPS_AGENT_ACCESS_PARAM,
   loadPublicAgentAccess,
@@ -80,17 +85,43 @@ function isPubliclyCacheableFrame(access: PublicAgentAccess): boolean {
   );
 }
 
-function cacheControlForAccess(access: PublicAgentAccess): string {
-  return isPubliclyCacheableFrame(access)
-    ? "public, max-age=300"
-    : "private, max-age=0, no-store";
+function cacheControlForAccess(): string {
+  return "private, max-age=0, no-store";
 }
 
-function applyFrameHeaders(event: H3Event, access: PublicAgentAccess) {
+function applyFrameHeaders(event: H3Event) {
   setResponseHeader(event, "Content-Type", "image/jpeg");
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  setResponseHeader(event, "Cache-Control", cacheControlForAccess(access));
+  setResponseHeader(event, "Cache-Control", cacheControlForAccess());
+}
+
+async function persistDefaultThumbnailIfMissing(
+  access: PublicAgentAccess,
+  frame: Uint8Array,
+  mimeType: string,
+): Promise<void> {
+  if (access.recording.thumbnailUrl) return;
+  try {
+    await runWithRequestContext(
+      {
+        userEmail: access.recording.ownerEmail,
+        orgId: access.recording.orgId ?? undefined,
+      },
+      () =>
+        ensureRecordingThumbnail({
+          recordingId: access.recording.id,
+          ownerEmail: access.recording.ownerEmail,
+          thumbnailBytes: frame,
+          mimeType,
+        }),
+    );
+  } catch (err: unknown) {
+    console.warn("[agent-frame] thumbnail persistence skipped", {
+      recordingId: access.recording.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function redirectToResolvedFrame(
@@ -108,7 +139,7 @@ function redirectToResolvedFrame(
   return new Response(null, {
     status: 302,
     headers: {
-      "Cache-Control": cacheControlForAccess(access),
+      "Cache-Control": cacheControlForAccess(),
       Location: location.href,
       "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
@@ -209,7 +240,14 @@ export default defineEventHandler(async (event: H3Event) => {
   const cacheable = isPubliclyCacheableFrame(access);
   const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
-    applyFrameHeaders(event, access);
+    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
+      await persistDefaultThumbnailIfMissing(
+        access,
+        new Uint8Array(cached),
+        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
+      );
+    }
+    applyFrameHeaders(event);
     return cached;
   }
 
@@ -221,11 +259,19 @@ export default defineEventHandler(async (event: H3Event) => {
       atMs,
     });
 
+    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
+      await persistDefaultThumbnailIfMissing(
+        access,
+        resolved.frame,
+        media.mimeType,
+      );
+    }
+
     if (resolved.atMs !== atMs) {
       return redirectToResolvedFrame(event, access, resolved.atMs);
     }
 
-    applyFrameHeaders(event, access);
+    applyFrameHeaders(event);
     const buffer = Buffer.from(resolved.frame);
     if (cacheable) setCachedFrame(key, buffer);
     return buffer;

@@ -55,6 +55,7 @@ const messages = {
       rename: "Rename",
       renameTab: "Rename tab",
       savedFilters: "Saved filters",
+      combinedInbox: "Combined inbox",
       help: "Checked items show as tabs. Label emails split from inbox.",
     },
     accounts: {

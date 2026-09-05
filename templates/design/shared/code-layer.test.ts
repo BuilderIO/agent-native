@@ -10,6 +10,7 @@ import {
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   stripEditorOnlyAttributes,
+  wrapBareTextLeavesInHtml,
   type EditIntent,
 } from "./code-layer";
 
@@ -439,7 +440,7 @@ describe("code-layer projection", () => {
     expect(tree).toEqual([]);
   });
 
-  it("keeps explicitly named document shell rows in the layer tree", () => {
+  it("omits a named document shell too, since a screen IS its body", () => {
     const html = `
       <!doctype html>
       <html data-agent-native-layer-name="Document">
@@ -453,18 +454,115 @@ describe("code-layer projection", () => {
 
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
 
+    // The screen frame carries the document's fill, stroke and effects now, so
+    // a shell row would only repeat the screen under a second name.
     expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
-      { tag: "html", name: "Document" },
+      { tag: "main", name: "Home" },
     ]);
+    expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
+    expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
+  });
+});
+
+describe("code layer projection of a drawn vector", () => {
+  const html =
+    `<body><svg data-agent-native-node-id="pen-1" data-an-primitive="path" ` +
+    `style="position:absolute;left:10px;top:10px;background-color:#782323;border-width:1px">` +
+    `<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none" stroke-width="2"/></svg></body>`;
+
+  function vectorNode() {
+    const projection = buildCodeLayerProjection(html);
+    const node = projection.nodes.find(
+      (candidate) => candidate.dataAttributes["data-an-primitive"] === "path",
+    );
+    if (!node) throw new Error("vector node missing from projection");
+    return node;
+  }
+
+  it("carries the shape child's paint on the addressable wrapper node", () => {
+    // The child is skipped by hasSvgAncestor and has no node id, so a reader
+    // that only sees the wrapper would report a shape with no fill at all.
+    expect(vectorNode().style).toMatchObject({
+      fill: "rgb(218 218 218)",
+      stroke: "none",
+      "stroke-width": "2",
+    });
+  });
+
+  it("keeps data-an-primitive so a projection-only selection stays a vector", () => {
+    expect(vectorNode().dataAttributes["data-an-primitive"]).toBe("path");
+  });
+});
+
+describe("applyVisualEdit vector paint", () => {
+  const html =
+    `<body><svg data-agent-native-node-id="pen-1" data-an-primitive="path" ` +
+    `style="position:absolute;left:10px;top:10px;width:80px;height:60px">` +
+    `<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none"/></svg></body>`;
+
+  it("paints the shape child, not the svg bounding box", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#ff0000",
+    });
+
+    const path = patch.content.slice(patch.content.indexOf("<path"));
+
+    expect(patch.result.status).toBe("applied");
+    expect(path).toContain(`style="fill: #ff0000"`);
     expect(
-      tree[0]?.children.map((node) => ({ tag: node.tag, name: node.name })),
-    ).toEqual([{ tag: "body", name: "Body" }]);
-    expect(
-      tree[0]?.children[0]?.children.map((node) => ({
-        tag: node.tag,
-        name: node.name,
-      })),
-    ).toEqual([{ tag: "main", name: "Home" }]);
+      patch.content.slice(0, patch.content.indexOf("<path")),
+    ).not.toContain("fill");
+  });
+
+  it("wins over the child's own fill presentation attribute", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#0000ff",
+    });
+    const path = patch.content.slice(patch.content.indexOf("<path"));
+
+    // A presentation attribute loses to any CSS declaration on the same
+    // element, so the stale `stroke="none"` alongside it is inert.
+    expect(path).toContain(`style="stroke: #0000ff"`);
+    expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
+  });
+
+  it("clears box paint the wrapper should never have carried", () => {
+    const corrupted = html.replace(
+      'style="position:absolute',
+      'style="background-color:#782323;border-width:1px;position:absolute',
+    );
+    const patch = applyVisualEdit(corrupted, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#ff0000",
+    });
+    const wrapper = patch.content.slice(0, patch.content.indexOf("<path"));
+
+    expect(wrapper).not.toContain("background-color");
+    expect(wrapper).not.toContain("border-width");
+    expect(wrapper).toMatch(/position:\s*absolute/);
+  });
+
+  it("leaves geometry edits on the svg wrapper", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "left",
+      value: "40px",
+    });
+
+    expect(patch.content).toContain("left: 40px");
+    expect(patch.content).toContain(`<path d="M 0 0 L 80 60 Z"`);
+    expect(patch.content.slice(patch.content.indexOf("<path"))).not.toContain(
+      "left: 40px",
+    );
   });
 });
 
@@ -621,6 +719,112 @@ describe("applyVisualEdit", () => {
       `<button id="cta" class="px-4 bg-black">Buy</button>`,
     );
     expect(patch.result.after?.classes).toEqual(["px-4", "bg-black"]);
+  });
+
+  it("rejects executable attribute URLs and style payloads", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of ["javascript:alert(1)", "java&#x73;cript:alert(1)"]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+
+    const stylePatch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "style",
+      value: "background: url(javascript:alert(1))",
+    });
+    expect(stylePatch.result.status).toBe("unsupported");
+    expect(stylePatch.content).toBe(html);
+  });
+
+  it("allows safe attribute values", () => {
+    const patch = applyVisualEdit(`<a id="link">Open</a>`, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "https://example.com",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('href="https://example.com"');
+  });
+
+  it("rejects vbscript: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "vbscript:msgbox(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("rejects non-image data: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "data:text/html,<script>alert(1)</script>",
+      "data:image/svg+xml,<svg onload=alert(1)>",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("allows safe data:image attribute URLs", () => {
+    const patch = applyVisualEdit(`<img id="pic" />`, {
+      kind: "attribute",
+      target: { selector: "#pic" },
+      name: "src",
+      value: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    expect(patch.result.status).toBe("applied");
+  });
+
+  it("rejects control-character and whitespace evasions of javascript:", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "java\tscript:alert(1)",
+      "java\nscript:alert(1)",
+      " javascript:alert(1)",
+      " javascript:alert(1)",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status, `value ${JSON.stringify(value)}`).toBe(
+        "unsupported",
+      );
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("rejects on* event-handler attribute names outright, regardless of value", () => {
+    const html = `<button id="btn">Click</button>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#btn" },
+      name: "onclick",
+      value: "alert(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
   });
 
   it("applies textContent edits only to leaf elements", () => {
@@ -1593,8 +1797,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
     expect(patch.content).not.toContain("position: absolute");
   });
 
@@ -1625,8 +1829,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
   });
 
   it("returns conflict when targetId is not found", () => {
@@ -2559,5 +2763,126 @@ describe("style edit property normalization for fill layers", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("background: #f5f5f5");
+  });
+});
+
+describe("design node classification", () => {
+  const typeOf = (html: string, tag: string) => {
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const found: Array<{ type: string; name: string; isComponent?: boolean }> =
+      [];
+    const walk = (nodes: ReturnType<typeof buildCodeLayerTree>) => {
+      for (const node of nodes) {
+        if (node.tag === tag) {
+          found.push({
+            type: node.type,
+            name: node.name,
+            isComponent: node.isComponent,
+          });
+        }
+        walk(node.children);
+      }
+    };
+    walk(tree);
+    return found[0];
+  };
+
+  it("classifies a painted, padded text leaf as a frame, not text", () => {
+    const node = typeOf(
+      `<div><button class="px-6 py-3 bg-blue-600 rounded">Get Started</button></div>`,
+      "button",
+    );
+    expect(node?.type).toBe("frame");
+    expect(node?.isComponent).toBe(true);
+  });
+
+  it("keeps a plain text leaf as text", () => {
+    expect(typeOf(`<div><a href="/x">Features</a></div>`, "a")?.type).toBe(
+      "text",
+    );
+    expect(
+      typeOf(`<div><h1 class="text-4xl">Hello</h1></div>`, "h1")?.type,
+    ).toBe("text");
+  });
+
+  it("keeps a heading with inline runs as one text layer", () => {
+    const html = `<div><h1 class="text-4xl">Transform <span class="text-blue-400">Your</span> Workflow</h1></div>`;
+    const heading = typeOf(html, "h1");
+    expect(heading?.type).toBe("text");
+    expect(heading?.name).toBe("Transform Your Workflow");
+    expect(typeOf(html, "span")).toBeUndefined();
+  });
+
+  it("classifies painted void leaves by their radius", () => {
+    const dot = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-3 h-3 rounded-full bg-red-500"></div><div class="h-px w-full bg-border"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(dot?.[0]?.type).toBe("ellipse");
+    expect(dot?.[1]?.type).toBe("shape");
+  });
+
+  it("treats a wide rounded-full box as a pill, not an ellipse", () => {
+    const shapes = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-20 h-6 rounded-full bg-slate-200"></div><div class="size-3 rounded-full bg-red-500"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(shapes?.[0]?.type).toBe("shape");
+    expect(shapes?.[1]?.type).toBe("ellipse");
+  });
+
+  it("does not treat a colour utility as a component marker", () => {
+    const card = typeOf(
+      `<section><div class="p-6 rounded-lg border bg-card"><p>Body</p></div></section>`,
+      "div",
+    );
+    expect(card?.type).toBe("frame");
+    expect(card?.isComponent).toBe(false);
+  });
+
+  it("never names a layer after a tailwind utility", () => {
+    const tree = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="flex flex-col opacity-90 top-0"><p class="text-lg">Body</p></div></section>`,
+      ),
+    );
+    expect(tree[0]?.children[0]?.name).toBe("Frame");
+  });
+});
+
+describe("wrapBareTextLeavesInHtml", () => {
+  it("gives a painted text leaf its own text layer", () => {
+    const wrapped = wrapBareTextLeavesInHtml(
+      `<div><button class="px-6 py-3 bg-blue-600">Get Started</button></div>`,
+    );
+    expect(wrapped.wrapped).toBe(1);
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(wrapped.content));
+    const button = tree[0]?.children[0];
+    expect(button?.type).toBe("frame");
+    expect(button?.children[0]?.type).toBe("text");
+    expect(button?.children[0]?.name).toBe("Get Started");
+  });
+
+  it("is idempotent", () => {
+    const html = `<div><button class="px-6 py-3 bg-blue-600">Save</button></div>`;
+    const once = wrapBareTextLeavesInHtml(html);
+    expect(once.changed).toBe(true);
+    expect(once.wrapped).toBe(1);
+    const twice = wrapBareTextLeavesInHtml(once.content);
+    expect(twice.changed).toBe(false);
+    expect(twice.content).toBe(once.content);
+  });
+
+  it("leaves unpainted text and mixed content alone", () => {
+    const result = wrapBareTextLeavesInHtml(
+      `<div><h1 class="text-4xl">Title</h1><p class="p-4 bg-muted">Hi <b>there</b></p><button class="px-4 py-2 bg-blue-600">Save</button></div>`,
+    );
+    expect(result.wrapped).toBe(1);
+    expect(result.content).toContain(`<h1 class="text-4xl">Title</h1>`);
+    expect(result.content).toContain(
+      `<p class="p-4 bg-muted">Hi <b>there</b></p>`,
+    );
   });
 });

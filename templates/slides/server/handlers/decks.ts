@@ -36,6 +36,8 @@ export interface NotifyClientsOptions {
   slideId?: string;
   /** Who made the change: "agent" for AI writes, "human" otherwise. */
   actor?: "agent" | "human";
+  /** Groups multiple notifications emitted by one agent turn. */
+  agentChangeId?: string;
   /** Per-user scope for access-aware events whose resource may be gone. */
   owner?: string;
   orgId?: string;
@@ -66,6 +68,7 @@ export function notifyClients(
   const payload: Record<string, unknown> = { type, deckId };
   if (options.slideId) payload.slideId = options.slideId;
   if (options.actor) payload.actor = options.actor;
+  if (options.agentChangeId) payload.agentChangeId = options.agentChangeId;
   const message = JSON.stringify(payload);
   // Publish the same notification through Core's shared sync stream so the
   // client does not need a second deck-specific SSE connection. Keep the

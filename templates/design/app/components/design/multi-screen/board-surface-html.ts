@@ -13,6 +13,17 @@ const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-rende
 // The comma syntax also works in the lightweight DOM used by canvas tests.
 export const BOARD_SURFACE_BACKGROUND = "hsl(0, 0%, 10%)";
 
+export function resolveBoardSurfaceBackground(
+  canvasBackground?: string | null,
+  themedFallback?: string | null,
+): string {
+  return (
+    canvasBackground?.trim() ||
+    themedFallback?.trim() ||
+    BOARD_SURFACE_BACKGROUND
+  );
+}
+
 const BOARD_SURFACE_BACKDROP_MIN_EDGE_PX = 2400;
 const BOARD_SURFACE_BACKDROP_MIN_AREA_PX = 8_000_000;
 const HTML_VOID_TAGS = new Set([

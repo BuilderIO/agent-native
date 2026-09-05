@@ -26,9 +26,9 @@ describe("chat webview preload", () => {
       electron.exposed as {
         analytics: { clientPlatform: string };
         chat: {
-          toggle(): void;
-          open(): void;
-          close(): void;
+          toggle(options?: { focus?: boolean }): void;
+          open(options?: { focus?: boolean }): void;
+          close(options?: { focus?: boolean }): void;
         };
       }
     ).chat;
@@ -41,6 +41,7 @@ describe("chat webview preload", () => {
     chat.toggle();
     chat.open();
     chat.close();
+    chat.open({ focus: true });
 
     expect(electron.sendToHost).toHaveBeenNthCalledWith(
       1,
@@ -56,6 +57,12 @@ describe("chat webview preload", () => {
       3,
       "agent-native:chat-command",
       "close",
+    );
+    expect(electron.sendToHost).toHaveBeenNthCalledWith(
+      4,
+      "agent-native:chat-command",
+      "open",
+      { focus: true },
     );
   });
 });

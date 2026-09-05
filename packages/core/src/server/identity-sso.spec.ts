@@ -12,13 +12,20 @@ const getSessionMock = vi.fn();
 const createOAuthSessionMock = vi.fn(async () => ({
   sessionToken: "fresh-session-token",
 }));
-const signUpEmailMock = vi.fn(async () => ({}));
 const googleAuthRequiredMock = vi.fn(async () => false);
 const adapterUsers: Array<{
   id: string;
   email: string;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> = [];
+const signUpEmailMock = vi.fn(async ({ body }: any) => {
+  adapterUsers.push({
+    id: `created-${body.email}`,
+    email: body.email,
+    accounts: [],
+  });
+  return {};
+});
 const linkAccountMock = vi.fn(async (input: any) => {
   const user = adapterUsers.find((candidate) => candidate.id === input.userId);
   if (user) {
@@ -210,10 +217,13 @@ async function signAssertion(
     .sign(new TextEncoder().encode(options.secret ?? SECRET));
 }
 
-async function startLogin(returnPath = "/inbox") {
-  const loginEvent = event(
-    `/_agent-native/identity/login?return=${returnPath}`,
-  );
+async function startLogin(
+  returnPath = "/inbox",
+  options: { prompt?: string } = {},
+) {
+  const query = new URLSearchParams({ return: returnPath });
+  if (options.prompt) query.set("prompt", options.prompt);
+  const loginEvent = event(`/_agent-native/identity/login?${query.toString()}`);
   const response = await handleIdentitySso(loginEvent, "/login");
   const location = new URL(response.headers.get("Location")!);
   const state = location.searchParams.get("state")!;
@@ -335,6 +345,34 @@ describe("identity SSO browser contract", () => {
     );
     expect(location.searchParams.has("token")).toBe(false);
     expect(location.searchParams.has("id_token")).toBe(false);
+  });
+
+  it("preserves prompt=none for silent browser probes", async () => {
+    const { response, location } = await startLogin("/inbox", {
+      prompt: "none",
+    });
+
+    expect(response.status).toBe(302);
+    expect(location.searchParams.get("prompt")).toBe("none");
+  });
+
+  it("returns a silent-provider error to local sign-in without an error page", async () => {
+    const { loginEvent, state } = await startLogin("/welcome", {
+      prompt: "none",
+    });
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?error=login_required&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "/sign-in?sso=unavailable&return=%2Fwelcome",
+    );
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
   it("exchanges the code server-to-server, binds state/PKCE, and links the verified email", async () => {
@@ -476,6 +514,40 @@ describe("identity SSO browser contract", () => {
 });
 
 describe("additive JIT linking", () => {
+  it("fails closed when the initial local account lookup is unavailable", async () => {
+    findUserByEmailMock.mockRejectedValueOnce(new Error("database offline"));
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"j".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(400);
+    expect(signUpEmailMock).not.toHaveBeenCalled();
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the post-signup local account lookup is unavailable", async () => {
+    findUserByEmailMock
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error("database offline"));
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"k".repeat(43)}&state=${state}`,
+        { cookies: { ...loginEvent.cookies } },
+      ),
+      "/callback",
+    );
+
+    expect(response.status).toBe(400);
+    expect(signUpEmailMock).toHaveBeenCalledTimes(1);
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  });
+
   it("keeps an existing local user and adds only the inert provider link", async () => {
     adapterUsers.push({
       id: "existing-1",

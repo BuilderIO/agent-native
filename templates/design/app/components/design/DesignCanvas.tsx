@@ -20,7 +20,6 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   getDraftGeometryFromPoints,
 } from "@shared/canvas-math";
-import { ensureCodeLayerNodeIdsInHtml } from "@shared/code-layer";
 import {
   appendPenNode,
   clonePenPath,
@@ -36,6 +35,7 @@ import {
   type PenPath,
   type PenPoint,
 } from "@shared/pen-path";
+import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import {
@@ -77,6 +77,7 @@ import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-run
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
 import { appendContentSizeReporter } from "./design-canvas/content-size-report";
@@ -2218,7 +2219,7 @@ export function DesignCanvas({
         const sourceHtml = sanitizeLocalhostSourceSnapshotHtml(
           payload.html ?? "",
         );
-        const stamped = ensureCodeLayerNodeIdsInHtml(sourceHtml, {
+        const stamped = normalizeScreenHtml(sourceHtml, {
           source: {
             kind: "remote-url",
             sourceType: "localhost",
@@ -2455,6 +2456,7 @@ export function DesignCanvas({
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
       contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+      fitBodyToFrame: !boardSurface,
     });
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
@@ -4185,6 +4187,7 @@ export function DesignCanvas({
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+          fitBodyToFrame: !boardSurface,
         }),
         selector,
         candidates,
@@ -4223,6 +4226,7 @@ export function DesignCanvas({
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+          fitBodyToFrame: !boardSurface,
         }),
         // Carry the host's committed selection so the bridge can re-anchor it
         // after the morph: without it the canvas silently deselects while the
@@ -4483,6 +4487,7 @@ export function DesignCanvas({
 
   const handleScrollSurfaceMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       const isMiddleButton = e.button === 1;
       const isLeftPanGesture =
         e.button === 0 && (handToolActive || spacePanActive);
@@ -4524,6 +4529,7 @@ export function DesignCanvas({
   // scroll surface means the user clicked outside the framed preview.
   const handleScrollSurfaceBackgroundClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       if (e.button !== 0) return;
       if (handToolActive || spacePanActive) return;
       const target = e.target as HTMLElement | null;
@@ -5017,6 +5023,29 @@ export function DesignCanvas({
     </div>
   );
 
+  const reviewCanvasPins =
+    designId && (screenId || commentContextId) ? (
+      <ReviewCanvasPins
+        active={!!pinMode}
+        hidden={commentPinsHidden}
+        onClose={() => onExitPinMode?.()}
+        canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
+        resourceType="design"
+        resourceId={designId}
+        targetId={screenId ?? commentContextId ?? ""}
+        canPost={reviewCanPost}
+        canResolve={reviewCanResolve}
+        focusRequest={reviewFocusRequest}
+        onDispatchCommentToAgent={onDispatchCommentToAgent}
+        onSendThreadToAgent={onSendThreadToAgent}
+        sendingThreadId={reviewSendingThreadId}
+        sourceType={sourceType ?? (externalPreviewUrl ? "localhost" : "inline")}
+        sourceVersionHash={sourceContentHash(content)}
+        repromptDraftRequest={repromptDraftRequest}
+        onRepromptDraftConsumed={onRepromptDraftConsumed}
+      />
+    ) : null;
+
   if (embeddedFrame) {
     if (embeddedFrameFluid) {
       return (
@@ -5028,6 +5057,7 @@ export function DesignCanvas({
           className="relative h-full w-full overflow-hidden"
         >
           {iframeElement}
+          {reviewCanvasPins}
         </div>
       );
     }
@@ -5058,6 +5088,7 @@ export function DesignCanvas({
         >
           {iframeElement}
         </div>
+        {reviewCanvasPins}
       </div>
     );
   }
@@ -5141,29 +5172,7 @@ export function DesignCanvas({
         </div>
       )}
 
-      {designId && (screenId || commentContextId) ? (
-        <ReviewCanvasPins
-          active={!!pinMode}
-          hidden={commentPinsHidden}
-          onClose={() => onExitPinMode?.()}
-          canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
-          resourceType="design"
-          resourceId={designId}
-          targetId={screenId ?? commentContextId ?? ""}
-          canPost={reviewCanPost}
-          canResolve={reviewCanResolve}
-          focusRequest={reviewFocusRequest}
-          onDispatchCommentToAgent={onDispatchCommentToAgent}
-          onSendThreadToAgent={onSendThreadToAgent}
-          sendingThreadId={reviewSendingThreadId}
-          sourceType={
-            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
-          }
-          sourceVersionHash={sourceContentHash(content)}
-          repromptDraftRequest={repromptDraftRequest}
-          onRepromptDraftConsumed={onRepromptDraftConsumed}
-        />
-      ) : null}
+      {reviewCanvasPins}
     </div>
   );
 }

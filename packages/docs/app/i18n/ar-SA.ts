@@ -156,8 +156,8 @@ const arSA = {
           body: "عرّف العمل مرة واحدة واستخدمه من UI وagent وHTTP وMCP وA2A وCLI.",
         },
         sqlStateOrm: {
-          title: "حالة SQL وORM",
-          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات غير مرتبطة بالمزود.",
+          title: "حالة PostgreSQL وORM",
+          body: "بيانات تطبيق دائمة، وحالة application، وترحيلات، ومخططات PostgreSQL وPGlite.",
         },
         dbAdmin: {
           title: "إدارة قاعدة البيانات",
@@ -210,7 +210,7 @@ const arSA = {
       body1:
         "Agent-Native هو framework مفتوح المصدر لبناء agentic applications: ابدأ مع Chat، وعرّف actions مشتركة، ثم أضف UI و jobs والتعاون حول نفس state.",
       body2:
-        "استخدم قاعدة بياناتك ومزود الاستضافة و model stack وكود app الخاص بك.",
+        "استخدم PGlite المحلي أو PostgreSQL المستضاف، ومزوّد الاستضافة وmodel stack وكود app الخاص بك.",
       cta: "اقرأ دليل framework",
       primitives: {
         actions: {
@@ -221,17 +221,17 @@ const arSA = {
         sharedState: {
           title: "حالة مشتركة",
           description:
-            "يحافظ SQL-backed app state على تزامن البشر و agents و sessions.",
+            "تحافظ حالة التطبيق المدعومة بـPostgreSQL وPGlite على تزامن البشر و agents و sessions.",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "يتم شحن app-agent loop و tools و skills و memory و jobs و observability معا.",
         },
-        backendAgnostic: {
-          title: "غير مرتبط بbackend معين",
+        postgresSpecific: {
+          title: "خاص بـPostgreSQL",
           description:
-            "وصّل أي قاعدة بيانات SQL مدعومة من Drizzle وأي host متوافق مع Nitro.",
+            "استخدم مساعدات مخطط PostgreSQL في إطار العمل مع PGlite المحلي أو Postgres المستضاف على أي مضيف متوافق مع Nitro.",
         },
       },
     },
@@ -310,7 +310,7 @@ const arSA = {
     },
     quickStart: {
       title: "ابدأ مع أمر واحد",
-      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و SQLite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
+      body: "ينشئ أمر واحد app محلية chat-first مدعومة ب actions و durable threads و PGlite. استخدم `--headless` فقط لـ workflows automation-first التي لا تحتاج UI في المتصفح بعد.",
     },
     finalCta: {
       title: "software مبني لعصر agentic era",
@@ -415,6 +415,7 @@ const arSA = {
   },
   common: {
     copied: "منقول",
+    copyFailed: "فشل النسخ",
     copyCommand: "أمر النسخ",
     copyCode: "نسخ الرمز",
     tryIt: "جرّب",
@@ -444,15 +445,15 @@ const arSA = {
     },
     actions: {
       title: "Action واحد يشغّل كل الواجهات",
-      bodyLine1: "الـ Actions هي وحدات البناء الأساسية لتطبيق Agent-Native.",
+      bodyLine1: "تحدد الـ Actions ما يمكن لوكيلك فعله.",
       bodyLine2:
-        "عرّف الوظيفة مرة واحدة، ثم استخدمها من واجهتك أو دردشة الوكيل أو HTTP API أو MCP أو A2A أو CLI.",
+        "عرّف كل قدرة مرة واحدة، ثم استخدمها من الوكيل أو واجهة المستخدم أو HTTP API أو MCP أو A2A أو CLI.",
       diagramAlt:
         "Action واحد يشغّل الواجهة وMCP ودردشة الوكيل وA2A وHTTP API وCLI",
     },
     builtIn: {
-      title: "مدمج في كل تطبيق Agent-Native",
-      body: "كل ما يحتاجه المستخدمون ووكلاء الذكاء الاصطناعي للعمل معًا، موصول مسبقًا في تطبيق واحد.",
+      title: "كل ما يحتاجه وكيلك",
+      body: "واجهة المستخدم والسياق والبيانات والصلاحيات والبنية التحتية، موصولة مسبقًا.",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -460,14 +461,14 @@ const arSA = {
         },
         agentChat: {
           title: "دردشة وكيل مدمجة",
-          body: "دع المستخدمين يوكلون العمل ويطرحون الأسئلة ويراجعون النتائج دون مغادرة التطبيق.",
+          body: "دع المستخدمين يوكلون العمل ويطرحون الأسئلة ويراجعون النتائج في واجهة المستخدم نفسها.",
         },
         sharedState: {
           title: "حالة تطبيق مشتركة",
           body: "الوكيل يعرف ما يشاهده المستخدمون وما يحددونه وما يحررونه.",
         },
         sharedSql: {
-          title: "بيانات SQL مشتركة",
+          title: "بيانات PostgreSQL المشتركة",
           body: "المستخدمون والوكلاء يقرأون ويحدّثون المصدر الموثوق نفسه.",
         },
         skillsMemory: {
@@ -476,11 +477,11 @@ const arSA = {
         },
         automations: {
           title: "الأتمتة",
-          body: "شغّل عمل الوكيل تلقائيًا وفق جداول زمنية أو أحداث التطبيق.",
+          body: "شغّل عمل الوكيل تلقائيًا وفق جداول زمنية أو أحداث.",
         },
         agentTeams: {
           title: "فرق الوكلاء",
-          body: "وكّل العمل إلى وكلاء متخصصين داخل التطبيق أو عبر التطبيقات.",
+          body: "وكّل العمل إلى وكلاء متخصصين في مساحة العمل نفسها أو عبر وكلاء متصلين.",
         },
         auth: {
           title: "المصادقة والمؤسسات",
@@ -494,19 +495,19 @@ const arSA = {
     },
     stack: {
       title: "يعمل مع حزمتك التقنية",
-      body: "أحضر LLM وقاعدة البيانات والأدوات والبنية التحتية الخاصة بك، فـ Agent-Native مفتوح المصدر بلغة TypeScript، ويبقى تطبيقك ملكك.",
+      body: "أحضر LLM وقاعدة البيانات والأدوات والبنية التحتية الخاصة بك. Agent-Native مفتوح المصدر بلغة TypeScript، لذا يبقى كل ما تبنيه ملكك.",
       exploreApps: "استكشف التطبيقات المبنية بـ Agent-Native",
     },
     showcase: {
       title: "ما الذي يمكنك بناؤه باستخدام Agent-Native؟",
-      body: "تطبيقات وكيلة تفهم عملك وتتخذ الإجراءات وتتعاون معك. أنشئ تطبيقك أو جرّب أحد هذه التطبيقات مفتوحة المصدر.",
+      body: "أنشئ وكلاء بواجهات استخدام للاجتماعات والتصميم والعروض التقديمية والبيانات والمزيد. ابدأ من أحد هذه التطبيقات مفتوحة المصدر أو ابنِ وكيلك بنفسك.",
       browseApps: "استعرض التطبيقات",
       scrollLeft: "تمرير التطبيقات إلى اليسار",
       scrollRight: "تمرير التطبيقات إلى اليمين",
     },
     bottomCta: {
-      title: "ابنِ أول تطبيق Agent-Native لك",
-      body: "أنشئ تطبيقًا واحدًا للمستخدمين ووكلاء الذكاء الاصطناعي. استخدم LLM الخاص بك وانشر في أي مكان.",
+      title: "ابنِ أول وكيل لك بواجهة مستخدم",
+      body: "يشترك الوكيل وواجهة المستخدم في القدرات نفسها. استخدم LLM الخاص بك وانشر في أي مكان.",
     },
     footer: {
       tagline: "إطار العمل لتطبيقات الوكلاء.",
@@ -518,16 +519,28 @@ const arSA = {
       download: "تنزيل",
       apps: "التطبيقات",
       privacyPolicy: "سياسة الخصوصية",
-      saasTerms: "شروط SaaS",
+      saasTerms: "شروط الخدمة المستضافة",
+      legalResources: "الموارد القانونية",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ألا تريد البناء محليًا؟",
-      exploreApp: "استكشف تطبيقًا مباشرًا",
-      between: "أولًا، أو",
-      joinWaitlist: "انضم إلى قائمة الانتظار",
-      end: "للبناء في المتصفح بدلًا من ذلك.",
+    tabs: {
+      label: "اختر طريقة البناء",
+      local: "البناء محليًا",
+      localDescription: "استخدم CLI للبناء على جهازك.",
+      cloud: "البناء في السحابة",
+      cloudDescription: "ابنِ في المتصفح باستخدام Builder.io.",
+    },
+    cloud: {
+      intro:
+        "ابنِ التطبيقات نفسها من دون تثبيت أي شيء. صِف ما تريده، وسيكتب الوكيل التعليمات البرمجية ويشغّلها في مساحة عمل يستضيفها Builder لك.",
+      stepOneTitle: "أنشئ حسابًا في Builder",
+      stepOneBody:
+        "استخدم حساب Builder الخاص بك للبناء في المتصفح. ابدأ مجانًا من دون إحضار مفاتيح API.",
+      stepTwoTitle: "ابدأ بكتابة طلبك",
+      stepTwoBody: "صِف ما تريد بناءه بلغة واضحة وسيُنشئه الوكيل لك.",
+      stepThreeTitle: "النشر",
+      stepThreeBody: "عندما تكون مستعدًا، انشر تطبيقك بنقرة واحدة في Builder.",
     },
   },
   templatesPage: {
@@ -549,9 +562,9 @@ const arSA = {
     copyCommunityInstallCommand: "نسخ أمر التثبيت",
     viewRepository: "عرض المستودع",
     tryCommunityDemo: "تجربة العرض",
-    customizeDescription: "يمكنك تخصيص هذه الشيفرة بالكامل.",
-    customizeOnline: "تخصيص عبر الإنترنت",
-    customizeLocally: "تخصيص محليًا",
+    customizeDescription: "استخدم هذا التطبيق كنقطة بداية.",
+    customizeOnline: "عبر الإنترنت",
+    customizeLocally: "محلي",
     communityNew: "جديد",
     communityComingSoon: "قريبًا",
     communityGithubStars: "{{count}} نجمة على GitHub",
@@ -571,7 +584,7 @@ const arSA = {
     communitySubmissionName: "اسم التطبيق",
     communitySubmissionNamePlaceholder: "مركز دعم العملاء",
     communitySubmissionUrl: "رابط التطبيق",
-    communitySubmissionUrlPlaceholder: "example.com أو https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "الوصف",
     communitySubmissionDescriptionPlaceholder:
       "ماذا يفعل التطبيق ولمن هو مخصص؟",
@@ -587,8 +600,15 @@ const arSA = {
     communitySubmissionScreenshotRemove: "إزالة لقطة الشاشة {{index}}",
     communitySubmissionSubmit: "إرسال التطبيق",
     communitySubmissionReady: "شكرًا. سنراجع تطبيقك قبل نشره.",
-    communitySubmissionValidation:
-      "أضف اسمًا ووصفًا، ثم أدخل رابط التطبيق مثل example.com. سنضيف https:// نيابةً عنك. إذا أضفت مستودعًا، فاستخدم رابطًا من github.com. ارفع صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة.",
+    communitySubmissionNameError: "أدخل اسم التطبيق.",
+    communitySubmissionDescriptionError: "أضف وصفًا موجزًا.",
+    communitySubmissionUrlError: "أدخل رابط تطبيق صالحًا، مثل example.com.",
+    communitySubmissionRepositoryError: "أدخل رابط مستودع GitHub.",
+    communitySubmissionScreenshotsError:
+      "استخدم صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة، وبحد أقصى 5 صور.",
+    communitySubmissionSubmitError:
+      "تعذر الإرسال الآن. تحقق من الحقول المميزة وحاول مرة أخرى.",
+    communitySubmissionSubmitting: "جارٍ الإرسال…",
   },
   buildFromScratch: {
     title: "ابنِ من الصفر",
@@ -597,16 +617,8 @@ const arSA = {
     readDocs: "اقرأ المستندات",
     buildOnline: "ابنِ عبر الإنترنت",
     popoverTitle: "أنشئ في المتصفح",
-    popoverBody:
-      "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
-    emailLabel: "البريد الإلكتروني",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "انضم إلى قائمة الانتظار",
-    joining: "جارٍ الانضمام…",
-    joined:
-      "أنت على قائمة الانتظار. سنرسل لك بريدًا عندما يتوفر الوصول للبناء عبر الإنترنت.",
-    invalidEmail: "أدخل بريدًا إلكترونيًا صالحًا.",
-    submitError: "تعذر الانضمام إلى قائمة الانتظار. حاول مرة أخرى.",
+    popoverBody: "أنشئ تطبيقات agent-native بسرعة في السحابة مع Builder.io.",
+    launchBuilder: "شغّل Builder",
   },
   templateCard: {
     pasteIntoTerminal: "لصق في المحطة الخاصة بك.",
@@ -870,8 +882,11 @@ const arSA = {
       s004: "إملاء",
       s005: "يمكن أن ترى + تسمع",
       s006: "جميع القوالب",
-      s007: "البديل مفتوح المصدر لـ Loom",
-      s008: "الصق رابط Clips في الوكيل ويمكنه سماع النص وقراءة الملخصات ورؤية الإطارات ذات الطوابع الزمنية حتى لو لم يتمكن النموذج الخاص به من استيعاب الفيديو أو الصوت الخام.",
+      s007Primary: "تسجيلات شاشة يمكن لـ",
+      s007Secondary: "AI رؤيتها وسماعها.",
+      s008: "التقط سجلات تصحيح أخطاء المتصفح، واحصل على النصوص، واستخدم الإملاء المدمج. مجاني 100%، ومفتوح المصدر، وقابل للتخصيص.",
+      s063: "احصل على توصية مخصصة",
+      s064: "الصق هذه المطالبة في Claude أو ChatGPT أو Cursor لمعرفة كيف يمكن لـ Clips أن يؤثر على سير عملك.",
       s009: "جرّبه",
       s010: "ما يمكنك القيام به",
       s011: "التسجيل والنسخ وتصحيح الأخطاء - تطبيق واحد ومكتبة واحدة بدون حزمة الاشتراكات.",
@@ -926,6 +941,25 @@ const arSA = {
       s060: "اختر ما تريد التقاطه، ثم ابدأ التسجيل في Clips.",
       s061: "عرض المزيد من التطبيقات",
       s062: "عرض كافة القوالب",
+      faq: {
+        question1: "هل Clips مجاني؟",
+        answer1: "نعم. Clips مجاني ومفتوح المصدر.",
+        question2: "هل يستطيع الذكاء الاصطناعي قراءة تسجيل الشاشة؟",
+        answer2:
+          "نعم. يتضمن كل مقطع نصًا مكتوبًا وملخصًا وإطارات زمنية يمكن للوكيل قراءتها مباشرة.",
+        question3: "ما الفرق بين Clips وLoom؟",
+        answer3:
+          "Clips مفتوح المصدر، والبيانات ملكك، ويمكن للوكلاء الذكيين قراءة كل رابط مشاركة، وليس الأشخاص فقط.",
+        question4: "هل يمكن لتسجيل الشاشة التقاط أخطاء وحدة التحكم؟",
+        answer4:
+          "نعم. يلتقط Clips أخطاء وحدة تحكم المتصفح وطلبات الشبكة الفاشلة مع التسجيل. وتُرفق جميعها برابط المشاركة نفسه مع النص المكتوب والإطارات. يمكن للوكيل تصحيح الأخطاء من المقطع، وليس مشاهدته فقط.",
+        question5: "هل يعمل Clips مع Claude أو ChatGPT أو Cursor؟",
+        answer5:
+          "نعم! لا تحتاج إلى إضافة أو مفتاح API. الصق رابط Clips مشتركًا في أي وكيل ليقرأ النص المكتوب والملخص والإطارات مباشرة.",
+        question6: "أين تُحفظ تسجيلاتي؟",
+        answer6:
+          "حيثما تنشرها. يحتفظ Clips المستضاف ذاتيًا بالفيديوهات والنصوص المكتوبة والتحليلات في بنيتك التحتية الخاصة.",
+      },
       quickStart: {
         recordingMode: "وضع التسجيل",
         modeScreenCamera: "الشاشة + الكاميرا",
@@ -1440,7 +1474,7 @@ const arSA = {
       s004: "صقل",
       s005: "جميع القوالب",
       s006Primary: "عروض تقديمية بالشرائح",
-      s006Secondary: "للبشر والوكلاء",
+      s006Secondary: "متوافقة مع هويتك وقابلة للتحرير",
       s007: "أنشئ عروض شرائح بهوية علامتك التجارية باستخدام وكيل الذكاء الاصطناعي، وأجرِ تعديلاتك اليدوية في أي وقت، وصدّرها إلى أي مكان.",
       s008: "جرّب",
       s009: "كيف يعمل",
@@ -1725,6 +1759,35 @@ const arSA = {
   },
   legal: {
     lastUpdated: "آخر تحديث: {{date}}",
+    resources: {
+      eyebrow: "الموارد القانونية",
+      title: "الموارد القانونية لـ Agent-Native",
+      intro:
+        "سياسات قانونية مستقلة لـ Agent-Native تخص التطبيقات والخدمات المستضافة التي تشغّلها Builder.io.",
+      agentNative: {
+        title: "سياسات Agent-Native",
+        body: "تكيّف هذه الصفحات إطار السياسات المشترك ليتناسب مع مشروع Agent-Native مفتوح المصدر والأمثلة المستضافة.",
+        terms: "شروط خدمة Agent-Native",
+        privacy: "سياسة خصوصية Agent-Native",
+      },
+      builder: {
+        title: "سياسات إضافية للخدمة المستضافة",
+        body: "تغطي هذه النسخ المحلية الاستخدام المقبول وميزات الذكاء الاصطناعي وقواعد المنصة والتعليق والإزالة وحقوق الطبع والنشر وطلبات إنفاذ القانون. النسخة الإنجليزية هي المرجع المعتمد.",
+      },
+      links: {
+        terms: "اتفاقية خدمات SaaS",
+        privacy: "سياسة الخصوصية",
+        acceptableUse: "سياسة الاستخدام المقبول",
+        aiTerms: "شروط الذكاء الاصطناعي",
+        platformRules: "قواعد المنصة",
+        takedown: "سياسة التعليق والإزالة ومعالجة البيانات",
+        lawEnforcement: "سياسة طلبات جهات إنفاذ القانون",
+      },
+      notIncluded: {
+        title: "الشروط التجارية غير المشمولة",
+        body: "لا يملك Agent-Native خططًا مدفوعة أو عقدًا مؤسسيًا. لا تشمل هذه السياسات المواد التجارية مثل اتفاقيات مستوى الخدمة والدعم وشروط DPA وملاحق الأمان وشروط الخدمات الاحترافية والرسوم.",
+      },
+    },
     privacy: {
       eyebrow: "سياسة الخصوصية",
       title: "Agent-Native التطبيقات المستضافة",
@@ -1747,6 +1810,7 @@ const arSA = {
       sections: {
         scope: "النطاق",
         information: "المعلومات التي نجمعها",
+        cookies: "ملفات تعريف الارتباط والتحليلات",
         clipsExtension: "إضافة Agent-Native Clips لـ Chrome",
         use: "كيف نستخدم المعلومات",
         sharing: "المشاركة والأطراف الثالثة",
@@ -1760,6 +1824,8 @@ const arSA = {
           "Agent-Native مفتوح المصدر، وكود المصدر متاح بموجب ترخيص MIT. تنطبق هذه السياسة فقط على التطبيقات والخدمات المستضافة التي يديرها Builder.io لمستخدمي Agent-Native. ولا ينطبق على استخدام شخص آخر للتعليمات البرمجية، بما في ذلك التفرعات أو القوالب المخصصة أو عمليات النشر الخاصة أو الإصدارات المستضافة ذاتيًا. إذا كنت تقوم بتشغيل النشر الخاص بك، فأنت مسؤول عن ممارسات البيانات وسياسة الخصوصية الخاصة بك.",
         scope2Prefix: "تهدف هذه السياسة إلى استكمال سياسات Builder.io الأوسع",
         scope2Suffix: "لسلوك التطبيق المستضاف Agent-Native.",
+        cookies:
+          "قد يستخدم موقع توثيق Agent-Native والتطبيقات المستضافة ملفات تعريف ارتباط ضرورية للمصادقة والأمان، ولحفظ التفضيلات مثل اللغة أو المظهر، وتقنيات التحليلات المكوّنة. وقد يحمّل موقع التوثيق Google Analytics أو Google Tag Manager عند تهيئتهما في النشر، كما قد تستخدم الخدمة المستضافة تحليلات الطرف الأول لقياس الموثوقية واستخدام الميزات. لا نستخدم محتوى التطبيقات المستضافة للإعلانات المقدمة من جهات خارجية. يمكنك التحكم في ملفات تعريف الارتباط من إعدادات المتصفح، إلا أن تعطيل الضرورية منها قد يمنع تسجيل الدخول أو استخدام ميزات أخرى.",
         clips1:
           "يساعدك Agent-Native Clips Chrome extension على بدء التسجيلات المستندة إلى المتصفح، وعند تمكينه، قم بإرفاق تشخيصات المتصفح بمقطع. وقد يجمع مصدر الالتقاط المحدد، ووسائط الكاميرا والميكروفون التي اخترت تضمينها، وعنوان علامة التبويب النشطة وعنوان URL، وحالة المصادقة اللازمة لتوصيل الامتداد بـ Clips المستضاف.",
         clips2:
@@ -1903,6 +1969,8 @@ const arSA = {
         scope2Middle: "و Agent-Native",
         scope2Suffix:
           "إذا كنت تستخدم تطبيق Agent-Native مستضافًا نيابةً عن شركة أو مؤسسة، فإنك تقر بأن لديك السلطة لقبول هذه الشروط لتلك المؤسسة.",
+        scope3:
+          "لا يوفّر Agent-Native خططًا مدفوعة أو اشتراكات استضافة مدفوعة. ولا تُعد الشروط التجارية لـ Builder.io، مثل نماذج الطلب والرسوم ودعم المؤسسات ومستويات الخدمة وملاحق معالجة البيانات، جزءًا من هذا العرض ما لم يتم الاتفاق عليها كتابةً بشكل منفصل.",
         hostedService:
           "قد توفر Builder.io تطبيقات Agent-Native مستضافة وقوالب وعروض توضيحية ومساحات عمل مشتركة وملحقات المتصفح وسير عمل الوكيل ذي الصلة. قد يتم تحديث الخدمة المستضافة أو تقييدها أو تعليقها أو إيقافها مع تطور المنتج.",
         accounts1:
@@ -2022,12 +2090,16 @@ const arSA = {
     actionsAgentTools: "وصول الوكيل في بيئة الإنتاج",
     publicAgentWeb: "ويب الوكيل العام",
     database: "قاعدة البيانات",
+    databaseProviders: "موفرو قواعد البيانات",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databasePostgres: "Plain Postgres",
     internationalization: "التدويل",
     localFileMode: "Local File Mode",
     fileUploads: "تحميلات الملفات",
     deployment: "Deployment",
     deploymentOverview: "نظرة عامة",
-    deploymentProviders: "المزوّدون",
+    deploymentProviders: "موفرو الاستضافة",
     deploymentProduction: "الإنتاج والمتقدم",
     deployAnApp: "نشر تطبيق",
     workspaceDeployment: "نشر مساحة العمل",

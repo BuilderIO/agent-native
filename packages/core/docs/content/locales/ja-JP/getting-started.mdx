@@ -5,14 +5,9 @@ description: "チャットUIを備えたエージェントを作成し、エー�
 
 # はじめに
 
-Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築するための
-オープンソースTypeScriptフレームワークです。各機能を一度だけ
-[アクション](/docs/actions-overview)として定義します。アクションは、エージェントが
-ツールとして使用し、UIがコードから呼び出す型付き関数です。
+<GettingStartedPaths />
 
 このガイドでは、チャットUIを備えたエージェントを作成し、付属の`hello`アクションをエージェントとUIから呼び出します。
-
-<GettingStartedPaths />
 
 ## 前提条件
 
@@ -154,7 +149,7 @@ return { message: `Welcome, ${name}.` };
 | [HTTP API](/docs/http-api)              | スクリプト、バックエンド、連携からアクションを呼び出す。           |
 | [CLI](/docs/actions-other-surfaces#cli) | ターミナルからアクションを実行またはテストする。                   |
 | [MCP](/docs/actions-other-surfaces#mcp) | 外部AIクライアントにアクションをツールとして検出・呼び出しさせる。 |
-| [A2A](/docs/actions-other-surfaces#a2a) | 別のエージェントから自分のエージェントに作業を委任する。         |
+| [A2A](/docs/actions-other-surfaces#a2a) | 別のエージェントから自分のエージェントに作業を委任する。           |
 
 すべての呼び出し元が同じアクション定義を使います。呼び出し元ごとに別の実装は不要です。この共有アクションモデルはAgent-Nativeの中心です。機能を追加しても、UI、エージェント、連携の間で動作、検証、権限が揃ったままになります。
 

@@ -565,7 +565,7 @@ export function createAgentNativeBrowserSessionBridge(
           requestAgentNativeHostActions(hostOptions).catch(() => []),
           resolveWebMcpTools(options),
         ]);
-    if (webmcpTools !== undefined) lastWebMcpTools = webmcpTools;
+    lastWebMcpTools = webmcpTools;
     const hostSession = context.session;
     if (!currentSessionId) {
       currentSessionId =

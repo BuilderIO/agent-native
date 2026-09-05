@@ -1,3 +1,4 @@
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
   deleteClientAppState,
@@ -108,6 +109,24 @@ import { TAB_ID } from "@/lib/tab-id";
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
+const PENDING_PROMPT_MODEL_SELECTION_KEY =
+  "slides:pending-deck-model-selection";
+
+type DeckModelSelection = Pick<
+  PromptComposerSubmitOptions,
+  "model" | "engine" | "effort"
+>;
+
+const RETRY_REASONING_EFFORTS = new Set([
+  "auto",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 /** Router-state payload for recovering the new-deck prompt after a failed
  *  generation kickoff forces a navigate away from and back to this route. */
@@ -116,11 +135,65 @@ interface DeckGenerationRetryState {
   retryFiles?: UploadedFile[];
   retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
+  modelSelection?: DeckModelSelection;
+}
+
+type StoredModelSelectionResult =
+  | { state: "absent" }
+  | { state: "unreadable" }
+  | { state: "available"; selection: DeckModelSelection };
+
+function readStoredModelSelection(): StoredModelSelectionResult {
+  try {
+    const raw = sessionStorage.getItem(PENDING_PROMPT_MODEL_SELECTION_KEY);
+    if (!raw) return { state: "absent" };
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { state: "unreadable" };
+    }
+    const value = parsed as Record<string, unknown>;
+    if (
+      (value.model !== undefined && typeof value.model !== "string") ||
+      (value.engine !== undefined && typeof value.engine !== "string") ||
+      (value.effort !== undefined &&
+        (typeof value.effort !== "string" ||
+          !RETRY_REASONING_EFFORTS.has(value.effort)))
+    ) {
+      return { state: "unreadable" };
+    }
+    if (
+      value.model === undefined &&
+      value.engine === undefined &&
+      value.effort === undefined
+    ) {
+      return { state: "unreadable" };
+    }
+    return {
+      state: "available",
+      selection: {
+        ...(typeof value.model === "string" ? { model: value.model } : {}),
+        ...(typeof value.engine === "string" ? { engine: value.engine } : {}),
+        ...(typeof value.effort === "string"
+          ? { effort: value.effort as DeckModelSelection["effort"] }
+          : {}),
+      },
+    };
+  } catch (error) {
+    console.warn(
+      "[slides] pending model selection could not be restored",
+      error,
+    );
+    return { state: "unreadable" };
+  }
 }
 
 function savePromptForRetry(
   prompt: string,
-  options: { context?: string; persistAcrossSignIn?: boolean } = {},
+  options: {
+    context?: string;
+    modelSelection?: DeckModelSelection;
+    persistAcrossSignIn?: boolean;
+  } = {},
 ) {
   let signInHandoffSaved = !options.persistAcrossSignIn;
   if (options.persistAcrossSignIn) {
@@ -130,6 +203,14 @@ function savePromptForRetry(
         sessionStorage.setItem(PENDING_PROMPT_CONTEXT_KEY, options.context);
       } else {
         sessionStorage.removeItem(PENDING_PROMPT_CONTEXT_KEY);
+      }
+      if (options.modelSelection) {
+        sessionStorage.setItem(
+          PENDING_PROMPT_MODEL_SELECTION_KEY,
+          JSON.stringify(options.modelSelection),
+        );
+      } else {
+        sessionStorage.removeItem(PENDING_PROMPT_MODEL_SELECTION_KEY);
       }
       signInHandoffSaved = true;
     } catch {}
@@ -142,6 +223,7 @@ function clearPendingPromptForRetry() {
   try {
     sessionStorage.removeItem(PENDING_PROMPT_KEY);
     sessionStorage.removeItem(PENDING_PROMPT_CONTEXT_KEY);
+    sessionStorage.removeItem(PENDING_PROMPT_MODEL_SELECTION_KEY);
   } catch {}
 }
 
@@ -314,11 +396,15 @@ export default function Index() {
   const [newDeckRetryAttachments, setNewDeckRetryAttachments] = useState<
     ReadonlyArray<PromptChatAttachment>
   >([]);
+  const [newDeckRetryModelSelection, setNewDeckRetryModelSelection] = useState<
+    DeckModelSelection | undefined
+  >();
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
     context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
+    modelSelection?: DeckModelSelection;
   } | null>(null);
   const pendingDeckAttachmentActionsRef =
     useRef<PromptAttachmentActions | null>(null);
@@ -513,6 +599,7 @@ export default function Index() {
           setNewDeckRetryContext(undefined);
           setNewDeckRetryPrompt(undefined);
           setNewDeckRetryAttachments([]);
+          setNewDeckRetryModelSelection(undefined);
         }
       }
     },
@@ -526,11 +613,13 @@ export default function Index() {
         context?: string;
         attachments?: ReadonlyArray<PromptChatAttachment>;
         hadFiles?: boolean;
+        modelSelection?: DeckModelSelection;
       } = {},
     ) => {
       if (
         !savePromptForRetry(prompt, {
           context: options.context,
+          modelSelection: options.modelSelection,
           persistAcrossSignIn: true,
         })
       ) {
@@ -540,6 +629,7 @@ export default function Index() {
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles([]);
       setNewDeckRetryAttachments(options.attachments ?? []);
+      setNewDeckRetryModelSelection(options.modelSelection);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       setShowSignInDialog(true);
@@ -588,14 +678,21 @@ export default function Index() {
     if (!session) return;
     let saved: string | null = null;
     let savedContext: string | undefined;
+    let savedModelSelection: DeckModelSelection | undefined;
     try {
       saved = sessionStorage.getItem(PENDING_PROMPT_KEY);
       savedContext =
         sessionStorage.getItem(PENDING_PROMPT_CONTEXT_KEY) ?? undefined;
+      const storedModelSelection = readStoredModelSelection();
+      savedModelSelection =
+        storedModelSelection.state === "available"
+          ? storedModelSelection.selection
+          : undefined;
     } catch {}
     if (!saved) return;
     setNewDeckRetryContext(savedContext);
     setNewDeckRetryPrompt(saved);
+    setNewDeckRetryModelSelection(savedModelSelection);
     if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved)) {
       clearPendingPromptForRetry();
       setNewDeckInitialPrompt(null);
@@ -628,6 +725,7 @@ export default function Index() {
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
+    setNewDeckRetryModelSelection(state.modelSelection);
     setShowNewDeckPrompt(true);
     void navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
@@ -671,6 +769,7 @@ export default function Index() {
     referenceSelection: NewDeckReferenceSelection = {},
     additionalContext = "",
     attachments: ReadonlyArray<PromptChatAttachment> = [],
+    modelSelection?: DeckModelSelection,
   ) => {
     // Pre-flight auth check. The add-deck action returns 403 silently
     // when unauthenticated, leaving the user stuck on a deck page that
@@ -683,6 +782,7 @@ export default function Index() {
         context: additionalContext,
         attachments,
         hadFiles: files.length > 0,
+        modelSelection,
       });
       return;
     }
@@ -740,13 +840,19 @@ export default function Index() {
 
     const recoverFromGenerationSetupFailure = (description: string) => {
       settlePendingDeckAttachments("discard");
-      if (!savePromptForRetry(prompt, { context: additionalContext })) {
+      if (
+        !savePromptForRetry(prompt, {
+          context: additionalContext,
+          modelSelection,
+        })
+      ) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryContext(additionalContext || undefined);
       setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles(filesForGeneration);
       setNewDeckRetryAttachments(attachmentsForGeneration);
+      setNewDeckRetryModelSelection(modelSelection);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
       if (
@@ -760,6 +866,7 @@ export default function Index() {
             retryFiles: filesForGeneration,
             retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
+            modelSelection,
           } satisfies DeckGenerationRetryState,
           flushSync: true,
         });
@@ -800,6 +907,7 @@ export default function Index() {
     setNewDeckRetryContext(undefined);
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryAttachments([]);
+    setNewDeckRetryModelSelection(undefined);
     const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
       (value) => value.includes("<google-doc "),
@@ -956,6 +1064,7 @@ export default function Index() {
       openSidebar: true,
       ...getUploadedImageAgentOptions(filesForGeneration),
       attachments: attachmentsForGeneration,
+      ...modelSelection,
     });
     settlePendingDeckAttachments("commit");
   };
@@ -967,6 +1076,7 @@ export default function Index() {
       referenceSelection: NewDeckReferenceSelection,
       context?: string,
       attachments: ReadonlyArray<PromptChatAttachment> = [],
+      modelSelection?: DeckModelSelection,
     ) => {
       const generation = Promise.resolve().then(() =>
         handleCreateDeckWithPrompt(
@@ -975,6 +1085,7 @@ export default function Index() {
           referenceSelection,
           context,
           attachments,
+          modelSelection,
         ),
       );
       pendingDeckGenerationRef.current = generation;
@@ -1008,6 +1119,7 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       attachments: PromptAttachmentActions,
+      options?: PromptComposerSubmitOptions,
     ) => {
       pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
@@ -1022,16 +1134,25 @@ export default function Index() {
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
           ...attachments.attachments,
         ],
+        modelSelection: options
+          ? {
+              model: options.model,
+              engine: options.engine,
+              effort: options.effort,
+            }
+          : newDeckRetryModelSelection,
       });
       setNewDeckRetryPrompt(undefined);
       setNewDeckRetryContext(undefined);
       setNewDeckRetryAttachments([]);
+      setNewDeckRetryModelSelection(undefined);
       setShowNewDeckReferenceStep(true);
       return "retain" as const;
     },
     [
       newDeckRetryAttachments,
       newDeckRetryContext,
+      newDeckRetryModelSelection,
       newDeckRetryPrompt,
       setNewDeckPromptOpen,
     ],
@@ -1043,6 +1164,7 @@ export default function Index() {
     setNewDeckRetryPrompt(undefined);
     setNewDeckRetryContext(undefined);
     setNewDeckRetryAttachments([]);
+    setNewDeckRetryModelSelection(undefined);
     setPendingDeck({ prompt: "", files: [], attachments: [] });
     setShowNewDeckReferenceStep(true);
   }, [setNewDeckPromptOpen, settlePendingDeckAttachments]);
@@ -1191,6 +1313,7 @@ export default function Index() {
         selection,
         pending.context,
         pending.attachments,
+        pending.modelSelection,
       );
       setShowNewDeckReferenceStep(false);
       setPendingDeck(null);
@@ -1211,6 +1334,9 @@ export default function Index() {
         );
         const pdfReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".pdf"),
+        );
+        const docxReference = uploaded.find((file) =>
+          file.originalName.toLowerCase().endsWith(".docx"),
         );
         let importedReference: ImportedReference | null = null;
         let generationFiles = uploaded;
@@ -1243,7 +1369,16 @@ export default function Index() {
             source: "pptx",
           };
           generationFiles = uploaded.filter((file) => file !== pptxReference);
-        } else if (pdfReference) {
+        } else if (pdfReference || docxReference) {
+          const documentReference = pdfReference ?? docxReference;
+          const documentFormat = pdfReference ? "pdf" : "docx";
+          const documentSaveError = t("editorToolbar.uploadFailed");
+          const documentImportError = t(
+            "editorToolbar.importFailedDescription",
+          );
+          if (!documentReference) {
+            throw new Error(documentImportError);
+          }
           const referenceDeck = createDeck(undefined, {
             noDefaultSlides: true,
           });
@@ -1251,18 +1386,15 @@ export default function Index() {
           if (!persisted.persisted) {
             deleteDeck(referenceDeck.id);
             throw new Error(
-              describeDeckPersistenceFailure(
-                persisted,
-                "The PDF reference deck could not be saved.",
-              ),
+              describeDeckPersistenceFailure(persisted, documentSaveError),
             );
           }
           try {
             const imported = (await callAction(
               "import-file",
               {
-                filePath: pdfReference.path,
-                format: "pdf",
+                filePath: documentReference.path,
+                format: documentFormat,
                 deckId: referenceDeck.id,
                 importIntoDeck: true,
               },
@@ -1271,15 +1403,20 @@ export default function Index() {
               imported?: unknown;
               deckId?: unknown;
               pageCount?: unknown;
+              slideCount?: unknown;
               title?: unknown;
             };
+            const importedSlideCount =
+              documentFormat === "pdf"
+                ? imported.pageCount
+                : imported.slideCount;
             if (
               imported.imported !== true ||
               imported.deckId !== referenceDeck.id ||
-              typeof imported.pageCount !== "number" ||
-              imported.pageCount < 1
+              typeof importedSlideCount !== "number" ||
+              importedSlideCount < 1
             ) {
-              throw new Error("The PDF reference deck could not be imported.");
+              throw new Error(documentImportError);
             }
             importedReference = {
               id: referenceDeck.id,
@@ -1287,9 +1424,11 @@ export default function Index() {
                 typeof imported.title === "string" && imported.title
                   ? imported.title
                   : t("home.importedReferenceDeck"),
-              source: "pdf",
+              source: documentFormat,
             };
-            generationFiles = uploaded.filter((file) => file !== pdfReference);
+            generationFiles = uploaded.filter(
+              (file) => file !== documentReference,
+            );
           } catch (error) {
             deleteDeck(referenceDeck.id);
             throw error;
@@ -1395,6 +1534,7 @@ export default function Index() {
       },
       pending.context,
       pending.attachments,
+      pending.modelSelection,
     );
     setShowNewDeckReferenceStep(false);
     setPendingDeck(null);
@@ -1712,12 +1852,19 @@ export default function Index() {
         onImport={handleDirectImport}
         importFromLabel={t("home.importFrom")}
         importingLabel={t("editorToolbar.importing")}
-        onBeforeUpload={(prompt, files, context, attachments) => {
+        onBeforeUpload={(prompt, files, context, attachments, options) => {
           if (session) return true;
           preservePromptForSignIn(prompt, {
             context,
             attachments,
             hadFiles: files.length > 0,
+            modelSelection: options
+              ? {
+                  model: options.model,
+                  engine: options.engine,
+                  effort: options.effort,
+                }
+              : undefined,
           });
           return false;
         }}
@@ -1726,6 +1873,7 @@ export default function Index() {
         draftScope={NEW_DECK_DRAFT_SCOPE}
         initialText={newDeckInitialPrompt?.text}
         initialTextKey={newDeckInitialPrompt?.key}
+        initialModelSelection={newDeckRetryModelSelection}
         onRetainedAttachmentsAbandoned={handlePendingDeckAttachmentsAbandoned}
       />
 

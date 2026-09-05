@@ -3,7 +3,6 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -14,6 +13,11 @@ import {
   selectReferences,
 } from "../server/lib/generation.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import {
+  assertCanDraft,
+  assertCanUseAssets,
+  draftScopeForLibrary,
+} from "../server/lib/library-access.js";
 import { getObject } from "../server/lib/storage.js";
 import {
   compileVideoPrompt,
@@ -82,7 +86,10 @@ export default defineAction({
       ...input,
       libraryId,
     };
-    await assertAccess("asset-library", args.libraryId, "editor");
+    const draftAccess = await assertCanDraft(args.libraryId);
+    // Inputs answer to the same author rule as reads: another drafter's
+    // candidate must not reach the provider as a source or a reference.
+    const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     const [library] = await db
       .select()
@@ -124,6 +131,13 @@ export default defineAction({
       if (!sourceAsset.mimeType.startsWith("image/")) {
         throw new Error("sourceAssetId must refer to an image asset.");
       }
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        [sourceAsset],
+        "This video generation",
+      );
       sourceImage = {
         id: sourceAsset.id,
         mimeType: sourceAsset.mimeType,
@@ -139,6 +153,7 @@ export default defineAction({
     const references = sourceImage
       ? []
       : await selectReferences({
+          draftScope,
           libraryId: args.libraryId,
           collectionId: args.collectionId,
           categories: [args.category],
@@ -280,6 +295,9 @@ export default defineAction({
           asset,
           artifactType: "video",
           Artifacts: [`Video: ${asset.url} (ID: ${asset.id}, Run: ${runId})`],
+          // Present only when the caller cannot approve: saving this candidate
+          // into the kit needs an editor.
+          ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
         };
       }
     }
@@ -290,6 +308,9 @@ export default defineAction({
       artifactType: "video",
       message:
         "Video generation started. Call refresh-generation-run with this runId until status is completed.",
+      // The poll comes back through refresh-generation-run, so the marker has
+      // to survive the async hop too or the caller loses it at completion.
+      ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
     };
   },
 });

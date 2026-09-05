@@ -71,8 +71,8 @@ export const ORG_MIGRATIONS = [
     // via `LOWER(email)`. This keeps exactly one row per (org_id,
     // LOWER(email)) — the row with the oldest `joined_at` (ties broken by
     // `id` for determinism) — by deleting any row for which a strictly
-    // "older" row exists in the same group. Portable across SQLite and
-    // Postgres (plain correlated EXISTS subquery, no window functions).
+    // "older" row exists in the same group. The correlated EXISTS subquery
+    // avoids window functions.
     // Must run before the unique index below or that CREATE would fail on
     // any database that already has case-variant duplicates.
     version: 1009,
@@ -180,5 +180,27 @@ export const ORG_MIGRATIONS = [
               FROM workspace_app_shares
               WHERE workspace_app_shares.resource_id = workspace_apps.id
             )`,
+  },
+  {
+    version: 1019,
+    name: "organization-identity-federation",
+    sql: `
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_authority TEXT;
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS identity_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS organizations_identity_uidx
+        ON organizations (identity_authority, identity_id);
+    `,
+  },
+  {
+    version: 1020,
+    name: "organization-federation-removal-pending",
+    sql: `ALTER TABLE org_members
+          ADD COLUMN IF NOT EXISTS federation_removal_pending_at INTEGER`,
+  },
+  {
+    version: 1021,
+    name: "organization-federation-roster-initialized",
+    sql: `ALTER TABLE organizations
+          ADD COLUMN IF NOT EXISTS federation_roster_initialized_at INTEGER`,
   },
 ];

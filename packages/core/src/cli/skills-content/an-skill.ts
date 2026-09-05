@@ -41,12 +41,24 @@ localhost URL, or route around the Dispatch grant.
 
 ## Work in Slides
 
-Dispatch intentionally keeps most app actions behind the app's own agent. For
-Slides, call \`ask_app\` with a clear task after opening the editor. The Slides
-agent has the authoritative \`view-screen\`, \`get-deck\`, \`create-deck\`,
-\`add-slide\`, \`update-slide\`, \`patch-deck\`, and \`navigate\` actions.
-When direct Slides actions are exposed by the host, use them; otherwise
-\`ask_app\` is the supported MCP bridge to the same action surface.
+Prefer direct app tools when the host exposes them. After opening an app, call
+\`list-host-webmcp-tools\` when available, then use \`run-host-webmcp-tool\`
+with the exact listed name and origin. Page-local tools reflect current app
+state and selection, so use \`view-screen\` before selection-dependent edits
+and read back writes.
+
+You are the model doing the work: when the user asks for new content — a
+design, a deck, a form, a document — author it yourself and save it with the
+app's create/update tools. Never hand off authoring to the app's own agent
+when those tools exist, and never wait on an in-app question form; it answers
+back through that app's own chat, not to you.
+
+Use \`ask_app\` only when the host has no direct page tools, the requested
+capability is not exposed, the task needs the app agent's interpretation or
+multi-step specialist reasoning, or a direct call fails and needs recovery.
+Dispatch's unified \`/mcp\` endpoint still exposes generic cross-app verbs; a
+direct app MCP connection or page WebMCP surface is where named app actions
+appear.
 
 Every Slides edit request must tell the app agent to:
 
@@ -59,7 +71,8 @@ Every Slides edit request must tell the app agent to:
 4. Read the result back with \`get-deck\` or another relevant read action and
    report what changed.
 
-For a request such as “make this bigger”, send a focused task like:
+For a request such as “make this bigger”, use the listed direct tool when
+available. Otherwise send a focused task like:
 
 \`\`\`
 Inspect the current Slides screen first. Use the active selection from
@@ -76,9 +89,10 @@ metadata without copying the entire browser screen into the prompt. Use
 \`navigate\` for a deliberate slide change and preserve the user's current
 selection when the request is a focused edit.
 
-For creation or broad changes, still ask the Slides agent to open or inspect the
-current screen, use the existing deck actions, and return the editor surface or
-open link for review. If the task runs asynchronously, poll the returned
+For creation or broad changes, use the exposed direct actions when they cover
+the request. Otherwise ask the Slides agent to open or inspect the current
+screen, use the existing deck actions, and return the editor surface or open
+link for review. If the task runs asynchronously, poll the returned
 \`ask_app_status\` task until it reaches a terminal state; a queued task is
 not proof that the edit completed.
 
@@ -99,6 +113,8 @@ and rescan the MCP server if the new tools or inline surface are not visible.
 
 - If \`open_app\` succeeds but no inline surface appears, show its returned
   link and say that this host does not expose an embedded browser here.
+- After an app loads, check for \`list-host-webmcp-tools\` before delegating. If
+  it is available, use the exact returned tool name and origin for direct work.
 - If \`ask_app\` cannot reach Slides, check that Slides is granted in
   Dispatch and that the connector is authenticated, then retry once with the
   exact app id \`slides\`.

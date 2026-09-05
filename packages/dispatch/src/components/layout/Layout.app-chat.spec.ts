@@ -33,9 +33,8 @@ describe("Dispatch workspace app chat rail", () => {
     // how one of them silently keeps talking to Dispatch's own agent.
     expect(layoutSource).toContain("<WorkspaceAppChatRail");
     expect(layoutSource).toContain("data-dispatch-workspace-app-frame");
-    expect(layoutSource).toContain(
-      'window.dispatchEvent(new Event("agent-panel:toggle"))',
-    );
+    expect(layoutSource).toContain('new Event("agent-panel:toggle")');
+    expect(layoutSource).toContain('new CustomEvent("agent-panel:toggle"');
     expect(layoutSource).not.toContain('openStorageKey="dispatch-app-chat"');
   });
 

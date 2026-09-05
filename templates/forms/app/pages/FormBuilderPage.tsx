@@ -4,10 +4,14 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useReconciledState } from "@agent-native/core/client/hooks";
+import {
+  setClientAppState,
+  useReconciledState,
+} from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type {
   FormCompletionMode,
   FormField,
@@ -54,7 +58,8 @@ import { toast } from "sonner";
 
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { CommunityPromotionCell } from "@/components/CommunityPromotionCell";
+import { ResponseValue } from "@/components/ResponseValue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,7 +92,6 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
-import { useDbStatus } from "@/hooks/use-db-status";
 import {
   useForm,
   useUpdateForm,
@@ -100,15 +104,40 @@ import {
   normalizeFormBuilderTab,
   type FormBuilderTab,
 } from "@/lib/form-builder-tabs";
+import type { AppFormFieldType } from "@/lib/form-field-types";
 import { normalizeFields } from "@/lib/normalize-fields";
 import { getPublishedFormUrl } from "@/lib/public-form-link";
+import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 type Translator = ReturnType<typeof useT>;
 
+interface FormsSelectionState {
+  formId: string;
+  selectedFieldId: string;
+  selectedFieldLabel: string;
+  selectedFieldType: FormFieldType;
+}
+
+/** Mirrors `syncSelectionToAppState` in the Slides editor: tab-scoped key
+ *  first so `view-screen` can match it against the tab's own navigation
+ *  state, plus a generic fallback key for callers with no browser tab id. */
+function publishFormsSelection(state: FormsSelectionState | null) {
+  const keys = [
+    appStateKeyForBrowserTab("forms-selection", TAB_ID),
+    "forms-selection",
+  ];
+  for (const key of keys) {
+    setClientAppState(key, state, {
+      requestSource: TAB_ID,
+      keepalive: true,
+    }).catch(() => {});
+  }
+}
+
 function getFieldTypeDefaults(
   t: Translator,
-): Record<FormFieldType, Partial<FormField>> {
+): Record<AppFormFieldType, Partial<FormField>> {
   const defaultOptions = [
     t("builder.fieldDefaults.option1"),
     t("builder.fieldDefaults.option2"),
@@ -150,11 +179,14 @@ function getFieldTypeDefaults(
       label: t("builder.fieldDefaults.scaleLabel"),
       validation: { min: 1, max: 10 },
     },
+    file: {
+      label: t("builder.fieldDefaults.fileLabel"),
+    },
   };
 }
 
 type FieldOp =
-  | { op: "upsert"; field: Record<string, any> }
+  | { op: "upsert"; field: FormField }
   | { op: "remove"; id: string }
   | { op: "reorder"; ids: string[] };
 
@@ -189,8 +221,6 @@ export function FormBuilderPage() {
   const [pendingStatus, setPendingStatus] = useState<
     "published" | "draft" | null
   >(null);
-  const { isLocal } = useDbStatus();
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const publishedFormUrl =
     form && typeof window !== "undefined"
       ? getPublishedFormUrl(form, window.location.origin)
@@ -274,6 +304,37 @@ export function FormBuilderPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedFieldId]);
+
+  // Publish the selected field to application state so the agent can resolve
+  // "the selected question" (view-screen) without a screenshot. Mirrors the
+  // Slides editor's `syncSelectionToAppState`.
+  const selectedFieldForSync = localFields.find(
+    (f) => f.id === selectedFieldId,
+  );
+  useEffect(() => {
+    if (!form) return;
+    publishFormsSelection(
+      selectedFieldForSync
+        ? {
+            formId: form.id,
+            selectedFieldId: selectedFieldForSync.id,
+            selectedFieldLabel: selectedFieldForSync.label,
+            selectedFieldType: selectedFieldForSync.type,
+          }
+        : null,
+    );
+  }, [
+    form?.id,
+    selectedFieldId,
+    selectedFieldForSync?.label,
+    selectedFieldForSync?.type,
+  ]);
+
+  // Clear the selection when this form's builder unmounts (navigating away)
+  // so a stale selection doesn't outlive the properties panel it described.
+  useEffect(() => {
+    return () => publishFormsSelection(null);
+  }, []);
 
   // Measure title text width for auto-sizing input
   useEffect(() => {
@@ -374,7 +435,7 @@ export function FormBuilderPage() {
     return (
       <div className="flex flex-col h-full">
         {/* Top bar */}
-        <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
+        <div className="flex items-center justify-between border-b border-border ps-14 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -466,19 +527,20 @@ export function FormBuilderPage() {
   // Viewers can see the form but not edit it or peek at responses / settings /
   // integrations. The role is set by `get-form` based on ownership + shares.
 
-  function addField(type: FormFieldType) {
+  function addField(type: AppFormFieldType) {
     const fieldTypeDefaults = getFieldTypeDefaults(t);
     const defaults = fieldTypeDefaults[type] || {};
-    const newField: FormField = {
+    const newField = {
       id: nanoid(8),
-      type,
+      type: type as FormFieldType,
       label: defaults.label || t("builder.fieldDefaults.newField"),
       placeholder: defaults.placeholder,
       required: false,
       options: defaults.options,
       validation: defaults.validation,
       width: "full",
-    };
+      ...(type === "file" ? { multiple: true } : {}),
+    } as FormField;
     setLocalFields((prev) => [...prev, newField]);
     fieldsDirty.current = true;
     saveFieldOps([{ op: "upsert", field: newField }]);
@@ -541,10 +603,6 @@ export function FormBuilderPage() {
 
   function handleTogglePublish() {
     const newStatus = loadedForm.status === "published" ? "draft" : "published";
-    if (newStatus === "published" && isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
     setPendingStatus(newStatus);
     updateForm.mutate(
       { id: loadedForm.id, status: newStatus },
@@ -597,7 +655,7 @@ export function FormBuilderPage() {
     <div className="flex flex-col h-full">
       {codeRequiredDialog}
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
+      <div className="flex items-center justify-between border-b border-border ps-14 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
         <div className="flex items-center gap-1 sm:gap-2 relative min-w-0 flex-1 me-2">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -943,14 +1001,6 @@ export function FormBuilderPage() {
           </div>
         </div>
       )}
-
-      {showCloudUpgrade && (
-        <CloudUpgrade
-          title={t("forms.publishCloudTitle")}
-          description={t("forms.publishCloudDescription")}
-          onClose={() => setShowCloudUpgrade(false)}
-        />
-      )}
     </div>
   );
 }
@@ -1011,13 +1061,13 @@ function BuilderContent({
   onDragStart: (idx: number) => void;
   onDragOver: (e: React.DragEvent, idx: number) => void;
   onDragEnd: () => void;
-  onAddField: (type: FormFieldType) => void;
+  onAddField: (type: AppFormFieldType) => void;
   onAgentPopoverChange: (open: boolean) => void;
   onAgentPromptChange: (v: string) => void;
   onSubmitAgent: () => void;
 }) {
   const t = useT();
-  const fieldTypeLabels: Record<FormFieldType, string> = {
+  const fieldTypeLabels: Record<AppFormFieldType, string> = {
     text: t("fieldProperties.fieldTypes.text"),
     email: t("fieldProperties.fieldTypes.email"),
     number: t("fieldProperties.fieldTypes.number"),
@@ -1029,6 +1079,7 @@ function BuilderContent({
     date: t("fieldProperties.fieldTypes.date"),
     rating: t("fieldProperties.fieldTypes.rating"),
     scale: t("fieldProperties.fieldTypes.scale"),
+    file: t("fieldProperties.fieldTypes.file"),
   };
 
   return (
@@ -1158,7 +1209,7 @@ function BuilderContent({
                   {Object.entries(fieldTypeLabels).map(([type, label]) => (
                     <DropdownMenuItem
                       key={type}
-                      onClick={() => onAddField(type as FormFieldType)}
+                      onClick={() => onAddField(type as AppFormFieldType)}
                     >
                       {label}
                     </DropdownMenuItem>
@@ -1295,11 +1346,16 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
 
   const allResponses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
+  const isCommunitySubmissionForm = form?.slug === "community-app-submission";
   const hasSubmitterEmail = allResponses.some((r: any) =>
     responseValueAsString(r.submitterEmail).trim(),
   );
   const responseTableMinWidth =
-    64 + 160 + (hasSubmitterEmail ? 224 : 0) + Math.max(fields.length, 1) * 320;
+    64 +
+    160 +
+    (hasSubmitterEmail ? 224 : 0) +
+    (isCommunitySubmissionForm ? 168 : 0) +
+    Math.max(fields.length, 1) * 320;
 
   const filtered = search.trim()
     ? allResponses.filter((r: any) => {
@@ -1459,6 +1515,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               <col className="w-16" />
               <col className="w-40" />
               {hasSubmitterEmail ? <col className="w-56" /> : null}
+              {isCommunitySubmissionForm ? <col className="w-40" /> : null}
               {fields.map((f, index) => (
                 <col
                   key={f.id}
@@ -1498,6 +1555,14 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     />
                   </th>
                 )}
+                {isCommunitySubmissionForm && (
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {t("responses.communityReview")}
+                  </th>
+                )}
                 {fields.map((f) => (
                   <th
                     key={f.id}
@@ -1518,7 +1583,12 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               {responses.length === 0 && (
                 <tr>
                   <td
-                    colSpan={2 + (hasSubmitterEmail ? 1 : 0) + fields.length}
+                    colSpan={
+                      2 +
+                      (hasSubmitterEmail ? 1 : 0) +
+                      (isCommunitySubmissionForm ? 1 : 0) +
+                      fields.length
+                    }
                     className="px-4 py-8 text-center text-xs text-muted-foreground"
                   >
                     {t("builder.results.noSearchMatches")}
@@ -1541,6 +1611,11 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                       {responseValueAsString(response.submitterEmail) || "-"}
                     </td>
                   )}
+                  {isCommunitySubmissionForm && (
+                    <td className="px-4 py-3 align-top">
+                      <CommunityPromotionCell response={response} />
+                    </td>
+                  )}
                   {fields.map((f) => {
                     const val = response.data[f.id];
                     const display = responseValueAsString(val) || "-";
@@ -1550,7 +1625,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                         className="min-w-48 px-4 py-3 align-top text-xs leading-5 whitespace-pre-wrap break-words"
                         title={display}
                       >
-                        {display}
+                        <ResponseValue value={val} />
                       </td>
                     );
                   })}
