@@ -7,6 +7,14 @@ description: "Obsidian open source pour MDX : modifiez des fichiers Markdown/MDX
 
 Contenu est Obsidian open source pour MDX : un espace de travail documentaire adapté aux fichiers locaux, dans lequel l'agent peut lire, écrire, réorganiser et publier des pages pour vous. Ouvrez un document, demandez "réécris ce paragraphe pour qu'il soit plus concis" ou "crée une page appelée Planification T4 avec des sous-pages pour Objectifs, Métriques et Risques". Le résultat est le même, que vous le fassiez vous-même ou que vous le demandiez à l'agent.
 
+<Cards columns={1}>
+
+### [Essayez-le maintenant →](https://content.agent-native.com)
+
+Découvrez Contenu en direct : ouvrez un espace de travail réel, modifiez une page et demandez à l'agent de la réorganiser.
+
+</Cards>
+
 <WireframeBlock id="doc-block-content1">
   <Screen
     surface="desktop"
@@ -79,37 +87,43 @@ Lorsque vous ouvrez l'application, vous voyez une arborescence de pages à côt�
 
 </Diagram>
 
-## Ce que vous pouvez en faire
+## Ce qu'il remplace
 
-- **Rédigez et organisez des documents.** Édition de texte enrichi, arborescence de pages infiniment imbriquée, favoris, commentaires, historique des versions et partage. Voir [Rédiger et organiser des documents](/docs/template-content-editing).
-- **Créez des bases de données façon Notion.** Des tables où chaque ligne est elle-même un document, avec des propriétés typées et des vues tableau, liste, galerie, kanban, calendrier, chronologie ou formulaire. Voir [Bases de données, propriétés et formulaires](/docs/template-content-databases).
-- **Recueillez des soumissions structurées.** Transformez une base de données en formulaire d'admission dans lequel l'agent, Slack ou une autre application peut envoyer des données en toute sécurité. Voir [Bases de données, propriétés et formulaires](/docs/template-content-databases).
-- **Modifiez des fichiers sur disque comme avec Obsidian**, et gardez vos documents synchronisés avec Notion ou Builder CMS. Voir [Synchronisation avec les fichiers locaux, Notion et Builder CMS](/docs/template-content-sync).
-- **Collaborez en temps réel.** Plusieurs personnes (et l'agent) peuvent modifier le même document en même temps, sans que les modifications des uns n'écrasent celles des autres.
-- **Partagez des documents** avec vos coéquipiers ou rendez-les publics. Ils sont privés par défaut, avec des rôles de lecteur, éditeur ou administrateur.
-- **Demandez n'importe quoi à l'agent** : "Réécris ce paragraphe." "Ajoute un TL;DR en haut." "Trouve toutes mes notes de réunion de la semaine dernière." "Crée une base de données d'inscription à la bêta avec un formulaire pour les soumissions Slack."
+<Comparison>
 
-## Démarrer
+### Before
 
-Démo en direct : [content.agent-native.com](https://content.agent-native.com).
+- Obsidian, ou un dossier de fichiers Markdown locaux, pour les notes privées
+- Un espace de travail Notion séparé pour les documents qu'une équipe peut consulter ensemble
+- Un CMS headless pour tout ce qui est publié sur un site en production
+- Copier le contenu entre les trois manuellement chaque fois que l'un d'eux prend du retard
 
-Lorsque vous ouvrez l'application, cliquez sur **+ Nouvelle page** dans la barre latérale, donnez-lui un titre et commencez à écrire. Pour utiliser l'agent, saisissez dans la barre latérale :
+### After
 
-- "Crée une page appelée Onboarding et ajoute trois sous-pages en dessous."
-- "Réécris ce paragraphe pour qu'il soit plus concis." (avec une page ouverte)
-- "Ajoute une section sur les tarifs avec trois puces."
-- "Résume ce document en un TL;DR en haut."
-- "Récupère les dernières modifications depuis Notion." (après avoir lié une page Notion)
+- Un seul espace de travail pour les pages privées, les documents d'équipe et le contenu publié
+- Le même document peut se synchroniser avec des fichiers locaux, Notion ou Builder CMS au lieu d'être ressaisi dans chacun d'eux
+- L'agent lit et écrit via les mêmes actions et les mêmes pages que vous
+- Une modification provenant d'une source externe arrive sous forme d'un ensemble de changements à examiner, jamais d'un écrasement silencieux
 
-Sélectionnez du texte et appuyez sur Cmd+I pour ouvrir l'agent avec cette sélection préchargée. "Rends ça plus percutant" agit alors exactement sur ce que vous avez surligné.
+</Comparison>
 
-Pour créer votre propre copie de Contenu :
+Les documents sont privés par défaut, avec des rôles de lecteur, éditeur ou administrateur, et un mode public en lecture seule lorsque vous souhaitez en publier un dans le monde. Plusieurs personnes (et l'agent) peuvent modifier la même page en même temps sans que les modifications des uns n'écrasent celles des autres. Voir [Rédiger et organiser des documents](/docs/template-content-editing), [Bases de données, propriétés et formulaires](/docs/template-content-databases) et [Synchronisation avec les fichiers locaux, Notion et Builder CMS](/docs/template-content-sync) pour chacun de ces sujets en détail.
+
+## Démarrer {#get-started}
 
 ```bash
 npx @agent-native/core@latest create my-content --standalone --template content
 ```
 
-Voir [Bien démarrer](/docs/getting-started) pour le reste de la configuration (`cd`, `pnpm install`, `pnpm dev`) et les fondamentaux du framework.
+Voir [Contenu : Guide du développeur](/docs/template-content-developers#quick-start) pour l'installation, le premier lancement et la connexion d'un LLM.
+
+Lorsque vous ouvrez l'application, cliquez sur **+ Nouvelle page** dans la barre latérale, donnez-lui un titre et commencez à écrire, ou demandez directement à l'agent :
+
+- "Crée une page appelée Onboarding et ajoute trois sous-pages en dessous."
+- "Réécris ce paragraphe pour qu'il soit plus concis." (avec une page ouverte)
+- "Récupère les dernières modifications depuis Notion." (après avoir lié une page Notion)
+
+Sélectionnez du texte et appuyez sur Cmd+I pour ouvrir l'agent avec cette sélection préchargée — "Rends ça plus percutant" agit alors exactement sur ce que vous avez surligné.
 
 ## Quelle est la prochaine étape
 

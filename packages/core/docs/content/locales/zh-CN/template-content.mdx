@@ -7,6 +7,14 @@ description: "MDX 的开源 Obsidian：编辑本地 Markdown/MDX 文件，构建
 
 Content 是 MDX 的开源 Obsidian：一个对本地文件友好的文档工作区，代理可以在其中为你读取、写入、重新组织并发布页面。打开一篇文档，说“把这段改写得更简洁一些”，或者“创建一个名为第四季度规划的页面，并添加目标、指标和风险几个子页面”，无论是你自己动手，还是让代理来做，结果都是一样的。
 
+<Cards columns={1}>
+
+### [立即体验 →](https://content.agent-native.com)
+
+查看 Content 的实际效果：打开一个真实的工作区，编辑一个页面，并让代理重新组织它。
+
+</Cards>
+
 <WireframeBlock id="doc-block-content1">
   <Screen
     surface="desktop"
@@ -73,37 +81,43 @@ Content 是 MDX 的开源 Obsidian：一个对本地文件友好的文档工作�
 
 </Diagram>
 
-## 你可以用它做什么
+## 它取代了什么
 
-- **编写和组织文档。** 富文本编辑、无限嵌套的页面树、收藏、评论、版本历史和共享。参见[编写与组织文档](/docs/template-content-editing)。
-- **构建 Notion 风格的数据库。** 每一行都是独立文档的表格，支持带类型的属性，以及表格、列表、画廊、看板、日历、时间线和表单视图。参见[数据库、属性与表单](/docs/template-content-databases)。
-- **收集结构化提交内容。** 把数据库变成一个接收表单，让代理、Slack 或其他应用都能安全地向其中提交数据。参见[数据库、属性与表单](/docs/template-content-databases)。
-- **像使用 Obsidian 一样在磁盘上编辑文件**，并让文档与 Notion 或 Builder CMS 保持同步。参见[本地文件、Notion 与 Builder CMS 同步](/docs/template-content-sync)。
-- **实时协作。** 多个人（以及代理）可以同时编辑同一份文档，而不会互相覆盖对方的修改。
-- **共享文档**给团队成员，或将其公开。文档默认是私有的，并提供查看者、编辑者和管理员三种角色。
-- **向代理提出任何需求**：“重写这段文字。”“在顶部加一段 TL;DR。”“找出我上周所有的会议记录。”“创建一个测试报名数据库，并配一个用于 Slack 提交的表单。”
+<Comparison>
 
-## 开始使用
+### Before
 
-现场演示：[content.agent-native.com](https://content.agent-native.com)。
+- Obsidian，或者一个本地 Markdown 文件夹，用于记录私人笔记
+- 一个独立的 Notion 工作区，用于团队共同浏览的文档
+- 一个无头 CMS，用于发布到线上网站的任何内容
+- 每当某一处内容落后时，需要在这三者之间手动复制内容
 
-打开应用后，点击侧边栏中的 **+ 新建页面**，为它取一个标题，然后开始写作。要使用代理，请在侧边栏中输入：
+### After
 
-- “创建一个名为 Onboarding 的页面，并在下面添加三个子页面。”
-- “把这段文字改写得更简洁一些。”（打开页面时）
-- “添加一个关于定价的部分，包含三个要点。”
-- “把这篇文档总结成顶部的一段 TL;DR。”
-- “从 Notion 拉取最新内容。”（链接 Notion 页面后）
+- 一个工作区，同时容纳私人页面、团队文档和已发布的内容
+- 同一份文档可以同步到本地文件、Notion 或 Builder CMS，而不必在每一处重新输入
+- 代理通过与你相同的 actions 和相同的页面进行读写
+- 来自外部来源的更改会生成一个可供审核的变更集，而不会被悄悄覆盖
 
-选中文字并按 Cmd+I，可以让代理聚焦在这段已预先加载的选中内容上。这样一来，“让这段更有力”这样的指令，就会精确作用于你选中的内容。
+</Comparison>
 
-要搭建你自己的 Content 副本：
+文档默认是私有的，提供查看者、编辑者和管理员三种共享角色，并可在需要公开时开启只读的公开模式。多个人（以及代理）可以同时编辑同一份页面，而不会互相覆盖对方的修改。关于这三者的详细说明，请参见[编写与组织文档](/docs/template-content-editing)、[数据库、属性与表单](/docs/template-content-databases)和[本地文件、Notion 与 Builder CMS 同步](/docs/template-content-sync)。
+
+## 开始使用 {#get-started}
 
 ```bash
 npx @agent-native/core@latest create my-content --standalone --template content
 ```
 
-关于其余的设置步骤（`cd`、`pnpm install`、`pnpm dev`）以及框架基础知识，请参见[开始使用](/docs/getting-started)。
+如需了解安装、首次运行和连接 LLM 的详细说明，请参见[Content：开发者指南](/docs/template-content-developers#quick-start)。
+
+打开应用后，点击侧边栏中的 **+ 新建页面**，为它取一个标题，然后开始写作；或者直接让代理来做：
+
+- “创建一个名为 Onboarding 的页面，并在下面添加三个子页面。”
+- “把这段文字改写得更简洁一些。”（打开页面时）
+- “从 Notion 拉取最新内容。”（链接 Notion 页面后）
+
+选中文字并按 Cmd+I，可以让代理聚焦在这段已预先加载的选中内容上——这样一来，“让这段更有力”这样的指令就会精确作用于你选中的内容。
 
 ## 后续内容
 
