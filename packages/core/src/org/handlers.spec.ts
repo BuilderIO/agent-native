@@ -112,6 +112,91 @@ describe("org handlers", () => {
     mockEvaluateFeatureFlagStrict.mockResolvedValue(false);
   });
 
+  it("rejects an admin removing another admin before changing either roster", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "admin@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "admin",
+    });
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ role: "admin", federation_removal_pending_at: null }],
+      rowsAffected: 0,
+    });
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/another-admin@example.test"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, string[]]>([
+    ["admin", ["member", "admin"]],
+    ["admin", ["owner"]],
+    ["owner", ["owner"]],
+  ])(
+    "rejects %s removing protected target rows %j",
+    async (actorRole, roles) => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "actor@example.test",
+        orgId: "org-1",
+        orgName: "Example",
+        role: actorRole,
+      });
+      mockExecute.mockResolvedValueOnce({
+        rows: roles.map((role) => ({
+          role,
+          federation_removal_pending_at: null,
+        })),
+        rowsAffected: 0,
+      });
+
+      await expect(
+        removeMemberHandler(
+          makeEvent("/_agent-native/org/members/Target%40example.test"),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(mockRevokeFederatedOrganizationMember).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["admin", "member"],
+    ["owner", "admin"],
+    ["owner", "member"],
+  ])("allows %s to remove a %s", async (actorRole, targetRole) => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "actor@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: actorRole,
+    });
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ role: targetRole, federation_removal_pending_at: null }],
+      rowsAffected: 0,
+    });
+
+    await expect(
+      removeMemberHandler(
+        makeEvent("/_agent-native/org/members/target@example.test"),
+      ),
+    ).resolves.toEqual({ success: true });
+    expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        actorRole,
+        memberEmail: "target@example.test",
+      }),
+    );
+    expect(mockExecute.mock.calls[2][0].sql).toContain(
+      "DELETE FROM org_members",
+    );
+  });
+
   it("keeps a federated removal atomic across the local and identity rosters", async () => {
     mockExecute.mockResolvedValueOnce({
       rows: [{ role: "member", federation_removal_pending_at: null }],

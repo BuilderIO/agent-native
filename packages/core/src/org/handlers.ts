@@ -61,6 +61,7 @@ import {
   syncOrganizationToIdentityHub,
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import { canRemoveOrgMember } from "./permissions.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type {
   OrgRole,
@@ -921,7 +922,8 @@ export const removeMemberHandler = defineEventHandler(
     const e = await exec();
     // Read every matching row before issuing an authority revoke. A missing
     // target must not turn into a remote delete, and legacy case-duplicate
-    // rows are safe only when every matching row is active and non-owner.
+    // rows are safe only when every matching row is active and removable by
+    // this caller.
     const targetRows = await e.execute({
       sql: `SELECT role, federation_removal_pending_at FROM org_members
             WHERE org_id = ? AND LOWER(email) = ?`,
@@ -929,6 +931,16 @@ export const removeMemberHandler = defineEventHandler(
     });
     if (targetRows.rows.length === 0) {
       throw createError({ statusCode: 404, message: "Member not found" });
+    }
+    if (
+      targetRows.rows.some(
+        (row: any) => !canRemoveOrgMember(ctx.role, row.role),
+      )
+    ) {
+      throw createError({
+        statusCode: 403,
+        message: "You do not have permission to remove this member",
+      });
     }
     if (
       targetRows.rows.some(
@@ -940,13 +952,6 @@ export const removeMemberHandler = defineEventHandler(
         message: "This membership is pending identity-authority cleanup.",
       });
     }
-    if (targetRows.rows.some((row: any) => row.role === "owner")) {
-      throw createError({
-        statusCode: 403,
-        message: "Cannot remove the organization owner",
-      });
-    }
-
     await e.execute({
       sql: `UPDATE org_members SET federation_removal_pending_at = ?
             WHERE org_id = ? AND LOWER(email) = ?
