@@ -528,12 +528,25 @@ const deDE = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Sie möchten nicht lokal entwickeln?",
-      exploreApp: "Erkunden Sie zuerst eine Live-App",
-      between: "oder",
-      joinWaitlist: "tragen Sie sich in die Warteliste ein",
-      end: "um stattdessen im Browser zu entwickeln.",
+    tabs: {
+      label: "Wählen Sie, wie Sie entwickeln",
+      local: "Lokal entwickeln",
+      localDescription: "Mit der CLI auf Ihrem Computer entwickeln.",
+      cloud: "In der Cloud entwickeln",
+      cloudDescription: "Im Browser mit Builder.io entwickeln.",
+    },
+    cloud: {
+      intro:
+        "Entwickeln Sie dieselben Apps, ohne etwas zu installieren. Beschreiben Sie, was Sie möchten, und der Agent schreibt und führt den Code in einem von Builder gehosteten Workspace aus.",
+      stepOneTitle: "Ein Builder-Konto erstellen",
+      stepOneBody:
+        "Verwenden Sie Ihr Builder-Konto, um im Browser zu entwickeln. Kostenlos starten, ohne eigene API-Schlüssel.",
+      stepTwoTitle: "Legen Sie mit Ihrem Prompt los",
+      stepTwoBody:
+        "Beschreiben Sie in klarer Sprache, was Sie bauen möchten, und der Agent erstellt es für Sie.",
+      stepThreeTitle: "Bereitstellen",
+      stepThreeBody:
+        "Wenn Sie bereit sind, stellen Sie Ihre App mit einem Klick in Builder bereit.",
     },
   },
   templatesPage: {
@@ -559,7 +572,6 @@ const deDE = {
     tryCommunityDemo: "Demo testen",
     customizeDescription: "Nutze diese App als Ausgangspunkt.",
     customizeOnline: "Online",
-    customizeOnlineBadge: "Warteliste beitreten",
     customizeLocally: "Lokal",
     communityNew: "Neu",
     communityComingSoon: "Demnächst",
@@ -616,16 +628,8 @@ const deDE = {
     buildOnline: "Online bauen",
     popoverTitle: "Im Browser entwickeln",
     popoverBody:
-      "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
-    emailLabel: "E-Mail",
-    emailPlaceholder: "du@firma.com",
-    joinWaitlist: "Warteliste beitreten",
-    joining: "Beitreten…",
-    joined:
-      "Du stehst auf der Warteliste. Wir mailen dir, sobald der Online-Build-Zugang verfügbar ist.",
-    invalidEmail: "Gib eine gültige E-Mail-Adresse ein.",
-    submitError:
-      "Beitritt zur Warteliste fehlgeschlagen. Bitte versuche es erneut.",
+      "Generiere schnell agent-native Apps in der Cloud mit Builder.io.",
+    launchBuilder: "Builder starten",
   },
   templateCard: {
     pasteIntoTerminal: "In Ihr Terminal einfügen.",

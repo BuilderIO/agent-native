@@ -525,12 +525,25 @@ const ptBR = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Não vai criar localmente?",
-      exploreApp: "Explore primeiro um app ao vivo",
-      between: "ou",
-      joinWaitlist: "entre na lista de espera",
-      end: "para criar no navegador.",
+    tabs: {
+      label: "Escolha como criar",
+      local: "Criar localmente",
+      localDescription: "Use a CLI para criar no seu computador.",
+      cloud: "Criar na nuvem",
+      cloudDescription: "Crie no navegador com o Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Crie os mesmos aplicativos sem instalar nada. Descreva o que você quer e o agente escreve e executa o código em um espaço de trabalho hospedado pelo Builder.",
+      stepOneTitle: "Crie uma conta no Builder",
+      stepOneBody:
+        "Use sua conta do Builder para criar no navegador. Comece gratuitamente, sem precisar fornecer chaves de API.",
+      stepTwoTitle: "Envie seu prompt",
+      stepTwoBody:
+        "Descreva em linguagem simples o que você quer criar e o agente fará isso por você.",
+      stepThreeTitle: "Publique",
+      stepThreeBody:
+        "Quando estiver pronto, publique seu aplicativo com um clique no Builder.",
     },
   },
   templatesPage: {
@@ -555,7 +568,6 @@ const ptBR = {
     tryCommunityDemo: "Experimentar demo",
     customizeDescription: "Use este app como ponto de partida.",
     customizeOnline: "Online",
-    customizeOnlineBadge: "Entrar na lista de espera",
     customizeLocally: "Local",
     communityNew: "Novo",
     communityComingSoon: "Em breve",
@@ -612,15 +624,8 @@ const ptBR = {
     buildOnline: "Criar online",
     popoverTitle: "Criar no navegador",
     popoverBody:
-      "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
-    emailLabel: "Email",
-    emailPlaceholder: "voce@empresa.com",
-    joinWaitlist: "Entrar na lista de espera",
-    joining: "Entrando…",
-    joined:
-      "Você está na lista de espera. Enviaremos um email quando o acesso para criar online abrir.",
-    invalidEmail: "Insira um endereço de email válido.",
-    submitError: "Não foi possível entrar na lista de espera. Tente novamente.",
+      "Gere rapidamente apps agent-native na nuvem com a Builder.io.",
+    launchBuilder: "Abrir o Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Cole em seu terminal.",

@@ -526,12 +526,25 @@ const enUS = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "Not building locally?",
-      exploreApp: "Explore a live app",
-      between: "first, or",
-      joinWaitlist: "join the waitlist",
-      end: "to build in the browser instead.",
+    tabs: {
+      label: "Choose how to build",
+      local: "Build locally",
+      localDescription: "Use the CLI to build on your machine.",
+      cloud: "Build in the cloud",
+      cloudDescription: "Build in the browser with Builder.io.",
+    },
+    cloud: {
+      intro:
+        "Build the same apps without installing anything. You describe what you want; the agent writes and runs the code in a workspace Builder hosts for you.",
+      stepOneTitle: "Create a Builder account",
+      stepOneBody:
+        "Use your Builder account to build in the browser. Free to start, and no API keys to bring.",
+      stepTwoTitle: "Prompt away",
+      stepTwoBody:
+        "Describe what you want to build in plain language and the agent will create it for you.",
+      stepThreeTitle: "Deploy",
+      stepThreeBody:
+        "When you're ready, deploy your app with one click in Builder.",
     },
   },
   templatesPage: {
@@ -556,7 +569,6 @@ const enUS = {
     tryCommunityDemo: "Try demo",
     customizeDescription: "Use this app as a starting point.",
     customizeOnline: "Online",
-    customizeOnlineBadge: "Join waitlist",
     customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
@@ -611,15 +623,8 @@ const enUS = {
     buildOnline: "Build online",
     popoverTitle: "Build in the browser",
     popoverBody:
-      "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
-    emailLabel: "Email",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "Join waitlist",
-    joining: "Joining…",
-    joined:
-      "You're on the waitlist. We'll email you when build-online access opens.",
-    invalidEmail: "Enter a valid email address.",
-    submitError: "Couldn't join the waitlist. Please try again.",
+      "Rapidly generate agent-native apps in the cloud with Builder.io.",
+    launchBuilder: "Launch Builder",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",

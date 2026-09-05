@@ -49,7 +49,6 @@ describe("buildPrerenderPaths", () => {
 
   it("prerenders published docs and marketing pages", () => {
     expect(paths).toContain("/");
-    expect(paths).toContain("/docs/");
     expect(paths).toContain("/docs/actions-overview/");
     expect(paths).toContain("/docs/what-is-agent-native/");
     expect(paths).toContain("/ja-jp/docs/actions-overview/");
@@ -60,6 +59,10 @@ describe("buildPrerenderPaths", () => {
     // Prerendered output lands at the path verbatim, so a mixed-case locale
     // segment here writes a directory the CDN then redirects away from.
     expect(paths.filter((page) => page !== page.toLowerCase())).toEqual([]);
+  });
+
+  it("keeps query-sensitive Getting Started roots on the SSR path", () => {
+    expect(paths.filter((page) => /\/docs\/$/.test(page))).toEqual([]);
   });
 
   // No doc is currently marked `draft: true` (agents.mdx, the last one, was

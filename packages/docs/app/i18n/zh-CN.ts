@@ -518,12 +518,23 @@ const zhCN = {
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "不在本地构建？",
-      exploreApp: "先试用在线应用",
-      between: "或",
-      joinWaitlist: "加入候补名单",
-      end: "改为在浏览器中构建。",
+    tabs: {
+      label: "选择构建方式",
+      local: "本地构建",
+      localDescription: "使用 CLI 在你的计算机上构建。",
+      cloud: "云端构建",
+      cloudDescription: "使用 Builder.io 在浏览器中构建。",
+    },
+    cloud: {
+      intro:
+        "无需安装任何内容，即可构建相同的应用。描述你想要的内容，智能体会在 Builder 为你托管的工作区中编写并运行代码。",
+      stepOneTitle: "创建 Builder 账号",
+      stepOneBody:
+        "使用 Builder 账号在浏览器中构建。免费开始，无需自带 API 密钥。",
+      stepTwoTitle: "开始输入提示",
+      stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
+      stepThreeTitle: "部署",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
     },
   },
   templatesPage: {
@@ -547,7 +558,6 @@ const zhCN = {
     tryCommunityDemo: "体验演示",
     customizeDescription: "以这个应用为起点。",
     customizeOnline: "在线",
-    customizeOnlineBadge: "加入等候名单",
     customizeLocally: "本地",
     communityNew: "新应用",
     communityComingSoon: "即将推出",
@@ -597,15 +607,8 @@ const zhCN = {
     readDocs: "阅读文档",
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
-    popoverBody:
-      "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
-    emailLabel: "邮箱",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "加入候补名单",
-    joining: "正在加入…",
-    joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
-    invalidEmail: "请输入有效的邮箱地址。",
-    submitError: "无法加入候补名单。请重试。",
+    popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    launchBuilder: "启动 Builder",
   },
   templateCard: {
     pasteIntoTerminal: "粘贴到您的终端中。",

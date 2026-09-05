@@ -1,10 +1,17 @@
 import {
   useLoaderData,
+  useLocation,
   useParams,
   type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 
+import {
+  gettingStartedIntro,
+  GettingStartedCloudContent,
+  gettingStartedTabFromSearch,
+  GettingStartedTabs,
+} from "../components/blocks/getting-started-paths";
 import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
@@ -64,14 +71,18 @@ export const meta = ({
 
 export default function DocsIndex() {
   const currentDoc = useLoaderData<typeof loader>();
+  const location = useLocation();
   const params = useParams();
   const locale = routeLocale(params);
+  const isCloud = gettingStartedTabFromSearch(location.search) === "cloud";
 
-  const toc = currentDoc.headings.map((h) => ({
-    id: h.id,
-    label: h.label,
-    level: h.level,
-  }));
+  const toc = isCloud
+    ? []
+    : currentDoc.headings.map((h) => ({
+        id: h.id,
+        label: h.label,
+        level: h.level,
+      }));
 
   return (
     <DocsLayout
@@ -79,7 +90,20 @@ export default function DocsIndex() {
       markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
     >
       {currentDoc.draft && <DocDraftBanner />}
-      <DocContent markdown={currentDoc.body} locale={locale} />
+      {isCloud ? (
+        <>
+          <DocContent
+            markdown={gettingStartedIntro(currentDoc.body)}
+            locale={locale}
+          />
+          <div className="docs-block">
+            <GettingStartedTabs activeTab="cloud" />
+          </div>
+          <GettingStartedCloudContent />
+        </>
+      ) : (
+        <DocContent markdown={currentDoc.body} locale={locale} />
+      )}
     </DocsLayout>
   );
 }
