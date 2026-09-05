@@ -88,6 +88,8 @@ export default defineAction({
 
 `link` は、CLI や UI を持たない MCP ホスト向けのフォールバックとして残しておいてください。これは同時に、埋め込みの起動ターゲットでもあります。埋め込みブリッジ (署名済みの embed-start セッション、transplant か controlled-frame かのレンダリング、`ui/*` ホスト ブリッジ、CSP、高さのクランプ) は [外部エージェント](/docs/external-agents#mcp-app-bridge) が担っています。
 
+テンプレートが `view-screen`、`navigate`、あるいは主要リソース用の create/read/update/list 一式を備えているかを自動でチェックする仕組みはありません。スキャフォールドは `view-screen` と `navigate` を同梱しますが、`pnpm guard:external-result-contract` は外部公開されたアクションの `description` または `nextRequiredAction` に「ユーザーを待つ」旨の文言があれば失敗させ、外部公開された新しい `create-*` アクションにはディープリンクを必須とします。その有無はレビュー項目です。
+
 ## 標準アクション {#standard-actions}
 
 すべてのテンプレートは、[コンテキスト認識](/docs/context-awareness) のために、この2つを含めるべきです。

@@ -47,6 +47,8 @@ export function useNavigationState() {
 }
 ```
 
+`TAB_ID` comes from the framework's `getBrowserTabId()` (see the scaffolded `app/lib/tab-id.ts`; never redefine it). The server resolves tab-scoped `application_state` writes and page-local WebMCP calls (`X-Agent-Native-Browser-Tab`) against this same id, so a hand-rolled random id silently breaks selection sync for hidden and background tabs.
+
 **Agent side** — read before acting:
 
 ```ts
@@ -68,6 +70,10 @@ Raw URL query params are already synced by the framework to `__url__` and shown 
 Keep `application_state` values small. Do not store pasted files, base64 images,
 recording chunks, screenshots, or other large blobs in navigation or app-state
 keys; upload them and store only a URL or storage handle.
+
+### Selection state
+
+The editor writes the user's current selection to tab-scoped app state under `selection` whenever it changes: `writeClientAppState("selection", { kind: "text", id: <artifact id>, elementId?, range?: { start, end }, text?: <short excerpt>, capturedAt }, { requestSource: TAB_ID })` — stable ids and a short label, never the whole document. `view-screen` reads it and returns `selection` plus the exact next call, e.g. `nextRequiredAction: "update-slide"` with `nextArgs: { slideId, edits: [{ find: selection.text, replace: "…", expectedMatches: 1 }] }`. External agents act on that hint directly; only when `selection` is null should the agent ask which item.
 
 ### 2. Current URL (`__url__` key)
 
@@ -106,6 +112,12 @@ export default async function main() {
   if (navigation?.threadId) {
     const thread = await fetchThread(navigation.threadId);
     screen.thread = thread;
+  }
+
+  const selection = await readAppState("selection");
+  if (selection) {
+    screen.selection = selection;
+    screen.nextRequiredAction = "update-email";
   }
 
   console.log(JSON.stringify(screen, null, 2));

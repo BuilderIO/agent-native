@@ -305,7 +305,7 @@ export default defineAction({
       });
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
-      notifyClients(deckId);
+      await notifyClients(deckId);
       await writeAppStateForCurrentTab(
         "navigate",
         deckNavigationCommand(deckId),
@@ -367,7 +367,7 @@ export default defineAction({
       updatedAt: now,
     });
 
-    notifyClients(id);
+    await notifyClients(id);
     await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     await recordGenerationCreativeContext({

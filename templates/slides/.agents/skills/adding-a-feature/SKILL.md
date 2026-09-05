@@ -100,6 +100,8 @@ function never carries the weight.
 
 **If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. External coding agents and MCP hosts (Claude / ChatGPT / Claude Code / Cowork / Codex, over MCP/A2A) then surface an "Open in … →" deep link that drops the user back into the running UI focused on the record — for free. If a compatible MCP host should render an inline review/edit surface, also add `mcpApp` with `embedApp()` so the action embeds the real React app route instead of a one-off HTML UI. The `link` builder and `mcpApp` metadata must be pure and synchronous (no I/O). Any external-agent read/ingest action must be `http: { method: "GET" }` + `readOnly: true` + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. See the `external-agents` skill.
 
+Scaffolding a new app of a known type (slides, design, content, forms)? Start from that template's `AGENTS.md` and `.agents/skills/`, not a blank app.
+
 ### 3. Skills / Instructions
 
 Update `AGENTS.md` and/or create a skill in `.agents/skills/` if the feature introduces patterns the agent needs to know. At minimum, add the new actions to the action table in the template's `AGENTS.md`.
@@ -129,30 +131,30 @@ Expose navigation and selection state so the agent knows what the user is lookin
 
 ### Adding "compose email" to a mail app
 
-| Area            | What to build                                                                            |
-| --------------- | ---------------------------------------------------------------------------------------- |
-| UI              | Compose panel with tabs, to/cc/bcc fields, body editor. Use `useActionQuery`/`useActionMutation` for data. |
-| Action          | `manage-draft` action (create/update/delete drafts), `send-email` action                 |
-| Skills/AGENTS   | Document compose state shape, draft lifecycle, action args in AGENTS.md                  |
-| App-state sync  | `compose-{id}` keys for each draft tab, `navigation` includes compose state              |
+| Area | What to build |
+| --- | --- |
+| UI | Compose panel with tabs, to/cc/bcc fields, body editor. Use `useActionQuery`/`useActionMutation` for data. |
+| Action | `manage-draft` action (create/update/delete drafts), `send-email` action |
+| Skills/AGENTS | Document compose state shape, draft lifecycle, action args in AGENTS.md |
+| App-state sync | `compose-{id}` keys for each draft tab, `navigation` includes compose state |
 
 ### Adding "create form" to a forms app
 
-| Area            | What to build                                                                            |
-| --------------- | ---------------------------------------------------------------------------------------- |
-| UI              | Form builder page with drag-and-drop fields, preview, settings. Use `useActionQuery` for lists. |
-| Action          | `create-form` action, `update-form` action, `list-forms` action (GET)                    |
-| Skills/AGENTS   | Document form schema shape, field types, validation rules in AGENTS.md                   |
-| App-state sync  | `navigation` includes `{ view: "form-builder", formId: "..." }`, `view-screen` fetches form data |
+| Area | What to build |
+| --- | --- |
+| UI | Form builder page with drag-and-drop fields, preview, settings. Use `useActionQuery` for lists. |
+| Action | `create-form` action, `update-form` action, `list-forms` action (GET) |
+| Skills/AGENTS | Document form schema shape, field types, validation rules in AGENTS.md |
+| App-state sync | `navigation` includes `{ view: "form-builder", formId: "..." }`, `view-screen` fetches form data |
 
 ### Adding "chart type" to an analytics app
 
-| Area            | What to build                                                                            |
-| --------------- | ---------------------------------------------------------------------------------------- |
-| UI              | New chart component, chart type selector in dashboard                                    |
-| Action          | `create-chart` or `update-dashboard` action that sets chart type and config              |
-| Skills/AGENTS   | Document supported chart types, config options, data requirements                        |
-| App-state sync  | `navigation` includes selected chart/dashboard, `view-screen` returns chart config       |
+| Area | What to build |
+| --- | --- |
+| UI | New chart component, chart type selector in dashboard |
+| Action | `create-chart` or `update-dashboard` action that sets chart type and config |
+| Skills/AGENTS | Document supported chart types, config options, data requirements |
+| App-state sync | `navigation` includes selected chart/dashboard, `view-screen` returns chart config |
 
 ## Adding a new route
 

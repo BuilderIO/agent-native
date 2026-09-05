@@ -29,15 +29,18 @@ Read the relevant skill before deeper work in that area.
 
 ## Actions
 
-- Resolve templates or prior designs with `list-design-templates` and
-  `list-designs`, copy with `create-design-from-template`, then inspect and
-  adapt copied files with `get-design-snapshot` and `edit-design`. The design
-  list is paginated: pass `page` and `pageSize`, use `createdBy: "me"` for the
-  current user's designs, and pass `search` for a title search. Follow the
-  returned pagination metadata before treating the result as complete.
-- Copied template screens are edited in place. Preserve
-  `createdFromTemplate.lockedDimensions`/`lockedFonts` from `view-screen` in
-  every edit; `get-design-template` returns the original.
+| Action | Purpose |
+| --- | --- |
+| `list-design-templates` / `list-designs` | Resolve a named template or prior design; paginated (`page`, `pageSize`, `createdBy: "me"`, `search`) |
+| `create-design-from-template` | Copy a template into a new design; screens keep their `createdFromTemplate` locks |
+| `get-design-snapshot` / `get-design-template` | Inspect a copied design's current files, or the original template |
+| `edit-design` | Adapt an existing or copied design/screen in place |
+| `create-design` | Start a new design (empty shell, `renderable: false`) |
+| `generate-design` | Generate a fresh screen — never for a copied template screen |
+| `present-design-variants` | Generate 2-5 variants for the user to pick and refine |
+| `view-screen` | Re-read the current design or selected file when context is stale |
+| `navigate` | Move the UI to a design, file, or panel |
+| `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Hand off a finished design |
 
 ## Core Rules
 
@@ -55,8 +58,6 @@ Read the relevant skill before deeper work in that area.
   mutation path is `propose-node-rewrite`; never call a content writer.
   `[Selection question]` is read-only: answer about the captured element and
   subtree without calling content-writing actions.
-- Call `view-screen` before editing a specific design if the current design or
-  selected file is not already clear from context.
 - Generated files must be complete, standalone HTML (Alpine.js + Tailwind CDN)
   that renders in the iframe without a build step. See `design-generation` for
   the phases, quality bar, and the audit/screenshot pass required before
@@ -74,16 +75,11 @@ Read the relevant skill before deeper work in that area.
   present; explicit user instructions in the current turn still win. Before
   generation, follow the `creative-context` reuse ladder and respect
   `contextMode: "off"`.
-- When the user references a template or prior design, resolve it first — see
-  `design-templates` for the lookup and reuse order.
 - Design source modes are `inline`, `localhost`, and `fusion` — see
   `full-app-build`. Public `/visual-edit` and `/design/:id` links can render
   read-only without a session — never run anonymous write actions
   (save/share/generate/localhost connect); send signed-out visitors through
   `buildSignInReturnHref()` first.
-- For multi-variant exploration, use `present-design-variants` (2-5, three by
-  default) — see `design-generation` Phase 2 for the pick → refine flow.
-- When the user asks to download/export, see `export-handoff`.
 
 ## Application State
 
