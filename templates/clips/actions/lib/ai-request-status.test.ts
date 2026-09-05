@@ -72,4 +72,36 @@ describe("AI request status lifecycle", () => {
       }),
     );
   });
+
+  it("keeps a durable request queued when the refresh signal fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockWriteAppState
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("refresh write failed"));
+
+    await expect(
+      queueAiRequest({
+        recordingId: "rec_123",
+        kind: "remove-silences",
+        requestedAt: "2026-09-04T12:00:00.000Z",
+        request: { kind: "remove-silences" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockWriteAppState).toHaveBeenCalledTimes(3);
+    expect(mockWriteAppState).not.toHaveBeenCalledWith(
+      "clips-ai-request-status-rec_123",
+      expect.objectContaining({ status: "failed" }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[clips] failed to publish AI request refresh signal",
+      expect.objectContaining({
+        recordingId: "rec_123",
+        kind: "remove-silences",
+        error: expect.any(Error),
+      }),
+    );
+    warn.mockRestore();
+  });
 });
