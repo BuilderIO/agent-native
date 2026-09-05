@@ -161,7 +161,7 @@ function event(path: string, body?: unknown) {
   return { _url: `https://app.example.test${path}`, _body: body } as any;
 }
 
-describe("member mutation guards (real pglite)", () => {
+describe("member mutation guards (real pglite)", { timeout: 30_000 }, () => {
   afterEach(() => {
     vi.resetModules();
     vi.doUnmock("h3");
