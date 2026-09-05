@@ -17,7 +17,6 @@ const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",
 );
-
 describe("SlideEditor render-phase safety", () => {
   it("never passes an updater function to setEditingEl", () => {
     const updaterCalls = source.match(
@@ -58,6 +57,21 @@ describe("SlideEditor render-phase safety", () => {
     expect(flushBody).toContain("flushPendingSaves();");
     expect(flushBody).not.toContain("inlineEditDraftRef.current = null");
     expect(flushBody).not.toContain("onUpdateSlideRef.current");
+  });
+
+  it("marks and strips only the outer rich-text layer", () => {
+    expect(source).toContain(
+      'element.setAttribute("data-slide-text-block", "true")',
+    );
+    expect(source).toContain(
+      'element.querySelectorAll<HTMLElement>("[data-slide-text-block]")',
+    );
+    expect(source).toContain(
+      'element.removeAttribute("data-slide-text-block")',
+    );
+    expect(source).toContain(
+      '.replace(/\\s*data-slide-text-block="[^"]*"/g, "")',
+    );
   });
 
   it("cancels stale draft capture before a slide switch can read the new DOM", () => {
