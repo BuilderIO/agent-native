@@ -1,6 +1,10 @@
 build
 .output/
 
+# PGlite database files and dev process lock
+data/pglite/
+data/*.lock
+
 .generated/
 
 .vercel/

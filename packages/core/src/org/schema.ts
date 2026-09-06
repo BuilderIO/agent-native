@@ -1,7 +1,7 @@
 import {
   table,
   text,
-  integer,
+  bigint,
   ownableColumns,
   createSharesTable,
 } from "../db/schema.js";
@@ -10,7 +10,7 @@ export const organizations = table("organizations", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   createdBy: text("created_by").notNull(),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
   allowedDomain: text("allowed_domain"),
   a2aSecret: text("a2a_secret"),
   workspaceUrl: text("workspace_url"),
@@ -19,7 +19,9 @@ export const organizations = table("organizations", {
   identityAuthority: text("identity_authority"),
   identityId: text("identity_id"),
   /** Set after the identity authority has accepted the initial member roster. */
-  federationRosterInitializedAt: integer("federation_roster_initialized_at"),
+  federationRosterInitializedAt: bigint("federation_roster_initialized_at", {
+    mode: "number",
+  }),
 });
 
 export const orgMembers = table("org_members", {
@@ -27,9 +29,11 @@ export const orgMembers = table("org_members", {
   orgId: text("org_id").notNull(),
   email: text("email").notNull(),
   role: text("role").notNull(),
-  joinedAt: integer("joined_at").notNull(),
+  joinedAt: bigint("joined_at", { mode: "number" }).notNull(),
   /** Restrictive marker retained if authority revocation beats local deletion. */
-  federationRemovalPendingAt: integer("federation_removal_pending_at"),
+  federationRemovalPendingAt: bigint("federation_removal_pending_at", {
+    mode: "number",
+  }),
 });
 
 /**
@@ -44,7 +48,7 @@ export const appMemberRoles = table("app_member_roles", {
   email: text("email").notNull(),
   role: text("role").notNull(),
   updatedBy: text("updated_by").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const orgInvitations = table("org_invitations", {
@@ -52,7 +56,7 @@ export const orgInvitations = table("org_invitations", {
   orgId: text("org_id").notNull(),
   email: text("email").notNull(),
   invitedBy: text("invited_by").notNull(),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
   status: text("status").notNull(),
   role: text("role"),
 });
@@ -72,8 +76,8 @@ export const workspaceApps = table("workspace_apps", {
   name: text("name").notNull(),
   description: text("description"),
   path: text("path").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const workspaceAppShares = createSharesTable("workspace_app_shares");

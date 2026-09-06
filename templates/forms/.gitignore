@@ -30,6 +30,7 @@ data/.sessions.json
 
 # PGlite data (created at runtime)
 data/pglite/
+data/*.lock
 
 # Learnings
 learnings.md

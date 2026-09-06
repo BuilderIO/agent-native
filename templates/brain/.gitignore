@@ -6,5 +6,6 @@ build
 .react-router
 .generated
 data/pglite/
+data/*.lock
 .env
 .env.local
