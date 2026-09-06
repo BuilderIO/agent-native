@@ -134,6 +134,11 @@ const messages = {
     unsavedTextCopied: "已複製未儲存的文字",
     useDiskVersion: "使用磁碟版本",
     keepLocalDraft: "保留我的版本",
+    previewDraftRecovery: "未儲存的頁面草稿",
+    restorePreviewDraft: "還原草稿",
+    pageSaveBeforeNavigationFailed:
+      "無法儲存最新的頁面編輯。請重試後再離開此頁面。",
+    discardPreviewDraft: "捨棄草稿",
     collabConnectingReadOnly: "正在連接即時編輯器。顯示唯讀快照。",
     liveDocumentSaveBeforeSyncFailed: "即時文件無法在同步前儲存。",
     documentTitle: "檔案標題",

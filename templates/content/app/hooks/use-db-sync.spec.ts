@@ -46,6 +46,41 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
+  it("refreshes mounted preview Page data without refreshing inactive cached rows", () => {
+    const predicate = contentActionInvalidatePredicate("/page/collection");
+    for (const name of [
+      "get-document",
+      "list-comments",
+      "list-document-properties",
+    ]) {
+      const query = {
+        queryKey: [
+          "action",
+          name,
+          { id: "row", documentId: "row", databaseId: "db" },
+        ],
+        isActive: () => true,
+      };
+      expect(
+        predicate(query, [{ source: "action", key: "update-document" }]),
+      ).toBe(true);
+      expect(
+        predicate({ ...query, isActive: () => false }, [
+          { source: "action", key: "update-document" },
+        ]),
+      ).toBe(false);
+    }
+    expect(
+      predicate(
+        {
+          queryKey: ["action", "get-content-database", { id: "collection" }],
+          isActive: () => true,
+        },
+        [{ source: "action", key: "update-document" }],
+      ),
+    ).toBe(false);
+  });
+
   it("does not refresh unrelated documents or action queries", () => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
 

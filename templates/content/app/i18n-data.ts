@@ -3211,6 +3211,12 @@ const enUS = {
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",
     keepLocalDraft: "Keep my version",
+    previewDraftRecovery: "Unsaved page draft",
+    restorePreviewDraft: "Restore draft",
+    pageSaveBeforeNavigationFailed:
+      "Your latest page edits could not be saved. Try again before leaving this page.",
+    discardPreviewDraft: "Discard draft",
+
     collabConnectingReadOnly:
       "Connecting live editor. Showing a read-only snapshot.",
     liveDocumentSaveBeforeSyncFailed:
@@ -3573,6 +3579,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "已复制未保存的文本",
       useDiskVersion: "使用磁盘版本",
       keepLocalDraft: "保留我的版本",
+      previewDraftRecovery: "未保存的页面草稿",
+      restorePreviewDraft: "恢复草稿",
+      pageSaveBeforeNavigationFailed:
+        "无法保存最新的页面编辑。请重试后再离开此页面。",
+      discardPreviewDraft: "放弃草稿",
+
       documentTitle: "文档标题",
       localFileSavedHistoryNotUpdated: "本地文件已保存，但历史记录未更新",
       title: "标题",
@@ -3809,6 +3821,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Texto sin guardar copiado",
       useDiskVersion: "Usar la versión del disco",
       keepLocalDraft: "Conservar mi versión",
+      previewDraftRecovery: "Borrador de página sin guardar",
+      restorePreviewDraft: "Restaurar borrador",
+      pageSaveBeforeNavigationFailed:
+        "No se pudieron guardar los últimos cambios. Vuelve a intentarlo antes de salir de esta página.",
+      discardPreviewDraft: "Descartar borrador",
+
       documentTitle: "Título del documento",
       localFileSavedHistoryNotUpdated:
         "El archivo local se guardó, pero el historial no se actualizó",
@@ -4022,6 +4040,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Texte non enregistré copié",
       useDiskVersion: "Utiliser la version du disque",
       keepLocalDraft: "Conserver ma version",
+      previewDraftRecovery: "Brouillon de page non enregistré",
+      restorePreviewDraft: "Restaurer le brouillon",
+      pageSaveBeforeNavigationFailed:
+        "Vos dernières modifications n’ont pas pu être enregistrées. Réessayez avant de quitter cette page.",
+      discardPreviewDraft: "Supprimer le brouillon",
+
       toolbar: { undo: "Annuler", redo: "Rétablir" },
     },
     sidebar: {
@@ -4067,6 +4091,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Ungespeicherter Text kopiert",
       useDiskVersion: "Version vom Datenträger verwenden",
       keepLocalDraft: "Meine Version behalten",
+      previewDraftRecovery: "Ungespeicherter Seitenentwurf",
+      restorePreviewDraft: "Entwurf wiederherstellen",
+      pageSaveBeforeNavigationFailed:
+        "Die letzten Änderungen konnten nicht gespeichert werden. Versuche es erneut, bevor du diese Seite verlässt.",
+      discardPreviewDraft: "Entwurf verwerfen",
+
       toolbar: { undo: "Rückgängig", redo: "Wiederholen" },
     },
     sidebar: {
@@ -4111,6 +4141,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "未保存のテキストをコピーしました",
       useDiskVersion: "ディスク上の版を使用",
       keepLocalDraft: "自分のバージョンを保持",
+      previewDraftRecovery: "未保存のページ下書き",
+      restorePreviewDraft: "下書きを復元",
+      pageSaveBeforeNavigationFailed:
+        "最新の編集を保存できませんでした。このページを離れる前にもう一度お試しください。",
+      discardPreviewDraft: "下書きを破棄",
+
       toolbar: { undo: "元に戻す", redo: "やり直す" },
     },
     sidebar: {
@@ -4153,6 +4189,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "저장하지 않은 텍스트를 복사했습니다",
       useDiskVersion: "디스크 버전 사용",
       keepLocalDraft: "내 버전 유지",
+      previewDraftRecovery: "저장하지 않은 페이지 초안",
+      restorePreviewDraft: "초안 복원",
+      pageSaveBeforeNavigationFailed:
+        "최근 페이지 편집 내용을 저장하지 못했습니다. 이 페이지를 떠나기 전에 다시 시도하세요.",
+      discardPreviewDraft: "초안 삭제",
+
       toolbar: { undo: "실행 취소", redo: "다시 실행" },
     },
     sidebar: {
@@ -4194,6 +4236,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "Texto não salvo copiado",
       useDiskVersion: "Usar versão do disco",
       keepLocalDraft: "Manter minha versão",
+      previewDraftRecovery: "Rascunho de página não salvo",
+      restorePreviewDraft: "Restaurar rascunho",
+      pageSaveBeforeNavigationFailed:
+        "Não foi possível salvar as últimas alterações. Tente novamente antes de sair desta página.",
+      discardPreviewDraft: "Descartar rascunho",
+
       toolbar: { undo: "Desfazer", redo: "Refazer" },
     },
     sidebar: {
@@ -4237,6 +4285,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "सहेजा नहीं गया टेक्स्ट कॉपी किया गया",
       useDiskVersion: "डिस्क वाला संस्करण उपयोग करें",
       keepLocalDraft: "मेरा संस्करण रखें",
+      previewDraftRecovery: "पेज का सहेजा नहीं गया ड्राफ़्ट",
+      restorePreviewDraft: "ड्राफ़्ट बहाल करें",
+      pageSaveBeforeNavigationFailed:
+        "आपके नवीनतम पेज बदलाव सहेजे नहीं जा सके। इस पेज से जाने से पहले फिर से कोशिश करें।",
+      discardPreviewDraft: "ड्राफ़्ट हटाएँ",
+
       toolbar: { undo: "पूर्ववत करें", redo: "फिर से करें" },
     },
     sidebar: {
@@ -4278,6 +4332,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       unsavedTextCopied: "تم نسخ النص غير المحفوظ",
       useDiskVersion: "استخدام نسخة القرص",
       keepLocalDraft: "الاحتفاظ بنسختي",
+      previewDraftRecovery: "مسودة صفحة غير محفوظة",
+      restorePreviewDraft: "استعادة المسودة",
+      pageSaveBeforeNavigationFailed:
+        "تعذر حفظ آخر تعديلات الصفحة. حاول مرة أخرى قبل مغادرة هذه الصفحة.",
+      discardPreviewDraft: "تجاهل المسودة",
+
       toolbar: { undo: "تراجع", redo: "إعادة" },
     },
     sidebar: {

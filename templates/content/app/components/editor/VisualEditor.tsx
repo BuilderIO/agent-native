@@ -817,6 +817,9 @@ interface VisualEditorProps {
     controller: VisualEditorHistoryController | null,
   ) => void;
   onHistoryStateChange?: (state: VisualEditorHistoryState) => void;
+  onPersistenceControllerChange?: (
+    controller: VisualEditorPersistenceController | null,
+  ) => void;
 }
 
 export interface VisualEditorHistoryState {
@@ -827,6 +830,20 @@ export interface VisualEditorHistoryState {
 export interface VisualEditorHistoryController {
   undo: () => boolean;
   redo: () => boolean;
+}
+
+export interface VisualEditorPersistenceController {
+  flushLatest: () => Promise<boolean>;
+}
+
+export function shouldFlushVisualEditorDraft({
+  editable,
+  hasUserEditIntent,
+}: {
+  editable: boolean;
+  hasUserEditIntent: boolean;
+}) {
+  return editable && hasUserEditIntent;
 }
 
 export type { NotionPageLink };
@@ -2138,6 +2155,7 @@ export function VisualEditor({
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
+  onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
@@ -2287,8 +2305,10 @@ export function VisualEditor({
   // only fires once the editor exists, by which point the ref holds the guards.
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
   const lastUserEditIntentAtRef = useRef(0);
+  const hasUserEditIntentRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
+    hasUserEditIntentRef.current = true;
   }, []);
   const persistEditorContent = useCallback(
     (
@@ -2297,13 +2317,14 @@ export function VisualEditor({
         markdown?: string;
         immediate?: boolean;
         userInitiated?: boolean;
+        strict?: boolean;
       },
     ) => {
       const guards = guardsRef.current;
       if (!guards) return false;
       try {
         const serialized = serializeEditorDraftForPersistence(editorToPersist);
-        if (serialized === null) return true;
+        if (serialized === null) return options?.strict !== true;
         const normalized = options?.markdown ?? serialized;
         if (localFileMode && normalized === content) return true;
         // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
@@ -2559,6 +2580,7 @@ export function VisualEditor({
           Date.now() - lastUserEditIntentAtRef.current < 2000,
         transactionUiEvent: transaction.getMeta("uiEvent"),
       });
+      if (userInitiated) hasUserEditIntentRef.current = true;
       if (
         !shouldPersistCollaborativeEditorUpdate({
           collab: !!ydoc,
@@ -2576,6 +2598,33 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+
+  useEffect(() => {
+    if (!editor) {
+      onPersistenceControllerChange?.(null);
+      return;
+    }
+    onPersistenceControllerChange?.({
+      flushLatest: async () => {
+        if (
+          !shouldFlushVisualEditorDraft({
+            editable,
+            hasUserEditIntent: hasUserEditIntentRef.current,
+          })
+        ) {
+          return true;
+        }
+        return await Promise.resolve(
+          persistEditorContent(editor, {
+            immediate: true,
+            userInitiated: true,
+            strict: true,
+          }),
+        );
+      },
+    });
+    return () => onPersistenceControllerChange?.(null);
+  }, [editable, editor, onPersistenceControllerChange, persistEditorContent]);
 
   useEffect(() => {
     if (!editor) {

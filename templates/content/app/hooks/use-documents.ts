@@ -477,6 +477,7 @@ export function seedDatabaseItemDocumentCaches(
         canManageSchema: false,
         properties: item.properties,
       },
+      { updatedAt: 0 },
     );
   }
 }

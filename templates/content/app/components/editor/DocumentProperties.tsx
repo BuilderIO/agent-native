@@ -969,13 +969,13 @@ function PropertyRow({
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
   const value = (
-    <div className="min-w-0 flex-1 truncate text-left text-sm">
+    <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
       {displayValue(property, t)}
     </div>
   );
 
   return (
-    <div className="grid min-h-8 grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
+    <div className="grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
       {canManageSchema && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}

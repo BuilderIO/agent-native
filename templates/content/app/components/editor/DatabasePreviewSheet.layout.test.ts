@@ -13,18 +13,18 @@ describe("database preview sheet layout", () => {
       const source = readEditorSource(path);
       const previewSheet = source.slice(
         source.indexOf("function DatabaseItemPreviewSheet"),
-        source.indexOf("function previewPayloadsEqual"),
+        source.indexOf("function DatabaseTableView"),
       );
 
       expect(previewSheet).toContain("onInteractOutside={(event) => {");
       expect(previewSheet).toContain(
-        "if (isDatabasePreviewPortalInteraction(event.target))",
+        "isDatabasePreviewPortalInteraction(event.target)",
       );
       expect(previewSheet).not.toContain(
         "onInteractOutside={(event) => event.preventDefault()}",
       );
       expect(source).toContain(
-        'return !!target.closest("[data-database-preview-portal]")',
+        "[data-database-preview-portal], [data-radix-popper-content-wrapper]",
       );
       expect(source).toContain('data-database-preview-portal=""');
       expect(source).toContain(
@@ -32,24 +32,4 @@ describe("database preview sheet layout", () => {
       );
     },
   );
-
-  it("freezes a conflicting draft until the user keeps it or reloads Builder", () => {
-    const source = readEditorSource("database/DatabaseView.tsx");
-    const preview = source.slice(
-      source.indexOf("function DatabaseItemPreview({"),
-      source.indexOf("function DatabaseTableView({"),
-    );
-
-    expect(preview).toContain(
-      "canEdit && !bodyHydrationPending && !activeBodyDraftConflict",
-    );
-    expect(preview).toContain('role="status"');
-    expect(preview).toContain('dbText("keepLocalDraft")');
-    expect(preview).toContain('dbText("reloadBuilderBody")');
-    expect(preview).toContain(
-      "controller.rebasePending(activeBodyDraftConflict.serverPayload)",
-    );
-    expect(preview).toContain('controller.deferredReason === "conflict"');
-    expect(preview).toContain("controller.mark(serverPayload)");
-  });
 });

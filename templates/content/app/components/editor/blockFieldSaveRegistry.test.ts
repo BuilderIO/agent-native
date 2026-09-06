@@ -6,6 +6,7 @@ import {
   acquireBlockFieldSaveController,
   activeControllerCount,
   blockFieldSaveImplRef,
+  flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
@@ -250,6 +251,46 @@ describe("blockFieldSaveRegistry", () => {
     expect(saved).toEqual(["doc-a:notes=pending"]);
     expect(peekBlockFieldSaveController("doc-a:draft")?.lastSaved).toBe("");
     expect(peekBlockFieldSaveController("doc-b:notes")?.lastSaved).toBe("");
+  });
+
+  it("flushes every additional field for one document only", async () => {
+    const saved: string[] = [];
+    for (const key of ["doc-a:notes", "doc-a:draft", "doc-b:notes"]) {
+      blockFieldSaveImplRef(key).current = (value) => {
+        saved.push(`${key}=${value}`);
+        return Promise.resolve();
+      };
+      const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+      controller.change("pending");
+    }
+
+    await flushAllBlockFieldSaveControllersForDocument("doc-a");
+
+    expect(saved).toEqual(["doc-a:notes=pending", "doc-a:draft=pending"]);
+    expect(peekBlockFieldSaveController("doc-b:notes")?.lastSaved).toBe("");
+  });
+
+  it("fails after attempting every field when any document field stays dirty", async () => {
+    const saved: string[] = [];
+    blockFieldSaveImplRef("doc:failed").current = () =>
+      Promise.reject(new Error("save failed"));
+    blockFieldSaveImplRef("doc:succeeds").current = (value) => {
+      saved.push(value);
+      return Promise.resolve();
+    };
+    acquireBlockFieldSaveController(
+      "doc:failed",
+      factoryFor("doc:failed"),
+    ).change("failed value");
+    acquireBlockFieldSaveController(
+      "doc:succeeds",
+      factoryFor("doc:succeeds"),
+    ).change("saved value");
+
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).rejects.toThrow("could not be saved");
+    expect(saved).toEqual(["saved value"]);
   });
 
   it("uses persisted SQL when the requested field is not mounted", async () => {
