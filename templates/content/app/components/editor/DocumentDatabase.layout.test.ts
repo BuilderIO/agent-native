@@ -117,8 +117,6 @@ describe("document database layout", () => {
   });
 
   it("keeps preview property popovers inside the side preview sheet", () => {
-    const source = readDatabaseSource();
-
     expect(
       readFileSync(new URL("./DocumentEditor.tsx", import.meta.url), "utf8"),
     ).toContain("popoversPortalled={false}");

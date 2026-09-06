@@ -94,6 +94,7 @@ const builderCmsModelsQuery = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  generateTabId: () => "database-error-toasts-test",
   useCodeMode: () => ({
     isCodeMode: false,
     canToggle: false,

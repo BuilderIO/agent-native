@@ -112,7 +112,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
@@ -178,7 +178,6 @@ import {
   useContentDatabase,
   useContentDatabasePersonalView,
   useContentDatabases,
-  contentDatabaseQueryKey,
   useRemoveDatabaseItems,
   useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
@@ -230,16 +229,13 @@ import {
   builderBodyHydrationRetryDelayMs,
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
-import { BuilderBodySyncingNotice } from "../BuilderBodySyncingNotice";
 import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
-import { DocumentBlockFields } from "../DocumentBlockFields";
 import { PageEditorSurface, type PageEditorSession } from "../DocumentEditor";
 import {
   AddProperty,
-  DocumentProperties,
   PropertyManagementPopover,
   PropertyValuePopover,
   OPTION_COLORS,
@@ -258,14 +254,12 @@ import {
   renamePropertyOption,
   updatePropertyOptionColor,
 } from "../DocumentProperties";
-import { EmojiPicker } from "../EmojiPicker";
 import {
   deferredPreviewDocumentSave,
   type PreviewDocumentPayload,
   type PreviewDocumentSaveDeferred,
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
-import { VisualEditor } from "../VisualEditor";
 import type { DatabaseExportContext } from "./DatabaseExportDialog";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
