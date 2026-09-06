@@ -58,6 +58,13 @@ export type FederatedMembershipValidation =
   | { active: true; role: OrgRole }
   | { active: false; role: null };
 
+export class FederatedMemberOperationError extends Error {
+  constructor(readonly statusCode: number) {
+    super(`Identity authority member operation failed (${statusCode}).`);
+    this.name = "FederatedMemberOperationError";
+  }
+}
+
 function requestEventFromContext(): H3Event {
   const requestOrigin = getRequestContext()?.requestOrigin;
   if (!requestOrigin) {
@@ -207,6 +214,7 @@ async function sendFederatedMemberOperation(
     actorRole: OrgRole;
     memberEmail: string;
     memberRole?: FederatedMemberRole;
+    expectedMemberRole?: FederatedMemberRole;
   },
   operation: FederatedMemberOperation,
 ): Promise<boolean> {
@@ -232,6 +240,12 @@ async function sendFederatedMemberOperation(
     !isFederatedMemberRole(input.memberRole)
   ) {
     throw new Error("A federated member role is required.");
+  }
+  if (
+    operation === "update-member-role" &&
+    !isFederatedMemberRole(input.expectedMemberRole)
+  ) {
+    throw new Error("A federated expected member role is required.");
   }
 
   const exec = getDbExec();
@@ -281,13 +295,14 @@ async function sendFederatedMemberOperation(
       federation_operation: operation,
       federation_member_email: memberEmail,
       ...(input.memberRole ? { federation_member_role: input.memberRole } : {}),
+      ...(operation === "update-member-role" && input.expectedMemberRole
+        ? { federation_expected_member_role: input.expectedMemberRole }
+        : {}),
     },
   );
   if (!sent) throw new Error("Identity authority is not configured.");
   if (!sent.response.ok) {
-    throw new Error(
-      `Identity authority member operation failed (${sent.response.status}).`,
-    );
+    throw new FederatedMemberOperationError(sent.response.status);
   }
   return true;
 }
@@ -397,6 +412,7 @@ export async function updateFederatedOrganizationMemberRole(
     actorRole: OrgRole;
     memberEmail: string;
     memberRole: FederatedMemberRole;
+    expectedMemberRole: FederatedMemberRole;
   },
 ): Promise<boolean> {
   return sendFederatedMemberOperation(event, input, "update-member-role");

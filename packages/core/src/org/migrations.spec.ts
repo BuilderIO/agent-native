@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
 
-describe("ORG_MIGRATIONS", () => {
+describe("ORG_MIGRATIONS", { timeout: 30_000 }, () => {
   it("includes a LOWER(email) expression index on org_members", () => {
     // Every authenticated request calls getOrgContext which queries
     // `WHERE LOWER(m.email) = ?`. This migration must create a supporting
@@ -135,5 +136,43 @@ describe("ORG_MIGRATIONS", () => {
     expect(migration?.sql).toMatch(
       /ALTER TABLE organizations[\s\S]*federation_roster_initialized_at/i,
     );
+  });
+
+  it("widens the pending-removal marker without losing existing values", async () => {
+    const pglite = await createTestPglite();
+    await pglite.exec(`
+      CREATE TABLE org_members (
+        id TEXT PRIMARY KEY,
+        federation_removal_pending_at INTEGER
+      );
+    `);
+    await pglite
+      .prepare(
+        `INSERT INTO org_members (id, federation_removal_pending_at) VALUES (?, ?)`,
+      )
+      .run("existing", 2_000_000_000);
+
+    try {
+      const migration = ORG_MIGRATIONS.find((m) => m.version === 1022);
+      expect(migration?.name).toBe(
+        "organization-federation-removal-pending-bigint",
+      );
+      await pglite.exec(String(migration?.sql));
+
+      await pglite
+        .prepare(
+          `INSERT INTO org_members (id, federation_removal_pending_at) VALUES (?, ?)`,
+        )
+        .run("current", Date.now());
+      expect(
+        await pglite
+          .prepare(
+            `SELECT federation_removal_pending_at FROM org_members WHERE id = ?`,
+          )
+          .get("existing"),
+      ).toEqual({ federation_removal_pending_at: 2_000_000_000 });
+    } finally {
+      await pglite.close();
+    }
   });
 });

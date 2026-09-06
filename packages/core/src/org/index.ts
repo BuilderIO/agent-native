@@ -14,9 +14,11 @@ export type {
 } from "./types.js";
 
 export {
+  canChangeOrgMemberRole,
   canInviteOrgMembers,
   canManageOrg,
   canManageOrgDomain,
+  canRemoveOrgMember,
   orgRoleAtLeast,
   orgRoleRank,
 } from "./permissions.js";
@@ -43,6 +45,8 @@ export type { AcceptPendingResult } from "./accept-pending.js";
 export { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 export type { AutoJoinDomainResult } from "./auto-join-domain.js";
 export { invalidateMemberOrgCaches } from "./request-org-cache.js";
+export { lockOrgMembersForMutation } from "./member-mutation-locks.js";
+export type { LockedOrgMemberForMutation } from "./member-mutation-locks.js";
 
 export {
   defineAppRoles,
