@@ -213,13 +213,21 @@ export const ORG_MIGRATIONS = [
     version: 1022,
     name: "org-tables-timestamps-bigint",
     sql: `
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE organizations ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE organizations ALTER COLUMN federation_roster_initialized_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE org_members ALTER COLUMN joined_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE org_members ALTER COLUMN federation_removal_pending_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE org_invitations ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE app_member_roles ALTER COLUMN updated_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE workspace_apps ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE workspace_apps ALTER COLUMN updated_at TYPE BIGINT;
     `,
   },

@@ -1210,6 +1210,14 @@ export const migrations = runMigrations(
       // pass a reason — absent stays distinguishable from every named cause.
       sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS end_reason TEXT`,
     },
+    {
+      version: 70,
+      name: "clips-backfill-leases-expires-at-bigint",
+      sql: `
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+        ALTER TABLE clips_backfill_leases ALTER COLUMN expires_at TYPE BIGINT
+      `,
+    },
   ],
   { table: "clips_migrations" },
 );

@@ -45,9 +45,13 @@ export const IDENTITY_SSO_MIGRATIONS: MigrationEntry[] = [
     version: 2,
     name: "identity-sso-timestamps-bigint",
     sql: `
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE identity_sso_flow_state ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE identity_sso_flow_state ALTER COLUMN expires_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE identity_sso_flow_state ALTER COLUMN consumed_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
       ALTER TABLE identity_sso_jti ALTER COLUMN seen_at TYPE BIGINT;
     `,
   },
