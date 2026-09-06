@@ -5,8 +5,12 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withSavedTableColumnOrder } from "../shared/database-table-columns.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import { serializeDatabaseViewConfig } from "./_property-utils.js";
+import {
+  parseDatabaseViewConfig,
+  serializeDatabaseViewConfig,
+} from "./_property-utils.js";
 
 const sortSchema = z.object({
   key: z.string(),
@@ -87,6 +91,7 @@ const viewSchema = z.object({
   endDatePropertyId: z.string().nullable().optional(),
   hiddenPropertyIds: z.array(z.string()).default([]),
   propertyOrderIds: z.array(z.string()).default([]),
+  tableColumnOrderIds: z.array(z.string()).optional(),
   collapsedGroupIds: z.array(z.string()).default([]),
   hideEmptyGroups: z.boolean().default(false),
   calculations: z.record(z.string(), columnCalculationSchema).default({}),
@@ -126,10 +131,18 @@ export default defineAction({
 
     await assertAccess("document", database.documentId, "editor");
 
+    const currentViewConfig = parseDatabaseViewConfig(database.viewConfigJson);
+    const nextViewConfig = {
+      ...viewConfig,
+      views: viewConfig.views?.map((view) =>
+        withSavedTableColumnOrder(view, currentViewConfig.views),
+      ),
+    };
+
     await db
       .update(schema.contentDatabases)
       .set({
-        viewConfigJson: serializeDatabaseViewConfig(viewConfig),
+        viewConfigJson: serializeDatabaseViewConfig(nextViewConfig),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.contentDatabases.id, databaseId));

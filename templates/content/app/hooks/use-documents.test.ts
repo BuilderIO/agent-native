@@ -604,12 +604,37 @@ describe("optimistic document titles", () => {
       "get-content-database",
       { databaseId: "files" },
     ] as const;
+    const databasePageKey = [
+      "action",
+      "query-content-database-items",
+      {
+        documentId: "files-page",
+        limit: 100,
+        tableQuery: {
+          search: "",
+          filters: [],
+          sorts: [{ key: "name", direction: "asc" }],
+          filterMode: "and",
+        },
+      },
+    ] as const;
     queryClient.setQueryData(documentQueryKey("a"), doc("a", null));
     queryClient.setQueryData(
       ["action", "list-documents", undefined],
       [doc("a", null)],
     );
     queryClient.setQueryData(databaseKey, {
+      items: [
+        {
+          id: "item-a",
+          databaseId: "files",
+          position: 0,
+          document: doc("a", null),
+          properties: [],
+        },
+      ],
+    });
+    queryClient.setQueryData(databasePageKey, {
       items: [
         {
           id: "item-a",
@@ -645,6 +670,9 @@ describe("optimistic document titles", () => {
     expect(
       queryClient.getQueryData<any>(databaseKey)?.items[0].document.content,
     ).toBe("Saved body");
+    expect(
+      queryClient.getQueryData<any>(databasePageKey)?.items[0].document.title,
+    ).toBe("Page one");
   });
 
   it("patches Page-owned fields across contexts without exchanging memberships", () => {
