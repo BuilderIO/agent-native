@@ -48,6 +48,7 @@ data/uploads/
 # Ephemeral data
 data/refresh-trigger.json
 data/pglite/
+data/*.lock
 .claude/scheduled_tasks.lock
 
 # Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)

@@ -34,6 +34,7 @@ data/.sessions.json
 
 # Local PGlite database
 data/pglite/
+data/*.lock
 
 # Ephemeral editor state
 .editor-selection.json

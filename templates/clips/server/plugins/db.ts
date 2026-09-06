@@ -1090,7 +1090,7 @@ export const migrations = runMigrations(
       sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
         lease_key TEXT PRIMARY KEY,
         holder TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at BIGINT NOT NULL
       )`,
     },
     {
@@ -1135,7 +1135,7 @@ export const migrations = runMigrations(
       sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
         lease_key TEXT PRIMARY KEY,
         holder TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at BIGINT NOT NULL
       )`,
     },
     {

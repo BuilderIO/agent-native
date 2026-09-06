@@ -35,6 +35,7 @@ dist-ssr
 
 # Data
 data/pglite/
+data/*.lock
 data/uploads/
 data/settings.json
 data/.sessions.json
