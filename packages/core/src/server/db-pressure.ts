@@ -105,21 +105,13 @@ function readCount(row: Record<string, unknown>, key: string): number | null {
 }
 
 /**
- * Read the pressure counters. Postgres-only: `pg_stat_activity` does not exist
- * on SQLite/libSQL/D1, and a dialect that cannot answer reports `measured:
- * false` rather than a clean-looking zero.
+ * Read the pressure counters from Postgres. A database that cannot answer
+ * reports `measured: false` rather than a clean-looking zero.
  */
 export async function probeDbPressure(
   exec: { execute: (sql: string) => Promise<unknown> },
-  dialect: string,
   options: { trivialQueryMs?: number } = {},
 ): Promise<DbPressure> {
-  if (dialect !== "postgres") {
-    return {
-      measured: false,
-      reason: `dialect ${dialect} has no pg_stat_activity`,
-    };
-  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const trivialQueryMs =

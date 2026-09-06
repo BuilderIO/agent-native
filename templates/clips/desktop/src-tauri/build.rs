@@ -10,22 +10,66 @@ fn main() {
 }
 
 /// `tauri dev` runs the macOS executable directly instead of inside the app
-/// bundle, so the bundle's `Info.plist` is not available to TCC. Embed the
-/// same plist in the dev binary or privacy-sensitive APIs can terminate it
-/// before the tray icon becomes visible.
+/// bundle, so the bundle's `Info.plist` is not available to TCC. Embed an
+/// equivalent plist in the dev binary or privacy-sensitive APIs can terminate
+/// it before the tray icon becomes visible.
+///
+/// The identity and version keys are generated here from `tauri.conf.json`
+/// and the crate version instead of living in `Info.plist`: the bundler
+/// merges that file over the plist it generates, so hardcoded values there
+/// override the release identifier, executable name, and version.
 fn embed_macos_dev_info_plist() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
 
     let info_plist = Path::new("Info.plist");
+    let config_path = Path::new("tauri.conf.json");
     println!("cargo:rerun-if-changed={}", info_plist.display());
-    let info_plist = info_plist
-        .canonicalize()
+    println!("cargo:rerun-if-changed={}", config_path.display());
+
+    let source = std::fs::read_to_string(info_plist)
         .expect("macOS Info.plist must exist for the desktop binary");
+    let config: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(config_path).expect("tauri.conf.json must exist"),
+    )
+    .expect("tauri.conf.json must be valid JSON");
+    let identifier = config["identifier"]
+        .as_str()
+        .expect("tauri.conf.json must set identifier");
+    let product_name = config["productName"]
+        .as_str()
+        .expect("tauri.conf.json must set productName");
+    let executable = config["mainBinaryName"].as_str().unwrap_or(product_name);
+    let version = std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
+    for value in [identifier, product_name, executable, version.as_str()] {
+        assert!(
+            !value.contains(['<', '&']),
+            "plist identity values must not need XML escaping: {value}"
+        );
+    }
+
+    let identity = format!(
+        "    <key>CFBundleIdentifier</key>\n    <string>{identifier}</string>\n\
+         \x20   <key>CFBundleName</key>\n    <string>{product_name}</string>\n\
+         \x20   <key>CFBundleDisplayName</key>\n    <string>{product_name}</string>\n\
+         \x20   <key>CFBundleExecutable</key>\n    <string>{executable}</string>\n\
+         \x20   <key>CFBundlePackageType</key>\n    <string>APPL</string>\n\
+         \x20   <key>CFBundleShortVersionString</key>\n    <string>{version}</string>\n\
+         \x20   <key>CFBundleVersion</key>\n    <string>{version}</string>\n"
+    );
+    let generated = source.replacen("<dict>\n", &format!("<dict>\n{identity}"), 1);
+    assert!(
+        generated != source,
+        "Info.plist must contain a top-level <dict> to receive identity keys"
+    );
+
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("Cargo sets OUT_DIR"));
+    let dev_plist = out_dir.join("DevInfo.plist");
+    std::fs::write(&dev_plist, generated).expect("write the dev Info.plist");
     println!(
         "cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{}",
-        info_plist.display()
+        dev_plist.display()
     );
 }
 

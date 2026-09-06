@@ -84,7 +84,10 @@ export default defineAction({
     content: z
       .string()
       .optional()
-      .describe("Initial Markdown body; omit to create an empty document."),
+      .describe(
+        "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
+          'shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+      ),
     description: z
       .string()
       .optional()

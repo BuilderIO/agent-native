@@ -46,7 +46,9 @@ describe("DesignEditor shell context changes", () => {
       source.indexOf("const resolvedReviewPanelProps"),
       source.indexOf("const dispatchReviewFeedbackToAgent"),
     );
-    expect(review).toContain("if (!id || !activeFile || shellMode)");
+    expect(review).toContain(
+      "if (!designReviewPanelEnabled || !id || !activeFile || shellMode)",
+    );
     expect(review).toContain("onRunAudit: handleRunDesignAudit");
   });
 });

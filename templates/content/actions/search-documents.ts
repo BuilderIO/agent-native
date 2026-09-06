@@ -126,8 +126,7 @@ export default defineAction({
     // deep-ish into the doc, while the true length still comes from SQL
     // `length()` rather than reading `.length` off a truncated string.
     // Mirrors the `substr`/`length` projection style in list-documents.ts.
-    // Both `substr` and `length` work identically on SQLite/libsql and
-    // Postgres.
+    // Both `substr` and `length` work in PostgreSQL and PGlite.
     const docs = await db
       .select({
         id: schema.documents.id,

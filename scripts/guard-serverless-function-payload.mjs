@@ -64,7 +64,6 @@ const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-serverless-function-payload\b/;
  * and each already pruned to linux-x64/arm64 or gated on the consuming app.
  */
 const ALLOWED_COPY_CALLS = new Set([
-  "copyInstalledLibsqlNativePackages",
   "copyInstalledResvgPackages",
   "copyInstalledFfmpegStaticPackage",
   "copyInstalledBrowserRuntimePackages",

@@ -343,6 +343,8 @@ Claude Code calls: manage-draft(to: "john@example.com", subject: "Q3 Report", bo
 
 Click that link and Mail opens with the draft restored — focused exactly where you, the logged-in user, are. The agent never had to know your session; it just produced the artifact.
 
+External agents get the app's real create/update tools — the same named actions the in-app agent calls — so when a user asks for new content (a design, a deck, a form, a document), author it directly and persist it with those tools instead of delegating the work through `ask_app`. Actions marked `endsTurn: true`, such as an in-app question form that waits for the user's answer in that app's own chat, are hidden from MCP, WebMCP, and A2A unless `mcpTool: true` — see [endsTurn in Defining Actions](/docs/actions-defining). Tool inputs and results carry up to 500,000 characters on WebMCP, so a whole screen, deck, or document fits in one write — see [WebMCP](/docs/webmcp). Page-local WebMCP calls carry the browser tab id (the same `getBrowserTabId()` value the UI uses — see [Context Awareness](/docs/context-awareness)), so per-tab navigation and selection resolve to the tab the agent is driving, even when hidden.
+
 ### First-class MCP App bridge {#mcp-app-bridge}
 
 `embedApp()` starts from the action's `link` target, creates a short-lived embed session, and launches that signed app route. Claude web uses a single-frame transplant path; ChatGPT gets a controlled route iframe with `window.openai` host APIs. All paths render the normal React route. Directly hydrated routes call `ui/update-model-context`, `ui/message`, `ui/open-link`, and `ui/request-display-mode` through the host bridge; the ChatGPT path relays the same requests over `agentNative.mcpHost.*` postMessage. `embedApp({ height })` defaults to `560px` and clamps to `320-900px`.
@@ -355,6 +357,7 @@ See the full tool catalog, MCP Apps compatibility matrix, generic cross-app verb
 
 - [External Agents — Catalog & Developer Reference](/docs/external-agents-catalog) — catalog tiers, the `link` builder, the `/_agent-native/open` route, identity-resolution rules, and embed security
 - [MCP Apps](/docs/mcp-apps) — authoring MCP App UIs, the embed bridge, and host bridge API.
+- [WebMCP](/docs/webmcp) — page-local tools, the 500,000-character input/result limit, and the browser tab id header.
 - [MCP Server](/docs/mcp-protocol) — the auto-mounted MCP server and `ask-agent` meta-tool.
 - [MCP Clients](/docs/mcp-clients) — the symmetric direction: your app consuming local/remote MCP servers.
 - [A2A Protocol](/docs/a2a-protocol) — the `ask-agent` meta-tool and JSON-RPC peer calls.

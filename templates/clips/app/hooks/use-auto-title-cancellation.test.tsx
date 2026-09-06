@@ -5,7 +5,9 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  bumpChangeVersion: vi.fn(),
   callAction: vi.fn(),
+  getChangeVersion: vi.fn(() => 0),
   sendToAgentChat: vi.fn((options: { tabId?: string }) => options.tabId),
   sendToAgentChatAndConfirm: vi.fn(async (options: { tabId?: string }) => ({
     tabId: options.tabId,
@@ -22,7 +24,9 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
+  bumpChangeVersion: (...args: unknown[]) => mocks.bumpChangeVersion(...args),
   callAction: (...args: unknown[]) => mocks.callAction(...args),
+  getChangeVersion: mocks.getChangeVersion,
   useChangeVersions: () => 0,
 }));
 vi.mock("@shared/clips-ai-prefs", () => ({

@@ -306,13 +306,8 @@ const messages = {
     sharePublicly: "公開分享",
     sharePubliclyDescription: "要公開分享內容，請連線雲端資料庫。",
     providerDescriptions: {
-      turso: "邊緣 SQLite",
       neon: "無伺服器 Postgres",
       supabase: "開放原始碼 Firebase 替代方案",
-      d1: "邊緣 SQLite",
-    },
-    providerNames: {
-      d1: "Cloudflare D1",
     },
     setupSteps: "設定步驟",
     authToken: "認證權杖",

@@ -68,8 +68,6 @@ export function isFactoryIdConflict(error: unknown): boolean {
   const code = String(codeValue as string | number | boolean);
   return (
     code === "23505" ||
-    code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
-    code === "SQLITE_CONSTRAINT_UNIQUE" ||
     message.includes("unique constraint") ||
     message.includes("duplicate key") ||
     message.includes("primary key")
@@ -85,7 +83,6 @@ export function isFactorySlackChannelConflict(error: unknown): boolean {
   const code = String(codeValue as string | number | boolean);
   const unique =
     code === "23505" ||
-    code === "SQLITE_CONSTRAINT_UNIQUE" ||
     message.includes("unique constraint") ||
     message.includes("duplicate key");
   return unique && message.includes("slack_channel");

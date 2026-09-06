@@ -55,10 +55,12 @@ describe("social OG image", () => {
     expect(svg).not.toContain('font-weight="850"');
   });
 
-  it("renders a solid background with no grid pattern", () => {
+  it("renders the shared branded background without a grid pattern", () => {
     const svg = renderAgentNativeOgImageSvg();
 
-    expect(svg).toContain('<rect width="1200" height="630" fill="#0A0A0A"/>');
+    expect(svg).toContain(
+      '<image x="0" y="0" width="1200" height="630" href="data:image/png;base64,',
+    );
     expect(svg).not.toContain("<pattern");
     expect(svg).not.toContain('fill="url(#grid)"');
   });

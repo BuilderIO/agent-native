@@ -33,6 +33,29 @@ describe("design review agent instructions", () => {
   });
 });
 
+describe("external design authoring catalog", () => {
+  it("keeps context reads and writes on the compact connector surface", () => {
+    for (const name of [
+      "list-designs",
+      "list-design-systems",
+      "get-design-snapshot",
+      "create-design",
+      "create-design-from-template",
+      "edit-design",
+      "generate-design",
+    ]) {
+      expect(agentChatSource).toContain(`\"${name}\"`);
+    }
+    expect(agentChatSource).toContain(
+      "connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES",
+    );
+    expect(agentChatSource).toContain(
+      'externalAgents: { writes: "allowlisted" }',
+    );
+    expect(agentChatSource).toContain("designSystem.agentContext");
+  });
+});
+
 describe("select and reprompt agent contract", () => {
   it("keeps the preview-only rule in every always-visible instruction surface", () => {
     expect(agentChatSource).toContain(

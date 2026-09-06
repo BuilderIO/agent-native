@@ -5,6 +5,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   recordGenerationCreativeContext,
@@ -18,8 +19,12 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
+import {
+  resolveDefaultDesignSystemId,
+  resolveDesignSystemIdByTitle,
+} from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -35,6 +40,7 @@ import {
   nextDeckRevision,
 } from "./_deck-write.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
+import getDesignSystem from "./get-design-system.js";
 
 const ReuseLabelSchema = z
   .object({
@@ -117,7 +123,7 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live; the new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, and slide count.",
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
@@ -138,7 +144,15 @@ export default defineAction({
     designSystemId: z
       .string()
       .optional()
-      .describe("Optional design system ID to link to the deck"),
+      .describe(
+        "Optional design system ID to link to the deck; omit to use your default, or pass its exact title as `designSystem` instead.",
+      ),
+    designSystem: z
+      .string()
+      .optional()
+      .describe(
+        "Exact title of an accessible design system to link (case-insensitive, whitespace-trimmed); resolved server-side. Use designSystemId when you already have the id; the id wins if both are given.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -171,7 +185,8 @@ export default defineAction({
     slides: rawSlides,
     deckId,
     aspectRatio,
-    designSystemId,
+    designSystemId: explicitDesignSystemId,
+    designSystem,
     contextPackId,
     contextModeOverride,
     reuseLabels,
@@ -250,6 +265,14 @@ export default defineAction({
     const resolvedTitle =
       repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
 
+    // Resolve the title form before the branches split so replacing a deck
+    // honors it the same way creating one does.
+    const designSystemId =
+      explicitDesignSystemId ??
+      (designSystem
+        ? await resolveDesignSystemIdByTitle(designSystem)
+        : undefined);
+
     if (deckId) {
       if (designSystemId) {
         await assertAccess("design-system", designSystemId, "viewer");
@@ -270,6 +293,10 @@ export default defineAction({
       assertHumanReadableDeckTitle(existingDeckTitle);
       const writeNow = nextDeckRevision(existing[0].updatedAt);
       const prevData = JSON.parse(existing[0].data);
+      const previousDesignSystemId = resolveDeckDesignSystemId(
+        existing[0],
+        prevData,
+      );
       const data = {
         ...prevData,
         title: existingDeckTitle,
@@ -294,8 +321,7 @@ export default defineAction({
           .set({
             title: existingDeckTitle,
             data: JSON.stringify(data),
-            designSystemId:
-              designSystemId ?? existing[0].designSystemId ?? null,
+            designSystemId: designSystemId ?? previousDesignSystemId,
             updatedAt: writeNow,
           })
           .where(
@@ -305,7 +331,7 @@ export default defineAction({
       });
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
-      notifyClients(deckId);
+      await notifyClients(deckId);
       await writeAppStateForCurrentTab(
         "navigate",
         deckNavigationCommand(deckId),
@@ -325,6 +351,12 @@ export default defineAction({
         id: deckId,
         title: existingDeckTitle,
         slideCount: slides.length,
+        designSystemId: designSystemId ?? previousDesignSystemId,
+        designSystem: await loadAgentDesignSystemContext(
+          designSystemId ?? previousDesignSystemId,
+          getDesignSystem,
+          { full: true },
+        ),
         url: getDeckUrl(deckId),
         appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
@@ -366,7 +398,7 @@ export default defineAction({
       updatedAt: now,
     });
 
-    notifyClients(id);
+    await notifyClients(id);
     await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     await recordGenerationCreativeContext({
@@ -380,6 +412,12 @@ export default defineAction({
       id,
       title: resolvedTitle,
       slideCount: slides.length,
+      designSystemId: resolvedDesignSystemId ?? null,
+      designSystem: await loadAgentDesignSystemContext(
+        resolvedDesignSystemId,
+        getDesignSystem,
+        { full: true },
+      ),
       url: getDeckUrl(id),
       appUrl: getDeckUrl(id),
       deepLink: deckDeepLink(id),

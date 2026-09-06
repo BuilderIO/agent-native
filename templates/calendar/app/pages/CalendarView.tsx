@@ -462,23 +462,18 @@ export default function CalendarView() {
     if (!googleCalendars.enabled || !googleCalendars.data) return undefined;
     return googleCalendars.data
       .filter((source) => {
-        if (
-          hiddenCalendars.accounts.includes(source.accountEmail) ||
-          source.accessRole === "freeBusyReader"
-        ) {
+        if (source.accessRole === "freeBusyReader") {
           return false;
         }
-        if (source.primary) return true;
         return (
-          viewPrefs.googleCalendarVisibility[source.sourceKey] ??
-          source.selected
+          viewPrefs.googleCalendarVisibility[source.canonicalKey] ??
+          (source.primary || source.selected)
         );
       })
       .map((source) => source.sourceKey);
   }, [
     googleCalendars.data,
     googleCalendars.enabled,
-    hiddenCalendars.accounts,
     viewPrefs.googleCalendarVisibility,
   ]);
   const createEvent = useCreateEvent();
@@ -714,13 +709,13 @@ export default function CalendarView() {
         // Hide events from hidden people overlays
         if (e.overlayEmail && hiddenCalendars.people.includes(e.overlayEmail))
           return false;
-        // Hide events from hidden Google accounts
         if (
-          e.accountEmail &&
-          !e.overlayEmail &&
-          hiddenCalendars.accounts.includes(e.accountEmail)
-        )
+          e.source === "google" &&
+          e.canonicalKey &&
+          viewPrefs.googleCalendarVisibility[e.canonicalKey] === false
+        ) {
           return false;
+        }
         // Hide events from hidden external calendars
         if (e.source === "ical") {
           const hiddenMatch = hiddenCalendars.external.some((calId) =>
@@ -730,7 +725,14 @@ export default function CalendarView() {
         }
         return true;
       });
-  }, [rawEvents, draftEvent, overlayPeople, hiddenCalendars, quickEditTempIds]);
+  }, [
+    rawEvents,
+    draftEvent,
+    overlayPeople,
+    hiddenCalendars,
+    quickEditTempIds,
+    viewPrefs.googleCalendarVisibility,
+  ]);
 
   // Filter events for day view — use overlap check so multi-day continuation
   // events (started on a prior day) still appear on the selected day.

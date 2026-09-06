@@ -4,10 +4,14 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useReconciledState } from "@agent-native/core/client/hooks";
+import {
+  setClientAppState,
+  useReconciledState,
+} from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type {
   FormCompletionMode,
   FormField,
@@ -54,7 +58,6 @@ import { toast } from "sonner";
 
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { CommunityPromotionCell } from "@/components/CommunityPromotionCell";
 import { ResponseValue } from "@/components/ResponseValue";
 import { Badge } from "@/components/ui/badge";
@@ -89,7 +92,6 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
-import { useDbStatus } from "@/hooks/use-db-status";
 import {
   useForm,
   useUpdateForm,
@@ -105,9 +107,33 @@ import {
 import type { AppFormFieldType } from "@/lib/form-field-types";
 import { normalizeFields } from "@/lib/normalize-fields";
 import { getPublishedFormUrl } from "@/lib/public-form-link";
+import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 type Translator = ReturnType<typeof useT>;
+
+interface FormsSelectionState {
+  formId: string;
+  selectedFieldId: string;
+  selectedFieldLabel: string;
+  selectedFieldType: FormFieldType;
+}
+
+/** Mirrors `syncSelectionToAppState` in the Slides editor: tab-scoped key
+ *  first so `view-screen` can match it against the tab's own navigation
+ *  state, plus a generic fallback key for callers with no browser tab id. */
+function publishFormsSelection(state: FormsSelectionState | null) {
+  const keys = [
+    appStateKeyForBrowserTab("forms-selection", TAB_ID),
+    "forms-selection",
+  ];
+  for (const key of keys) {
+    setClientAppState(key, state, {
+      requestSource: TAB_ID,
+      keepalive: true,
+    }).catch(() => {});
+  }
+}
 
 function getFieldTypeDefaults(
   t: Translator,
@@ -160,7 +186,7 @@ function getFieldTypeDefaults(
 }
 
 type FieldOp =
-  | { op: "upsert"; field: Record<string, any> }
+  | { op: "upsert"; field: FormField }
   | { op: "remove"; id: string }
   | { op: "reorder"; ids: string[] };
 
@@ -195,8 +221,6 @@ export function FormBuilderPage() {
   const [pendingStatus, setPendingStatus] = useState<
     "published" | "draft" | null
   >(null);
-  const { isLocal } = useDbStatus();
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const publishedFormUrl =
     form && typeof window !== "undefined"
       ? getPublishedFormUrl(form, window.location.origin)
@@ -280,6 +304,37 @@ export function FormBuilderPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedFieldId]);
+
+  // Publish the selected field to application state so the agent can resolve
+  // "the selected question" (view-screen) without a screenshot. Mirrors the
+  // Slides editor's `syncSelectionToAppState`.
+  const selectedFieldForSync = localFields.find(
+    (f) => f.id === selectedFieldId,
+  );
+  useEffect(() => {
+    if (!form) return;
+    publishFormsSelection(
+      selectedFieldForSync
+        ? {
+            formId: form.id,
+            selectedFieldId: selectedFieldForSync.id,
+            selectedFieldLabel: selectedFieldForSync.label,
+            selectedFieldType: selectedFieldForSync.type,
+          }
+        : null,
+    );
+  }, [
+    form?.id,
+    selectedFieldId,
+    selectedFieldForSync?.label,
+    selectedFieldForSync?.type,
+  ]);
+
+  // Clear the selection when this form's builder unmounts (navigating away)
+  // so a stale selection doesn't outlive the properties panel it described.
+  useEffect(() => {
+    return () => publishFormsSelection(null);
+  }, []);
 
   // Measure title text width for auto-sizing input
   useEffect(() => {
@@ -548,10 +603,6 @@ export function FormBuilderPage() {
 
   function handleTogglePublish() {
     const newStatus = loadedForm.status === "published" ? "draft" : "published";
-    if (newStatus === "published" && isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
     setPendingStatus(newStatus);
     updateForm.mutate(
       { id: loadedForm.id, status: newStatus },
@@ -949,14 +1000,6 @@ export function FormBuilderPage() {
             />
           </div>
         </div>
-      )}
-
-      {showCloudUpgrade && (
-        <CloudUpgrade
-          title={t("forms.publishCloudTitle")}
-          description={t("forms.publishCloudDescription")}
-          onClose={() => setShowCloudUpgrade(false)}
-        />
       )}
     </div>
   );

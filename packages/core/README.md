@@ -73,6 +73,7 @@ The agent receives `hello` as a tool. React calls the same function with `useAct
 - **[Skills and memory](https://agent-native.com/docs/agent-resources):** Give agents reusable expertise and persistent context.
 - **[Automations](https://agent-native.com/docs/automations):** Run agent work on schedules or events.
 - **[Agent teams](https://agent-native.com/docs/agent-teams):** Delegate work to specialist agents in the same workspace or across connected agents.
+- **[PostgreSQL backend](https://agent-native.com/docs/server-database):** Use PostgreSQL in production and PGlite for local development on any Nitro-compatible host.
 
 Bring your LLM, SQL database, tools, and infrastructure. Everything you build stays yours.
 

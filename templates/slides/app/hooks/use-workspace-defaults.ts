@@ -1,4 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import type { AgentDesignSystemContext } from "@agent-native/core/shared";
 
 export type WorkspaceDefaultRef =
   | { id: string; title: string; unavailable?: false }
@@ -7,7 +8,7 @@ export type WorkspaceDefaultRef =
 
 export interface WorkspaceDefaultsResult {
   referenceDeck: WorkspaceDefaultRef;
-  designSystem: WorkspaceDefaultRef;
+  designSystem: AgentDesignSystemContext | null;
   canManage: boolean;
 }
 

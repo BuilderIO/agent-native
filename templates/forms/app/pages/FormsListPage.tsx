@@ -24,7 +24,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,7 +45,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useDbStatus } from "@/hooks/use-db-status";
 import {
   useForms,
   useCreateForm,
@@ -81,8 +79,6 @@ export function FormsListPage() {
   const deleteForm = useDeleteForm();
   const restoreForm = useRestoreForm();
   const updateForm = useUpdateForm();
-  const { isLocal } = useDbStatus();
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const [purgeId, setPurgeId] = useState<string | null>(null);
   const [bulkPurgeOpen, setBulkPurgeOpen] = useState(false);
   const [bulkDeletePending, setBulkDeletePending] = useState(false);
@@ -260,10 +256,6 @@ export function FormsListPage() {
 
   function handleTogglePublish(form: (typeof forms)[0]) {
     const newStatus = form.status === "published" ? "draft" : "published";
-    if (newStatus === "published" && isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
     updateForm.mutate(
       { id: form.id, status: newStatus },
       {
@@ -783,14 +775,6 @@ export function FormsListPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {showCloudUpgrade && (
-        <CloudUpgrade
-          title={t("forms.publishCloudTitle")}
-          description={t("forms.publishCloudDescription")}
-          onClose={() => setShowCloudUpgrade(false)}
-        />
-      )}
     </div>
   );
 }

@@ -39,20 +39,10 @@ build
 !.env.example
 
 # Data
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/pglite/
 data/uploads/
 data/settings.json
 data/.sessions.json
-
-# Stray SQLite files at the template root. The real DB lives under data/.
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
-/local.db-shm
-/local.db-wal
 
 # Learnings (personal preferences and memory, use learnings.defaults.md for tracked defaults)
 learnings.md

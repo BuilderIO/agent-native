@@ -18,6 +18,7 @@ const INITIAL_TOOL_NAMES = [
   "list-decks",
   "get-deck",
   "get-design-system",
+  "list-design-systems",
   "get-workspace-defaults",
   "get-deck-reference-context",
   "create-deck",
@@ -38,9 +39,12 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  // Read-only; the selected-text edit rule in mcp.instructions depends on it.
+  "view-screen",
   "list-decks",
   "get-deck",
   "get-design-system",
+  "list-design-systems",
   "get-workspace-defaults",
   "get-deck-reference-context",
   "create-deck",
@@ -149,7 +153,7 @@ export default createAgentChatPlugin({
   mcp: {
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
-      "For deck edits, call view-screen only when the active target IDs or selection are unknown. If it returns an exact selectedText browser range, make the focused change immediately with update-slide using one literal edits replacement and expectedMatches=1, optionally passing currentSlideContentHash as baseContentHash. An element text preview is context, not an exact replacement range. Do not call get-deck without slideId, enumerate slides, or inspect the full deck for that path. Use targeted get-deck with slideId only for missing, preview-only, truncated, ambiguous, or structural edits. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove an entire deck. Read back the same slide after writing when it still exists; a delegated ask_app or call-agent response is unverified until that readback confirms the persisted state.",
+      'Design system: every deck read (get-deck, view-screen, get-workspace-defaults, get-deck-reference-context) returns `designSystem` — a bounded summary with scope "summary" and a `next` line — and get-deck also returns `deckStyle` plus `representativeSlideId`. Before the first slide you author in a deck, call get-design-system { id } once for the full tokens, assets, docs, and custom instructions (create-deck already returns it in full); reuse it for every later slide instead of re-reading it. Apply designSystem.agentContext and deckStyle before authoring or restyling. If designSystem.status is "unavailable", follow its message; never invent a generic style. For a new deck, pass the exact title as `designSystem` or a designSystemId; omit both to get the caller\'s personal default, then the workspace default. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash; do not load the full deck for that path. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Read back the same slide after writing; a delegated ask_app response is unverified until that readback confirms it.',
   },
   externalAgents: { writes: "allowlisted" },
   durableBackgroundRuns: true,
@@ -245,7 +249,7 @@ When the active Slides editor is already showing the deck you just changed, do n
 
 For source-faithful PDF slides, keep whatever the import produced — positioned text boxes and images for a page that carried them, the page image for one that did not — and style around it with restrained design-system chrome such as a frame, edge treatment, caption, or safe overlay; never replace an imported slide with a retyped approximation of its text. For PPTX slides, preserve the imported positioned HTML and every uploaded source image. The patch-deck and update-slide actions enforce these preservation rules by default; pass preserveSource=false only when the user explicitly requests a rewrite of that slide.
 
-If the deck has designSystemId, call get-design-system before writing and follow its exact agentContext tokens, assets, and custom instructions. If the user asks for on-brand styling and no design system is linked, call get-workspace-defaults, link its usable design system with patch-deck, then call get-design-system. Do not improvise a generic Builder-like palette when configured Builder.io design-system context is available.
+For new decks, resolve precedence in this order: an explicit designSystemId or exact-title designSystem wins, then the caller's personal default, then the workspace default; create-deck applies this itself. Call get-design-system once before the first slide you author, then reuse it. For an existing deck, get-deck's designSystem and deckStyle are the source of truth. For an unlinked deck where the user asks for on-brand styling, call get-workspace-defaults, link its usable design system with patch-deck, then call get-design-system once. Do not improvise a generic Builder-like palette when configured Builder.io design-system context is available.
 When adding slides to an existing deck, first read get-deck and match the established visual treatment - background, foreground, typography, spacing, and component language - unless the user explicitly asks to change the theme. Never default continuation slides to a new white or dark theme.
 
 Layout-fit workflow is strict. When the user asks to fix overflow, first call view-screen and inspect the deck-wide layout-fit section. If it says measurements are unknown, do not claim the deck fits. Call get-layout-overflows when you need the structured per-slide results. Read each affected slide with get-deck slideId=<id> (full HTML is returned for a targeted read), then make one bounded structural repair pass with one patch-slide operation per affected slide in a single patch-deck call. Writes return before browser measurement, so continue independent edits while layoutFit.status=pending. At the verification point, call get-layout-overflows once and use only measurements whose contentHash and layoutFitRevision match the current persisted slides. Wait for the repair action result and verify the persisted HTML with get-deck slideId=<id> compact=true before saying it is fixed. If a fresh measurement still reports overflow, make at most one focused follow-up repair based on that measurement; never loop, repeatedly re-measure, or claim success after a chat response alone.

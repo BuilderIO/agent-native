@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -88,17 +88,17 @@ export async function ensureHealthTable(): Promise<void> {
           id TEXT PRIMARY KEY,
           app_id TEXT NOT NULL DEFAULT 'default',
           org_id TEXT,
-          last_checked_at ${intType()},
-          last_dispatched_at ${intType()},
+          last_checked_at BIGINT,
+          last_dispatched_at BIGINT,
           last_error TEXT,
           runtime TEXT,
-          updated_at ${intType()} NOT NULL,
+          updated_at BIGINT NOT NULL,
           lease_owner TEXT,
-          lease_expires_at ${intType()}
+          lease_expires_at BIGINT
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, createSql);
         await ensureColumnExists(
           TABLE,
@@ -113,12 +113,12 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "last_checked_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_checked_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_checked_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
           "last_dispatched_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_dispatched_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_dispatched_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
@@ -133,7 +133,7 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "updated_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS updated_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS updated_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
@@ -143,47 +143,11 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "lease_expires_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at BIGINT`,
         );
         await ensureIndexExists(`idx_${TABLE}_updated`, indexSql);
         return;
       }
-
-      const client = getDbExec();
-      await client.execute(createSql);
-      const { rows } = await client.execute(`PRAGMA table_info("${TABLE}")`);
-      const columns = new Set(
-        rows.map((row) => String((row as Record<string, unknown>).name)),
-      );
-      for (const [name, definition] of [
-        ["app_id", "TEXT NOT NULL DEFAULT 'default'"],
-        ["org_id", "TEXT"],
-        ["last_checked_at", `${intType()}`],
-        ["last_dispatched_at", `${intType()}`],
-        ["last_error", "TEXT"],
-        ["runtime", "TEXT"],
-        ["updated_at", `${intType()} NOT NULL DEFAULT 0`],
-        ["lease_owner", "TEXT"],
-        ["lease_expires_at", `${intType()}`],
-      ] as const) {
-        if (columns.has(name)) continue;
-        try {
-          await client.execute(
-            `ALTER TABLE ${TABLE} ADD COLUMN ${name} ${definition}`,
-          );
-        } catch (error) {
-          const message = String(
-            (error as { message?: unknown } | null)?.message ?? error,
-          );
-          if (
-            !/duplicate column name/i.test(message) &&
-            !/column .* already exists/i.test(message)
-          ) {
-            throw error;
-          }
-        }
-      }
-      await client.execute(indexSql);
     })().catch((error) => {
       initPromise = undefined;
       throw error;

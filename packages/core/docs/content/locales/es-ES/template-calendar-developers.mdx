@@ -520,9 +520,7 @@ Cada parte de la app es código fuente editable. Empieza aquí:
 - `templates/calendar/actions/`: añade un nuevo archivo con `defineAction`
   para exponer una nueva capacidad tanto al agente como al frontend.
 - `templates/calendar/app/routes/`: la interfaz, listada arriba.
-- `templates/calendar/server/db/schema.ts`: añade columnas o tablas con
-  Drizzle. Mantén el código independiente del dialecto para que la
-  plantilla funcione en SQLite, Postgres, Turso, D1 y Neon.
+- `templates/calendar/server/db/schema.ts` — Añade columnas o tablas con Drizzle. Mantén el código compatible con PostgreSQL para que la plantilla funcione con PGlite y Postgres.
 - `templates/calendar/server/lib/`: integraciones de proveedores:
   `google-calendar.ts`, `zoom.ts`, `people-search.ts`, `ical-fetcher.ts`,
   `find-time.ts`, `provider-api.ts`.

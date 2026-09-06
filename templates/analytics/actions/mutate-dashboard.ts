@@ -281,6 +281,7 @@ export default defineAction({
     "For user placement requests like 'second row' or 'next to return rates', use row-aware placement such as `dashboard.insertPanel(...).nextTo(\"retention-over-time\")` or `.atRow(2)`, then verify rendered rows from `get-sql-dashboard.layout.groups`. " +
     "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. First-party SQL must be explicitly time-bound as described in the API help; server validation rejects unbound first-party SQL. " +
     "Structured operations avoid brittle JSON-pointer indexes and native-array serialization issues. Do not put a large multi-panel SQL payload in `code`; use `compose-dashboard` for catalog metrics or structured operations for a bounded custom edit. " +
+    "When adding or restyling a panel, read the existing panels from `view-screen` or `get-sql-dashboard` first and match their chart types, widths, and config conventions instead of introducing a one-off style. " +
     `Common example: ${DASHBOARD_MUTATION_EXAMPLES[0]}`,
   schema: z.object({
     dashboardId: z

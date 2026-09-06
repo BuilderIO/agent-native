@@ -57,8 +57,7 @@ SQL. `AGENTS.md` is the single source of truth for how the app behaves; the
 
 - **Native SQL** — CRM is the system of record for accounts, people,
   opportunities, relationships, lists, views, tasks, cadence, and every local
-  field. No provider, no sync job, no token. Portable across SQLite, Postgres,
-  and D1.
+  field. No provider, no sync job, no token. Backed by PostgreSQL.
 - **Connected (HubSpot / Salesforce)** — the source CRM stays authoritative for
   its own fields. CRM is a scoped companion for record work, lists, views,
   tasks, evidence, and analysis. HubSpot maps companies/contacts/deals;

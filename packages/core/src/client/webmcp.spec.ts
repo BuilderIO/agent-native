@@ -9,6 +9,7 @@ vi.mock("@mcp-b/webmcp-polyfill", () => ({
   initializeWebMCPPolyfill,
 }));
 
+import { getBrowserTabId } from "./browser-tab-id.js";
 import type { AgentNativeClientAction } from "./host-bridge.js";
 import {
   AgentNativeWebMcpUnsupportedError,
@@ -278,11 +279,17 @@ describe("automatic server action WebMCP registration", () => {
       "/docs/_agent-native/webmcp/manifest",
       expect.any(Object),
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/docs/_agent-native/webmcp/actions/get-order",
       expect.objectContaining({ method: "POST" }),
     );
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
   });
 
   it("derives tools from the authenticated manifest and invokes the shared route", async () => {
@@ -362,6 +369,9 @@ describe("automatic server action WebMCP registration", () => {
       "/_agent-native/webmcp/manifest",
       expect.objectContaining({ credentials: "same-origin" }),
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/_agent-native/webmcp/actions/get-order",
@@ -372,6 +382,9 @@ describe("automatic server action WebMCP registration", () => {
         signal: expect.any(AbortSignal),
       }),
     );
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Browser-Tab": expect.any(String),
+    });
   });
 
   it("accepts framework-scale catalogs and long backend descriptions", async () => {

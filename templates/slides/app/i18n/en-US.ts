@@ -86,10 +86,8 @@ const messages = {
     cloudConnectedReloading: "Connected successfully. Reloading...",
     cloudConnectionFailed: "Connection failed",
     cloudTestConnect: "Test & Connect",
-    cloudSqliteEdge: "SQLite at the edge",
     cloudServerlessPostgres: "Serverless Postgres",
     cloudOpenSourceFirebaseAlternative: "Open source Firebase alternative",
-    cloudCloudflareSqliteEdge: "SQLite on Cloudflare's edge",
     designSlidePreview: "Slide Preview",
     designSlideTitle: "Slide Title",
     designSupportingText:

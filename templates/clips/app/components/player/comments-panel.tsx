@@ -2,7 +2,7 @@ import {
   useActionMutation,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
   type InlineMarkdownProtectedSpan,
@@ -13,13 +13,12 @@ import {
   IconMoodSmile,
   IconCornerDownRight,
   IconDots,
-  IconMessageCircle,
-  IconPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Ref, useEffect, useMemo, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -27,6 +26,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Kbd } from "@/components/ui/kbd";
 import {
   Popover,
   PopoverContent,
@@ -94,6 +95,13 @@ export interface CommentsPanelProps {
   recordingId: string;
   comments: Comment[];
   currentMs: number;
+  /**
+   * Reads the player's live original-timeline position when a new root
+   * comment is submitted. Native media can be seeked while paused without
+   * emitting a parent `onTimeUpdate`, so the render-time value is not always
+   * current.
+   */
+  getCurrentMs?: () => number;
   currentUserEmail?: string;
   currentUserName?: string;
   enableComments: boolean;
@@ -120,11 +128,11 @@ export interface CommentsPanelProps {
    */
   onUnauthenticated?: (intent: "comment" | "react") => void;
   /**
-   * The public share page uses a quieter Loom-style activity panel:
-   * composer first, empty state centered below. The authenticated recording
-   * editor keeps the denser bottom-composer layout.
+   * Inline presentation keeps the conversation in the primary reading flow
+   * beneath the player for both signed-in and public viewers. The share
+   * presentation remains available for a quieter, contained activity panel.
    */
-  presentation?: "default" | "share";
+  presentation?: "default" | "share" | "inline";
 }
 
 export function CommentsPanel(props: CommentsPanelProps) {
@@ -132,6 +140,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     recordingId,
     comments,
     currentMs,
+    getCurrentMs,
     currentUserEmail,
     currentUserName,
     enableComments,
@@ -145,6 +154,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
   } = props;
   const isSignedIn = !!currentUserEmail;
   const isSharePresentation = presentation === "share";
+  const isInlinePresentation = presentation === "inline";
+  const isConversationPresentation =
+    isSharePresentation || isInlinePresentation;
+  const formatters = useFormatters();
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
@@ -400,7 +413,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       : {
           recordingId,
           content: text,
-          videoTimestampMs: currentMs,
+          videoTimestampMs: getCurrentMs?.() ?? currentMs,
           ...mentionArgs(value, draftMentions),
           ...(currentUserName ? { authorName: currentUserName } : {}),
         };
@@ -418,7 +431,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
   }
 
   function openReply(root: Comment) {
-    if (!canComment) return;
+    if (!canComment) {
+      if (!isSignedIn && onUnauthenticated) {
+        onUnauthenticated("comment");
+      }
+      return;
+    }
     if (!isSignedIn && onUnauthenticated) {
       onUnauthenticated("comment");
       return;
@@ -465,7 +483,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
       currentUserEmail={currentUserEmail}
       currentUserName={currentUserName}
       isSignedIn={isSignedIn}
-      isSharePresentation={isSharePresentation}
+      isConversationPresentation={isConversationPresentation}
+      isInlinePresentation={isInlinePresentation}
       enableComments={enableComments}
       canComment={canComment}
       onDraftChange={setDraft}
@@ -479,28 +498,44 @@ export function CommentsPanel(props: CommentsPanelProps) {
   );
 
   return (
-    <div className="flex h-full flex-col bg-transparent">
+    <div
+      className={cn(
+        "flex min-h-0 flex-col bg-transparent",
+        !isInlinePresentation && "h-full",
+        isInlinePresentation && "lg:h-full lg:min-h-0",
+      )}
+    >
+      {isInlinePresentation && enableComments ? (
+        <div className="mb-5 shrink-0">{composer}</div>
+      ) : null}
       <div
         className={cn(
-          "flex-1 overflow-y-auto",
+          "min-h-0",
+          isInlinePresentation
+            ? "lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
+            : "flex-1 overflow-y-auto",
           isSharePresentation && "flex min-h-0 flex-col",
         )}
       >
         {sortedThreads.length === 0 ? (
           <EmptyCommentsState
             enableComments={enableComments}
-            canComment={canComment}
             isSharePresentation={isSharePresentation}
+            isInlinePresentation={isInlinePresentation}
           />
         ) : (
-          <ul className="space-y-3">
+          <ul className="space-y-5">
             {sortedThreads.map((thread) => {
               const root = thread[0];
               const replies = thread.slice(1);
               return (
-                <li key={root.threadId} className="space-y-2 px-3 pt-3">
+                <li
+                  key={root.threadId}
+                  className={cn("space-y-2", !isInlinePresentation && "px-3")}
+                >
                   <CommentCard
                     comment={root}
+                    formatRelativeTime={formatters.formatRelativeTime}
                     currentUserEmail={currentUserEmail}
                     canComment={canComment}
                     onSeek={onSeek}
@@ -533,6 +568,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                         <li key={r.id}>
                           <CommentCard
                             comment={r}
+                            formatRelativeTime={formatters.formatRelativeTime}
                             currentUserEmail={currentUserEmail}
                             canComment={canComment}
                             onSeek={onSeek}
@@ -594,7 +630,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
       {isSharePresentation && enableComments ? (
         <div className="px-4 py-4">{composer}</div>
-      ) : !isSharePresentation ? (
+      ) : !isSharePresentation && !isInlinePresentation ? (
         composer
       ) : null}
     </div>
@@ -603,12 +639,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
 function EmptyCommentsState({
   enableComments,
-  canComment,
   isSharePresentation,
+  isInlinePresentation,
 }: {
   enableComments: boolean;
-  canComment: boolean;
   isSharePresentation: boolean;
+  isInlinePresentation: boolean;
 }) {
   const t = useT();
   if (!enableComments) {
@@ -626,44 +662,24 @@ function EmptyCommentsState({
     );
   }
 
-  if (!canComment) {
-    return (
-      <div
-        className={cn(
-          "flex flex-col items-center justify-center px-8 py-12 text-center",
-          isSharePresentation ? "flex-1" : "min-h-full",
-        )}
-      >
-        <IconMessageCircle className="mb-5 size-16 stroke-[1.35] text-muted-foreground/40" />
-        <p className="text-base font-semibold text-foreground">
-          {t("commentsPanel.beFirst")}
-        </p>
-      </div>
-    );
-  }
+  // Inline comments keep the composer in the reading flow for every viewer;
+  // the signed-out composer is the empty-state affordance, so a second
+  // centered prompt would make the public and signed-in layouts diverge.
+  if (isInlinePresentation) return null;
 
   return (
-    <div
+    <Empty
       className={cn(
-        "flex flex-col items-center justify-center px-8 py-12 text-center",
+        "gap-2 rounded-none px-8 py-10",
         isSharePresentation ? "flex-1" : "min-h-full",
       )}
     >
-      <div className="relative mb-5 flex size-16 items-center justify-center text-muted-foreground/40">
-        <IconMessageCircle className="size-16 stroke-[1.35]" />
-        <span className="absolute -right-1 top-1 flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
-          <IconPlus className="size-4" />
-        </span>
-      </div>
-      <p className="text-base font-semibold text-foreground">
-        {t("commentsPanel.beFirst")}
-      </p>
-      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        {isSharePresentation
-          ? t("commentsPanel.leaveNotePanel")
-          : t("commentsPanel.leaveNoteTimestamp")}
-      </p>
-    </div>
+      <EmptyHeader>
+        <EmptyTitle className="text-sm font-medium text-muted-foreground">
+          {t("commentsPanel.beFirst")}
+        </EmptyTitle>
+      </EmptyHeader>
+    </Empty>
   );
 }
 
@@ -673,7 +689,8 @@ function CommentComposer({
   currentUserEmail,
   currentUserName,
   isSignedIn,
-  isSharePresentation,
+  isConversationPresentation,
+  isInlinePresentation,
   enableComments,
   canComment,
   onDraftChange,
@@ -687,7 +704,8 @@ function CommentComposer({
   currentUserEmail?: string;
   currentUserName?: string;
   isSignedIn: boolean;
-  isSharePresentation: boolean;
+  isConversationPresentation: boolean;
+  isInlinePresentation: boolean;
   enableComments: boolean;
   canComment: boolean;
   onDraftChange: (value: string) => void;
@@ -709,45 +727,45 @@ function CommentComposer({
   if (!canComment && isSignedIn) return null;
 
   if (!isSignedIn && onUnauthenticated) {
-    if (isSharePresentation) {
-      return (
-        <button
-          type="button"
-          onClick={() => onUnauthenticated("comment")}
-          className="flex min-h-16 w-full items-center gap-3 rounded-md border-0 bg-background px-3 py-2.5 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Avatar className="size-7 shrink-0">
-            <AvatarFallback className="bg-primary/15 text-xs text-primary">
-              A
-            </AvatarFallback>
-          </Avatar>
-          <span className="min-w-0 flex-1 truncate">
-            {t("commentsPanel.leaveComment")}
-          </span>
-          <IconMoodSmile className="size-4 shrink-0 text-muted-foreground" />
-        </button>
-      );
-    }
-
+    const inlineAnonymousComposer = isInlinePresentation;
     return (
-      <div className="flex items-center justify-between gap-3 px-3 py-3">
-        <span className="text-xs text-muted-foreground">
-          {t("commentsPanel.signInToComment")}
-        </span>
-        <Button
-          size="sm"
-          onClick={() => onUnauthenticated("comment")}
-          className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          {t("commentsPanel.signIn")}
-        </Button>
-      </div>
+      <button
+        type="button"
+        onClick={() => onUnauthenticated("comment")}
+        className={cn(
+          inlineAnonymousComposer
+            ? "flex w-full items-center gap-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring"
+            : "flex w-full items-center gap-3 rounded-md border border-input bg-background px-3 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        <Avatar className="size-7 shrink-0">
+          <AvatarFallback className="bg-muted text-xs text-muted-foreground">
+            A
+          </AvatarFallback>
+        </Avatar>
+        {inlineAnonymousComposer ? (
+          <span className="flex min-w-0 flex-1 items-center border-b border-border py-1">
+            <span className="min-w-0 flex-1 truncate">
+              {t("commentsPanel.leaveComment")}
+            </span>
+          </span>
+        ) : (
+          <>
+            <span className="min-w-0 flex-1 truncate">
+              {t("commentsPanel.leaveComment")}
+            </span>
+            <IconMoodSmile className="size-4 shrink-0" />
+          </>
+        )}
+      </button>
     );
   }
 
   return (
-    <div className={cn(isSharePresentation ? "space-y-2" : "space-y-2 p-3")}>
-      {!isSharePresentation ? (
+    <div
+      className={cn(isConversationPresentation ? "space-y-2" : "space-y-2 p-3")}
+    >
+      {!isConversationPresentation ? (
         <div className="px-1 text-[11px] text-muted-foreground">
           {t("commentsPanel.commentAt")}{" "}
           <span className="font-mono">{msToClock(currentMs)}</span>
@@ -756,48 +774,84 @@ function CommentComposer({
       <div
         className={cn(
           "flex gap-2",
-          isSharePresentation && "items-start rounded-md p-3 shadow-sm",
+          isInlinePresentation && "items-center",
+          isConversationPresentation &&
+            !isInlinePresentation &&
+            "items-start rounded-md p-3 shadow-sm",
         )}
       >
-        {isSharePresentation ? (
+        {isConversationPresentation ? (
           <Avatar className="mt-0.5 size-7 shrink-0">
             {avatarUrl ? (
               <AvatarImage
                 src={avatarUrl}
-                alt={currentUserName || currentUserEmail || "Anonymous"}
+                alt={
+                  currentUserName ||
+                  currentUserEmail ||
+                  t("recordingInsights.anonymous")
+                }
               />
             ) : null}
             <AvatarFallback className="bg-primary/15 text-xs text-primary">
-              {initials(currentUserName || currentUserEmail || "Anonymous")}
+              {initials(
+                currentUserName ||
+                  currentUserEmail ||
+                  t("recordingInsights.anonymous"),
+              )}
             </AvatarFallback>
           </Avatar>
         ) : null}
-        <CommentTextComposer
-          value={draft}
-          onChange={onDraftChange}
-          onMentionAdd={onMentionAdd}
-          members={members}
-          onSubmit={onSubmit}
-          placeholder={t("commentsPanel.leaveComment")}
+        <div
           className={cn(
-            "resize-none border-0 bg-background text-sm",
-            isSharePresentation
-              ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-              : "min-h-[60px]",
-          )}
-          submitOnEnter={false}
-        />
-        <Button
-          onClick={onSubmit}
-          disabled={!draft.trim()}
-          size="icon"
-          className={cn(
-            "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90",
-            isSharePresentation && "size-8",
+            "flex min-w-0 flex-1 gap-2",
+            isInlinePresentation && "items-center border-b border-border py-1",
           )}
         >
-          <IconSend className="size-4" />
-        </Button>
+          <CommentTextComposer
+            value={draft}
+            aria-label={t("commentsPanel.leaveComment")}
+            onChange={onDraftChange}
+            onMentionAdd={onMentionAdd}
+            members={members}
+            onSubmit={onSubmit}
+            placeholder={t("commentsPanel.leaveComment")}
+            rows={isInlinePresentation ? 1 : 2}
+            className={cn(
+              "resize-none border-0 bg-transparent text-sm",
+              isInlinePresentation
+                ? "min-h-8 flex-1 border-0 px-0 py-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                : isConversationPresentation
+                  ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  : "min-h-[60px]",
+            )}
+            submitOnEnter
+          />
+          {!isInlinePresentation || draft.trim() ? (
+            <Button
+              type="button"
+              aria-label={t("commentsPanel.commentButton")}
+              onClick={onSubmit}
+              disabled={!draft.trim()}
+              size={isInlinePresentation ? "sm" : "icon"}
+              className={cn(
+                "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90",
+                isConversationPresentation && !isInlinePresentation && "size-8",
+                isInlinePresentation && "h-8 px-3",
+              )}
+            >
+              {isInlinePresentation ? (
+                <>
+                  {t("commentsPanel.commentButton")}
+                  <Kbd className="h-5 min-w-0 bg-primary-foreground/15 px-1.5 text-[10px] text-primary-foreground">
+                    Enter
+                  </Kbd>
+                </>
+              ) : (
+                <IconSend className="size-4" />
+              )}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -828,6 +882,7 @@ function InlineReplyComposer({
         ref={textareaRef}
         autoFocus
         value={draft}
+        aria-label={t("commentsPanel.writeReply")}
         onChange={onDraftChange}
         onMentionAdd={onMentionAdd}
         members={members}
@@ -835,7 +890,7 @@ function InlineReplyComposer({
         placeholder={t("commentsPanel.writeReply")}
         className="min-h-16 resize-none border-0 bg-background text-sm"
         onEscape={onCancel}
-        submitOnEnter={false}
+        submitOnEnter
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>
@@ -889,7 +944,7 @@ function InlineEditComposer({
         aria-label={t("commentsPanel.editComment")}
         className="min-h-16 resize-none border-0 bg-background text-sm"
         onEscape={onCancel}
-        submitOnEnter={false}
+        submitOnEnter
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>
@@ -912,6 +967,7 @@ function InlineEditComposer({
 
 function CommentCard({
   comment,
+  formatRelativeTime,
   currentUserEmail,
   canComment,
   editDraft,
@@ -932,6 +988,7 @@ function CommentCard({
   isReply,
 }: {
   comment: Comment;
+  formatRelativeTime: ReturnType<typeof useFormatters>["formatRelativeTime"];
   currentUserEmail?: string;
   canComment: boolean;
   editDraft: string;
@@ -965,6 +1022,8 @@ function CommentCard({
     !!currentUserEmail &&
     comment.authorEmail.trim().toLowerCase() ===
       currentUserEmail.trim().toLowerCase();
+  const canParticipate =
+    canComment || (!currentUserEmail && Boolean(onUnauthenticated));
 
   function toggleEmoji(emoji: string) {
     if (!currentUserEmail) return reactions;
@@ -988,21 +1047,23 @@ function CommentCard({
   }
 
   const avatarUrl = useAvatarUrl(comment.authorEmail);
+  const commentAuthor =
+    comment.authorName ||
+    comment.authorEmail.split("@")[0] ||
+    t("recordingInsights.anonymous");
 
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
       <Avatar className="h-7 w-7 shrink-0">
-        {avatarUrl ? (
-          <AvatarImage src={avatarUrl} alt={displayName(comment)} />
-        ) : null}
+        {avatarUrl ? <AvatarImage src={avatarUrl} alt={commentAuthor} /> : null}
         <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
-          {initials(displayName(comment))}
+          {initials(commentAuthor)}
         </AvatarFallback>
       </Avatar>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-xs">
           <span className="font-medium text-foreground truncate">
-            {displayName(comment)}
+            {commentAuthor}
           </span>
           {!isReply ? (
             <button
@@ -1013,12 +1074,13 @@ function CommentCard({
             </button>
           ) : null}
           <span className="text-muted-foreground text-[11px]">
-            {relativeTime(comment.createdAt)}
+            {relativeTime(comment.createdAt, formatRelativeTime)}
           </span>
           {comment.resolved ? (
-            <span className="ml-auto text-[10px] text-green-700 bg-green-100 rounded px-1.5 py-0.5 flex items-center gap-1">
-              <IconCheck className="h-3 w-3" /> Resolved
-            </span>
+            <Badge variant="secondary" className="ms-auto gap-1 text-[10px]">
+              <IconCheck className="h-3 w-3" />
+              {t("commentsPanel.resolved")}
+            </Badge>
           ) : null}
         </div>
         {isEditing ? (
@@ -1041,22 +1103,31 @@ function CommentCard({
             />
 
             <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
-              {canComment ? (
-                <button
+              {canParticipate ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={onReply}
-                  className="hover:text-foreground flex items-center gap-1"
+                  className="h-auto gap-1 p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
                 >
                   <IconCornerDownRight className="h-3 w-3" />
-                  Reply
-                </button>
+                  {t("commentsPanel.reply")}
+                </Button>
               ) : null}
 
-              {canComment ? (
+              {canParticipate ? (
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button className="hover:text-foreground flex items-center gap-1">
-                      <IconMoodSmile className="h-3 w-3" /> React
-                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto gap-1 p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    >
+                      <IconMoodSmile className="h-3 w-3" />
+                      {t("commentsPanel.react")}
+                    </Button>
                   </PopoverTrigger>
                   <PopoverContent
                     side="top"
@@ -1086,30 +1157,43 @@ function CommentCard({
               ) : null}
 
               {currentUserEmail && canComment ? (
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => onResolve(comment.id, !comment.resolved)}
-                  className="hover:text-foreground"
+                  className="h-auto p-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
                 >
-                  {comment.resolved ? "Unresolve" : "Resolve"}
-                </button>
+                  {comment.resolved
+                    ? t("commentsPanel.unresolve")
+                    : t("commentsPanel.resolve")}
+                </Button>
               ) : null}
 
               {isOwner && canComment ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button className="ml-auto hover:text-foreground">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("commentsPanel.moreActions", {
+                        author: commentAuthor,
+                      })}
+                      className="ms-auto size-6 text-muted-foreground hover:text-foreground"
+                    >
                       <IconDots className="h-3 w-3" />
-                    </button>
+                    </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={onStartEdit}>
                       {t("commentsPanel.editComment")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      className="text-red-600"
+                      className="text-destructive focus:text-destructive"
                       onSelect={() => onDelete(comment.id)}
                     >
-                      Delete
+                      {t("commentsPanel.delete")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -1123,7 +1207,7 @@ function CommentCard({
             {Object.entries(reactions).map(([emoji, users]) => {
               const mine =
                 !!currentUserEmail && users.includes(currentUserEmail);
-              return canComment ? (
+              return canParticipate ? (
                 <button
                   key={emoji}
                   type="button"
@@ -1136,11 +1220,7 @@ function CommentCard({
                     onReact(comment.id, emoji);
                   }}
                   aria-pressed={mine}
-                  title={
-                    mine
-                      ? "Click to remove your reaction"
-                      : "Click to add your reaction"
-                  }
+                  title={t("commentsPanel.react")}
                   className={cn(
                     "text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 transition-colors",
                     mine
@@ -1206,10 +1286,6 @@ function commentMentionSpans(
   }));
 }
 
-function displayName(c: Comment): string {
-  return c.authorName || c.authorEmail.split("@")[0] || "Someone";
-}
-
 function initials(name: string): string {
   return name
     .split(/\s+/)
@@ -1218,18 +1294,32 @@ function initials(name: string): string {
     .join("");
 }
 
-function relativeTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!isFinite(t)) return "";
-  const diff = Date.now() - t;
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d`;
-  const w = Math.floor(d / 7);
-  return `${w}w`;
+export function relativeTime(
+  iso: string,
+  formatRelativeTime: ReturnType<typeof useFormatters>["formatRelativeTime"],
+  now = Date.now(),
+): string {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+
+  // RelativeTimeFormat expects negative values for past dates. Keep the
+  // thresholds in one place so comment rows consistently use full unit names.
+  const deltaSeconds = (timestamp - now) / 1000;
+  const absoluteSeconds = Math.abs(deltaSeconds);
+  if (absoluteSeconds < 60) {
+    return formatRelativeTime(0, "second", { numeric: "auto" });
+  }
+  if (absoluteSeconds < 3600) {
+    return formatRelativeTime(Math.trunc(deltaSeconds / 60), "minute");
+  }
+  if (absoluteSeconds < 86400) {
+    return formatRelativeTime(Math.trunc(deltaSeconds / 3600), "hour");
+  }
+  if (absoluteSeconds < 30 * 86400) {
+    return formatRelativeTime(Math.trunc(deltaSeconds / 86400), "day");
+  }
+  if (absoluteSeconds < 365 * 86400) {
+    return formatRelativeTime(Math.trunc(deltaSeconds / (30 * 86400)), "month");
+  }
+  return formatRelativeTime(Math.trunc(deltaSeconds / (365 * 86400)), "year");
 }

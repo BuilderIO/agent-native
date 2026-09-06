@@ -14,10 +14,6 @@ function column(name: string) {
   return { name };
 }
 
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
-}));
-
 vi.mock("@agent-native/core/server", () => ({
   recordChange: () => undefined,
 }));

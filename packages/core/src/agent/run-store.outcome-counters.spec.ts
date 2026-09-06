@@ -1,5 +1,6 @@
-import Database from "better-sqlite3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 /**
  * `cleanupOldRuns` prunes completed runs after ~1 day but keeps errored/aborted
@@ -11,32 +12,35 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  * The fix is not wider retention (that trades a known distortion for unbounded
  * growth) but rolling the doomed rows' outcomes into `agent_run_outcome_daily`
- * before deleting them, exercised here against a real SQLite engine so the
+ * before deleting them, exercised here against a real PGlite engine so the
  * GROUP BY / upsert semantics are genuine.
  */
 
-const sqlite = new Database(":memory:");
+const pglite = await createTestPglite();
+
+afterAll(async () => {
+  await pglite.close();
+});
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [] as unknown[], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql) || /\breturning\b/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
@@ -56,7 +60,7 @@ async function terminalRun(
   seq += 1;
   const id = `run-outcome-${seq}`;
   await insertRun(id, `thread-outcome-${seq}`, `turn-${seq}`);
-  sqlite
+  await pglite
     .prepare(
       `UPDATE agent_runs SET status = ?, completed_at = ?, terminal_reason = ? WHERE id = ?`,
     )
@@ -64,20 +68,22 @@ async function terminalRun(
   return id;
 }
 
-function liveRunCount(): number {
+async function liveRunCount(): Promise<number> {
   return (
-    sqlite.prepare(`SELECT COUNT(*) AS n FROM agent_runs`).get() as {
+    (await (
+      await pglite.prepare(`SELECT COUNT(*) AS n FROM agent_runs`)
+    ).get()) as {
       n: number;
     }
   ).n;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   // Tables only exist after the first ensureRunTables() — tolerate the very
   // first pass, which runs before any store call has created them.
   for (const table of ["agent_runs", "agent_run_outcome_daily"]) {
     try {
-      sqlite.exec(`DELETE FROM ${table}`);
+      await pglite.exec(`DELETE FROM ${table}`);
     } catch {}
   }
 });
@@ -94,7 +100,7 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    expect(liveRunCount()).toBe(1);
+    expect(await liveRunCount()).toBe(1);
     expect(await getRunOutcomeCounters()).toEqual([
       { day, status: "completed", terminalReason: "done", count: 2 },
     ]);
@@ -116,7 +122,9 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
       counters
         .filter((c) => c.status === status)
         .reduce((sum, c) => sum + c.count, 0);
-    expect(counted("completed") + counted("errored") + liveRunCount()).toBe(4);
+    expect(
+      counted("completed") + counted("errored") + (await liveRunCount()),
+    ).toBe(4);
     expect(counted("completed")).toBe(3);
   });
 
@@ -158,7 +166,7 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    expect(liveRunCount()).toBe(0);
+    expect(await liveRunCount()).toBe(0);
     const counters = await getRunOutcomeCounters();
     expect(counters).toContainEqual({
       day,
@@ -186,7 +194,7 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    expect(liveRunCount()).toBe(2);
+    expect(await liveRunCount()).toBe(2);
     expect(await getRunOutcomeCounters()).toEqual([
       {
         day: new Date(prunedAt).toISOString().slice(0, 10),
@@ -204,7 +212,7 @@ describe("cleanupOldRuns — daily outcome counters survive asymmetric pruning",
 
     await cleanupOldRuns(COMPLETED_RETENTION_MS, ERRORED_RETENTION_MS);
 
-    expect(liveRunCount()).toBe(0);
+    expect(await liveRunCount()).toBe(0);
     expect(await getRunOutcomeCounters()).toContainEqual({
       day,
       status: "truncated",

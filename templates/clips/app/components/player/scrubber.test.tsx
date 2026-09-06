@@ -30,6 +30,7 @@ vi.mock("@/lib/utils", () => ({
     classes.filter(Boolean).join(" "),
 }));
 
+import { COMMENT_PREVIEW_WIDTH_PX } from "./playback-comment-overlay";
 import { Scrubber } from "./scrubber";
 import {
   timelineMarkerAlignment,
@@ -322,6 +323,15 @@ describe("Scrubber reaction markers", () => {
       300,
     );
     expect([...nearEdgeLanes.values()]).toEqual([0, 0]);
+  });
+
+  it("anchors fixed-width comment previews before they reach either edge", () => {
+    expect(
+      timelineMarkerAlignment(1_000, 10_000, COMMENT_PREVIEW_WIDTH_PX, 1_000),
+    ).toBe("start");
+    expect(
+      timelineMarkerAlignment(9_000, 10_000, COMMENT_PREVIEW_WIDTH_PX, 1_000),
+    ).toBe("end");
   });
 
   it("uses a separate lane for each dense marker group", () => {

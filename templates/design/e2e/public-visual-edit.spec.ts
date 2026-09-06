@@ -102,6 +102,58 @@ test.describe.serial("public visual edit", () => {
     );
   });
 
+  test("authenticated public design links register WebMCP actions", async ({
+    page,
+  }) => {
+    await page.goto(appUrl(`/design/${designId}`), {
+      waitUntil: "domcontentloaded",
+    });
+    const cdp = await page.context().newCDPSession(page);
+    const readWebMcpState = async () => {
+      const { result } = await cdp.send("Runtime.evaluate", {
+        expression: `(async () => {
+          const modelContext = document.modelContext;
+          const status = window.__agentNativeWebMcpStatus;
+          const tools =
+            modelContext && typeof modelContext.getTools === "function"
+              ? await modelContext.getTools()
+              : [];
+          return {
+            helper: Boolean(window.__agentNativeWebMcp),
+            modelContext: Boolean(modelContext),
+            status: status
+              ? {
+                  state: status.state,
+                  registered: status.registered,
+                  total: status.total,
+                }
+              : null,
+            toolCount: tools.length,
+          };
+        })()`,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      return result.value as {
+        helper: boolean;
+        modelContext: boolean;
+        status: {
+          state: string;
+          registered: number;
+          total: number;
+        } | null;
+        toolCount: number;
+      };
+    };
+
+    await expect.poll(readWebMcpState, { timeout: 15_000 }).toMatchObject({
+      helper: true,
+      modelContext: true,
+      status: { state: "ready" },
+    });
+    expect((await readWebMcpState()).toolCount).toBeGreaterThan(0);
+  });
+
   test("public /design/:id renders read-only and stays crash-free", async ({
     browser,
   }) => {

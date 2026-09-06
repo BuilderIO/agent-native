@@ -107,6 +107,7 @@
     "guard:plan-skills": "tsx scripts/sync-plan-skills.ts --check",
     "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
     "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",
+    "guard:external-result-contract": "node scripts/guard-external-result-contract.mjs",
     "guard:provider-action-factories": "tsx scripts/guard-provider-action-factories.ts",
     "guard:agent-chat-context": "tsx scripts/guard-agent-chat-context.ts",
     "guard:request-storms": "tsx scripts/guard-request-storms.ts",
@@ -177,7 +178,6 @@
   "devDependencies": {
     "@changesets/cli": "2.31.0",
     "@cloudflare/vite-plugin": "^1.31.0",
-    "@libsql/linux-x64-gnu": "^0.5.29",
     "@playwright/test": "catalog:",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",

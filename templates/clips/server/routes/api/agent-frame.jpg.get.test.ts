@@ -280,7 +280,7 @@ describe("agent-frame.jpg route", () => {
       makeEvent({
         id: "rec-1",
         password: "plain-text-password",
-        t: "legacy-token",
+        agent_access: "frame-token",
         tSeconds: "9.999",
       }) as any,
     );

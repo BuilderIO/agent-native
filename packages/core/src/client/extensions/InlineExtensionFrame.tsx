@@ -5,6 +5,7 @@ import { getThemeVars } from "../../extensions/theme.js";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
+import { getBrowserTabId } from "../browser-tab-id.js";
 import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
@@ -598,6 +599,7 @@ export function InlineExtensionFrame({
         finalHeaders.set("X-Agent-Native-Extension-Id", resolvedId);
         finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
         finalHeaders.set("X-Agent-Native-Tool-Id", resolvedId);
+        finalHeaders.set("X-Agent-Native-Browser-Tab", getBrowserTabId());
         const res = await fetch(agentNativePath(path), {
           ...options,
           headers: finalHeaders,

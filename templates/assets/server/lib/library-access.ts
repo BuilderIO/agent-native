@@ -346,7 +346,7 @@ export function canReadSession(
  *
  * Authorization comes from a prior read, so an editor can approve the candidate
  * in between. The predicate makes that save win, and the confirming re-read
- * keeps the answer portable — row counts are adapter-specific. Returns false
+ * keeps the answer explicit about whether the row was deleted. Returns false
  * when the row survived, which callers must treat as "not deleted" rather than
  * as success.
  */

@@ -211,7 +211,8 @@ function formatSpend(cents: number, billing: UsageBillingMode): string {
   });
 }
 
-function formatNumber(value: number): string {
+function formatNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat(undefined, {
     notation: value >= 10_000 ? "compact" : "standard",
     maximumFractionDigits: value >= 10_000 ? 1 : 0,
@@ -722,11 +723,27 @@ function AppAdoptionPanel({
   backScope: "me" | "workspace";
 }) {
   const t = useT();
-  const visibleRows = rows.filter((row) => !row.isDispatch);
+  const visibleRows = rows
+    .filter((row) => !row.isDispatch)
+    .sort(
+      (a, b) =>
+        b.usageCalls - a.usageCalls ||
+        b.usersWithUsage - a.usersWithUsage ||
+        (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0) ||
+        a.name.localeCompare(b.name),
+    );
+  const [showAll, setShowAll] = useState(false);
   const selectedRow = selectedAppId
     ? visibleRows.find((row) => row.id === selectedAppId)
     : null;
   const isDetail = !!selectedRow;
+  const actionMetrics = selectedRow?.actionMetrics ?? [];
+  const rowsToRender = showAll ? visibleRows : visibleRows.slice(0, 9);
+  const detailStats = [
+    [t("dispatch.pages.dailyActiveUsers"), selectedRow?.dailyActiveUsers],
+    [t("dispatch.pages.weeklyActiveUsers"), selectedRow?.weeklyActiveUsers],
+    [t("dispatch.pages.trackedActions"), selectedRow?.usageCalls],
+  ] satisfies Array<[string, number | null | undefined]>;
   const title = isDetail
     ? t("dispatch.pages.appAdoptionFor", { name: selectedRow.name })
     : scope === "workspace"
@@ -787,24 +804,14 @@ function AppAdoptionPanel({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              [
-                t("dispatch.pages.dailyActiveUsers"),
-                selectedRow.dailyActiveUsers,
-              ],
-              [
-                t("dispatch.pages.weeklyActiveUsers"),
-                selectedRow.weeklyActiveUsers,
-              ],
-              [t("dispatch.pages.trackedActions"), selectedRow.usageCalls],
-            ].map(([label, value]) => (
+            {detailStats.map(([label, value]) => (
               <div
                 key={String(label)}
                 className="rounded-md border bg-background p-3"
               >
                 <div className="text-xs text-muted-foreground">{label}</div>
                 <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-                  {formatNumber(Number(value))}
+                  {formatNumber(value)}
                 </div>
               </div>
             ))}
@@ -814,13 +821,13 @@ function AppAdoptionPanel({
             <div className="mb-2 text-xs font-medium text-muted-foreground">
               {t("dispatch.pages.trackedActionBreakdown")}
             </div>
-            {selectedRow.actionMetrics.length === 0 ? (
+            {actionMetrics.length === 0 ? (
               <div className="text-sm text-muted-foreground">
                 {t("dispatch.pages.noTrackedActions")}
               </div>
             ) : (
               <div className="divide-y rounded-md border">
-                {selectedRow.actionMetrics.slice(0, 10).map((action) => (
+                {actionMetrics.slice(0, 10).map((action) => (
                   <div
                     key={action.key}
                     className="flex items-center justify-between gap-3 px-3 py-2.5 text-xs"
@@ -841,58 +848,74 @@ function AppAdoptionPanel({
           </div>
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {visibleRows.map((row) => (
-            <div key={row.id} className="rounded-md border bg-background p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-foreground">
-                    {row.name}
+        <>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {rowsToRender.map((row) => (
+              <div key={row.id} className="rounded-md border bg-background p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-foreground">
+                      {row.name}
+                    </div>
+                    <div className="font-mono text-[11px] text-muted-foreground">
+                      {row.path}
+                    </div>
                   </div>
-                  <div className="font-mono text-[11px] text-muted-foreground">
-                    {row.path}
+                  {row.isOwnedByViewer ? (
+                    <Badge variant="secondary">
+                      {t("dispatch.pages.appMetadataOwner")}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      {t("dispatch.pages.dailyActiveUsers")}
+                    </div>
+                    <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                      {formatNumber(row.dailyActiveUsers)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      {t("dispatch.pages.weeklyActiveUsers")}
+                    </div>
+                    <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                      {formatNumber(row.weeklyActiveUsers)}
+                    </div>
                   </div>
                 </div>
-                {row.isOwnedByViewer ? (
-                  <Badge variant="secondary">
-                    {t("dispatch.pages.appMetadataOwner")}
-                  </Badge>
+                <div className="mt-3 text-xs text-muted-foreground">
+                  {formatNumber(row.usageCalls)}{" "}
+                  {t("dispatch.pages.trackedActions")}
+                </div>
+                {row.canViewUsage ? (
+                  <Link
+                    to={`/admin/metrics?app=${encodeURIComponent(row.id)}${scope === "workspace" ? "&scope=workspace" : ""}`}
+                    className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline"
+                  >
+                    {t("dispatch.pages.viewAppMetrics")}
+                    <IconArrowUpRight size={13} />
+                  </Link>
                 ) : null}
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs text-muted-foreground">
-                    {t("dispatch.pages.dailyActiveUsers")}
-                  </div>
-                  <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
-                    {formatNumber(row.dailyActiveUsers)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">
-                    {t("dispatch.pages.weeklyActiveUsers")}
-                  </div>
-                  <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
-                    {formatNumber(row.weeklyActiveUsers)}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 text-xs text-muted-foreground">
-                {formatNumber(row.usageCalls)}{" "}
-                {t("dispatch.pages.trackedActions")}
-              </div>
-              {row.canViewUsage ? (
-                <Link
-                  to={`/admin/metrics?app=${encodeURIComponent(row.id)}${scope === "workspace" ? "&scope=workspace" : ""}`}
-                  className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline"
-                >
-                  {t("dispatch.pages.viewAppMetrics")}
-                  <IconArrowUpRight size={13} />
-                </Link>
-              ) : null}
+            ))}
+          </div>
+          {visibleRows.length > 9 ? (
+            <div className="mt-4 flex justify-center">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAll((current) => !current)}
+              >
+                {showAll
+                  ? t("jobs.scheduleUnavailableFixLabelOpen")
+                  : t("jobs.scheduleUnavailableFixLabel")}
+              </Button>
             </div>
-          ))}
-        </div>
+          ) : null}
+        </>
       )}
     </Panel>
   );
@@ -1075,63 +1098,6 @@ function CompactBreakdown({
             />
           </div>
         </div>
-      ))}
-    </div>
-  );
-}
-
-function RecentTable({
-  rows,
-  billing,
-}: {
-  rows: RecentUsageMetric[];
-  billing: UsageBillingMode;
-}) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
-        No prompts or LLM calls in this window.
-      </div>
-    );
-  }
-  return (
-    <div className="divide-y">
-      {rows.slice(0, 10).map((row) => (
-        <article key={row.id} className="-mx-1 px-1 py-3 first:pt-0 last:pb-0">
-          <div className="flex items-start justify-between gap-4">
-            <p className="min-w-0 whitespace-pre-wrap text-sm leading-6 text-foreground">
-              {row.prompt ||
-                (row.promptSource === "unavailable"
-                  ? "Prompt unavailable - linked thread data could not be read."
-                  : "Prompt not captured for this call.")}
-            </p>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {timeAgo(row.createdAt)}
-            </span>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <Badge variant="outline">{displayApp(row.app)}</Badge>
-            <Badge variant="secondary">{row.label}</Badge>
-            <span>{row.model}</span>
-            <span aria-hidden="true">·</span>
-            <span>{formatSpend(row.costCents, billing)}</span>
-            {row.ownerEmail ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="max-w-64 truncate">{row.ownerEmail}</span>
-              </>
-            ) : null}
-            {row.threadId ? (
-              <Link
-                to={`/admin/thread-debug?threadId=${encodeURIComponent(row.threadId)}`}
-                className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                Inspect thread
-                <IconArrowUpRight size={12} />
-              </Link>
-            ) : null}
-          </div>
-        </article>
       ))}
     </div>
   );
@@ -1336,21 +1302,6 @@ export default function MetricsRoute() {
             >
               <AppSpendRows rows={metrics.byApp} billing={billing} />
             </Panel>
-
-            {scope !== "app" ? (
-              <Panel
-                title="Recent prompts"
-                icon={<IconMessages size={16} />}
-                action={
-                  <span className="text-xs text-muted-foreground">
-                    Latest {Math.min(metrics.recent.length, 10)} of{" "}
-                    {metrics.recent.length}
-                  </span>
-                }
-              >
-                <RecentTable rows={metrics.recent} billing={billing} />
-              </Panel>
-            ) : null}
 
             <Panel title="Access By App" icon={<IconApps size={16} />}>
               <AppAccessTable rows={metrics.appAccess} billing={billing} />

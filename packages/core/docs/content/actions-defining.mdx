@@ -124,6 +124,28 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
             "Defaults to agentTool. Set false to hide from external agents over MCP and A2A, or true to declare curated catalog membership (with agentTool: false, MCP-only). See Access & Authorization.",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Set true when a successful call hands control to the user (question form, intake dialog); make it the first or only call in the turn. Hidden from MCP, WebMCP, and A2A unless mcpTool: true — an external caller cannot receive an in-app answer. See External Agents.",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "Pure, synchronous deep-link builder read by MCP hosts and the desktop app. See Other Surfaces.",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "Embed the real app route inline in MCP-App hosts. See Other Surfaces.",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -194,6 +216,8 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
 
 The schema does two jobs. It converts to JSON Schema for the Claude API tool definition, and it validates input at runtime before `run()` fires. Invalid input never reaches your handler.
 
+State enum values and defaults in `.describe()`, keep the primary id name identical across a tool family (`id`, not a mix of `id`/`deckId`), and make the one-line description enough to call the tool from a compact catalog — the `actions` skill shipped in every app carries the checklist.
+
 ## Validating the return value {#output-schema}
 
 `schema` validates _inputs_. To also validate what an action **returns**, pass an `outputSchema` (any Standard Schema-compatible schema: Zod, Valibot, ArkType, the same surface as `schema`). The framework validates input before `run()` and validates the result after `run()` resolves.
@@ -222,6 +246,10 @@ export default defineAction({
 | `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                         |
 
 When `run()` succeeds, the framework returns the validated value, so any defaults or coercions on `outputSchema` take effect, the same way they do for input. When you don't pass an `outputSchema`, the return value is unchanged.
+
+## Result contracts {#result-contracts}
+
+A create or update result is read by more than its caller. Return `id` (so `link` can build a deep link into the editing view), a one-line `message`, and — when the operation is one step of a flow the agent should keep driving — `nextRequiredAction` naming the next tool. Never phrase it as waiting for the user: MCP/WebMCP/A2A callers cannot receive an in-app answer. The agent loop keeps `nextRequiredAction` in continuation prompts even when a large result is truncated, and MCP callers see it as `Next: …`.
 
 ## HTTP config {#http}
 

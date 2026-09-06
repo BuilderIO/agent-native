@@ -69,7 +69,7 @@ export function requestMemberOrgIds(
  * lookup, for memberships that change on the order of days.
  *
  * Only a SUCCESSFUL read is stored. `loadMemberships` returns `null` for an
- * unreadable `org_members` (no such table on a template that skips the org
+ * unreadable `org_members` (missing relation on a template that skips the org
  * module, a role without SELECT); caching that would turn a permissions blip
  * into a minute of silently org-less requests, which drops org scope and hides
  * every org-scoped credential behind a permanent-sounding "not configured".

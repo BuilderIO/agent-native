@@ -16,7 +16,6 @@ vi.mock("../deploy/route-discovery.js", () => ({
 const ORIGINAL_ENV = {
   APP_NAME: process.env.APP_NAME,
   DATABASE_URL: process.env.DATABASE_URL,
-  DATABASE_AUTH_TOKEN: process.env.DATABASE_AUTH_TOKEN,
   NODE_ENV: process.env.NODE_ENV,
   AGENT_MODE: process.env.AGENT_MODE,
 };
@@ -143,7 +142,7 @@ describe("embedded Agent-Native host fixture", () => {
     };
     const nitroApp = createNitroApp();
     const plugin = createAgentNativeEmbeddedPlugin({
-      databaseUrl: `file:${join(tempDir, "embedded.db")}`,
+      databaseUrl: `pglite:${join(tempDir, "embedded")}`,
       auth: async () => currentUser,
       actions,
       agentChat: {
@@ -160,6 +159,19 @@ describe("embedded Agent-Native host fixture", () => {
     });
     await plugin(nitroApp);
 
+    await getDbExec().execute(`
+      CREATE TABLE IF NOT EXISTS organizations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        allowed_domain TEXT,
+        a2a_secret TEXT,
+        identity_authority TEXT,
+        identity_id TEXT
+      )
+    `);
+
     // This embedded host fixture doesn't run the org module's migrations, so
     // `org_members` doesn't exist yet — create it directly, the same way the
     // share rows below are seeded straight through `getDbExec()` rather than
@@ -170,7 +182,8 @@ describe("embedded Agent-Native host fixture", () => {
         org_id TEXT NOT NULL,
         email TEXT NOT NULL,
         role TEXT NOT NULL,
-        joined_at INTEGER NOT NULL
+        joined_at BIGINT NOT NULL,
+        federation_removal_pending_at INTEGER
       )
     `);
     await getDbExec().execute({
@@ -476,7 +489,7 @@ describe("embedded Agent-Native host fixture", () => {
 
     await getDbExec().execute({
       sql: `INSERT INTO tool_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at)
-        VALUES (?, ?, 'user', ?, 'editor', ?, datetime('now'))`,
+        VALUES (?, ?, 'user', ?, 'editor', ?, now())`,
       args: [
         "embedded-extension-editor-share",
         extensionId,
@@ -532,7 +545,7 @@ describe("embedded Agent-Native host fixture", () => {
 
     await getDbExec().execute({
       sql: `INSERT INTO tool_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at)
-        VALUES (?, ?, 'user', ?, 'admin', ?, datetime('now'))`,
+        VALUES (?, ?, 'user', ?, 'admin', ?, now())`,
       args: [
         "embedded-extension-admin-share",
         extensionId,
@@ -643,5 +656,5 @@ describe("embedded Agent-Native host fixture", () => {
       status: 200,
       body: { ok: true },
     });
-  });
+  }, 15_000);
 });

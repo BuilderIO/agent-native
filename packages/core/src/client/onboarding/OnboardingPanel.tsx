@@ -61,7 +61,7 @@ export function OnboardingPanel({
     complete,
     dismiss,
   } = onboarding;
-  // `database` and `auth` steps only apply to local dev (SQLite default,
+  // `database` and `auth` steps only apply to local dev (PGlite default,
   // local-mode auth bypass). In production those are configured via env
   // vars / deployment config, so don't nag the user about them.
   const DEV_ONLY_STEP_IDS = new Set(["database", "auth"]);

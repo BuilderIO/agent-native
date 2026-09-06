@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { readAppState } from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
@@ -442,7 +442,9 @@ export default defineAction({
   http: false,
   readOnly: true,
   run: async () => {
-    const navigation = await readAppState("navigation");
+    const navigation = await readAppStateForCurrentTab("navigation", {
+      fallbackToGlobal: false,
+    });
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;

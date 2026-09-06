@@ -14,8 +14,12 @@ CREATE TABLE decks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   data TEXT NOT NULL,       -- Full deck JSON (slides array, metadata)
+  design_system_id TEXT,
   created_at TEXT DEFAULT (current_timestamp),
-  updated_at TEXT DEFAULT (current_timestamp)
+  updated_at TEXT DEFAULT (current_timestamp),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
 );
 ```
 
@@ -70,18 +74,21 @@ pnpm action view-screen
 
 ## Writing Decks
 
-**From scripts:**
+Never write the `decks` table directly -- no `db-exec` (this app has no such
+action), no raw SQL. Every write goes through an action so ids, access checks,
+`notifyClients` events, and version snapshots stay correct.
 
-```bash
-# Use db-exec to insert/update
-pnpm action db-exec --sql "INSERT INTO decks (id, title, data) VALUES (?, ?, ?)" --params '["new-id", "Title", "{...}"]'
-```
+- `create-deck` -- create a deck (the agent's only creation path; `add-deck`
+  is the browser editor's optimistic client-id flow and is hidden from the
+  agent)
+- `add-slide` -- append one slide
+- `update-slide` -- edit one slide (see `slide-editing`)
+- `patch-deck` -- delete/reorder slides, deck-wide or multi-slide changes
+- `delete-deck` -- delete a deck and its version history
 
-**From actions:**
-
-- `add-deck` -- create a new deck
-- `save-deck` -- replace an authoritative full deck payload
-- `delete-deck` -- delete a deck
+`save-deck` is a full-payload replace reserved for undo/redo and bulk
+replacement; it is hidden from the agent so concurrent writers on different
+slides do not clobber each other.
 
 ## Important Rules
 

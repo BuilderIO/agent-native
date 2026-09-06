@@ -79,14 +79,26 @@ const outcome = await an.call("update-slide", { id, title });
 
 `call()` picks the input contract the active host expects, always executes a
 descriptor from a fresh listing, and retries a stale-descriptor error
-automatically instead of surfacing it to the caller. A write that outlives the
-evaluator's own timeout returns `{ state: "pending", id }` right away; poll
-`an.result(id)` on a later evaluator call to pick up the outcome, and pass
-`waitMs: 0` on hosts whose evaluator times out in a few seconds, such as
-Codex's CDP `Runtime.evaluate`. `window.__agentNativeWebMcp` is `undefined`
-until an Agent-Native page starts registering WebMCP tools — the user may be
-signed out, the page still loading, or the deployed app older than this
-helper — so treat its absence as "not ready yet," not "unsupported."
+automatically instead of surfacing it to the caller. `window.__agentNativeWebMcp`
+is `undefined` until an Agent-Native page starts registering WebMCP tools — the
+user may be signed out, the page still loading, or the deployed app older than
+this helper — so treat its absence as "not ready yet," not "unsupported."
+
+<!-- i18n-copy-ignore: evaluator timing guidance for one host; localized summaries link to the English guide. -->
+
+`waitMs` is one end-to-end deadline for the call, covering any wait for
+registration as well as execution. A call that outlives it returns
+`{ state: "pending", id }` while the work keeps running in the page; poll
+`an.result(id)` on a later evaluator call to pick up the outcome. On a host
+whose evaluator times out in a few seconds, such as Codex's CDP
+`Runtime.evaluate` at about 3 s, pass a `waitMs` just under that cap on every
+call so reads and most writes still settle in one evaluation and only a slow
+write goes pending:
+
+```js
+const outcome = await an.call("update-slide", args, { waitMs: 2000 });
+// outcome.state === "pending" → read an.result(outcome.id) next evaluation
+```
 
 The raw `document.modelContext` call remains available as a fallback when the
 helper is not present:

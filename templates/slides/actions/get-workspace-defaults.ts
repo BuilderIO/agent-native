@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -6,6 +7,7 @@ import {
   canManageWorkspaceDefaults,
   getWorkspaceDefaults,
 } from "../server/workspace-defaults.js";
+import getDesignSystem from "./get-design-system.js";
 
 /**
  * `unavailable` is not `null`. A default the caller cannot open means an admin
@@ -35,20 +37,12 @@ export default defineAction({
         : { id: defaults.referenceDeckId, title: null, unavailable: true };
     }
 
-    let designSystem: DefaultRef = null;
-    if (defaults.designSystemId) {
-      const access = await resolveAccess(
-        "design-system",
-        defaults.designSystemId,
-      );
-      designSystem = access
-        ? { id: defaults.designSystemId, title: access.resource.title }
-        : { id: defaults.designSystemId, title: null, unavailable: true };
-    }
-
     return {
       referenceDeck,
-      designSystem,
+      designSystem: await loadAgentDesignSystemContext(
+        defaults.designSystemId,
+        getDesignSystem,
+      ),
       canManage: await canManageWorkspaceDefaults(),
     };
   },

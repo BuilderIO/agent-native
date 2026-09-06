@@ -125,6 +125,28 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
             "Herda `agentTool`. Defina false para ocultar de agentes externos por MCP e A2A, ou true para declarar participação no catálogo curado. Veja Acesso e Autorização.",
         },
         {
+          name: "endsTurn",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Defina true quando uma chamada bem-sucedida entrega o controle ao usuário (formulário de pergunta, diálogo de admissão); torne-a a primeira ou única chamada do turno. Oculta de MCP, WebMCP e A2A, a menos que mcpTool: true — um chamador externo não pode receber uma resposta dentro do app. Veja Agentes Externos.",
+        },
+        {
+          name: "link",
+          type: "(result) => { url, label }",
+          optional: true,
+          description:
+            "Construtor de link profundo puro e síncrono, lido pelos hosts MCP e pelo app de desktop. Veja Outras Superfícies.",
+        },
+        {
+          name: "mcpApp",
+          type: "object",
+          optional: true,
+          description:
+            "Incorpora a rota real do app inline em hosts MCP-App. Veja Outras Superfícies.",
+        },
+        {
           name: "deferLoading",
           type: "boolean",
           optional: true,
@@ -195,6 +217,8 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
 
 O schema faz dois trabalhos. Ele se converte em JSON Schema para a definição de ferramenta da Claude API, e valida a entrada em tempo de execução antes de `run()` disparar. Entradas inválidas nunca chegam ao seu handler.
 
+Declare valores de enum e defaults em `.describe()`, mantenha o nome do id principal idêntico em toda uma família de ferramentas (`id`, não uma mistura de `id`/`deckId`), e faça a descrição de uma linha ser suficiente para chamar a ferramenta a partir de um catálogo compacto — a skill `actions` incluída em todo app traz a checklist.
+
 ## Validando o valor de retorno {#output-schema}
 
 `schema` valida _entradas_. Para também validar o que uma action **retorna**, passe um `outputSchema` (qualquer schema compatível com Standard Schema: Zod, Valibot, ArkType, a mesma superfície de `schema`). O framework valida a entrada antes de `run()` e valida o resultado depois que `run()` resolve.
@@ -223,6 +247,10 @@ export default defineAction({
 | `"fallback"` | Retorna o valor `outputFallback` fornecido no lugar do resultado inválido.                                               |
 
 Quando `run()` tem sucesso, o framework retorna o valor validado, então quaisquer defaults ou coerções em `outputSchema` entram em vigor, da mesma forma que acontece para a entrada. Quando você não passa um `outputSchema`, o valor de retorno permanece inalterado.
+
+## Contratos de resultado {#result-contracts}
+
+Um resultado de create ou update é lido por mais do que quem o chamou. Retorne `id` (para que `link` possa construir um deep link para a view de edição), uma `message` de uma linha e — quando a operação é um passo de um fluxo que o agente deve continuar conduzindo — `nextRequiredAction` nomeando a próxima ferramenta. Nunca formule como se estivesse esperando o usuário: chamadores MCP/WebMCP/A2A não podem receber uma resposta dentro do app. O loop do agente mantém `nextRequiredAction` nos prompts de continuação mesmo quando um resultado grande é truncado, e chamadores MCP o veem como `Next: …`.
 
 ## Configuração de HTTP {#http}
 

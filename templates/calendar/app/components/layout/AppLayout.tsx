@@ -70,8 +70,8 @@ interface CalendarContextValue {
   setPeopleSearchOpen: (open: boolean) => void;
   addCalendarOpen: boolean;
   setAddCalendarOpen: (open: boolean) => void;
-  addCalendarDefaultTab: "people" | "url";
-  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  addCalendarDefaultTab: "people" | "url" | "google";
+  setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
@@ -102,7 +102,7 @@ interface CalendarSettersValue {
   setViewMode: (mode: ViewMode) => void;
   setPeopleSearchOpen: (open: boolean) => void;
   setAddCalendarOpen: (open: boolean) => void;
-  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   setEventDetailSidebar: (sidebar: boolean) => void;
   setSidebarEvent: (event: CalendarEvent | null) => void;
@@ -117,7 +117,7 @@ interface CalendarRareValuesContextValue {
   viewMode: ViewMode;
   peopleSearchOpen: boolean;
   addCalendarOpen: boolean;
-  addCalendarDefaultTab: "people" | "url";
+  addCalendarDefaultTab: "people" | "url" | "google";
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
   eventDetailSidebar: boolean;
@@ -240,13 +240,18 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
+  const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =
+    useState(false);
   const perAppChatOpen = usePerAppChatOpen();
+  useEffect(() => {
+    if (!perAppChatOpen) setSidebarExpandedWhileChatOpen(false);
+  }, [perAppChatOpen]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
   const [addCalendarOpen, setAddCalendarOpen] = useState(false);
   const [addCalendarDefaultTab, setAddCalendarDefaultTab] = useState<
-    "people" | "url"
+    "people" | "url" | "google"
   >("people");
   const {
     hidden: hiddenCalendars,
@@ -388,6 +393,11 @@ export function AppLayout({ children }: AppLayoutProps) {
             open={addCalendarOpen}
             onOpenChange={setAddCalendarOpen}
             defaultTab={addCalendarDefaultTab}
+            visibleTabs={
+              addCalendarDefaultTab === "google"
+                ? ["google"]
+                : ["people", "url"]
+            }
           />
           <KeyboardShortcutsHelp
             open={shortcutsHelpOpen}
@@ -400,8 +410,23 @@ export function AppLayout({ children }: AppLayoutProps) {
             <Sidebar
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
-              collapsed={!isMobile && (sidebarCollapsed || perAppChatOpen)}
-              onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
+              collapsed={
+                !isMobile &&
+                (perAppChatOpen
+                  ? !sidebarExpandedWhileChatOpen
+                  : sidebarCollapsed)
+              }
+              onCollapsedChange={
+                isMobile
+                  ? undefined
+                  : (nextCollapsed) => {
+                      if (perAppChatOpen) {
+                        setSidebarExpandedWhileChatOpen(!nextCollapsed);
+                        return;
+                      }
+                      setSidebarCollapsed(nextCollapsed);
+                    }
+              }
             />
             <AgentSidebar
               position="right"

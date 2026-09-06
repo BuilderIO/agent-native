@@ -236,13 +236,13 @@ export const notes = table("notes", {
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 當該列尚不存在時，INSERT 語句會自動注入 `owner_email`。
 
-`db-query` / `db-exec` 工具拒絕模式限定的表引用（`public.<table>`、`main.<table>`）——限定名稱解析為基表，並會繞過上面的臨時檢視。代理使用裸表名稱；範圍會自動應用。
+`db-query` / `db-exec` 工具拒絕模式限定的表引用（`public.<table>`）——限定名稱解析為基表，並會繞過上面的臨時檢視。代理使用裸表名稱；範圍會自動應用。
 
 ### 每個組織範圍界定 (`org_id`)
 

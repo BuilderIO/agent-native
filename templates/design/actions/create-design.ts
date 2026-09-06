@@ -4,11 +4,17 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  resolveDefaultDesignSystemId,
+  resolveDesignSystemIdByTitle,
+} from "../server/lib/design-system-defaults.js";
+import getDesignSystem from "./get-design-system.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -23,9 +29,12 @@ function designDeepLink(designId: string): string {
 export default defineAction({
   description:
     "Create a new empty design project shell. This is not a renderable " +
-    "artifact by itself. For non-trivial new prompts, call " +
-    "show-design-questions next and wait for the user's answers; only call " +
-    "generate-design directly when the direction is already unambiguous.",
+    "artifact by itself — author the screen HTML next and save it with " +
+    "generate-design (files + canvasFrames) or create-file. When a design " +
+    "system is linked, the result includes its `agentContext`; apply it " +
+    "before authoring the screen. Omit designSystemId to link the caller's " +
+    "default design system; pass designSystemId, or the exact title as " +
+    "`designSystem`, to override.",
   schema: z.object({
     id: z
       .string()
@@ -47,6 +56,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Design system ID to link to this design"),
+    designSystem: z
+      .string()
+      .optional()
+      .describe(
+        "Exact title of an accessible design system to link (case-insensitive, whitespace-trimmed); resolved server-side. Use designSystemId when you already have the id; the id wins if both are given.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -64,6 +79,7 @@ export default defineAction({
     description,
     projectType,
     designSystemId,
+    designSystem,
   }) => {
     const db = getDb();
     const id = providedId ?? nanoid();
@@ -72,8 +88,16 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
+    let resolvedDesignSystemId = designSystemId;
+    if (resolvedDesignSystemId) {
+      await assertAccess("design-system", resolvedDesignSystemId, "viewer");
+    } else {
+      resolvedDesignSystemId =
+        (designSystem
+          ? await resolveDesignSystemIdByTitle(designSystem)
+          : undefined) ??
+        (await resolveDefaultDesignSystemId(ownerEmail)) ??
+        undefined;
     }
 
     await db.insert(schema.designs).values({
@@ -81,7 +105,7 @@ export default defineAction({
       title,
       description: description ?? null,
       projectType: projectType ?? "prototype",
-      designSystemId: designSystemId ?? null,
+      designSystemId: resolvedDesignSystemId ?? null,
       data: "{}",
       ownerEmail,
       orgId,
@@ -94,9 +118,15 @@ export default defineAction({
       id,
       title,
       projectType,
+      designSystemId: resolvedDesignSystemId ?? null,
+      designSystem: await loadAgentDesignSystemContext(
+        resolvedDesignSystemId,
+        getDesignSystem,
+        { full: true },
+      ),
       renderable: false,
       nextRequiredAction:
-        "show-design-questions for non-trivial new prompts, then generate-design or present-design-variants after the user answers",
+        "Author the screen HTML, then save it with generate-design or create-file.",
     };
   },
   link: ({ result }) => {

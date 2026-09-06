@@ -583,6 +583,9 @@ export function useEmails(
 ) {
   const q = useInfiniteQuery({
     ...emailQueryOptions(view, search, label),
+    // Keep the current list rendered while a search or tab query loads. Mail
+    // navigation is client-side, so a new query must not look like a reload.
+    placeholderData: (previousData) => previousData,
     // Gmail's per-user quota is tight. Keep pages modest and refetches
     // conservative; thread list hydration is quota-expensive even when batched.
     // Search queries get a short cache window so repeated renders/back
@@ -615,6 +618,11 @@ export function useEmails(
     return applyRecentSentEmails(visible, view, search, label);
   }, [q.data, view, search, label]);
 
+  // Placeholder InfiniteData includes the previous query's page token. Keep
+  // pagination disabled until the new query owns the pages.
+  const canPaginate = !q.isPlaceholderData;
+  const hasCurrentQueryData = Boolean(q.data) && !q.isPlaceholderData;
+
   return {
     data,
     isLoading: q.isLoading,
@@ -623,14 +631,14 @@ export function useEmails(
     // Keep stale data visible when a background refetch fails (usually Gmail
     // quota cooldown). Showing the full error state while data exists makes
     // the inbox appear to flash/reload even though the old page is usable.
-    isError: q.isError && !q.data,
-    error: q.isError && !q.data ? toError(q.error) : null,
+    isError: q.isError && !hasCurrentQueryData,
+    error: q.isError && !hasCurrentQueryData ? toError(q.error) : null,
     totalEstimate: q.data?.pages[0]?.totalEstimate,
     refetch: q.refetch,
-    hasNextPage: q.hasNextPage,
+    hasNextPage: canPaginate && q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
-    isFetchingNextPage: q.isFetchingNextPage,
-    isFetchNextPageError: q.isFetchNextPageError,
+    isFetchingNextPage: canPaginate && q.isFetchingNextPage,
+    isFetchNextPageError: canPaginate && q.isFetchNextPageError,
   };
 }
 

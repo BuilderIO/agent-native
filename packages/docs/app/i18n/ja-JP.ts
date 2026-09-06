@@ -158,8 +158,8 @@ const jaJP = {
           body: "作業を一度定義し、UI、agent、HTTP、MCP、A2A、CLI から使えます。",
         },
         sqlStateOrm: {
-          title: "SQL 状態と ORM",
-          body: "永続的なアプリデータ、application state、マイグレーション、プロバイダー非依存の schema。",
+          title: "PostgreSQL 状態と ORM",
+          body: "永続的なアプリデータ、application state、マイグレーション、PostgreSQL/PGlite の schema。",
         },
         dbAdmin: {
           title: "データベース管理",
@@ -212,7 +212,7 @@ const jaJP = {
       body1:
         "Agent-Native は agentic applications を構築するためのオープンソース framework です。Chat から始め、共有 actions を定義し、同じ state を中心に UI、jobs、コラボレーションを追加できます。",
       body2:
-        "自分のデータベース、ホスティングプロバイダー、モデルスタック、app コードを持ち込めます。",
+        "ローカル PGlite またはホスト型 PostgreSQL、ホスティングプロバイダー、モデルスタック、app コードを使用できます。",
       cta: "framework ガイドを読む",
       primitives: {
         actions: {
@@ -223,17 +223,17 @@ const jaJP = {
         sharedState: {
           title: "共有状態",
           description:
-            "SQL-backed app state が、人、agents、sessions の同期を保ちます。",
+            "PostgreSQL/PGlite-backed app state が、人、agents、sessions の同期を保ちます。",
         },
         agentRuntime: {
           title: "agent runtime",
           description:
             "app-agent loop、tools、skills、memory、jobs、observability が一緒に出荷されます。",
         },
-        backendAgnostic: {
-          title: "バックエンド非依存",
+        postgresSpecific: {
+          title: "PostgreSQL 固有",
           description:
-            "Drizzle 対応の任意の SQL データベースと Nitro 互換ホストを接続できます。",
+            "フレームワークの PostgreSQL schema ヘルパーを、ローカル PGlite または Nitro 互換ホスト上のホスト型 Postgres と組み合わせて使用できます。",
         },
       },
     },
@@ -312,7 +312,7 @@ const jaJP = {
     },
     quickStart: {
       title: "コマンドから始める",
-      body: "1 つのコマンドで、actions、durable threads、SQLite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
+      body: "1 つのコマンドで、actions、durable threads、PGlite を備えた chat-first ローカル app を作成します。ブラウザー UI がまだ不要な automation-first workflow の場合だけ `--headless` を使ってください。",
     },
     finalCta: {
       title: "agentic era のために作られたソフトウェア",
@@ -437,19 +437,20 @@ const jaJP = {
   },
   homepage: {
     hero: {
-      title: "agentic アプリケーションのための framework",
-      bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
-      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      title: "agentic アプリのためのフレームワーク。",
+      bodyLine1:
+        "UI とエージェントを備えたアプリのためのオープンソース TypeScript フレームワークです。",
+      bodyLine2: "各 Action を一度定義すれば、どこからでも呼び出せます。",
       tryAnApp: "アプリを試す",
     },
     install: {
       copyCommand: "インストールコマンドをコピー",
     },
     actions: {
-      title: "1 つの Action があらゆる面を動かす",
-      bodyLine1: "Action はエージェントができることを定義します。",
+      title: "どこからでも 1 つの Action を呼び出せます。",
+      bodyLine1: "defineAction() で機能を定義します。",
       bodyLine2:
-        "各機能を一度定義すれば、エージェント、UI、HTTP API、MCP、A2A、CLI から利用できます。",
+        "React UI、エージェント、HTTP クライアント、連携先がすべて同じコードを呼び出します。",
       diagramAlt:
         "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
     },
@@ -470,7 +471,7 @@ const jaJP = {
           body: "agent はユーザーが表示、選択、編集している内容を把握します。",
         },
         sharedSql: {
-          title: "共有 SQL データ",
+          title: "共有 PostgreSQL データ",
           body: "ユーザーと agent は同じ信頼できるデータソースを読み書きします。",
         },
         skillsMemory: {
@@ -496,13 +497,13 @@ const jaJP = {
       },
     },
     stack: {
-      title: "お使いのスタックで動作",
-      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、構築したものはすべてあなたのものです。",
+      title: "独自のスタックを持ち込む",
+      body: "Agent-Native はオープンソース TypeScript です。モデル、データベース、ホスティングを選び、アプリケーションコードを自分のリポジトリに保持できます。",
       exploreApps: "Agent-Native で作られたアプリを見る",
     },
     showcase: {
-      title: "Agent-Native で何を作れるか",
-      body: "会議、デザイン、プレゼンテーション、データなどの仕事に対応する UI 付きエージェントを構築できます。これらのオープンソースアプリから始めることも、独自に構築することもできます。",
+      title: "Agent-Native で作られた実際のアプリ",
+      body: "無料で使うことも、無限にカスタマイズすることもできる Agent-Native のオープンソースアプリ。",
       browseApps: "アプリを見る",
       scrollLeft: "アプリを左へスクロール",
       scrollRight: "アプリを右へスクロール",
@@ -521,17 +522,30 @@ const jaJP = {
       download: "ダウンロード",
       apps: "アプリ",
       privacyPolicy: "プライバシーポリシー",
-      saasTerms: "ホスト型サービス利用規約",
+      saasTerms: "SaaS 利用規約",
       legalResources: "法務リソース",
     },
   },
   gettingStarted: {
-    guideNote: {
-      prompt: "ローカルで構築しない場合は、",
-      exploreApp: "まず公開中のアプリを試す",
-      between: "か",
-      joinWaitlist: "ウェイトリストに登録して",
-      end: "ブラウザで構築してください。",
+    tabs: {
+      label: "構築方法を選択",
+      local: "ローカルで構築",
+      localDescription: "CLIを使って自分のマシンで構築します。",
+      cloud: "クラウドで構築",
+      cloudDescription: "Builder.ioを使ってブラウザで構築します。",
+    },
+    cloud: {
+      intro:
+        "何もインストールせずに同じアプリを構築できます。作りたいものを説明すると、Builderがホストするワークスペースでエージェントがコードを書いて実行します。",
+      stepOneTitle: "Builderアカウントを作成",
+      stepOneBody:
+        "Builderアカウントを使ってブラウザで構築します。APIキーを用意せず、無料で始められます。",
+      stepTwoTitle: "プロンプトを入力",
+      stepTwoBody:
+        "作りたいものを自然な言葉で説明すると、エージェントが作成します。",
+      stepThreeTitle: "デプロイ",
+      stepThreeBody:
+        "準備ができたら、Builderでアプリをワンクリックでデプロイします。",
     },
   },
   templatesPage: {
@@ -556,7 +570,6 @@ const jaJP = {
     tryCommunityDemo: "デモを試す",
     customizeDescription: "このアプリを出発点として使えます。",
     customizeOnline: "オンライン",
-    customizeOnlineBadge: "ウェイトリストに登録",
     customizeLocally: "ローカル",
     communityNew: "新着",
     communityComingSoon: "近日公開",
@@ -613,15 +626,8 @@ const jaJP = {
     buildOnline: "オンラインで構築",
     popoverTitle: "ブラウザで構築",
     popoverBody:
-      "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
-    emailLabel: "メール",
-    emailPlaceholder: "you@company.com",
-    joinWaitlist: "待機リストに参加",
-    joining: "参加中…",
-    joined:
-      "待機リストに登録されました。オンライン構築アクセスが開いたらメールでお知らせします。",
-    invalidEmail: "有効なメールアドレスを入力してください。",
-    submitError: "待機リストに参加できませんでした。もう一度お試しください。",
+      "Builder.io を使って、クラウドで agent-native アプリをすばやく生成できます。",
+    launchBuilder: "Builderを起動",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",

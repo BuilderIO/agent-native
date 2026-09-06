@@ -47,6 +47,8 @@
  *                              which is the shadcn recommendation and avoids
  *                              flash artefacts). Set to `false` when the template
  *                              intentionally animates theme changes (e.g. content).
+ *   disableWebMcp             — skips the automatic page-local WebMCP action
+ *                              registration. Defaults to `false`.
  */
 
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
@@ -120,6 +122,15 @@ export interface AppProvidersProps {
    * animates theme changes (e.g. content's 3-way theme cycle).
    */
   disableThemeTransitions?: boolean;
+
+  /**
+   * Skip the automatic page-local WebMCP action registration.
+   * Defaults to false so every AppProviders surface exposes its actions.
+   */
+  disableWebMcp?: boolean;
+
+  /** Render the environment badge in the shared app shell. */
+  showEnvironmentBadge?: boolean;
 
   /**
    * Optional localization runtime configuration. When omitted, AppProviders
@@ -294,9 +305,11 @@ function ProvidersInner({
   tooltipDelayDuration,
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
+  disableWebMcp,
   i18n,
   documentTitleFallback,
   showProductionEnvironmentBadge,
+  showEnvironmentBadge,
   children,
 }: {
   queryClient: QueryClient;
@@ -305,9 +318,11 @@ function ProvidersInner({
   tooltipDelayDuration?: number;
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
+  disableWebMcp: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
+  showEnvironmentBadge: boolean;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -329,11 +344,14 @@ function ProvidersInner({
       >
         <EmbeddedThemeSync />
         <TooltipProvider delayDuration={tooltipDelayDuration}>
+          {!disableWebMcp && <AgentNativeWebMcpActionRegistration />}
           {localizedChildren}
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
           <RoutedAppEnhancements />
-          <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          {showEnvironmentBadge ? (
+            <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          ) : null}
           {toaster}
         </TooltipProvider>
       </ThemeProvider>
@@ -346,6 +364,8 @@ export function AppProviders({
   isPublicPath = false,
   clientOnlyFallback,
   sessionBypass = false,
+  disableWebMcp = false,
+  showEnvironmentBadge = true,
   defaultTheme,
   themeAttribute,
   tooltipDelayDuration,
@@ -366,9 +386,11 @@ export function AppProviders({
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
+        disableWebMcp={disableWebMcp}
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
+        showEnvironmentBadge={showEnvironmentBadge}
       >
         {children}
       </ProvidersInner>
@@ -388,19 +410,17 @@ export function AppProviders({
           tooltipDelayDuration={tooltipDelayDuration}
           toaster={toaster}
           disableThemeTransitions={disableThemeTransitions}
+          disableWebMcp={disableWebMcp}
           i18n={i18n}
           documentTitleFallback={documentTitleFallback}
           showProductionEnvironmentBadge={!sessionBypass}
+          showEnvironmentBadge={showEnvironmentBadge}
         >
           <RequireSession bypass={sessionBypass} fallback={fallback}>
             {sessionBypass ? (
-              <>
-                <AgentNativeWebMcpActionRegistration />
-                {children}
-              </>
+              children
             ) : (
               <FirstRunOnboardingStartupGate>
-                <AgentNativeWebMcpActionRegistration />
                 {children}
               </FirstRunOnboardingStartupGate>
             )}

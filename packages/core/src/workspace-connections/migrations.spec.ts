@@ -17,9 +17,7 @@ function read(relative: string): string {
 
 function migrationSql(): string {
   return WORKSPACE_CONNECTIONS_MIGRATIONS.map((entry) =>
-    typeof entry.sql === "string"
-      ? entry.sql
-      : `${entry.sql.postgres ?? ""}\n${entry.sql.sqlite ?? ""}`,
+    typeof entry.sql === "string" ? entry.sql : (entry.sql.postgres ?? ""),
   ).join("\n");
 }
 

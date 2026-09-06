@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import {
+  COMMENT_PREVIEW_WIDTH_PX,
   CommentPreview,
   type CommentPreviewData,
 } from "./playback-comment-overlay";
@@ -210,7 +211,9 @@ export function Scrubber(props: ScrubberProps) {
     ? timelineMarkerAlignment(
         tooltip.ms,
         durationMs,
-        markerWidths.get(tooltip.ms) ?? MARKER_CONTROL_SIZE_PX,
+        tooltip.kind === "comment"
+          ? Math.min(COMMENT_PREVIEW_WIDTH_PX, barWidth)
+          : (markerWidths.get(tooltip.ms) ?? MARKER_CONTROL_SIZE_PX),
         barWidth,
       )
     : "center";
@@ -247,7 +250,7 @@ export function Scrubber(props: ScrubberProps) {
         <div
           data-player-comment-hover
           className={cn(
-            "pointer-events-none absolute bottom-[calc(100%+1rem)] z-50",
+            "pointer-events-none absolute bottom-[calc(100%+1rem)] z-50 w-80 max-w-full",
             tooltipAlignment === "center" && "-translate-x-1/2",
           )}
           style={{

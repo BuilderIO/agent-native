@@ -259,8 +259,8 @@ describe("list-recordings shared view", () => {
     // Regression (two directions):
     // 1. An earlier version awaited the meeting-recording query into a plain
     //    `string[]` and bound the whole array through notInArray(). That
-    //    grows with the entire meetings table and can hit SQLite variable /
-    //    Postgres parameter limits for large libraries. The fix hands
+    //    grows with the entire meetings table and can hit PostgreSQL parameter
+    //    limits for large libraries. The fix hands
     //    notInArray() the query-builder chain itself (the exact object
     //    mockMeetingWhere() returned), so real drizzle-orm compiles it to
     //    `NOT IN (SELECT ...)` — database-side, no id list in memory.

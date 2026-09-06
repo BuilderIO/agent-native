@@ -236,13 +236,13 @@ export const notes = table("notes", {
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 يتم إدخال عبارات INSERT تلقائيًا `owner_email` عندما لا يكون العمود موجودًا بالفعل.
 
-ترفض أدوات `db-query` / `db-exec` مراجع الجدول المؤهلة للمخطط (`public.<table>`، `main.<table>`) - يتم تحليل الاسم المؤهل إلى الجدول الأساسي وسيتجاوز العرض المؤقت أعلاه. يستخدم الوكلاء أسماء الجداول العارية؛ يتم تطبيق النطاق تلقائيًا.
+ترفض أدوات `db-query` / `db-exec` مراجع الجدول المؤهلة للمخطط (`public.<table>`) - يتم تحليل الاسم المؤهل إلى الجدول الأساسي وسيتجاوز العرض المؤقت أعلاه. يستخدم الوكلاء أسماء الجداول العارية؛ يتم تطبيق النطاق تلقائيًا.
 
 ### تحديد النطاق لكل مؤسسة (`org_id`)
 

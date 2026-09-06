@@ -1,5 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -10,6 +11,7 @@ import {
   readDesignTemplateSource,
 } from "../server/lib/design-template-data.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
+import getDesignSystem from "./get-design-system.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -29,7 +31,8 @@ export default defineAction({
     "definitions, the user's applied tweak selections, and the resolved CSS " +
     "custom-property values so the agent sees the *tuned* design, not the " +
     "original generated tokens. Pass fileId or filename when continuing from " +
-    "one selected screen so large multi-file designs stay bounded. Read-only.",
+    "one selected screen so large multi-file designs stay bounded. Includes " +
+    "linked `designSystem.agentContext` when readable. Read-only.",
   schema: z.object({
     designId: z.string().describe("Design project ID to snapshot"),
     fileId: z
@@ -68,6 +71,10 @@ export default defineAction({
       throw err;
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
+    const designSystem = await loadAgentDesignSystemContext(
+      design.designSystemId ?? null,
+      getDesignSystem,
+    );
 
     const snapshot = await buildDesignSnapshot(designId, design.data);
     const templateSource = readDesignTemplateSource(
@@ -103,6 +110,7 @@ export default defineAction({
       description: design.description ?? null,
       projectType: design.projectType,
       designSystemId: design.designSystemId ?? null,
+      designSystem,
       updatedAt: design.updatedAt,
       ...(templateSource
         ? {

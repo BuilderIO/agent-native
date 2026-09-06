@@ -9,6 +9,7 @@ interface Shortcut {
   shift?: boolean;
   alt?: boolean;
   handler: ShortcutHandler;
+  shouldHandle?: (e: KeyboardEvent) => boolean;
   /** Skip when an input/textarea is focused */
   skipInInput?: boolean;
 }
@@ -46,6 +47,7 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
             (shortcut.shift ? e.shiftKey : !e.shiftKey);
 
         if (keyMatch && modMatch) {
+          if (shortcut.shouldHandle && !shortcut.shouldHandle(e)) continue;
           e.preventDefault();
           shortcut.handler(e);
           return;

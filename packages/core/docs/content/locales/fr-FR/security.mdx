@@ -238,13 +238,13 @@ Le framework crée des vues SQL temporaires qui filtrent automatiquement les req
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 Les instructions INSERT sont automatiquement injectées dans `owner_email` lorsque la colonne n'est pas déjà présente.
 
-Les outils `db-query` / `db-exec` rejettent les références de table qualifiées par le schéma (`public.<table>`, `main.<table>`) : un nom qualifié est résolu en table de base et contournerait la vue temporaire ci-dessus. Les agents utilisent des noms de table nus ; la portée est appliquée automatiquement.
+Les outils `db-query` / `db-exec` rejettent les références de table qualifiées par le schéma (`public.<table>`) : un nom qualifié est résolu en table de base et contournerait la vue temporaire ci-dessus. Les agents utilisent des noms de table nus ; la portée est appliquée automatiquement.
 
 ### Portée par organisation (`org_id`)
 

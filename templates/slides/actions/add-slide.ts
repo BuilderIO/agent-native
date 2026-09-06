@@ -112,7 +112,7 @@ export default defineAction({
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
-    "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
+    "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "For a single-call bulk append, use `patch-deck` with add-slide operations. " +
     "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
@@ -146,11 +146,17 @@ export default defineAction({
       .preprocess((value) => {
         if (typeof value !== "string") return value;
         const trimmed = value.trim();
+        // "start"/"end" are the words an agent reaches for first ("end" used
+        // to fail validation as NaN). Resolve them into the numeric domain so
+        // the insert below keeps one representation; it already clamps an
+        // index past the last slide to an append.
+        if (trimmed.toLowerCase() === "start") return 0;
+        if (trimmed.toLowerCase() === "end") return Number.MAX_SAFE_INTEGER;
         return trimmed === "" ? value : Number(trimmed);
       }, z.number().int().min(0))
       .optional()
       .describe(
-        "Optional 0-based index to insert at. If not provided, appends to the end of the deck.",
+        'Where to insert the slide: a 0-based index, or "start" / "end". Omit to append to the end of the deck.',
       ),
     targetSlideCountOverride: z
       .number()
@@ -481,7 +487,7 @@ export default defineAction({
       // Broadcast to any open editors so the new slide appears immediately.
       // Include the new slideId + agent actor (backwards-compatible payload).
       const agentChangeId = deckVersionChangeGroupFromAction(ctx);
-      notifyClients(deckId, {
+      await notifyClients(deckId, {
         slideId: newSlideId,
         actor: "agent",
         ...(agentChangeId ? { agentChangeId } : {}),

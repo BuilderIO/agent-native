@@ -91,6 +91,7 @@
     border-color: hsl(var(--ui-border));
   }
 
+  [data-tw-surface]:is(button, input, optgroup, select, textarea),
   [data-tw-surface] :is(button, input, optgroup, select, textarea) {
     appearance: none;
     margin: 0;
@@ -103,14 +104,17 @@
     letter-spacing: inherit;
   }
 
+  [data-tw-surface]:is(button, [role="button"]),
   [data-tw-surface] :is(button, [role="button"]) {
     cursor: pointer;
   }
 
+  [data-tw-surface]:is(button, input, select, textarea):disabled,
   [data-tw-surface] :is(button, input, select, textarea):disabled {
     cursor: not-allowed;
   }
 
+  [data-tw-surface]:is(input, textarea)::placeholder,
   [data-tw-surface] :is(input, textarea)::placeholder {
     color: hsl(var(--ui-muted-foreground));
     opacity: 1;
@@ -201,6 +205,11 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-collapse: cubic-bezier(0.2, 0, 0, 1);
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --recorder-mode-option-radius: 14px;
+  --recorder-mode-toggle-inset: 4px;
+  --recorder-mode-toggle-radius: calc(
+    var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)
+  );
 
   /* Layered rather than one soft blur: a hairline for the edge, a tight
      contact shadow for the lift, a wide ambient one for depth. A single
@@ -236,7 +245,7 @@
   --ui-ring: 0 0% 40%;
   /* macOS convention for an engaged switch, and the one accent the tray uses. */
   --ui-success: 142 71% 45%;
-  /* Reserved for "there is something new here" — the Settings dot, nothing else. */
+  /* Reserved for explicit "there is something new here" alerts and notices. */
   --ui-info: 217 91% 55%;
 }
 
@@ -378,6 +387,17 @@
 
 .record-pill-mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.record-pill-audio-warning {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--status-warn);
+  color: var(--pill-chrome);
 }
 
 .record-pill-card-in {

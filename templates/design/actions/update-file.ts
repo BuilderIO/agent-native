@@ -5,7 +5,6 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
-import { isPostgres } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -488,11 +487,10 @@ export default defineAction({
 
         let updateResult: unknown;
 
-        if (filename !== undefined && isPostgres()) {
+        if (filename !== undefined) {
           updateResult = await db.transaction(async (tx) => {
-            // Postgres evaluates concurrent NOT EXISTS updates under MVCC, so a
-            // guarded UPDATE alone can still race. Serialize design-file renames in
-            // this rare path without using SQLite's fragile async savepoint wrapper.
+            // A guarded UPDATE alone can still race under Postgres MVCC, so
+            // serialize design-file renames before checking for collisions.
             await (
               tx as unknown as {
                 execute: (query: unknown) => Promise<unknown>;
@@ -519,48 +517,10 @@ export default defineAction({
               .where(and(eq(schema.designFiles.id, id), contentCasWhere));
           });
         } else {
-          // Reject colliding SQLite renames as part of the write. SQLite's local
-          // async transaction wrapper can fail under concurrent editor/collab writes,
-          // so keep this to one guarded UPDATE instead of a SELECT-then-UPDATE window.
-          const renameWhere =
-            filename === undefined
-              ? undefined
-              : and(
-                  sql`NOT EXISTS (
-                SELECT 1 FROM design_files AS sibling
-                WHERE sibling.design_id = ${file.designId}
-                  AND sibling.filename = ${filename}
-                  AND sibling.id <> ${id}
-              )`,
-                );
-          const updateWhere = and(
-            eq(schema.designFiles.id, id),
-            renameWhere,
-            contentCasWhere,
-          );
-
           updateResult = await db
             .update(schema.designFiles)
             .set(updates)
-            .where(updateWhere);
-
-          if (filename !== undefined && rowsAffected(updateResult) === 0) {
-            const [collision] = await db
-              .select({ id: schema.designFiles.id })
-              .from(schema.designFiles)
-              .where(
-                and(
-                  eq(schema.designFiles.designId, file.designId),
-                  eq(schema.designFiles.filename, filename),
-                ),
-              )
-              .limit(1);
-            if (collision && collision.id !== id) {
-              throw new Error(
-                `File "${filename}" already exists in design ${file.designId}`,
-              );
-            }
-          }
+            .where(and(eq(schema.designFiles.id, id), contentCasWhere));
         }
 
         if (requiresContentCas && rowsAffected(updateResult) === 0) {

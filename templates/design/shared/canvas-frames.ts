@@ -1,3 +1,5 @@
+import { getRotatedFrameCorners } from "./canvas-math.js";
+
 export interface CanvasFrameGeometry {
   x?: number;
   y?: number;
@@ -157,7 +159,20 @@ export function nextFreeCanvasRowY(
     const height = frame.height ?? 0;
     if (!Number.isFinite(y) || !Number.isFinite(height)) continue;
     sawFrame = true;
-    bottom = Math.max(bottom, y + height);
+    const x = frame.x ?? 0;
+    const width = frame.width ?? 0;
+    const rotation = frame.rotation ?? 0;
+    // A rotated frame's visual box extends below y + height; place under
+    // its rotated corners so the new row cannot overlap it.
+    const frameBottom =
+      rotation && Number.isFinite(x) && Number.isFinite(width)
+        ? Math.max(
+            ...getRotatedFrameCorners({ x, y, width, height, rotation }).map(
+              (corner) => corner.y,
+            ),
+          )
+        : y + height;
+    bottom = Math.max(bottom, frameBottom);
   }
   return sawFrame ? bottom + gap : 0;
 }
