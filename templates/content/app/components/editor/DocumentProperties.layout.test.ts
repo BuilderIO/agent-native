@@ -28,8 +28,11 @@ describe("document property layout", () => {
     expect(source).toContain(
       "const scalarValueInputRef = useRef<HTMLInputElement>",
     );
-    expect(source).toContain("scalarValueInputRef.current?.focus()");
-    expect(source).toContain("scalarValueInputRef.current?.select()");
+    expect(source).toContain(
+      "const scalarValueTextareaRef = useRef<HTMLTextAreaElement>",
+    );
+    expect(source).toContain("control?.focus()");
+    expect(source).toContain("control?.select()");
     expect(source).toContain('aria-label={t("editor.properties.editValue", {');
   });
 
@@ -153,5 +156,16 @@ describe("document property layout", () => {
     expect(source).toContain("popoversPortalled = true");
     expect(source).toContain("portalled={popoversPortalled}");
     expect(source).toContain("portalled={portalled}");
+  });
+
+  it("offers keyboard-accessible column moves and disables unavailable directions", () => {
+    const source = readPropertiesSource();
+
+    expect(source).toContain("onMoveLeft?: () => void | Promise<void>");
+    expect(source).toContain("onMoveRight?: () => void | Promise<void>");
+    expect(source).toContain("disabled={!onMoveLeft}");
+    expect(source).toContain("disabled={!onMoveRight}");
+    expect(source).toContain('t("editor.properties.moveColumnLeft")');
+    expect(source).toContain('t("editor.properties.moveColumnRight")');
   });
 });

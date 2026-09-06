@@ -421,6 +421,7 @@ describe("view-screen current database view", () => {
 
   it("falls back to the saved active view and database rows", () => {
     expect(databaseCurrentViewSnapshot({}, databaseResponse())).toEqual({
+      tableColumnOrderIds: ["name", "owner", "status"],
       id: "editorial",
       name: "Editorial",
       type: "table",

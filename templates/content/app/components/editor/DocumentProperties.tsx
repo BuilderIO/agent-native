@@ -46,6 +46,7 @@ import {
   IconAlignLeft,
   IconArrowLeft,
   IconArrowDown,
+  IconArrowRight,
   IconArrowUp,
   IconAt,
   IconCalendar,
@@ -81,6 +82,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -307,7 +309,19 @@ function propertyText(value: unknown) {
   return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
-export function displayValue(property: DocumentProperty, t?: TFunction) {
+export type PropertyValuePresentation = "compact" | "wrapped";
+
+function propertyValueTextClass(presentation: PropertyValuePresentation) {
+  return presentation === "wrapped"
+    ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+    : "truncate whitespace-nowrap";
+}
+
+export function displayValue(
+  property: DocumentProperty,
+  t?: TFunction,
+  presentation: PropertyValuePresentation = "compact",
+) {
   const value = property.value;
   const type = property.definition.type;
   const empty = tWithFallback(t, "editor.properties.empty", "Empty");
@@ -398,9 +412,11 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
   if (type === "select" || type === "status") {
     const option = optionById(property, propertyText(value));
     return option ? (
-      <OptionPill option={option} />
+      <OptionPill option={option} presentation={presentation} />
     ) : (
-      <span>{propertyText(value)}</span>
+      <span className={propertyValueTextClass(presentation)}>
+        {propertyText(value)}
+      </span>
     );
   }
 
@@ -408,10 +424,19 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
     if (value.length === 0)
       return <span className="text-muted-foreground/70">{empty}</span>;
     return (
-      <span className="inline-flex flex-wrap gap-1">
+      <span
+        className={cn(
+          "inline-flex max-w-full min-w-0 gap-1",
+          presentation === "wrapped"
+            ? "flex-wrap"
+            : "flex-nowrap overflow-hidden",
+        )}
+      >
         {value.map((id) => {
           const option = optionById(property, id);
-          return option ? <OptionPill key={id} option={option} /> : null;
+          return option ? (
+            <OptionPill key={id} option={option} presentation={presentation} />
+          ) : null;
         })}
       </span>
     );
@@ -419,24 +444,42 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
 
   if (type === "url" && typeof value === "string") {
     return (
-      <span className="underline decoration-muted-foreground/40 underline-offset-2">
+      <span
+        className={cn(
+          "underline decoration-muted-foreground/40 underline-offset-2",
+          propertyValueTextClass(presentation),
+        )}
+      >
         {value}
       </span>
     );
   }
 
-  return <span>{propertyText(value)}</span>;
+  return (
+    <span className={propertyValueTextClass(presentation)}>
+      {propertyText(value)}
+    </span>
+  );
 }
 
-function OptionPill({ option }: { option: DocumentPropertyOption }) {
+function OptionPill({
+  option,
+  presentation = "compact",
+}: {
+  option: DocumentPropertyOption;
+  presentation?: PropertyValuePresentation;
+}) {
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-xs font-medium",
+        "inline-flex max-w-full min-w-0 items-center rounded px-1.5 py-0.5 text-xs font-medium",
+        presentation === "compact" && "shrink",
         optionClass(option),
       )}
     >
-      <span className="truncate">{option.name}</span>
+      <span className={propertyValueTextClass(presentation)}>
+        {option.name}
+      </span>
     </span>
   );
 }
@@ -1056,6 +1099,8 @@ export function PropertyManagementPopover({
   filters,
   onSortsChange,
   onFiltersChange,
+  onMoveLeft,
+  onMoveRight,
   onHide,
   hideDisabled,
 }: {
@@ -1073,6 +1118,8 @@ export function PropertyManagementPopover({
   filters?: DatabaseFilter[];
   onSortsChange?: (sorts: DatabaseSort[]) => void;
   onFiltersChange?: (filters: DatabaseFilter[]) => void;
+  onMoveLeft?: () => void | Promise<void>;
+  onMoveRight?: () => void | Promise<void>;
   onHide?: () => void | Promise<void>;
   hideDisabled?: boolean;
 }) {
@@ -1504,6 +1551,21 @@ export function PropertyManagementPopover({
                   })}
                 </DropdownMenuItem>
               ) : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!onMoveLeft}
+                onSelect={() => void onMoveLeft?.()}
+              >
+                <IconArrowLeft className="mr-2 size-4 text-muted-foreground" />
+                {t("editor.properties.moveColumnLeft")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!onMoveRight}
+                onSelect={() => void onMoveRight?.()}
+              >
+                <IconArrowRight className="mr-2 size-4 text-muted-foreground" />
+                {t("editor.properties.moveColumnRight")}
+              </DropdownMenuItem>
               {onHide ? (
                 <>
                   <DropdownMenuSeparator />
@@ -2815,9 +2877,10 @@ function ScalarValueEditor({
     databaseDocumentId,
   );
   const type = property.definition.type;
+  const isMultilineText = type === "text";
   const inputType =
     type === "number"
-      ? "number"
+      ? "text"
       : type === "date"
         ? "date"
         : type === "email"
@@ -2834,23 +2897,45 @@ function ScalarValueEditor({
         ? ""
         : propertyText(property.value);
   const [value, setValue] = useState(initialValue);
+  const errorId = useId();
+  const invalidNumber =
+    type === "number" && value.trim() !== "" && !Number.isFinite(Number(value));
   const scalarValueInputRef = useRef<HTMLInputElement>(null);
+  const scalarValueTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      scalarValueInputRef.current?.focus();
-      scalarValueInputRef.current?.select();
+      const control = isMultilineText
+        ? scalarValueTextareaRef.current
+        : scalarValueInputRef.current;
+      control?.focus();
+      control?.select();
     });
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [isMultilineText]);
 
   async function save(nextValue = value) {
-    await mutation.mutateAsync({
-      documentId,
-      propertyId: property.definition.id,
-      value: nextValue,
-    });
-    onDone();
+    if (saveInFlightRef.current) return;
+    if (
+      type === "number" &&
+      nextValue.trim() !== "" &&
+      !Number.isFinite(Number(nextValue))
+    ) {
+      scalarValueInputRef.current?.focus();
+      return;
+    }
+    saveInFlightRef.current = true;
+    try {
+      await mutation.mutateAsync({
+        documentId,
+        propertyId: property.definition.id,
+        value: type === "number" && nextValue.trim() === "" ? null : nextValue,
+      });
+      onDone();
+    } finally {
+      saveInFlightRef.current = false;
+    }
   }
 
   async function clear() {
@@ -2872,24 +2957,70 @@ function ScalarValueEditor({
         void save(typeof formValue === "string" ? formValue : value);
       }}
     >
-      <Input
-        ref={scalarValueInputRef}
-        aria-label={t("editor.properties.editValue", {
-          name: property.definition.name,
-        })}
-        autoFocus
-        name="property-value"
-        type={inputType}
-        value={value}
-        placeholder={scalarPlaceholder(type, t)}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onDone();
-          }
-        }}
-      />
+      {isMultilineText ? (
+        <Textarea
+          ref={scalarValueTextareaRef}
+          aria-label={t("editor.properties.editValue", {
+            name: property.definition.name,
+          })}
+          autoFocus
+          name="property-value"
+          rows={3}
+          value={value}
+          placeholder={scalarPlaceholder(type, t)}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              onDone();
+              return;
+            }
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+          className="resize-y whitespace-pre-wrap"
+        />
+      ) : (
+        <Input
+          ref={scalarValueInputRef}
+          aria-label={t("editor.properties.editValue", {
+            name: property.definition.name,
+          })}
+          autoFocus
+          name="property-value"
+          type={inputType}
+          inputMode={type === "number" ? "decimal" : undefined}
+          aria-invalid={invalidNumber || undefined}
+          aria-describedby={invalidNumber ? errorId : undefined}
+          value={value}
+          placeholder={scalarPlaceholder(type, t)}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              onDone();
+              return;
+            }
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.stopPropagation();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+      )}
+      {invalidNumber ? (
+        <p id={errorId} role="alert" className="text-xs text-destructive">
+          {t("database.enterAValidNumber")}
+        </p>
+      ) : null}
       <div className="flex justify-end gap-2">
         <Button
           type="button"

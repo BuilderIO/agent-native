@@ -24,6 +24,7 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
 } from "../shared/api.js";
+import { databaseTableColumnIds } from "../shared/database-table-columns.js";
 import {
   documentPropertyDateKey,
   formulaValueText,
@@ -638,6 +639,16 @@ export function databaseCurrentViewSnapshot(
     dateRangeLabel: stringValue(nav.databaseDateRangeLabel),
     calculations,
     calculationResults,
+    tableColumnOrderIds:
+      (stringValue(nav.databaseViewType) ?? activeView?.type ?? "table") ===
+      "table"
+        ? databaseTableColumnIds(
+            visibleProperties.map((property) => property.definition.id),
+            arrayValue(nav.databaseTableColumnOrderIds)?.filter(
+              (id): id is string => typeof id === "string",
+            ) ?? activeView?.tableColumnOrderIds,
+          )
+        : undefined,
     wrapCells:
       typeof nav.databaseWrapCells === "boolean"
         ? nav.databaseWrapCells

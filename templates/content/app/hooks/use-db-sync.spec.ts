@@ -46,6 +46,159 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
+  it("refreshes bounded database results after external row changes", () => {
+    const predicate = contentActionInvalidatePredicate("/page/database-page");
+
+    expect(
+      predicate(
+        {
+          queryKey: [
+            "action",
+            "query-content-database-items",
+            {
+              documentId: "database-page",
+              limit: 100,
+              tableQuery: {
+                search: "",
+                filters: [],
+                sorts: [],
+                filterMode: "and",
+              },
+            },
+          ],
+        },
+        [{ source: "action", key: "add-database-item" }],
+      ),
+    ).toBe(true);
+    expect(
+      predicate(
+        {
+          queryKey: [
+            "action",
+            "query-content-database-items",
+            { documentId: "database-page", limit: 100, tableQuery: {} },
+          ],
+        },
+        [{ source: "action", key: "set-document-property" }],
+      ),
+    ).toBe(true);
+    expect(
+      predicate(
+        {
+          queryKey: [
+            "action",
+            "query-content-database-items",
+            { documentId: "other-database-page", tableQuery: {} },
+          ],
+        },
+        [{ source: "action", key: "add-database-item" }],
+      ),
+    ).toBe(false);
+  });
+
+  it("refreshes an active inline database mounted on another host page", () => {
+    const predicate = contentActionInvalidatePredicate("/page/host-document");
+    const inlineDatabaseQuery = {
+      queryKey: [
+        "action",
+        "query-content-database-items",
+        {
+          documentId: "inline-database-document",
+          limit: 100,
+          tableQuery: {
+            search: "",
+            filters: [],
+            sorts: [],
+            filterMode: "and",
+          },
+        },
+      ],
+      isActive: () => true,
+    };
+
+    expect(
+      predicate(inlineDatabaseQuery, [
+        { source: "action", key: "add-database-item" },
+      ]),
+    ).toBe(true);
+    expect(
+      predicate({ ...inlineDatabaseQuery, isActive: () => false }, [
+        { source: "action", key: "add-database-item" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("refreshes active saved-view and database lifecycle results", () => {
+    const predicate = contentActionInvalidatePredicate("/page/host-document");
+    const activeBaseQuery = {
+      queryKey: [
+        "action",
+        "get-content-database",
+        { documentId: "inline-database-document", limit: 100 },
+      ],
+      isActive: () => true,
+    };
+    const activeBoundedQuery = {
+      queryKey: [
+        "action",
+        "query-content-database-items",
+        {
+          documentId: "inline-database-document",
+          limit: 100,
+          tableQuery: {
+            search: "",
+            filters: [],
+            sorts: [],
+            filterMode: "and",
+          },
+        },
+      ],
+      isActive: () => true,
+    };
+
+    expect(
+      predicate(activeBaseQuery, [
+        { source: "action", key: "update-content-database-view" },
+      ]),
+    ).toBe(true);
+    expect(
+      predicate(activeBoundedQuery, [
+        { source: "action", key: "delete-content-database" },
+      ]),
+    ).toBe(true);
+    expect(
+      predicate(activeBaseQuery, [
+        { source: "action", key: "restore-content-database" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("refreshes only the active personal-view query for personal presentation writes", () => {
+    const predicate = contentActionInvalidatePredicate("/page/database-page");
+    const personalViewQuery = {
+      queryKey: [
+        "action",
+        "get-content-database-personal-view",
+        { databaseId: "database" },
+      ],
+      isActive: () => true,
+    };
+
+    expect(
+      predicate(personalViewQuery, [
+        { source: "action", key: "update-content-database-personal-view" },
+      ]),
+    ).toBe(true);
+    expect(
+      predicate({ ...personalViewQuery, isActive: () => false }, [
+        {
+          source: "action",
+          key: "update-content-database-personal-view",
+        },
+      ]),
+    ).toBe(false);
+  });
+
   it("does not refresh unrelated documents or action queries", () => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
 

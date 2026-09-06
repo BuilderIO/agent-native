@@ -367,6 +367,8 @@ const messages = {
       duplicateProperty: "重複的屬性",
       editField: "編輯欄位",
       editEndDate: "編輯 {{name}} 結束日期",
+      moveColumnLeft: "將欄向左移動",
+      moveColumnRight: "將欄向右移動",
       editProperty: "編輯 {{name}}",
       editStartDate: "編輯 {{name}} 開始日期",
       editValue: "編輯 {{name}} 值",
