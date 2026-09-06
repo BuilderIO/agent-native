@@ -578,8 +578,8 @@ export function documentEditorTitleRegionClassName(
 ) {
   if (host === "preview") {
     return hasDatabase
-      ? "shrink-0 w-full max-w-none px-4 pb-2 pt-6 sm:px-6 group/title"
-      : "shrink-0 mx-auto w-full max-w-3xl px-4 pb-3 pt-6 sm:px-6 group/title";
+      ? "shrink-0 w-full max-w-none px-4 pb-2 pt-2 sm:px-6 sm:pt-6 group/title"
+      : "shrink-0 mx-auto w-full max-w-3xl px-4 pb-3 pt-2 sm:px-6 sm:pt-6 group/title";
   }
   if (hasDatabase) {
     return cn(

@@ -4452,7 +4452,7 @@ function DatabaseItemPreviewSheet({
           )
             event.preventDefault();
         }}
-        className="flex w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[min(72vw,720px)] sm:!max-w-none lg:w-[50vw] lg:!max-w-[860px]"
+        className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:w-[min(72vw,720px)] sm:!max-w-none lg:w-[50vw] lg:!max-w-[860px]"
       >
         {item ? (
           <DatabaseItemPreview
@@ -4589,7 +4589,7 @@ function DatabaseItemPreview({
     >
       <SheetHeader className="shrink-0 gap-0 border-b border-border px-4 py-2 text-start">
         <div className="flex min-w-0 items-center justify-between gap-2 pe-10">
-          <SheetTitle className="min-w-0 truncate text-sm font-medium">
+          <SheetTitle className="sr-only sm:not-sr-only sm:min-w-0 sm:truncate sm:text-sm sm:font-medium">
             {previewTitle}
           </SheetTitle>
           <div className="flex shrink-0 items-center gap-1">
@@ -4645,11 +4645,12 @@ function DatabaseItemPreview({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
-                    className="size-8"
+                    size="sm"
+                    className="h-8 gap-1.5 px-2 text-xs"
                     aria-label={`Preview actions for ${previewTitle}`}
                   >
-                    <IconDots className="size-4" />
+                    <IconTable className="size-3.5" />
+                    {dbText("row")}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
