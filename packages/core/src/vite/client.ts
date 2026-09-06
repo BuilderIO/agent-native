@@ -840,6 +840,7 @@ function getClientDedupe(cwd: string): string[] {
     "@assistant-ui/core",
     "@assistant-ui/store",
     "@assistant-ui/tap",
+    ...(hasDep("zustand", cwd) ? ["zustand"] : []),
     // Framework routers must share one react-router instance so
     // FrameworkContext (Meta/Links/Scripts) matches ServerRouter/HydratedRouter.
     ...(hasDep("react-router", cwd)
@@ -1017,13 +1018,31 @@ function getReactRouterAliases(
  * checkout while the consuming app's assistant-ui package resolves a newer
  * copy. Pin both public entry points to the consumer's installed peer graph.
  */
+function getAssistantUiRequire(cwd: string): NodeJS.Require | null {
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    let assistantUiEntry: string;
+    try {
+      assistantUiEntry = appRequire.resolve("@assistant-ui/react");
+    } catch {
+      const coreRequire = createRequire(
+        appRequire.resolve("@agent-native/core"),
+      );
+      assistantUiEntry = coreRequire.resolve("@assistant-ui/react");
+    }
+    return createRequire(assistantUiEntry);
+  } catch {
+    // coercion-ok: null is the typed absence state for an unavailable optional peer graph.
+    return null;
+  }
+}
+
 function getAssistantUiAliases(
   cwd: string,
 ): Array<{ find: RegExp; replacement: string }> {
   try {
-    const appRequire = createRequire(path.join(cwd, "package.json"));
-    const assistantUiEntry = appRequire.resolve("@assistant-ui/react");
-    const assistantUiRequire = createRequire(assistantUiEntry);
+    const assistantUiRequire = getAssistantUiRequire(cwd);
+    if (!assistantUiRequire) return [];
     return [
       // A linked framework checkout can otherwise resolve the assistant-ui
       // imports in core's source graph from the checkout's React 19.2.7 peer
@@ -1072,6 +1091,8 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core",
   "@agent-native/core/client",
   "@agent-native/core/client/agent-chat",
+  "@agent-native/core/client/agentkit-chat",
+  "@agent-native/core/client/agent-native-icon",
   "@agent-native/core/client/analytics",
   "@agent-native/core/client/automation",
   "@agent-native/core/client/chat",
@@ -1104,6 +1125,9 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/resources",
   "@agent-native/core/client/route-chunk-recovery",
   "@agent-native/core/client/settings",
+  "@agent-native/core/client/theme",
+  "@agent-native/core/client/error-boundary",
+  "@agent-native/core/client/feedback",
   "@agent-native/core/client/ui",
   "@agent-native/core/client/uploads",
   "@agent-native/core/client/widgets",
@@ -1118,6 +1142,8 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/extensions",
   "@agent-native/core/client/tools", // legacy alias
   "@agent-native/core/client/org",
+  "@agent-native/core/client/org-switcher",
+  "@agent-native/core/client/team-page",
   "@agent-native/core/client/db-admin",
   "@agent-native/core/client/observability",
   "@agent-native/core/client/onboarding",
@@ -1177,6 +1203,22 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier:
         "@agent-native/core > @assistant-ui/react > assistant-stream/utils",
       packageName: "@agent-native/core",
+    },
+    {
+      specifier: "zustand",
+      packageName: "zustand",
+    },
+    { specifier: "zustand/react", packageName: "zustand" },
+    { specifier: "zustand/shallow", packageName: "zustand" },
+    { specifier: "zustand/traditional", packageName: "zustand" },
+    { specifier: "zustand/vanilla", packageName: "zustand" },
+    {
+      specifier: "use-sync-external-store/shim/index.js",
+      packageName: "use-sync-external-store",
+    },
+    {
+      specifier: "use-sync-external-store/shim/with-selector.js",
+      packageName: "use-sync-external-store",
     },
     { specifier: "@codemirror/lang-sql" },
     { specifier: "@codemirror/theme-one-dark" },
@@ -1361,6 +1403,143 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     });
 }
 
+function getAgentKitOptimizeDeps(cwd: string): string[] {
+  const standaloneChatEntries =
+    findCoreSrcDir(cwd) === null
+      ? [
+          ...(hasDep("@agent-native/agentkit", cwd)
+            ? [
+                "@agent-native/agentkit/react/components",
+                "@agent-native/agentkit/react/context",
+                "@agent-native/agentkit/react/root",
+              ]
+            : []),
+          ...(hasDep("@agent-native/core", cwd)
+            ? [
+                "@agent-native/core/client/agent-native-icon",
+                "@agent-native/core/client/agentkit-chat/composer",
+                "@agent-native/core/client/agentkit-chat/connections",
+                "@agent-native/core/client/agentkit-chat/questions",
+                "@agent-native/core/client/agentkit-chat/rail",
+                "@agent-native/core/client/agentkit-chat/suggestions",
+                "@agent-native/core/client/agentkit-chat/transport",
+                "@agent-native/core/client/analytics",
+                "@agent-native/core/client/api-path",
+                "@agent-native/core/client/error-boundary",
+                "@agent-native/core/client/hooks",
+                "@agent-native/core/client/i18n",
+                "@agent-native/core/client/navigation",
+                "@agent-native/core/client/org-switcher",
+                "@agent-native/core/client/route-chunk-recovery",
+                "@agent-native/core/client/theme",
+              ]
+            : []),
+          ...(hasDep("@agent-native/toolkit", cwd)
+            ? [
+                "@agent-native/toolkit/agentkit",
+                "@agent-native/toolkit/app-shell",
+                "@agent-native/toolkit/app-shell/header-actions",
+                "@agent-native/toolkit/chat-history/ChatHistoryList",
+                "@agent-native/toolkit/composer/runtime-adapters",
+                "@agent-native/toolkit/provider",
+                "@agent-native/toolkit/ui/button",
+                "@agent-native/toolkit/ui/hover-card",
+                "@agent-native/toolkit/ui/sheet",
+                "@agent-native/toolkit/ui/sonner",
+                "@agent-native/toolkit/ui/tooltip",
+              ]
+            : []),
+        ]
+      : [];
+
+  // AgentKit, Core, Toolkit, and their ESM dependencies stay native. Prebundle
+  // the small set of framework entry points needed to hydrate standalone Chat,
+  // plus React's shared singleton and the CommonJS leaf modules imported by
+  // those ESM graphs. Vite's normal discovery follows every lazy route in a
+  // generated app; that made a cold Chat optimize unrelated inspector,
+  // charting, syntax-highlighting, and editor surfaces before rendering.
+  return [
+    ...standaloneChatEntries,
+    ...(hasDep("react", cwd) ? ["react"] : []),
+    ...(hasDep("react-dom", cwd)
+      ? ["react-dom", "react-dom/client", "react-dom/server"]
+      : []),
+    ...(hasDep("@tanstack/react-query", cwd) ? ["@tanstack/react-query"] : []),
+    ...(hasDep("next-themes", cwd) ? ["next-themes"] : []),
+    ...(hasDep("react-router", cwd)
+      ? ["react-router", "react-router/dom"]
+      : []),
+    ...(hasDep("@radix-ui/react-tooltip", cwd)
+      ? ["@radix-ui/react-tooltip"]
+      : []),
+    ...(hasDep("@radix-ui/react-dialog", cwd)
+      ? ["@radix-ui/react-dialog"]
+      : []),
+    ...(hasDep("@radix-ui/react-hover-card", cwd)
+      ? ["@radix-ui/react-hover-card"]
+      : []),
+    ...(hasDep("@radix-ui/react-popover", cwd)
+      ? ["@radix-ui/react-popover"]
+      : []),
+    ...(hasDep("@radix-ui/react-slot", cwd) ? ["@radix-ui/react-slot"] : []),
+    ...(hasDep("@tabler/icons-react", cwd) ? ["@tabler/icons-react"] : []),
+    ...(hasDep("class-variance-authority", cwd)
+      ? ["class-variance-authority"]
+      : []),
+    ...(hasDep("sonner", cwd) ? ["sonner"] : []),
+    "@agent-native/core > @assistant-ui/react",
+    "@agent-native/core > @assistant-ui/react > assistant-stream > secure-json-parse",
+    "@agent-native/core > react-markdown > void-elements",
+    "@agent-native/core > react-markdown > unified > extend",
+    "@agent-native/core > react-markdown > hast-util-to-jsx-runtime > style-to-js",
+    "@agent-native/core > react-markdown > remark-parse > mdast-util-from-markdown > micromark > debug",
+    "@agent-native/core > recharts > decimal.js-light",
+    "@agent-native/core > recharts > eventemitter3",
+    "@agent-native/core > recharts > react-is",
+    ...(hasDep("clsx", cwd) ? ["clsx"] : []),
+    ...(hasDep("tailwind-merge", cwd) ? ["tailwind-merge"] : []),
+    ...(hasDep("zustand", cwd) ? ["zustand", "zustand/shallow"] : []),
+    ...(hasDep("@agent-native/toolkit", cwd)
+      ? [
+          "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
+          "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/with-selector.js",
+          "@agent-native/toolkit > tiptap-markdown > markdown-it-task-lists",
+        ]
+      : []),
+  ];
+}
+
+function getAgentKitOptimizeExcludes(
+  cwd: string,
+  command?: AgentNativeViteCommand,
+): string[] {
+  // Published standalone apps do not have a source checkout to keep hot, so
+  // serving every framework module as native ESM only creates a cold-start
+  // waterfall in Vite dev. Monorepo apps keep the exclusions below so HMR
+  // continues to resolve framework changes from source.
+  if (
+    (command === "serve" || (!command && !isBuildCommand(command))) &&
+    findCoreSrcDir(cwd) === null
+  )
+    return [];
+
+  // These packages already ship browser-native ESM. Prebundling them makes
+  // Vite traverse the entire framework graph before the generated Chat server
+  // can answer its first action request, which can starve constrained CI and
+  // serverless development hosts. Their actual third-party CommonJS seams stay
+  // in getAgentKitOptimizeDeps above.
+  return [
+    "@agent-native/agentkit",
+    "@agent-native/agentkit-react",
+    "@agent-native/agentkit-client",
+    "@agent-native/agentkit-protocol",
+    "@agent-native/agentkit-adapters",
+    "@agent-native/core",
+    ...CORE_CLIENT_SUBPATHS,
+    "@agent-native/toolkit",
+  ];
+}
+
 /**
  * In monorepo dev mode, resolve @agent-native/core imports to source (src/)
  * instead of dist/ so that Vite HMR picks up changes without rebuilding.
@@ -1385,6 +1564,14 @@ function getCoreSourceAliases(
     "@agent-native/core/client/agent-chat": path.join(
       coreSrc,
       "client/agent-chat/index.ts",
+    ),
+    "@agent-native/core/client/agentkit-chat": path.join(
+      coreSrc,
+      "client/agentkit-chat/index.ts",
+    ),
+    "@agent-native/core/client/agent-native-icon": path.join(
+      coreSrc,
+      "client/components/icons/AgentNativeIcon.tsx",
     ),
     "@agent-native/core/client/analytics": path.join(
       coreSrc,
@@ -1511,6 +1698,15 @@ function getCoreSourceAliases(
       coreSrc,
       "client/settings/index.ts",
     ),
+    "@agent-native/core/client/theme": path.join(coreSrc, "client/theme.ts"),
+    "@agent-native/core/client/error-boundary": path.join(
+      coreSrc,
+      "client/ErrorBoundary.tsx",
+    ),
+    "@agent-native/core/client/feedback": path.join(
+      coreSrc,
+      "client/FeedbackButton.tsx",
+    ),
     "@agent-native/core/client/ui": path.join(coreSrc, "client/ui/index.ts"),
     "@agent-native/core/client/uploads": path.join(
       coreSrc,
@@ -1548,6 +1744,14 @@ function getCoreSourceAliases(
       "client/extensions/index.ts",
     ),
     "@agent-native/core/client/org": path.join(coreSrc, "client/org/index.ts"),
+    "@agent-native/core/client/org-switcher": path.join(
+      coreSrc,
+      "client/org/OrgSwitcher.tsx",
+    ),
+    "@agent-native/core/client/team-page": path.join(
+      coreSrc,
+      "client/org/TeamPage.tsx",
+    ),
     "@agent-native/core/client/db-admin": path.join(
       coreSrc,
       "client/db-admin/index.ts",
@@ -1986,12 +2190,6 @@ function frameworkDevDynamicForwarder(): Plugin {
       server.middlewares.use((req, _res, next) => {
         const url = req.url;
         if (url && isFrameworkDynamicDevPath(url, server.config.base)) {
-          const accept = req.headers["accept"];
-          if (typeof accept !== "string" || !/\btext\/html\b/.test(accept)) {
-            req.headers["accept"] = accept
-              ? `text/html,${accept}`
-              : "text/html";
-          }
           // Embed-start uses document/iframe to select its transplant response,
           // and Nitro's own dev classifier already treats document/iframe/frame
           // as non-asset, so those (and an already-"empty" value) pass through
@@ -3327,11 +3525,40 @@ function getConfiguredAppBasePath(): { appBasePath: string; base: string } {
 function createNitroDevPlugin(
   options: Pick<ClientConfigOptions, "nitro">,
   appBasePath: string,
+  cwd = process.cwd(),
 ) {
   const nitroOptions = options.nitro ?? {};
+  const configuredExperimental = (
+    nitroOptions as { experimental?: Record<string, unknown> }
+  ).experimental;
+  const configuredVite = (
+    configuredExperimental as
+      | { vite?: { services?: Record<string, unknown> } }
+      | undefined
+  )?.vite;
+  const ssrEntry = resolveNitroSsrServiceEntry(
+    path.resolve(
+      cwd,
+      typeof nitroOptions.rootDir === "string" ? nitroOptions.rootDir : ".",
+    ),
+  );
   return nitroVitePlugin({
     serverDir: "./server",
     ...nitroOptions,
+    experimental: {
+      ...configuredExperimental,
+      ...(ssrEntry
+        ? {
+            vite: {
+              ...configuredVite,
+              services: {
+                ...configuredVite?.services,
+                ssr: configuredVite?.services?.ssr ?? { entry: ssrEntry },
+              },
+            },
+          }
+        : {}),
+    },
     replace: {
       ...(nitroOptions as { replace?: Record<string, string> }).replace,
       // Netlify's netlify.toml environment is available to the build but not
@@ -3369,19 +3596,30 @@ function createNitroDevPlugin(
   } as any);
 }
 
+function resolveNitroSsrServiceEntry(rootDir: string): string | undefined {
+  for (const extension of [".ts", ".tsx", ".js", ".jsx", ".mjs"]) {
+    const candidate = path.join(rootDir, `ssr-entry${extension}`);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 function arrayFrom<T>(value: T | T[] | undefined): T[] {
   if (value === undefined) return [];
   return Array.isArray(value) ? value : [value];
 }
 
+const LOCAL_WORKSPACE_SOURCE_ALIAS_EXCLUDES = new Set([
+  "@agent-native/pinpoint",
+]);
+
 function localWorkspacePackageAliases(
   packages: Array<{ packageName: string; packageDir: string }>,
 ): any[] {
   const aliases: any[] = [];
-  const sourceAliasExcludes = new Set(["@agent-native/pinpoint"]);
 
   for (const { packageName, packageDir } of packages) {
-    if (sourceAliasExcludes.has(packageName)) continue;
+    if (LOCAL_WORKSPACE_SOURCE_ALIAS_EXCLUDES.has(packageName)) continue;
     const pkgPath = path.join(packageDir, "package.json");
     if (!fs.existsSync(pkgPath)) continue;
 
@@ -3586,6 +3824,42 @@ function authClientAssetPlugin(): Plugin {
   };
 }
 
+/**
+ * Vite 8's Rolldown optimizer can leave use-sync-external-store's CommonJS
+ * shims unconverted when they are reached through linked framework packages.
+ * React has shipped the underlying hook since React 18, so expose equivalent
+ * ESM client modules and keep Node's package implementation for SSR.
+ */
+function externalStoreShimPlugin(): Plugin {
+  const sourceEntry = path.resolve(__dirname, "external-store-shim.ts");
+  const entry = fs.existsSync(sourceEntry)
+    ? sourceEntry
+    : path.resolve(__dirname, "external-store-shim.js");
+  return {
+    name: "agent-native-external-store-esm-shim",
+    enforce: "pre",
+    resolveId(source, _importer, options) {
+      if (options?.ssr) return null;
+      if (
+        source === "use-sync-external-store" ||
+        source === "use-sync-external-store/shim" ||
+        source === "use-sync-external-store/shim/index.js"
+      ) {
+        return entry;
+      }
+      if (
+        source === "use-sync-external-store/with-selector" ||
+        source === "use-sync-external-store/with-selector.js" ||
+        source === "use-sync-external-store/shim/with-selector" ||
+        source === "use-sync-external-store/shim/with-selector.js"
+      ) {
+        return entry;
+      }
+      return null;
+    },
+  };
+}
+
 function createAgentNativePlugins(
   options: ClientConfigOptions | AgentNativeVitePluginOptions,
   {
@@ -3601,7 +3875,7 @@ function createAgentNativePlugins(
   },
 ): any[] {
   const { appBasePath } = getConfiguredAppBasePath();
-  const nitroPlugin = createNitroDevPlugin(options, appBasePath);
+  const nitroPlugin = createNitroDevPlugin(options, appBasePath, process.cwd());
   const includeNitro = !isBuildCommand(command);
   const presetMarkerPlugin = nitroPresetMarkerPlugin(options);
 
@@ -3613,6 +3887,7 @@ function createAgentNativePlugins(
     // the server, so we can't blanket-stub it here).
     ssrStubPlugin([...ALWAYS_SSR_STUBBED, ...(options.ssrStubs ?? [])]),
     ...userPlugins,
+    externalStoreShimPlugin(),
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
@@ -3714,6 +3989,7 @@ function createAgentNativeConfig(
   workspaceConfig?: AgentNativeConfigInput,
 ): UserConfig {
   const cwd = process.cwd();
+  const usesAgentKit = hasDep("@agent-native/agentkit", cwd);
   const configContext = createAgentNativeConfigContext(command, mode);
   const projectConfigInput = projectConfig ?? options.agentNativeConfig;
 
@@ -3815,9 +4091,18 @@ function createAgentNativeConfig(
     ? [path.resolve(cwd, "../../node_modules")]
     : [];
   const packageWorkspaceRoot = workspaceRoot ?? findPnpmWorkspaceRoot(cwd);
+  const isStandaloneAgentKitDev =
+    usesAgentKit &&
+    (command === "serve" || (!command && !isBuildCommand(command))) &&
+    findCoreSrcDir(cwd) === null;
   const localWorkspacePackageDeps = findLocalWorkspacePackageDeps(
     cwd,
     packageWorkspaceRoot,
+  ).filter(
+    (pkg) =>
+      !(
+        isStandaloneAgentKitDev && pkg.packageName.startsWith("@agent-native/")
+      ),
   );
   const localWorkspacePackageAllow = localWorkspacePackageDeps.map(
     (pkg) => pkg.packageDir,
@@ -4055,8 +4340,17 @@ function createAgentNativeConfig(
         },
     optimizeDeps: {
       ...userOptimizeDeps,
+      // AgentKit's CommonJS compatibility seams are enumerated below. The
+      // focused entries supplied by the Chat template cover its generated
+      // route graph, so a second discovery pass cannot invalidate the browser
+      // module graph and reload the active document mid-response.
+      noDiscovery: usesAgentKit
+        ? (userConfig.optimizeDeps?.noDiscovery ?? true)
+        : userConfig.optimizeDeps?.noDiscovery,
       include: [
-        ...getDefaultOptimizeDeps(cwd),
+        ...(usesAgentKit
+          ? getAgentKitOptimizeDeps(cwd)
+          : getDefaultOptimizeDeps(cwd)),
         ...(hasDep("@agent-native/pinpoint", cwd)
           ? ["@agent-native/pinpoint/react"]
           : []),
@@ -4071,6 +4365,16 @@ function createAgentNativeConfig(
       // serves stale code even after the source / dist is updated.
       exclude: [
         ...(findCoreSrcDir(cwd) !== null ? CORE_CLIENT_SUBPATHS : []),
+        ...(usesAgentKit ? getAgentKitOptimizeExcludes(cwd, command) : []),
+        // Workspace dependencies resolve to source and must remain outside the
+        // optimizer for HMR. This supplements the explicit AgentKit framework
+        // exclusions above for every other local source package.
+        ...localWorkspacePackageDeps
+          .filter(
+            (pkg) =>
+              !LOCAL_WORKSPACE_SOURCE_ALIAS_EXCLUDES.has(pkg.packageName),
+          )
+          .map((pkg) => pkg.packageName),
         ...(userConfig.optimizeDeps?.exclude ?? []),
         ...(options.optimizeDeps?.exclude ?? []),
       ],
@@ -4081,6 +4385,7 @@ function createAgentNativeConfig(
               ...(userConfig.optimizeDeps?.rolldownOptions ?? {}),
               plugins: [
                 ...arrayFrom(userConfig.optimizeDeps?.rolldownOptions?.plugins),
+                externalStoreShimPlugin(),
                 disableDepSourcemapsPlugin,
               ],
             },
@@ -4201,6 +4506,7 @@ export {
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
   nitroModuleGraphSignature as _nitroModuleGraphSignature,
+  resolveNitroSsrServiceEntry as _resolveNitroSsrServiceEntry,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
   installReactRouterVirtualInvalidationMirror as _installReactRouterVirtualInvalidationMirror,
   mirrorReactRouterVirtualInvalidation as _mirrorReactRouterVirtualInvalidation,

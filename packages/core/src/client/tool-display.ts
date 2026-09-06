@@ -40,6 +40,57 @@ export function humanizeToolLabelText(
   return text.split(tool).join(humanizeToolName(tool));
 }
 
+export interface ToolCallRowContext {
+  text: string;
+  mono: boolean;
+  kind: "file" | "data" | "url";
+}
+
+const TOOL_CALL_CONTEXT_KEYS = [
+  "cmd",
+  "command",
+  "script",
+  "sql",
+  "query",
+  "pattern",
+  "path",
+  "filePath",
+  "filename",
+  "url",
+] as const;
+
+export function resolveToolCallRowContext(
+  args: Record<string, unknown> | undefined,
+): ToolCallRowContext | null {
+  if (!args) return null;
+
+  for (const key of TOOL_CALL_CONTEXT_KEYS) {
+    const value = args[key];
+    if (typeof value !== "string") continue;
+    const text = value.trim().replace(/\s*\n\s*/g, " ");
+    if (!text) continue;
+    return {
+      text,
+      kind:
+        key === "path" || key === "filePath" || key === "filename"
+          ? "file"
+          : key === "url"
+            ? "url"
+            : "data",
+      mono:
+        key === "cmd" ||
+        key === "command" ||
+        key === "script" ||
+        key === "sql" ||
+        key === "path" ||
+        key === "filePath" ||
+        key === "filename",
+    };
+  }
+
+  return null;
+}
+
 type ToolDisplayPart = {
   type?: string;
   toolCallId?: string;

@@ -24,10 +24,18 @@ export {
   type McpAccessSettingsProps,
 } from "./McpAccessSettings.js";
 export {
+  findMcpConnectionSuggestionIntegration,
   McpConnectionSuggestion,
   type McpConnectionSuggestionProps,
   type McpConnectionSuggestionVariant,
 } from "./McpConnectionSuggestion.js";
+export {
+  McpAgentKitConnectionRequestCard,
+  McpAgentKitConnectionResume,
+  type McpAgentKitConnectionRequestCardProps,
+  type McpAgentKitConnectionResumeProps,
+  type McpAgentKitConnectionTarget,
+} from "./McpAgentKitConnectionRequest.js";
 export {
   McpServersApiProvider,
   useMcpServersApi,

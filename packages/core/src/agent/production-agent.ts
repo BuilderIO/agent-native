@@ -11,12 +11,14 @@ import {
 import type { EventHandler as H3EventHandler } from "h3";
 
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
-import type { Task } from "../a2a/types.js";
+import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
+  AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
+  isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
@@ -2365,7 +2367,7 @@ export function createConnectedAgentReferenceEventRelay(input: {
     observeActivity,
     observePollUpdate,
     emitResponseText,
-    finish(status: "done" | "error") {
+    finish(status: "done" | "pending" | "error") {
       input.send({
         type: "agent_call",
         agent: input.agent,
@@ -2428,9 +2430,59 @@ export async function callConnectedAgentReference(input: {
     relay.finish("done");
     return responseText;
   } catch (error) {
+    const connectionRequest = parseA2AConnectionRequest(error);
+    if (connectionRequest) {
+      relay.finish("pending");
+      throw new AgentConnectionRequiredError(
+        connectionRequest.detail ??
+          `Connect ${connectionRequest.provider} to continue.`,
+        {
+          provider: connectionRequest.provider,
+          reason: connectionRequest.reason,
+          ...(connectionRequest.appId
+            ? { appId: connectionRequest.appId }
+            : {}),
+          source: { id: input.agent, kind: "agent", label: input.agent },
+        },
+      );
+    }
     relay.finish("error");
     throw error;
   }
+}
+
+function parseA2AConnectionRequest(
+  error: unknown,
+): A2AConnectionRequestMetadata | null {
+  if (!error || typeof error !== "object" || !("task" in error)) return null;
+  const task = (error as { task?: Task }).task;
+  const value = task?.status.message?.metadata?.agentNativeConnectionRequest;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  const provider =
+    typeof request.provider === "string" ? request.provider.trim() : "";
+  const reason = request.reason;
+  if (
+    request.version !== 1 ||
+    !provider ||
+    provider.length > 120 ||
+    (reason !== "connect" &&
+      reason !== "grant" &&
+      reason !== "reauthorize" &&
+      reason !== "admin_required")
+  ) {
+    return null;
+  }
+  const appId = typeof request.appId === "string" ? request.appId.trim() : "";
+  const detail =
+    typeof request.detail === "string" ? request.detail.trim() : "";
+  return {
+    version: 1,
+    provider,
+    reason,
+    ...(appId && appId.length <= 120 ? { appId } : {}),
+    ...(detail && detail.length <= 1_000 ? { detail } : {}),
+  };
 }
 
 const MAX_CONNECTED_AGENT_PROGRESS_DETAIL_CHARS = 200;
@@ -5938,6 +5990,16 @@ export async function runAgentLoop(opts: {
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
+    let requestedConnection:
+      | {
+          requestId: string;
+          provider: string;
+          reason: "connect" | "grant" | "reauthorize" | "admin_required";
+          appId?: string;
+          detail: string;
+          source?: { id: string; kind?: string; label?: string };
+        }
+      | undefined;
     // An `endsTurn` action ran and handed control to the user. Distinct from
     // `requestedActionStop`, which also covers failure stops that must not
     // suppress the remaining tool calls.
@@ -6916,7 +6978,25 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          if (isAgentActionStopError(err)) {
+          if (isAgentConnectionRequiredError(err)) {
+            const message =
+              sanitizeToolErrorValue(err.message) ||
+              `Connect ${err.provider} to continue.`;
+            result = sanitizeToolErrorValue(err.toolResult || message);
+            requestedConnection ??= {
+              requestId: randomUUID(),
+              provider: err.provider,
+              reason: err.reason,
+              appId: err.appId,
+              detail: message,
+              source: err.source,
+            };
+            turnYieldedToUser = true;
+            requestedActionStop ??= {
+              message,
+              errorCode: "connection-required",
+            };
+          } else if (isAgentActionStopError(err)) {
             const message =
               sanitizeToolErrorValue(err.message) ||
               `Stopped after ${toolCall.name} failed.`;
@@ -7151,7 +7231,11 @@ export async function runAgentLoop(opts: {
       // TypeScript can't track ??= through async closures; cast to known type.
       const stop = requestedActionStop as TerminalActionStop;
       terminalActionStop = stop;
-      sendTerminalActionStop(stop);
+      if (requestedConnection) {
+        send({ type: "connection_required", ...requestedConnection });
+      } else {
+        sendTerminalActionStop(stop);
+      }
       break;
     }
   }
@@ -7272,6 +7356,12 @@ export async function runAgentLoop(opts: {
     reportOutcome({
       state: "input_required",
       code: "awaiting_user_input",
+      message: finalTerminalActionStop.message,
+    });
+  } else if (finalTerminalActionStop?.errorCode === "connection-required") {
+    reportOutcome({
+      state: "input_required",
+      code: "connection_required",
       message: finalTerminalActionStop.message,
     });
   } else if (finalTerminalActionStop) {

@@ -355,7 +355,7 @@ export default function ChatRoute() {
           agent
             ? `Ask ${agent.name}...`
             : t("dispatch.pages.chatPromptPlaceholder", {
-                defaultValue: "Ask Dispatch...",
+                defaultValue: "Tell Dispatch what you’d like to make happen…",
               })
         }
         composerSlot={

@@ -1,0 +1,95 @@
+{
+  "name": "@agent-native/agentkit",
+  "version": "0.1.0",
+  "description": "Provider-neutral AgentKit runtime for composable agent-native conversations.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/agentkit"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./react/headless": {
+      "types": "./dist/react-headless.d.ts",
+      "import": "./dist/react-headless.js"
+    },
+    "./react/chat": {
+      "types": "./dist/react-chat.d.ts",
+      "import": "./dist/react-chat.js"
+    },
+    "./react/components": {
+      "types": "./dist/react-components.d.ts",
+      "import": "./dist/react-components.js"
+    },
+    "./react/context": {
+      "types": "./dist/react-context.d.ts",
+      "import": "./dist/react-context.js"
+    },
+    "./react/root": {
+      "types": "./dist/react-root.d.ts",
+      "import": "./dist/react-root.js"
+    },
+    "./react/streaming-text": {
+      "types": "./dist/react-streaming-text.d.ts",
+      "import": "./dist/react-streaming-text.js"
+    },
+    "./react/styles.css": "./dist/styles.css"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc && cp ../agentkit-react/src/styles.css dist/styles.css",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@agent-native/agentkit-client": "workspace:*",
+    "@agent-native/agentkit-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@agent-native/agentkit-adapters": "workspace:^",
+    "@agent-native/agentkit-react": "workspace:^"
+  },
+  "peerDependenciesMeta": {
+    "@agent-native/agentkit-adapters": {
+      "optional": true
+    },
+    "@agent-native/agentkit-react": {
+      "optional": true
+    }
+  }
+}

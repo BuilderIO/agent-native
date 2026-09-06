@@ -100,6 +100,18 @@
       "verification": ["pnpm typecheck"]
     },
     {
+      "id": "toolkit/clipboard",
+      "label": "Clipboard helper",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["clipboard"],
+      "entrypoints": ["./clipboard"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/clipboard.ts"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [],
+      "verification": ["pnpm typecheck"]
+    },
+    {
       "id": "toolkit/collab-ui",
       "label": "Collaboration UI",
       "catalog": "toolkit-ui",
@@ -199,7 +211,9 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@assistant-ui/react",
+        "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-popover",
+        "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
@@ -208,7 +222,9 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "class-variance-authority",
         "clsx",
+        "culori",
         "react",
         "react-dom",
         "sonner",
@@ -220,6 +236,16 @@
         "@agent-native/toolkit/ui/skeleton"
       ],
       "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/agentkit",
+      "label": "AgentKit UI facade",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["agentkit"],
+      "entrypoints": ["./agentkit"],
+      "strategy": "protected-seam",
+      "seam": "@agent-native/toolkit/agentkit",
+      "protectedImports": ["@agent-native/toolkit/agentkit"]
     },
     {
       "id": "toolkit/conformance",
@@ -584,6 +610,30 @@
       "sourceEntries": ["src/utils.ts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": ["clsx", "tailwind-merge"],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/streaming-text-smoothing",
+      "label": "Streaming text smoothing",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["streaming-text-smoothing"],
+      "entrypoints": ["./streaming-text-smoothing"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/streaming-text-smoothing.ts"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/markdown-block-split",
+      "label": "Streaming Markdown block splitting",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["markdown-block-split"],
+      "entrypoints": ["./markdown-block-split"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/markdown-block-split.ts"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [],
       "verification": ["pnpm typecheck"]
     },
     {

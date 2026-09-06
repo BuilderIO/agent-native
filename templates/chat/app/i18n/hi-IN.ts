@@ -30,6 +30,8 @@ const messages = {
     newChat: "नई चैट",
     optionsFor: "इसके लिए विकल्प",
     pinChat: "चैट पिन करें",
+    pinned: "पिन की गई",
+    recents: "हाल की",
     renameChat: "चैट का नाम बदलें",
     renameFailed: "नाम बदलना विफल",
     renameThread: "थ्रेड का नाम बदलें",
@@ -37,6 +39,7 @@ const messages = {
     suggestionCapabilities: "यह ऐप क्या कर सकता है?",
     suggestionCustomize: "इस ऐप को कस्टमाइज करने में मेरी मदद करें",
     unpinChat: "चैट अनपिन करें",
+    untitledChat: "बिना शीर्षक वाली चैट",
   },
   navigation: {
     chat: "चैट",

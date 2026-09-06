@@ -904,9 +904,10 @@ jobs:
 
       # Build the extracted recap CLI before core so its compatibility shim is
       # available to source imports, then produce the real serverless bundle.
-      - name: Build recap CLI, toolkit, core, and creative context
+      - name: Build recap CLI, AgentKit protocol, toolkit, core, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
+          pnpm --filter @agent-native/agentkit-protocol build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
@@ -976,6 +977,7 @@ jobs:
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/toolkit build
+          pnpm --filter @agent-native/agentkit-protocol build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
 

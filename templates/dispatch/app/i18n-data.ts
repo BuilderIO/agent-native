@@ -361,8 +361,8 @@ const enUS = {
       chatAcrossApps: "Chat across your apps",
       chatAcrossAppsDescription:
         "Route work, inspect status, or create something new from one place.",
-      overviewPromptPlaceholder: "Ask Dispatch anything...",
-      chatPromptPlaceholder: "Ask Dispatch...",
+      overviewPromptPlaceholder: "What would you like to make happen?",
+      chatPromptPlaceholder: "Tell Dispatch what you’d like to make happen…",
       browserChatUnavailableTitle: "Browser chat session unavailable",
       browserChatUnavailableDescription:
         "Reconnect from the Agent-Native browser extension.",
@@ -1256,8 +1256,8 @@ export const messagesByLocale = {
           chatAcrossApps: "跨应用聊天",
           chatAcrossAppsDescription:
             "在一个地方分派工作、检查状态或创建新内容。",
-          overviewPromptPlaceholder: "向 Dispatch 提问...",
-          chatPromptPlaceholder: "询问 Dispatch...",
+          overviewPromptPlaceholder: "想让 Dispatch 帮你做什么？",
+          chatPromptPlaceholder: "告诉 Dispatch 你想完成什么…",
           browserChatUnavailableTitle: "浏览器聊天会话不可用",
           browserChatUnavailableDescription:
             "请从 Agent-Native 浏览器扩展重新连接。",
@@ -1686,8 +1686,8 @@ export const messagesByLocale = {
           chatAcrossApps: "Chatea con todas tus aplicaciones",
           chatAcrossAppsDescription:
             "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
-          overviewPromptPlaceholder: "Pregunta lo que quieras a Dispatch...",
-          chatPromptPlaceholder: "Pregunta a Dispatch...",
+          overviewPromptPlaceholder: "¿Qué te gustaría hacer?",
+          chatPromptPlaceholder: "Dile a Dispatch qué quieres hacer…",
           browserChatUnavailableTitle:
             "La sesión de chat del navegador no está disponible",
           browserChatUnavailableDescription:
@@ -2125,8 +2125,8 @@ export const messagesByLocale = {
           chatAcrossApps: "Discutez avec toutes vos applications",
           chatAcrossAppsDescription:
             "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
-          overviewPromptPlaceholder: "Demandez n’importe quoi à Dispatch…",
-          chatPromptPlaceholder: "Demandez à Dispatch…",
+          overviewPromptPlaceholder: "Que souhaitez-vous faire ?",
+          chatPromptPlaceholder: "Dites à Dispatch ce que vous voulez faire…",
           browserChatUnavailableTitle:
             "La session de chat du navigateur est indisponible",
           browserChatUnavailableDescription:
@@ -2554,8 +2554,8 @@ export const messagesByLocale = {
           chatAcrossApps: "App-übergreifend chatten",
           chatAcrossAppsDescription:
             "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
-          overviewPromptPlaceholder: "Frage Dispatch alles...",
-          chatPromptPlaceholder: "Dispatch fragen...",
+          overviewPromptPlaceholder: "Was möchtest du erledigen?",
+          chatPromptPlaceholder: "Sag Dispatch, was du erledigen möchtest…",
           browserChatUnavailableTitle: "Browser-Chat-Sitzung nicht verfügbar",
           browserChatUnavailableDescription:
             "Stelle die Verbindung über die Agent-Native-Erweiterung erneut her.",
@@ -2978,8 +2978,8 @@ export const messagesByLocale = {
           chatAcrossApps: "アプリを横断してチャット",
           chatAcrossAppsDescription:
             "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
-          overviewPromptPlaceholder: "Dispatch に何でも質問...",
-          chatPromptPlaceholder: "Dispatch に質問...",
+          overviewPromptPlaceholder: "何をしたいですか？",
+          chatPromptPlaceholder: "Dispatch にやりたいことを伝える…",
           browserChatUnavailableTitle: "ブラウザーチャットを利用できません",
           browserChatUnavailableDescription:
             "Agent-Native ブラウザー拡張機能から再接続してください。",
@@ -3396,8 +3396,8 @@ export const messagesByLocale = {
           chatAcrossApps: "앱 전체에서 채팅",
           chatAcrossAppsDescription:
             "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
-          overviewPromptPlaceholder: "Dispatch에 무엇이든 물어보세요...",
-          chatPromptPlaceholder: "Dispatch에 질문...",
+          overviewPromptPlaceholder: "무엇을 하고 싶으신가요?",
+          chatPromptPlaceholder: "Dispatch에 원하는 작업을 알려주세요…",
           browserChatUnavailableTitle: "브라우저 채팅 세션을 사용할 수 없음",
           browserChatUnavailableDescription:
             "Agent-Native 브라우저 확장 프로그램에서 다시 연결하세요.",
@@ -3825,8 +3825,8 @@ export const messagesByLocale = {
           chatAcrossApps: "Converse entre seus apps",
           chatAcrossAppsDescription:
             "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
-          overviewPromptPlaceholder: "Pergunte qualquer coisa ao Dispatch...",
-          chatPromptPlaceholder: "Pergunte ao Dispatch...",
+          overviewPromptPlaceholder: "O que você gostaria de fazer?",
+          chatPromptPlaceholder: "Diga ao Dispatch o que você quer fazer…",
           browserChatUnavailableTitle:
             "Sessão de chat do navegador indisponível",
           browserChatUnavailableDescription:
@@ -4242,8 +4242,8 @@ export const messagesByLocale = {
           chatAcrossApps: "अपने सभी ऐप्स में चैट करें",
           chatAcrossAppsDescription:
             "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
-          overviewPromptPlaceholder: "Dispatch से कुछ भी पूछें...",
-          chatPromptPlaceholder: "Dispatch से पूछें...",
+          overviewPromptPlaceholder: "आप क्या करना चाहते हैं?",
+          chatPromptPlaceholder: "Dispatch को बताएं कि आप क्या करना चाहते हैं…",
           browserChatUnavailableTitle: "ब्राउज़र चैट सत्र उपलब्ध नहीं है",
           browserChatUnavailableDescription:
             "Agent-Native ब्राउज़र एक्सटेंशन से फिर से कनेक्ट करें।",
@@ -4689,8 +4689,8 @@ export const messagesByLocale = {
           chatAcrossApps: "تحدث عبر تطبيقاتك",
           chatAcrossAppsDescription:
             "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",
-          overviewPromptPlaceholder: "اسأل Dispatch عن أي شيء...",
-          chatPromptPlaceholder: "اسأل Dispatch...",
+          overviewPromptPlaceholder: "ماذا تريد أن تفعل؟",
+          chatPromptPlaceholder: "أخبر Dispatch بما تريد إنجازه…",
           browserChatUnavailableTitle: "جلسة دردشة المتصفح غير متاحة",
           browserChatUnavailableDescription:
             "أعد الاتصال من إضافة Agent-Native للمتصفح.",
