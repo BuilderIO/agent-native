@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { mcpToolInputSchema } from "../../../packages/core/src/mcp/tool-input-schema.js";
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
@@ -58,6 +59,108 @@ describe("Content action-owned agent catalogs", () => {
       expect(action.mcpTool).toBe(true);
       expect(action.tool.description.length).toBeGreaterThan(80);
     }
+  });
+
+  it("keeps Content's composed MCP input schemas complete while declaring object roots", () => {
+    const migrationParameters = migrateContentDatabaseRows.tool.parameters;
+    const batchParameters = updateDatabaseItems.tool.parameters;
+    const migrationInputSchema = mcpToolInputSchema(
+      "migrate-content-database-rows",
+      migrationParameters,
+    );
+    const batchInputSchema = mcpToolInputSchema(
+      "update-database-items",
+      batchParameters,
+    );
+
+    expect(migrationParameters?.anyOf).toBeDefined();
+    expect(migrationInputSchema).toEqual({
+      ...migrationParameters,
+      type: "object",
+    });
+    expect(migrationInputSchema.anyOf).toBe(migrationParameters?.anyOf);
+    expect(migrationInputSchema.anyOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            phase: expect.objectContaining({ const: "validate" }),
+            plan: expect.anything(),
+          }),
+          required: expect.arrayContaining(["phase", "plan"]),
+        }),
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            phase: expect.objectContaining({ const: "verify" }),
+            expectedPostDigest: expect.anything(),
+          }),
+          required: expect.arrayContaining([
+            "phase",
+            "databaseId",
+            "idempotencyKey",
+            "expectedPostDigest",
+          ]),
+        }),
+      ]),
+    );
+
+    expect(batchParameters?.allOf).toBeDefined();
+    expect(batchInputSchema).toEqual({
+      ...batchParameters,
+      type: "object",
+    });
+    expect(batchInputSchema.allOf).toBe(batchParameters?.allOf);
+    expect(batchInputSchema.allOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            propertyId: expect.anything(),
+            value: expect.anything(),
+          }),
+          required: expect.arrayContaining(["propertyId", "value"]),
+        }),
+      ]),
+    );
+  });
+
+  it("retains Content action validation for composed MCP input schemas", () => {
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({
+        phase: "verify",
+        databaseId: "database_1",
+        idempotencyKey: "migration_1",
+        expectedPostDigest: "digest_1",
+      }).success,
+    ).toBe(true);
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({
+        phase: "verify",
+        databaseId: "database_1",
+        idempotencyKey: "migration_1",
+      }).success,
+    ).toBe(false);
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({ phase: "unknown" }).success,
+    ).toBe(false);
+    expect(migrateContentDatabaseRows.schema.safeParse("verify").success).toBe(
+      false,
+    );
+
+    expect(
+      updateDatabaseItems.schema.safeParse({
+        databaseId: "database_1",
+        itemIds: ["item_1"],
+        propertyId: "property_1",
+        value: { nested: ["unchanged JSON"] },
+      }).success,
+    ).toBe(true);
+    expect(
+      updateDatabaseItems.schema.safeParse({
+        databaseId: "database_1",
+        propertyId: "property_1",
+        value: "missing selection",
+      }).success,
+    ).toBe(false);
+    expect(updateDatabaseItems.schema.safeParse([]).success).toBe(false);
   });
 
   it("keeps schema, destructive, and migration actions out of compact MCP discovery", () => {
