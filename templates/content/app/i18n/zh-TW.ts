@@ -917,6 +917,12 @@ const messages = {
     value: "值",
     viewName: "檢視名稱",
     wrapAllContent: "換行顯示所有內容",
+    wrapAllColumns: "所有欄自動換行",
+    wrapContent: "內容自動換行",
+    freezeThroughColumn: "凍結至此欄",
+    unfreezeColumns: "取消凍結欄",
+    selectAllLoadedRows: "選取所有已載入的行",
+    clearSelectedRows: "取消選取的行",
     addADatePropertyToUseCalendarView: "新增日期屬性以使用行事曆檢視。",
     addADatePropertyToUseTimelineView: "新增日期屬性以使用時間線檢視。",
     addAStatusSelectMultiSelectOrCheckbox2:

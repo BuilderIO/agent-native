@@ -372,6 +372,8 @@ export interface ContentDatabaseView {
   hideEmptyGroups?: boolean;
   calculations?: Record<string, ContentDatabaseColumnCalculation>;
   wrapCells?: boolean;
+  columnWrapOverrides?: Record<string, boolean>;
+  frozenThroughColumnId?: string | null;
   rowDensity?: ContentDatabaseRowDensity;
   openPagesIn?: ContentDatabaseOpenPagesIn;
   formQuestions?: ContentDatabaseFormQuestion[];

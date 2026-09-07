@@ -220,12 +220,13 @@ export function parseDatabaseViewConfig(
   value: string | null | undefined,
 ): ContentDatabaseViewConfig {
   if (!value) return defaultDatabaseViewConfig();
+  let parsed: Partial<ContentDatabaseViewConfig>;
   try {
-    const parsed = JSON.parse(value) as Partial<ContentDatabaseViewConfig>;
-    return normalizeDatabaseViewConfig(parsed);
+    parsed = JSON.parse(value) as Partial<ContentDatabaseViewConfig>;
   } catch {
     return defaultDatabaseViewConfig();
   }
+  return normalizeDatabaseViewConfig(parsed);
 }
 
 export function serializeDatabaseViewConfig(
@@ -326,6 +327,12 @@ function defaultDatabaseView(
     hideEmptyGroups: values.hideEmptyGroups === true,
     calculations: values.calculations ?? {},
     wrapCells: values.wrapCells === true,
+    columnWrapOverrides: normalizeColumnWrapOverrides(
+      values.columnWrapOverrides,
+    ),
+    frozenThroughColumnId: normalizeFrozenThroughColumnId(
+      values.frozenThroughColumnId,
+    ),
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
@@ -380,6 +387,10 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     hideEmptyGroups: view.hideEmptyGroups === true,
     calculations: normalizeCalculations(view.calculations),
     wrapCells: view.wrapCells === true,
+    columnWrapOverrides: normalizeColumnWrapOverrides(view.columnWrapOverrides),
+    frozenThroughColumnId: normalizeFrozenThroughColumnId(
+      view.frozenThroughColumnId,
+    ),
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
@@ -435,6 +446,31 @@ function normalizeCalculations(value: unknown) {
       typeof entry[0] === "string" && isDatabaseColumnCalculation(entry[1]),
   );
   return Object.fromEntries(entries);
+}
+
+function normalizeColumnWrapOverrides(value: unknown) {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Database column wrap overrides must be a boolean map.");
+  }
+  const entries = Object.entries(value);
+  if (
+    entries.some(
+      ([columnId, wrap]) => columnId.length === 0 || typeof wrap !== "boolean",
+    )
+  ) {
+    throw new Error("Database column wrap overrides must be a boolean map.");
+  }
+  return Object.fromEntries(entries) as Record<string, boolean>;
+}
+
+function normalizeFrozenThroughColumnId(value: unknown) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new Error(
+    "Database frozen-through column must be a non-empty column ID or null.",
+  );
 }
 
 function isDatabaseColumnCalculation(

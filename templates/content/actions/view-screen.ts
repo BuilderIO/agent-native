@@ -24,7 +24,11 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
 } from "../shared/api.js";
-import { databaseTableColumnIds } from "../shared/database-table-columns.js";
+import {
+  databaseColumnWraps,
+  databaseFrozenColumnIds,
+  databaseTableColumnIds,
+} from "../shared/database-table-columns.js";
 import {
   documentPropertyDateKey,
   formulaValueText,
@@ -111,6 +115,25 @@ function filterModeValue(
 
 function arrayValue(value: unknown) {
   return Array.isArray(value) ? value : undefined;
+}
+
+function frozenColumnIdsValue(
+  value: unknown,
+  intendedFrozenColumnIds: readonly string[],
+) {
+  if (
+    !Array.isArray(value) ||
+    value.some((columnId) => typeof columnId !== "string" || !columnId)
+  ) {
+    return undefined;
+  }
+  if (
+    value.length > intendedFrozenColumnIds.length ||
+    value.some((columnId, index) => columnId !== intendedFrozenColumnIds[index])
+  ) {
+    return undefined;
+  }
+  return value as string[];
 }
 
 function recordValue(value: unknown) {
@@ -230,6 +253,17 @@ function calculationRecord(value: unknown) {
     Object.entries(record).filter(
       (entry): entry is [string, ContentDatabaseColumnCalculation] =>
         typeof entry[0] === "string" && isDatabaseColumnCalculation(entry[1]),
+    ),
+  );
+}
+
+function booleanRecord(value: unknown) {
+  const record = recordValue(value);
+  if (!record) return undefined;
+  return Object.fromEntries(
+    Object.entries(record).filter(
+      (entry): entry is [string, boolean] =>
+        entry[0].length > 0 && typeof entry[1] === "boolean",
     ),
   );
 }
@@ -601,11 +635,59 @@ export function databaseCurrentViewSnapshot(
         (property) => property.definition.id === endDatePropertyId,
       )
     : null;
+  const viewType =
+    stringValue(nav.databaseViewType) ?? activeView?.type ?? "table";
+  const tableColumnOrderIds =
+    viewType === "table"
+      ? databaseTableColumnIds(
+          visibleProperties.map((property) => property.definition.id),
+          arrayValue(nav.databaseTableColumnOrderIds)?.filter(
+            (id): id is string => typeof id === "string",
+          ) ?? activeView?.tableColumnOrderIds,
+        )
+      : undefined;
+  const wrapCells =
+    typeof nav.databaseWrapCells === "boolean"
+      ? nav.databaseWrapCells
+      : activeView?.wrapCells === true;
+  const columnWrapOverrides =
+    booleanRecord(nav.databaseColumnWrapOverrides) ??
+    activeView?.columnWrapOverrides ??
+    {};
+  const navigationFrozenThroughColumnId =
+    nav.databaseFrozenThroughColumnId === null
+      ? null
+      : stringValue(nav.databaseFrozenThroughColumnId);
+  const frozenThroughColumnId =
+    navigationFrozenThroughColumnId !== undefined
+      ? navigationFrozenThroughColumnId
+      : activeView?.frozenThroughColumnId;
+  const intendedFrozenColumnIds = tableColumnOrderIds
+    ? databaseFrozenColumnIds({ frozenThroughColumnId }, tableColumnOrderIds)
+    : undefined;
+  const tablePresentation = tableColumnOrderIds
+    ? {
+        tableColumnOrderIds,
+        columnWrapOverrides,
+        effectiveColumnWrapById: Object.fromEntries(
+          tableColumnOrderIds.map((columnId) => [
+            columnId,
+            databaseColumnWraps({ wrapCells, columnWrapOverrides }, columnId),
+          ]),
+        ),
+        frozenThroughColumnId,
+        intendedFrozenColumnIds,
+        effectiveFrozenColumnIds: frozenColumnIdsValue(
+          nav.databaseEffectiveFrozenColumnIds,
+          intendedFrozenColumnIds ?? [],
+        ),
+      }
+    : {};
 
   return {
     id: activeViewId,
     name: stringValue(nav.databaseViewName) ?? activeView?.name ?? "Table",
-    type: stringValue(nav.databaseViewType) ?? activeView?.type ?? "table",
+    type: viewType,
     views: databaseViewSummariesForScreen(nav.databaseViews, response),
     searchQuery: stringValue(nav.databaseSearchQuery),
     sorts: arrayValue(nav.databaseSorts) ?? activeView?.sorts ?? [],
@@ -639,20 +721,8 @@ export function databaseCurrentViewSnapshot(
     dateRangeLabel: stringValue(nav.databaseDateRangeLabel),
     calculations,
     calculationResults,
-    tableColumnOrderIds:
-      (stringValue(nav.databaseViewType) ?? activeView?.type ?? "table") ===
-      "table"
-        ? databaseTableColumnIds(
-            visibleProperties.map((property) => property.definition.id),
-            arrayValue(nav.databaseTableColumnOrderIds)?.filter(
-              (id): id is string => typeof id === "string",
-            ) ?? activeView?.tableColumnOrderIds,
-          )
-        : undefined,
-    wrapCells:
-      typeof nav.databaseWrapCells === "boolean"
-        ? nav.databaseWrapCells
-        : activeView?.wrapCells === true,
+    ...tablePresentation,
+    wrapCells,
     rowDensity:
       rowDensityValue(nav.databaseRowDensity) ??
       activeView?.rowDensity ??

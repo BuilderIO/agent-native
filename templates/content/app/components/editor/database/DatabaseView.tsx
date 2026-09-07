@@ -49,6 +49,7 @@ import { contentDatabaseFormQuestions } from "@shared/database-form";
 import { applyContentDatabaseTableQuery } from "@shared/database-query";
 import {
   databaseTableColumnIds,
+  databaseFrozenColumnIds,
   reorderDatabaseTableColumn,
 } from "@shared/database-table-columns";
 import {
@@ -283,9 +284,15 @@ import {
   releasePreviewDocumentSaveController,
 } from "../previewDocumentSaveRegistry";
 import { VisualEditor } from "../VisualEditor";
+import {
+  DatabaseColumnPresentation,
+  ColumnPresentationMenuItems,
+  useDatabaseColumnPresentation,
+} from "./DatabaseColumnPresentation";
 import type { DatabaseExportContext } from "./DatabaseExportDialog";
 import {
   DatabaseTableGrid,
+  DatabaseTableLayout,
   DatabaseTableColumnOrder,
 } from "./DatabaseTableGrid";
 import { DatabaseFormView } from "./FormView";
@@ -298,6 +305,10 @@ import {
   databaseItemIsSourceBacked,
 } from "./row-access";
 import { DatabaseTimelineView } from "./TimelineView";
+import {
+  normalizeClientColumnWrapOverrides,
+  normalizeClientFrozenThroughColumnId,
+} from "./view-config";
 
 export interface DatabaseViewProps {
   databaseId: string;
@@ -1008,6 +1019,22 @@ function DatabaseTable({
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
+  const [effectiveFrozenColumnIds, setEffectiveFrozenColumnIds] =
+    useState<string[]>();
+  const viewPersistenceRef = useRef({
+    databaseId,
+    savedViewConfig,
+    personalQueryDirty,
+  });
+  viewPersistenceRef.current = {
+    databaseId,
+    savedViewConfig,
+    personalQueryDirty,
+  };
+  const submittedViewRef = useRef<{ databaseId: string; key: string } | null>(
+    null,
+  );
+
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
   );
@@ -1593,6 +1620,7 @@ function DatabaseTable({
       source,
       views: viewConfig.views,
       activeView,
+      effectiveFrozenColumnIds,
       searchQuery,
       sorts,
       activeFilters,
@@ -1619,6 +1647,7 @@ function DatabaseTable({
     ).catch(() => {});
   }, [
     activeView,
+    effectiveFrozenColumnIds,
     activeFilters.length,
     databaseId,
     dateViewRange,
@@ -2033,7 +2062,11 @@ function DatabaseTable({
   }
 
   function setWrapCells(wrapCells: boolean) {
-    updateActiveView((view) => ({ ...view, wrapCells }));
+    updateActiveView((view) => ({
+      ...view,
+      wrapCells,
+      columnWrapOverrides: {},
+    }));
   }
 
   function setOpenPagesIn(openPagesIn: ContentDatabaseOpenPagesIn) {
@@ -2510,31 +2543,47 @@ function DatabaseTable({
     const nextKey = databaseViewStateKey(databaseId, sharedViewConfig);
     if (databaseViewStateKey(databaseId, savedViewConfig) === nextKey) return;
     if (!effectiveCanEdit) return;
+    if (
+      submittedViewRef.current?.databaseId === databaseId &&
+      submittedViewRef.current.key === nextKey
+    )
+      return;
     if (saveViewTimerRef.current) {
       clearTimeout(saveViewTimerRef.current);
     }
     saveViewTimerRef.current = setTimeout(() => {
-      updateView.mutate(
-        { databaseId, viewConfig: sharedViewConfig },
-        {
-          onSuccess: (response) => {
+      submittedViewRef.current = { databaseId, key: nextKey };
+      void updateView
+        .mutateAsync({ databaseId, viewConfig: sharedViewConfig })
+        .then(
+          (response) => {
+            if (viewPersistenceRef.current.databaseId !== databaseId) return;
             const nextViewConfig = normalizeClientDatabaseViewConfig(
               response.database.viewConfig,
             );
+            viewPersistenceRef.current.savedViewConfig = nextViewConfig;
             setSavedViewConfig(nextViewConfig);
-            hydratedViewRef.current = databaseViewStateKey(
-              response.database.id,
-              personalQueryDirty
-                ? applyPersonalDatabaseViewOverrides(
-                    nextViewConfig,
-                    normalizePersonalDatabaseViewOverrides(
-                      personalView.data?.overrides,
-                    ),
-                  )
-                : nextViewConfig,
-            );
+            if (
+              submittedViewRef.current?.databaseId === databaseId &&
+              submittedViewRef.current.key === nextKey
+            ) {
+              submittedViewRef.current = null;
+            }
           },
-          onError: (err) => {
+          (err: unknown) => {
+            if (viewPersistenceRef.current.databaseId !== databaseId) return;
+            const latest = viewPersistenceRef.current;
+            setViewConfig((current) =>
+              rollbackFailedDatabaseViewSave({
+                databaseId,
+                current,
+                saved: latest.savedViewConfig,
+                failed: sharedViewConfig,
+                personalQueryDirty: latest.personalQueryDirty,
+              }),
+            );
+            if (submittedViewRef.current?.key === nextKey)
+              submittedViewRef.current = null;
             toast.error(dbText("failedToSaveView"), {
               description:
                 err instanceof Error
@@ -2542,8 +2591,7 @@ function DatabaseTable({
                   : dbText("somethingWentWrong"),
             });
           },
-        },
-      );
+        );
     }, 350);
     return () => {
       if (saveViewTimerRef.current) {
@@ -2556,7 +2604,7 @@ function DatabaseTable({
     personalQueryDirty,
     personalView.data?.overrides,
     savedViewConfig,
-    updateView.mutate,
+    updateView.mutateAsync,
     viewConfig,
   ]);
 
@@ -3089,6 +3137,26 @@ function DatabaseTable({
           constrained={hasResultConstraints}
           rowsAreManuallyOrdered={rowsAreManuallyOrdered}
           wrapCells={activeView.wrapCells === true}
+          onGroupByChange={(propertyId) =>
+            updateActiveView((view) =>
+              setDatabaseViewGroupByProperty(view, propertyId),
+            )
+          }
+          onEffectiveFrozenColumnsChange={setEffectiveFrozenColumnIds}
+          columnWrapOverrides={activeView.columnWrapOverrides ?? {}}
+          frozenThroughColumnId={activeView.frozenThroughColumnId}
+          onWrapColumn={(id, wrapped) =>
+            updateActiveView((view) => ({
+              ...view,
+              columnWrapOverrides: {
+                ...view.columnWrapOverrides,
+                [id]: wrapped,
+              },
+            }))
+          }
+          onFreezeThrough={(id) =>
+            updateActiveView((view) => ({ ...view, frozenThroughColumnId: id }))
+          }
           rowDensity={activeView.rowDensity ?? "default"}
           groupByPropertyId={activeView.groupByPropertyId ?? null}
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
@@ -3435,6 +3503,7 @@ export function databaseNavigationState({
   source = null,
   views = [],
   activeView,
+  effectiveFrozenColumnIds,
   searchQuery = "",
   sorts = [],
   activeFilters = [],
@@ -3468,10 +3537,13 @@ export function databaseNavigationState({
     | "endDatePropertyId"
     | "calculations"
     | "wrapCells"
+    | "columnWrapOverrides"
+    | "frozenThroughColumnId"
     | "tableColumnOrderIds"
     | "rowDensity"
     | "openPagesIn"
   >;
+  effectiveFrozenColumnIds?: string[];
   searchQuery?: string;
   sorts?: DatabaseSort[];
   activeFilters?: DatabaseFilter[];
@@ -3573,6 +3645,9 @@ export function databaseNavigationState({
           )
         : undefined,
     databaseWrapCells: activeView.wrapCells === true || undefined,
+    databaseColumnWrapOverrides: activeView.columnWrapOverrides,
+    databaseFrozenThroughColumnId: activeView.frozenThroughColumnId,
+    databaseEffectiveFrozenColumnIds: effectiveFrozenColumnIds,
     databaseRowDensity:
       activeView.rowDensity && activeView.rowDensity !== "default"
         ? activeView.rowDensity
@@ -5534,6 +5609,12 @@ function DatabaseTableView({
   constrained,
   rowsAreManuallyOrdered,
   wrapCells,
+  columnWrapOverrides,
+  frozenThroughColumnId,
+  onGroupByChange,
+  onEffectiveFrozenColumnsChange,
+  onWrapColumn,
+  onFreezeThrough,
   rowDensity,
   groupByPropertyId,
   collapsedGroupIds,
@@ -5588,6 +5669,12 @@ function DatabaseTableView({
   constrained: boolean;
   rowsAreManuallyOrdered: boolean;
   wrapCells: boolean;
+  columnWrapOverrides: Record<string, boolean>;
+  frozenThroughColumnId?: string | null;
+  onGroupByChange: (id: string | null) => void;
+  onEffectiveFrozenColumnsChange: (ids: string[]) => void;
+  onWrapColumn: (id: string, wrapped: boolean) => void;
+  onFreezeThrough: (id: string | null) => void;
   rowDensity: DatabaseRowDensity;
   groupByPropertyId: string | null;
   collapsedGroupIds: string[];
@@ -5631,6 +5718,39 @@ function DatabaseTableView({
   onDeletedPreviewItems: (items: ContentDatabaseItem[]) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const tableViewportRef = useRef<HTMLDivElement>(null);
+  const [viewportWidth, setViewportWidth] = useState<number>();
+  useEffect(() => {
+    const surface = tableViewportRef.current?.querySelector<HTMLElement>(
+      '[data-database-scroll-surface="table"]',
+    );
+    if (!surface) return;
+    const measure = () => setViewportWidth(surface.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, []);
+  const observedFrozenIds = databaseFrozenColumnIds(
+    { frozenThroughColumnId },
+    databaseTableColumnIds(
+      properties.map((property) => property.definition.id),
+      columnOrderIds,
+    ),
+    {
+      widths: Object.fromEntries(
+        ["name", ...properties.map((property) => property.definition.id)].map(
+          (id) => [id, columnWidth(id, columnWidths)],
+        ),
+      ),
+      viewportWidth,
+    },
+  );
+  const observedFrozenKey = JSON.stringify(observedFrozenIds);
+  useEffect(() => {
+    if (viewportWidth === undefined) return;
+    onEffectiveFrozenColumnsChange(observedFrozenIds);
+  }, [observedFrozenKey, viewportWidth, onEffectiveFrozenColumnsChange]);
   const queryClient = useQueryClient();
   const contentSpaces = useContentSpaces();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
@@ -6103,335 +6223,436 @@ function DatabaseTableView({
   }
 
   return (
-    <DatabaseTableColumnOrder.Provider value={columnOrderIds}>
-      <div className="relative w-full min-w-0 max-w-full">
-        <DatabaseDragPreview preview={dragPreview} />
-        {selectedCount > 0 ? (
-          <DatabaseSelectionBar
-            selectedCount={selectedCount}
-            canEditSelected={canEditSelected}
-            canDuplicateSelected={canDuplicateSelected}
-            canRemoveSelected={canRemoveSelected}
-            properties={bulkEditableProperties}
-            selectedItems={selectedItems}
-            duplicateDisabled={
-              isDuplicatingSelected ||
-              duplicateItems.isPending ||
-              removeItems.isPending
-            }
-            removeDisabled={removeItems.isPending}
-            removesFavoriteMembership={removesFavoriteMembership}
-            updateDisabled={setProperty.isPending || updateItems.isPending}
-            onClearSelection={onClearSelection}
-            onSetPropertyValue={setSelectedPropertyValue}
-            onDuplicateSelected={() => void duplicateSelectedRows()}
-            onRemoveSelected={() => {
-              if (removesFavoriteMembership) {
-                void removeSelectedRows(selectedItems);
-                return;
-              }
-              setRemoveSelectedSnapshotIds(
-                selectedItems.map((item) => item.id),
-              );
-              setConfirmRemoveSelectedOpen(true);
-            }}
-          />
-        ) : null}
-        {/* DataGrid preserves the table contract: data-database-scroll-surface="table", tabIndex={0}, and min-w-0 max-w-full overflow-x-auto. */}
-        <DataGrid
-          rows={items}
-          columns={dataGridColumns}
-          getRowId={(item) => item.id}
-          columnWidths={columnWidths}
-          horizontalOverflowAffordance="edges"
-          contentClassName="min-w-[720px]"
-          scrollContainerProps={{
-            "data-database-scroll-surface": "table",
-            tabIndex: 0,
-            className: "max-h-[70vh] overflow-auto",
-          }}
-          renderHeader={() => (
-            <DatabaseTableGrid
-              className="sticky top-0 z-20 grid border-y border-border/35 bg-background text-xs font-medium text-muted-foreground/80"
-              propertyIds={properties.map((property) => property.definition.id)}
-              widths={Object.fromEntries(
-                [
-                  "name",
-                  ...properties.map((property) => property.definition.id),
-                ].map((id) => [id, columnWidth(id, columnWidths)]),
-              )}
-              actionWidth={actionColumnWidth}
-              nameCell={
-                <DatabaseNameHeader
-                  {...columnMoves("name")}
-                  canEdit={canEdit}
-                  isDragging={draggedPropertyId === "name"}
-                  dropSide={
-                    draggedPropertyId &&
-                    draggedPropertyId !== "name" &&
-                    dropTargetProperty?.id === "name"
-                      ? dropTargetProperty.side
-                      : null
+    <DatabaseColumnPresentation.Provider
+      value={{
+        wrapCells,
+        columnWrapOverrides,
+        frozenThroughColumnId,
+        onWrapColumn,
+        onFreezeThrough,
+        canEdit,
+        renderColumnActions: (id) => {
+          const property = properties.find(
+            (candidate) => candidate.definition.id === id,
+          );
+          if (!property) return null;
+          return (
+            <>
+              {databaseViewGroupableProperties(groupableProperties).some(
+                (candidate) => candidate.definition.id === id,
+              ) ? (
+                <DropdownMenuItem
+                  disabled={!canEdit}
+                  onSelect={() =>
+                    onGroupByChange(groupByPropertyId === id ? null : id)
                   }
-                  onPointerDown={(event) =>
-                    startPropertyPointerDrag(
-                      { id: "name", name: "Name", type: "text" },
-                      event,
-                    )
+                >
+                  <IconList className="mr-2 size-4 text-muted-foreground" />
+                  <span className="flex-1">{dbText("group")}</span>
+                  {groupByPropertyId === id ? (
+                    <IconCheck className="size-4" />
+                  ) : null}
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={!canEdit}>
+                  {dbText("calculate")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {databaseCalculationOptionsForProperty(property).map(
+                    (option) => (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onSelect={() => onCalculationChange(id, option.value)}
+                      >
+                        <span className="flex-1">{option.label}</span>
+                        {calculations[id] === option.value ? (
+                          <IconCheck className="size-4" />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ),
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={!calculations[id]}
+                    onSelect={() => onCalculationChange(id, null)}
+                  >
+                    {dbText("clear")}
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </>
+          );
+        },
+      }}
+    >
+      <DatabaseTableLayout.Provider
+        value={{ frozenThroughColumnId, viewportWidth }}
+      >
+        <DatabaseTableColumnOrder.Provider value={columnOrderIds}>
+          <div
+            ref={tableViewportRef}
+            className="relative w-full min-w-0 max-w-full"
+          >
+            <DatabaseDragPreview preview={dragPreview} />
+            {selectedCount > 0 ? (
+              <DatabaseSelectionBar
+                selectedCount={selectedCount}
+                canEditSelected={canEditSelected}
+                canDuplicateSelected={canDuplicateSelected}
+                canRemoveSelected={canRemoveSelected}
+                properties={bulkEditableProperties}
+                selectedItems={selectedItems}
+                duplicateDisabled={
+                  isDuplicatingSelected ||
+                  duplicateItems.isPending ||
+                  removeItems.isPending
+                }
+                removeDisabled={removeItems.isPending}
+                removesFavoriteMembership={removesFavoriteMembership}
+                updateDisabled={setProperty.isPending || updateItems.isPending}
+                onClearSelection={onClearSelection}
+                onSetPropertyValue={setSelectedPropertyValue}
+                onDuplicateSelected={() => void duplicateSelectedRows()}
+                onRemoveSelected={() => {
+                  if (removesFavoriteMembership) {
+                    void removeSelectedRows(selectedItems);
+                    return;
                   }
-                  sorts={sorts}
-                  filters={filters}
-                  source={source}
-                  selectedCount={selectedCount}
-                  selectableCount={selectableCount}
-                  onSortsChange={onSortsChange}
-                  onFiltersChange={onFiltersChange}
-                  onToggleAllRowsSelection={onToggleAllRowsSelection}
-                  onResize={(event) =>
-                    onResizeColumn("name", DEFAULT_NAME_COLUMN_WIDTH, event)
+                  setRemoveSelectedSnapshotIds(
+                    selectedItems.map((item) => item.id),
+                  );
+                  setConfirmRemoveSelectedOpen(true);
+                }}
+              />
+            ) : null}
+            {/* DataGrid preserves the table contract: data-database-scroll-surface="table", tabIndex={0}, and min-w-0 max-w-full overflow-x-auto. */}
+            <DataGrid
+              rows={items}
+              columns={dataGridColumns}
+              getRowId={(item) => item.id}
+              columnWidths={columnWidths}
+              horizontalOverflowAffordance="edges"
+              contentClassName="min-w-[720px]"
+              scrollContainerProps={{
+                "data-database-scroll-surface": "table",
+                tabIndex: 0,
+                className: "max-h-[70vh] overflow-auto",
+              }}
+              renderHeader={() => (
+                <DatabaseTableGrid
+                  className="sticky top-0 z-30 grid border-y border-border/35 bg-background text-xs font-medium text-muted-foreground/80"
+                  propertyIds={properties.map(
+                    (property) => property.definition.id,
+                  )}
+                  widths={Object.fromEntries(
+                    [
+                      "name",
+                      ...properties.map((property) => property.definition.id),
+                    ].map((id) => [id, columnWidth(id, columnWidths)]),
+                  )}
+                  actionWidth={actionColumnWidth}
+                  selectionCell={
+                    <DatabaseRowSelectionControl
+                      checked={
+                        selectableCount > 0 &&
+                        selectedItems.length === selectableCount
+                      }
+                      indeterminate={
+                        selectedItems.length > 0 &&
+                        selectedItems.length !== selectableCount
+                      }
+                      disabled={selectableCount === 0}
+                      label={dbText(
+                        selectedItems.length === selectableCount &&
+                          selectableCount > 0
+                          ? "clearSelectedRows"
+                          : "selectAllLoadedRows",
+                      )}
+                      onToggle={onToggleAllRowsSelection}
+                    />
+                  }
+                  nameCell={
+                    <DatabaseNameHeader
+                      {...columnMoves("name")}
+                      canEdit={canEdit}
+                      isDragging={draggedPropertyId === "name"}
+                      dropSide={
+                        draggedPropertyId &&
+                        draggedPropertyId !== "name" &&
+                        dropTargetProperty?.id === "name"
+                          ? dropTargetProperty.side
+                          : null
+                      }
+                      onPointerDown={(event) =>
+                        startPropertyPointerDrag(
+                          { id: "name", name: "Name", type: "text" },
+                          event,
+                        )
+                      }
+                      sorts={sorts}
+                      filters={filters}
+                      source={source}
+                      onSortsChange={onSortsChange}
+                      onFiltersChange={onFiltersChange}
+                      onResize={(event) =>
+                        onResizeColumn("name", DEFAULT_NAME_COLUMN_WIDTH, event)
+                      }
+                    />
+                  }
+                  propertyCells={properties.map((property) => {
+                    return (
+                      <DatabasePropertyHeader
+                        {...columnMoves(property.definition.id)}
+                        key={property.definition.id}
+                        property={property}
+                        documentId={databaseDocumentId}
+                        source={source}
+                        canEdit={canEdit}
+                        isDragging={
+                          draggedPropertyId === property.definition.id
+                        }
+                        dropSide={
+                          !!draggedPropertyId &&
+                          dropTargetProperty?.id === property.definition.id &&
+                          draggedPropertyId !== property.definition.id
+                            ? dropTargetProperty.side
+                            : null
+                        }
+                        sorts={sorts}
+                        filters={filters}
+                        onSortsChange={onSortsChange}
+                        onFiltersChange={onFiltersChange}
+                        onPropertyHiddenChange={onPropertyHiddenChange}
+                        onPointerDown={(event) =>
+                          startPropertyPointerDrag(property.definition, event)
+                        }
+                        onResize={(event) =>
+                          onResizeColumn(
+                            property.definition.id,
+                            DEFAULT_PROPERTY_COLUMN_WIDTH,
+                            event,
+                          )
+                        }
+                      />
+                    );
+                  })}
+                  actions={
+                    canEdit ? (
+                      <div
+                        className={cn(
+                          "flex h-8 items-center",
+                          cleanDefaultTable
+                            ? "justify-start border-r border-border/30 px-1"
+                            : "justify-center",
+                        )}
+                      >
+                        <AddProperty
+                          documentId={databaseDocumentId}
+                          databaseId={databaseId}
+                          variant={cleanDefaultTable ? "header" : "icon"}
+                          label={dbText("addProperty")}
+                          source={source}
+                          sources={sources}
+                          onConnectSource={onConnectSource}
+                          openRequestId={addPropertyOpenRequestId}
+                          onOpenRequestHandled={onAddPropertyOpenRequestHandled}
+                        />
+                      </div>
+                    ) : null
                   }
                 />
-              }
-              propertyCells={properties.map((property) => {
-                return (
-                  <DatabasePropertyHeader
-                    {...columnMoves(property.definition.id)}
-                    key={property.definition.id}
-                    property={property}
-                    documentId={databaseDocumentId}
-                    source={source}
-                    canEdit={canEdit}
-                    isDragging={draggedPropertyId === property.definition.id}
-                    dropSide={
-                      !!draggedPropertyId &&
-                      dropTargetProperty?.id === property.definition.id &&
-                      draggedPropertyId !== property.definition.id
-                        ? dropTargetProperty.side
-                        : null
-                    }
-                    sorts={sorts}
-                    filters={filters}
-                    onSortsChange={onSortsChange}
-                    onFiltersChange={onFiltersChange}
-                    onPropertyHiddenChange={onPropertyHiddenChange}
-                    onPointerDown={(event) =>
-                      startPropertyPointerDrag(property.definition, event)
-                    }
-                    onResize={(event) =>
-                      onResizeColumn(
-                        property.definition.id,
-                        DEFAULT_PROPERTY_COLUMN_WIDTH,
-                        event,
-                      )
-                    }
-                  />
-                );
-              })}
-              actions={
-                canEdit ? (
-                  <div
-                    className={cn(
-                      "flex h-8 items-center",
-                      cleanDefaultTable
-                        ? "justify-start border-r border-border/30 px-1"
-                        : "justify-center",
-                    )}
-                  >
-                    <AddProperty
-                      documentId={databaseDocumentId}
-                      databaseId={databaseId}
-                      variant={cleanDefaultTable ? "header" : "icon"}
-                      label={dbText("addProperty")}
-                      source={source}
-                      sources={sources}
-                      onConnectSource={onConnectSource}
-                      openRequestId={addPropertyOpenRequestId}
-                      onOpenRequestHandled={onAddPropertyOpenRequestHandled}
-                    />
-                  </div>
-                ) : null
-              }
-            />
-          )}
-          renderBody={() => (
-            <>
-              {databaseTableShouldShowBlockingLoader(
-                isLoading,
-                items.length,
-              ) ? (
-                <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
-                  <Spinner className="size-4" />
-                  {dbText("loadingDatabase")}
-                </div>
-              ) : (
+              )}
+              renderBody={() => (
                 <>
-                  {databaseViewHasNoMatchingPages(
+                  {databaseTableShouldShowBlockingLoader(
+                    isLoading,
                     items.length,
-                    hasSearch,
-                    activeFilters.length,
                   ) ? (
-                    <DatabaseNoMatchingPages
-                      className="border-t border-border"
-                      label={dbText("noRowsMatchThisView")}
-                      onClear={onClearResultConstraints}
-                    />
-                  ) : null}
-                  {grouped
-                    ? groups.map((group) => (
-                        <DatabaseGroupedTableSection
-                          key={group.id}
-                          group={group}
-                          properties={properties}
-                          columnWidths={columnWidths}
-                          databaseDocumentId={databaseDocumentId}
-                          workspaceCatalog={isWorkspaceCatalog}
-                          workspaceCreationPropertyValues={
-                            workspaceCreationPropertyValues
-                          }
-                          canEdit={canEdit}
-                          selectedIdSet={selectedIdSet}
-                          wrapCells={wrapCells}
-                          rowDensity={rowDensity}
-                          isCreating={isCreating}
-                          newRowLabel={newRowLabel}
-                          focusedTitleDocumentId={focusedTitleDocumentId}
-                          collapsed={databaseGroupIsCollapsed(
-                            collapsedGroupIds,
-                            group.id,
-                          )}
-                          onCreateRow={onCreateGroupedRow}
-                          onTitleFocusHandled={onTitleFocusHandled}
-                          onCollapsedChange={(collapsed) =>
-                            onGroupCollapsedChange(group.id, collapsed)
-                          }
-                          onToggleCheckbox={toggleCheckboxCell}
-                          onToggleRowSelection={onToggleRowSelection}
-                          onPreview={onPreview}
-                          onDeletedPreviewItem={onDeletedPreviewItem}
-                          onOpenPage={onOpenPage}
+                    <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
+                      <Spinner className="size-4" />
+                      {dbText("loadingDatabase")}
+                    </div>
+                  ) : (
+                    <>
+                      {databaseViewHasNoMatchingPages(
+                        items.length,
+                        hasSearch,
+                        activeFilters.length,
+                      ) ? (
+                        <DatabaseNoMatchingPages
+                          className="border-t border-border"
+                          label={dbText("noRowsMatchThisView")}
+                          onClear={onClearResultConstraints}
                         />
-                      ))
-                    : items.map((item, index) => (
-                        <DatabaseTableRow
-                          key={item.id}
-                          item={item}
-                          databaseDocumentId={databaseDocumentId}
-                          workspaceCatalog={isWorkspaceCatalog}
-                          properties={properties}
-                          columnWidths={columnWidths}
-                          canEdit={canEdit}
-                          rowIndex={index}
-                          canReorder={rowsAreManuallyOrdered}
-                          canDragRow={rowDraggingEnabled}
-                          canMoveUp={rowsAreManuallyOrdered && index > 0}
-                          canMoveDown={
-                            rowsAreManuallyOrdered && index < items.length - 1
-                          }
-                          selected={selectedIdSet.has(item.id)}
-                          isDragging={draggedItemId === item.id}
-                          isDropTarget={
-                            !!draggedItemId &&
-                            dropTargetItemId === item.id &&
-                            draggedItemId !== item.id
-                          }
-                          startEditingTitle={
-                            focusedTitleDocumentId === item.document.id
-                          }
-                          onDragHandlePointerDown={(event) =>
-                            startRowDrag(item.id, event)
-                          }
-                          onToggleCheckbox={(property) =>
-                            void toggleCheckboxCell(item, property)
-                          }
-                          wrapCells={wrapCells}
-                          rowDensity={rowDensity}
-                          onToggleSelected={() => onToggleRowSelection(item.id)}
-                          onPreviewItem={onPreview}
-                          onDeletedPreviewItem={onDeletedPreviewItem}
-                          onTitleEditStarted={onTitleFocusHandled}
-                          onPreview={() => onPreview(item)}
-                          onOpenPage={() => onOpenPage(item)}
+                      ) : null}
+                      {grouped
+                        ? groups.map((group) => (
+                            <DatabaseGroupedTableSection
+                              key={group.id}
+                              group={group}
+                              properties={properties}
+                              columnWidths={columnWidths}
+                              databaseDocumentId={databaseDocumentId}
+                              workspaceCatalog={isWorkspaceCatalog}
+                              workspaceCreationPropertyValues={
+                                workspaceCreationPropertyValues
+                              }
+                              canEdit={canEdit}
+                              selectedIdSet={selectedIdSet}
+                              wrapCells={wrapCells}
+                              rowDensity={rowDensity}
+                              isCreating={isCreating}
+                              newRowLabel={newRowLabel}
+                              focusedTitleDocumentId={focusedTitleDocumentId}
+                              collapsed={databaseGroupIsCollapsed(
+                                collapsedGroupIds,
+                                group.id,
+                              )}
+                              onCreateRow={onCreateGroupedRow}
+                              onTitleFocusHandled={onTitleFocusHandled}
+                              onCollapsedChange={(collapsed) =>
+                                onGroupCollapsedChange(group.id, collapsed)
+                              }
+                              onToggleCheckbox={toggleCheckboxCell}
+                              onToggleRowSelection={onToggleRowSelection}
+                              onPreview={onPreview}
+                              onDeletedPreviewItem={onDeletedPreviewItem}
+                              onOpenPage={onOpenPage}
+                            />
+                          ))
+                        : items.map((item, index) => (
+                            <DatabaseTableRow
+                              key={item.id}
+                              item={item}
+                              databaseDocumentId={databaseDocumentId}
+                              workspaceCatalog={isWorkspaceCatalog}
+                              properties={properties}
+                              columnWidths={columnWidths}
+                              canEdit={canEdit}
+                              rowIndex={index}
+                              canReorder={rowsAreManuallyOrdered}
+                              canDragRow={rowDraggingEnabled}
+                              canMoveUp={rowsAreManuallyOrdered && index > 0}
+                              canMoveDown={
+                                rowsAreManuallyOrdered &&
+                                index < items.length - 1
+                              }
+                              selected={selectedIdSet.has(item.id)}
+                              isDragging={draggedItemId === item.id}
+                              isDropTarget={
+                                !!draggedItemId &&
+                                dropTargetItemId === item.id &&
+                                draggedItemId !== item.id
+                              }
+                              startEditingTitle={
+                                focusedTitleDocumentId === item.document.id
+                              }
+                              onDragHandlePointerDown={(event) =>
+                                startRowDrag(item.id, event)
+                              }
+                              onToggleCheckbox={(property) =>
+                                void toggleCheckboxCell(item, property)
+                              }
+                              wrapCells={wrapCells}
+                              rowDensity={rowDensity}
+                              onToggleSelected={() =>
+                                onToggleRowSelection(item.id)
+                              }
+                              onPreviewItem={onPreview}
+                              onDeletedPreviewItem={onDeletedPreviewItem}
+                              onTitleEditStarted={onTitleFocusHandled}
+                              onPreview={() => onPreview(item)}
+                              onOpenPage={() => onOpenPage(item)}
+                            />
+                          ))}
+                      {canEdit && !grouped ? (
+                        isWorkspaceCatalog ? (
+                          <WorkspaceSourceMenuRow
+                            label={newRowLabel}
+                            properties={properties}
+                            columnWidths={columnWidths}
+                            rowDensity={rowDensity}
+                            propertyValues={workspaceCreationPropertyValues}
+                            actionColumnWidth={actionColumnWidth}
+                          />
+                        ) : (
+                          <NewDatabaseRow
+                            label={newRowLabel}
+                            properties={properties}
+                            columnWidths={columnWidths}
+                            rowDensity={rowDensity}
+                            disabled={isCreating}
+                            isPending={isCreating}
+                            onCreate={onCreateRow}
+                            actionColumnWidth={actionColumnWidth}
+                          />
+                        )
+                      ) : null}
+                      {cleanDefaultTable ? (
+                        <DatabaseBlankDefaultRows
+                          rowCount={EMPTY_DEFAULT_BLANK_ROW_COUNT}
+                          actionColumnWidth={actionColumnWidth}
                         />
-                      ))}
-                  {canEdit && !grouped ? (
-                    isWorkspaceCatalog ? (
-                      <WorkspaceSourceMenuRow
-                        label={newRowLabel}
+                      ) : null}
+                      <DatabaseTableFooter
                         properties={properties}
+                        items={items}
+                        totalCount={totalCount}
+                        constrained={constrained}
                         columnWidths={columnWidths}
-                        rowDensity={rowDensity}
-                        propertyValues={workspaceCreationPropertyValues}
+                        canEdit={canEdit}
+                        calculations={calculations}
                         actionColumnWidth={actionColumnWidth}
+                        onCalculationChange={onCalculationChange}
                       />
-                    ) : (
-                      <NewDatabaseRow
-                        label={newRowLabel}
-                        properties={properties}
-                        columnWidths={columnWidths}
-                        rowDensity={rowDensity}
-                        disabled={isCreating}
-                        isPending={isCreating}
-                        onCreate={onCreateRow}
-                        actionColumnWidth={actionColumnWidth}
-                      />
-                    )
-                  ) : null}
-                  {cleanDefaultTable ? (
-                    <DatabaseBlankDefaultRows
-                      rowCount={EMPTY_DEFAULT_BLANK_ROW_COUNT}
-                      actionColumnWidth={actionColumnWidth}
-                    />
-                  ) : null}
-                  <DatabaseTableFooter
-                    properties={properties}
-                    items={items}
-                    totalCount={totalCount}
-                    constrained={constrained}
-                    columnWidths={columnWidths}
-                    canEdit={canEdit}
-                    calculations={calculations}
-                    actionColumnWidth={actionColumnWidth}
-                    onCalculationChange={onCalculationChange}
-                  />
+                    </>
+                  )}
                 </>
               )}
-            </>
-          )}
-        />
-        <AlertDialog
-          open={
-            !removesFavoriteMembership &&
-            canConfirmRemoveSelected &&
-            confirmRemoveSelectedOpen
-          }
-          onOpenChange={(open) => {
-            setConfirmRemoveSelectedOpen(open);
-            if (!open) setRemoveSelectedSnapshotIds([]);
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {dbText("removeSelectedRowsFromDatabaseQuestion")}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {dbText("removeSelectedRowsFromDatabaseDescription")}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>{dbText("cancel")}</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={removeItems.isPending || !canConfirmRemoveSelected}
-                onClick={() => void removeSelectedRows(removeSelectedSnapshot)}
-              >
-                {removeItems.isPending ? dbText("removing") : dbText("remove")}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </DatabaseTableColumnOrder.Provider>
+            />
+            <AlertDialog
+              open={
+                !removesFavoriteMembership &&
+                canConfirmRemoveSelected &&
+                confirmRemoveSelectedOpen
+              }
+              onOpenChange={(open) => {
+                setConfirmRemoveSelectedOpen(open);
+                if (!open) setRemoveSelectedSnapshotIds([]);
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {dbText("removeSelectedRowsFromDatabaseQuestion")}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {dbText("removeSelectedRowsFromDatabaseDescription")}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{dbText("cancel")}</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={
+                      removeItems.isPending || !canConfirmRemoveSelected
+                    }
+                    onClick={() =>
+                      void removeSelectedRows(removeSelectedSnapshot)
+                    }
+                  >
+                    {removeItems.isPending
+                      ? dbText("removing")
+                      : dbText("remove")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </DatabaseTableColumnOrder.Provider>
+      </DatabaseTableLayout.Provider>
+    </DatabaseColumnPresentation.Provider>
   );
 }
 
@@ -11132,7 +11353,7 @@ function DatabaseSettingsLayoutPanel({
       </div>
       <div className="grid gap-1">
         <DatabaseSettingsSwitch
-          label={dbText("wrapAllContent")}
+          label={dbText("wrapAllColumns")}
           checked={wrapCells}
           disabled={activeView.type !== "table"}
           onCheckedChange={onWrapCellsChange}
@@ -13636,21 +13857,16 @@ function DatabaseBlankDefaultRows({
   return (
     <div aria-hidden="true">
       {Array.from({ length: rowCount }).map((_, index) => (
-        <div
+        <DatabaseTableGrid
           key={index}
           className="grid h-8 border-t border-border/30"
-          style={{
-            gridTemplateColumns: databaseGridColumns(
-              [],
-              true,
-              {},
-              actionColumnWidth,
-            ),
-          }}
-        >
-          <span className="border-r border-border/35" />
-          <span className="border-r border-border/25" />
-        </div>
+          propertyIds={[]}
+          widths={{ name: DEFAULT_NAME_COLUMN_WIDTH }}
+          actionWidth={actionColumnWidth}
+          nameCell={<span className="border-r border-border/35" />}
+          propertyCells={[]}
+          actions={<span className="border-r border-border/25" />}
+        />
       ))}
     </div>
   );
@@ -13728,6 +13944,8 @@ export function createDatabaseView(
     hideEmptyGroups: values.hideEmptyGroups === true,
     calculations: values.calculations ?? {},
     wrapCells: values.wrapCells === true,
+    columnWrapOverrides: values.columnWrapOverrides,
+    frozenThroughColumnId: values.frozenThroughColumnId,
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
@@ -13884,6 +14102,8 @@ export function duplicateDatabaseView(
       hideEmptyGroups: view.hideEmptyGroups,
       calculations: view.calculations,
       wrapCells: view.wrapCells,
+      columnWrapOverrides: view.columnWrapOverrides,
+      frozenThroughColumnId: view.frozenThroughColumnId,
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
       formQuestions: view.formQuestions,
@@ -14019,6 +14239,12 @@ function normalizeClientDatabaseView(
       hideEmptyGroups: value.hideEmptyGroups === true,
       calculations: normalizeClientCalculations(value.calculations),
       wrapCells: value.wrapCells === true,
+      columnWrapOverrides: normalizeClientColumnWrapOverrides(
+        value.columnWrapOverrides,
+      ),
+      frozenThroughColumnId: normalizeClientFrozenThroughColumnId(
+        value.frozenThroughColumnId,
+      ),
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
       formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
@@ -14239,6 +14465,35 @@ export function databaseViewConfigWithSavedQueryState(
       };
     }),
   });
+}
+
+export function rollbackFailedDatabaseViewSave({
+  databaseId,
+  current,
+  saved,
+  failed,
+  personalQueryDirty,
+}: {
+  databaseId: string;
+  current: ContentDatabaseViewConfig;
+  saved: ContentDatabaseViewConfig;
+  failed: ContentDatabaseViewConfig;
+  personalQueryDirty: boolean;
+}) {
+  const shared = personalQueryDirty
+    ? databaseViewConfigWithSavedQueryState(current, saved)
+    : current;
+  if (
+    databaseViewStateKey(databaseId, shared) !==
+    databaseViewStateKey(databaseId, failed)
+  )
+    return current;
+  return personalQueryDirty
+    ? applyPersonalDatabaseViewOverrides(
+        saved,
+        personalDatabaseViewOverridesFromConfig(current),
+      )
+    : saved;
 }
 
 export function databaseViewConfigWithClearedActiveFilters(
@@ -15669,11 +15924,8 @@ function DatabaseNameHeader({
   sorts,
   filters,
   source,
-  selectedCount,
-  selectableCount,
   onSortsChange,
   onFiltersChange,
-  onToggleAllRowsSelection,
   onResize,
 }: {
   canEdit: boolean;
@@ -15685,17 +15937,12 @@ function DatabaseNameHeader({
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
   source: ContentDatabaseSource | null;
-  selectedCount: number;
-  selectableCount: number;
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
-  onToggleAllRowsSelection: () => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const columnState = databaseColumnHeaderState(sorts, filters, "name");
-  const allSelected = selectableCount > 0 && selectedCount === selectableCount;
-  const partiallySelected = selectedCount > 0 && !allSelected;
 
   return (
     <div
@@ -15707,20 +15954,6 @@ function DatabaseNameHeader({
       )}
     >
       <DatabaseDropIndicator side={dropSide} />
-      <DatabaseRowSelectionControl
-        checked={allSelected}
-        indeterminate={partiallySelected}
-        disabled={selectableCount === 0}
-        quietUntilHover={selectedCount === 0}
-        label={
-          allSelected
-            ? "Clear selected rows"
-            : partiallySelected
-              ? "Select all visible rows"
-              : "Select all visible rows"
-        }
-        onToggle={onToggleAllRowsSelection}
-      />
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <button
@@ -15798,11 +16031,11 @@ export function DatabaseSelectionBar({
   onRemoveSelected: () => void;
 }) {
   return (
-    <div className="flex h-8 items-center justify-between gap-2 border-y border-border/45 bg-muted/20 px-2 text-xs text-muted-foreground">
-      <span className="font-medium text-foreground">
+    <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-y border-border/45 bg-muted/20 px-2 py-0.5 text-xs text-muted-foreground">
+      <span className="shrink-0 font-medium whitespace-nowrap text-foreground">
         {selectedCount} selected
       </span>
-      <div className="flex items-center gap-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
         {canEditSelected ? (
           <DatabaseBulkEditPopover
             properties={properties}
@@ -16543,8 +16776,9 @@ function DatabasePropertyHeader({
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
 }) {
+  const t = useT();
   const Icon = TYPE_ICONS[property.definition.type];
-  const canReorder = canEdit && !property.definition.systemRole;
+  const canReorder = canEdit;
   const columnState = databaseColumnHeaderState(
     sorts,
     filters,
@@ -16592,11 +16826,33 @@ function DatabasePropertyHeader({
           onHide={() => onPropertyHiddenChange(property.definition.id, true)}
         />
       ) : (
-        <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
-          <Icon className="size-4 shrink-0" />
-          <span className="truncate">{property.definition.name}</span>
-          <DatabaseColumnStateIndicators state={columnState} />
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("editor.properties.propertyMenuFor", {
+                name: property.definition.name,
+              })}
+              className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className="truncate">{property.definition.name}</span>
+              <DatabaseColumnStateIndicators state={columnState} />
+            </button>
+          </DropdownMenuTrigger>
+          <ColumnHeaderMenuContent
+            columnKey={property.definition.id}
+            label={property.definition.name}
+            propertyType={property.definition.type}
+            sorts={sorts}
+            filters={filters}
+            onSortsChange={onSortsChange}
+            onFiltersChange={onFiltersChange}
+            canMove={canEdit}
+            onMoveLeft={onMoveLeft}
+            onMoveRight={onMoveRight}
+          />
+        </DropdownMenu>
       )}
       <ColumnResizeHandle
         label={`Resize ${property.definition.name} column`}
@@ -16698,41 +16954,88 @@ function ColumnHeaderMenuContent({
       <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
         {label}
       </DropdownMenuLabel>
-      <DropdownMenuItem
-        onSelect={(event) => {
-          event.preventDefault();
-          onSortsChange(upsertDatabaseSort(sorts, columnKey, label, "asc"));
-        }}
-      >
-        <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1">{dbText("sortAscending")}</span>
-        {columnSort?.direction === "asc" ? (
-          <IconCheck className="size-4 text-muted-foreground" />
-        ) : null}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        onSelect={(event) => {
-          event.preventDefault();
-          onSortsChange(upsertDatabaseSort(sorts, columnKey, label, "desc"));
-        }}
-      >
-        <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
-        <span className="min-w-0 flex-1">{dbText("sortDescending")}</span>
-        {columnSort?.direction === "desc" ? (
-          <IconCheck className="size-4 text-muted-foreground" />
-        ) : null}
-      </DropdownMenuItem>
-      {columnSort ? (
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            onSortsChange(clearDatabaseSort(sorts, columnKey));
-          }}
-        >
-          <IconX className="mr-2 size-4 text-muted-foreground" />
-          {dbText("clearSort")}
-        </DropdownMenuItem>
-      ) : null}
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>
+          <IconFilter className="mr-2 size-4 text-muted-foreground" />
+          {dbText("filter")}
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          {quickFilters.map((quickFilter) => (
+            <DropdownMenuItem
+              key={quickFilter.operator}
+              onSelect={() =>
+                onFiltersChange(
+                  upsertDatabaseQuickFilter(
+                    filters,
+                    columnKey,
+                    label,
+                    quickFilter.operator,
+                  ),
+                )
+              }
+            >
+              {quickFilter.label}
+            </DropdownMenuItem>
+          ))}
+          {columnFilterCount > 0 ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  onFiltersChange(
+                    clearDatabaseFiltersForColumn(filters, columnKey),
+                  )
+                }
+              >
+                {t("editor.properties.clearFilters", {
+                  count: columnFilterCount,
+                })}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>
+          <IconArrowsSort className="mr-2 size-4 text-muted-foreground" />
+          {dbText("sort")}
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          {(["asc", "desc"] as const).map((direction) => (
+            <DropdownMenuItem
+              key={direction}
+              onSelect={() =>
+                onSortsChange(
+                  upsertDatabaseSort(sorts, columnKey, label, direction),
+                )
+              }
+            >
+              <span className="flex-1">
+                {dbText(
+                  direction === "asc" ? "sortAscending" : "sortDescending",
+                )}
+              </span>
+              {columnSort?.direction === direction ? (
+                <IconCheck className="size-4" />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+          {columnSort ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  onSortsChange(clearDatabaseSort(sorts, columnKey))
+                }
+              >
+                {dbText("clearSort")}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <ColumnPresentationMenuItems columnId={columnKey} />
+      {canMove || onHide ? <DropdownMenuSeparator /> : null}
       {canMove ? (
         <>
           <DropdownMenuItem disabled={!onMoveLeft} onSelect={onMoveLeft}>
@@ -16743,51 +17046,14 @@ function ColumnHeaderMenuContent({
           </DropdownMenuItem>
         </>
       ) : null}
-      <DropdownMenuSeparator />
-      {quickFilters.map((quickFilter) => (
-        <DropdownMenuItem
-          key={quickFilter.operator}
-          onSelect={(event) => {
-            event.preventDefault();
-            onFiltersChange(
-              upsertDatabaseQuickFilter(
-                filters,
-                columnKey,
-                label,
-                quickFilter.operator,
-              ),
-            );
-          }}
-        >
-          <IconFilter className="mr-2 size-4 text-muted-foreground" />
-          {quickFilter.label}
-        </DropdownMenuItem>
-      ))}
-      {columnFilterCount > 0 ? (
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            onFiltersChange(clearDatabaseFiltersForColumn(filters, columnKey));
-          }}
-        >
-          <IconX className="mr-2 size-4 text-muted-foreground" />
-          Clear {columnFilterCount === 1 ? "filter" : "filters"}
-        </DropdownMenuItem>
-      ) : null}
       {onHide ? (
-        <>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            disabled={hideDisabled}
-            onSelect={(event) => {
-              event.preventDefault();
-              void onHide();
-            }}
-          >
-            <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-            {dbText("hideInView")}
-          </DropdownMenuItem>
-        </>
+        <DropdownMenuItem
+          disabled={hideDisabled}
+          onSelect={() => void onHide()}
+        >
+          <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
+          {dbText("hideInView")}
+        </DropdownMenuItem>
       ) : null}
       {source ? (
         <>
@@ -18427,6 +18693,9 @@ function DatabaseTableRow({
   onPreview: () => void;
   onOpenPage: () => void;
 }) {
+  const presentation = useDatabaseColumnPresentation();
+  const columnWrap = (id: string) =>
+    presentation?.columnWrapOverrides[id] ?? wrapCells;
   return (
     <DatabaseTableGrid
       className={cn(
@@ -18444,24 +18713,43 @@ function DatabaseTableRow({
         ),
       )}
       actionWidth={ACTION_COLUMN_WIDTH}
+      selectionCell={
+        <>
+          <DatabaseRowSelectionControl
+            checked={selected}
+            quietUntilHover
+            label={`${selected ? "Deselect" : "Select"} ${item.document.title || "Untitled"}`}
+            onToggle={onToggleSelected}
+          />
+          {canDragRow ? (
+            <button
+              type="button"
+              aria-label={`Drag ${item.document.title || "Untitled"}`}
+              className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent active:cursor-grabbing group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onPointerDown={onDragHandlePointerDown}
+            >
+              <IconGripVertical className="size-3.5" />
+            </button>
+          ) : (
+            <span className="size-6 shrink-0" aria-hidden="true" />
+          )}
+        </>
+      }
       nameCell={
         <RowNameCell
           item={item}
           databaseDocumentId={databaseDocumentId}
           workspaceCatalog={workspaceCatalog}
           canEdit={canEdit}
-          canDragRow={canDragRow}
-          selected={selected}
           startEditingTitle={startEditingTitle}
-          wrapCells={wrapCells}
+          wrapCells={columnWrap("name")}
           rowDensity={rowDensity}
-          onDragHandlePointerDown={onDragHandlePointerDown}
-          onToggleSelected={onToggleSelected}
           onTitleEditStarted={onTitleEditStarted}
           onPreview={onPreview}
         />
       }
       propertyCells={properties.map((property) => {
+        const wrapCells = columnWrap(property.definition.id);
         const itemProperty = databaseItemPropertyForColumn(item, property);
         const bodyCellHydrationPending =
           itemProperty.definition.type === "blocks" &&
@@ -18774,13 +19062,9 @@ function RowNameCell({
   databaseDocumentId,
   workspaceCatalog,
   canEdit,
-  canDragRow,
-  selected,
   startEditingTitle,
   wrapCells,
   rowDensity,
-  onDragHandlePointerDown,
-  onToggleSelected,
   onTitleEditStarted,
   onPreview,
 }: {
@@ -18788,13 +19072,9 @@ function RowNameCell({
   databaseDocumentId: string;
   workspaceCatalog: boolean;
   canEdit: boolean;
-  canDragRow: boolean;
-  selected: boolean;
   startEditingTitle: boolean;
   wrapCells: boolean;
   rowDensity: DatabaseRowDensity;
-  onDragHandlePointerDown: (event: ReactPointerEvent) => void;
-  onToggleSelected: () => void;
   onTitleEditStarted: () => void;
   onPreview: () => void;
 }) {
@@ -18857,24 +19137,6 @@ function RowNameCell({
         wrapCells ? "items-start" : "items-center",
       )}
     >
-      <DatabaseRowSelectionControl
-        checked={selected}
-        quietUntilHover
-        label={`${selected ? "Deselect" : "Select"} ${item.document.title || "Untitled"}`}
-        onToggle={onToggleSelected}
-      />
-      {canDragRow ? (
-        <button
-          type="button"
-          aria-label={`Drag ${item.document.title || "Untitled"}`}
-          className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground active:cursor-grabbing group-hover/name:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onPointerDown={onDragHandlePointerDown}
-        >
-          <IconGripVertical className="size-3.5" />
-        </button>
-      ) : (
-        <span className="size-6 shrink-0" aria-hidden="true" />
-      )}
       <DatabaseItemPageIcon
         document={item.document}
         className="size-4 text-sm"

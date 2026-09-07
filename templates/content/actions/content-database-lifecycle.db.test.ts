@@ -256,6 +256,77 @@ describe("database-scoped document properties", () => {
     ).rejects.toThrow(`No access to document ${missingDocumentId}`);
   });
 
+  it("clears deleted column presentation state without dropping hidden columns", async () => {
+    const db = getDb();
+    const database = await createDatabase({});
+    const deletedPropertyId = nextId("deleted_property");
+    const hiddenPropertyId = nextId("hidden_property");
+    const now = new Date().toISOString();
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: deletedPropertyId,
+        ownerEmail: OWNER,
+        databaseId: database.databaseId,
+        name: "Delete me",
+        type: "text",
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: hiddenPropertyId,
+        ownerEmail: OWNER,
+        databaseId: database.databaseId,
+        name: "Hidden",
+        type: "text",
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "table",
+          views: [
+            {
+              id: "table",
+              name: "Table",
+              type: "table",
+              sorts: [],
+              filters: [],
+              columnWidths: {},
+              hiddenPropertyIds: [hiddenPropertyId],
+              columnWrapOverrides: {
+                [deletedPropertyId]: true,
+                [hiddenPropertyId]: true,
+              },
+              frozenThroughColumnId: deletedPropertyId,
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, database.databaseId));
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: database.databaseDocumentId,
+        databaseId: database.databaseId,
+        propertyId: deletedPropertyId,
+      }),
+    );
+
+    const saved = JSON.parse(
+      (await databaseRow(database.databaseId)).viewConfigJson,
+    );
+    expect(saved.views[0]).toMatchObject({
+      hiddenPropertyIds: [hiddenPropertyId],
+      columnWrapOverrides: { [hiddenPropertyId]: true },
+      frozenThroughColumnId: null,
+    });
+  });
+
   it("keeps reads and Add property mutations on the requested membership", async () => {
     const db = getDb();
     const now = new Date().toISOString();

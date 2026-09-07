@@ -5,7 +5,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { withSavedTableColumnOrder } from "../shared/database-table-columns.js";
+import { withSavedTableColumnPresentation } from "../shared/database-table-columns.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
   parseDatabaseViewConfig,
@@ -96,6 +96,8 @@ const viewSchema = z.object({
   hideEmptyGroups: z.boolean().default(false),
   calculations: z.record(z.string(), columnCalculationSchema).default({}),
   wrapCells: z.boolean().default(false),
+  columnWrapOverrides: z.record(z.string().min(1), z.boolean()).optional(),
+  frozenThroughColumnId: z.string().min(1).nullable().optional(),
   rowDensity: z.enum(["compact", "default", "comfortable"]).default("default"),
   openPagesIn: z.enum(["preview", "full_page"]).default("preview"),
   formQuestions: z.array(formQuestionSchema).default([]),
@@ -135,7 +137,7 @@ export default defineAction({
     const nextViewConfig = {
       ...viewConfig,
       views: viewConfig.views?.map((view) =>
-        withSavedTableColumnOrder(view, currentViewConfig.views),
+        withSavedTableColumnPresentation(view, currentViewConfig.views),
       ),
     };
 

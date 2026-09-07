@@ -48,6 +48,7 @@ import {
   IconArrowDown,
   IconArrowRight,
   IconArrowUp,
+  IconArrowsSort,
   IconAt,
   IconCalendar,
   IconCheck,
@@ -139,6 +140,7 @@ import {
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
 
+import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
   clearDatabaseSort,
@@ -1466,91 +1468,122 @@ export function PropertyManagementPopover({
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
-                  onSortsChange?.(
-                    upsertDatabaseSort(
-                      sorts ?? [],
-                      columnKey,
-                      property.definition.name,
-                      "asc",
-                    ),
-                  );
+                  setView("edit");
                 }}
               >
-                <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
-                <span className="min-w-0 flex-1">
-                  {t("database.sortAscending")}
-                </span>
-                {columnSort?.direction === "asc" ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
-                ) : null}
+                <IconEdit className="mr-2 size-4 text-muted-foreground" />
+                {t("editor.properties.editField")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onSortsChange?.(
-                    upsertDatabaseSort(
-                      sorts ?? [],
-                      columnKey,
-                      property.definition.name,
-                      "desc",
-                    ),
-                  );
-                }}
-              >
-                <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
-                <span className="min-w-0 flex-1">
-                  {t("database.sortDescending")}
-                </span>
-                {columnSort?.direction === "desc" ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
-                ) : null}
-              </DropdownMenuItem>
-              {columnSort ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onSortsChange?.(clearDatabaseSort(sorts ?? [], columnKey));
-                  }}
-                >
-                  <IconX className="mr-2 size-4 text-muted-foreground" />
-                  {t("database.clearSort")}
-                </DropdownMenuItem>
-              ) : null}
               <DropdownMenuSeparator />
-              {quickFilters.map((quickFilter) => (
-                <DropdownMenuItem
-                  key={quickFilter.operator}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onFiltersChange?.(
-                      upsertDatabaseQuickFilter(
-                        filters ?? [],
-                        columnKey,
-                        property.definition.name,
-                        quickFilter.operator,
-                      ),
-                    );
-                  }}
-                >
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
                   <IconFilter className="mr-2 size-4 text-muted-foreground" />
-                  {quickFilter.label}
-                </DropdownMenuItem>
-              ))}
-              {columnFilterCount > 0 ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onFiltersChange?.(
-                      clearDatabaseFiltersForColumn(filters ?? [], columnKey),
-                    );
-                  }}
-                >
-                  <IconX className="mr-2 size-4 text-muted-foreground" />
-                  {t("editor.properties.clearFilters", {
-                    count: columnFilterCount,
-                  })}
-                </DropdownMenuItem>
-              ) : null}
+                  {t("database.filter")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="z-[310] w-56">
+                  {quickFilters.map((quickFilter) => (
+                    <DropdownMenuItem
+                      key={quickFilter.operator}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onFiltersChange?.(
+                          upsertDatabaseQuickFilter(
+                            filters ?? [],
+                            columnKey,
+                            property.definition.name,
+                            quickFilter.operator,
+                          ),
+                        );
+                      }}
+                    >
+                      <IconFilter className="mr-2 size-4 text-muted-foreground" />
+                      {quickFilter.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {columnFilterCount > 0 ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onFiltersChange?.(
+                          clearDatabaseFiltersForColumn(
+                            filters ?? [],
+                            columnKey,
+                          ),
+                        );
+                      }}
+                    >
+                      <IconX className="mr-2 size-4 text-muted-foreground" />
+                      {t("editor.properties.clearFilters", {
+                        count: columnFilterCount,
+                      })}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconArrowsSort className="mr-2 size-4 text-muted-foreground" />
+                  {t("database.sort")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="z-[310] w-56">
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      onSortsChange?.(
+                        upsertDatabaseSort(
+                          sorts ?? [],
+                          columnKey,
+                          property.definition.name,
+                          "asc",
+                        ),
+                      );
+                    }}
+                  >
+                    <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      {t("database.sortAscending")}
+                    </span>
+                    {columnSort?.direction === "asc" ? (
+                      <IconCheck className="size-4 text-muted-foreground" />
+                    ) : null}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      onSortsChange?.(
+                        upsertDatabaseSort(
+                          sorts ?? [],
+                          columnKey,
+                          property.definition.name,
+                          "desc",
+                        ),
+                      );
+                    }}
+                  >
+                    <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      {t("database.sortDescending")}
+                    </span>
+                    {columnSort?.direction === "desc" ? (
+                      <IconCheck className="size-4 text-muted-foreground" />
+                    ) : null}
+                  </DropdownMenuItem>
+                  {columnSort ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onSortsChange?.(
+                          clearDatabaseSort(sorts ?? [], columnKey),
+                        );
+                      }}
+                    >
+                      <IconX className="mr-2 size-4 text-muted-foreground" />
+                      {t("database.clearSort")}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <ColumnPresentationMenuItems columnId={columnKey} />
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 disabled={!onMoveLeft}
@@ -1581,16 +1614,6 @@ export function PropertyManagementPopover({
                   </DropdownMenuItem>
                 </>
               ) : null}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  setView("edit");
-                }}
-              >
-                <IconEdit className="mr-2 size-4 text-muted-foreground" />
-                {t("editor.properties.editField")}
-              </DropdownMenuItem>
             </>
           ) : (
             <>

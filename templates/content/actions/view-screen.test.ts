@@ -115,6 +115,8 @@ function databaseResponse(): ContentDatabaseResponse {
             hideEmptyGroups: true,
             calculations: { owner: "count_unique" },
             wrapCells: true,
+            columnWrapOverrides: { owner: false },
+            frozenThroughColumnId: null,
             rowDensity: "comfortable",
             hiddenPropertyIds: ["priority"],
             propertyOrderIds: ["owner", "status", "missing-property"],
@@ -422,6 +424,15 @@ describe("view-screen current database view", () => {
   it("falls back to the saved active view and database rows", () => {
     expect(databaseCurrentViewSnapshot({}, databaseResponse())).toEqual({
       tableColumnOrderIds: ["name", "owner", "status"],
+      columnWrapOverrides: { owner: false },
+      effectiveColumnWrapById: {
+        name: true,
+        owner: false,
+        status: true,
+      },
+      frozenThroughColumnId: null,
+      intendedFrozenColumnIds: [],
+      effectiveFrozenColumnIds: undefined,
       id: "editorial",
       name: "Editorial",
       type: "table",
@@ -513,6 +524,77 @@ describe("view-screen current database view", () => {
       visibleItemLimit: 50,
       selectedItemCount: 0,
       selectedItems: [],
+    });
+  });
+
+  it("preserves explicit navigation unfreeze and resolves effective column wrapping", () => {
+    expect(
+      databaseCurrentViewSnapshot(
+        {
+          databaseViewType: "table",
+          databaseColumnWrapOverrides: { name: false, owner: true },
+          databaseFrozenThroughColumnId: null,
+          databaseEffectiveFrozenColumnIds: ["name"],
+        },
+        databaseResponse(),
+      ),
+    ).toMatchObject({
+      columnWrapOverrides: { name: false, owner: true },
+      effectiveColumnWrapById: {
+        name: false,
+        owner: true,
+        status: true,
+      },
+      frozenThroughColumnId: null,
+      intendedFrozenColumnIds: [],
+      effectiveFrozenColumnIds: undefined,
+    });
+  });
+
+  it("reports observed viewport-capped freezing separately from the intended prefix", () => {
+    expect(
+      databaseCurrentViewSnapshot(
+        {
+          databaseViewType: "table",
+          databaseFrozenThroughColumnId: "status",
+          databaseEffectiveFrozenColumnIds: ["name"],
+        },
+        databaseResponse(),
+      ),
+    ).toMatchObject({
+      frozenThroughColumnId: "status",
+      intendedFrozenColumnIds: ["name", "owner", "status"],
+      effectiveFrozenColumnIds: ["name"],
+    });
+  });
+
+  it("does not report malformed or non-prefix observed freeze state", () => {
+    expect(
+      databaseCurrentViewSnapshot(
+        {
+          databaseViewType: "table",
+          databaseFrozenThroughColumnId: "status",
+          databaseEffectiveFrozenColumnIds: ["owner"],
+        },
+        databaseResponse(),
+      ).effectiveFrozenColumnIds,
+    ).toBeUndefined();
+  });
+
+  it("rejects a stale observation beyond a newly narrowed intended range", () => {
+    const response = databaseResponse();
+    response.database.viewConfig.views[0].frozenThroughColumnId = undefined;
+    expect(
+      databaseCurrentViewSnapshot(
+        {
+          databaseViewType: "table",
+          databaseEffectiveFrozenColumnIds: ["name", "owner"],
+        },
+        response,
+      ),
+    ).toMatchObject({
+      intendedFrozenColumnIds: ["name"],
+      effectiveFrozenColumnIds: undefined,
     });
   });
 
