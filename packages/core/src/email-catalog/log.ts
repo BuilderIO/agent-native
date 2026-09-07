@@ -14,6 +14,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -32,6 +33,7 @@ export async function ensureTable(): Promise<void> {
       const createSql = EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
       {
         await ensureTableExists("email_log", createSql);
+        await widenIntColumnsToBigInt("email_log", ["created_at"]);
         await ensureColumnExists(
           "email_log",
           "org_id",

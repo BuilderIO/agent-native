@@ -1090,7 +1090,7 @@ export const migrations = runMigrations(
       sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
         lease_key TEXT PRIMARY KEY,
         holder TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at BIGINT NOT NULL
       )`,
     },
     {
@@ -1135,7 +1135,7 @@ export const migrations = runMigrations(
       sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
         lease_key TEXT PRIMARY KEY,
         holder TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at BIGINT NOT NULL
       )`,
     },
     {
@@ -1209,6 +1209,14 @@ export const migrations = runMigrations(
       // Additive. NULL on every existing row and on any stop that doesn't
       // pass a reason — absent stays distinguishable from every named cause.
       sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS end_reason TEXT`,
+    },
+    {
+      version: 70,
+      name: "clips-backfill-leases-expires-at-bigint",
+      sql: `
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+        ALTER TABLE clips_backfill_leases ALTER COLUMN expires_at TYPE BIGINT
+      `,
     },
   ],
   { table: "clips_migrations" },
