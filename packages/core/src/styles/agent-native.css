@@ -637,6 +637,22 @@
   [role="button"] {
     cursor: pointer;
   }
+
+  /* WebKit paints its own cancel/decoration widgets inside every
+     `input[type="search"]`, so a field that also renders a themed clear button
+     shows two "x" affordances side by side. Opting in per field rather than
+     suppressing globally is deliberate: a search field with no clear button of
+     its own still needs the platform widget, and a blanket rule would take
+     away its only pointer-accessible way to clear. `guard:single-search-clear`
+     fails when a field grows its own clear button without this class, so the
+     duplicate cannot come back silently. */
+  .search-field-owns-clear::-webkit-search-cancel-button,
+  .search-field-owns-clear::-webkit-search-decoration,
+  .search-field-owns-clear::-webkit-search-results-button,
+  .search-field-owns-clear::-webkit-search-results-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 /* Appearance presets.
