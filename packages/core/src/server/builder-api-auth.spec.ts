@@ -10,6 +10,7 @@ import {
 const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentialMock = vi.hoisted(() => vi.fn());
+const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
 const listRemoteServersMock = vi.hoisted(() => vi.fn());
 const toHttpServerConfigAsyncMock = vi.hoisted(() => vi.fn());
 const readMcpOAuthCredentialsMock = vi.hoisted(() => vi.fn());
@@ -35,6 +36,7 @@ vi.mock("./builder-oauth.js", () => ({
 vi.mock("./credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
   resolveBuilderCredential: resolveBuilderCredentialMock,
+  resolveBuilderCredentials: resolveBuilderCredentialsMock,
 }));
 vi.mock("../mcp-client/remote-store.js", () => ({
   listRemoteServers: listRemoteServersMock,
@@ -78,6 +80,10 @@ beforeEach(() => {
   hasBuilderOAuthSessionMock.mockResolvedValue(false);
   getBuilderOAuthSessionMock.mockResolvedValue(null);
   resolveBuilderCredentialMock.mockResolvedValue(null);
+  resolveBuilderCredentialsMock.mockResolvedValue({
+    publicKey: null,
+    userId: null,
+  });
   listRemoteServersMock.mockResolvedValue([]);
   toHttpServerConfigAsyncMock.mockResolvedValue({});
   readMcpOAuthCredentialsMock.mockResolvedValue(null);
@@ -113,9 +119,15 @@ describe("resolveBuilderApiAuthorization", () => {
     });
     resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
 
-    await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).rejects.toThrow(
-      /needs re-authorizing to grant builder:assets:write/,
-    );
+    await expect(
+      resolveBuilderApiAuthorization(ASSETS_WRITE),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "builder_oauth_reauthorization_required",
+      message:
+        "Builder.io access needs re-authorizing to grant builder:assets:write. Open Settings and authorize Builder.io again.",
+      statusCode: 400,
+    });
     // Falling back here would let a deploy-level key act for a user who never
     // authorized it.
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
@@ -153,11 +165,16 @@ describe("resolveBuilderApiAuthorization", () => {
   });
 
   it("uses the legacy private key when there is no OAuth grant", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "bpk-legacy",
+      publicKey: null,
+      userId: null,
+    });
 
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).resolves.toBe(
       "Bearer bpk-legacy",
     );
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
   it("reports not connected when neither credential kind answers", async () => {
@@ -191,7 +208,11 @@ describe("resolveBuilderApiAuthorization", () => {
 
   it("skips the OAuth lookup with no request owner", async () => {
     getRequestUserEmailMock.mockReturnValue(undefined);
-    resolveBuilderCredentialMock.mockResolvedValue("bpk-deploy");
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "bpk-deploy",
+      publicKey: null,
+      userId: null,
+    });
 
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).resolves.toBe(
       "Bearer bpk-deploy",
@@ -379,25 +400,37 @@ describe("resolveBuilderRequestAuthorization", () => {
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
+  it("returns the legacy public key and user ID", async () => {
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "bpk-legacy",
+      publicKey: "space-123",
+      userId: "builder-user-123",
+    });
+
+    await expect(resolveBuilderRequestAuthorization()).resolves.toMatchObject({
+      source: "legacy",
+      legacyPublicKey: "space-123",
+      userId: "builder-user-123",
+    });
+  });
+
   it("keeps the Content legacy alias inside the shared fallback boundary", async () => {
     resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
       key === "BUILDER_CMS_PRIVATE_KEY" ? "cms-private-key" : null,
     );
 
-    await expect(
-      resolveBuilderRequestAuthorization({
-        legacyCredentialKeys: [
-          "BUILDER_PRIVATE_KEY",
-          "BUILDER_CMS_PRIVATE_KEY",
-        ],
-      }),
-    ).resolves.toMatchObject({
+    const authorization = await resolveBuilderRequestAuthorization({
+      legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+    });
+
+    expect(authorization).toMatchObject({
       token: "cms-private-key",
       source: "legacy",
       legacyCredentialKey: "BUILDER_CMS_PRIVATE_KEY",
     });
+    expect(authorization).not.toHaveProperty("legacyPublicKey");
+    expect(authorization).not.toHaveProperty("userId");
     expect(resolveBuilderCredentialMock.mock.calls).toEqual([
-      ["BUILDER_PRIVATE_KEY"],
       ["BUILDER_CMS_PRIVATE_KEY"],
     ]);
   });

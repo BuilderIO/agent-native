@@ -8,6 +8,7 @@
  * every authenticated Builder caller must share this precedence decision.
  */
 
+import { ActionContractError } from "../action.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { readMcpOAuthCredentials } from "../mcp-client/oauth-client.js";
 import {
@@ -18,10 +19,12 @@ import {
 import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 import {
   CredentialStoreUnavailableError,
   resolveBuilderCredential,
+  resolveBuilderCredentials,
 } from "./credential-provider.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -68,6 +71,8 @@ export interface BuilderRequestAuthorization {
   source: "oauth" | "legacy";
   oauthScope?: RemoteMcpScope;
   legacyCredentialKey?: BuilderLegacyCredentialKey;
+  legacyPublicKey?: string;
+  userId?: string;
 }
 
 async function resolveBuilderPublishAuthorization(
@@ -86,8 +91,12 @@ async function resolveBuilderPublishAuthorization(
     });
     if (!server) continue;
     if (!server.oauthSecretKey) {
-      throw new Error(
+      throw new ActionContractError(
         "Builder Publish is configured without OAuth custody. Reconnect Builder.io Publish in Settings to continue.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
       );
     }
     const credentials = await readMcpOAuthCredentials({
@@ -121,8 +130,12 @@ async function resolveBuilderPublishAuthorization(
         (scope) => scope !== "mcp:publish:read" && scope !== "offline_access",
       )
     ) {
-      throw new Error(
+      throw new ActionContractError(
         "Builder Publish access needs re-authorizing to grant mcp:publish:read. Open Settings and reconnect Builder.io Publish.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
       );
     }
     const config = await toHttpServerConfigAsync(
@@ -133,8 +146,12 @@ async function resolveBuilderPublishAuthorization(
     const authorization = config.headers?.Authorization;
     const match = authorization?.match(/^Bearer\s+(.+)$/i);
     if (!match?.[1]) {
-      throw new Error(
+      throw new ActionContractError(
         "Builder Publish access expired. Reconnect Builder.io Publish in Settings to continue.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
       );
     }
     return {
@@ -149,8 +166,12 @@ async function resolveBuilderPublishAuthorization(
       (entry) => isBuilderPublishResource(entry.url),
     );
     if (personalServer) {
-      throw new Error(
+      throw new ActionContractError(
         "Builder Publish is connected only for this user. Remove it and reconnect Builder.io Publish for the workspace.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
       );
     }
   }
@@ -164,7 +185,7 @@ async function resolveBuilderPublishAuthorization(
  */
 export async function resolveBuilderRequestAuthorization(
   input: {
-    requiredScope?: string;
+    requiredScope?: BuilderOAuthPermissionScope;
     oauthResource?: "general" | "publish";
     legacyCredentialKeys?: readonly BuilderLegacyCredentialKey[];
   } = {},
@@ -178,8 +199,12 @@ export async function resolveBuilderRequestAuthorization(
     );
     if (publishAuthorization) return publishAuthorization;
     if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
-      throw new Error(
+      throw new ActionContractError(
         "Builder Publish access is not connected for this workspace. Connect Builder.io Publish in Settings to grant mcp:publish:read.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
       );
     }
   }
@@ -201,20 +226,32 @@ export async function resolveBuilderRequestAuthorization(
         err.message ===
           `Builder OAuth connection does not grant ${input.requiredScope}`
       ) {
-        throw new Error(
+        throw new ActionContractError(
           `Builder.io access needs re-authorizing to grant ${input.requiredScope}. Open Settings and authorize Builder.io again.`,
+          {
+            errorCode: "builder_oauth_reauthorization_required",
+            statusCode: 400,
+          },
         );
       }
       throw err;
     }
     if (!session) {
-      throw new Error(
+      throw new ActionContractError(
         "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
       );
     }
     if (input.requiredScope && !session.scopes.includes(input.requiredScope)) {
-      throw new Error(
+      throw new ActionContractError(
         `Builder.io access needs re-authorizing to grant ${input.requiredScope}. Open Settings and authorize Builder.io again.`,
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
       );
     }
     return {
@@ -229,6 +266,20 @@ export async function resolveBuilderRequestAuthorization(
     "BUILDER_PRIVATE_KEY",
   ];
   for (const key of legacyCredentialKeys) {
+    if (key === "BUILDER_PRIVATE_KEY") {
+      const { privateKey, publicKey, userId } =
+        await resolveBuilderCredentials();
+      if (!privateKey) continue;
+      return {
+        token: privateKey,
+        authorization: `Bearer ${privateKey}`,
+        source: "legacy",
+        legacyCredentialKey: key,
+        legacyPublicKey: publicKey ?? undefined,
+        userId: userId ?? undefined,
+      };
+    }
+
     const token = await resolveBuilderCredential(key);
     if (token) {
       return {
@@ -253,10 +304,15 @@ export async function resolveBuilderRequestAuthorization(
  * with no scope gate.
  */
 export async function resolveBuilderApiAuthorization(
-  requiredScope?: string,
+  requiredScope?: BuilderOAuthPermissionScope,
 ): Promise<string> {
   const resolved = await resolveBuilderRequestAuthorization({ requiredScope });
-  if (!resolved) throw new Error("Builder.io is not connected.");
+  if (!resolved) {
+    throw new ActionContractError("Builder.io is not connected.", {
+      errorCode: "builder_oauth_reauthorization_required",
+      statusCode: 400,
+    });
+  }
   return resolved.authorization;
 }
 
@@ -284,7 +340,7 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
  * the requested scope. OAuth custody deliberately wins over deploy keys here.
  */
 export async function canAuthorizeBuilderApiRequest(
-  requiredScope?: string,
+  requiredScope?: BuilderOAuthPermissionScope,
 ): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
   const orgId = getRequestOrgId() ?? null;

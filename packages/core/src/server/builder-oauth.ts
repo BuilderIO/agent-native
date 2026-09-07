@@ -19,10 +19,25 @@ export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
 export const BUILDER_OAUTH_SCOPE = "builder:ai:invoke";
 /** Enforced by Builder's `/api/v1/upload/*` endpoints; without it, no uploads. */
 export const BUILDER_ASSETS_WRITE_SCOPE = "builder:assets:write";
+// Requested as one grant covering every Builder surface this app calls,
+// rather than incrementally per feature: a missing scope on an existing
+// session makes resolveBuilderRequestAuthorization throw a reconnect error
+// (see builder-api-auth.ts), and reconnecting re-runs this same full scope
+// list — there is no narrower "add one more scope" flow to fall back to. So
+// under-requesting here just means every user reconnects again the next time
+// a call site starts requiring a scope that shipped after they connected.
 export const BUILDER_OAUTH_SCOPES = [
   BUILDER_OAUTH_SCOPE,
+  "builder:agents:run",
+  "builder:browser:connect",
   BUILDER_ASSETS_WRITE_SCOPE,
+  "builder:assets:read",
+  "builder:projects:read",
+  "builder:projects:write",
+  "builder:designsystem:read",
+  "builder:designsystem:write",
 ] as const;
+export type BuilderOAuthPermissionScope = (typeof BUILDER_OAUTH_SCOPES)[number];
 
 // Folded with the owner so each owner gets their own (provider, account_id)
 // row; a bare shared key would let only the first connector hold a grant.
@@ -308,7 +323,7 @@ export async function markBuilderOAuthReconnectRequired(
 export async function getBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
-  requiredScope?: string,
+  requiredScope?: BuilderOAuthPermissionScope,
 ): Promise<BuilderOAuthSession | null> {
   let missingRequiredScope = false;
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId)) {
@@ -393,7 +408,7 @@ export async function getBuilderOAuthStoredScope(
 
 export async function resolveBuilderOAuthRequestAccess(input: {
   ownerEmail: string;
-  requiredScope: string;
+  requiredScope: BuilderOAuthPermissionScope;
   orgId?: string | null;
 }): Promise<BuilderOAuthRequestAccess | null> {
   const session = await getBuilderOAuthSession(
