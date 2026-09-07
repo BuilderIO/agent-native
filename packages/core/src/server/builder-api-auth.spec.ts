@@ -165,6 +165,7 @@ describe("resolveBuilderApiAuthorization", () => {
   });
 
   it("uses the legacy private key when there is no OAuth grant", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: "bpk-legacy",
       publicKey: null,
@@ -174,7 +175,9 @@ describe("resolveBuilderApiAuthorization", () => {
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).resolves.toBe(
       "Bearer bpk-legacy",
     );
-    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).toHaveBeenCalledWith(
+      "BUILDER_PRIVATE_KEY",
+    );
   });
 
   it("reports not connected when neither credential kind answers", async () => {
@@ -208,6 +211,7 @@ describe("resolveBuilderApiAuthorization", () => {
 
   it("skips the OAuth lookup with no request owner", async () => {
     getRequestUserEmailMock.mockReturnValue(undefined);
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-deploy");
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: "bpk-deploy",
       publicKey: null,
@@ -401,6 +405,7 @@ describe("resolveBuilderRequestAuthorization", () => {
   });
 
   it("returns the legacy public key and user ID", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: "bpk-legacy",
       publicKey: "space-123",
@@ -408,10 +413,33 @@ describe("resolveBuilderRequestAuthorization", () => {
     });
 
     await expect(resolveBuilderRequestAuthorization()).resolves.toMatchObject({
+      token: "bpk-legacy",
       source: "legacy",
       legacyPublicKey: "space-123",
       userId: "builder-user-123",
     });
+  });
+
+  it("authenticates a private-key-only tenant with no stored public key", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "bpk-solo" : null,
+    );
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+    });
+
+    const authorization = await resolveBuilderRequestAuthorization();
+
+    expect(authorization).toMatchObject({
+      token: "bpk-solo",
+      authorization: "Bearer bpk-solo",
+      source: "legacy",
+      legacyCredentialKey: "BUILDER_PRIVATE_KEY",
+    });
+    expect(authorization?.legacyPublicKey).toBeFalsy();
+    expect(authorization?.userId).toBeFalsy();
   });
 
   it("keeps the Content legacy alias inside the shared fallback boundary", async () => {
@@ -431,8 +459,10 @@ describe("resolveBuilderRequestAuthorization", () => {
     expect(authorization).not.toHaveProperty("legacyPublicKey");
     expect(authorization).not.toHaveProperty("userId");
     expect(resolveBuilderCredentialMock.mock.calls).toEqual([
+      ["BUILDER_PRIVATE_KEY"],
       ["BUILDER_CMS_PRIVATE_KEY"],
     ]);
+    expect(resolveBuilderCredentialsMock).not.toHaveBeenCalled();
   });
 });
 

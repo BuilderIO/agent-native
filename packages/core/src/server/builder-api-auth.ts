@@ -267,9 +267,15 @@ export async function resolveBuilderRequestAuthorization(
   ];
   for (const key of legacyCredentialKeys) {
     if (key === "BUILDER_PRIVATE_KEY") {
-      const { privateKey, publicKey, userId } =
-        await resolveBuilderCredentials();
+      // Resolve the private key on its own, same as any other legacy key
+      // below: a private-key-only tenant (no public key ever stored) still
+      // authenticates every plain Bearer-token caller. resolveBuilderCredentials()
+      // only returns a bundle when the private+public pair is complete, so it
+      // is queried separately and purely to populate the public key/user id
+      // that scope-gated callers (Fusion, design systems, browser) require.
+      const privateKey = await resolveBuilderCredential(key);
       if (!privateKey) continue;
+      const { publicKey, userId } = await resolveBuilderCredentials();
       return {
         token: privateKey,
         authorization: `Bearer ${privateKey}`,

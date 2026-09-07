@@ -31,7 +31,6 @@ export const BUILDER_OAUTH_SCOPES = [
   "builder:agents:run",
   "builder:browser:connect",
   BUILDER_ASSETS_WRITE_SCOPE,
-  "builder:assets:read",
   "builder:projects:read",
   "builder:projects:write",
   "builder:designsystem:read",
