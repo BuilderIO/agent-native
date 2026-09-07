@@ -51,6 +51,100 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.177.0
+
+### Minor Changes
+
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
+### Patch Changes
+
+- 92c5992: Add Sigma's remote MCP server to the integration catalog with OAuth setup guidance and branded logo support.
+- b804f4a: MCP/WebMCP instructions now advertise the app's key tools from
+  `initialToolNames` (override with `mcp.keyToolNames`) and name `view-screen`
+  literally. MCP tool results keep the deep link and surface
+  `nextRequiredAction` as "Next: …".
+- 6c84a09: Automatically register template WebMCP actions on public and private app
+  surfaces, with an explicit opt-out for exceptional shells.
+- 464c3fc: Expose linked design-system context consistently to external MCP and WebMCP agents.
+- cef8c06: Group organization switcher actions into clearly labeled workspace, account, organization, and tools sections.
+- 52944fb: Load the tracking registry lazily from the action lifecycle wrapper so `@agent-native/core`'s browser entry no longer pulls `server/deploy-environment` and the database client into client bundles, which crashed the Slides deck editor at load. A test now walks the browser entry's static import graph and fails on any server-only module.
+- cef8c06: Add opt-in persistent agent sidebar toggles, customizable toggle icons, and hideable inline collapse controls.
+- 4ca5522: Expose the current sync-event batch to action invalidation predicates so apps can keep cache refreshes narrowly scoped.
+- cef8c06: Route Clips' shadcn UI primitives through the shared Toolkit while preserving its intentional line-tab variant.
+- 71ebb30: `loadAgentDesignSystemContext` returns a bounded summary on reads and the full design-system context only when asked (`{ full: true }`); an unreadable link now says whether retrying can help.
+- 2ab0a5e: Fix extension/slide content patches ending the agent's turn on the first text
+  mismatch instead of letting the model retarget. Extension and slide literal
+  find/replace edits now fall back to whitespace-flexible matching (tolerating
+  re-indentation and CRLF/LF differences), report the closest-matching lines
+  when nothing is found, and flag more than one match as ambiguous instead of
+  silently patching the first one.
+- 98a61a0: External MCP/WebMCP surfaces now hide turn-ending in-app question actions (`endsTurn: true`) by default and accept tool inputs/results up to 500,000 characters, so external agents author and save whole screens, decks, and documents directly instead of stalling on an in-app answer or hitting the old 20k/50k character caps.
+
+  The page-local WebMCP action bridge now sends the calling browser tab id (`X-Agent-Native-Browser-Tab`, the header the action routes resolve into `getRequestRunContext()?.browserTabId`), so `readAppStateForCurrentTab` scopes navigation and selection reads for a WebMCP call to the tab that made it instead of whichever tab last wrote the global key.
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- 8199216: Add an optional `exhaustedDraftPrefix` to `AgentLoopFinalResponseGuardResult`. When the final-response guard's retries are exhausted, an app that sets this field keeps the model's non-empty draft and prepends the prefix instead of replacing it with `fallbackMessage`; an empty draft still falls back to `fallbackMessage`. Apps that don't set the field keep the existing replace behavior.
+- 2815f2a: Make the Builder free-credits service list open when users click "+8 more" during onboarding.
+- 324b27e: Fix org creation and SSO login failing with `value "<epoch ms>" is out of range for type integer` by widening `organizations`, `org_members`, `org_invitations`, `app_member_roles`, `workspace_apps`, `identity_sso_flow_state`, and `identity_sso_jti` millisecond-timestamp columns from `INTEGER` to `BIGINT`. Also corrects the Drizzle schema for these tables plus `chat_threads`, `email_log`, and `app_secrets`, which declared their (already- or now-)BIGINT timestamp columns as `integer(...)` — silently mistyping them as `number` when node-postgres actually decodes `BIGINT` as a string.
+- 9e6f642: Pass the input shape expected by the active WebMCP host adapter, including the
+  Codex page adapter.
+- aa4f7b6: Steer WebMCP clients toward direct mutations when current selection or item
+  context already identifies a focused edit target.
+- bea5bbd: Update the package README with the current Agent-Native positioning, quick start, architecture, and app examples.
+- 7b19c49: Add an authenticated compare-and-set application-state route for race-safe browser acknowledgements.
+- a22a313: `/_agent-native/health` reports `database.runningApp` and only claims
+  `identityMismatch` when the runtime can derive its own app identity; a hosted
+  bundle that resolves no slug/id reports the gap instead of blocking every
+  production cutover. The deploy smoke check warns on identity mismatch for this
+  rollout rather than failing.
+- 30b1941: Add `summarizeHtmlStyles` and `formatHtmlStyleSummary` to `@agent-native/core/shared` so a current-screen read can print the style vocabulary shared by sibling HTML fragments (backgrounds, text and accent colors, fonts, heading sizes) and an agent editing one item matches the others instead of inventing values.
+- cef8c06: Allow apps to place the shared environment badge in an inline brand slot and opt out of the provider-level badge.
+- f11c6be: Keep the cached app shell loader from flashing during client hydration.
+- 42f5fc3: Job and automation status writes keep application-owned frontmatter (such as a Factory Slack channel) instead of dropping those YAML extras when a run completes.
+- 85582cb: Make Agent-Native OpenTelemetry spans parent correctly under each agent run and
+  export bracketed model calls as live per-call spans.
+- Release all public npm packages with a patch version bump.
+- bb13ba4: Use the shared branded background for generated Agent-Native OG images.
+- cef8c06: Keep organization switching and management actions together, ordered with member invitations before settings and organization creation.
+- a7634e2: Use the docs homepage WebGL halftone field for shared public-page backgrounds.
+- 434fbb2: Add flag-gated silent browser identity handoff across canonical hosted apps.
+- 1852196: Skip unchanged dashboard writes and history snapshots so autosave stays frequent without creating duplicate revisions.
+- 0d68c54: Allow long-lived operation groups to coalesce remote undo entries.
+- 4c25e85: Fix desktop terminal colors and app surface loading behavior.
+- df9cfb2: Prevent Workspace settings from flashing Builder connection actions while status loads.
+- 2ab0a5e: Stop a tool call on the first failure, instead of retrying it three times, when its error text embeds a nested A2A/ask_app delegation's own permanent-precondition marker ("needs a setup step outside this turn" or "code: permanent_precondition").
+- 056e5f2: Remove obsolete built-in template Wrangler deployment artifacts and guidance now that first-party sites use Netlify.
+- 58d613a: Revalidate the current session before automatic beta redirects.
+- 859a891: Inject the session-replay iframe bootstrap at the first `</head>` that is real
+  markup rather than the first one anywhere in the string. A preview document
+  that inlines a script whose source mentions `</head>` had the bootstrap spliced
+  into that script's body, which unterminated a string literal and let the
+  bootstrap's own `</script>` close the host script early — the whole inlined
+  bundle then failed to parse and the preview silently lost every interaction.
+- b542ff2: Allow explicitly authenticated custom routes to reuse connect-minted MCP bearer sessions.
+- 9e54b12: Add canonical lifecycle and action-level analytics tracking across framework apps.
+- 96cb0c5: Scope agent context, navigation, WebMCP actions, and sidebar chat state to the active browser tab.
+- 801aedd: Preserve composed object input schemas while adding the explicit root object type required by MCP tool discovery.
+- cef8c06: Allow apps to add low-frequency utility links to the shared organization switcher menu.
+- 29bfdbc: Surface a failed Builder connection-status read instead of leaving the
+  first-run "Activate Builder.io free credits" CTA silently inert. `statusResolved`
+  only flips on a successful status response, so a 404, a 500, or the 10s abort
+  left the button fully styled and dead for the rest of the session with nothing
+  rendered and nothing logged.
+- 4c0dd7a: Warm the root route data endpoint when it enters the viewport.
+- c5b58a7: Make focused WebMCP edits self-correcting by advertising required fields and preserving safe action contract errors.
+- 947a973: Remove the `window.__agentNativeWebMcp` page helper when the last WebMCP registration stops, report an honest failed status from `ready()` when no registration exists, and keep same-origin `{ origin }` calls on the normal page listing so the polyfill does not reject them.
+- 47ceaf2: Publish a `window.__agentNativeWebMcp` page helper for browser agents that wraps readiness, discovery, the host input contract, stale-descriptor retries, and pending handles for short evaluators; register WebMCP tools concurrently so a hidden browser pane no longer pays one throttled timer wake-up per tool; and re-poll the sync transport after WebMCP writes so the UI repaints without a reload.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+  - @agent-native/recap-cli@0.5.26
+
 ## 0.176.5
 
 ### Patch Changes
@@ -2232,12 +2326,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 8a7ba01: Restore formatter compliance in core schema sanitization code.
-
-## 0.161.21
-
-### Patch Changes
-
-- 0d81f46: Keep the core tool-schema seam regression test formatted with the current source formatter.
-- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

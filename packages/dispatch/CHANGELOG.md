@@ -1,5 +1,24 @@
 # @agent-native/dispatch
 
+## 0.34.0
+
+### Minor Changes
+
+- cc2a915: Standardize framework persistence on PostgreSQL. Local development uses PGlite,
+  hosted deployments use PostgreSQL, and the database client, schema, migrations,
+  templates, docs, and tooling now target PostgreSQL directly.
+
+### Patch Changes
+
+- cb3a95f: Add opt-in canonical organization federation across Agent-Native app deployments.
+- Release all public npm packages with a patch version bump.
+- f24d3ec: Fix Dispatch metrics app adoption cards to handle unavailable values, rank apps by tracked usage, and progressively reveal the app list.
+- Updated dependencies [e29fee8]
+- Updated dependencies [cef8c06]
+- Updated dependencies
+- Updated dependencies [73c36ce]
+  - @agent-native/toolkit@0.19.4
+
 ## 0.33.2
 
 ### Patch Changes
@@ -872,11 +891,5 @@
 ### Patch Changes
 
 - abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
-
-## 0.17.5
-
-### Patch Changes
-
-- 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
