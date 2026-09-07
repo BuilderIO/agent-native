@@ -3,6 +3,19 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-04
+
+### Improved
+
+- The agent now answers data questions with explicit confidence instead of a dead end, and uses existing dashboards first
+
+## 2026-09-03
+
+### Fixed
+
+- Analytics autosaves now skip unchanged edits, keeping history focused on real changes.
+- Saved Analytics panels recover when chart fields are nested in their config
+
 ## 2026-09-01
 
 ### Added
