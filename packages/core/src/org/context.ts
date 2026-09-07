@@ -508,6 +508,32 @@ export async function listOrgMemberships(
   return loadMemberships(email);
 }
 
+export async function listOrgMembershipsForEvent(
+  event: H3Event,
+  email: string,
+  selectedOrgId: string | null,
+): Promise<OrgMembership[] | null> {
+  const memberships = await loadMembershipsForEvent(event, email);
+  if (memberships === null) return null;
+  const refreshed = await refreshFederatedMemberships(
+    event,
+    email,
+    memberships,
+    selectedOrgId,
+  );
+  if (refreshed !== memberships) {
+    updateMembershipsForEvent(event, email, refreshed);
+  }
+  return refreshed;
+}
+
+export async function getActiveOrgSettingForEvent(
+  event: H3Event,
+  email: string,
+): Promise<{ orgId: string | null } | null> {
+  return loadActiveOrgSettingForEvent(event, email);
+}
+
 async function loadMembershipsUncached(
   email: string,
 ): Promise<MembershipRow[] | null> {

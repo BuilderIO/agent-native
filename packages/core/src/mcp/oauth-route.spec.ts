@@ -30,7 +30,8 @@ vi.mock("../server/auth.js", () => ({
 }));
 
 const getOrgDomainMock = vi.fn(async () => "builder.io");
-const listOrgMembershipsMock = vi.fn(async () => [
+const getActiveOrgSettingMock = vi.fn(async () => ({ orgId: "org_123" }));
+const listOrgMembershipsForEventMock = vi.fn(async () => [
   {
     orgId: "org_123",
     orgName: "Builder",
@@ -42,7 +43,10 @@ const listOrgMembershipsMock = vi.fn(async () => [
 ]);
 vi.mock("../org/context.js", () => ({
   getOrgDomain: (...args: any[]) => getOrgDomainMock(...args),
-  listOrgMemberships: (...args: any[]) => listOrgMembershipsMock(...args),
+  listOrgMembershipsForEvent: (...args: any[]) =>
+    listOrgMembershipsForEventMock(...args),
+  getActiveOrgSettingForEvent: (...args: any[]) =>
+    getActiveOrgSettingMock(...args),
 }));
 
 const clients = new Map<string, any>();
@@ -185,7 +189,7 @@ describe("MCP OAuth route", () => {
       email: "steve@example.com",
       orgId: "org_123",
     });
-    listOrgMembershipsMock.mockResolvedValue([
+    listOrgMembershipsForEventMock.mockResolvedValue([
       {
         orgId: "org_123",
         orgName: "Builder",
@@ -837,7 +841,7 @@ describe("MCP OAuth route", () => {
   });
 
   it("lets multi-organization users choose the organization bound to the connection", async () => {
-    listOrgMembershipsMock.mockResolvedValue([
+    listOrgMembershipsForEventMock.mockResolvedValue([
       {
         orgId: "org_123",
         orgName: "Builder",
@@ -917,6 +921,11 @@ describe("MCP OAuth route", () => {
       orgId: "org_456",
       orgDomain: "builder.io",
     });
+    expect(listOrgMembershipsForEventMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      "steve@example.com",
+      "org_456",
+    );
   });
 
   it("rejects an organization the user does not belong to", async () => {

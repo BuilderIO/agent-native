@@ -14,7 +14,11 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
-import { getOrgDomain, listOrgMemberships } from "../org/context.js";
+import {
+  getActiveOrgSettingForEvent,
+  getOrgDomain,
+  listOrgMembershipsForEvent,
+} from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -840,21 +844,37 @@ async function handleAuthorize(
     });
   }
 
-  const memberships = await listOrgMemberships(session.email);
-  if (memberships === null) {
-    return oauthError(
-      "server_error",
-      "Unable to load organization memberships",
-      500,
-    );
-  }
-  const organizations = memberships.map((membership) => ({
-    id: membership.orgId,
-    name: membership.orgName,
-    domain: membership.allowedDomain,
-  }));
-  const defaultOrganizationId =
-    session.orgId && organizations.some(({ id }) => id === session.orgId)
+  const activeOrgSetting = await getActiveOrgSettingForEvent(
+    event,
+    session.email,
+  );
+  const explicitPersonal = activeOrgSetting?.orgId === null;
+  const requestedOrganizationId =
+    method === "POST" && params.organization_id !== undefined
+      ? params.organization_id || null
+      : explicitPersonal
+        ? null
+        : (activeOrgSetting?.orgId ?? session.orgId ?? null);
+  const memberships = await listOrgMembershipsForEvent(
+    event,
+    session.email,
+    requestedOrganizationId,
+  );
+  const organizations =
+    memberships?.map((membership) => ({
+      id: membership.orgId,
+      name: membership.orgName,
+      domain: membership.allowedDomain,
+    })) ??
+    (!explicitPersonal && session.orgId
+      ? [{ id: session.orgId, name: "Organization", domain: null }]
+      : []);
+  const organizationOptions = explicitPersonal
+    ? [{ id: "", name: "Personal", domain: null }, ...organizations]
+    : organizations;
+  const defaultOrganizationId = explicitPersonal
+    ? ""
+    : session.orgId && organizations.some(({ id }) => id === session.orgId)
       ? session.orgId
       : organizations[0]?.id;
 
@@ -866,7 +886,7 @@ async function handleAuthorize(
         clientName: client.clientName || client.clientId,
         redirectUri,
         scopes: scope.split(/\s+/),
-        organizations,
+        organizations: organizationOptions,
         fields: {
           response_type: "code",
           client_id: clientId,
@@ -913,11 +933,14 @@ async function handleAuthorize(
   }
 
   const selectedOrganizationId =
-    params.organization_id || defaultOrganizationId;
+    params.organization_id === undefined
+      ? defaultOrganizationId
+      : params.organization_id;
   const selectedOrganization = organizations.find(
     ({ id }) => id === selectedOrganizationId,
   );
-  if (organizations.length > 0 && !selectedOrganization) {
+  const selectedPersonal = selectedOrganizationId === "";
+  if (organizations.length > 0 && !selectedPersonal && !selectedOrganization) {
     return oauthError(
       "invalid_request",
       "A valid organization selection is required",
