@@ -127,7 +127,7 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   ));
 }
 
-type MembershipRow = {
+export type OrgMembership = {
   orgId: string;
   role: OrgRole;
   orgName: string;
@@ -135,6 +135,8 @@ type MembershipRow = {
   identityAuthority: string | null;
   identityId: string | null;
 };
+
+type MembershipRow = OrgMembership;
 
 async function refreshFederatedMemberships(
   event: H3Event,
@@ -498,6 +500,12 @@ const MEMBERSHIP_FALLBACK_ORDER_BY = `ORDER BY joined_at ASC, org_id ASC`;
 
 async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
   return cachedMemberships(email, () => loadMembershipsUncached(email));
+}
+
+export async function listOrgMemberships(
+  email: string,
+): Promise<OrgMembership[] | null> {
+  return loadMemberships(email);
 }
 
 async function loadMembershipsUncached(
