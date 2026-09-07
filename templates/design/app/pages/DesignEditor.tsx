@@ -165,6 +165,7 @@ import {
   IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import {
   useState,
   useEffect,
@@ -5629,6 +5630,10 @@ function DesignEditor() {
   // layer (see beginRename in LayersPanel.tsx).
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  /** Read by primitive creation, which runs far above where the colour is
+   *  derived. */
+  const canvasBackgroundRef = useRef<string | null>(null);
+  const { resolvedTheme } = useTheme();
   const activeEditorDragRef = useRef(false);
 
   // Live handle to the active DesignCanvas preview iframe. DesignCanvas owns the
@@ -8080,6 +8085,7 @@ function DesignEditor() {
           activeFile,
           applyLocalContentUpdate,
           boardFileId,
+          canvasBackground: canvasBackgroundRef.current,
           canEditDesign,
           collabContentFileIdRef,
           collabContentRef,
@@ -15778,7 +15784,7 @@ function DesignEditor() {
       })),
     [firstRunTemplatesQuery.data?.templates],
   );
-  const firstRunDesignSystems = useMemo(
+  const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
   );
@@ -15790,6 +15796,10 @@ function DesignEditor() {
   // first screen row exists.
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
+  // The picked system is stored on the design and read by every later
+  // generation, so it outlives the starting-point row a template retires.
+  const showComposerDesignSystem =
+    designSystemsLoading || designSystemOptions.length > 0;
   const applyTemplate = useActionMutation("create-design-from-template");
   const handleFirstRunTemplate = useCallback(
     async (templateId: string) => {
@@ -15820,9 +15830,11 @@ function DesignEditor() {
       selectedPromptDesignSystemId,
     ],
   );
-  const handleFirstRunDesignSystem = useCallback(
+  const handleComposerDesignSystem = useCallback(
     (designSystemId: string | null) => {
-      setPromptDesignSystemId(designSystemId ?? undefined);
+      // null is the user picking "No design system"; only undefined means
+      // nothing has been chosen yet, which re-resolves the default.
+      setPromptDesignSystemId(designSystemId);
       persistPromptDesignSystem(designSystemId);
     },
     [persistPromptDesignSystem],
@@ -16334,6 +16346,29 @@ function DesignEditor() {
     string | null
   >(null);
   const canvasBackground = canvasBackgroundDraft ?? persistedCanvasBackground;
+  /** The inspector must show a colour, not "none", for a canvas the user has
+   *  not set — and the only honest source for that is what the container is
+   *  currently painted with, which follows the editor theme. */
+  const [themedCanvasBackground, setThemedCanvasBackground] = useState<
+    string | null
+  >(null);
+  canvasBackgroundRef.current = canvasBackground ?? themedCanvasBackground;
+  useEffect(() => {
+    if (canvasBackground) return;
+    // A throwaway element, not the raw token: the token is space-separated
+    // HSL, which the colour parser rejects. After a frame, because next-themes
+    // sets the `dark` class in an ancestor effect React runs after this one.
+    const frame = requestAnimationFrame(() => {
+      const probe = document.createElement("span");
+      probe.style.cssText =
+        "position:absolute;visibility:hidden;background-color:var(--design-editor-canvas-bg)";
+      document.body.append(probe);
+      const painted = window.getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      setThemedCanvasBackground(painted || null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [canvasBackground, resolvedTheme]);
   const handleCanvasBackgroundChange = useCallback(
     (value: string, meta?: { phase?: "preview" | "commit" }) => {
       if (!id || !canEditDesignRef.current) return;
@@ -19760,6 +19795,7 @@ function DesignEditor() {
     selectedScreenLayoutGrid,
     onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
+    canvasBackgroundFallback: themedCanvasBackground,
     onCanvasBackgroundChange: canEditDesign
       ? handleCanvasBackgroundChange
       : undefined,
@@ -20016,13 +20052,13 @@ function DesignEditor() {
                     }
                     composerSlot={
                       <>
-                        {showFirstRunStart ? (
+                        {showComposerDesignSystem ? (
                           <div data-design-system-picker className="px-3 pb-2">
                             <DesignSystemPickerControl
-                              designSystems={firstRunDesignSystems}
+                              designSystems={designSystemOptions}
                               loading={designSystemsLoading}
                               selectedId={selectedPromptDesignSystemId ?? null}
-                              onChange={handleFirstRunDesignSystem}
+                              onChange={handleComposerDesignSystem}
                             />
                           </div>
                         ) : null}
@@ -20523,6 +20559,7 @@ function DesignEditor() {
                     BreakpointDeviceControl — see rightSidebarActions. */}
                 <div
                   ref={canvasContainerRef}
+                  data-design-canvas-container
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
                   // Overrides the themed canvas colour rather than a background
                   // shorthand, so every descendant reading the var follows.
