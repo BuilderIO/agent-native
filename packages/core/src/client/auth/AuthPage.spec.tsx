@@ -92,7 +92,11 @@ describe("AuthPage", () => {
     expect(html).not.toContain('id="local-note"');
     expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
     expect(onboardingHtml).toContain("width: 100%");
-    expect(onboardingHtml).toContain("filter: blur(3px)");
+    expect(onboardingHtml).toContain(
+      "position: fixed;\n    inset: 0;\n    z-index: 0;",
+    );
+    expect(onboardingHtml).toContain("max-height: none;");
+    expect(onboardingHtml).toContain("filter: blur(18px)");
     expect(onboardingHtml).toContain("opacity: 0.8");
     expect(onboardingHtml).toContain("object-fit: cover");
     expect(onboardingHtml).toContain(
@@ -101,10 +105,12 @@ describe("AuthPage", () => {
     expect(onboardingHtml).toContain(
       "box-shadow: 0 18px 50px rgba(0,0,0,0.62)",
     );
-    expect(onboardingHtml).toContain("flex: 1 1 0;");
-    expect(onboardingHtml).toContain("align-items: flex-start;");
-    expect(onboardingHtml).toContain("flex: 0 0 28rem;");
-    expect(onboardingHtml).toContain("margin-inline: 0;");
+    expect(onboardingHtml).toContain(
+      "position: fixed;\n    inset: 0;\n    z-index: 1;\n    display: flex;\n    align-items: center;\n    justify-content: center;",
+    );
+    expect(onboardingHtml).not.toContain(
+      ".auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }",
+    );
     expect(onboardingHtml).toContain("border-radius: 0.75rem;");
     expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");
     expect(onboardingHtml).toContain(
@@ -113,13 +119,6 @@ describe("AuthPage", () => {
     expect(onboardingHtml).toContain("color-scheme: light;");
     expect(onboardingHtml).toContain(
       ".auth-marketing-home .card .verification-copy",
-    );
-    expect(onboardingHtml).toContain(
-      "@media (min-width: 901px) and (max-width: 1500px)",
-    );
-    expect(onboardingHtml).toContain("left: -140px");
-    expect(onboardingHtml).toContain(
-      "grid-template-columns: minmax(0, 927px) minmax(0, 1fr);",
     );
   });
 
