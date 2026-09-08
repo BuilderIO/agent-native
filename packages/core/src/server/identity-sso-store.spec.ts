@@ -156,15 +156,9 @@ describe("identity SSO feature switch and request classifiers", () => {
     process.env.APP_URL = "https://mail.agent-native.com";
     expect(store.getIdentityHubUrl()).toBe("https://dispatch.agent-native.com");
     expect(store.isIdentitySsoEnabled()).toBe(true);
-    expect(store.identitySsoLoginButtonHtml()).toContain(
-      'id="identity-sso-btn"',
-    );
 
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
       "https://dispatch.agent-native.com";
-    expect(store.identitySsoLoginButtonHtml()).toContain(
-      'id="identity-sso-btn"',
-    );
 
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
     process.env.APP_URL = "https://dispatch.agent-native.com";
@@ -179,10 +173,6 @@ describe("identity SSO feature switch and request classifiers", () => {
     process.env.APP_URL = "https://workspace.example.test";
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL =
       "https://dispatch.agent-native.com";
-
-    expect(store.identitySsoLoginButtonHtml()).toContain(
-      'id="identity-sso-btn"',
-    );
   });
 
   it("normalizes a configured hub without accepting credentials or queries", () => {

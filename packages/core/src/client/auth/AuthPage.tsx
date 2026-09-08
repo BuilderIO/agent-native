@@ -67,8 +67,6 @@ export interface AuthPageProps {
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
   docsAuthUrl: string;
-  identitySsoEnabled: boolean;
-  identitySsoAuto: boolean;
   publicOAuthOrigin: string;
   workspaceGatewayReturnOrigin: string;
   googleAuthMode: "popup" | "redirect" | "auto";
@@ -650,8 +648,6 @@ export function AuthPage(props: AuthPageProps) {
     signupLegalNotice,
     signupLocalModeNote,
     docsAuthUrl,
-    identitySsoEnabled,
-    identitySsoAuto,
     publicOAuthOrigin,
     workspaceGatewayReturnOrigin,
     googleAuthMode,
@@ -699,9 +695,6 @@ export function AuthPage(props: AuthPageProps) {
   const verificationCheckInFlight = React.useRef(false);
   const verifiedReturnHandled = React.useRef(false);
   const verificationStepStartedRef = React.useRef(false);
-  const [sessionProbeComplete, setSessionProbeComplete] = React.useState(false);
-  const [sessionProbeAnonymous, setSessionProbeAnonymous] =
-    React.useState(false);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -725,10 +718,6 @@ export function AuthPage(props: AuthPageProps) {
   const apiPath = React.useCallback(
     (path: string) => `${runtimeAppBasePath}${path}`,
     [runtimeAppBasePath],
-  );
-  const identityHref = React.useMemo(
-    () => apiPath("/_agent-native/identity/login"),
-    [apiPath],
   );
   const journey = React.useCallback((): SignInJourney => {
     if (typeof window === "undefined") {
@@ -894,7 +883,6 @@ export function AuthPage(props: AuthPageProps) {
             return;
           }
           if (isConfirmedAnonymousAuthSession(response, data, readable)) {
-            setSessionProbeAnonymous(true);
             return;
           }
           retry = shouldRetryAuthSessionProbe(response, readable);
@@ -907,7 +895,7 @@ export function AuthPage(props: AuthPageProps) {
         );
       }
     };
-    void probe().finally(() => setSessionProbeComplete(true));
+    void probe();
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
 
   React.useEffect(() => {
@@ -952,37 +940,6 @@ export function AuthPage(props: AuthPageProps) {
       document.removeEventListener("visibilitychange", probeOnReturn);
     };
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved, view]);
-
-  React.useEffect(() => {
-    if (
-      !identitySsoAuto ||
-      !runtimeBasePathResolved ||
-      !sessionProbeComplete ||
-      !sessionProbeAnonymous ||
-      isAgentNativeDesktop() ||
-      (view !== "login" && view !== "signup")
-    ) {
-      return;
-    }
-    if (isInFrame()) return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("sso") || params.has("error") || params.has("verified")) {
-      return;
-    }
-    const probeParams = new URLSearchParams({
-      return: resumeHref(),
-      prompt: "none",
-    });
-    window.location.replace(`${identityHref}?${probeParams.toString()}`);
-  }, [
-    identityHref,
-    identitySsoAuto,
-    resumeHref,
-    runtimeBasePathResolved,
-    sessionProbeAnonymous,
-    sessionProbeComplete,
-    view,
-  ]);
 
   React.useEffect(() => {
     let anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
@@ -2208,20 +2165,6 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
-      {identitySsoEnabled ? (
-        <a
-          className="btn-identity-sso"
-          id="identity-sso-btn"
-          href={identityHref}
-          onClick={(event) => {
-            event.preventDefault();
-            const params = new URLSearchParams({ return: resumeHref() });
-            window.location.href = `${identityHref}?${params.toString()}`;
-          }}
-        >
-          Sign in with Agent-Native
-        </a>
-      ) : null}
       <div
         className="local-dev-signin"
         id="local-dev-signin"
