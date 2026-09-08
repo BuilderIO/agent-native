@@ -20,6 +20,17 @@ export default defineAction({
       app: getAppConfig().app.slug ?? "unknown",
       id,
     });
-    return entry ?? { htmlBody: null, textBody: null };
+    // `null` here means no row matched this id in this org/app scope — a
+    // stale id or an access-scope mismatch. That must stay distinguishable
+    // from a real row whose body columns are legitimately null (e.g. a
+    // legacy send from before this feature existed), which
+    // `getEmailLogEntryBody` returns as `{ htmlBody: null, textBody: null }`,
+    // not `null`. Silently returning the same empty-body shape for both
+    // would hide an authorization/data-integrity failure as an ordinary
+    // "nothing to show".
+    if (!entry) {
+      throw new Error("Email log entry not found");
+    }
+    return entry;
   },
 });

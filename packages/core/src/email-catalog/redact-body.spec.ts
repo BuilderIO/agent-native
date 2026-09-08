@@ -23,6 +23,48 @@ describe("redactSensitiveEmailBodyContent", () => {
     expect(redacted).toContain("Reset your password:");
   });
 
+  it("redacts a protocol-relative sensitive link", () => {
+    const html =
+      '<a href="//app.example.com/verify?token=abc123def456">Verify</a>';
+    const redacted = redactSensitiveEmailBodyContent(html);
+    expect(redacted).not.toContain("abc123def456");
+    expect(redacted).toContain("[REDACTED LINK]");
+    expect(redacted).toContain("Verify");
+  });
+
+  it("redacts a link whose separator is HTML-escaped as an entity", () => {
+    const html =
+      '<a href="https://app.example.com/dashboard?ref=weekly&amp;token=super-secret-otp-token">Open</a>';
+    const redacted = redactSensitiveEmailBodyContent(html);
+    expect(redacted).not.toContain("super-secret-otp-token");
+    expect(redacted).toContain("[REDACTED LINK]");
+  });
+
+  it("redacts an OAuth-style token carried in a URL fragment", () => {
+    const text =
+      "Continue here: https://app.example.com/auth/callback#access_token=super-secret-access-token&token_type=bearer";
+    const redacted = redactSensitiveEmailBodyContent(text);
+    expect(redacted).not.toContain("super-secret-access-token");
+    expect(redacted).toContain("[REDACTED LINK]");
+  });
+
+  it("redacts links using id_token, oobCode, and resetToken param names", () => {
+    const idToken = redactSensitiveEmailBodyContent(
+      "https://app.example.com/callback?id_token=super-secret-id-token-value",
+    );
+    expect(idToken).not.toContain("super-secret-id-token-value");
+
+    const oobCode = redactSensitiveEmailBodyContent(
+      "https://app.example.com/action?mode=resetPassword&oobCode=super-secret-oob-code-value",
+    );
+    expect(oobCode).not.toContain("super-secret-oob-code-value");
+
+    const resetToken = redactSensitiveEmailBodyContent(
+      "https://app.example.com/reset?resetToken=super-secret-reset-token-value",
+    );
+    expect(resetToken).not.toContain("super-secret-reset-token-value");
+  });
+
   it("redacts an OTP/verification code", () => {
     const text = "Your verification code is 482913. It expires in 10 minutes.";
     const redacted = redactSensitiveEmailBodyContent(text);
@@ -37,6 +79,20 @@ describe("redactSensitiveEmailBodyContent", () => {
     const redacted = redactSensitiveEmailBodyContent(text);
     expect(redacted).not.toContain("739201");
     expect(redacted).toContain("[REDACTED] is your one-time password.");
+  });
+
+  it("redacts an OTP code even when a tag splits the keyword phrase", () => {
+    const html = "Your <strong>verification</strong> code is 482913.";
+    const redacted = redactSensitiveEmailBodyContent(html);
+    expect(redacted).not.toContain("482913");
+    expect(redacted).toContain("[REDACTED]");
+  });
+
+  it("redacts an OTP code when an entity splits the keyword phrase", () => {
+    const html = "Your verification&nbsp;code is 592014.";
+    const redacted = redactSensitiveEmailBodyContent(html);
+    expect(redacted).not.toContain("592014");
+    expect(redacted).toContain("[REDACTED]");
   });
 
   it("redacts a JWT-shaped token", () => {

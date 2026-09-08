@@ -14,18 +14,23 @@ const DEFAULT_EMAIL_LOGO_SOURCE = "cid:agent-native-logo";
 const EMAIL_PREVIEW_CSP =
   "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
 
+/**
+ * Deliberately does NOT try to locate an existing `<head>`/`<html>` tag and
+ * insert into it. That would still be beatable: the HTML parser starts
+ * fetching a resource as soon as it tokenizes a tag that references one, and
+ * malformed-but-parseable markup can put such a tag before the position a
+ * regex would find (e.g. `<img src="https://evil">` followed later by a
+ * stray `<head>`) — the browser opens an implicit head to hold that `<img>`
+ * *before* our injected one is ever reached, so a CSP inserted "into the
+ * first `<head>`" can run after the leak already happened. Always emitting
+ * our own `<head>` as the literal first bytes guarantees nothing supplied
+ * can be tokenized first, at the cost of a stray duplicate/relocated
+ * `<head>`/`<title>` later in the document — which the parser silently
+ * drops or reflows, and which does not matter for a throwaway preview.
+ */
 function withRestrictiveCsp(html: string): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${EMAIL_PREVIEW_CSP}">`;
-  if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (match) => `${match}${meta}`);
-  }
-  if (/<html[^>]*>/i.test(html)) {
-    return html.replace(
-      /<html[^>]*>/i,
-      (match) => `${match}<head>${meta}</head>`,
-    );
-  }
-  return `${meta}${html}`;
+  return `<head>${meta}</head>${html}`;
 }
 
 export function resolveEmailPreviewAssets(html: string): string {
