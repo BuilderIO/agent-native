@@ -10,10 +10,22 @@ describe("selected library actions layout", () => {
   it("uses one consistent breadcrumb header and a single-priority sidebar", () => {
     const gridSource = readSource("./library-grid.tsx");
     const layoutSource = readSource("./library-layout.tsx");
+    const folderTreeSource = readSource("./folder-tree.tsx");
     const libraryRouteSource = readSource(
       "../../routes/_app.library._index.tsx",
     );
+    const folderRouteSource = readSource(
+      "../../routes/_app.library.folder.$folderId.tsx",
+    );
+    const primaryActionsSource = readSource("./library-primary-actions.tsx");
+    const feedbackSource = readSource("./sidebar-feedback-button.tsx");
     const spacesRouteSource = readSource("../../routes/_app.spaces._index.tsx");
+    const spaceRouteSource = readSource(
+      "../../routes/_app.spaces.$spaceId.tsx",
+    );
+    const spaceFolderRouteSource = readSource(
+      "../../routes/_app.spaces.$spaceId.folder.$folderId.tsx",
+    );
 
     expect(gridSource).toContain("<PageBreadcrumb");
     expect(gridSource).not.toContain('<h1 className="text-base');
@@ -21,12 +33,24 @@ describe("selected library actions layout", () => {
     expect(layoutSource).not.toContain("navigation.newFolder");
     expect(layoutSource).not.toContain("createSpaceDialog.newSpace");
     expect(layoutSource).not.toContain("<ImportMenu");
-    expect(libraryRouteSource).toContain("<PageHeaderActionGroup>");
-    expect(libraryRouteSource).toContain("<PageHeaderPrimaryAction asChild>");
+    expect(libraryRouteSource).toContain("<LibraryPrimaryActions />");
+    expect(libraryRouteSource).toContain(
+      'import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";',
+    );
     expect(libraryRouteSource).not.toContain("<CreateFolderDialog");
     expect(libraryRouteSource).not.toContain('t("navigation.newFolder")');
-    expect(libraryRouteSource).toContain("<IconVideoPlus />");
-    expect(libraryRouteSource).toContain('triggerIcon="chevron"');
+    expect(primaryActionsSource).toContain("<IconVideoPlus />");
+    expect(primaryActionsSource).toContain('triggerIcon="chevron"');
+    expect(gridSource).toContain('import { FolderCard } from "./folder-card"');
+    expect(gridSource).toContain("visibleFolders");
+    expect(gridSource).toContain('t("navigation.folders")');
+    expect(gridSource).toContain('aria-labelledby="library-folders-heading"');
+    expect(gridSource).toContain('t("navigation.recordings")');
+    expect(gridSource).toContain("LibraryCanvasContextMenu");
+    expect(gridSource).toContain('t("navigation.newFolder")');
+    expect(folderRouteSource).toContain("<LibraryPrimaryActions folderId");
+    expect(spaceRouteSource).toContain("<LibraryPrimaryActions spaceId");
+    expect(spaceFolderRouteSource).toContain("<LibraryPrimaryActions folderId");
     expect(layoutSource).toContain(
       '"flex h-14 shrink-0 items-center border-b border-border"',
     );
@@ -37,6 +61,17 @@ describe("selected library actions layout", () => {
     );
     expect(layoutSource).toContain('item.to === "/spaces"');
     expect(layoutSource).toContain("(spaces?.spaces ?? []).length > 0");
+    expect(layoutSource).toContain("ExpandedSidebarNavGroup");
+    expect(layoutSource).toContain("<CollapsibleContent");
+    expect(layoutSource).toContain("expandedSidebarGroups");
+    expect(layoutSource).toContain("spaceFolderLists");
+    expect(layoutSource).toContain("compact");
+    expect(layoutSource).not.toContain(
+      'className="ms-4 border-s border-border/70 ps-1"',
+    );
+    expect(folderTreeSource).toContain("compact ?");
+    expect(folderTreeSource).toContain("!compact &&");
+    expect(folderTreeSource).toContain("compact && hasChildren");
     expect(layoutSource).not.toContain('t("navigation.noSpaces")');
     expect(layoutSource).not.toContain('t("folderTree.noFolders")');
     expect(layoutSource).not.toContain("pageHasHeaderSearch");
@@ -52,15 +87,36 @@ describe("selected library actions layout", () => {
     expect(layoutSource).toContain("compact={showCollapsedSidebar}");
     expect(layoutSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(layoutSource).toContain("IconLayoutSidebarLeftExpand");
+    expect(layoutSource).toContain("SidebarFeedbackButton");
+    expect(layoutSource).toContain(
+      "<SidebarFeedbackButton collapsed={showCollapsedSidebar} />",
+    );
+    expect(layoutSource).toContain("function isSidebarGroupActive(");
+    expect(layoutSource).toContain(
+      'group === "library" && pathname.startsWith("/library/folder/")',
+    );
+    expect(layoutSource).toContain(
+      'group === "spaces" && pathname.startsWith("/spaces/")',
+    );
+    expect(layoutSource).toContain(
+      "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
+    );
+    expect(layoutSource).not.toContain("!bg-primary/5");
+    expect(feedbackSource).toContain(
+      "bg-transparent text-primary hover:bg-accent/60 hover:text-primary",
+    );
+    expect(feedbackSource).not.toContain("bg-primary/5");
+    expect(layoutSource).toContain('currentAppId="clips"');
+    expect(feedbackSource).toContain("openBugReportDialog");
+    expect(feedbackSource).toContain('t("bugReportRoute.sidebarCta")');
     expect(layoutSource).not.toContain("SidebarFooterActions");
     expect(layoutSource).not.toContain("DevDatabaseLink");
     expect(
       spacesRouteSource.match(/t\("createSpaceDialog\.newSpace"\)/g),
     ).toHaveLength(1);
     expect(spacesRouteSource).toContain('t("createSpaceDialog.description")');
-    expect(spacesRouteSource).not.toContain(
-      '<Button size="sm" onClick={() => setCreateOpen(true)}>',
-    );
+    expect(spacesRouteSource).toContain("<AppEmptyState");
+    expect(spacesRouteSource).toContain("createSpaceLabel");
     expect(spacesRouteSource).toContain("<PageHeaderPrimaryAction");
   });
 

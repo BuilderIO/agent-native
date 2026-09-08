@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { useParams } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
+import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
 import { useFolders } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
@@ -29,6 +30,7 @@ export default function LibraryFolderRoute() {
       folderId={folderId}
       emptyKind="folder"
       title={folder?.name ?? t("navigation.folder")}
+      extraActions={<LibraryPrimaryActions folderId={folderId} />}
     />
   );
 }

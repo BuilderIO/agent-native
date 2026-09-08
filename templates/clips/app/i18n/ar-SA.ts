@@ -63,6 +63,7 @@ const messages = {
     extensions: "الإضافات",
     newRecording: "تسجيل جديد",
     folders: "المجلدات",
+    recordings: "التسجيلات",
     newFolder: "مجلد جديد",
     noSpaces: "لا توجد مساحات بعد",
     desktopCta: "الحصول على تطبيق سطح المكتب",
@@ -1715,6 +1716,7 @@ const messages = {
     donePageTitle: "تم إرسال تقرير الخطأ · Clips",
     eyebrow: "تقرير خطأ",
     title: "تسجيل تقرير خطأ",
+    sidebarCta: "إرسال ملاحظات",
     description:
       "سجّل إعادة إنتاج قصيرة تتضمن الشاشة والصوت وسياق المتصفح بعد تنقيحه لفريقك.",
     issueTitleLabel: "عنوان المشكلة",

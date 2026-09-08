@@ -4,6 +4,7 @@ import { useParams } from "react-router";
 
 import { FolderTree, type FolderNode } from "@/components/library/folder-tree";
 import { LibraryGrid } from "@/components/library/library-grid";
+import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
 import { useFolders, useSpaces, useOrganizations } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
@@ -76,6 +77,7 @@ export default function SpaceRoute() {
           folderId={null}
           emptyKind="space"
           title={(space as any)?.name ?? t("navigation.space")}
+          extraActions={<LibraryPrimaryActions spaceId={spaceId} />}
         />
       </div>
     </div>

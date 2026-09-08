@@ -601,21 +601,8 @@ function MeetingsHeader({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const tagName = target?.tagName.toLowerCase();
-      if (
-        event.key === "/" &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        tagName !== "input" &&
-        tagName !== "textarea" &&
-        !target?.isContentEditable
-      ) {
-        event.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }
+      if (event.key !== "Escape") return;
+      inputRef.current?.blur();
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -658,7 +645,7 @@ function MeetingsHeader({
               aria-hidden="true"
               className="absolute end-1.5 top-1/2 h-5 -translate-y-1/2 px-1 font-mono text-[10px]"
             >
-              {shortcutLabel("/")}
+              {shortcutLabel("cmd+k")}
             </Kbd>
           )}
         </div>

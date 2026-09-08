@@ -116,10 +116,10 @@ describe("SearchBar command-menu handoff", () => {
     expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 
-  it("shows the slash shortcut for inline recording search", () => {
+  it("shows the global command shortcut", () => {
     act(() => root.render(<SearchBar />));
 
-    expect(container.textContent).toContain("/");
+    expect(container.textContent).toContain("cmd+k");
     const input = container.querySelector<HTMLInputElement>("input");
     expect(input?.type).toBe("search");
     expect(input?.getAttribute("aria-label")).toBe("searchBar.placeholder");
@@ -127,8 +127,8 @@ describe("SearchBar command-menu handoff", () => {
     expect(input?.className).toContain("focus-visible:ring-offset-0");
     expect(input?.className).toContain("focus-visible:ring-ring/40");
     expect(container.querySelector("kbd")?.dataset.slot).toBe("kbd");
-    expect(container.querySelector("kbd")?.textContent).toBe("/");
-    expect(container.textContent).not.toContain("cmd+k");
+    expect(container.querySelector("kbd")?.textContent).toBe("cmd+k");
+    expect(container.textContent).not.toContain("/");
   });
 
   it("searches only the latest query after 200ms", () => {

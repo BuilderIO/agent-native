@@ -64,6 +64,7 @@ const messages = {
     extensions: "拡張機能",
     newRecording: "新規録画",
     folders: "フォルダ",
+    recordings: "録画",
     newFolder: "新規フォルダ",
     noSpaces: "スペースはまだありません",
     desktopCta: "デスクトップアプリを入手",
@@ -1734,6 +1735,7 @@ const messages = {
     donePageTitle: "バグレポートを送信しました · Clips",
     eyebrow: "バグレポート",
     title: "バグレポートを録画",
+    sidebarCta: "フィードバックを送る",
     description:
       "画面、音声、編集済みのブラウザーコンテキストで短い再現手順をチーム向けに記録します。",
     issueTitleLabel: "問題のタイトル",

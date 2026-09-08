@@ -65,10 +65,9 @@
   box-sizing: border-box;
 }
 
-/* Tauri window is `transparent: true` + `decorations: false`, so the HTML
-   paints the visible shape. The popover window is sized to the rounded panel
-   exactly; macOS derives a native shadow from the panel's alpha, giving us
-   the round-cornered chromeless popover with no transparent apron. */
+/* The HTML still paints the visible panel shape while the native window frame
+   supplies standard move, minimize, and close affordances for the desktop
+   app. */
 html,
 body {
   margin: 0;

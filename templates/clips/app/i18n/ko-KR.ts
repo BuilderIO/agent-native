@@ -64,6 +64,7 @@ const messages = {
     extensions: "확장 프로그램",
     newRecording: "새 녹화",
     folders: "폴더",
+    recordings: "녹화",
     newFolder: "새 폴더",
     noSpaces: "아직 스페이스가 없습니다",
     desktopCta: "데스크톱 앱 받기",
@@ -1711,6 +1712,7 @@ const messages = {
     donePageTitle: "버그 리포트 제출됨 · Clips",
     eyebrow: "버그 리포트",
     title: "버그 리포트 녹화",
+    sidebarCta: "피드백 보내기",
     description:
       "팀을 위해 화면, 음성, 정리된 브라우저 컨텍스트로 짧은 재현 영상을 캡처합니다.",
     issueTitleLabel: "문제 제목",

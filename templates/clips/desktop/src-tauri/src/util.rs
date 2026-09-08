@@ -111,11 +111,9 @@ pub fn set_capture_included(window: &WebviewWindow) {
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let app_handle = app.handle().clone();
-    // The window is sized to the visible panel EXACTLY — elevation comes from
-    // the native NSWindow shadow (shadow(true) below), which macOS derives
-    // from the drawn rounded panel's alpha. A transparent CSS-shadow apron is
-    // never used here: its invisible margin eats clicks and reads as dead
-    // space around the UI.
+    // Keep the tray panel compact, but use native decorations so a manually
+    // launched app still behaves like a normal window: users can move,
+    // minimize, and close it without needing to find the tray icon again.
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("Clips")
         .inner_size(
@@ -124,7 +122,7 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         )
         .position(2.0, 2.0)
         .resizable(false)
-        .decorations(false)
+        .decorations(true)
         .transparent(true)
         .always_on_top(true)
         .visible_on_all_workspaces(true)

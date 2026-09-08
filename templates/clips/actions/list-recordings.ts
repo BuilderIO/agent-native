@@ -228,6 +228,8 @@ export default defineAction({
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
+      } else {
+        whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
 

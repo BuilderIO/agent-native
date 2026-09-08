@@ -64,6 +64,7 @@ const messages = {
     extensions: "Extensões",
     newRecording: "Nova gravação",
     folders: "Pastas",
+    recordings: "Gravações",
     newFolder: "Nova pasta",
     noSpaces: "Ainda não há espaços",
     desktopCta: "Baixar app desktop",
@@ -1730,6 +1731,7 @@ const messages = {
     donePageTitle: "Relatório de bug enviado · Clips",
     eyebrow: "Relatório de bug",
     title: "Gravar um relatório de bug",
+    sidebarCta: "Enviar feedback",
     description:
       "Capture uma reprodução curta com tela, voz e contexto do navegador redigido para sua equipe.",
     issueTitleLabel: "Título do problema",

@@ -102,7 +102,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('className="flex shrink-0 items-center gap-2"');
     expect(toolbar).toContain('className="flex items-center gap-2"');
     const contentColumnStart = route.indexOf(
-      'className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[calc(177.778dvh-35.556rem)]"',
+      'className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]"',
     );
     const contentColumn = route.slice(
       contentColumnStart,
@@ -113,7 +113,20 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain(
       "gap-0 sm:gap-4 sm:px-5 sm:pb-5 sm:pt-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden",
     );
-    expect(contentColumn).toContain("renderCommentsSection()");
+    expect(route).toContain(
+      "Let the viewer grow on wide displays without pushing the",
+    );
+    const commentsSectionStart = route.indexOf(
+      "const renderCommentsSection = (compact = false) =>",
+    );
+    const commentsSection = route.slice(
+      commentsSectionStart,
+      route.indexOf("const renderSidePanel", commentsSectionStart),
+    );
+    expect(commentsSectionStart).toBeGreaterThan(-1);
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
+    );
     expect(toolbar).not.toContain("renderSidebarToggleButton()");
     expect(toolbar).not.toContain("renderPanelTabs()");
     expect(route).toContain("<ViewerTabsList");
@@ -125,13 +138,12 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('value={panel ?? "comments"}');
     expect(route).toContain('if (value === "comments")');
     expect(route).toContain("openCommentsPanel();");
+    expect(route).toContain('value="comments"');
     expect(route).not.toContain("IconLayoutSidebarRightCollapse");
     expect(route).not.toContain("IconLayoutSidebarRightExpand");
     expect(route).not.toContain("closeSidePanel");
     expect(route).not.toContain("lastToolbarPanelRef");
-    expect(route).toContain(
-      '!editing && !isCompactLayout && panel && panel !== "comments"',
-    );
+    expect(route).toContain("!editing && !isCompactLayout && panel");
     const mobilePanelStart = route.indexOf('id="clip-activity-panel"');
     const mobilePanel = route.slice(
       mobilePanelStart,
@@ -178,7 +190,18 @@ describe("direct recording route shell cue", () => {
       resolve(process.cwd(), "app/components/player/viewer-controls.tsx"),
       "utf8",
     );
+    const tabs = readFileSync(
+      resolve(process.cwd(), "app/components/ui/tabs.tsx"),
+      "utf8",
+    );
     expect(viewerControls).toContain('variant="line"');
+    expect(viewerControls).toContain("min-h-10");
+    expect(viewerControls).toContain("w-fit max-w-full");
+    expect(viewerControls).toContain("flex-none");
+    expect(viewerControls).toContain("data-[state=active]:after:bottom-0");
+    expect(viewerControls).toContain("data-[state=active]:after:inset-x-2");
+    expect(tabs).toContain("transition-all");
+    expect(tabs).toContain("after:transition-opacity");
     expect(viewerControls).not.toContain("group-focus-visible:ring-2");
     expect(viewerControls).not.toContain("hover:bg-muted/50");
   });

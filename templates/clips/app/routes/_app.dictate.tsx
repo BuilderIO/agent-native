@@ -18,6 +18,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -390,9 +391,16 @@ function WebDictationPanel({
   );
 }
 
-function DictationRow({ dictation }: { dictation: Dictation }) {
+function DictationRow({
+  dictation,
+  initialExpanded = false,
+}: {
+  dictation: Dictation;
+  initialExpanded?: boolean;
+}) {
   const t = useT();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initialExpanded);
+  const rowRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const cleanup = useActionMutation<any, { id: string }>("cleanup-dictation");
   const replaceOriginal = useActionMutation<
@@ -400,6 +408,11 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
     { id: string; fullText: string }
   >("update-dictation");
   const { label, icon } = sourceMeta(dictation.source, t);
+
+  useEffect(() => {
+    if (!initialExpanded) return;
+    rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [initialExpanded]);
 
   const preview = (dictation.cleanedText || dictation.fullText || "").slice(
     0,
@@ -455,6 +468,7 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
 
   return (
     <div
+      ref={rowRef}
       className={cn(
         "border-b border-border last:border-b-0 cursor-pointer",
         expanded ? "bg-accent/20" : "hover:bg-accent/10",
@@ -717,6 +731,8 @@ function DictateEmptyState({
 
 export default function DictateRoute() {
   const t = useT();
+  const [searchParams] = useSearchParams();
+  const selectedDictationId = searchParams.get("dictationId");
   const { isDesktopApp } = useDesktopPromo();
   const [filter, setFilter] = useState<SourceFilter>("all");
   const [listening, setListening] = useState(false);
@@ -1037,7 +1053,11 @@ export default function DictateRoute() {
                           </div>
                           <div>
                             {items.map((d) => (
-                              <DictationRow key={d.id} dictation={d} />
+                              <DictationRow
+                                key={d.id}
+                                dictation={d}
+                                initialExpanded={d.id === selectedDictationId}
+                              />
                             ))}
                           </div>
                         </div>

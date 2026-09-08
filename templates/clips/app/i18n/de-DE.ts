@@ -64,6 +64,7 @@ const messages = {
     extensions: "Erweiterungen",
     newRecording: "Neue Aufnahme",
     folders: "Ordner",
+    recordings: "Aufnahmen",
     newFolder: "Neuer Ordner",
     noSpaces: "Noch keine Bereiche",
     desktopCta: "Desktop-App laden",
@@ -1749,6 +1750,7 @@ const messages = {
     donePageTitle: "Fehlerbericht gesendet · Clips",
     eyebrow: "Fehlerbericht",
     title: "Fehlerbericht aufnehmen",
+    sidebarCta: "Feedback senden",
     description:
       "Nimm eine kurze Reproduktion mit Bildschirm, Stimme und redigiertem Browserkontext für dein Team auf.",
     issueTitleLabel: "Titel des Problems",

@@ -64,6 +64,7 @@ const messages = {
     extensions: "Extensiones",
     newRecording: "Nueva grabación",
     folders: "Carpetas",
+    recordings: "Grabaciones",
     newFolder: "Nueva carpeta",
     noSpaces: "Aún no hay espacios",
     desktopCta: "Obtener la app de escritorio",
@@ -1739,6 +1740,7 @@ const messages = {
     donePageTitle: "Informe de error enviado · Clips",
     eyebrow: "Informe de error",
     title: "Grabar un informe de error",
+    sidebarCta: "Enviar comentarios",
     description:
       "Captura una reproducción breve con pantalla, voz y contexto del navegador redactado para tu equipo.",
     issueTitleLabel: "Título del problema",

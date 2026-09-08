@@ -1,24 +1,20 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
+import { AppEmptyState } from "@/components/library/empty-state";
 import {
   PageBreadcrumb,
   PageHeader,
   PageHeaderPrimaryAction,
 } from "@/components/library/page-header";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { Button } from "@/components/ui/button";
 import { useSpaces, useOrganizations } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
+import { OPEN_CREATE_SPACE_EVENT } from "@/lib/command-events";
 
 export function meta() {
   return [{ title: enMessages.clipsFinalRaw.spacesPageTitle }];
@@ -44,6 +40,18 @@ export default function SpacesIndexRoute() {
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
   const { data, isLoading, refetch } = useSpaces(currentOrganizationId);
+  const createSpaceLabel = t("createSpaceDialog.newSpace");
+
+  useEffect(() => {
+    if (!canManageOrg) return;
+    const handleOpenCreateSpace = () => setCreateOpen(true);
+    window.addEventListener(OPEN_CREATE_SPACE_EVENT, handleOpenCreateSpace);
+    return () =>
+      window.removeEventListener(
+        OPEN_CREATE_SPACE_EVENT,
+        handleOpenCreateSpace,
+      );
+  }, [canManageOrg]);
 
   const spaces: SpaceCardData[] = (data?.spaces ?? []).map((s: any) => ({
     id: s.id,
@@ -59,11 +67,11 @@ export default function SpacesIndexRoute() {
     <div className="flex flex-1 flex-col min-h-0">
       <PageHeader>
         <PageBreadcrumb label={t("navigation.spaces")} />
-        {canManageOrg && (
+        {canManageOrg && spaces.length > 0 && (
           <div className="ml-auto">
             <PageHeaderPrimaryAction onClick={() => setCreateOpen(true)}>
               <IconPlus />
-              {t("createSpaceDialog.newSpace")}
+              {createSpaceLabel}
             </PageHeaderPrimaryAction>
           </div>
         )}
@@ -77,19 +85,21 @@ export default function SpacesIndexRoute() {
             ))}
           </div>
         ) : spaces.length === 0 ? (
-          <Empty className="min-h-full rounded-none">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <IconUsersGroup />
-              </EmptyMedia>
-              <EmptyTitle>{t("navigation.noSpaces")}</EmptyTitle>
-              {canManageOrg ? (
-                <EmptyDescription>
-                  {t("createSpaceDialog.description")}
-                </EmptyDescription>
-              ) : null}
-            </EmptyHeader>
-          </Empty>
+          <AppEmptyState
+            icon={IconUsersGroup}
+            title={t("navigation.noSpaces")}
+            description={
+              canManageOrg ? t("createSpaceDialog.description") : undefined
+            }
+            content={
+              canManageOrg ? (
+                <Button onClick={() => setCreateOpen(true)} size="sm">
+                  <IconPlus />
+                  {createSpaceLabel}
+                </Button>
+              ) : null
+            }
+          />
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {spaces.map((s) => (

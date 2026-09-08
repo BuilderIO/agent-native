@@ -8,13 +8,26 @@ import {
   IconAlertTriangle,
   IconChevronLeft,
   IconChevronRight,
+  IconFolderPlus,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   useFolders,
   useRecordings,
@@ -26,12 +39,14 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
 import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
 
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
+import { FolderCard } from "./folder-card";
 import { PageBreadcrumb, PageHeader } from "./page-header";
 import { RecordingCard } from "./recording-card";
 import { SearchBar } from "./search-bar";
@@ -72,6 +87,36 @@ interface FolderTargetRow {
 type CreateFolderTarget =
   | { kind: "single"; recording: RecordingSummary }
   | { kind: "bulk"; recordingIds: string[] };
+
+function LibraryCanvasContextMenu({
+  enabled,
+  onCreateFolder,
+  children,
+}: {
+  enabled: boolean;
+  onCreateFolder: () => void;
+  children: ReactElement;
+}) {
+  const t = useT();
+
+  if (!enabled) return children;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          onSelect={() => {
+            setTimeout(onCreateFolder, 0);
+          }}
+        >
+          <IconFolderPlus className="me-2 size-4" />
+          {t("navigation.newFolder")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
 
 function buildMoveTargets(
   folders: FolderTargetRow[],
@@ -117,6 +162,7 @@ export function LibraryGrid({
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const selectionMode = selected.size > 0;
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [createFolderTarget, setCreateFolderTarget] =
     useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
@@ -138,6 +184,16 @@ export function LibraryGrid({
     setSelected(new Set());
     setLastSelectedId(null);
   }, [view, folderId, spaceId, tagFilter, sort]);
+
+  useEffect(() => {
+    const handleOpenCreateFolder = () => setCreateFolderOpen(true);
+    window.addEventListener(OPEN_CREATE_FOLDER_EVENT, handleOpenCreateFolder);
+    return () =>
+      window.removeEventListener(
+        OPEN_CREATE_FOLDER_EVENT,
+        handleOpenCreateFolder,
+      );
+  }, []);
 
   const countArgs = useMemo(
     () => ({
@@ -179,13 +235,22 @@ export function LibraryGrid({
   const moveRecording = useMoveRecording();
   const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
-  const { data: scopedFolders } = useFolders(
+  const { data: scopedFolders, isLoading: isFoldersLoading } = useFolders(
     {
       spaceId: view === "space" ? (spaceId ?? null) : null,
     },
     {
       enabled: canMoveSelection && (view !== "space" || Boolean(spaceId)),
     },
+  );
+  const visibleFolders = useMemo(
+    () =>
+      view === "library" || view === "space"
+        ? ((scopedFolders?.folders ?? []) as FolderTargetRow[]).filter(
+            (folder) => (folder.parentId ?? null) === (folderId ?? null),
+          )
+        : [],
+    [folderId, scopedFolders, view],
   );
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
   const moveTargets = useMemo(
@@ -373,9 +438,12 @@ export function LibraryGrid({
         />
       )}
       <CreateFolderDialog
-        open={Boolean(createFolderTarget)}
+        open={Boolean(createFolderTarget) || createFolderOpen}
         onOpenChange={(open) => {
-          if (!open) setCreateFolderTarget(null);
+          if (!open) {
+            setCreateFolderOpen(false);
+            setCreateFolderTarget(null);
+          }
         }}
         spaceId={view === "space" ? spaceId : null}
         parentId={folderId}
@@ -421,103 +489,161 @@ export function LibraryGrid({
           )}
           aria-busy={isLoading}
         >
-          <div className="flex min-h-full flex-col p-5">
-            {isLoading ? (
-              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Skeleton key={i} />
-                ))}
-              </div>
-            ) : isError && recordings.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
-                <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
-                  <IconAlertTriangle className="h-10 w-10 text-destructive" />
+          <LibraryCanvasContextMenu
+            enabled={canMoveSelection}
+            onCreateFolder={() => setCreateFolderOpen(true)}
+          >
+            <div className="flex min-h-full flex-col p-5">
+              {isLoading || (view !== "shared" && isFoldersLoading) ? (
+                <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Skeleton key={i} />
+                  ))}
                 </div>
-                <h2 className="text-base font-semibold text-foreground mb-1">
-                  {t("libraryGrid.loadFailedTitle")}
-                </h2>
-                <p className="text-sm text-muted-foreground max-w-sm mb-5">
-                  {t("libraryGrid.loadFailedBody")}
-                </p>
-                <Button
-                  onClick={() => refetch()}
-                  disabled={isRefetching}
-                  size="sm"
-                >
-                  {t("libraryGrid.retry")}
-                </Button>
-              </div>
-            ) : recordings.length === 0 ? (
-              <EmptyState
-                kind={resolvedEmptyKind}
-                spaceId={spaceId}
-                folderId={folderId}
-              />
-            ) : (
-              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-                {recordings.map((r: RecordingSummary) => (
-                  <RecordingCard
-                    key={r.id}
-                    recording={r}
-                    selected={
-                      canManageRecordings ? selected.has(r.id) : undefined
-                    }
-                    selectionMode={canManageRecordings && selectionMode}
-                    onToggleSelect={
-                      canManageRecordings ? handleToggleSelect : undefined
-                    }
-                    onShare={(rec) => setSharingRec(rec)}
-                    moveTargets={moveTargets}
-                    onMove={canMoveSelection ? moveSingle : undefined}
-                    isMovePending={moveRecording.isPending}
-                    onRetry={canManageRecordings ? handleRetry : undefined}
-                    onCreateFolder={() => {
-                      setCreateFolderTarget({ kind: "single", recording: r });
-                    }}
-                    onTrash={
-                      canManageRecordings
-                        ? (rec) => {
-                            trashRecording.mutate(
-                              { id: rec.id },
-                              {
-                                onSuccess: () =>
-                                  toast.success(t("libraryGrid.movedToTrash")),
-                              },
-                            );
-                          }
-                        : undefined
-                    }
-                    onArchive={
-                      canManageRecordings
-                        ? (rec) => {
-                            if (rec.archivedAt) {
-                              restoreRecording.mutate(
-                                { id: rec.id },
-                                {
-                                  onSuccess: () =>
-                                    toast.success(
-                                      t("libraryGrid.restoredFromArchive"),
-                                    ),
-                                },
-                              );
-                            } else {
-                              archiveRecording.mutate(
-                                { id: rec.id },
-                                {
-                                  onSuccess: () =>
-                                    toast.success(t("libraryGrid.archived")),
-                                },
-                              );
+              ) : isError && recordings.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
+                  <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
+                    <IconAlertTriangle className="h-10 w-10 text-destructive" />
+                  </div>
+                  <h2 className="text-base font-semibold text-foreground mb-1">
+                    {t("libraryGrid.loadFailedTitle")}
+                  </h2>
+                  <p className="text-sm text-muted-foreground max-w-sm mb-5">
+                    {t("libraryGrid.loadFailedBody")}
+                  </p>
+                  <Button
+                    onClick={() => refetch()}
+                    disabled={isRefetching}
+                    size="sm"
+                  >
+                    {t("libraryGrid.retry")}
+                  </Button>
+                </div>
+              ) : recordings.length === 0 && visibleFolders.length === 0 ? (
+                <EmptyState
+                  kind={resolvedEmptyKind}
+                  spaceId={spaceId}
+                  folderId={folderId}
+                />
+              ) : (
+                <div className="flex flex-col gap-8">
+                  {visibleFolders.length > 0 && (
+                    <section aria-labelledby="library-folders-heading">
+                      <h2
+                        id="library-folders-heading"
+                        className="mb-3 text-sm font-semibold text-foreground"
+                      >
+                        {t("navigation.folders")}
+                      </h2>
+                      <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]">
+                        {visibleFolders.map((folder) => (
+                          <FolderCard
+                            key={folder.id}
+                            folder={folder}
+                            href={
+                              view === "space"
+                                ? `/spaces/${spaceId}/folder/${folder.id}`
+                                : `/library/folder/${folder.id}`
                             }
-                          }
-                        : undefined
-                    }
-                    readOnly={!canManageRecordings}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {recordings.length > 0 && (
+                    <section aria-label={t("navigation.recordings")}>
+                      {visibleFolders.length > 0 && (
+                        <h2
+                          id="library-recordings-heading"
+                          className="mb-3 text-sm font-semibold text-foreground"
+                        >
+                          {t("navigation.recordings")}
+                        </h2>
+                      )}
+                      <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                        {recordings.map((r: RecordingSummary) => (
+                          <RecordingCard
+                            key={r.id}
+                            recording={r}
+                            selected={
+                              canManageRecordings
+                                ? selected.has(r.id)
+                                : undefined
+                            }
+                            selectionMode={canManageRecordings && selectionMode}
+                            onToggleSelect={
+                              canManageRecordings
+                                ? handleToggleSelect
+                                : undefined
+                            }
+                            onShare={(rec) => setSharingRec(rec)}
+                            moveTargets={moveTargets}
+                            onMove={canMoveSelection ? moveSingle : undefined}
+                            isMovePending={moveRecording.isPending}
+                            onRetry={
+                              canManageRecordings ? handleRetry : undefined
+                            }
+                            onCreateFolder={() => {
+                              setCreateFolderTarget({
+                                kind: "single",
+                                recording: r,
+                              });
+                            }}
+                            onTrash={
+                              canManageRecordings
+                                ? (rec) => {
+                                    trashRecording.mutate(
+                                      { id: rec.id },
+                                      {
+                                        onSuccess: () =>
+                                          toast.success(
+                                            t("libraryGrid.movedToTrash"),
+                                          ),
+                                      },
+                                    );
+                                  }
+                                : undefined
+                            }
+                            onArchive={
+                              canManageRecordings
+                                ? (rec) => {
+                                    if (rec.archivedAt) {
+                                      restoreRecording.mutate(
+                                        { id: rec.id },
+                                        {
+                                          onSuccess: () =>
+                                            toast.success(
+                                              t(
+                                                "libraryGrid.restoredFromArchive",
+                                              ),
+                                            ),
+                                        },
+                                      );
+                                    } else {
+                                      archiveRecording.mutate(
+                                        { id: rec.id },
+                                        {
+                                          onSuccess: () =>
+                                            toast.success(
+                                              t("libraryGrid.archived"),
+                                            ),
+                                        },
+                                      );
+                                    }
+                                  }
+                                : undefined
+                            }
+                            readOnly={!canManageRecordings}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
+            </div>
+          </LibraryCanvasContextMenu>
         </div>
 
         {!isLoading && recordings.length > 0 && totalPages > 1 && (

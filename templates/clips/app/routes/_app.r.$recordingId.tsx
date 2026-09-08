@@ -561,13 +561,15 @@ export default function RecordingPage() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("panel", "comments");
     setSearchParams(nextParams, { replace: true });
-    requestAnimationFrame(() => {
-      commentsSectionRef.current?.scrollIntoView({
-        block: "start",
-        behavior: "smooth",
+    if (isCompactLayout) {
+      requestAnimationFrame(() => {
+        commentsSectionRef.current?.scrollIntoView({
+          block: "start",
+          behavior: "smooth",
+        });
       });
-    });
-  }, [searchParams, setSearchParams]);
+    }
+  }, [isCompactLayout, searchParams, setSearchParams]);
   const openAgentPanel = useCallback(() => {
     openSidePanel("agent");
   }, [openSidePanel]);
@@ -897,10 +899,12 @@ export default function RecordingPage() {
 
   useEffect(() => {
     if (panelParam === "comments") {
-      setPanel("comments");
-      requestAnimationFrame(() => {
-        commentsSectionRef.current?.scrollIntoView({ block: "start" });
-      });
+      setPanel(recording?.enableComments ? "comments" : "transcript");
+      if (isCompactLayout) {
+        requestAnimationFrame(() => {
+          commentsSectionRef.current?.scrollIntoView({ block: "start" });
+        });
+      }
       return;
     }
     if (
@@ -912,7 +916,7 @@ export default function RecordingPage() {
     ) {
       setPanel(panelParam === "insights" ? "transcript" : panelParam);
     }
-  }, [canEdit, panelParam]);
+  }, [canEdit, isCompactLayout, panelParam, recording?.enableComments]);
 
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
@@ -1889,7 +1893,7 @@ export default function RecordingPage() {
 
   const renderPanelTabs = () => (
     <ViewerTabsList className="min-w-0 shrink-0 bg-sidebar">
-      {isCompactLayout ? (
+      {recording.enableComments ? (
         <ViewerTabsTrigger value="comments">
           {t("playerSettings.comments")}
         </ViewerTabsTrigger>
@@ -1915,7 +1919,7 @@ export default function RecordingPage() {
         "scroll-mt-14",
         compact
           ? "flex min-h-0 flex-1 flex-col px-4 pb-5 pt-4"
-          : "flex min-h-0 flex-1 flex-col px-1 pb-5 pt-4",
+          : "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3",
       )}
     >
       {!compact ? (
@@ -1946,6 +1950,14 @@ export default function RecordingPage() {
   const renderSidePanel = () => {
     return (
       <>
+        {recording.enableComments ? (
+          <TabsContent
+            value="comments"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            {renderCommentsSection()}
+          </TabsContent>
+        ) : null}
         <TabsContent
           value="transcript"
           className="mt-0 flex-1 min-h-0 data-[state=inactive]:hidden"
@@ -2345,11 +2357,11 @@ export default function RecordingPage() {
             {editing && canUseNativeEditor ? (
               <EditorLayout recordingId={recording.id} className="flex-1" />
             ) : (
-              <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[calc(177.778dvh-35.556rem)]">
+              <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]">
                 <div className="flex w-full shrink-0 justify-center">
-                  {/* A 16:9 width derived from 100dvh - 20rem keeps the
-                    recording context and start of the discussion in view on
-                    displays that are both very wide and very tall. */}
+                  {/* Let the viewer grow on wide displays without pushing the
+                    discussion below the first scrollable viewport. The comments
+                    list owns the desktop scroll so the player stays in context. */}
                   <div className="relative aspect-video w-full overflow-hidden bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
                     <VideoPlayer
                       ref={playerRef}
@@ -2417,7 +2429,7 @@ export default function RecordingPage() {
                               onDraftChange={setCommentDraft}
                               onClose={() => setCommentOpen(false)}
                               onAdded={() => {
-                                setPanel("comments");
+                                if (isCompactLayout) setPanel("comments");
                                 void playerDataQ.refetch();
                               }}
                             />
@@ -2536,16 +2548,14 @@ export default function RecordingPage() {
                       ? renderCommentsSection(true)
                       : renderSidePanel()}
                   </RecordingSidePanel>
-                ) : (
-                  renderCommentsSection()
-                )}
+                ) : null}
               </div>
             )}
           </div>
         </div>
 
         {/* Side panel */}
-        {!editing && !isCompactLayout && panel && panel !== "comments" ? (
+        {!editing && !isCompactLayout && panel ? (
           <RecordingSidePanel
             className="hidden lg:col-start-2 lg:row-start-1 lg:flex lg:w-[360px] xl:w-[420px] 2xl:w-[440px]"
             tabs={renderPanelTabs()}

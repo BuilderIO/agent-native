@@ -64,6 +64,7 @@ const messages = {
     extensions: "Rallonges",
     newRecording: "Nouvel enregistrement",
     folders: "Dossiers",
+    recordings: "Enregistrements",
     newFolder: "Nouveau dossier",
     noSpaces: "Aucun espace pour le moment",
     desktopCta: "Obtenir l’app de bureau",
@@ -1744,6 +1745,7 @@ const messages = {
     donePageTitle: "Rapport de bug envoyé · Clips",
     eyebrow: "Rapport de bug",
     title: "Enregistrer un rapport de bug",
+    sidebarCta: "Envoyer des commentaires",
     description:
       "Capturez une courte reproduction avec écran, voix et contexte navigateur expurgé pour votre équipe.",
     issueTitleLabel: "Titre du problème",

@@ -64,6 +64,7 @@ const messages = {
     extensions: "एक्सटेंशन",
     newRecording: "नई रिकॉर्डिंग",
     folders: "फ़ोल्डर",
+    recordings: "रिकॉर्डिंग",
     newFolder: "नया फ़ोल्डर",
     noSpaces: "अभी कोई स्पेस नहीं",
     desktopCta: "डेस्कटॉप ऐप पाएँ",
@@ -1691,6 +1692,7 @@ const messages = {
     donePageTitle: "बग रिपोर्ट सबमिट हुई · Clips",
     eyebrow: "बग रिपोर्ट",
     title: "बग रिपोर्ट रिकॉर्ड करें",
+    sidebarCta: "फ़ीडबैक भेजें",
     description:
       "अपनी टीम के लिए स्क्रीन, आवाज़ और संशोधित ब्राउज़र संदर्भ के साथ छोटा रेप्रो कैप्चर करें।",
     issueTitleLabel: "समस्या का शीर्षक",
