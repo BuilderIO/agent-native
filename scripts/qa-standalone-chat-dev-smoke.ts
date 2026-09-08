@@ -2626,6 +2626,28 @@ async function main(): Promise<void> {
       permissions: ["microphone"],
     });
     page = await context.newPage();
+    const navigationSession = await context.newCDPSession(page);
+    await navigationSession.send("Network.enable");
+    await navigationSession.send("Page.enable");
+    let navigationDiagnosticCount = 0;
+    navigationSession.on("Network.requestWillBeSent", (event) => {
+      if (event.type !== "Document" || navigationDiagnosticCount >= 120) return;
+      navigationDiagnosticCount++;
+      browserDiagnostics.push(
+        `document initiator: ${event.request.url} ${JSON.stringify(event.initiator)}`,
+      );
+      if (event.redirectResponse) {
+        browserDiagnostics.push(
+          `document redirect: ${event.redirectResponse.status} ${event.redirectResponse.url}`,
+        );
+      }
+    });
+    navigationSession.on("Page.frameRequestedNavigation", (event) => {
+      if (navigationDiagnosticCount >= 120) return;
+      browserDiagnostics.push(
+        `navigation requested (${event.reason}): ${event.url}`,
+      );
+    });
     await page.addInitScript(() => {
       const target = window as Window & {
         __agentNativeSmokeHistory?: string[];
