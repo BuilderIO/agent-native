@@ -280,18 +280,25 @@ production deployment:
 
 ### Clips Chrome Web Store release
 
-These variables are internal handoffs used by the manual Clips release
-workflow. The `CWS_*` values are repository variables or short-lived workflow
-values. Store them in GitHub Actions configuration, never in the repository.
+The manual Clips release workflow reads the four repository variables below.
+It also uses short-lived internal handoffs listed afterward. Store the
+repository values in GitHub Actions configuration, never in the repository.
 
-| Variable                         | Purpose                                                                                 |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| `CWS_API_ROOT`                   | Chrome Web Store API origin used by the Clips release workflow.                         |
-| `CWS_API_SCOPE`                  | Google OAuth scope requested for Chrome Web Store API access.                           |
-| `CWS_SERVICE_ACCOUNT`            | Service account email impersonated through GitHub Actions Workload Identity Federation. |
-| `CWS_WORKLOAD_IDENTITY_PROVIDER` | Workload Identity Federation provider used to obtain the short-lived Google token.      |
-| `CURRENT_STORE_VERSION`          | Published Store version passed to the release version guard.                            |
-| `EXTENSION_VERSION`              | Built extension version passed to the release version guard.                            |
+| Repository variable                    | Purpose                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `CLIPS_CWS_ITEM_ID`                    | Chrome Web Store item id for the Clips extension.                                            |
+| `CLIPS_CWS_PUBLISHER_ID`               | Chrome Web Store publisher id that owns the Clips listing.                                   |
+| `CLIPS_CWS_SERVICE_ACCOUNT_EMAIL`      | Google service account email granted access to the Clips Chrome Web Store publisher account. |
+| `CLIPS_CWS_WORKLOAD_IDENTITY_PROVIDER` | Google Workload Identity Federation provider used by the GitHub repository.                  |
+
+| Internal workflow value          | Purpose                                                                           |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `CWS_API_ROOT`                   | Chrome Web Store API origin used by the Clips release workflow.                   |
+| `CWS_API_SCOPE`                  | Google OAuth scope requested for Chrome Web Store API access.                     |
+| `CWS_SERVICE_ACCOUNT`            | Service account email passed to the Google authentication action.                 |
+| `CWS_WORKLOAD_IDENTITY_PROVIDER` | Workload Identity Federation provider passed to the Google authentication action. |
+| `CURRENT_STORE_VERSION`          | Published Store version passed to the release version guard.                      |
+| `EXTENSION_VERSION`              | Built extension version passed to the release version guard.                      |
 
 ### Beta E2E browser suite
 
