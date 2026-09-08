@@ -439,22 +439,26 @@ function IconAction({
 function Section({
   title,
   actions,
+  collapsed,
   children,
 }: {
   title: string;
   actions?: React.ReactNode;
+  collapsed?: boolean;
   children: React.ReactNode;
 }) {
+  const Chevron = collapsed ? IconChevronRight : IconChevronDown;
+
   return (
     <div className="dm-section">
       <div className="dm-section-bar">
-        <IconChevronDown size={12} className="dm-section-chevron" />
+        <Chevron size={12} className="dm-section-chevron" />
         <span className="dm-section-label">{title}</span>
         {actions ? (
           <span className="dm-section-bar-actions">{actions}</span>
         ) : null}
       </div>
-      <div className="dm-section-content">{children}</div>
+      {collapsed ? null : <div className="dm-section-content">{children}</div>}
     </div>
   );
 }
@@ -588,7 +592,7 @@ function Inspector() {
         </div>
       </Section>
 
-      <Section title="Layout">
+      <Section title="Layout" collapsed>
         <div className="dm-prop-row">
           <NumField label="W" value={String(SELECTED_CTA_WIDTH)} />
           <NumField label="H" value={String(SELECTED_CTA_HEIGHT)} unit="px" />
