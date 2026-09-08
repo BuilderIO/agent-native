@@ -22,6 +22,8 @@ export interface SuggestionHighlightSpec {
   to: number;
   insertedText?: string;
   deletedText?: string;
+  editableBoundary?: boolean;
+  editableText?: boolean;
 }
 
 export interface SuggestionHighlightState {
@@ -60,30 +62,42 @@ function classes(base: string, active: boolean): string {
 
 function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   return () => {
-    const widget = document.createElement("button");
-    widget.type = "button";
+    const widget = document.createElement("span");
     widget.className = classes(
-      spec.kind === "add_block" ? "suggestion-add-block" : "suggestion-insert",
+      `${
+        spec.kind === "add_block" ? "suggestion-add-block" : "suggestion-insert"
+      } suggestion-proposed-text suggestion-inline-widget`,
       active,
     );
     widget.setAttribute("data-suggestion-id", spec.suggestionId);
     widget.setAttribute("data-suggestion-widget", "true");
+    widget.setAttribute("role", "button");
+    widget.setAttribute("tabindex", "0");
     widget.setAttribute("aria-label", "Inspect suggested insertion");
     // textContent deliberately keeps persisted proposal text out of HTML.
-    widget.textContent = spec.insertedText ?? "";
+    widget.textContent = spec.insertedText?.replace(/\n/g, "↵") ?? "";
     return widget;
   };
 }
 
 function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   return () => {
-    const widget = document.createElement("button");
-    widget.type = "button";
-    widget.className = classes("suggestion-delete-widget", active);
+    const widget = document.createElement("span");
+    widget.className = classes(
+      "suggestion-delete-widget suggestion-deleted-text suggestion-inline-widget",
+      active,
+    );
     widget.setAttribute("data-suggestion-id", spec.suggestionId);
     widget.setAttribute("data-suggestion-widget", "true");
-    widget.setAttribute("aria-label", "Inspect suggested deletion");
-    widget.textContent = spec.deletedText ?? "";
+    if (spec.editableBoundary) {
+      widget.setAttribute("data-suggestion-edit-boundary", "true");
+      widget.setAttribute("data-suggestion-position", String(spec.from));
+    } else {
+      widget.setAttribute("role", "button");
+      widget.setAttribute("tabindex", "0");
+      widget.setAttribute("aria-label", "Inspect suggested deletion");
+    }
+    widget.textContent = spec.deletedText?.replace(/\n/g, "↵") ?? "";
     return widget;
   };
 }
@@ -101,9 +115,13 @@ function buildDecorations(
     const range = clampRange(spec.from, spec.to, size);
     const attrs = {
       "data-suggestion-id": spec.suggestionId,
-      role: "button",
-      tabindex: "0",
-      "aria-label": "Inspect suggested change",
+      ...(spec.editableText
+        ? {}
+        : {
+            role: "button",
+            tabindex: "0",
+            "aria-label": "Inspect suggested change",
+          }),
     };
 
     if (spec.kind === "delete" || spec.kind === "replace") {
@@ -111,7 +129,7 @@ function buildDecorations(
         decorations.push(
           Decoration.inline(range.from, range.to, {
             ...attrs,
-            class: classes("suggestion-delete", active),
+            class: classes("suggestion-delete suggestion-deleted-text", active),
           }),
         );
       }
@@ -119,7 +137,7 @@ function buildDecorations(
       decorations.push(
         Decoration.inline(range.from, range.to, {
           ...attrs,
-          class: classes("suggestion-change", active),
+          class: classes("suggestion-change suggestion-proposed-text", active),
         }),
       );
     }
@@ -141,13 +159,18 @@ function buildDecorations(
         }),
       );
     }
-    if (spec.kind === "delete" && !range && spec.deletedText) {
+    if (spec.deletedText) {
       decorations.push(
         Decoration.widget(
           clampPosition(spec.from, size),
           deletionWidget(spec, active),
           {
-            key: `${spec.suggestionId}:deleted`,
+            key: JSON.stringify([
+              spec.suggestionId,
+              "deleted",
+              spec.deletedText,
+              active,
+            ]),
             side: 1,
             ...attrs,
           },
@@ -186,7 +209,9 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
               to: tr.mapping.map(spec.to, -1),
             }))
             .filter((spec) =>
-              spec.kind === "insert" || spec.kind === "add_block"
+              spec.kind === "insert" ||
+              spec.kind === "add_block" ||
+              (spec.kind === "delete" && !!spec.deletedText)
                 ? true
                 : spec.to > spec.from,
             );

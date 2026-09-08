@@ -3158,6 +3158,9 @@ const enUS = {
     genericError: "Something went wrong",
   },
   editor: {
+    suggestionAmendmentEmpty:
+      "This edit matches the current page. Reject the suggestion to remove it.",
+    suggestionAmendmentFailed: "Could not save suggestion",
     bold: "Bold",
     italic: "Italic",
     strikethrough: "Strikethrough",
@@ -3323,6 +3326,11 @@ const enUS = {
     reply: "Reply...",
     reopen: "Reopen",
     suggestions: "Suggestions",
+    suggestionAdd: "Add",
+    suggestionDelete: "Delete",
+    suggestionWith: "with",
+    suggestionReplace: "Replace",
+    suggestionDetails: "Suggestion details",
     typeFilter: "Type",
     statusFilter: "Status",
     authorFilter: "Person",
@@ -9438,6 +9446,11 @@ const commentMessagesByLocale = {
     showIndicators: "显示评论和高亮",
     unanchored: "高亮不可用",
     suggestions: "建议",
+    suggestionAdd: "添加",
+    suggestionDelete: "删除",
+    suggestionWith: "替换为",
+    suggestionReplace: "替换",
+    suggestionDetails: "建议详情",
     typeFilter: "类型",
     statusFilter: "状态",
     authorFilter: "人员",
@@ -9456,6 +9469,11 @@ const commentMessagesByLocale = {
     showIndicators: "顯示留言和醒目提示",
     unanchored: "無法使用醒目提示",
     suggestions: "建議",
+    suggestionAdd: "新增",
+    suggestionDelete: "刪除",
+    suggestionWith: "替換為",
+    suggestionReplace: "替換",
+    suggestionDetails: "建議詳細資料",
     typeFilter: "類型",
     statusFilter: "狀態",
     authorFilter: "人員",
@@ -9474,6 +9492,11 @@ const commentMessagesByLocale = {
     showIndicators: "Mostrar comentarios y resaltados",
     unanchored: "Resaltado no disponible",
     suggestions: "Sugerencias",
+    suggestionAdd: "Añadir",
+    suggestionDelete: "Eliminar",
+    suggestionWith: "por",
+    suggestionReplace: "Reemplazar",
+    suggestionDetails: "Detalles de la sugerencia",
     typeFilter: "Tipo",
     statusFilter: "Estado",
     authorFilter: "Persona",
@@ -9492,6 +9515,11 @@ const commentMessagesByLocale = {
     showIndicators: "Afficher les commentaires et surlignages",
     unanchored: "Surlignage indisponible",
     suggestions: "Suggestions",
+    suggestionAdd: "Ajouter",
+    suggestionDelete: "Supprimer",
+    suggestionWith: "par",
+    suggestionReplace: "Remplacer",
+    suggestionDetails: "Détails de la suggestion",
     typeFilter: "Type",
     statusFilter: "Statut",
     authorFilter: "Personne",
@@ -9510,6 +9538,11 @@ const commentMessagesByLocale = {
     showIndicators: "Kommentare und Hervorhebungen anzeigen",
     unanchored: "Hervorhebung nicht verfügbar",
     suggestions: "Vorschläge",
+    suggestionAdd: "Hinzufügen",
+    suggestionDelete: "Löschen",
+    suggestionWith: "durch",
+    suggestionReplace: "Ersetzen",
+    suggestionDetails: "Vorschlagsdetails",
     typeFilter: "Typ",
     statusFilter: "Status",
     authorFilter: "Person",
@@ -9528,6 +9561,11 @@ const commentMessagesByLocale = {
     showIndicators: "コメントとハイライトを表示",
     unanchored: "ハイライトを利用できません",
     suggestions: "提案",
+    suggestionAdd: "追加",
+    suggestionDelete: "削除",
+    suggestionWith: "変更後",
+    suggestionReplace: "変更前",
+    suggestionDetails: "提案の詳細",
     typeFilter: "種類",
     statusFilter: "ステータス",
     authorFilter: "ユーザー",
@@ -9546,6 +9584,11 @@ const commentMessagesByLocale = {
     showIndicators: "댓글과 강조 표시 보기",
     unanchored: "강조 표시를 사용할 수 없음",
     suggestions: "제안",
+    suggestionAdd: "추가",
+    suggestionDelete: "삭제",
+    suggestionWith: "변경 후",
+    suggestionReplace: "변경 전",
+    suggestionDetails: "제안 세부정보",
     typeFilter: "유형",
     statusFilter: "상태",
     authorFilter: "사용자",
@@ -9564,6 +9607,11 @@ const commentMessagesByLocale = {
     showIndicators: "Mostrar comentários e destaques",
     unanchored: "Destaque indisponível",
     suggestions: "Sugestões",
+    suggestionAdd: "Adicionar",
+    suggestionDelete: "Excluir",
+    suggestionWith: "por",
+    suggestionReplace: "Substituir",
+    suggestionDetails: "Detalhes da sugestão",
     typeFilter: "Tipo",
     statusFilter: "Status",
     authorFilter: "Pessoa",
@@ -9582,6 +9630,11 @@ const commentMessagesByLocale = {
     showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
     unanchored: "हाइलाइट उपलब्ध नहीं है",
     suggestions: "सुझाव",
+    suggestionAdd: "जोड़ें",
+    suggestionDelete: "हटाएँ",
+    suggestionWith: "से",
+    suggestionReplace: "बदलें",
+    suggestionDetails: "सुझाव का विवरण",
     typeFilter: "प्रकार",
     statusFilter: "स्थिति",
     authorFilter: "व्यक्ति",
@@ -9600,6 +9653,11 @@ const commentMessagesByLocale = {
     showIndicators: "إظهار التعليقات والتمييزات",
     unanchored: "التمييز غير متاح",
     suggestions: "الاقتراحات",
+    suggestionAdd: "إضافة",
+    suggestionDelete: "حذف",
+    suggestionWith: "بـ",
+    suggestionReplace: "استبدال",
+    suggestionDetails: "تفاصيل الاقتراح",
     typeFilter: "النوع",
     statusFilter: "الحالة",
     authorFilter: "الشخص",
@@ -11798,6 +11856,8 @@ const sidebarPinnedMessagesByLocale: Partial<
 const contentExactEnglishTranslations = {
   "zh-TW": {
     editor: {
+      suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+      suggestionAmendmentFailed: "無法儲存建議",
       toolbar: {
         info: "資訊",
         closeUtilityPanel: "關閉面板",
@@ -11841,6 +11901,8 @@ const contentExactEnglishTranslations = {
   },
   "zh-CN": {
     editor: {
+      suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
+      suggestionAmendmentFailed: "无法保存建议",
       failedToCreatePage: "创建页面失败",
       slash: {
         blockEquation: "块级公式",
@@ -11906,6 +11968,9 @@ const contentExactEnglishTranslations = {
   },
   "es-ES": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
+      suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
       failedToCreatePage: "No se pudo crear la página",
       slash: {
         blockEquation: "Ecuación en bloque",
@@ -11975,6 +12040,9 @@ const contentExactEnglishTranslations = {
   },
   "fr-FR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
+      suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
       failedToCreatePage: "Impossible de créer la page",
       slash: {
         blockEquation: "Équation en bloc",
@@ -12044,6 +12112,9 @@ const contentExactEnglishTranslations = {
   },
   "de-DE": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
+      suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
       failedToCreatePage: "Seite konnte nicht erstellt werden",
       slash: {
         blockEquation: "Blockgleichung",
@@ -12114,6 +12185,9 @@ const contentExactEnglishTranslations = {
   },
   "ja-JP": {
     editor: {
+      suggestionAmendmentEmpty:
+        "この編集は現在のページと同じです。提案を削除するには却下してください。",
+      suggestionAmendmentFailed: "提案を保存できませんでした",
       failedToCreatePage: "ページを作成できませんでした",
       slash: {
         blockEquation: "ブロック数式",
@@ -12183,6 +12257,9 @@ const contentExactEnglishTranslations = {
   },
   "ko-KR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
+      suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
       failedToCreatePage: "페이지를 만들지 못했습니다",
       slash: {
         blockEquation: "블록 수식",
@@ -12251,6 +12328,9 @@ const contentExactEnglishTranslations = {
   },
   "pt-BR": {
     editor: {
+      suggestionAmendmentEmpty:
+        "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
+      suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
       failedToCreatePage: "Não foi possível criar a página",
       slash: {
         blockEquation: "Equação em bloco",
@@ -12320,6 +12400,9 @@ const contentExactEnglishTranslations = {
   },
   "hi-IN": {
     editor: {
+      suggestionAmendmentEmpty:
+        "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
+      suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
       failedToCreatePage: "पेज नहीं बनाया जा सका",
       slash: {
         blockEquation: "ब्लॉक समीकरण",
@@ -12386,6 +12469,9 @@ const contentExactEnglishTranslations = {
   },
   "ar-SA": {
     editor: {
+      suggestionAmendmentEmpty:
+        "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
+      suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
       failedToCreatePage: "تعذر إنشاء الصفحة",
       slash: {
         blockEquation: "معادلة مستقلة",

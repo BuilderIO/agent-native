@@ -29,6 +29,74 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("reveals a failed decision even when history was filtered to pending", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    expect(source).toMatch(
+      /if \(!activeConflictId\) return;[\s\S]*?setHistoryStatus\("all"\);[\s\S]*?setHistoryKind\("all"\);[\s\S]*?setHistoryAuthor\(null\);/,
+    );
+    expect(source).toContain("Number(right.id === activeConflictId)");
+  });
+  it("lays out mixed suggestion and comment identities in one collision flow", () => {
+    const items = layoutCommentThreads(
+      [
+        { threadId: "suggestion", comments: [] },
+        { threadId: "comment", comments: [] },
+      ],
+      new Map([
+        ["comment", { documentTop: 100, layoutTop: 100 }],
+        ["suggestion", { documentTop: 140, layoutTop: 140 }],
+      ]),
+      new Map([
+        ["comment", 80],
+        ["suggestion", 120],
+      ]),
+      "suggestion",
+    );
+    expect(items.map((item) => item.thread.threadId)).toEqual([
+      "comment",
+      "suggestion",
+    ]);
+    expect(items.map((item) => item.top)).toEqual([48, 140]);
+    expect(items.map((item) => item.marginTop)).toEqual([48, 12]);
+  });
+
+  it("uses the editor suggestion marker instead of the sidebar card as its anchor", () => {
+    document.body.innerHTML =
+      '<div id="scroll"><div data-document-scroll-content><div class="ProseMirror"><span data-suggestion-id="suggestion"></span></div></div><div id="rail"><div data-suggestion-id="suggestion"></div></div></div>';
+    const scroll = document.getElementById("scroll") as HTMLElement;
+    const content = scroll.querySelector(
+      "[data-document-scroll-content]",
+    ) as HTMLElement;
+    const rail = document.getElementById("rail") as HTMLElement;
+    const marker = scroll.querySelector(
+      ".ProseMirror [data-suggestion-id]",
+    ) as HTMLElement;
+    content.getBoundingClientRect = () => rect(40) as DOMRect;
+    rail.getBoundingClientRect = () => rect(80) as DOMRect;
+    marker.getBoundingClientRect = () => rect(156) as DOMRect;
+    expect(
+      findThreadPosition(
+        "suggestion",
+        null,
+        scroll,
+        rail,
+        "data-suggestion-id",
+      ),
+    ).toEqual({ documentTop: 116, layoutTop: 76 });
+    marker.remove();
+    expect(
+      findThreadPosition(
+        "suggestion",
+        null,
+        scroll,
+        rail,
+        "data-suggestion-id",
+      ),
+    ).toBeNull();
+  });
   it("tracks both document and desktop-rail positions for a highlight", () => {
     document.body.innerHTML =
       '<div id="scroll"><div data-document-scroll-content><span data-comment-thread="thread-1"></span></div></div><div id="rail"></div>';
@@ -201,17 +269,30 @@ describe("comments sidebar layout", () => {
     expect(source).not.toContain('t("comments.resolved", {');
   });
 
-  it("uses the same eased emphasis for active and hovered comment cards", () => {
+  it("uses the same eased emphasis for active, hovered, and focused cards", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",
     });
 
     expect(source).toContain(
-      "transition-transform duration-[260ms] ease-[var(--ease-drawer)]",
+      "transition-[background-color,transform] duration-[260ms] ease-[var(--ease-drawer)]",
     );
-    expect(source).toContain("allowEmphasisMotion={alignToAnchors}");
-    expect(source).toContain('? "-translate-x-2 shadow-lg"');
-    expect(source).toContain(': "hover:-translate-x-2 hover:shadow-lg"');
+    expect(source).not.toContain("allowEmphasisMotion");
+    expect(source).toContain(
+      "hover:-translate-x-2 hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
+    );
+    expect(source).toContain(
+      "focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))]",
+    );
+    expect(source).toContain("ease-[var(--ease-drawer)]");
+    expect(source).toContain("motion-reduce:hover:translate-x-0");
+    expect(source).not.toContain("bg-accent/60");
+    expect(source).toContain(
+      '? "-translate-x-2 bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] shadow-lg"',
+    );
+    expect(source).toContain(
+      ': "bg-popover hover:-translate-x-2 hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] hover:shadow-lg focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] focus-within:shadow-lg"',
+    );
   });
 
   it("keeps multiline comment highlights padded as one forgiving target", () => {
@@ -227,6 +308,44 @@ describe("comments sidebar layout", () => {
     expect(highlightStyles).toContain("box-decoration-break: clone");
     expect(highlightStyles).toContain("content-box");
     expect(highlightStyles).not.toContain("border-bottom: 1px");
+  });
+
+  it("smoothly strengthens ordinary comment highlights without moving them", () => {
+    const styles = readFileSync("app/global.css", { encoding: "utf8" });
+    const highlightStyles = styles.slice(
+      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf("/* Pending suggested edits"),
+    );
+
+    expect(highlightStyles).toContain(
+      "background-color: var(--comment-highlight-fill)",
+    );
+    expect(highlightStyles).toContain(
+      "transition: background-color 160ms var(--ease-out-strong)",
+    );
+    expect(highlightStyles).toMatch(
+      /\.comment-highlight:hover,\s*\.notion-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
+    );
+    expect(highlightStyles).toMatch(
+      /\.comment-highlight\.comment-highlight--active\s*\{[^}]*\/ 0\.38\)/,
+    );
+    expect(highlightStyles).toMatch(
+      /\.comment-highlight\.comment-highlight--pending\s*\{[^}]*hsl\(210 100% 52% \/ 0\.2\)[^}]*hsl\(210 100% 52% \/ 0\.55\)[^}]*cursor: default/,
+    );
+    expect(highlightStyles.indexOf(".comment-highlight:hover")).toBeLessThan(
+      highlightStyles.indexOf(".comment-highlight.comment-highlight--active"),
+    );
+    expect(
+      highlightStyles.indexOf(".comment-highlight.comment-highlight--active"),
+    ).toBeLessThan(
+      highlightStyles.indexOf(".comment-highlight.comment-highlight--pending"),
+    );
+    expect(highlightStyles).toContain(
+      "@media (prefers-reduced-motion: reduce)",
+    );
+    expect(highlightStyles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.comment-highlight\s*\{[^}]*transition: none/,
+    );
   });
 
   it("opens the selected inline thread for reply and closes it on deselection", () => {
@@ -256,17 +375,21 @@ describe("comments sidebar layout", () => {
     expect(source).toContain('"all" | "comments" | "suggestions"');
     expect(source).toContain('historyKind === "comments"');
     expect(source).toContain('historyKind === "suggestions"');
-    expect(source).toContain("aria-pressed={historyKind === kind}");
+    expect(source).toContain('t("comments.typeFilter")');
+    expect(source).not.toContain("aria-pressed={historyKind === kind}");
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
     expect(source).toContain("event.preventDefault()");
     expect(source).toContain(
       '"pending",\n                    "accepted",\n                    "rejected"',
     );
-    expect(source).toContain("renderSuggestionCards(historySuggestions)");
-    expect(source).toContain("renderSuggestionCards()");
-    expect(source).toContain("renderSuggestionText(before.changedText)");
-    expect(source).toContain("<InlineMarkdown content={content} inline />");
+    expect(source).toContain("historySuggestions.map((suggestion)");
+    expect(source).toContain(
+      "renderSuggestionCard(thread.suggestion, marginTop)",
+    );
+    expect(source).toContain("renderSuggestionText(previousText)");
+    expect(source).toContain('t("comments.suggestionWith")');
+    expect(source).toContain("const trailingWhitespace = display.match");
     expect(source).toContain(
       'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
     );
@@ -294,7 +417,9 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("activateCommentThread(threadId)");
     expect(source).toContain("data-comments-flow-lane");
     expect(source).toContain("commentLaneRef");
-    expect(source).toContain('querySelector(".notion-editor")');
+    expect(source).toContain(
+      "observeCommentLane(container, lane, setCommentLaneOffset)",
+    );
     expect(source).toContain("translate-x-4");
     expect(source).toContain(
       'scrollContainer.addEventListener("scroll", update, { passive: true })',
@@ -307,7 +432,10 @@ describe("comments sidebar layout", () => {
     );
     expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
+    expect(source).toContain("useElementMinWidth(documentLayoutRef, 800)");
+    expect(source).toContain(
+      'utilityPanel === "comments" &&\n      !hasUtilityRailSpace &&\n      !!selectedSuggestionId',
+    );
     expect(source).toContain('window.addEventListener("resize", update)');
     expect(source).toContain(
       'window.visualViewport?.addEventListener("resize", update)',
@@ -358,6 +486,35 @@ describe("comments sidebar layout", () => {
     } as CommentThread;
 
     expect(estimateThreadCardHeight(thread)).toBe(124);
+  });
+
+  it("keeps suggestion replies in history even when their highlight is unavailable", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain(
+      'if (presentation !== "history") onActivateSuggestion?.(suggestion.id)',
+    );
+  });
+
+  it("limits a narrow popover to its selected discussion", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain(
+      "(alignToAnchors || suggestion.id === activeSuggestionId)",
+    );
+    expect(source).not.toContain("!activeSuggestionId ||");
+  });
+
+  it("keeps stale decision feedback in the shared discussion shell", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    expect(source).toContain('suggestion.status === "stale"');
+    expect(source).toContain('t("editor.toolbar.conflict")');
+    expect(source).toContain('role="alert"');
   });
 
   it("does not give the desktop comment rail its own scroll container", () => {

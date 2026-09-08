@@ -34,8 +34,13 @@ const TooltipProviderWithoutChildren =
 
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
+import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
+import {
+  draftSuggestionAnchors,
+  markdownSuggestionOperations,
+} from "./suggestions/markdown-operation";
 import {
   createVisualEditorExtensions,
   commitPendingImageUpload,
@@ -57,8 +62,80 @@ import {
   shouldSkipMediaDraftPersistence,
   shouldSeedCollaborativeContent,
   serializeEditorDraftForPersistence,
+  suggestionReplacementIntentForTransaction,
   VisualEditor,
+  suggestionHighlightSpec,
 } from "./VisualEditor";
+
+describe("suggestion replacement intent", () => {
+  it("captures whole-document replacement without inserting inline markers at the root", () => {
+    const editor = createMarkdownEditor(
+      "First paragraph.\n\nSecond paragraph.",
+    );
+    try {
+      const intent = suggestionReplacementIntentForTransaction(
+        editor.state.tr.insertText(
+          "Replacement",
+          0,
+          editor.state.doc.content.size,
+        ),
+      );
+      expect(intent).not.toBeNull();
+      expect(intent!.beforeText).toBe(intent!.beforeMarkdown);
+      expect(intent!.startOffset).toBe(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("maps repeated text after a link to its serialized selection", () => {
+    const content =
+      "same\n\n[abcdefghijklmnopqrst](https://example.test/a-very-long-link-path)\n\nsame";
+    const editor = createMarkdownEditor(content);
+    try {
+      let last = 0;
+      editor.state.doc.descendants((node, position) => {
+        if (node.isText && node.text === "same") last = position;
+      });
+      const intent = suggestionReplacementIntentForTransaction(
+        editor.state.tr.insertText("different", last, last + 4),
+      );
+      expect(intent).not.toBeNull();
+      expect(intent!.startOffset).toBe(
+        intent!.beforeMarkdown.lastIndexOf("same"),
+      );
+      expect(intent!.beforeText).toBe("same");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("captures an exact native selected-text replacement", () => {
+    const editor = createMarkdownEditor("Use this workflow today.");
+    try {
+      const transaction = editor.state.tr.insertText("workflows", 10, 18);
+
+      expect(suggestionReplacementIntentForTransaction(transaction)).toEqual({
+        beforeText: "workflow",
+        afterText: "workflows",
+        startOffset: 9,
+        beforeMarkdown: "Use this workflow today.",
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not reinterpret an ordinary insertion as a replacement", () => {
+    const editor = createMarkdownEditor("Use this workflow today.");
+    try {
+      const transaction = editor.state.tr.insertText("s", 18);
+      expect(suggestionReplacementIntentForTransaction(transaction)).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 function createMarkdownEditor(content: string) {
   return new Editor({
@@ -88,6 +165,145 @@ function createFullEditor(content = "") {
       : { type: "doc", content: [{ type: "paragraph" }] },
   });
 }
+
+describe("live suggestion presentation", () => {
+  function createSuggestionEditor(content: string) {
+    return new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(content),
+    });
+  }
+  it("keeps a deletion visible after an earlier draft insertion changes its context", () => {
+    const base =
+      "Alpha Beta Gamma.\nThe team will publish on Friday.\nThird paragraph stays unchanged.";
+    const inserted = base.replace("Gamma.", "Gamma. Added words.");
+    const draft = inserted.replace("Alpha", "");
+    const editor = createSuggestionEditor(inserted);
+    try {
+      editor.commands.setTextSelection({ from: 1, to: 6 });
+      editor.commands.deleteSelection();
+      const operations = markdownSuggestionOperations(base, draft);
+      const anchors = draftSuggestionAnchors(operations, draft);
+      const specs = operations.map((operation, index) =>
+        suggestionHighlightSpec(editor.state.doc, {
+          id: `draft-${operation.ordinal}`,
+          kind: operation.kind,
+          beforeText: operation.before.changedText,
+          afterText: operation.after.changedText,
+          anchor: anchors[index]!,
+          presentation: "draft",
+        }),
+      );
+      expect(specs.every(Boolean)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.filter((spec) => spec !== null),
+      });
+      expect(
+        editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
+      ).toBe("Alpha");
+      expect(
+        editor.view.dom.querySelector(".suggestion-change")?.textContent,
+      ).toBe(" Added words.");
+      expect(editor.state.doc.firstChild?.textContent).toBe(
+        " Beta Gamma. Added words.",
+      );
+      expect(editor.state.selection.from).toBe(1);
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("shows both sides of a draft replacement without changing draft text", () => {
+    const editor = createSuggestionEditor("The team will publish on Monday.");
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "replacement",
+        kind: "replace_text",
+        beforeText: "Fri",
+        afterText: "Mon",
+        anchor: {
+          from: 25,
+          prefix: "The team will publish on ",
+          suffix: "day.",
+        },
+        presentation: "draft",
+      });
+      expect(spec).not.toBeNull();
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(
+        editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
+      ).toBe("Fri");
+      expect(
+        editor.view.dom.querySelector(".suggestion-change")?.textContent,
+      ).toBe("Mon");
+      expect(
+        editor.view.dom
+          .querySelector(".suggestion-change")
+          ?.hasAttribute("tabindex"),
+      ).toBe(false);
+      expect(
+        editor.view.dom
+          .querySelector(".suggestion-change")
+          ?.hasAttribute("role"),
+      ).toBe(false);
+      expect(editor.state.doc.textContent).toBe(
+        "The team will publish on Monday.",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(["draft", "canonical"] as const)(
+    "makes a %s paragraph-break deletion visible",
+    (presentation) => {
+      const editor = createSuggestionEditor(
+        presentation === "draft" ? "First.Second." : "First.\nSecond.",
+      );
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "paragraph-break",
+          kind: "delete_text",
+          beforeText: "\n",
+          afterText: "",
+          anchor: { from: 6, prefix: "First.", suffix: "Second." },
+          presentation,
+        });
+        expect(spec).not.toBeNull();
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector(".suggestion-delete-widget")
+            ?.textContent,
+        ).toBe("↵");
+        expect(editor.state.doc.childCount).toBe(
+          presentation === "draft" ? 1 : 2,
+        );
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+  it("shows the deleted document at the remaining empty paragraph", () => {
+    const editor = createSuggestionEditor("");
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "all",
+        kind: "delete_text",
+        beforeText: "Whole document",
+        afterText: "",
+        anchor: { from: 0, prefix: "", suffix: "" },
+        presentation: "draft",
+      });
+      expect(spec).not.toBeNull();
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(
+        editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
+      ).toBe("Whole document");
+      expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 function waitForDeferredCallback() {
   return new Promise((resolve) => setTimeout(resolve, 0));

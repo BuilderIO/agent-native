@@ -251,6 +251,7 @@
     "./review/actions/set-review-thread-unread": "./dist/review/actions/set-review-thread-unread.js",
     "./review/actions/set-review-thread-muted": "./dist/review/actions/set-review-thread-muted.js",
     "./review/suggestions/actions/create-resource-suggestion": "./dist/review/suggestions/actions/create-resource-suggestion.js",
+    "./review/suggestions/actions/update-resource-suggestion": "./dist/review/suggestions/actions/update-resource-suggestion.js",
     "./review/suggestions/actions/list-resource-suggestions": "./dist/review/suggestions/actions/list-resource-suggestions.js",
     "./review/suggestions/actions/get-resource-suggestion": "./dist/review/suggestions/actions/get-resource-suggestion.js",
     "./review/suggestions/actions/decide-resource-suggestion": "./dist/review/suggestions/actions/decide-resource-suggestion.js",

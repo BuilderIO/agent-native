@@ -75,6 +75,60 @@ describe("Content document suggestion adapter", () => {
     expect(exclusions).toHaveBeenCalledOnce();
   });
 
+  it("validates amendments against transactional canonical state without writing it", async () => {
+    const tx = {
+      execute: vi.fn(async (query: { sql: string }) => {
+        expect(query.sql).toMatch(/^SELECT/);
+        if (query.sql.startsWith("SELECT content,")) {
+          return { rows: [{ content: "Before", updated_at: "rev-1" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [operation],
+        ctx: {
+          transaction: tx,
+          suggestionAccess: {
+            ...access,
+            resource: {
+              ...access.resource,
+              content: "stale cache",
+              updatedAt: "old",
+            },
+          },
+        },
+      }),
+    ).resolves.toEqual([operation]);
+    expect(tx.execute).toHaveBeenCalledTimes(2);
+    expect(exclusions).not.toHaveBeenCalled();
+  });
+
+  it("rejects amendments when transactional canonical state moved", async () => {
+    const tx = {
+      execute: vi.fn(async () => ({
+        rows: [{ content: "Changed", updated_at: "rev-2" }],
+      })),
+    };
+    await expect(
+      contentDocumentSuggestionAdapter.validateProposal({
+        resourceType: "document",
+        resourceId: "doc-1",
+        baseRevision: "rev-1",
+        operations: [operation],
+        ctx: { transaction: tx, suggestionAccess: access },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "suggestion_conflict",
+      statusCode: 409,
+    });
+    expect(tx.execute).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects inline-database pages before creating a pending suggestion", async () => {
     const markdown = 'Before\n\n<InlineDatabase id="db-1" />';
     await expect(
@@ -142,6 +196,7 @@ describe("Content document suggestion adapter", () => {
       resourceId: "doc-1",
       suggestion: {
         id: "suggestion-1",
+        revision: 1,
         resourceType: "document",
         resourceId: "doc-1",
         adapterKind: contentDocumentSuggestionAdapter.kind,
@@ -214,6 +269,7 @@ describe("Content document suggestion adapter", () => {
         resourceId: "doc-1",
         suggestion: {
           id: "suggestion-1",
+          revision: 1,
           resourceType: "document",
           resourceId: "doc-1",
           adapterKind: contentDocumentSuggestionAdapter.kind,
@@ -244,6 +300,23 @@ describe("Content document suggestion adapter", () => {
 });
 
 describe("applyMarkdownSuggestionOperation", () => {
+  function change(before: string, from: number, to: number, inserted: string) {
+    return {
+      ...operation,
+      before: { markdown: before, changedText: before.slice(from, to) },
+      after: {
+        markdown: before.slice(0, from) + inserted + before.slice(to),
+        changedText: inserted,
+      },
+      anchor: {
+        from,
+        to,
+        prefix: before.slice(Math.max(0, from - 32), from),
+        suffix: before.slice(to, to + 32),
+      },
+    };
+  }
+
   const contextualOperation = {
     ...operation,
     before: { markdown: "Alpha old Omega", changedText: "old" },
@@ -272,6 +345,108 @@ describe("applyMarkdownSuggestionOperation", () => {
         "Alpha changed Omega",
         contextualOperation,
       ),
+    ).toBeNull();
+  });
+
+  it.each([false, true])(
+    "accepts neighboring independent edits in either order (reverse: %s)",
+    (reverse) => {
+      const before =
+        "Alpha Beta Gamma. Added words.\nThe team will publish on Monday.\nThird paragraph stays unchanged.";
+      const first = change(before, 0, 5, "First");
+      const end = before.indexOf("\n");
+      const next = change(before, end, end, " Next.");
+      const ordered = reverse ? [next, first] : [first, next];
+      const intermediate = applyMarkdownSuggestionOperation(
+        before,
+        ordered[0]!,
+      );
+      expect(intermediate).not.toBeNull();
+      expect(applyMarkdownSuggestionOperation(intermediate!, ordered[1]!)).toBe(
+        before.replace("Alpha", "First").replace("words.", "words. Next."),
+      );
+    },
+  );
+
+  it.each(["A", "A much longer opening"])(
+    "maps replacement and insertion offsets after a length shift: %s",
+    (opening) => {
+      const before = "Alpha Beta Gamma. Final line.";
+      const current = before.replace("Alpha", opening);
+      expect(
+        applyMarkdownSuggestionOperation(
+          current,
+          change(before, 6, 10, "Second"),
+        ),
+      ).toBe(`${opening} Second Gamma. Final line.`);
+      expect(
+        applyMarkdownSuggestionOperation(
+          current,
+          change(before, 17, 17, " Next."),
+        ),
+      ).toBe(`${opening} Beta Gamma. Next. Final line.`);
+    },
+  );
+
+  it("preserves newer text on both sides when an exact context still matches", () => {
+    const before = "Alpha old Omega";
+    expect(
+      applyMarkdownSuggestionOperation(
+        `Intro\n${before}\nOutro`,
+        change(before, 6, 9, "new"),
+      ),
+    ).toBe("Intro\nAlpha new Omega\nOutro");
+  });
+
+  it("refuses changed targets, intersecting edits, and competing insertions", () => {
+    const before = "Alpha Beta Gamma.";
+    expect(
+      applyMarkdownSuggestionOperation(
+        "Alpha Better Gamma.",
+        change(before, 6, 10, "Second"),
+      ),
+    ).toBeNull();
+    expect(
+      applyMarkdownSuggestionOperation(
+        "Alpha Better Gamma.",
+        change(before, 8, 12, "replacement"),
+      ),
+    ).toBeNull();
+    expect(
+      applyMarkdownSuggestionOperation(
+        "Alpha New Beta Gamma.",
+        change(before, 6, 6, "Other "),
+      ),
+    ).toBeNull();
+  });
+
+  it("refuses ambiguous repeated text when the canonical deletion can slide", () => {
+    const before = "xabababZ";
+    for (const from of [1, 3, 5]) {
+      expect(
+        applyMarkdownSuggestionOperation(
+          "xababZ",
+          change(before, from, from + 2, "new"),
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("keeps changes surrounding an unmatched target as an explicit conflict", () => {
+    const before = "Alpha Beta Gamma.";
+    expect(
+      applyMarkdownSuggestionOperation(
+        "First Beta Last.",
+        change(before, 6, 10, "Second"),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects a payload whose changed text and anchor do not describe its snapshot", () => {
+    const malformed = change("Alpha Beta Gamma.", 6, 10, "Second");
+    malformed.anchor.from = 0;
+    expect(
+      applyMarkdownSuggestionOperation("First Beta Gamma.", malformed),
     ).toBeNull();
   });
 });

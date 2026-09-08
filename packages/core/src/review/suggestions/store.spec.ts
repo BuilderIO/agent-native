@@ -5,6 +5,9 @@ let sqlite: Database.Database;
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
+      if (/^\s*PRAGMA/i.test(input)) {
+        return { rows: sqlite.prepare(input).all(), rowsAffected: 0 };
+      }
       sqlite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }

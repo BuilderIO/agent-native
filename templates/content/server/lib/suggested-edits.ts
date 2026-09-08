@@ -1,9 +1,9 @@
+import { fail } from "@agent-native/core/action";
 import {
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import type {
   SuggestionAdapter,
   SuggestionOperation,
@@ -16,8 +16,8 @@ import { getSchema } from "@tiptap/core";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 
 import { createVisualEditorExtensions } from "../../app/components/editor/VisualEditor.js";
-import { CONTENT_SUGGESTED_EDITS_FLAG } from "../../shared/feature-flags.js";
 import { nfmToDoc } from "../../shared/nfm.js";
+import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
@@ -114,12 +114,11 @@ export function applyMarkdownSuggestionOperation(
   ) {
     return null;
   }
-  const anchor = operationAnchor(operation);
-  const needle = `${anchor.prefix}${before.changedText}${anchor.suffix}`;
-  const replacement = `${anchor.prefix}${after.changedText}${anchor.suffix}`;
-  const index = currentMarkdown.indexOf(needle);
-  if (index < 0 || currentMarkdown.indexOf(needle, index + 1) >= 0) return null;
-  return `${currentMarkdown.slice(0, index)}${replacement}${currentMarkdown.slice(index + needle.length)}`;
+  operationAnchor(operation);
+  const range = resolveMarkdownSuggestionRange(currentMarkdown, operation);
+  if (!range) return null;
+  const { from, to } = range;
+  return `${currentMarkdown.slice(0, from)}${after.changedText}${currentMarkdown.slice(to)}`;
 }
 
 function documentFromContext(ctx: Record<string, unknown> | undefined) {
@@ -180,12 +179,26 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     if (input.resourceType !== "document") {
       throw new Error("Content suggestions are only available for Pages");
     }
-    if (
-      !(await isFeatureFlagEnabled(CONTENT_SUGGESTED_EDITS_FLAG, input.ctx))
-    ) {
-      throw new Error("Content suggested edits are not enabled");
+    let document = documentFromContext(input.ctx);
+    const transaction = input.ctx?.transaction as DbExec | undefined;
+    if (transaction) {
+      const row = (
+        await transaction.execute({
+          sql: "SELECT content,updated_at,trashed_at,source_mode,source_kind,source_path FROM documents WHERE id = ?",
+          args: [input.resourceId],
+        })
+      ).rows[0];
+      document = row
+        ? {
+            content: row.content,
+            updatedAt: row.updated_at,
+            trashedAt: row.trashed_at,
+            sourceMode: row.source_mode,
+            sourceKind: row.source_kind,
+            sourcePath: row.source_path,
+          }
+        : undefined;
     }
-    const document = documentFromContext(input.ctx);
     if (!document) throw new Error("Document access context is unavailable");
     if (document.trashedAt)
       throw new Error("Trashed Pages cannot receive suggestions");
@@ -193,9 +206,12 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       throw new Error("Source-owned Pages cannot receive suggestions");
     }
     if (document.updatedAt !== input.baseRevision) {
-      throw new Error("The Page changed before the suggestion was created");
+      fail("The Page changed; refresh before saving this suggestion", {
+        statusCode: 409,
+        errorCode: "suggestion_conflict",
+      });
     }
-    const exclusions = await getDbExec().execute({
+    const exclusions = await (transaction ?? getDbExec()).execute({
       sql: `SELECT 'database' AS kind
             FROM content_database_items i
             INNER JOIN content_databases d ON d.id = i.database_id
@@ -213,7 +229,13 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const operations = validateOperations(input.operations);
     const before = markdownPayload(operations[0]!.before, "before");
     if (document.content !== before.markdown) {
-      throw new Error("The suggestion before-state does not match the Page");
+      fail(
+        "The suggestion before-state does not match the Page; refresh before saving this suggestion",
+        {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        },
+      );
     }
     if (before.markdown.includes("<InlineDatabase")) {
       throw new Error(
@@ -244,11 +266,6 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return result;
   },
   async apply(context) {
-    if (
-      !(await isFeatureFlagEnabled(CONTENT_SUGGESTED_EDITS_FLAG, context.ctx))
-    ) {
-      throw new Error("Content suggested edits are not enabled");
-    }
     const operations = validateOperations(context.operations);
     const operation = operations[0]!;
     const tx = context.transaction as DbExec;

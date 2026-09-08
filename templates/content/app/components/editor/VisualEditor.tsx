@@ -32,7 +32,11 @@ import { TableHeader } from "@tiptap/extension-table-header";
 import { TableRow } from "@tiptap/extension-table-row";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
-import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import {
+  Fragment,
+  Slice,
+  type Node as ProseMirrorNode,
+} from "@tiptap/pm/model";
 import {
   Plugin,
   PluginKey,
@@ -755,24 +759,43 @@ function suggestionAnchorRange(
       ? suggestion.afterText
       : suggestion.beforeText;
   if (quote) {
-    return resolveAnchor(doc, {
-      quotedText: quote,
+    return resolveAnchor(
+      doc,
+      {
+        quotedText: quote,
+        prefix: suggestion.anchor.prefix,
+        suffix: suggestion.anchor.suffix,
+        startOffset: suggestion.anchor.from,
+      },
+      "\n",
+    );
+  }
+
+  if (
+    suggestion.presentation === "draft" &&
+    suggestion.beforeText &&
+    doc.childCount === 1 &&
+    doc.firstChild?.isTextblock &&
+    doc.firstChild.content.size === 0
+  ) {
+    return { from: 1, to: 1 };
+  }
+
+  // Suggestion contexts come from NFM, which separates paragraphs with one newline.
+  const position = resolveAnchorPoint(
+    doc,
+    {
       prefix: suggestion.anchor.prefix,
       suffix: suggestion.anchor.suffix,
       startOffset: suggestion.anchor.from,
-    });
-  }
-
-  const position = resolveAnchorPoint(doc, {
-    prefix: suggestion.anchor.prefix,
-    suffix: suggestion.anchor.suffix,
-    startOffset: suggestion.anchor.from,
-  });
+    },
+    "\n",
+  );
   if (position == null) return null;
   return { from: position, to: position };
 }
 
-function suggestionHighlightSpec(
+export function suggestionHighlightSpec(
   doc: ProseMirrorNode,
   suggestion: VisualEditorSuggestion,
 ): SuggestionHighlightSpec | null {
@@ -786,6 +809,7 @@ function suggestionHighlightSpec(
         from: range.from,
         to: range.to,
         deletedText: suggestion.beforeText,
+        editableBoundary: true,
       };
     }
     return {
@@ -793,6 +817,10 @@ function suggestionHighlightSpec(
       kind: "mark",
       from: range.from,
       to: range.to,
+      deletedText:
+        suggestion.kind === "replace_text" ? suggestion.beforeText : undefined,
+      editableBoundary: suggestion.kind === "replace_text",
+      editableText: true,
     };
   }
   return {
@@ -810,6 +838,10 @@ function suggestionHighlightSpec(
     from: range.from,
     to: range.to,
     insertedText: suggestion.afterText,
+    deletedText:
+      suggestion.beforeText.includes("\n") && !suggestion.beforeText.trim()
+        ? suggestion.beforeText
+        : undefined,
   };
 }
 
@@ -859,6 +891,8 @@ interface VisualEditorProps {
   commentThreads?: CommentThread[];
   /** Currently focused thread — its highlight is emphasized. */
   activeThreadId?: string | null;
+  /** Currently hovered thread — its highlight uses the lighter hover treatment. */
+  hoveredThreadId?: string | null;
   /** Selection range of the in-progress (not yet saved) comment, if any. */
   pendingHighlight?: { from: number; to: number } | null;
   /** Called when the user clicks an inline highlight in the document. */
@@ -866,6 +900,14 @@ interface VisualEditorProps {
   suggestions?: VisualEditorSuggestion[];
   activeSuggestionId?: string | null;
   onActivateSuggestion?: (suggestionId: string) => void;
+  onHoverSuggestion?: (suggestionId: string | null) => void;
+  onSuggestionReplacementIntent?: (intent: {
+    beforeText: string;
+    afterText: string;
+    startOffset: number;
+    beforeMarkdown: string;
+  }) => void;
+  initialSelection?: { from: number; prefix: string; suffix: string } | null;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
@@ -892,6 +934,85 @@ export interface VisualEditorHistoryState {
 export interface VisualEditorHistoryController {
   undo: () => boolean;
   redo: () => boolean;
+}
+
+export function suggestionReplacementIntentForTransaction(
+  transaction: Transaction,
+): {
+  beforeText: string;
+  afterText: string;
+  startOffset: number;
+  beforeMarkdown: string;
+} | null {
+  if (!transaction.docChanged || transaction.steps.length !== 1) return null;
+  const ranges: Array<{
+    oldStart: number;
+    oldEnd: number;
+    newStart: number;
+    newEnd: number;
+  }> = [];
+  transaction.steps[0]!.getMap().forEach(
+    (oldStart, oldEnd, newStart, newEnd) => {
+      ranges.push({ oldStart, oldEnd, newStart, newEnd });
+    },
+  );
+  if (ranges.length !== 1 || ranges[0]!.oldEnd <= ranges[0]!.oldStart) {
+    return null;
+  }
+  const { oldStart, oldEnd, newStart, newEnd } = ranges[0]!;
+  const beforeText = transaction.before.textBetween(oldStart, oldEnd, "\n");
+  const afterText = transaction.doc.textBetween(newStart, newEnd, "\n");
+  if (!beforeText || beforeText === afterText) return null;
+  const beforeMarkdown = docToNfm(transaction.before.toJSON());
+  if (oldStart === 0 && oldEnd === transaction.before.content.size) {
+    return {
+      beforeText: beforeMarkdown,
+      afterText,
+      startOffset: 0,
+      beforeMarkdown,
+    };
+  }
+  if (
+    !transaction.before.resolve(oldStart).parent.isTextblock ||
+    !transaction.before.resolve(oldEnd).parent.isTextblock
+  )
+    return null;
+  const token = `selection${globalThis.crypto.randomUUID().replace(/-/g, "")}`;
+  const startToken = `${token}start`;
+  const endToken = `${token}end`;
+  const withMarker = (doc: ProseMirrorNode, position: number, marker: string) =>
+    doc.replace(
+      position,
+      position,
+      new Slice(
+        Fragment.from(
+          doc.type.schema.text(marker, doc.resolve(position).marks()),
+        ),
+        0,
+        0,
+      ),
+    );
+  const marked = docToNfm(
+    withMarker(
+      withMarker(transaction.before, oldEnd, endToken),
+      oldStart,
+      startToken,
+    ).toJSON(),
+  );
+  const startOffset = marked.indexOf(startToken);
+  const endOffset = marked.indexOf(endToken) - startToken.length;
+  if (
+    startOffset < 0 ||
+    endOffset < startOffset ||
+    marked.replace(startToken, "").replace(endToken, "") !== beforeMarkdown
+  )
+    return null;
+  return {
+    beforeText: beforeMarkdown.slice(startOffset, endOffset),
+    afterText,
+    startOffset,
+    beforeMarkdown,
+  };
 }
 
 export type { NotionPageLink };
@@ -2195,11 +2316,15 @@ export function VisualEditor({
   onComment,
   commentThreads,
   activeThreadId,
+  hoveredThreadId,
   pendingHighlight,
   onActivateThread,
   suggestions = [],
   activeSuggestionId,
   onActivateSuggestion,
+  onHoverSuggestion,
+  onSuggestionReplacementIntent,
+  initialSelection,
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
@@ -2222,6 +2347,12 @@ export function VisualEditor({
   onActivateThreadRef.current = onActivateThread;
   const onActivateSuggestionRef = useRef(onActivateSuggestion);
   onActivateSuggestionRef.current = onActivateSuggestion;
+  const onHoverSuggestionRef = useRef(onHoverSuggestion);
+  onHoverSuggestionRef.current = onHoverSuggestion;
+  const onSuggestionReplacementIntentRef = useRef(
+    onSuggestionReplacementIntent,
+  );
+  onSuggestionReplacementIntentRef.current = onSuggestionReplacementIntent;
   const onHistoryStateChangeRef = useRef(onHistoryStateChange);
   onHistoryStateChangeRef.current = onHistoryStateChange;
   const historyStateNotificationRef = useRef<VisualEditorHistoryState | null>(
@@ -2624,6 +2755,12 @@ export function VisualEditor({
       }
       if (isActiveSlashCommandDraft(editor)) return;
       if (shouldSkipMediaDraftPersistence(editor)) return;
+      const replacementIntent = onSuggestionReplacementIntentRef.current
+        ? suggestionReplacementIntentForTransaction(transaction)
+        : null;
+      if (replacementIntent) {
+        onSuggestionReplacementIntentRef.current?.(replacementIntent);
+      }
       void persistEditorContent(editor, {
         userInitiated,
       });
@@ -2920,6 +3057,7 @@ export function VisualEditor({
           specs,
           pending: pendingHighlight ?? null,
           activeId: activeThreadId ?? null,
+          hoveredId: hoveredThreadId ?? null,
         });
         return;
       }
@@ -2948,9 +3086,16 @@ export function VisualEditor({
         specs,
         pending: pendingHighlight ?? null,
         activeId: activeThreadId ?? null,
+        hoveredId: hoveredThreadId ?? null,
       });
     },
-    [activeThreadId, editor, pendingHighlight, showCommentIndicators],
+    [
+      activeThreadId,
+      editor,
+      hoveredThreadId,
+      pendingHighlight,
+      showCommentIndicators,
+    ],
   );
 
   const applyRef = useRef(applyHighlights);
@@ -3004,6 +3149,7 @@ export function VisualEditor({
   }, [
     activeThreadId,
     editor,
+    hoveredThreadId,
     pendingKey,
     scheduleApply,
     showCommentIndicators,
@@ -3028,18 +3174,29 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const specs = suggestions
-      .map((suggestion) =>
-        suggestionHighlightSpec(editor.state.doc, suggestion),
-      )
-      .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
-    onSuggestionAnchorsChange?.(
-      Array.from(new Set(specs.map((spec) => spec.suggestionId))),
-    );
-    setSuggestionHighlights(editor.view, {
-      specs,
-      activeId: activeSuggestionId ?? null,
-    });
+    const apply = () => {
+      if (editor.isDestroyed) return;
+      const specs = suggestions
+        .map((suggestion) =>
+          suggestionHighlightSpec(editor.state.doc, suggestion),
+        )
+        .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
+      onSuggestionAnchorsChange?.(
+        Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+      );
+      setSuggestionHighlights(editor.view, {
+        specs,
+        activeId: activeSuggestionId ?? null,
+      });
+    };
+    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+      if (transaction.docChanged) apply();
+    };
+    apply();
+    editor.on("transaction", onTransaction);
+    return () => {
+      editor.off("transaction", onTransaction);
+    };
   }, [
     activeSuggestionId,
     editor,
@@ -3050,8 +3207,46 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
+    if (!editable || !initialSelection) return;
+    const position = resolveAnchorPoint(
+      editor.state.doc,
+      {
+        prefix: initialSelection.prefix,
+        suffix: initialSelection.suffix,
+        startOffset: initialSelection.from,
+      },
+      "\n",
+    );
+    if (position == null) return;
+    const frame = requestAnimationFrame(() => {
+      if (!editor.isDestroyed) {
+        editor.chain().focus().setTextSelection(position).run();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editable, editor, initialSelection]);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
+      const editBoundary = target?.closest<HTMLElement>(
+        "[data-suggestion-edit-boundary]",
+      );
+      if (editBoundary) {
+        const requested = Number(editBoundary.dataset.suggestionPosition);
+        if (Number.isFinite(requested)) {
+          event.preventDefault();
+          editor
+            .chain()
+            .focus()
+            .setTextSelection(
+              Math.max(0, Math.min(requested, editor.state.doc.content.size)),
+            )
+            .run();
+        }
+        return;
+      }
       const suggestion = target?.closest<HTMLElement>("[data-suggestion-id]");
       if (suggestion?.dataset.suggestionId) {
         onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
@@ -3070,11 +3265,38 @@ export function VisualEditor({
       event.preventDefault();
       onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
     };
+    const suggestionIdForTarget = (target: EventTarget | null) =>
+      target instanceof Element
+        ? (target.closest<HTMLElement>("[data-suggestion-id]")?.dataset
+            .suggestionId ?? null)
+        : null;
+    const handlePointerOver = (event: PointerEvent) => {
+      const nextId = suggestionIdForTarget(event.target);
+      if (!nextId || nextId === suggestionIdForTarget(event.relatedTarget)) {
+        return;
+      }
+      onHoverSuggestionRef.current?.(nextId);
+    };
+    const handlePointerOut = (event: PointerEvent) => {
+      const previousId = suggestionIdForTarget(event.target);
+      if (
+        !previousId ||
+        previousId === suggestionIdForTarget(event.relatedTarget)
+      ) {
+        return;
+      }
+      onHoverSuggestionRef.current?.(null);
+    };
     editor.view.dom.addEventListener("click", handleClick, true);
     editor.view.dom.addEventListener("keydown", handleKeyDown, true);
+    editor.view.dom.addEventListener("pointerover", handlePointerOver);
+    editor.view.dom.addEventListener("pointerout", handlePointerOut);
     return () => {
       editor.view.dom.removeEventListener("click", handleClick, true);
       editor.view.dom.removeEventListener("keydown", handleKeyDown, true);
+      editor.view.dom.removeEventListener("pointerover", handlePointerOver);
+      editor.view.dom.removeEventListener("pointerout", handlePointerOut);
+      onHoverSuggestionRef.current?.(null);
     };
   }, [editor]);
 

@@ -43,10 +43,18 @@ interface DocText {
  * capture and resolution both operate in this same offset space so they stay
  * perfectly consistent (a quote captured here is found here).
  */
-export function buildDocText(doc: ProseMirrorNode): DocText {
+export function buildDocText(
+  doc: ProseMirrorNode,
+  blockSeparator = "",
+): DocText {
   let text = "";
+  let hasTextblock = false;
   const segments: TextSegment[] = [];
   doc.descendants((node, pos) => {
+    if (node.isTextblock) {
+      if (hasTextblock) text += blockSeparator;
+      hasTextblock = true;
+    }
     if (node.isText && typeof node.text === "string" && node.text.length > 0) {
       segments.push({
         textStart: text.length,
@@ -71,6 +79,7 @@ function offsetToPos(docText: DocText, offset: number): number | null {
   }
   // Past the end — clamp to the last text node's end.
   const last = segments[segments.length - 1];
+  if (offset < last.textStart + last.length) return null;
   return last.pmFrom + last.length;
 }
 
@@ -82,8 +91,9 @@ export function resolveAnchorPoint(
     suffix?: string;
     startOffset?: number;
   },
+  blockSeparator = "",
 ): number | null {
-  const docText = buildDocText(doc);
+  const docText = buildDocText(doc, blockSeparator);
   const prefix = anchor.prefix ?? "";
   const suffix = anchor.suffix ?? "";
   if (!prefix && !suffix) return null;
@@ -189,11 +199,12 @@ export function resolveAnchor(
     suffix?: string;
     startOffset?: number;
   },
+  blockSeparator = "",
 ): ResolvedRange | null {
   const quote = anchor.quotedText;
   if (!quote) return null;
 
-  const docText = buildDocText(doc);
+  const docText = buildDocText(doc, blockSeparator);
   const hay = docText.text;
   if (!hay.includes(quote)) return null;
 

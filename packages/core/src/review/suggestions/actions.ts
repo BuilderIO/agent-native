@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { notifyReviewComment } from "../notifications.js";
 import { assertReviewableResourceAccess } from "../registry.js";
@@ -21,6 +21,8 @@ import {
   recordSuggestionCreation,
   replaceSuggestionStatus,
   updateSuggestionStatus,
+  getSuggestionAmendment,
+  amendSuggestion,
 } from "./store.js";
 import type { ResourceSuggestion } from "./types.js";
 
@@ -160,6 +162,147 @@ export const createResourceSuggestion = defineAction({
   },
 });
 
+export const updateResourceSuggestion = defineAction({
+  description:
+    "Amend your pending suggestion while preserving its discussion and history; returns the updated suggestion and revision.",
+  schema: z.object({
+    id: z.string().min(1).describe("The existing pending suggestion to amend."),
+    observedRevision: z
+      .number()
+      .int()
+      .positive()
+      .describe(
+        "The suggestion revision you read; refresh after a conflict before editing again.",
+      ),
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe(
+        "Reuse this key only for an exact retry of this amendment; use a new key for new edits.",
+      ),
+    operations: z
+      .array(operation)
+      .min(1)
+      .describe(
+        "Replacement proposal operations against the suggestion's existing canonical basis.",
+      ),
+    summary: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe(
+        "Optional replacement summary; omission preserves the existing summary.",
+      ),
+  }),
+  run: async (args, ctx) => {
+    const initial = await getSuggestion(args.id);
+    if (!initial)
+      fail("Suggestion not found", { statusCode: 404, errorCode: "not_found" });
+    await assertReviewableResourceAccess(
+      initial.resourceType,
+      initial.resourceId,
+      ctx as any,
+      "commenter",
+    );
+    const author = (ctx as any)?.userEmail;
+    if (!author || author !== initial.authorEmail) {
+      fail("Only the author can amend this suggestion", {
+        statusCode: 403,
+        errorCode: "forbidden",
+      });
+    }
+    const db = getDbExec();
+    if (!db.transaction)
+      throw new Error(
+        "Suggestion amendments require an atomic database transaction",
+      );
+    const request = JSON.stringify({
+      id: args.id,
+      observedRevision: args.observedRevision,
+      operations: args.operations,
+      summary: args.summary ?? null,
+    });
+    return db.transaction(async (tx) => {
+      const current = await getSuggestion(args.id, tx);
+      if (!current)
+        fail("Suggestion not found", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
+      const access = await assertReviewableResourceAccess(
+        current.resourceType,
+        current.resourceId,
+        { ...(ctx as any), transaction: tx },
+        "commenter",
+      );
+      if (current.authorEmail !== author)
+        fail("Only the author can amend this suggestion", {
+          statusCode: 403,
+          errorCode: "forbidden",
+        });
+      const prior = await getSuggestionAmendment(tx, args.idempotencyKey);
+      if (prior) {
+        if (prior.suggestionId !== current.id || prior.request !== request) {
+          fail("Idempotency key was already used for a different amendment", {
+            statusCode: 409,
+            errorCode: "idempotency_conflict",
+          });
+        }
+        return prior.suggestion;
+      }
+      if (
+        current.status !== "pending" ||
+        current.revision !== args.observedRevision
+      ) {
+        fail("The suggestion changed; refresh before editing", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      const adapter = getSuggestionAdapter(current.adapterKind);
+      if (!adapter || adapter.version !== current.adapterVersion)
+        throw new Error("Suggestion adapter version is unavailable");
+      const operations =
+        (await adapter.validateProposal({
+          resourceType: current.resourceType,
+          resourceId: current.resourceId,
+          baseRevision: current.baseRevision,
+          operations: args.operations,
+          ctx: { ...(ctx as any), transaction: tx, suggestionAccess: access },
+        })) ?? args.operations;
+      const updated = await amendSuggestion(
+        tx,
+        current,
+        operations,
+        args.summary ?? current.summary,
+        args.idempotencyKey,
+        request,
+      );
+      if (!updated)
+        fail("The suggestion changed; refresh before editing", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      return updated;
+    });
+  },
+  audit: {
+    target: (_args, result) => {
+      const suggestion = result as ResourceSuggestion;
+      return {
+        type: suggestion.resourceType,
+        id: suggestion.resourceId,
+        ownerEmail: suggestion.ownerEmail,
+        orgId: suggestion.orgId,
+        visibility: suggestion.visibility,
+      };
+    },
+  },
+});
+
 export const listResourceSuggestions = defineAction({
   description: "List typed suggestions for a resource.",
   schema: z.object({
@@ -220,6 +363,7 @@ export const decideResourceSuggestion = defineAction({
     decision: z.enum(["accepted", "rejected"]),
     idempotencyKey: z.string().min(1),
     observedBase: z.string().min(1),
+    observedRevision: z.number().int().positive().optional(),
   }),
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
@@ -260,17 +404,30 @@ export const decideResourceSuggestion = defineAction({
           return { suggestion: current, decision };
         }
         const currentAdapter = getSuggestionAdapter(current.adapterKind);
+        if ((args.observedRevision ?? 1) !== current.revision) {
+          fail("The suggestion changed; refresh before deciding", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
+        }
         if (
           !currentAdapter ||
           currentAdapter.version !== current.adapterVersion
         )
           throw new Error("Suggestion adapter version is unavailable");
         if (current.baseRevision !== args.observedBase) {
-          if (!(await updateSuggestionStatus(tx, current.id, "stale")))
-            return {
-              suggestion: current,
-              decision: await getDecision(tx, args.idempotencyKey),
-            };
+          if (
+            !(await updateSuggestionStatus(
+              tx,
+              current.id,
+              "stale",
+              current.revision,
+            ))
+          )
+            fail("The suggestion changed; refresh before deciding", {
+              statusCode: 409,
+              errorCode: "suggestion_conflict",
+            });
           const decision = await recordDecision(tx, {
             suggestionId: current.id,
             idempotencyKey: args.idempotencyKey,
@@ -289,11 +446,13 @@ export const decideResourceSuggestion = defineAction({
           tx,
           current.id,
           args.decision,
+          current.revision,
         );
         if (!claimed)
-          throw new Error(
-            "Suggestion was decided concurrently; retry to inspect it",
-          );
+          fail("The suggestion changed; refresh before deciding", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
         const prior = await recordDecision(tx, {
           suggestionId: current.id,
           idempotencyKey: args.idempotencyKey,

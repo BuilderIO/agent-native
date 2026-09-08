@@ -26,6 +26,7 @@ export {
   useSendReviewThreadToAgent,
   useResourceSuggestions,
   useCreateResourceSuggestion,
+  useUpdateResourceSuggestion,
   useDecideResourceSuggestion,
   type ConsumeReviewFeedbackInput,
   type CreateReviewCommentInput,
@@ -40,5 +41,6 @@ export {
   type SendReviewThreadToAgentInput,
   type ListResourceSuggestionsParams,
   type CreateResourceSuggestionInput,
+  type UpdateResourceSuggestionInput,
   type DecideResourceSuggestionInput,
 } from "./use-review.js";

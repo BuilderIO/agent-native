@@ -902,6 +902,11 @@ export async function mergeCoreSharingActions(
         import("../review/suggestions/actions/list-resource-suggestions.js"),
     ],
     [
+      "update-resource-suggestion",
+      () =>
+        import("../review/suggestions/actions/update-resource-suggestion.js"),
+    ],
+    [
       "get-resource-suggestion",
       () => import("../review/suggestions/actions/get-resource-suggestion.js"),
     ],

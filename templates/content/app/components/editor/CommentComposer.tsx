@@ -175,10 +175,10 @@ export const CommentComposer = forwardRef<
           onBlur?.();
         }}
         placeholder={placeholder}
-        className={
+        className={`[field-sizing:content] max-h-48 ${
           className ??
           "w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
-        }
+        }`}
       />
       {!disabled && menuOpen && (
         <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md">

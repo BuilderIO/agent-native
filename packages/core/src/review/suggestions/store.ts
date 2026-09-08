@@ -1,10 +1,11 @@
 import { getDbExec, isPostgres, type DbExec } from "../../db/client.js";
-import { ensureTableExists } from "../../db/ddl-guard.js";
+import { ensureColumnExists, ensureTableExists } from "../../db/ddl-guard.js";
 import type { Visibility } from "../../sharing/schema.js";
 import type {
   ResourceSuggestion,
   SuggestionDecision,
   SuggestionStatus,
+  SuggestionOperation,
 } from "./types.js";
 
 let initialized: Promise<void> | undefined;
@@ -28,11 +29,43 @@ export async function ensureSuggestionTables(
         `CREATE TABLE IF NOT EXISTS agent_review_suggestion_operations (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, ordinal INTEGER NOT NULL, operation_kind TEXT NOT NULL, target_id TEXT, before_json TEXT, after_json TEXT, anchor_json TEXT, dependencies_json TEXT, schema_version INTEGER NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS agent_review_suggestion_decisions (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, reviewer TEXT, decision TEXT NOT NULL, observed_base TEXT, outcome TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS agent_review_suggestion_creations (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_amendments (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, revision INTEGER NOT NULL, author_email TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', request_json TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE (suggestion_id, revision))`,
       ];
       for (const sql of ddl) {
         const name = sql.match(/agent_review_[a-z_]+/)![0];
         if (isPostgres()) await ensureTableExists(name, sql);
         else await client.execute(sql);
+      }
+      for (const [table, definitions] of [
+        [
+          "agent_review_suggestions",
+          [["revision", "INTEGER NOT NULL DEFAULT 1"]],
+        ],
+        [
+          "agent_review_suggestion_amendments",
+          [
+            ["owner_email", "TEXT"],
+            ["org_id", "TEXT"],
+            ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
+          ],
+        ],
+      ] as const) {
+        const existing = isPostgres()
+          ? null
+          : await client.execute(`PRAGMA table_info(${table})`);
+        for (const [column, type] of definitions) {
+          if (isPostgres()) {
+            await ensureColumnExists(
+              table,
+              column,
+              `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`,
+            );
+          } else if (!existing!.rows.some((field) => field.name === column)) {
+            await client.execute(
+              `ALTER TABLE ${table} ADD COLUMN ${column} ${type}`,
+            );
+          }
+        }
       }
       await client.execute(
         "CREATE INDEX IF NOT EXISTS idx_review_suggestions_resource ON agent_review_suggestions (resource_type, resource_id, created_at)",
@@ -69,7 +102,10 @@ export async function recordSuggestionCreation(
 }
 
 export async function insertSuggestion(
-  input: Omit<ResourceSuggestion, "id" | "createdAt" | "updatedAt">,
+  input: Omit<
+    ResourceSuggestion,
+    "id" | "revision" | "createdAt" | "updatedAt"
+  >,
   client = getDbExec(),
 ): Promise<ResourceSuggestion> {
   await ensureSuggestionTables(client);
@@ -97,7 +133,22 @@ export async function insertSuggestion(
       encode(input.metadata),
     ],
   });
-  for (const operation of input.operations)
+  await insertSuggestionOperations(client, suggestionId, input.operations);
+  return {
+    ...input,
+    id: suggestionId,
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function insertSuggestionOperations(
+  client: DbExec,
+  suggestionId: string,
+  operations: SuggestionOperation[],
+) {
+  for (const operation of operations)
     await client.execute({
       sql: "INSERT INTO agent_review_suggestion_operations (id,suggestion_id,ordinal,operation_kind,target_id,before_json,after_json,anchor_json,dependencies_json,schema_version) VALUES (?,?,?,?,?,?,?,?,?,?)",
       args: [
@@ -113,7 +164,62 @@ export async function insertSuggestion(
         operation.schemaVersion,
       ],
     });
-  return { ...input, id: suggestionId, createdAt: now, updatedAt: now };
+}
+
+export async function getSuggestionAmendment(client: DbExec, key: string) {
+  const row = (
+    await client.execute({
+      sql: "SELECT * FROM agent_review_suggestion_amendments WHERE idempotency_key = ?",
+      args: [key],
+    })
+  ).rows[0];
+  return row
+    ? {
+        suggestionId: String(row.suggestion_id),
+        request: String(row.request_json),
+        suggestion: decode<ResourceSuggestion>(row.after_json),
+      }
+    : null;
+}
+
+export async function amendSuggestion(
+  client: DbExec,
+  before: ResourceSuggestion,
+  operations: SuggestionOperation[],
+  summary: string,
+  idempotencyKey: string,
+  request: string,
+): Promise<ResourceSuggestion | null> {
+  const now = new Date().toISOString();
+  const claimed = await client.execute({
+    sql: "UPDATE agent_review_suggestions SET revision = revision + 1, summary = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND revision = ?",
+    args: [summary, now, before.id, before.revision],
+  });
+  if (claimed.rowsAffected !== 1) return null;
+  await client.execute({
+    sql: "DELETE FROM agent_review_suggestion_operations WHERE suggestion_id = ?",
+    args: [before.id],
+  });
+  await insertSuggestionOperations(client, before.id, operations);
+  const after = await getSuggestion(before.id, client);
+  if (!after) throw new Error("Amended suggestion disappeared");
+  await client.execute({
+    sql: "INSERT INTO agent_review_suggestion_amendments (idempotency_key,suggestion_id,revision,author_email,owner_email,org_id,visibility,request_json,before_json,after_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    args: [
+      idempotencyKey,
+      before.id,
+      after.revision,
+      before.authorEmail,
+      before.ownerEmail,
+      before.orgId,
+      before.visibility,
+      request,
+      encode(before),
+      encode(after),
+      now,
+    ],
+  });
+  return after;
 }
 
 export async function getSuggestion(
@@ -136,6 +242,7 @@ export async function getSuggestion(
   ).rows;
   return {
     id: String(row.id),
+    revision: Number(row.revision),
     resourceType: String(row.resource_type),
     resourceId: String(row.resource_id),
     adapterKind: String(row.adapter_kind),
@@ -282,10 +389,16 @@ export async function updateSuggestionStatus(
   client: DbExec,
   suggestionId: string,
   status: SuggestionStatus,
+  observedRevision?: number,
 ): Promise<boolean> {
   const result = await client.execute({
-    sql: "UPDATE agent_review_suggestions SET status = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
-    args: [status, new Date().toISOString(), suggestionId],
+    sql: "UPDATE agent_review_suggestions SET status = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND revision = ?",
+    args: [
+      status,
+      new Date().toISOString(),
+      suggestionId,
+      observedRevision ?? 1,
+    ],
   });
   return result.rowsAffected === 1;
 }

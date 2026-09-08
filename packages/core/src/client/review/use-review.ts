@@ -123,6 +123,15 @@ export interface DecideResourceSuggestionInput {
   decision: SuggestionDecision;
   idempotencyKey: string;
   observedBase: string;
+  observedRevision?: number;
+}
+
+export interface UpdateResourceSuggestionInput {
+  id: string;
+  observedRevision: number;
+  idempotencyKey: string;
+  operations: SuggestionOperation[];
+  summary?: string;
 }
 
 export function useReviewComments(
@@ -240,4 +249,10 @@ export function useDecideResourceSuggestion() {
     { suggestion: ResourceSuggestion; decision: unknown },
     DecideResourceSuggestionInput
   >("decide-resource-suggestion");
+}
+
+export function useUpdateResourceSuggestion() {
+  return useActionMutation<ResourceSuggestion, UpdateResourceSuggestionInput>(
+    "update-resource-suggestion",
+  );
 }

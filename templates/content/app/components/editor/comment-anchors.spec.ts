@@ -107,6 +107,52 @@ describe("comment-anchors", () => {
     ).toBeNull();
   });
 
+  it("resolves stored NFM suggestion boundaries across paragraphs", () => {
+    const first = "Alpha Beta Gamma.";
+    const second = "Second paragraph for discussion.";
+    const third = "Third paragraph stays unchanged.";
+    const canonical = [first, second, third].join("\n");
+    const deletionEnd = 5;
+    const draft = mkDoc([first.slice(deletionEnd), second, third]);
+    expect(
+      resolveAnchorPoint(
+        draft,
+        {
+          prefix: "",
+          suffix: canonical.slice(deletionEnd, deletionEnd + 32),
+          startOffset: 0,
+        },
+        "\n",
+      ),
+    ).toBe(1);
+
+    const insertionOffset = 50;
+    expect(
+      resolveAnchorPoint(
+        mkDoc([first, second, third]),
+        {
+          prefix: "Second paragraph for discussion.",
+          suffix: "\nThird paragraph stays unchanged",
+          startOffset: insertionOffset,
+        },
+        "\n",
+      ),
+    ).toBe(first.length + second.length + 3);
+  });
+
+  it("does not anchor inside a synthetic paragraph separator", () => {
+    expect(
+      resolveAnchorPoint(
+        mkDoc(["First", "Second"]),
+        {
+          prefix: "First\n",
+          suffix: "\nSecond",
+        },
+        "\n\n",
+      ),
+    ).toBeNull();
+  });
+
   it("re-resolves against an edited document", () => {
     const original = mkDoc(["Intro. The target phrase lives here."]);
     const anchor = captureAnchor(original, 8, 25);

@@ -71,6 +71,81 @@ function coalesce(parts: DiffPart[]): DiffPart[] {
   return result;
 }
 
+function changeBoundaryRank(text: string, position: number): number {
+  if (
+    position === 0 ||
+    position === text.length ||
+    text[position - 1] === "\n" ||
+    text[position] === "\n"
+  ) {
+    return 2;
+  }
+  return /\s/.test(text[position - 1]!) !== /\s/.test(text[position]!) ? 1 : 0;
+}
+
+function contiguousChange(
+  before: string,
+  after: string,
+  bounds = { from: 0, to: before.length },
+): { from: number; to: number; inserted: string } | null {
+  if (before.length === after.length) return null;
+  const shorter = before.length < after.length ? before : after;
+  const longer = before.length < after.length ? after : before;
+  const changeLength = longer.length - shorter.length;
+  let prefixLength = 0;
+  while (
+    prefixLength < shorter.length &&
+    shorter[prefixLength] === longer[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+  let suffixLength = 0;
+  while (
+    suffixLength < shorter.length &&
+    shorter[shorter.length - suffixLength - 1] ===
+      longer[longer.length - suffixLength - 1]
+  ) {
+    suffixLength += 1;
+  }
+
+  const firstCandidate = Math.max(shorter.length - suffixLength, bounds.from);
+  const lastCandidate = Math.min(
+    prefixLength,
+    bounds.to - (before.length > after.length ? changeLength : 0),
+  );
+  if (firstCandidate > lastCandidate) return null;
+
+  // Repeated text can make several positions reconstruct the same edit. Prefer
+  // paragraph, then word boundaries; otherwise retain the conventional latest
+  // common-prefix position.
+  let position = lastCandidate;
+  let rank = changeBoundaryRank(shorter, position);
+  for (
+    let candidate = firstCandidate;
+    candidate < lastCandidate;
+    candidate += 1
+  ) {
+    const candidateRank = changeBoundaryRank(shorter, candidate);
+    if (candidateRank > rank) {
+      position = candidate;
+      rank = candidateRank;
+    }
+  }
+
+  if (after.length > before.length) {
+    return {
+      from: position,
+      to: position,
+      inserted: after.slice(position, position + changeLength),
+    };
+  }
+  return {
+    from: position,
+    to: position + changeLength,
+    inserted: "",
+  };
+}
+
 /**
  * Returns a bounded Myers diff. The edit-distance cap keeps pathological
  * documents from consuming unbounded memory; callers retain one whole-document
@@ -180,6 +255,20 @@ export function markdownSuggestionOperations(
   if (before.replace(MARKDOWN_MARK, "") === after.replace(MARKDOWN_MARK, "")) {
     return [operationForChange(before, 0, before.length, after, 0)];
   }
+  if (before.length + after.length <= MAX_DOCUMENT_LENGTH) {
+    const contiguous = contiguousChange(before, after);
+    if (contiguous) {
+      return [
+        operationForChange(
+          before,
+          contiguous.from,
+          contiguous.to,
+          contiguous.inserted,
+          0,
+        ),
+      ];
+    }
+  }
   const parts = diffParts(before, after);
   if (!parts) return [markdownSuggestionOperation(before, after)!];
 
@@ -208,7 +297,23 @@ export function markdownSuggestionOperations(
     );
     beforeOffset = to;
   }
-  return operations;
+  return operations.map((operation, index) => {
+    if (operation.before.changedText && operation.after.changedText)
+      return operation;
+    const normalized = contiguousChange(before, operation.after.markdown, {
+      from: operations[index - 1]?.anchor.to ?? 0,
+      to: operations[index + 1]?.anchor.from ?? before.length,
+    });
+    return normalized
+      ? operationForChange(
+          before,
+          normalized.from,
+          normalized.to,
+          normalized.inserted,
+          index,
+        )
+      : operation;
+  });
 }
 
 export function markdownSuggestionOperation(
@@ -236,4 +341,81 @@ export function markdownSuggestionOperation(
     after.slice(from, afterEnd),
     0,
   );
+}
+
+export function markdownSuggestionOperationsForReplacements(input: {
+  before: string;
+  after: string;
+  replacements: ReadonlyArray<{ from: number; to: number }>;
+}): MarkdownSuggestionOperation[] {
+  const { before, after, replacements } = input;
+  const operations = markdownSuggestionOperations(before, after);
+  if (operations.length === 0 || replacements.length === 0) return operations;
+  for (const { from, to } of replacements) {
+    if (
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      to <= from ||
+      to > before.length
+    ) {
+      throw new Error("Invalid suggestion replacement range");
+    }
+  }
+  const ranges = [
+    ...replacements,
+    ...operations.map((operation) => operation.anchor),
+  ].sort((left, right) => left.from - right.from || left.to - right.to);
+  const groups: Array<{ from: number; to: number }> = [];
+  for (const range of ranges) {
+    const previous = groups[groups.length - 1];
+    if (previous && range.from <= previous.to) {
+      previous.to = Math.max(previous.to, range.to);
+    } else {
+      groups.push({ from: range.from, to: range.to });
+    }
+  }
+  const result: MarkdownSuggestionOperation[] = [];
+  let operationIndex = 0;
+  for (const group of groups) {
+    let offset = group.from;
+    let inserted = "";
+    let changed = false;
+    while (
+      operationIndex < operations.length &&
+      operations[operationIndex]!.anchor.from <= group.to
+    ) {
+      const operation = operations[operationIndex++]!;
+      inserted +=
+        before.slice(offset, operation.anchor.from) +
+        operation.after.changedText;
+      offset = operation.anchor.to;
+      changed = true;
+    }
+    if (!changed) continue;
+    inserted += before.slice(offset, group.to);
+    result.push(
+      operationForChange(before, group.from, group.to, inserted, result.length),
+    );
+  }
+  return result;
+}
+
+export function draftSuggestionAnchors(
+  operations: readonly MarkdownSuggestionOperation[],
+  draft: string,
+): MarkdownSuggestionOperation["anchor"][] {
+  let delta = 0;
+  return operations.map((operation) => {
+    const from = operation.anchor.from + delta;
+    const to = from + operation.after.changedText.length;
+    delta +=
+      operation.after.changedText.length - operation.before.changedText.length;
+    return {
+      from,
+      to,
+      prefix: draft.slice(Math.max(0, from - 32), from),
+      suffix: draft.slice(to, to + 32),
+    };
+  });
 }
