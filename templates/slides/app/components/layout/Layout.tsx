@@ -72,6 +72,7 @@ export function Layout({ children }: LayoutProps) {
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("slides");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [chatRunning, setChatRunning] = useState(false);
   const [composerText, setComposerText] = useState("");
   const [slidesSelection, setSlidesSelection] =
     useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
@@ -79,6 +80,17 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
+  useEffect(() => {
+    const onChatRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (typeof detail?.isRunning === "boolean") {
+        setChatRunning(detail.isRunning);
+      }
+    };
+    window.addEventListener("agentNative.chatRunning", onChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", onChatRunning);
+  }, []);
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
@@ -257,7 +269,7 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen={false}
           chatViewTransition
           chatViewTransitionHandoff={chatHomeHandoffPending}
-          openOnChatRunning
+          openOnChatRunning={chatRunning || chatHomeHandoffActive}
           onFullscreenRequest={openAgentChatFullscreen}
           emptyStateText={t("agent.emptyState")}
           suggestions={[

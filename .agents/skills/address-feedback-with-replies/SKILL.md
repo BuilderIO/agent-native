@@ -41,24 +41,23 @@ Even when invoked alone, this workflow asks at most three new clarification
 questions per run across all threads, ranked by which answer would unblock a
 safe fix.
 
-If this workflow earlier added `👀` to an out-of-scope item, remove that reaction
-with the connected Slack removal action when available. Do not add
-another reaction, investigate it as a bug, ask a compensating question, or post
-a new reply. If this workflow already posted a mistaken reply, delete that
-reply when safe; otherwise edit it to one brief `Skipped` disposition. If the
-connector cannot remove reactions, record the exact parent for manual cleanup
-and leave the thread otherwise untouched. New messages must pass the clear-bug
-gate before any external write.
+If this workflow earlier added `👀` to an out-of-scope item, release that claim
+with `✅` when reactions are available. Do not investigate it as a bug, ask a
+compensating question, or post a new reply. If this workflow already posted a
+mistaken reply, delete that reply when safe; otherwise edit it to one brief
+`Skipped` disposition. If the connector cannot add the release marker, record
+the exact parent for manual cleanup and leave the thread otherwise untouched.
+New messages must pass the clear-bug gate before any external write.
 
 Every clear-bug parent or upvoted improvement that receives `👀`
 enters the reply ledger. The reaction is not a reply or completion marker.
 Before finishing, re-read each claimed item and verify the invoking identity
 posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
 recorded **Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**,
-or **Abandoned - no answer in 4 days** with a concrete reason and the `👀`
-removed for any terminal disposition. Record **Owned elsewhere** when another
+or **Abandoned - no answer in 4 days** with a concrete reason and a `✅`
+release marker for any terminal disposition. Record **Owned elsewhere** when another
 valid workflow identity holds the eye; do not mutate that reaction. An
-expired question leaves the ledger with its `👀` removed and no reply owed.
+expired question leaves the ledger with its `✅` release marker and no reply owed.
 **Clarification needed** may retain the eye only while the targeted question is
 pending. **In progress** requires
 concrete existing ownership or active fixing and must be revisited; a bot
@@ -137,8 +136,8 @@ disposition per run. Active dispositions are **In progress** and
 **Clarification needed**; terminal dispositions are **Fixed**, **Shipped**,
 **Open - no reply**, **Resolved elsewhere**, **Skipped**, **Clustered**, and
 **Abandoned - no answer in 4 days**, each with the required evidence and eye
-state. An already-eyed item later found to be out of scope gets reaction
-cleanup and no new reply; if
+state. An already-eyed item later found to be out of scope gets a `✅` release
+marker and no new reply; if
 this workflow already replied, delete that reply when safe or edit it to one
 concise **Skipped** disposition. **Fixed** closes the current issue. **In progress** is
 an open ownership state for a thread
@@ -149,7 +148,7 @@ must revisit **In progress** and resolve it to **Fixed**, **Clarification
 needed**, or evidence-backed **Open - no reply** when no safe fix or
 reproduction remains. `Blocked`, `not fixed yet`, `still needs a fix`, and
 similar phrases are internal notes, never a complete Slack reply. **Open - no
-reply** is terminal only after removing the eye. If a reply
+reply** is terminal only after releasing the eye with `✅`. If a reply
 does not say the fix is complete, acknowledge concrete existing ownership, or
 ask what is needed to fix it, do not post it. These are ledger states, not
 mandatory headings: keep the reporter-facing wording natural instead of
@@ -165,9 +164,9 @@ the invoking identity's terminal disposition for the current cursor, but the nex
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
-That obligation expires after four days, standalone runs included: remove the
-`👀`, post nothing, and record the terminal **Abandoned - no answer in 4 days**.
-An expired thread keeps no eye and owes no reply. Carry the underlying bug
+That obligation expires after four days, standalone runs included: release the
+`👀` with `✅`, post nothing, and record the terminal **Abandoned - no answer in
+4 days**. An expired thread keeps no open eye and owes no reply. Carry the underlying bug
 forward with no reporter dependency.
 
 **In progress** is also an open state. It records that the thread already has
@@ -258,8 +257,8 @@ non-repeating question only if one specific required detail still blocks it.
    invoking-user reply timestamp, disposition, and eye state. Use the states in
    the contract above, with a reason; silent terminal states have no timestamp.
    Record **Owned elsewhere** for a foreign eye without mutating it. Record
-   out-of-scope and non-owning **Clustered** rows with the eye removed and no
-   reply. Do not create reactions or questions for out-of-scope items.
+   out-of-scope and non-owning **Clustered** rows with a `✅` release marker and
+   no reply. Do not create questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
@@ -327,8 +326,8 @@ identity:
   accessible source, and never write “not fixed yet” without a real question
   that unblocks the fix. If a linked source is inaccessible, ask for access or
   a fresh/replacement link instead of requesting its contents again. If no
-  reporter detail would unblock the work, remove the `👀`, record **Open - no
-  reply**, and post nothing.
+  reporter detail would unblock the work, release the `👀` with `✅`, record
+  **Open - no reply**, and post nothing.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a

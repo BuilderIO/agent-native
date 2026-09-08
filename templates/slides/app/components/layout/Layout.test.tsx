@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,11 +82,33 @@ describe("Slides Layout", () => {
     useDecksMock.mockReturnValue({ decks: [], loading: false });
   });
 
-  it("opens the agent panel when a run starts", () => {
+  it("enables agent-panel auto-open only during a run", () => {
     renderLayout("/");
 
     expect(agentSidebarMock).toHaveBeenCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ openOnChatRunning: true }),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false },
+        }),
+      );
+    });
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ openOnChatRunning: false }),
     );
   });
 
