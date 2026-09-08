@@ -143,8 +143,6 @@ export default function DesignTemplate() {
         }
       />
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <section className="border-t border-[var(--docs-border)]">
         <div className="border-x border-[var(--docs-border)] px-6 pb-8 pt-12 sm:px-8 sm:pt-16">
           <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
