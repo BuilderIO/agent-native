@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -138,6 +139,26 @@ describe("emitAiFeedbackSurveyEvent", () => {
         userId: "signup+autoz-run-1@example.com",
       }),
     ).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("suppresses direct PostHog survey events for synthetic traffic", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
+    vi.stubEnv("POSTHOG_API_KEY", "phc_test");
+    const mod = await freshModules();
+
+    await runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      expect(
+        mod.emitAiFeedbackSurveyEvent({
+          ...base,
+          userId: "alice@example.test",
+        }),
+      ).toBe(false),
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchMock).not.toHaveBeenCalled();

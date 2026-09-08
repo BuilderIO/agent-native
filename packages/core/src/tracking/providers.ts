@@ -308,9 +308,11 @@ export function sendPostHogEvent(
   properties: Record<string, unknown>,
   distinctId: string,
 ): boolean {
+  const requestContext = getRequestContext();
   if (
+    requestContext?.isSyntheticTraffic === true ||
     isQaTestEmail(distinctId) ||
-    isQaTestEmail(getRequestContext()?.userEmail) ||
+    isQaTestEmail(requestContext?.userEmail) ||
     isQaTestEmail(properties.email) ||
     isQaTestEmail(properties.userEmail) ||
     isQaTestEmail(properties.user_email)

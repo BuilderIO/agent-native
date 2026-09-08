@@ -692,6 +692,8 @@ export function AuthPage(props: AuthPageProps) {
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
   const signupEmailRef = React.useRef("");
   signupEmailRef.current = signupEmail;
+  const authViewRef = React.useRef<AuthView>(props.initialView);
+  authViewRef.current = view;
   const pendingSignupPassword = React.useRef("");
   const oauthPollTimer = React.useRef<number | null>(null);
   const oauthPollInFlight = React.useRef(false);
@@ -1014,11 +1016,11 @@ export function AuthPage(props: AuthPageProps) {
       {
         surface: "signup",
         auth_mode: authMode,
-        auth_view: view,
+        auth_view: authViewRef.current,
       },
       signupEmailRef.current,
     );
-  }, [authMode, homePath, runtimeAppBasePath, trackingApp, view]);
+  }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
 
   const localDevAllowed = React.useMemo(
     () =>
@@ -1397,6 +1399,7 @@ export function AuthPage(props: AuthPageProps) {
         method: "google",
         auth_view: view,
       },
+      view === "login" ? loginEmail : signupEmail,
     );
     const target = resumeHref();
     const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
@@ -1512,8 +1515,10 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     googleAuthUrlPath,
     googleBusy,
+    loginEmail,
     resolveGoogleFlow,
     resumeHref,
+    signupEmail,
     showGoogle,
     startOAuthExchange,
     stopNativeOAuth,
