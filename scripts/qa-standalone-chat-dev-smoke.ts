@@ -268,6 +268,28 @@ function installApprovalActionFixture(): void {
   );
 }
 
+function installViteDiagnosticsFixture(): void {
+  fs.copyFileSync(
+    path.join(
+      repoRoot,
+      "scripts/fixtures/agentkit-acceptance/vite-diagnostics.ts",
+    ),
+    path.join(appDir, "agentkit-vite-diagnostics.ts"),
+  );
+  const configPath = path.join(appDir, "vite.config.ts");
+  const source = fs.readFileSync(configPath, "utf8");
+  if (source.includes("agentKitViteDiagnostics()")) return;
+  assert.ok(
+    source.includes("  plugins: ["),
+    "generated Vite config must expose plugins",
+  );
+  fs.writeFileSync(
+    configPath,
+    'import { agentKitViteDiagnostics } from "./agentkit-vite-diagnostics";\n' +
+      source.replace("  plugins: [", "  plugins: [agentKitViteDiagnostics(),"),
+  );
+}
+
 function installAcceptanceTransportFixture(): void {
   assert.equal(fs.existsSync(acceptanceTransportFixture), true);
   const fixtureTarget = path.join(
@@ -2587,6 +2609,7 @@ async function main(): Promise<void> {
     installAcceptanceTransportFixture();
   }
 
+  installViteDiagnosticsFixture();
   const provider = await startLoopbackProvider();
   let running: RunningDev;
   try {
@@ -2634,7 +2657,10 @@ async function main(): Promise<void> {
       if (event.type !== "Document" || navigationDiagnosticCount >= 120) return;
       navigationDiagnosticCount++;
       browserDiagnostics.push(
-        `document initiator: ${event.request.url} ${JSON.stringify(event.initiator)}`,
+        `document initiator: ${event.request.url} ${JSON.stringify({
+          type: event.initiator.type,
+          frames: event.initiator.stack?.callFrames.slice(0, 5),
+        })}`,
       );
       if (event.redirectResponse) {
         browserDiagnostics.push(
