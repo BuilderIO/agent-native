@@ -281,9 +281,9 @@ function trackAuth(
   app: string,
   name: string,
   properties: Record<string, unknown> = {},
-  email?: string,
+  email: string,
 ): void {
-  if (isQaTestEmail(email)) return;
+  if (!isValidEmail(email) || isQaTestEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -690,10 +690,7 @@ export function AuthPage(props: AuthPageProps) {
   const [environmentProductionUrl, setEnvironmentProductionUrl] =
     React.useState("");
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
-  const signupEmailRef = React.useRef("");
-  signupEmailRef.current = signupEmail;
-  const authViewRef = React.useRef<AuthView>(props.initialView);
-  authViewRef.current = view;
+  const signupViewTrackedRef = React.useRef(false);
   const pendingSignupPassword = React.useRef("");
   const oauthPollTimer = React.useRef<number | null>(null);
   const oauthPollInFlight = React.useRef(false);
@@ -1010,17 +1007,26 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: attribution is best effort and never blocks authentication.
     }
+    const identity = normalizeEmail(signupEmail);
+    if (
+      view !== "signup" ||
+      signupViewTrackedRef.current ||
+      !isValidEmail(identity)
+    ) {
+      return;
+    }
+    signupViewTrackedRef.current = true;
     trackAuth(
       trackingApp,
       "auth.signup_viewed",
       {
         surface: "signup",
         auth_mode: authMode,
-        auth_view: authViewRef.current,
+        auth_view: view,
       },
-      signupEmailRef.current,
+      identity,
     );
-  }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
+  }, [authMode, homePath, runtimeAppBasePath, signupEmail, trackingApp, view]);
 
   const localDevAllowed = React.useMemo(
     () =>
@@ -1234,6 +1240,7 @@ export function AuthPage(props: AuthPageProps) {
       verifier: string,
       kind: "google" | "magic-link",
       popup?: Window | null,
+      onAuthenticated?: (email?: string) => void,
     ) => {
       const startedAt = Date.now();
       const check = async () => {
@@ -1253,6 +1260,9 @@ export function AuthPage(props: AuthPageProps) {
             typeof data.email === "string" ||
             typeof data.token === "string"
           ) {
+            onAuthenticated?.(
+              typeof data.email === "string" ? data.email : undefined,
+            );
             finishOAuthExchange(
               target,
               typeof data.token === "string" ? data.token : undefined,
@@ -1324,6 +1334,7 @@ export function AuthPage(props: AuthPageProps) {
                   typeof data.email === "string" &&
                   !data.error
                 ) {
+                  onAuthenticated?.(data.email);
                   finishOAuthExchange(target);
                   return;
                 }
@@ -1391,16 +1402,6 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: analytics session storage is optional.
     }
-    trackAuth(
-      trackingApp,
-      view === "login" ? "auth.login_clicked" : "auth.signup_clicked",
-      {
-        surface: view === "login" ? "login" : "signup",
-        method: "google",
-        auth_view: view,
-      },
-      view === "login" ? loginEmail : signupEmail,
-    );
     const target = resumeHref();
     const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
     const flowId = createFlowId();
@@ -1493,7 +1494,19 @@ export function AuthPage(props: AuthPageProps) {
         throw new Error(authErrorText(data, t("failedToConnect")));
       }
       if (nativeDesktop) nativeOAuthRequestPending.current = false;
-      startOAuthExchange(flowId, target, verifier, "google", popup);
+      startOAuthExchange(flowId, target, verifier, "google", popup, (email) => {
+        if (!email) return;
+        trackAuth(
+          trackingApp,
+          view === "login" ? "auth.login_clicked" : "auth.signup_clicked",
+          {
+            surface: view === "login" ? "login" : "signup",
+            method: "google",
+            auth_view: view,
+          },
+          email,
+        );
+      });
       if (popup) {
         popup.location.href = data.url;
       } else {
@@ -1515,10 +1528,8 @@ export function AuthPage(props: AuthPageProps) {
   }, [
     googleAuthUrlPath,
     googleBusy,
-    loginEmail,
     resolveGoogleFlow,
     resumeHref,
-    signupEmail,
     showGoogle,
     startOAuthExchange,
     stopNativeOAuth,

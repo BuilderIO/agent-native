@@ -42,7 +42,7 @@ type AuthMode = "magic-link" | "password";
 function trackAccountAuthEvent(
   name: string,
   properties: Record<string, unknown>,
-  email?: string,
+  email: string,
 ): void {
   if (isQaTestEmail(email)) return;
   trackEvent(name, properties);
@@ -194,15 +194,6 @@ export function AccountGateDialog({
     oauthRunRef.current = runId;
     setGoogleBusy(true);
     setErrorMessage(null);
-    trackAccountAuthEvent(
-      "auth.signup_clicked",
-      {
-        surface: "public_share_modal",
-        method: "google",
-        intent,
-      },
-      email.trim().toLowerCase(),
-    );
 
     try {
       const flowId = createOAuthFlowId();
@@ -264,15 +255,26 @@ export function AccountGateDialog({
             typeof exchangeData.email === "string"
               ? exchangeData.email
               : undefined;
-          trackAccountAuthEvent(
-            "auth.signup_completed",
-            {
-              surface: "public_share_modal",
-              method: "google",
-              intent,
-            },
-            authenticatedEmail,
-          );
+          if (authenticatedEmail) {
+            trackAccountAuthEvent(
+              "auth.signup_clicked",
+              {
+                surface: "public_share_modal",
+                method: "google",
+                intent,
+              },
+              authenticatedEmail,
+            );
+            trackAccountAuthEvent(
+              "auth.signup_completed",
+              {
+                surface: "public_share_modal",
+                method: "google",
+                intent,
+              },
+              authenticatedEmail,
+            );
+          }
           onAuthenticated();
           return;
         }
