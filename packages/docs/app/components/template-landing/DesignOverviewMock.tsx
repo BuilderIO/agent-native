@@ -622,7 +622,10 @@ function Inspector() {
           <span className="dm-prop-label">Corner radius</span>
           <span />
           <NumField glyph={IconGridDots} value="100" unit="%" />
-          <NumField glyph={IconBorderRadius} value="999" />
+          <NumField
+            glyph={IconBorderRadius}
+            value={String(SELECTED_CTA_HEIGHT / 2)}
+          />
           <IconAction glyph={IconBorderCorners} />
         </div>
       </Section>
