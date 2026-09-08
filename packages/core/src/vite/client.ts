@@ -629,21 +629,27 @@ function findLocalWorkspacePackageDeps(
       ...(pkg.dependencies ?? {}),
       ...(pkg.devDependencies ?? {}),
       ...(pkg.peerDependencies ?? {}),
+      ...(pkg.optionalDependencies ?? {}),
     } as Record<string, string>;
     const seen = new Set<string>();
     const packages: Array<{ packageName: string; packageDir: string }> = [];
+    const pending = Object.entries(deps).map(([packageName, range]) => ({
+      importer: pkgPath,
+      packageName,
+      range,
+    }));
 
-    for (const [packageName, range] of Object.entries(deps)) {
+    for (const { importer, packageName, range } of pending) {
       if (seen.has(packageName)) continue;
       seen.add(packageName);
 
       try {
         let packageJsonPath: string | null = null;
         if (range.startsWith("file:")) {
-          packageJsonPath = findFilePackageJsonPath(pkgPath, range);
+          packageJsonPath = findFilePackageJsonPath(importer, range);
         } else if (range.startsWith("workspace:")) {
           packageJsonPath = findWorkspacePackageJsonPath(
-            pkgPath,
+            importer,
             packageName,
             workspaceRoot,
           );
@@ -657,6 +663,18 @@ function findLocalWorkspacePackageDeps(
         );
         if (packageJson?.name !== packageName) continue;
         packages.push({ packageName, packageDir });
+        const runtimeDeps = {
+          ...(packageJson.dependencies ?? {}),
+          ...(packageJson.peerDependencies ?? {}),
+          ...(packageJson.optionalDependencies ?? {}),
+        } as Record<string, string>;
+        for (const [name, dependencyRange] of Object.entries(runtimeDeps)) {
+          pending.push({
+            importer: packageJsonPath,
+            packageName: name,
+            range: dependencyRange,
+          });
+        }
       } catch {
         // Dependency may not have been installed yet; ignore it for dev config.
       }

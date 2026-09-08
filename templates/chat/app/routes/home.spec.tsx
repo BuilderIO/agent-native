@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const routeState = vi.hoisted(() => ({
+  basePath: "",
   threadId: undefined as string | undefined,
   messages: [] as Array<{ id: string }>,
   title: undefined as string | undefined,
@@ -41,7 +42,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
   markAgentChatHomeHandoff: markHandoff,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
-  appPath: (path: string) => path,
+  appPath: (path: string) => `${routeState.basePath}${path}`,
 }));
 
 vi.mock("@agent-native/core/client/agentkit-chat/composer", () => ({
@@ -139,6 +140,7 @@ describe("ChatRoute AgentKit surface", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    routeState.basePath = "";
     routeState.threadId = undefined;
     routeState.messages = [];
     routeState.title = undefined;
@@ -241,6 +243,14 @@ describe("ChatRoute AgentKit surface", () => {
       expect.stringMatching(/^\/chat\/chat-/),
     );
     expect(markHandoff).toHaveBeenCalledWith("chat");
+  });
+
+  it("keeps the home handoff inside the deployed app base path", async () => {
+    routeState.basePath = "/chatapp";
+    await act(async () => root.render(<ChatHomeRoute />));
+    expect(locationReplace).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/chatapp\/chat\/chat-/),
+    );
   });
 
   it("starts the handoff only once under Strict Mode", async () => {

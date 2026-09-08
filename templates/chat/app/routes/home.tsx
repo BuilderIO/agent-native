@@ -1,4 +1,5 @@
 import { markAgentChatHomeHandoff } from "@agent-native/core/client/agentkit-chat/rail";
+import { appPath } from "@agent-native/core/client/api-path";
 import { useEffect, useRef, useState } from "react";
 
 import { APP_TITLE } from "@/lib/app-config";
@@ -32,7 +33,7 @@ export default function ChatRoute() {
     handoffStartedRef.current = true;
     markAgentChatHomeHandoff("chat");
     try {
-      window.location.replace(`/chat/${encodeURIComponent(threadId)}`);
+      window.location.replace(appPath(`/chat/${encodeURIComponent(threadId)}`));
     } catch (error) {
       handoffStartedRef.current = false;
       throw error;
