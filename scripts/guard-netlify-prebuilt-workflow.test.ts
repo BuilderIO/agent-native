@@ -207,10 +207,17 @@ describe("production Netlify site concurrency guard", () => {
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
-    assert.deepEqual(beta.concurrency, {
-      group: "deploy-agent-native-beta-sites-prebuilt",
-      "cancel-in-progress": false,
-    });
+    const betaConcurrency = beta.concurrency as Workflow;
+    assert.equal(betaConcurrency["cancel-in-progress"], false);
+    assert.match(String(betaConcurrency.group), /github\.event_name == 'push'/);
+    assert.match(
+      String(betaConcurrency.group),
+      /deploy-agent-native-beta-sites-prebuilt'/,
+    );
+    assert.match(
+      String(betaConcurrency.group),
+      /deploy-agent-native-beta-sites-prebuilt-manual'/,
+    );
     assert.equal((beta.permissions as Workflow).contents, "write");
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],

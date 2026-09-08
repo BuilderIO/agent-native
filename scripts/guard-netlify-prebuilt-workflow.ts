@@ -213,9 +213,13 @@ if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
 const betaWorkflowConcurrency = asRecord(
   parsedWorkflows.get(betaPath)?.concurrency,
 );
+const betaWorkflowGroup = String(betaWorkflowConcurrency?.group ?? "");
 if (
-  betaWorkflowConcurrency?.group !==
-    "deploy-agent-native-beta-sites-prebuilt" ||
+  !betaWorkflowGroup.includes("github.event_name == 'push'") ||
+  !betaWorkflowGroup.includes("'deploy-agent-native-beta-sites-prebuilt'") ||
+  !betaWorkflowGroup.includes(
+    "'deploy-agent-native-beta-sites-prebuilt-manual'",
+  ) ||
   betaWorkflowConcurrency["cancel-in-progress"] !== false
 ) {
   issues.push(
