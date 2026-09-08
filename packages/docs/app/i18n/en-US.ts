@@ -1114,7 +1114,7 @@ const enUS = {
       s004: "Refine",
       s005: "All Apps",
       s006: "Open-Source Figma alternative",
-      s007: "Generate interactive Alpine/Tailwind prototypes from a prompt, compare variants, refine with tweak controls, and export real files you own.",
+      s007: "Create interactive designs and prototypes. Refine with familiar tools or just ask the agent. Export anywhere.",
       s008: "Design Something",
       s009: "How it works",
       s010: "Everything you need",

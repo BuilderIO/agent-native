@@ -1126,7 +1126,7 @@ const deDE = {
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006: "Das Open-Source-Prototyping-Studio AI HTML",
-      s007: "Generieren Sie interaktive Alpine/Tailwind-Prototypen aus einer Eingabeaufforderung, vergleichen Sie Varianten, verfeinern Sie sie mit optimierten Steuerelementen und exportieren Sie echte Dateien, die Sie besitzen.",
+      s007: "Erstellen Sie interaktive Designs und Prototypen. Verfeinern Sie sie mit gewohnten Werkzeugen oder fragen Sie einfach den Agenten. Exportieren Sie überall hin.",
       s008: "Etwas gestalten",
       s009: "Wie es funktioniert",
       s010: "Alles was Sie brauchen",

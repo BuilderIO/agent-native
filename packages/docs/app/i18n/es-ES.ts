@@ -1127,7 +1127,7 @@ const esES = {
       s004: "Refinar",
       s005: "Todas las plantillas",
       s006: "El estudio de creación de prototipos de código abierto AI HTML",
-      s007: "Genere prototipos Alpine/Tailwind interactivos desde un mensaje, compare variantes, refine con controles de ajuste y exporte archivos reales de su propiedad.",
+      s007: "Cree diseños y prototipos interactivos. Refine con herramientas familiares o simplemente pídaselo al agente. Exporte a donde quiera.",
       s008: "Diseña algo",
       s009: "como funciona",
       s010: "Todo lo que necesitas",
