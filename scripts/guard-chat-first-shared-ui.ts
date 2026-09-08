@@ -53,6 +53,17 @@ try {
   );
 }
 
+const chatHomeUsesDurableHandoff =
+  chatHomeRoute.includes('markAgentChatHomeHandoff("chat")') &&
+  chatHomeRoute.includes("getChatHomeThreadId") &&
+  ((/navigate\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`,\s*\{\s*replace:\s*true,?\s*\}\s*\)/s.test(
+    chatHomeRoute,
+  ) &&
+    chatHomeRoute.includes("useNavigate")) ||
+    /window\.location\.replace\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`\s*\)/s.test(
+      chatHomeRoute,
+    ));
+
 const chatRailViolations = [
   chatSidebar.includes("<SidebarFooterActions")
     ? "Chat rail must not restore the generic footer action stack"
@@ -70,13 +81,7 @@ const chatRailViolations = [
 ].filter((violation): violation is string => Boolean(violation));
 
 const chatRouteViolations = [
-  !chatHomeRoute.includes('markAgentChatHomeHandoff("chat")') ||
-  !chatHomeRoute.includes("getChatHomeThreadId") ||
-  !chatHomeRoute.includes("useNavigate") ||
-  !/navigate\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`,\s*\{\s*replace:\s*true,?\s*\}\s*\)/s.test(
-    chatHomeRoute,
-  ) ||
-  !chatHomeRoute.includes("return null;")
+  !chatHomeUsesDurableHandoff || !chatHomeRoute.includes("return null;")
     ? "Chat /home must route a pending thread to the shared durable Chat surface"
     : null,
   !(

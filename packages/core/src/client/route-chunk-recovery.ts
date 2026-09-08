@@ -117,7 +117,7 @@ function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
 
-function hasViteDevRecovery(win: Window): boolean {
+function hasViteDevRecovery(win: Window): boolean | undefined {
   if (
     (win as unknown as Record<string, unknown>)[
       "__agentNativeViteDevRecoveryInstalled"
@@ -140,8 +140,9 @@ function hasViteDevRecovery(win: Window): boolean {
       (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV ===
         true
     );
-  } catch {
-    return false;
+  } catch (error) {
+    void error;
+    return undefined;
   }
 }
 
@@ -252,7 +253,7 @@ function recoverFromDynamicImportFailure(
   // The Vite dev recovery script owns optimizer races in development. Let its
   // bounded overlay/reload policy handle those failures instead of starting a
   // second reload loop from the route recovery layer.
-  if (hasViteDevRecovery(win)) {
+  if (hasViteDevRecovery(win) === true) {
     return false;
   }
   state.routeModuleFailureAt = Date.now();
@@ -286,7 +287,10 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
       // Vite's dev recovery script owns the optimizer graph. A route-module
       // error in that mode must refresh the current document, never replay
       // the previous navigation target (which can restart a handoff loop).
-      if (!hasViteDevRecovery(win) && recoverToIntendedNavigation(win, state)) {
+      if (
+        hasViteDevRecovery(win) !== true &&
+        recoverToIntendedNavigation(win, state)
+      ) {
         return;
       }
       if (isAgentNativeDesktop(win)) return;
@@ -372,7 +376,7 @@ export function installRouteChunkRecovery(
       // turn a same-route failure into a document replacement loop.
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        if (!hasViteDevRecovery(win)) {
+        if (hasViteDevRecovery(win) !== true) {
           recoverToIntendedNavigation(win, state);
         }
       }
