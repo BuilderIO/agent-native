@@ -213,9 +213,13 @@ if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
 const betaWorkflowConcurrency = asRecord(
   parsedWorkflows.get(betaPath)?.concurrency,
 );
-if (betaWorkflowConcurrency) {
+if (
+  betaWorkflowConcurrency?.group !==
+    "deploy-agent-native-beta-sites-prebuilt" ||
+  betaWorkflowConcurrency["cancel-in-progress"] !== false
+) {
   issues.push(
-    `${betaPath} must not use a workflow-level queue that can evict a pending main push`,
+    `${betaPath} must coalesce pending main pushes without canceling an active fleet publish`,
   );
 }
 const reusableConcurrencyGroup = String(

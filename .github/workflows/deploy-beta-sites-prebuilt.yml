@@ -24,6 +24,12 @@ permissions:
   contents: write
   actions: read
 
+# Beta is a moving mirror of main. Keep one active fleet run for a safe
+# publish, and replace any pending run with the newest main commit.
+concurrency:
+  group: deploy-agent-native-beta-sites-prebuilt
+  cancel-in-progress: false
+
 jobs:
   resolve-source:
     name: Resolve beta source revision
