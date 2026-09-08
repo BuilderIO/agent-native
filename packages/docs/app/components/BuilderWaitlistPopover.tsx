@@ -33,6 +33,8 @@ const primaryButtonClassName =
 type BuilderLaunchTrigger = ReactElement<{
   href?: string;
   onClick?: MouseEventHandler<HTMLElement>;
+  rel?: string;
+  target?: string;
 }>;
 
 // Flip this when Builder's hosted agent-native app flow is ready for launch.
@@ -53,6 +55,8 @@ export function BuilderLaunchLink({
   if (trigger) {
     return cloneElement(trigger, {
       href: BUILDER_SIGNUP_URL,
+      rel: "noopener noreferrer",
+      target: "_blank",
       onClick: (event) => {
         trigger.props.onClick?.(event);
         if (!event.defaultPrevented) onClick?.();
@@ -61,7 +65,13 @@ export function BuilderLaunchLink({
   }
 
   return (
-    <a href={BUILDER_SIGNUP_URL} className={className} onClick={onClick}>
+    <a
+      href={BUILDER_SIGNUP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={className}
+      onClick={onClick}
+    >
       <span>{t("buildFromScratch.launchBuilder")}</span>
       <IconExternalLink size={16} aria-hidden="true" />
     </a>

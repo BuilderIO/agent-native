@@ -833,6 +833,20 @@
   container-name: settings-row;
 }
 
+/* Integration cards use their content column, not the viewport, to choose a
+   two-column layout. Settings can leave a desktop viewport with only a narrow
+   content column once the navigation rail is open. */
+.agent-native-integration-grid {
+  container-type: inline-size;
+  container-name: integration-grid;
+}
+
+@container integration-grid (min-width: 56rem) {
+  .agent-native-integration-grid__items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @container settings-row (min-width: 36rem) {
   .agent-native-settings-row__layout {
     align-items: center;

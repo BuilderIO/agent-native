@@ -1113,7 +1113,7 @@ const enUS = {
       s004: "Refine",
       s005: "All Apps",
       s006: "Open-Source Figma alternative",
-      s007: "Generate interactive Alpine/Tailwind prototypes from a prompt, compare variants, refine with tweak controls, and export real files you own.",
+      s007: "Create interactive designs and prototypes. Refine with familiar tools or make conversational edits. Export anywhere.",
       s008: "Design Something",
       s009: "How it works",
       s010: "Everything you need",
@@ -1167,6 +1167,7 @@ const enUS = {
       s058: "Start from the app and begin generating interactive prototypes with an agent that edits the source.",
       s059: "Read the docs",
       s060: "View all apps",
+      s061: "100% free, open-source, and customizable.",
     },
     dispatch: {
       faq: {
