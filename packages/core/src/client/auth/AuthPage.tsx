@@ -690,6 +690,8 @@ export function AuthPage(props: AuthPageProps) {
   const [environmentProductionUrl, setEnvironmentProductionUrl] =
     React.useState("");
   const [copiedLocalMode, setCopiedLocalMode] = React.useState(false);
+  const signupEmailRef = React.useRef("");
+  signupEmailRef.current = signupEmail;
   const pendingSignupPassword = React.useRef("");
   const oauthPollTimer = React.useRef<number | null>(null);
   const oauthPollInFlight = React.useRef(false);
@@ -1006,12 +1008,17 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: attribution is best effort and never blocks authentication.
     }
-    trackAuth(trackingApp, "auth.signup_viewed", {
-      surface: "signup",
-      auth_mode: authMode,
-      auth_view: view,
-    });
-  }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
+    trackAuth(
+      trackingApp,
+      "auth.signup_viewed",
+      {
+        surface: "signup",
+        auth_mode: authMode,
+        auth_view: view,
+      },
+      signupEmailRef.current,
+    );
+  }, [authMode, homePath, runtimeAppBasePath, trackingApp, view]);
 
   const localDevAllowed = React.useMemo(
     () =>

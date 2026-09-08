@@ -194,11 +194,15 @@ export function AccountGateDialog({
     oauthRunRef.current = runId;
     setGoogleBusy(true);
     setErrorMessage(null);
-    trackAccountAuthEvent("auth.signup_clicked", {
-      surface: "public_share_modal",
-      method: "google",
-      intent,
-    });
+    trackAccountAuthEvent(
+      "auth.signup_clicked",
+      {
+        surface: "public_share_modal",
+        method: "google",
+        intent,
+      },
+      email.trim().toLowerCase(),
+    );
 
     try {
       const flowId = createOAuthFlowId();
@@ -256,11 +260,19 @@ export function AccountGateDialog({
           popup.close();
           if (oauthPopupRef.current === popup) oauthPopupRef.current = null;
           setGoogleBusy(false);
-          trackAccountAuthEvent("auth.signup_completed", {
-            surface: "public_share_modal",
-            method: "google",
-            intent,
-          });
+          const authenticatedEmail =
+            typeof exchangeData.email === "string"
+              ? exchangeData.email
+              : undefined;
+          trackAccountAuthEvent(
+            "auth.signup_completed",
+            {
+              surface: "public_share_modal",
+              method: "google",
+              intent,
+            },
+            authenticatedEmail,
+          );
           onAuthenticated();
           return;
         }
