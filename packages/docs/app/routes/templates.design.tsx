@@ -138,7 +138,7 @@ export default function DesignTemplate() {
         media={
           <DesignOverviewMock
             label={t("templateLanding.design.s001")}
-            className="h-[420px] sm:h-[620px] lg:h-[800px]"
+            className="h-[340px] sm:h-[540px] lg:h-[720px]"
           />
         }
       />

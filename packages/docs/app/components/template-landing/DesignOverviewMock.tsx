@@ -47,14 +47,14 @@ import {
 /** Logical artboard size the desktop mini screens are authored at. */
 const SCREEN_WIDTH = 1440;
 const SCREEN_HEIGHT = 900;
-/** Board zoom. Matches the `20%` readout in the inspector. */
-const BOARD_SCALE = 0.2;
+/** Board zoom. Matches the `18%` readout in the inspector. */
+const BOARD_SCALE = 0.18;
 
 const FRAME_WIDTH = Math.round(SCREEN_WIDTH * BOARD_SCALE);
 const FRAME_HEIGHT = Math.round(SCREEN_HEIGHT * BOARD_SCALE);
 const FRAME_LABEL_HEIGHT = 28;
-const FRAME_COLUMN_GAP = 24;
-const FRAME_ROW_GAP = 32;
+const FRAME_COLUMN_GAP = 20;
+const FRAME_ROW_GAP = 24;
 
 // Two columns by three rows. The rail, screens panel, and inspector claim a
 // fixed 584px, so a third column would fall outside the canvas entirely.
@@ -185,7 +185,7 @@ function Inspector() {
           </span>
         </div>
         <div className="dm-zoom">
-          <span>20%</span>
+          <span>18%</span>
           <IconChevronDown size={10} />
         </div>
       </div>
@@ -487,7 +487,7 @@ function BoardFrameView({ frame }: { frame: BoardFrame }) {
 
 const DESIGN_MOCK_CSS = [
   // Shell. The hero container sets the height; the window fills the padded box.
-  ".design-mock { position: relative; width: 100%; padding: 0 20px 28px; overflow: hidden; }",
+  ".design-mock { position: relative; width: 100%; padding: 0 40px 28px; overflow: hidden; }",
   ".design-mock, .design-mock * { box-sizing: border-box; }",
   ".design-mock-frame { position: relative; height: 100%; }",
 
@@ -527,7 +527,7 @@ const DESIGN_MOCK_CSS = [
 
   // Canvas
   ".design-mock .dm-canvas { position: relative; flex: 1; min-width: 0; overflow: hidden; background: var(--dm-canvas-bg); }",
-  `.design-mock .dm-board { position: absolute; left: 24px; top: 40px; width: ${COLUMN_X[1] + FRAME_WIDTH}px; }`,
+  `.design-mock .dm-board { position: absolute; left: 20px; top: 24px; width: ${COLUMN_X[1] + FRAME_WIDTH}px; }`,
 
   // Screen frames. Square corners are intentional: the real editor avoids a
   // card radius because it would read as a document corner radius.
