@@ -4727,11 +4727,7 @@ async function mountBetterAuthRoutes(
       if (!publicPaths.includes(gp)) publicPaths.push(gp);
     }
 
-    const googleScopes = [
-      "openid",
-      "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile",
-    ].join(" ");
+    const googleScopes = "openid email profile";
 
     app.use(
       "/_agent-native/google/auth-url",
