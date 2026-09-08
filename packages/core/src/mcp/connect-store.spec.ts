@@ -33,6 +33,7 @@ interface DeviceRow {
 let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
+let failNextOrgLookup = false;
 const executeDdlMock = vi.hoisted(() => vi.fn());
 
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
@@ -73,6 +74,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
     return { rows: t ? [{ revoked_at: t.revoked_at }] : [], rowsAffected: 0 };
   }
   if (/^SELECT org_id FROM mcp_connect_tokens WHERE jti = \?/i.test(sql)) {
+    if (failNextOrgLookup) {
+      failNextOrgLookup = false;
+      throw new Error("transient org lookup failure");
+    }
     const t = tokens.find((r) => r.jti === args[0]);
     return { rows: t ? [{ org_id: t.org_id }] : [], rowsAffected: 0 };
   }
@@ -241,6 +246,7 @@ describe("connect-store", () => {
     tokens = [];
     devices = [];
     failNextCreateTable = false;
+    failNextOrgLookup = false;
     vi.restoreAllMocks();
   });
 
@@ -316,6 +322,13 @@ describe("connect-store", () => {
       await expect(store.lookupConnectTokenOrg("missing")).resolves.toEqual({
         status: "missing",
       });
+    });
+
+    it("reports an unavailable org lookup instead of treating it as missing", async () => {
+      failNextOrgLookup = true;
+      await expect(
+        store.lookupConnectTokenOrg("jti-unavailable"),
+      ).resolves.toEqual({ status: "unavailable" });
     });
 
     it("revokeToken only affects tokens owned by the caller", async () => {

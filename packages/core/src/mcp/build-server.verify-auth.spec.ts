@@ -154,6 +154,18 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-legacy");
   });
 
+  it("rejects a legacy connect JWT when its org lookup is unavailable", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
+    const token = await sign({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-unavailable",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toEqual({ authed: false });
+  });
+
   it("preserves the framework first-party MCP marker from audience-bound connect-scoped tokens", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
     const token = await sign(
@@ -343,6 +355,24 @@ describe("verifyAuth — connect-token revoke check", () => {
       oauthClientId: "agent-native-connect",
     });
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-oauth-legacy");
+  });
+
+  it("rejects a legacy connect OAuth token when its org lookup is unavailable", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth-connect@example.com",
+      clientId: "agent-native-connect",
+      scope: "mcp:read mcp:write mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      jti: "jti-oauth-unavailable",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res).toEqual({ authed: false });
   });
 
   it("rejects a revoked connect-minted MCP OAuth token", async () => {

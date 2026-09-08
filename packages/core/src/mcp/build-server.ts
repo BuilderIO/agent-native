@@ -2782,15 +2782,30 @@ async function isConnectTokenAllowed(
   return true;
 }
 
+type ConnectTokenOrgResolution =
+  | { status: "claimed"; orgId: string }
+  | { status: "found"; orgId: string | null }
+  | { status: "missing" }
+  | { status: "unavailable" };
+
 async function resolveConnectTokenOrgId(
   jti: string | undefined,
   claimedOrgId: string | undefined,
-): Promise<string | undefined> {
-  if (claimedOrgId || !jti) return claimedOrgId;
+): Promise<ConnectTokenOrgResolution> {
+  if (claimedOrgId) return { status: "claimed", orgId: claimedOrgId };
+  if (!jti) return { status: "missing" };
   const { lookupConnectTokenOrg } = await import("./connect-store.js");
-  const lookup = await lookupConnectTokenOrg(jti);
-  if (lookup.status !== "found") return undefined;
-  return lookup.orgId === null ? undefined : lookup.orgId;
+  return lookupConnectTokenOrg(jti);
+}
+
+function orgIdFromConnectTokenResolution(
+  resolution: ConnectTokenOrgResolution,
+): string | undefined {
+  if (resolution.status === "claimed") return resolution.orgId;
+  if (resolution.status === "found") {
+    return resolution.orgId === null ? undefined : resolution.orgId;
+  }
+  return undefined;
 }
 
 /**
@@ -2857,12 +2872,16 @@ export async function verifyAuth(
       ) {
         return { authed: false };
       }
-      const orgId = await resolveConnectTokenOrgId(
+      const orgResolution = await resolveConnectTokenOrgId(
         oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
           ? oauthIdentity.jti
           : undefined,
         oauthIdentity.orgId,
       );
+      if (orgResolution.status === "unavailable") {
+        return { authed: false };
+      }
+      const orgId = orgIdFromConnectTokenResolution(orgResolution);
       return {
         authed: true,
         identity: {
@@ -2922,12 +2941,16 @@ export async function verifyAuth(
       typeof payload.org_id === "string" && payload.org_id
         ? payload.org_id
         : undefined;
-    const orgId = await resolveConnectTokenOrgId(
+    const orgResolution = await resolveConnectTokenOrgId(
       tokenScope === MCP_CONNECT_SCOPE
         ? (payload.jti as string | undefined)
         : undefined,
       claimedOrgId,
     );
+    if (orgResolution.status === "unavailable") {
+      return { authed: false };
+    }
+    const orgId = orgIdFromConnectTokenResolution(orgResolution);
 
     return {
       authed: true,
