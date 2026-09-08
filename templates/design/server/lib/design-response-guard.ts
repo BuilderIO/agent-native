@@ -44,9 +44,11 @@ const DESIGN_MUTATION_OBJECTS =
 const DESIGN_ADVISORY_WORDS =
   /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|teach(?:ing)?|tip|tips|thoughts?|tutorials?)\b/i;
 const DESIGN_TEST_REQUEST =
-  /\bvisual(?:[\s-]+(?:regression|snapshot))?(?:[\s-]+(?:test|tests|testing|suite|suites)|[\s-]+snapshots?)\b/i;
+  /\bvisual(?:[\s-]+(?:regression|snapshot))?(?:[\s-]+(?:and|or|plus|&)[\s-]+(?:visual[\s-]+)?(?:regression|snapshot))?(?:[\s-]+(?:test|tests|testing|suite|suites)|[\s-]+snapshots?)\b/i;
 const DESIGN_TEST_TARGET_PREPOSITIONS =
-  /^(?:\s*(?:[,.!?;:]|[-–—])?\s*)(?:for|of|on|in|against|with|using)\b/i;
+  /^(?:\s*(?:[,.!?;:]|[-–—])*\s*)(?:for|of|on|in|against|with|using)\b/i;
+const DESIGN_TEST_CLAUSE_BOUNDARY =
+  /[.!?,;]|\b(?:and|also|but|then|after(?:\s+that)?|afterwards?|subsequently|before|while|followed\s+by)\b/gi;
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -326,7 +328,7 @@ function removeAdvisorySkillsClauses(text: string): string {
 }
 
 function removeDesignTestRequests(text: string): string {
-  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after\\s+that|afterwards|afterward))?|then|after\\s+that|afterwards|afterward|subsequently)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|[.!?,;]|$`;
+  const mutationClauseBoundary = `\\s+(?:(?:(?:and|also|but)(?:\\s+(?:then|after|after\\s+that|afterwards?|subsequently|before|while))?|then|after|after\\s+that|afterwards?|subsequently|before|while|followed\\s+by)\\s+)(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you(?:\\s+please)?\\s+)?${DESIGN_MUTATION_VERBS.source}|[.!?,;]|$`;
   const mutationVerbs = new RegExp(DESIGN_MUTATION_VERBS.source, "gi");
   const testRequests = new RegExp(DESIGN_TEST_REQUEST.source, "gi");
   const targetSuffix = new RegExp(
@@ -338,21 +340,41 @@ function removeDesignTestRequests(text: string): string {
   for (const match of text.matchAll(testRequests)) {
     const testStart = match.index ?? 0;
     const testEnd = testStart + match[0].length;
+    const prefix = text.slice(0, testStart);
+    const boundaries = [...prefix.matchAll(DESIGN_TEST_CLAUSE_BOUNDARY)];
+    const lastBoundary = boundaries[boundaries.length - 1];
+    const clauseStart = lastBoundary
+      ? (lastBoundary.index ?? 0) + lastBoundary[0].length
+      : 0;
     const precedingVerbs = [
-      ...text.slice(0, testStart).matchAll(mutationVerbs),
+      ...prefix.slice(clauseStart).matchAll(mutationVerbs),
     ];
     const precedingVerb = precedingVerbs[precedingVerbs.length - 1];
     let removalEnd = testEnd;
     const target = targetSuffix.exec(text.slice(testEnd));
     if (target) removalEnd += target[0].length;
-    removals.push([precedingVerb?.index ?? testStart, removalEnd]);
+    removals.push([
+      precedingVerb ? clauseStart + (precedingVerb.index ?? 0) : testStart,
+      removalEnd,
+    ]);
   }
 
   if (removals.length === 0) return text;
 
+  removals.sort((left, right) => left[0] - right[0]);
+  const mergedRemovals: Array<[number, number]> = [];
+  for (const [start, end] of removals) {
+    const previous = mergedRemovals[mergedRemovals.length - 1];
+    if (previous && start <= previous[1]) {
+      previous[1] = Math.max(previous[1], end);
+    } else {
+      mergedRemovals.push([start, end]);
+    }
+  }
+
   const parts: string[] = [];
   let cursor = 0;
-  for (const [start, end] of removals) {
+  for (const [start, end] of mergedRemovals) {
     parts.push(text.slice(cursor, start), " ");
     cursor = end;
   }

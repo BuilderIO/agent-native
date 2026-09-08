@@ -100,6 +100,51 @@ describe("Design final response guard", () => {
     ).toBe(false);
     expect(
       looksLikeDesignMutationRequest(
+        "update the color palette, then run a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "fix the hero layout after creating visual snapshots",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression and snapshot tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "add visual regression and snapshot tests for the hero",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual snapshot and regression tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression or snapshot tests",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create visual regression and snapshot tests for the hero, then update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "update the color palette followed by run a visual regression test",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "create a visual regression test, — for the hero layout",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
         "give me a tutorial to create a LinkedIn visual",
       ),
     ).toBe(false);
