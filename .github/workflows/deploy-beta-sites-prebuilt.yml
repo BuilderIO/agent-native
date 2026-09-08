@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Exact main SHA to publish; blank uses the latest main
+        description: Exact current main SHA to publish; blank uses the latest main
         required: false
         type: string
         default: ""
@@ -59,6 +59,14 @@ jobs:
               ref: 'heads/main',
             })).data.object.sha;
             const sourceSha = requested || (context.eventName === 'push' ? context.sha : mainSha);
+            if (
+              requested &&
+              context.eventName === 'workflow_dispatch' &&
+              sourceSha.toLowerCase() !== mainSha.toLowerCase()
+            ) {
+              core.setFailed('Manual beta source_ref must equal current main ' + mainSha + '.');
+              return;
+            }
             if (requested) {
               const comparison = await github.rest.repos.compareCommits({
                 owner: context.repo.owner,
@@ -313,7 +321,7 @@ jobs:
     with:
       target: beta
       site: ${{ matrix.site }}
-      caller: ${{ github.event_name == 'workflow_dispatch' && inputs.migrated_source_sha != '' && 'recovery' || 'fleet' }}
+      caller: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
       source_ref: ${{ needs.resolve-source.outputs.source_sha }}
       build_context: branch-deploy
       deploy: true
