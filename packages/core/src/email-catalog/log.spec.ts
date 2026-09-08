@@ -49,6 +49,33 @@ describe("email log app scoping", () => {
     );
   });
 
+  it("combines exact template inclusion with bound multi-template exclusions", async () => {
+    await listEmailLog({
+      orgId: "org-1",
+      app: "calendar",
+      templateId: "calendar.booking-confirmed",
+      excludeTemplateIds: ["core.magic-link", "core.organization-invite"],
+      limit: 25,
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining(
+          "WHERE org_id = ? AND app = ? AND template_id = ? AND template_id NOT IN (?, ?)",
+        ),
+        args: [
+          "org-1",
+          "calendar",
+          "calendar.booking-confirmed",
+          "core.magic-link",
+          "core.organization-invite",
+          25,
+          0,
+        ],
+      }),
+    );
+  });
+
   it("combines status, provider, recipient, and date-range filters", async () => {
     await listEmailLog({
       orgId: "org-1",
@@ -80,6 +107,38 @@ describe("email log app scoping", () => {
           2000,
           10,
           20,
+        ],
+      }),
+    );
+  });
+
+  it("combines inclusion and exclusion filters in argument order", async () => {
+    await listEmailLog({
+      orgId: "org-1",
+      app: "calendar",
+      to: "customer@",
+      excludeTo: "internal@",
+      from: "example.com",
+      excludeFrom: "no-reply@",
+      limit: 25,
+      offset: 50,
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining(
+          "WHERE org_id = ? AND app = ? AND recipient LIKE ? AND recipient NOT LIKE ? " +
+            "AND sender LIKE ? AND sender NOT LIKE ?",
+        ),
+        args: [
+          "org-1",
+          "calendar",
+          "%customer@%",
+          "%internal@%",
+          "%example.com%",
+          "%no-reply@%",
+          25,
+          50,
         ],
       }),
     );

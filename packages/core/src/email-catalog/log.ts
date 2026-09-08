@@ -194,10 +194,15 @@ export interface ListEmailLogFilters {
   orgId: string;
   app: string;
   templateId?: string;
+  excludeTemplateIds?: string[];
   /** Substring match against the recipient address. */
   to?: string;
+  /** Exclude recipient addresses containing this substring. */
+  excludeTo?: string;
   /** Substring match against the resolved sender address. */
   from?: string;
+  /** Exclude resolved sender addresses containing this substring. */
+  excludeFrom?: string;
   status?: "sent" | "failed";
   provider?: string;
   /** Only sends at or after this Unix epoch (ms). */
@@ -228,10 +233,22 @@ export async function listEmailLog(
     args.push(value);
   };
   if (options.templateId) push("template_id = ?", options.templateId);
+  if (options.excludeTemplateIds?.length) {
+    where.push(
+      `template_id NOT IN (${options.excludeTemplateIds.map(() => "?").join(", ")})`,
+    );
+    args.push(...options.excludeTemplateIds);
+  }
   if (options.status) push("status = ?", options.status);
   if (options.provider) push("provider = ?", options.provider);
   if (options.to) push("recipient LIKE ?", `%${options.to}%`);
+  if (options.excludeTo) {
+    push("recipient NOT LIKE ?", `%${options.excludeTo}%`);
+  }
   if (options.from) push("sender LIKE ?", `%${options.from}%`);
+  if (options.excludeFrom) {
+    push("sender NOT LIKE ?", `%${options.excludeFrom}%`);
+  }
   if (typeof options.sinceMs === "number") {
     push("created_at >= ?", Math.floor(options.sinceMs));
   }

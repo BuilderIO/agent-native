@@ -7,12 +7,17 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { callAppAction } from "../client/transactional-emails";
+import {
+  callAppAction,
+  type LocalTransactionalEmailCatalog,
+} from "../client/transactional-emails";
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import {
   Select,
   SelectContent,
@@ -117,28 +122,69 @@ export function SendLogSection({
   const t = useT();
   const [appId, setAppId] = useState<string | undefined>(apps[0]?.id);
   const [dateRange, setDateRange] = useState<DateRange>("7d");
+  const [templateId, setTemplateId] = useState("all");
+  const [excludeTemplateIds, setExcludeTemplateIds] = useState<string[]>([]);
   const [to, setTo] = useState("");
+  const [excludeTo, setExcludeTo] = useState("");
   const [from, setFrom] = useState("");
+  const [excludeFrom, setExcludeFrom] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [provider, setProvider] = useState<string>("all");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<SendLogEntry | null>(null);
 
   const debouncedTo = useDebounced(to);
+  const debouncedExcludeTo = useDebounced(excludeTo);
   const debouncedFrom = useDebounced(from);
+  const debouncedExcludeFrom = useDebounced(excludeFrom);
   const selectedApp = apps.find((app) => app.id === appId) ?? apps[0];
 
   useEffect(() => {
+    setTemplateId("all");
+    setExcludeTemplateIds([]);
+  }, [selectedApp?.path]);
+
+  useEffect(() => {
     setOffset(0);
-  }, [appId, dateRange, debouncedTo, debouncedFrom, status, provider]);
+  }, [
+    appId,
+    dateRange,
+    templateId,
+    excludeTemplateIds,
+    debouncedTo,
+    debouncedExcludeTo,
+    debouncedFrom,
+    debouncedExcludeFrom,
+    status,
+    provider,
+  ]);
+
+  const catalogQuery = useQuery({
+    queryKey: ["send-log-email-catalog", selectedApp?.path],
+    queryFn: () =>
+      callAppAction<LocalTransactionalEmailCatalog>(
+        selectedApp!.path,
+        "list-transactional-emails",
+        { windowDays: 30 },
+        "GET",
+      ),
+    enabled: Boolean(selectedApp),
+    staleTime: Infinity,
+  });
+
+  const templates = catalogQuery.data?.emails ?? [];
 
   const query = useQuery({
     queryKey: [
       "list-email-log",
       selectedApp?.path,
       dateRange,
+      templateId,
+      excludeTemplateIds.join(","),
       debouncedTo,
+      debouncedExcludeTo,
       debouncedFrom,
+      debouncedExcludeFrom,
       status,
       provider,
       offset,
@@ -149,8 +195,16 @@ export function SendLogSection({
         "list-email-log",
         {
           sinceMs: Date.now() - dateRangeToInterval(dateRange) * 86_400_000,
+          ...(templateId !== "all" ? { templateId } : {}),
+          ...(excludeTemplateIds.length > 0
+            ? { excludeTemplateIds: excludeTemplateIds.join(",") }
+            : {}),
           ...(debouncedTo ? { to: debouncedTo } : {}),
+          ...(debouncedExcludeTo ? { excludeTo: debouncedExcludeTo } : {}),
           ...(debouncedFrom ? { from: debouncedFrom } : {}),
+          ...(debouncedExcludeFrom
+            ? { excludeFrom: debouncedExcludeFrom }
+            : {}),
           ...(status !== "all" ? { status } : {}),
           ...(provider !== "all" ? { provider } : {}),
           limit: PAGE_SIZE + 1,
@@ -182,6 +236,71 @@ export function SendLogSection({
           </SelectContent>
         </Select>
         <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <Select value={templateId} onValueChange={setTemplateId}>
+          <SelectTrigger
+            aria-label={t("dispatch.transactionalEmail.sendLogTemplate")}
+            className="w-64"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">
+              {t("dispatch.transactionalEmail.sendLogAllTemplates")}
+            </SelectItem>
+            {templates.map((email) => (
+              <SelectItem key={email.id} value={email.id}>
+                {email.name} · {email.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={t(
+                "dispatch.transactionalEmail.sendLogExcludeTemplates",
+              )}
+              disabled={catalogQuery.isLoading || templates.length === 0}
+              className="w-40 justify-start"
+            >
+              {excludeTemplateIds.length > 0
+                ? t(
+                    "dispatch.transactionalEmail.sendLogExcludedTemplatesCount",
+                    { count: excludeTemplateIds.length },
+                  )
+                : t("dispatch.transactionalEmail.sendLogExcludeTemplates")}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-80 p-2">
+            <div className="max-h-64 overflow-y-auto">
+              {templates.map((email) => (
+                <label
+                  key={email.id}
+                  className="flex cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-accent"
+                >
+                  <Checkbox
+                    checked={excludeTemplateIds.includes(email.id)}
+                    onCheckedChange={(checked) =>
+                      setExcludeTemplateIds((current) =>
+                        checked === true
+                          ? [...current, email.id]
+                          : current.filter((id) => id !== email.id),
+                      )
+                    }
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm">{email.name}</span>
+                    <span className="block truncate font-mono text-xs text-muted-foreground">
+                      {email.id}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
         <Input
           placeholder={t("dispatch.transactionalEmail.sendLogToFilter")}
           value={to}
@@ -189,10 +308,24 @@ export function SendLogSection({
           className="w-44"
         />
         <Input
+          placeholder={t("dispatch.transactionalEmail.sendLogExcludeToFilter")}
+          value={excludeTo}
+          onChange={(event) => setExcludeTo(event.target.value)}
+          className="w-40"
+        />
+        <Input
           placeholder={t("dispatch.transactionalEmail.sendLogFromFilter")}
           value={from}
           onChange={(event) => setFrom(event.target.value)}
           className="w-44"
+        />
+        <Input
+          placeholder={t(
+            "dispatch.transactionalEmail.sendLogExcludeFromFilter",
+          )}
+          value={excludeFrom}
+          onChange={(event) => setExcludeFrom(event.target.value)}
+          className="w-40"
         />
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="w-32">
@@ -223,13 +356,24 @@ export function SendLogSection({
             <SelectItem value="dev">Dev</SelectItem>
           </SelectContent>
         </Select>
-        {(to || from || status !== "all" || provider !== "all") && (
+        {(templateId !== "all" ||
+          excludeTemplateIds.length > 0 ||
+          to ||
+          excludeTo ||
+          from ||
+          excludeFrom ||
+          status !== "all" ||
+          provider !== "all") && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
+              setTemplateId("all");
+              setExcludeTemplateIds([]);
               setTo("");
+              setExcludeTo("");
               setFrom("");
+              setExcludeFrom("");
               setStatus("all");
               setProvider("all");
             }}
